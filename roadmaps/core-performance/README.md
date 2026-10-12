@@ -1,15 +1,17 @@
 # Core Performance
 
-Status: **the connected standalone/mixed mutation replacement is committed
-and further implementation is paused at the owner's request for discussion. The current responsible-core
-correction passes its affected correctness and review gates, but complete matched
+Status: **binding-owned maintenance and transaction-scoped binding reuse are implemented.
+Recurring mixed coverage updates and six duplicate standalone binding reads are
+removed; mixed publication retains its fresh binding check. Complete matched
 measurements still fail every fixed CPU and latency gate.** The local standalone-read
 implementation and consumer cutover are complete; its separate read-tuning pause
 remains in place. Standalone mutations are part of the active connected redesign.
 The current deliverable is the [publication/capture/CPU cost inventory and ranked proposal](../../packages/medusa-adapter/benchmarks/core-performance/native-business/cost-inventory-proposal.md).
-Its publication-first recommendation requires discussion before implementation;
-the [current preflight decision](../mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#current-decision-cost-inventory-before-further-implementation)
-supersedes automatic continuation of earlier correction approvals. Exact work
+Its implemented publication correction removes recurring coverage-marker writes
+through genuine binding-owned maintenance and reuses protected binding evidence
+within the standalone transaction; the [approved preflight](../mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#approved-correction-transaction-binding-selection-reuse)
+owns the connected contract, migration and validation. Repeated captures and
+client CPU remain investigation proposals. Exact work
 counts, source-derived internal repetition and sampled CPU locations remain
 distinct from causal latency savings and complete performance acceptance.
 The installation interlock, query-required preparation and independent direct
@@ -98,7 +100,8 @@ from 44 to 42, while mixed workflow retains 38 implicit captures across 41
 checkouts. Every fixed complete CPU and latency gate still fails. The separate
 cohorts do not establish a CPU improvement or exclusive attribution; the
 remaining request overhead and intermittent publication timeout remain open.
-The owner-requested pause applies before any further correction campaign.
+The owner-approved binding-owned maintenance cutover supersedes the discussion
+pause for that connected scope only.
 The [CPU correction ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-business/cpu-execution-results.md)
 owns its measured partial result and limits.
 The connected generation owns Application and selected logical source preparation

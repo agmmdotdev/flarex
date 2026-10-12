@@ -17,18 +17,30 @@ const snapshot = { schemaVersionId, members: [{ logicalUniqueConstraintId: Catal
   physicalSpecSha256Hex: AppUniqueConstraintSpecSha256HexV1Schema.make("00".repeat(32)) }] };
 const authority = { scopeId };
 const base = { scopeId, uniqueConstraintDefinitionId: definitionId, startCommitSeq: CommitSeqSchema.make(1n),
-  coveredThroughCommitSeq: CommitSeqSchema.make(2n), maintenanceActivationSequence: null, maintenanceObligation: null,
+  coveredThroughCommitSeq: CommitSeqSchema.make(2n), maintenanceActivationSequence: null, maintenanceAuthorityKind: null, maintenanceObligation: null,
   attemptFence: AppUniqueConstraintSetBuildAttemptFenceV1Schema.make(1n), storageGeneration: "flarexdb_v1" as const,
   storageGenerationFence: StorageGenerationFenceSchema.make(1n),
   epoch: ScopeEpochSchema.make("epoch_87000000-0000-0000-0000-000000000002"), lifecycle: "enabled" as const,
   cursorRowId: null, createdAt: new Date(1), updatedAt: new Date(2) };
-const maintenance = { scopeId, activationSequence: 3n, storageGeneration: base.storageGeneration,
+const maintenance = { authorityKind: "application" as const, candidateSha256: null, schemaManifestSha256: null, scopeId, activationSequence: 3n, storageGeneration: base.storageGeneration,
   storageGenerationFence: base.storageGenerationFence, epoch: base.epoch, openedCommitSeq: base.coveredThroughCommitSeq,
   tableId, physicalSpecSha256: new Uint8Array(32), deploymentId: "deployment_unique_acceptance", schemaVersionId,
   activationSha256: new Uint8Array(32), headSha256: new Uint8Array(32),
   uniqueConstraintDefinitionId: definitionId, attemptFence: base.attemptFence, startCommitSeq: base.startCommitSeq };
 
 describe("ordered unique build acceptance", () => {
+  it("keeps Application and binding openings distinct at the same sequence and detaches binding pins", () => {
+    const binding = { ...maintenance, authorityKind: "binding" as const,
+      candidateSha256: new Uint8Array(32), schemaManifestSha256: new Uint8Array(32) };
+    const valid = Effect.runSync(decodeUniqueBuildStateEffect(authority, snapshot,
+      { ...base, maintenanceAuthorityKind: "binding", maintenanceActivationSequence: 3n, maintenanceObligation: binding }, 2n));
+    expect(valid.maintenance?.authorityKind).toBe("binding");
+    expect(valid.maintenance?.candidateSha256).not.toBe(binding.candidateSha256);
+    expect(Effect.runSync(Effect.result(decodeUniqueBuildStateEffect(authority, snapshot,
+      { ...base, maintenanceAuthorityKind: "application", maintenanceActivationSequence: 3n, maintenanceObligation: binding }, 2n))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "storedStateInvalid", cause: "Maintenance obligation does not match build state" } });
+  });
+
   it("keeps structural and lifecycle refusal ahead of frontier and maintenance refusal", () => {
     expect(Effect.runSync(Effect.result(decodeUniqueBuildStateEffect(authority, snapshot, { ...base, attemptFence: 0n,
       coveredThroughCommitSeq: 4n, maintenanceObligation: {} }, 2n)))).toMatchObject({
@@ -38,7 +50,7 @@ describe("ordered unique build acceptance", () => {
       _tag: "Failure", failure: { reason: "storedStateInvalid", cause: undefined } });
     expect(Effect.runSync(Effect.result(decodeUniqueBuildStateEffect(authority, snapshot, { ...base, coveredThroughCommitSeq: 4n,
       maintenanceObligation: {} }, 2n)))).toMatchObject({ _tag: "Failure", failure: { reason: "frontierAheadOfClock" } });
-    expect(Effect.runSync(Effect.result(decodeUniqueBuildStateEffect(authority, snapshot, { ...base, maintenanceActivationSequence: 3n,
+    expect(Effect.runSync(Effect.result(decodeUniqueBuildStateEffect(authority, snapshot, { ...base, maintenanceActivationSequence: 3n, maintenanceAuthorityKind: "application",
       maintenanceObligation: { ...maintenance, attemptFence: AppUniqueConstraintSetBuildAttemptFenceV1Schema.make(2n) } }, 2n))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "storedStateInvalid", cause: "Maintenance obligation does not match build state" } });
   });
@@ -52,7 +64,7 @@ describe("ordered unique build acceptance", () => {
     cursor[0] = 9;
     expect(state.cursorRowId?.[0]).toBe(0);
     const maintained = Effect.runSync(decodeUniqueBuildStateEffect(authority, snapshot,
-      { ...base, maintenanceActivationSequence: 3n, maintenanceObligation: maintenance }, 2n));
+      { ...base, maintenanceActivationSequence: 3n, maintenanceAuthorityKind: "application", maintenanceObligation: maintenance }, 2n));
     expect(Object.isFrozen(maintained.maintenance)).toBe(true);
     expect(maintained.maintenance?.physicalSpecSha256).not.toBe(maintenance.physicalSpecSha256);
     maintenance.physicalSpecSha256[0] = 8;

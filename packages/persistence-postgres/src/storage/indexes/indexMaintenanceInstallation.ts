@@ -7,6 +7,10 @@ export { INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS } from "./indexMaintenancePublish
 
 const obligationTables = [fxSystemIndexMaintenanceObligations, fxSystemUniqueMaintenanceObligations];
 const builds = [fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds];
+const authorityIndexes = obligationTables.map(table => ({ table,
+  name: getTableConfig(table).indexes.find(index => index.config.name?.endsWith("maintenance_authority_idx"))!.config.name!,
+  columns: [table.scopeId, table.authorityKind, table.activationSequence],
+}));
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
 const names = (columns: readonly PgColumn[]) => columns.map(column => quote(column.name)).join(",");
 const compile = (value: SQL, table: PgTable) => new PgDialect().sqlToQuery(value).sql.replaceAll(`${quote(getTableName(table))}.`, "");
@@ -17,8 +21,8 @@ const normalizeExpression = (value: string) => value.replaceAll("::text", "")
  * column grants are installed; the activation binding has no ordinary writer. */
 export const INDEX_MAINTENANCE_BUILD_PERMISSIONS = builds.map(table => Object.freeze({
   tableName: getTableName(table),
-  bindingColumn: table.maintenanceActivationSequence.name,
-  writableColumns: Object.values(getTableColumns(table)).filter(column => column !== table.maintenanceActivationSequence).map(column => column.name),
+  bindingColumns: [table.maintenanceAuthorityKind.name, table.maintenanceActivationSequence.name],
+  writableColumns: Object.values(getTableColumns(table)).filter(column => column !== table.maintenanceActivationSequence && column !== table.maintenanceAuthorityKind).map(column => column.name),
 }));
 export const INDEX_MAINTENANCE_OBLIGATION_TABLES = obligationTables.map(table => getTableName(table));
 
@@ -91,6 +95,9 @@ export const TYPED_MAINTENANCE_STAGE_SQL = `DO $stage$
 DECLARE target_schema text := current_schema(); relation_name text;
 BEGIN
   EXECUTE format($ddl$${obligationTables.map(createObligationTable).join("\n")}$ddl$,target_schema);
+  ${authorityIndexes.map(index => `EXECUTE format('CREATE INDEX IF NOT EXISTS ${quote(index.name)} ON %1$I.${quote(getTableName(index.table))} (${names(index.columns)})',target_schema);`).join("\n  ")}
+  ${builds.map(table => `EXECUTE format('ALTER TABLE %1$I.${quote(getTableName(table))} ADD COLUMN IF NOT EXISTS maintenance_authority_kind text',target_schema);
+  EXECUTE format('UPDATE %1$I.${quote(getTableName(table))} SET maintenance_authority_kind = ''application'' WHERE maintenance_activation_sequence IS NOT NULL AND maintenance_authority_kind IS NULL',target_schema);`).join("\n")}
   ${stageKeys.join("\n")}
   ${INDEX_MAINTENANCE_GUARD_FUNCTIONS.map(operation => `EXECUTE format($ddl$CREATE OR REPLACE FUNCTION %1$I.${operation.name}() RETURNS trigger
     LANGUAGE plpgsql VOLATILE SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $body$${operation.body}$body$;$ddl$,target_schema);
@@ -143,6 +150,54 @@ BEGIN
 END;
 $final$;`;
 
+/** Retained Application openings keep their exact pins. Authority is added to
+ * both sides of the reference before binding openings may enter this family. */
+export const MAINTENANCE_AUTHORITY_MIGRATION_SQL = `DO $maintenance_gate$
+DECLARE gate fx_system_installation;
+BEGIN
+  SELECT * INTO STRICT gate FROM fx_system_installation WHERE singleton_id=1;
+  IF NOT pg_try_advisory_xact_lock(2147483002,(gate.namespace_oid-2147483648)::integer) THEN
+    RAISE EXCEPTION 'Maintenance authority migration requires installation quiescence' USING ERRCODE='55P03';
+  END IF;
+  IF gate.state <> 'unverified' AND NOT (gate.state='draining' AND gate.maintenance_pid=pg_backend_pid()
+    AND gate.maintenance_backend_start=(SELECT backend_start FROM pg_catalog.pg_stat_activity WHERE pid=pg_backend_pid())) THEN
+    RAISE EXCEPTION 'Maintenance authority migration requires its managed owner' USING ERRCODE='55000';
+  END IF;
+END;
+$maintenance_gate$;
+--> statement-breakpoint
+DO $maintenance_authority$
+DECLARE target_schema text := current_schema();
+BEGIN
+  ${builds.map((table, ordinal) => {
+    const obligation = obligationTables[ordinal]!;
+    const config = getTableConfig(obligation);
+    const ownerCheck = config.checks.find(check => check.name.endsWith("owner_check"))!;
+    const buildCheck = getTableConfig(table).checks.find(check => check.name.endsWith("maintenance_check"))!;
+    const key = openingKeys[ordinal]!;
+    const ref = key.reference();
+    return `EXECUTE format('ALTER TABLE %1$I.${quote(getTableName(table))} DROP CONSTRAINT IF EXISTS ${quote(key.getName())}, DROP CONSTRAINT IF EXISTS ${quote(buildCheck.name)}',target_schema);
+  EXECUTE format('ALTER TABLE %1$I.${quote(getTableName(table))} ADD COLUMN IF NOT EXISTS maintenance_authority_kind text',target_schema);
+  IF EXISTS (SELECT 1 FROM ${quote(getTableName(table))} WHERE maintenance_activation_sequence IS NOT NULL AND maintenance_authority_kind IS NULL) THEN
+    EXECUTE format('UPDATE %1$I.${quote(getTableName(table))} SET maintenance_authority_kind = ''application'' WHERE maintenance_activation_sequence IS NOT NULL AND maintenance_authority_kind IS NULL',target_schema);
+  END IF;
+  EXECUTE format('ALTER TABLE %1$I.${quote(config.name)} ADD COLUMN IF NOT EXISTS authority_kind text NOT NULL DEFAULT ''application'', ADD COLUMN IF NOT EXISTS candidate_sha256 bytea${ordinal === 1 ? ", ADD COLUMN IF NOT EXISTS schema_manifest_sha256 bytea" : ""}',target_schema);
+  EXECUTE format('ALTER TABLE %1$I.${quote(config.name)} ALTER COLUMN authority_kind DROP DEFAULT',target_schema);
+  ${[...config.primaryKeys,...config.uniqueConstraints].map(constraint => `EXECUTE format('ALTER TABLE %1$I.${quote(config.name)} DROP CONSTRAINT IF EXISTS ${quote(constraint.getName()!)}',target_schema);`).join("\n  ")}
+  ${config.primaryKeys.map(constraint => `EXECUTE format('ALTER TABLE %1$I.${quote(config.name)} ADD CONSTRAINT ${quote(constraint.getName())} PRIMARY KEY (${names(constraint.columns)})',target_schema);`).join("\n  ")}
+  ${config.uniqueConstraints.map(constraint => `EXECUTE format('ALTER TABLE %1$I.${quote(config.name)} ADD CONSTRAINT ${quote(constraint.getName()!)} UNIQUE (${names(constraint.columns)})',target_schema);`).join("\n  ")}
+  EXECUTE format('ALTER TABLE %1$I.${quote(config.name)} DROP CONSTRAINT IF EXISTS ${quote(ownerCheck.name)}',target_schema);
+  EXECUTE format($ddl$ALTER TABLE %1$I.${quote(config.name)} ADD CONSTRAINT ${quote(ownerCheck.name)} CHECK (${compile(ownerCheck.value, obligation)})$ddl$,target_schema);
+  EXECUTE format($ddl$ALTER TABLE %1$I.${quote(getTableName(table))} ADD CONSTRAINT ${quote(buildCheck.name)} CHECK (${compile(buildCheck.value, table)})$ddl$,target_schema);
+  EXECUTE format('ALTER TABLE %1$I.${quote(getTableName(table))} ADD CONSTRAINT ${quote(key.getName())} FOREIGN KEY (${names(ref.columns)}) REFERENCES %1$I.${quote(config.name)} (${names(ref.foreignColumns)}) ON UPDATE RESTRICT ON DELETE RESTRICT',target_schema);`;
+  }).join("\n  ")}
+  ${authorityIndexes.map(index => `EXECUTE format('CREATE INDEX IF NOT EXISTS ${quote(index.name)} ON %1$I.${quote(getTableName(index.table))} (${names(index.columns)})',target_schema);`).join("\n  ")}
+  ${INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS.map(operation => `EXECUTE format('DROP FUNCTION IF EXISTS %1$I.${operation.name}(${operation.signature})',target_schema);
+  EXECUTE format($ddl$${operation.ddl.replaceAll("%", "%%").replaceAll("%%1$I", "%1$I")}$ddl$,target_schema);
+  EXECUTE format('REVOKE ALL ON FUNCTION %1$I.${operation.name}(${operation.signature}) FROM PUBLIC',target_schema);`).join("\n  ")}
+END;
+$maintenance_authority$;`;
+
 const checkProof = (schemaName: SQL, table: PgTable, name: string, expression: SQL) => sql`exists (
   select 1 from pg_catalog.pg_constraint k join pg_catalog.pg_class c on c.oid = k.conrelid
   where c.relnamespace = (${schemaName}::pg_catalog.regnamespace) and c.relname = ${getTableName(table)}
@@ -189,6 +244,20 @@ export function indexMaintenanceInstallationSql(schemaName: SQL): SQL<boolean> {
         and (select array_agg(a.attname::text order by entry.ordinality) from unnest(k.confkey) with ordinality entry(number,ordinality)
           join pg_catalog.pg_attribute a on a.attrelid = parent.oid and a.attnum = entry.number) = array[${sql.join(ref.foreignColumns.map(column => sql`${column.name}`),sql`,`)}]::text[])`;
   });
+  const indexes = authorityIndexes.map(index => sql`exists (select 1 from pg_catalog.pg_index x
+    join pg_catalog.pg_class c on c.oid=x.indrelid join pg_catalog.pg_class backing on backing.oid=x.indexrelid
+    join pg_catalog.pg_am method on method.oid=backing.relam
+    where c.relnamespace=(${schemaName}::pg_catalog.regnamespace) and backing.relnamespace=c.relnamespace
+      and c.relname=${getTableName(index.table)} and backing.relname=${index.name} and method.amname='btree'
+      and x.indisvalid and x.indisready and x.indislive and not x.indisunique
+      and x.indnkeyatts=3 and x.indnatts=3 and x.indpred is null and x.indexprs is null and x.indoption::text='0 0 0'
+      and (select array_agg(a.attname::text order by entry.ordinality) from unnest(x.indkey) with ordinality entry(number,ordinality)
+        join pg_catalog.pg_attribute a on a.attrelid=c.oid and a.attnum=entry.number)
+        =array[${sql.join(index.columns.map(column=>sql`${column.name}`),sql`,`)}]::text[]
+      and not exists (select 1 from unnest(x.indkey) with ordinality entry(number,ordinality)
+        join pg_catalog.pg_attribute a on a.attrelid=c.oid and a.attnum=entry.number
+        join pg_catalog.pg_opclass operator on operator.oid=x.indclass[(entry.ordinality-1)::integer]
+        where x.indcollation[(entry.ordinality-1)::integer]<>a.attcollation or not operator.opcdefault or operator.opcmethod<>method.oid))`);
   const checks = [...obligationTables.flatMap(table => getTableConfig(table).checks.map(check => checkProof(schemaName, table, check.name, check.value))),
     ...builds.map(table => { const check = getTableConfig(table).checks.find(candidateCheck => candidateCheck.name.endsWith("maintenance_check"))!; return checkProof(schemaName,table,check.name,check.value); })];
   const guards = INDEX_MAINTENANCE_GUARD_FUNCTIONS.map(operation => sql`exists (select 1 from pg_catalog.pg_proc p
@@ -234,5 +303,5 @@ export function indexMaintenanceInstallationSql(schemaName: SQL): SQL<boolean> {
     and not exists (select 1 from pg_catalog.pg_class c join pg_catalog.pg_attribute a on a.attrelid = c.oid
       where c.relnamespace = (${schemaName}::pg_catalog.regnamespace) and c.relname = any(array[${sql.join(builds.map(table => sql`${getTableName(table)}`),sql`,`)}]::text[])
         and a.attname in ('maintenance_bytes','maintenance_sha256') and a.attnum > 0 and not a.attisdropped)
-    and ${sql.join([...keys,...foreignKeys,...checks,...guards,...triggers,...publishers],sql` and `)})`;
+    and ${sql.join([...keys,...foreignKeys,...indexes,...checks,...guards,...triggers,...publishers],sql` and `)})`;
 }

@@ -45,6 +45,8 @@ import type {
 import { bytea, nonBlankText } from "./primitives";
 import { fxSystemScopeClocks } from "./scope";
 
+export type MaintenanceAuthorityKind = "application" | "binding";
+
 /** Search coverage is scoped to an exact logical source generation. Absence or
  * a stale digest cannot authorize serving; the shared binding owner may mark
  * an empty table ready under the publication lock. */
@@ -84,6 +86,7 @@ export const fxSystemSearchBuildStates = pgTable(
  * independent witness; retained history never references a future build tuple. */
 export const fxSystemIndexMaintenanceObligations = pgTable("fx_system_index_maintenance_obligation", {
   scopeId: text("scope_id").$type<ScopeId>().notNull(),
+  authorityKind: text("authority_kind").$type<MaintenanceAuthorityKind>().notNull(),
   indexDefinitionId: integer("index_definition_id").$type<CatalogIndexDefinitionId>().notNull(),
   activationSequence: bigint("activation_sequence", { mode: "bigint" }).notNull(),
   storageGeneration: text("storage_generation").$type<FlarexDbV1StorageGeneration>().notNull(),
@@ -99,19 +102,23 @@ export const fxSystemIndexMaintenanceObligations = pgTable("fx_system_index_main
   schemaManifestSha256: bytea("schema_manifest_sha256").notNull(),
   activationSha256: bytea("activation_sha256").notNull(),
   headSha256: bytea("head_sha256").notNull(),
+  candidateSha256: bytea("candidate_sha256"),
 }, table => [
-  primaryKey({ name: "fx_index_maintenance_obligation_pk", columns: [table.scopeId, table.indexDefinitionId, table.activationSequence] }),
-  unique("fx_index_maintenance_opening_unique").on(table.scopeId, table.indexDefinitionId, table.activationSequence,
+  primaryKey({ name: "fx_index_maintenance_obligation_pk", columns: [table.scopeId, table.indexDefinitionId, table.authorityKind, table.activationSequence] }),
+  unique("fx_index_maintenance_opening_unique").on(table.scopeId, table.indexDefinitionId, table.authorityKind, table.activationSequence,
     table.storageGeneration, table.storageGenerationFence, table.epoch, table.attemptFence, table.openedCommitSeq, table.firstReadableCommitSeq),
+  index("fx_index_maintenance_authority_idx").on(table.scopeId, table.authorityKind, table.activationSequence),
   check("fx_index_maintenance_identity_check", sql`${table.indexDefinitionId} > 0 and ${table.tableId} > 0 and ${table.activationSequence} > 0`),
   check("fx_index_maintenance_authority_check", sql`${table.storageGeneration} = 'flarexdb_v1' and ${table.storageGenerationFence} > 0 and ${table.attemptFence} > 0`),
   check("fx_index_maintenance_frontier_check", sql`${table.firstReadableCommitSeq} >= 0 and ${table.openedCommitSeq} >= ${table.firstReadableCommitSeq}`),
   check("fx_index_maintenance_text_check", sql`length(${table.scopeId}) > 0 and length(${table.epoch}) > 0 and length(${table.deploymentId}) > 0 and length(${table.schemaVersionId}) > 0`),
   check("fx_index_maintenance_digest_check", sql`octet_length(${table.physicalSpecSha256}) = 32 and octet_length(${table.schemaManifestSha256}) = 32 and octet_length(${table.activationSha256}) = 32 and octet_length(${table.headSha256}) = 32`),
+  check("fx_index_maintenance_owner_check", sql`(${table.authorityKind} = 'application' and ${table.candidateSha256} is null) or (${table.authorityKind} = 'binding' and ${table.candidateSha256} is not null and octet_length(${table.candidateSha256}) = 32)`),
 ]);
 
 export const fxSystemUniqueMaintenanceObligations = pgTable("fx_system_unique_maintenance_obligation", {
   scopeId: text("scope_id").$type<ScopeId>().notNull(),
+  authorityKind: text("authority_kind").$type<MaintenanceAuthorityKind>().notNull(),
   uniqueConstraintDefinitionId: integer("unique_constraint_definition_id").$type<CatalogUniqueConstraintDefinitionId>().notNull(),
   activationSequence: bigint("activation_sequence", { mode: "bigint" }).notNull(),
   storageGeneration: text("storage_generation").$type<FlarexDbV1StorageGeneration>().notNull(),
@@ -126,15 +133,19 @@ export const fxSystemUniqueMaintenanceObligations = pgTable("fx_system_unique_ma
   schemaVersionId: text("schema_version_id").notNull(),
   activationSha256: bytea("activation_sha256").notNull(),
   headSha256: bytea("head_sha256").notNull(),
+  candidateSha256: bytea("candidate_sha256"),
+  schemaManifestSha256: bytea("schema_manifest_sha256"),
 }, table => [
-  primaryKey({ name: "fx_unique_maintenance_obligation_pk", columns: [table.scopeId, table.uniqueConstraintDefinitionId, table.activationSequence] }),
-  unique("fx_unique_maintenance_opening_unique").on(table.scopeId, table.uniqueConstraintDefinitionId, table.activationSequence,
+  primaryKey({ name: "fx_unique_maintenance_obligation_pk", columns: [table.scopeId, table.uniqueConstraintDefinitionId, table.authorityKind, table.activationSequence] }),
+  unique("fx_unique_maintenance_opening_unique").on(table.scopeId, table.uniqueConstraintDefinitionId, table.authorityKind, table.activationSequence,
     table.storageGeneration, table.storageGenerationFence, table.epoch, table.attemptFence, table.openedCommitSeq, table.startCommitSeq),
+  index("fx_unique_maintenance_authority_idx").on(table.scopeId, table.authorityKind, table.activationSequence),
   check("fx_unique_maintenance_identity_check", sql`${table.uniqueConstraintDefinitionId} > 0 and ${table.tableId} > 0 and ${table.activationSequence} > 0`),
   check("fx_unique_maintenance_authority_check", sql`${table.storageGeneration} = 'flarexdb_v1' and ${table.storageGenerationFence} > 0 and ${table.attemptFence} > 0`),
   check("fx_unique_maintenance_frontier_check", sql`${table.startCommitSeq} >= 0 and ${table.openedCommitSeq} >= ${table.startCommitSeq}`),
   check("fx_unique_maintenance_text_check", sql`length(${table.scopeId}) > 0 and length(${table.epoch}) > 0 and length(${table.deploymentId}) > 0 and length(${table.schemaVersionId}) > 0`),
   check("fx_unique_maintenance_digest_check", sql`octet_length(${table.physicalSpecSha256}) = 32 and octet_length(${table.activationSha256}) = 32 and octet_length(${table.headSha256}) = 32`),
+  check("fx_unique_maintenance_owner_check", sql`(${table.authorityKind} = 'application' and ${table.candidateSha256} is null and ${table.schemaManifestSha256} is null) or (${table.authorityKind} = 'binding' and ${table.candidateSha256} is not null and octet_length(${table.candidateSha256}) = 32 and ${table.schemaManifestSha256} is not null and octet_length(${table.schemaManifestSha256}) = 32)`),
 ]);
 
 export const fxSystemIndexBuildStates = pgTable(
@@ -163,6 +174,7 @@ export const fxSystemIndexBuildStates = pgTable(
     firstReadableCommitSeq: bigint("first_readable_commit_seq", { mode: "bigint" })
       .$type<CommitSeq>(),
     maintenanceActivationSequence: bigint("maintenance_activation_sequence", { mode: "bigint" }),
+    maintenanceAuthorityKind: text("maintenance_authority_kind").$type<MaintenanceAuthorityKind>(),
     lifecycle: text("lifecycle").$type<IndexBuildLifecycleV1>().notNull(),
     cursorCodecVersion: integer("cursor_codec_version")
       .$type<IndexBuildCursorCodecVersionV1>()
@@ -191,14 +203,14 @@ export const fxSystemIndexBuildStates = pgTable(
       .on(table.scopeId, table.maintenanceActivationSequence)
       .where(sql`${table.maintenanceActivationSequence} is not null`),
     check("fx_system_index_build_maintenance_check", sql`
-      ${table.maintenanceActivationSequence} is null
-      or (${table.maintenanceActivationSequence} is not null and ${table.maintenanceActivationSequence} > 0
+      (${table.maintenanceActivationSequence} is null and ${table.maintenanceAuthorityKind} is null)
+      or (${table.maintenanceActivationSequence} is not null and ${table.maintenanceAuthorityKind} is not null and (${table.maintenanceAuthorityKind} = 'application' or ${table.maintenanceAuthorityKind} = 'binding') and ${table.maintenanceActivationSequence} > 0
         and ${table.lifecycle} = 'enabled' and ${table.firstReadableCommitSeq} is not null and ${table.coveredThroughCommitSeq} is not null)`),
     foreignKey({ name: "fx_index_build_maintenance_opening_fk",
-      columns: [table.scopeId, table.indexDefinitionId, table.maintenanceActivationSequence, table.storageGeneration,
+      columns: [table.scopeId, table.indexDefinitionId, table.maintenanceAuthorityKind, table.maintenanceActivationSequence, table.storageGeneration,
         table.storageGenerationFence, table.epoch, table.attemptFence, table.coveredThroughCommitSeq, table.firstReadableCommitSeq],
       foreignColumns: [fxSystemIndexMaintenanceObligations.scopeId, fxSystemIndexMaintenanceObligations.indexDefinitionId,
-        fxSystemIndexMaintenanceObligations.activationSequence, fxSystemIndexMaintenanceObligations.storageGeneration,
+        fxSystemIndexMaintenanceObligations.authorityKind, fxSystemIndexMaintenanceObligations.activationSequence, fxSystemIndexMaintenanceObligations.storageGeneration,
         fxSystemIndexMaintenanceObligations.storageGenerationFence, fxSystemIndexMaintenanceObligations.epoch,
         fxSystemIndexMaintenanceObligations.attemptFence, fxSystemIndexMaintenanceObligations.openedCommitSeq,
         fxSystemIndexMaintenanceObligations.firstReadableCommitSeq] }).onUpdate("restrict").onDelete("restrict"),
@@ -385,6 +397,7 @@ export const fxSystemUniqueConstraintBuilds = pgTable(
     coveredThroughCommitSeq: bigint("covered_through_commit_seq", { mode: "bigint" })
       .$type<CommitSeq>(),
     maintenanceActivationSequence: bigint("maintenance_activation_sequence", { mode: "bigint" }),
+    maintenanceAuthorityKind: text("maintenance_authority_kind").$type<MaintenanceAuthorityKind>(),
     cursorRowId: bytea("cursor_row_id"),
     attemptFence: bigint("attempt_fence", { mode: "bigint" })
       .$type<AppUniqueConstraintSetBuildAttemptFenceV1>()
@@ -405,14 +418,14 @@ export const fxSystemUniqueConstraintBuilds = pgTable(
       .on(table.scopeId, table.maintenanceActivationSequence)
       .where(sql`${table.maintenanceActivationSequence} is not null`),
     check("fx_system_unique_build_maintenance_check", sql`
-      ${table.maintenanceActivationSequence} is null
-      or (${table.maintenanceActivationSequence} is not null and ${table.maintenanceActivationSequence} > 0
+      (${table.maintenanceActivationSequence} is null and ${table.maintenanceAuthorityKind} is null)
+      or (${table.maintenanceActivationSequence} is not null and ${table.maintenanceAuthorityKind} is not null and (${table.maintenanceAuthorityKind} = 'application' or ${table.maintenanceAuthorityKind} = 'binding') and ${table.maintenanceActivationSequence} > 0
         and ${table.lifecycle} = 'enabled' and ${table.coveredThroughCommitSeq} is not null)`),
     foreignKey({ name: "fx_unique_build_maintenance_opening_fk",
-      columns: [table.scopeId, table.uniqueConstraintDefinitionId, table.maintenanceActivationSequence, table.storageGeneration,
+      columns: [table.scopeId, table.uniqueConstraintDefinitionId, table.maintenanceAuthorityKind, table.maintenanceActivationSequence, table.storageGeneration,
         table.storageGenerationFence, table.epoch, table.attemptFence, table.coveredThroughCommitSeq, table.startCommitSeq],
       foreignColumns: [fxSystemUniqueMaintenanceObligations.scopeId, fxSystemUniqueMaintenanceObligations.uniqueConstraintDefinitionId,
-        fxSystemUniqueMaintenanceObligations.activationSequence, fxSystemUniqueMaintenanceObligations.storageGeneration,
+        fxSystemUniqueMaintenanceObligations.authorityKind, fxSystemUniqueMaintenanceObligations.activationSequence, fxSystemUniqueMaintenanceObligations.storageGeneration,
         fxSystemUniqueMaintenanceObligations.storageGenerationFence, fxSystemUniqueMaintenanceObligations.epoch,
         fxSystemUniqueMaintenanceObligations.attemptFence, fxSystemUniqueMaintenanceObligations.openedCommitSeq,
         fxSystemUniqueMaintenanceObligations.startCommitSeq] }).onUpdate("restrict").onDelete("restrict"),

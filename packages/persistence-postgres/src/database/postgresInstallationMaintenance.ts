@@ -6,6 +6,7 @@ import {
 } from "../storage/materialization/domainInstallation";
 import { INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS, INDEX_MAINTENANCE_BUILD_PERMISSIONS,
   INDEX_MAINTENANCE_OBLIGATION_TABLES } from "../storage/indexes/indexMaintenanceInstallation";
+import { backfillBindingMaintenance } from "../storage/indexes/bindingMaintenanceMigration";
 import { prepareTypedMaintenanceMigration } from "../storage/indexes/indexMaintenanceMigration";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
@@ -333,6 +334,7 @@ export const backfillInstallationMetadataBindings = Effect.fn("InstallationMaint
       const immutableCatalog = controlDb ?? owner.database;
       yield* backfillStandaloneApplicationBindings(owner.database, immutableCatalog);
       yield* backfillBindingMetadataProjections(owner.database, immutableCatalog);
+      yield* backfillBindingMaintenance(owner.database, immutableCatalog);
     }).pipe(Effect.mapError(cause => fail("invalidInstallation", cause)))),
 );
 
@@ -414,7 +416,7 @@ const configureRuntimePermissions = Effect.fn("InstallationMaintenance.configure
       const columns = yield* driver(() => owner.client.query<{ name: string }>(`select a.attname as name
         from pg_catalog.pg_attribute a where a.attrelid = $1::pg_catalog.regclass
         and a.attnum > 0 and not a.attisdropped`, [qualified]));
-      if (!columns.rows.some(column => column.name === build.bindingColumn) ||
+      if (build.bindingColumns.some(name => !columns.rows.some(column => column.name === name)) ||
         build.writableColumns.some(name => !columns.rows.some(column => column.name === name)))
         return yield* Effect.fail(fail("invalidInstallation"));
       const names = columns.rows.map(column => quoteIdentifier(column.name)).join(",");

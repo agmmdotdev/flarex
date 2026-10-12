@@ -30,7 +30,8 @@ import {
   PhysicalDefinitionLifecyclePersistenceError,
 } from "../../installation/physicalDefinitionLifecycle";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { publicationModeForTable, readIndexCoverageContextInTransactionEffect,
+import { maintenanceKeyMatchesCoverageContext, maintenanceMatchesCoverageContext, publicationModeForTable, readIndexCoverageContextInTransactionEffect,
+  prepareMissingBindingMaintenanceCheck, hasRequiredBindingMaintenance,
   borrowIndexCoverageContextInTransaction, readPreparedIndexCoverageTableFrontiers,
   readIndexCoverageTableFrontiersInTransactionEffect,
   type IndexCoverageContext } from "../indexes/indexBuildStates";
@@ -910,6 +911,7 @@ const BuildStateSchema = Schema.Struct({
   startCommitSeq: CommitSeqSchema,
   coveredThroughCommitSeq: Schema.NullOr(CommitSeqSchema),
   maintenanceActivationSequence: Schema.NullOr(Schema.BigInt),
+  maintenanceAuthorityKind: Schema.NullOr(Schema.Literals(["application", "binding"])),
   maintenanceObligation: Schema.NullOr(Schema.Record(Schema.String, Schema.Unknown)),
   attemptFence: AppUniqueConstraintSetBuildAttemptFenceV1Schema,
   storageGeneration: FlarexDbV1StorageGenerationSchema,
@@ -936,7 +938,7 @@ export function uniqueConstraintBuildStateSelection() {
   return { ...getTableColumns(fxSystemUniqueConstraintBuilds), maintenanceObligation: getTableColumns(fxSystemUniqueMaintenanceObligations) };
 }
 export function uniqueMaintenanceBindingPredicate() {
-  return and(eq(fxSystemUniqueConstraintBuilds.scopeId, fxSystemUniqueMaintenanceObligations.scopeId),
+  return and(eq(fxSystemUniqueConstraintBuilds.maintenanceAuthorityKind, fxSystemUniqueMaintenanceObligations.authorityKind), eq(fxSystemUniqueConstraintBuilds.scopeId, fxSystemUniqueMaintenanceObligations.scopeId),
     eq(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId, fxSystemUniqueMaintenanceObligations.uniqueConstraintDefinitionId),
     eq(fxSystemUniqueConstraintBuilds.maintenanceActivationSequence, fxSystemUniqueMaintenanceObligations.activationSequence));
 }
@@ -990,7 +992,7 @@ export const replaceActiveUniqueMaintenanceInTransactionEffect = Effect.fn("AppU
     }
     const activeRows = yield* queryEffect(tx.select({ id: fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId })
       .from(fxSystemUniqueConstraintBuilds).where(and(eq(fxSystemUniqueConstraintBuilds.scopeId, clock.scopeId),
-        isNotNull(fxSystemUniqueConstraintBuilds.maintenanceActivationSequence))).limit(MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1 + 1));
+        eq(fxSystemUniqueConstraintBuilds.maintenanceAuthorityKind, "application"), isNotNull(fxSystemUniqueConstraintBuilds.maintenanceActivationSequence))).limit(MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1 + 1));
     if (activeRows.length > MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1) return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
     const incomingMembers = new Map(incoming.members.map(member => [member.uniqueConstraintDefinitionId, member]));
     const outgoingMembers = new Map(outgoing?.members.map(member => [member.uniqueConstraintDefinitionId, member]));
@@ -1009,6 +1011,7 @@ export const replaceActiveUniqueMaintenanceInTransactionEffect = Effect.fn("AppU
         return yield* Effect.fail(new UniqueMaintenanceError({ reason: "unavailable" }));
       }
       if (state.maintenance !== null) {
+        if (state.maintenance.authorityKind !== "application") return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
         const member = outgoingMembers.get(state.uniqueConstraintDefinitionId);
         if (member === undefined || outgoing === null ||
           !(yield* inspectDefinitionCoverageEffect(tx, clock, { schemaVersionId: outgoing.closure.schemaVersionId, members: outgoing.members }, state, member.tableId, clock, context))) {
@@ -1617,7 +1620,7 @@ const decodeOrdinaryUniqueProgress = Schema.decodeUnknownResult(OrdinaryUniquePr
 const OrdinaryUniqueMaintenanceKeySchema = Schema.Tuple([
   Schema.NonEmptyString, Schema.NonEmptyString,
   CommitSeqSchema.check(Schema.makeFilter(value => value > 0n ? undefined : "Expected positive activation sequence")),
-  Schema.String, Schema.String,
+  Schema.String, Schema.String, Schema.Literals(["application", "binding"]), Schema.NullOr(Schema.String), Schema.NullOr(Schema.String),
 ]);
 const decodeOrdinaryUniqueMaintenanceKey = Schema.decodeUnknownResult(Schema.fromJsonString(OrdinaryUniqueMaintenanceKeySchema));
 type UniqueBuildReadinessResult=Readonly<{status:"ready";identities:readonly AppUniqueConstraintBuildIdentity[];observedClock:ScopeClockRecord}>|
@@ -1687,7 +1690,8 @@ const inspectBuildReadinessWithLockedClock=Effect.fnUntraced(function* (
     return yield* Effect.die("Native unique intrinsic refusal accepted by complete decoder");
   }
   const progress=intrinsic.progress;
-  const context=header.hasMaintenance ? yield* readUniqueCoverageContext(tx,observedClock,snapshot,coverageHint):undefined;
+  let context=header.hasMaintenance ? yield* readUniqueCoverageContext(tx,observedClock,snapshot,coverageHint) : undefined;
+  let requiredChecked = context?.binding === null;
   const identities:AppUniqueConstraintBuildIdentity[]=[];
   const consume=(startAt:number,frontiers:UniqueTableFrontiers|undefined)=>Result.gen(function* () {
     for (let index=startAt;index<snapshot.members.length;index++) {
@@ -1705,11 +1709,17 @@ const inspectBuildReadinessWithLockedClock=Effect.fnUntraced(function* (
       if (maintenanceActive!==null) {
         const key=yield* decodeOrdinaryUniqueMaintenanceKey(maintenanceActive).pipe(
           Result.mapError(cause=>stateError(authority,snapshot,"storedStateInvalid",cause)));
-        if (maintenanceMatches!==true || context?.active==null || key[0]!==context.active.schema.deploymentId ||
-          key[1]!==context.active.schema.schemaVersionId || key[2]!==context.active.head.activationSequence ||
-          key[3]!==encodeBytesToLowercaseHex(context.active.head.activationSha256) ||
-          key[4]!==encodeBytesToLowercaseHex(context.active.head.headSha256))
+        if (context===undefined) return Object.freeze({ status: "coverageContextRequired" as const, index });
+        if (maintenanceMatches!==true || !maintenanceKeyMatchesCoverageContext({
+          authorityKind:key[5],deploymentId:key[0],schemaVersionId:key[1],activationSequence:key[2],
+          activationSha256:key[3],headSha256:key[4],candidateSha256:key[6],schemaManifestSha256:key[7] },context))
           return yield* Result.fail(stateError(authority,snapshot,"storedStateInvalid"));
+      } else if (context===undefined) {
+        return Object.freeze({ status: "coverageContextRequired" as const, index });
+      } else if (!requiredChecked) {
+        return Object.freeze({ status: "bindingMaintenanceRequired" as const, index });
+      } else if (hasRequiredBindingMaintenance(context, "unique", member.uniqueConstraintDefinitionId)) {
+        return yield* Result.fail(stateError(authority, snapshot, "storedStateInvalid"));
       } else if (covered<observedClock.lastCommitSeq) {
         if (frontiers===undefined) return {status:"frontiersRequired" as const,index};
         const capturedFrontier=frontiers.get(member.tableId);
@@ -1728,7 +1738,29 @@ const inspectBuildReadinessWithLockedClock=Effect.fnUntraced(function* (
     }
     return Object.freeze({status:"ready" as const,identities:Object.freeze(identities),observedClock});
   });
-  const first=yield* Effect.fromResult(consume(0,undefined));
+  const consumeWithRequiredMaintenance = Effect.fnUntraced(function* (
+    startAt: number, frontiers: UniqueTableFrontiers | undefined,
+  ) {
+    let observed = yield* Effect.fromResult(consume(startAt, frontiers));
+    if (observed.status === "coverageContextRequired") {
+      context = yield* readUniqueCoverageContext(tx, observedClock, snapshot, coverageHint);
+      requiredChecked = context.binding === null;
+      observed = yield* Effect.fromResult(consume(observed.index, frontiers));
+      if (observed.status === "coverageContextRequired")
+        return yield* Effect.die("Unique coverage context repeated its capture demand");
+    }
+    if (observed.status !== "bindingMaintenanceRequired") return observed;
+    if (context === undefined) return yield* Effect.die("Required unique binding maintenance has no coverage context");
+    yield* prepareMissingBindingMaintenanceCheck(tx, context).pipe(Effect.mapError(cause => cause.reason === "resourceFailure"
+      ? new AppUniqueConstraintSetBuildIntegrationV1Error({ phase: "targetTransaction", retryable: cause.retryable ?? false, cause })
+      : stateError(authority, snapshot, "storedStateInvalid", cause)));
+    requiredChecked = true;
+    const resumed = yield* Effect.fromResult(consume(observed.index, frontiers));
+    if (resumed.status === "bindingMaintenanceRequired" || resumed.status === "coverageContextRequired")
+      return yield* Effect.die("Required unique binding maintenance repeated its capture demand");
+    return resumed;
+  });
+  const first=yield* consumeWithRequiredMaintenance(0,undefined);
   if (first.status!=="frontiersRequired") return first;
   const needed=snapshot.members.filter(candidate=> {
     const state=progress.get(candidate.uniqueConstraintDefinitionId);
@@ -1736,7 +1768,7 @@ const inspectBuildReadinessWithLockedClock=Effect.fnUntraced(function* (
       state[3]!==null && state[3]<observedClock.lastCommitSeq;
   }).map(candidate=>candidate.tableId);
   const frontiers=yield* readUniqueTableFrontiers(tx,authority,snapshot,observedClock,[...new Set(needed)],coverageHint);
-  const accepted=yield* Effect.fromResult(consume(first.index,frontiers));
+  const accepted=yield* consumeWithRequiredMaintenance(first.index,frontiers);
   if (accepted.status==="frontiersRequired") return yield* Effect.die("Unique frontier consumption repeated its capture demand");
   return accepted;
 },work=>observeExecution("AppUniqueConstraintSetBuild.inspectBuildReadiness",work,"caller"));
@@ -1856,13 +1888,12 @@ function hasDefinitionCoverageResult(
     const member = snapshot.members.find(value => value.uniqueConstraintDefinitionId === state.uniqueConstraintDefinitionId);
     if (member === undefined || obligation.tableId !== tableId ||
       encodeBytesToLowercaseHex(obligation.physicalSpecSha256) !== member.physicalSpecSha256Hex ||
-      context === undefined || context.active === null || obligation.deploymentId !== context.active.schema.deploymentId ||
-      obligation.schemaVersionId !== context.active.schema.schemaVersionId || obligation.activationSequence !== context.active.head.activationSequence ||
-      !bytesEqualFullScan(obligation.headSha256, context.active.head.headSha256) ||
-      !bytesEqualFullScan(obligation.activationSha256, context.active.head.activationSha256) || !buildAuthorityIsCurrent(state, clock))
+      context === undefined || !maintenanceMatchesCoverageContext(obligation, context) || !buildAuthorityIsCurrent(state, clock))
       return Result.fail(stateError(authority, snapshot, "storedStateInvalid"));
     return Result.succeed(true);
   }
+  if (context !== undefined && hasRequiredBindingMaintenance(context, "unique", state.uniqueConstraintDefinitionId))
+    return Result.fail(stateError(authority, snapshot, "storedStateInvalid"));
   return Result.succeed(state.coveredThroughCommitSeq >= clock.lastCommitSeq || frontier === null || frontier <= state.coveredThroughCommitSeq);
 }
 
@@ -1872,8 +1903,11 @@ const inspectDefinitionCoverageEffect = Effect.fnUntraced(function* (
   clock: ScopeClockRecord, coverageContext?: IndexCoverageContext, tableFrontiers?: UniqueTableFrontiers,
 ) {
   if (state.coveredThroughCommitSeq === null) return false;
-  const context = state.maintenance === null ? coverageContext :
-    coverageContext ?? (yield* readUniqueCoverageContext(tx, clock, snapshot));
+  const context = coverageContext ?? (yield* readUniqueCoverageContext(tx, clock, snapshot));
+  if (state.maintenance === null)
+    yield* prepareMissingBindingMaintenanceCheck(tx, context).pipe(Effect.mapError(cause => cause.reason === "resourceFailure"
+      ? new AppUniqueConstraintSetBuildIntegrationV1Error({ phase: "targetTransaction", retryable: cause.retryable ?? false, cause })
+      : stateError(authority, snapshot, "storedStateInvalid", cause)));
   let frontier: CommitSeq | null = null;
   if (state.maintenance === null && state.coveredThroughCommitSeq < clock.lastCommitSeq) {
     const batched = tableFrontiers?.get(tableId);
@@ -3573,8 +3607,8 @@ function backfillResult(
   });
 }
 
-/** Selected definitions use either their active Application maintenance suffix
- * or explicit coverage under a separately authenticated source binding. */
+/** Selected serving definitions consume their genuine Application or binding
+ * maintenance suffix. Unbound candidates retain explicit build coverage. */
 export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
   "AppUniqueConstraintBuild.prepareActiveCoverage",
 )(function* (
@@ -3629,13 +3663,13 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
       return yield* Effect.fail(stateError(clock, selectedSnapshot, "coverageMissing"));
     const mode = publicationModeForTable(publicationProfile, definition.tableId);
     if ((mode === "activeApplication" && context.active !== null && state.maintenance === null) ||
-      (mode === "sourceBound" && state.maintenance !== null) ||
+      (mode === "sourceBound" && context.binding?.schemaVersionId === definition.schemaVersionId && state.maintenance === null) ||
       (typeof publicationProfile !== "string" && mode === "activeApplication" && context.active === null)) {
       return yield* Effect.fail(stateError(clock, selectedSnapshot, "coverageMissing"));
     }
     const maintenanceSchemaVersionId = typeof publicationProfile !== "string" && mode === "activeApplication"
       ? context.active?.schema.schemaVersionId : definition.schemaVersionId;
-    if (state.maintenance !== null && (state.maintenance.schemaVersionId !== maintenanceSchemaVersionId ||
+    if (state.maintenance !== null && ((state.maintenance.authorityKind === "binding" && state.maintenance.schemaVersionId !== maintenanceSchemaVersionId) ||
       state.maintenance.deploymentId !== definition.deploymentId)) {
       return yield* Effect.fail(stateError(clock, selectedSnapshot, "storedStateInvalid"));
     }
@@ -3661,7 +3695,7 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
     // Record the proved table-local coverage before a batch writes its first
     // page; later pages must not mistake this transaction's own rows for an
     // uncovered committed write.
-    if (sourceBoundBatch && mode === "sourceBound" && state.coveredThroughCommitSeq < clock.lastCommitSeq)
+    if (sourceBoundBatch && mode === "sourceBound" && state.maintenance === null && state.coveredThroughCommitSeq < clock.lastCommitSeq)
       yield* advanceUnboundUniqueCoverageInTransactionEffect(tx,
         [{ state, schemaVersionId: definition.schemaVersionId }], clock.lastCommitSeq);
     states.push(state);
@@ -4025,11 +4059,11 @@ function acceptUniqueBuildMaintenanceResult(
   maintenance: UniqueMaintenanceObligation | null,
 ) {
   return Result.gen(function* () {
-    if ((state.maintenanceActivationSequence === null) !== (maintenance === null))
+    if ((state.maintenanceActivationSequence === null) !== (maintenance === null) || (state.maintenanceAuthorityKind === null) !== (maintenance === null))
       return yield* Result.fail(stateError(authority, snapshot, "storedStateInvalid", "Maintenance binding and obligation disagree"));
     if (maintenance !== null) {
       if (state.lifecycle !== "enabled" || maintenance.scopeId !== state.scopeId ||
-        maintenance.activationSequence !== state.maintenanceActivationSequence ||
+        maintenance.authorityKind !== state.maintenanceAuthorityKind || maintenance.activationSequence !== state.maintenanceActivationSequence ||
         maintenance.uniqueConstraintDefinitionId !== state.uniqueConstraintDefinitionId || maintenance.storageGeneration !== state.storageGeneration ||
         maintenance.storageGenerationFence !== state.storageGenerationFence || maintenance.epoch !== state.epoch ||
         maintenance.startCommitSeq !== state.startCommitSeq || maintenance.attemptFence !== state.attemptFence ||
@@ -4042,7 +4076,7 @@ function acceptUniqueBuildMaintenanceResult(
       uniqueConstraintDefinitionId: state.uniqueConstraintDefinitionId,
       startCommitSeq: state.startCommitSeq,
       coveredThroughCommitSeq: state.coveredThroughCommitSeq,
-      maintenanceActivationSequence: state.maintenanceActivationSequence,
+      maintenanceActivationSequence: state.maintenanceActivationSequence, maintenanceAuthorityKind: state.maintenanceAuthorityKind,
       attemptFence: state.attemptFence,
       storageGeneration: state.storageGeneration,
       storageGenerationFence: state.storageGenerationFence,

@@ -649,7 +649,7 @@ function validFencedIndexBuildReadRow(
     buildState: {
       scopeId,
       indexDefinitionId,
-      maintenanceActivationSequence: null,
+      maintenanceActivationSequence: null, maintenanceAuthorityKind: null,
       storageGeneration: "flarexdb_v1" as const,
       storageGenerationFence: 1n,
       epoch: "epoch-index-build-row",

@@ -13,6 +13,8 @@ import {
 import {
   readBindingCandidate,
   readBindingHead,
+  withBindingSelectionInTransaction,
+  closeBindingSelectionCaptureInTransaction,
 } from "../../installation/frameworkSchema/binding/repository";
 import { sameBindingValue } from "../../installation/frameworkSchema/binding/canonical";
 import type { FrameworkSchemaTarget } from "../../installation/frameworkSchema/target";
@@ -49,6 +51,7 @@ export const withAtomicCommerceAdmissions = Effect.fnUntraced(function* <Value>(
   work: (admissions: readonly AtomicCommerceAdmission[]) => Effect.Effect<Value, CommerceTransactionError>,
   observation?: ApplicationBindingObservation,
 ): Effect.fn.Return<Value, CommerceTransactionError> {
+  return yield* withBindingSelectionInTransaction(tx, authority, () => Effect.gen(function* () {
   const first = members[0];
   const allLogical = first?.kind === "logical" && members.every(member => member.kind === "logical");
   const prelude = yield* (allLogical
@@ -77,6 +80,7 @@ export const withAtomicCommerceAdmissions = Effect.fnUntraced(function* <Value>(
       ): Effect.fn.Return<Value, CommerceTransactionError> {
         const member = members[index];
         if (member === undefined) {
+          closeBindingSelectionCaptureInTransaction(tx);
           closeSharedLogicalSourceBindingLending(tx);
           invalidateAcceptedApplicationBindingInTransaction(tx);
           return yield* work(admitted);
@@ -108,4 +112,5 @@ export const withAtomicCommerceAdmissions = Effect.fnUntraced(function* <Value>(
       return yield* withSharedLogicalSourceBindingChecks(tx, () => visit(0, [], new Set(), observation),
         members.flatMap(member => member.kind === "logical" ? [member.sourceKey] : []));
     }));
+  }));
 }, effect => observeExecution("AtomicCommerce.withAdmissions", effect, "caller"));

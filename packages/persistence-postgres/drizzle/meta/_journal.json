@@ -1016,6 +1016,13 @@
       "when": 1791590700000,
       "tag": "0144_ordinary_readiness_dispatch_retirement",
       "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1791590800000,
+      "tag": "0145_binding_maintenance_authority",
+      "breakpoints": true
     }
   ]
 }

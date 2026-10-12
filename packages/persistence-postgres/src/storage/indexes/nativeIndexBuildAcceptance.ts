@@ -1,3 +1,4 @@
+import { bindingMaintenanceSelectionSql, bindingMaintenanceCaptureSql } from "../../installation/frameworkSchema/binding/maintenanceSelectionSql";
 import { getTableName, sql } from "drizzle-orm";
 import type { QueryPromise } from "drizzle-orm/query-promise";
 import { defineNativeMetadataRead } from "../../database/physicalSession/drizzle";
@@ -14,7 +15,7 @@ import { INDEX_BUILD_INTRINSIC_VALIDITY_SQL, INDEX_MAINTENANCE_OPENING_VALIDITY_
 /** A native canonical comparison key, never a replacement for context admission. */
 const ordinaryActiveKeySql = (alias: string) => sql.raw(`jsonb_build_array(${alias}.deployment_id,
   ${alias}.schema_version_id,encode(${alias}.schema_manifest_sha256,'hex'),${alias}.activation_sequence::text,
-  encode(${alias}.activation_sha256,'hex'),encode(${alias}.head_sha256,'hex'))::text`);
+  encode(${alias}.activation_sha256,'hex'),encode(${alias}.head_sha256,'hex'),${alias}.authority_kind,encode(${alias}.candidate_sha256,'hex'))::text`);
 
 /** Native SHARE exclusion followed by input-ordinal acceptance. Successful
  * validation transports no build record; the first refusal retains the exact
@@ -51,6 +52,7 @@ function buildSelectedIndexBuildLockAcceptance(tx: FlarexMetadataDatabase, order
       cross join (select ${scope}::text as p_scope_id) pins
       left join ${maintenance} index_maintenance on index_maintenance.scope_id=build_row.scope_id
         and index_maintenance.index_definition_id=build_row.index_definition_id
+        and index_maintenance.authority_kind=build_row.maintenance_authority_kind
         and index_maintenance.activation_sequence=build_row.maintenance_activation_sequence
     ), refused as materialized (select * from observed where reason<>'accepted' order by ordinal limit 1)
     select reason, ordinal, p_index_definition_id, build, maintenance from refused
@@ -72,7 +74,7 @@ function buildRequiredIndexBuildReadinessAcceptance(tx: FlarexMetadataDatabase) 
   const builds = fxSystemIndexBuildStates, maintenance = fxSystemIndexMaintenanceObligations;
   const scope = parameter("scopeId");
   const snapshot = parameter("lastCommitSeq");
-  const source = sql`(with requested as materialized (
+  const source = sql`(with binding_pins as materialized (select ${scope}::text as binding_scope,${parameter("storageGeneration")}::text as binding_generation), binding_selection as materialized (select selected.* from binding_pins cross join lateral (${sql.raw(bindingMaintenanceCaptureSql("", "binding_scope", "binding_generation"))}) selected), requested as materialized (
     select selected.p_index_definition_id, selected.ordinal, selected.table_id,
       decode(selected.physical_spec_sha256_hex,'hex') as physical_spec_sha256
     from unnest(${parameter("definitionIds")}::integer[], ${parameter("tableIds")}::integer[],
@@ -105,16 +107,22 @@ function buildRequiredIndexBuildReadinessAcceptance(tx: FlarexMetadataDatabase) 
         when build_row.start_commit_seq>${snapshot} or build_row.covered_through_commit_seq>${snapshot} then 'frontier'
         when build_row.covered_through_commit_seq is null or build_row.first_readable_commit_seq is null
           or build_row.first_readable_commit_seq>${snapshot} then 'notCovered'
+        when index_maintenance.scope_id is null and exists(select 1 from ${maintenance} required
+          where required.scope_id=${scope} and required.authority_kind='binding'
+            and required.activation_sequence=binding_selection.activation_sequence
+            and required.index_definition_id=requested.p_index_definition_id
+            and (${sql.raw(bindingMaintenanceSelectionSql("required"))}) is true) then 'maintenance'
         when index_maintenance.scope_id is not null and (
-          ${parameter("hasActive")}::boolean is not true
-          or index_maintenance.table_id is distinct from requested.table_id
+          index_maintenance.table_id is distinct from requested.table_id
           or index_maintenance.physical_spec_sha256 is distinct from requested.physical_spec_sha256
+          or (index_maintenance.authority_kind='binding' and (${sql.raw(bindingMaintenanceSelectionSql("index_maintenance"))}) is not true)
+          or (index_maintenance.authority_kind='application' and (${parameter("hasActive")}::boolean is not true
           or index_maintenance.deployment_id is distinct from ${parameter("deploymentId")}::text
           or index_maintenance.schema_version_id is distinct from ${parameter("schemaVersionId")}::text
           or index_maintenance.schema_manifest_sha256 is distinct from decode(${parameter("schemaManifestSha256")}::text,'hex')
           or index_maintenance.activation_sequence is distinct from ${parameter("activationSequence")}::bigint
           or index_maintenance.activation_sha256 is distinct from ${parameter("activationSha256")}::bytea
-          or index_maintenance.head_sha256 is distinct from ${parameter("headSha256")}::bytea) then 'maintenance'
+          or index_maintenance.head_sha256 is distinct from ${parameter("headSha256")}::bytea))) then 'maintenance'
         when index_maintenance.scope_id is not null or build_row.covered_through_commit_seq>=${snapshot} then 'accepted'
         when latest.commit_seq is not null and latest.commit_seq<1 then 'tableFrontier'
         when latest.commit_seq is null or latest.commit_seq<=build_row.covered_through_commit_seq then 'accepted'
@@ -123,8 +131,10 @@ function buildRequiredIndexBuildReadinessAcceptance(tx: FlarexMetadataDatabase) 
     cross join (select ${scope}::text as p_scope_id) pins
     left join ${maintenance} index_maintenance on index_maintenance.scope_id=build_row.scope_id
       and index_maintenance.index_definition_id=build_row.index_definition_id
-      and index_maintenance.activation_sequence=build_row.maintenance_activation_sequence
+      and index_maintenance.authority_kind=build_row.maintenance_authority_kind
+        and index_maintenance.activation_sequence=build_row.maintenance_activation_sequence
     left join frontiers latest on latest.table_id=requested.table_id
+    left join binding_selection on true
   ), unavailable as materialized (select 'availability'::text as phase, availability as verdict, observed.*
     from observed where availability is not null order by ordinal limit 1),
   refused as materialized (select 'coverage'::text as phase, reason as verdict, observed.*
@@ -216,7 +226,8 @@ function buildRequiredIndexBuildProgressCapture(tx: FlarexMetadataDatabase) {
     cross join (select ${scope}::text as p_scope_id) pins
     left join ${maintenance} index_maintenance on index_maintenance.scope_id=build_row.scope_id
       and index_maintenance.index_definition_id=build_row.index_definition_id
-      and index_maintenance.activation_sequence=build_row.maintenance_activation_sequence
+      and index_maintenance.authority_kind=build_row.maintenance_authority_kind
+        and index_maintenance.activation_sequence=build_row.maintenance_activation_sequence
   ), unavailable as materialized (select * from observed where availability<>'ready' order by ordinal limit 1),
   captured as materialized (select coalesce(jsonb_agg(case when intrinsic then progress else null end order by ordinal),'[]'::jsonb)::text as progress from observed),
   result as (

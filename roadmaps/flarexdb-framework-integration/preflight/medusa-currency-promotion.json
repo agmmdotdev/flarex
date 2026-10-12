@@ -4429,9 +4429,24 @@
       "targetSha256": "da762e8a25d23c9f105322643cc3c2c802ce160b692c7eeedeaffebccd919fc7"
     },
     {
+      "target": "packages/medusa-adapter/test/logical-binding-readiness-order.test.ts",
+      "classification": "authored",
+      "targetSha256": "e67f8bac6a231893b604772f16fc320a4344b05802f88859897cd005d4bf91dc"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-binding-maintenance.test.ts",
+      "classification": "authored",
+      "targetSha256": "0b2d765ea14ab961d8ad781019d920ef05de6970a7cf1287b2d1b7edbbacdc4a"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/core-performance/native-business/cost-inventory-proposal.md",
+      "classification": "authored",
+      "targetSha256": "e15eb9bdb30bd9a6f89864810b7273d3e611df0b7882f2cdbe882262ae11257a"
+    },
+    {
       "target": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
       "classification": "authored",
-      "targetSha256": "9be3510fc4de644a186a3b44e353c4bcc3251a9abd6377548066c7ddf41ec426"
+      "targetSha256": "8b7e39a86e41f3a4a890578a3a010bec2a3fd418e5491b942639fd4ca559eeda"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-inventory.ts",
@@ -5423,7 +5438,7 @@
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-business/cpu-execution-results.md",
       "classification": "authored",
-      "targetSha256": "593cd790f6a3aa2b592e0d5148c9b7c8fa064fe95a97d3fc944038412ea4bcc6"
+      "targetSha256": "bb5367b31d4835213904f6ed0e64eb36d2664f701e4f85c6ef4ed120097a864b"
     },
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/cpu-execution/baseline/medusa-workflow/root-counters-e7d6472e-6408-490e-ae9e-cf32a3505a17.json.gz",

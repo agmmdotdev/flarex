@@ -200,6 +200,7 @@ const convertIndex = Effect.fn("IndexMaintenanceMigration.convertIndex")(functio
     stored.coveredThroughCommitSeq?.toString() !== frame.openedCommitSeq || stored.firstReadableCommitSeq?.toString() !== frame.firstReadableCommitSeq)
     return yield* Effect.fail(failure("storedState"));
   const expected = yield* Effect.fromResult(decodeIndexMaintenanceObligationResult({
+    authorityKind: "application", candidateSha256: null,
     scopeId: frame.scopeId,indexDefinitionId: frame.indexDefinitionId,activationSequence: BigInt(frame.activationSequence),
     storageGeneration: frame.storageGeneration,storageGenerationFence: BigInt(frame.storageGenerationFence),epoch: frame.epoch,
     attemptFence: BigInt(frame.attemptFence),openedCommitSeq: BigInt(frame.openedCommitSeq),firstReadableCommitSeq: BigInt(frame.firstReadableCommitSeq),
@@ -209,6 +210,7 @@ const convertIndex = Effect.fn("IndexMaintenanceMigration.convertIndex")(functio
   })).pipe(Effect.mapError(cause => failure("storedState",cause)));
   const existing = yield* driver(tx.select().from(fxSystemIndexMaintenanceObligations).where(and(
     eq(fxSystemIndexMaintenanceObligations.scopeId,expected.scopeId),eq(fxSystemIndexMaintenanceObligations.indexDefinitionId,expected.indexDefinitionId),
+    eq(fxSystemIndexMaintenanceObligations.authorityKind,"application"),
     eq(fxSystemIndexMaintenanceObligations.activationSequence,expected.activationSequence))));
   if (existing.length > 1) return yield* Effect.fail(failure("storedState"));
   if (existing[0] !== undefined) {
@@ -252,6 +254,7 @@ const convertUnique = Effect.fn("IndexMaintenanceMigration.convertUnique")(funct
     stored.coveredThroughCommitSeq?.toString() !== frame.openedCommitSeq || stored.startCommitSeq.toString() !== frame.startCommitSeq)
     return yield* Effect.fail(failure("storedState"));
   const expected = yield* decodeUniqueMaintenanceObligationEffect({
+    authorityKind: "application", candidateSha256: null, schemaManifestSha256: null,
     scopeId: frame.scopeId,uniqueConstraintDefinitionId: frame.uniqueConstraintDefinitionId,activationSequence: BigInt(frame.activationSequence),
     storageGeneration: frame.storageGeneration,storageGenerationFence: BigInt(frame.storageGenerationFence),epoch: frame.epoch,
     attemptFence: BigInt(frame.attemptFence),openedCommitSeq: BigInt(frame.openedCommitSeq),startCommitSeq: BigInt(frame.startCommitSeq),
@@ -260,6 +263,7 @@ const convertUnique = Effect.fn("IndexMaintenanceMigration.convertUnique")(funct
   }).pipe(Effect.mapError(cause => failure("storedState",cause)));
   const existing = yield* driver(tx.select().from(fxSystemUniqueMaintenanceObligations).where(and(
     eq(fxSystemUniqueMaintenanceObligations.scopeId,expected.scopeId),eq(fxSystemUniqueMaintenanceObligations.uniqueConstraintDefinitionId,expected.uniqueConstraintDefinitionId),
+    eq(fxSystemUniqueMaintenanceObligations.authorityKind,"application"),
     eq(fxSystemUniqueMaintenanceObligations.activationSequence,expected.activationSequence))));
   if (existing.length > 1) return yield* Effect.fail(failure("storedState"));
   if (existing[0] !== undefined) {
@@ -272,7 +276,8 @@ const convertUnique = Effect.fn("IndexMaintenanceMigration.convertUnique")(funct
 });
 
 function equalOpening(actual: IndexMaintenanceObligation | UniqueMaintenanceObligation,expected: IndexMaintenanceObligation | UniqueMaintenanceObligation): boolean {
-  return actual.scopeId === expected.scopeId && actual.activationSequence === expected.activationSequence &&
+  return actual.authorityKind === expected.authorityKind && actual.candidateSha256 === null && expected.candidateSha256 === null &&
+    actual.scopeId === expected.scopeId && actual.activationSequence === expected.activationSequence &&
     actual.storageGeneration === expected.storageGeneration && actual.storageGenerationFence === expected.storageGenerationFence &&
     actual.epoch === expected.epoch && actual.attemptFence === expected.attemptFence && actual.openedCommitSeq === expected.openedCommitSeq &&
     actual.tableId === expected.tableId && actual.deploymentId === expected.deploymentId && actual.schemaVersionId === expected.schemaVersionId &&

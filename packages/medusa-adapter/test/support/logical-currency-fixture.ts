@@ -163,6 +163,7 @@ type LogicalCurrencyResource =
     session: RelationalSession; observeSql: (observer: ((text: string) => Promise<void> | void) | undefined) => void }>
   | Readonly<{ kind: "postgres"; control: PostgresFlarexPersistence; target: PostgresFlarexPersistence;
     testOwner: PostgresFlarexPersistence;
+    migrationJournalSchema?: string;
     installationTiming?: LogicalInstallationTiming;
     protectedMetadata?: ProtectedMetadataPreparation;
     activationProfile?: ApplicationActivationTargetProfile;
@@ -253,7 +254,7 @@ export async function logicalCurrencyFixture(
     throw new Error("Explicit PostgreSQL fixture endpoints require PostgreSQL");
   const pair: LogicalCurrencyResource = options?.resource ?? (driver === "pglite" ? await (async () => {
     const control = await createMigratedPGlitePersistence(registerCleanup);
-    const target = await createRelationalPGliteFixture({ registerCleanup, observeQuery: text => observer?.(text),
+    const target = await createRelationalPGliteFixture({ registerCleanup, observeQuery: text => observer?.(text), immutableCatalog: control.drizzle,
       transport: options?.finiteStorageCapture === true ? "finiteCapture" : "ordinary" });
     return { kind: "pglite" as const, control, target: target.persistence, testOwner: target.persistence, session: target.session,
       observeSql: (next: typeof observer) => { observer = next; } };
@@ -262,15 +263,17 @@ export async function logicalCurrencyFixture(
       // installation before the second schema migrates in a fresh database.
       const control = await createFileScopedPostgresFixture({}, {}, "ordinary", options?.postgresEndpoints);
       registerCleanup(control.dispose);
+      const targetOwner = await createFileScopedPostgresFixture({}, { immutableCatalog: control.persistence.drizzle },
+        options?.finiteStorageCapture === true ? "finiteCapture" : "ordinary", options?.postgresEndpoints);
+      registerCleanup(targetOwner.dispose);
       const target = await (options?.protectedRuntime === true || options?.managedRead === true
-          ? createActivationServingFileScopedPostgresFixture(undefined,
+          ? createActivationServingFileScopedPostgresFixture(targetOwner,
             options?.finiteStorageCapture === true ? "finiteCapture" : "ordinary", options?.postgresEndpoints).then(resource => {
               activationResources = resource;
               registerCleanup(resource.dispose);
               return resource.serving;
             })
-          : createFileScopedPostgresFixture({}, {}, options?.finiteStorageCapture === true ? "finiteCapture" : "ordinary", options?.postgresEndpoints)
-            .then(resource => { registerCleanup(resource.dispose); return resource; }));
+          : Promise.resolve(targetOwner));
       const managedControl = options?.managedRead === true
         ? await createProtectedFileScopedPostgresFixture("managed", control, "ordinary", options?.postgresEndpoints) : undefined;
       if (managedControl !== undefined) registerCleanup(managedControl.dispose);
@@ -306,6 +309,7 @@ export async function logicalCurrencyFixture(
       })();
       return { kind: "postgres" as const, control: control.persistence, target: target.persistence,
         testOwner: activationResources === undefined ? target.persistence : activationResources.owner.persistence,
+        migrationJournalSchema: targetOwner.migrationsSchema,
         installationTiming,
         ...(managedRead === undefined ? {} : { managedRead }),
         ...(activationProfile === undefined ? {} : { activationProfile }),

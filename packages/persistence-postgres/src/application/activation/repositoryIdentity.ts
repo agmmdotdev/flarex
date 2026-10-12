@@ -16,6 +16,7 @@ import type {
 import type { LockScopeClockForShareError } from "../../scope/scopeClock";
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { ApplicationReadinessProtection } from "../readiness/contracts";
+import type { ApplicationActivationTargetProfile } from "../readiness/contracts";
 import type { ReadApplicationReadinessError } from "../readiness/errors";
 import type {
   ApplicationActivationRepository,
@@ -46,6 +47,7 @@ export interface ApplicationActivationRepositoryState {
   readonly deploymentId: string;
   readonly scopeId: ScopeId;
   readonly controlDatabase: FlarexMetadataDatabase | undefined;
+  readonly activation: ApplicationActivationTargetProfile;
   readonly authority: TrustedScopeAuthorityResolutionPorts<
     LocatedReadCommittedAttemptTargetV1
   > & ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;

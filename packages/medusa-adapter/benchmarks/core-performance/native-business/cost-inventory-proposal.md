@@ -1,9 +1,93 @@
 # Publication, capture and client CPU cost inventory
 
-Status: investigation and ranked proposal only. The owner requested discussion
-before implementation. No runtime, schema, migration, policy, limit or business
-test change is selected by this document. Preflight 27 remains the owning design
-track; this ledger supplies its evidence and proposed next decision.
+Status: binding-owned maintenance and transaction-scoped binding reuse are implemented;
+complete performance acceptance remains unmet. [Preflight 27](../../../../../roadmaps/mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#current-decision-binding-owned-maintenance-cutover)
+owns that connected implementation contract and migration. This ledger supplies
+the measured baseline and its limits. Repeated captures and client CPU remain
+investigation proposals. Structural work removal and complete performance results
+are reported separately below.
+
+## Transaction binding reuse result
+
+The [complete results](../../../../../work/validation/shared-execution-evidence/binding-reuse/results.md)
+retain all 15 successful graph/lane processes with frozen sources. The
+[exact binding-read comparison](../../../../../work/validation/shared-execution-evidence/binding-reuse/binding-read-comparison.json)
+confirms removal of all six standalone head/evidence reads at Application
+readiness, logical readiness and logical materialization. Admission's original
+locked selection, live preparation lease and metadata final guard protect the
+borrowed evidence. Capture closes before business savepoints; activation clears
+the selection before writes, and every scope Exit removes it.
+
+| Medusa graph | Maintenance / reuse exchanges | Added CPU ms | Native / Flarex quiet median ms | Paired added median / P95 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Standalone | 93 / 87 | 63 | 21.22 / 157.73 | 133.80 / 149.54 |
+| Mixed | 60 / 60 | 156 | 36.45 / 262.78 | 228.30 / 247.75 |
+
+Mixed publication retains its fresh head/evidence pair because entry and
+settlement use different transactions. The final reference-publication check
+also remains. Mixed still performs 38 implicit captures across 41 checkouts.
+Publication work remains nine document revisions, 42 index revisions, two
+unique releases and ten claims, with zero recurring index/unique coverage updates.
+
+All five complete graphs still fail the fixed CPU and latency gates. Added CPU
+uses five matched pairs with approximately 16 ms Windows counter resolution;
+quiet latency uses 30 matched pairs. The preceding maintenance cohort and this
+cohort are separate measurements: standalone added CPU was 95 ms and mixed was
+94 ms there. These results do not establish a general CPU improvement or exclusive
+causal attribution. The six removed diagnostic reads previously accounted for
+3.04 ms driver-await and 25,359 decoded JSON bytes; those are not exclusive CPU
+costs or a prediction of quiet latency savings.
+
+The [handoff](../../../../../work/validation/shared-execution-evidence/binding-reuse/handoff.md)
+records correctness, review, measurement and resource state. The owner requested
+a checkpoint commit with complete performance acceptance explicitly still open.
+Repeated capture and broader client CPU changes remain discussion proposals.
+
+## Preceding binding maintenance candidate result
+
+The [complete candidate results](../../../../../work/validation/shared-execution-evidence/binding-maintenance/results.md)
+retain all 15 successful graph/lane processes. The [publication work comparison](../../../../../work/validation/shared-execution-evidence/binding-maintenance/publication-work.json)
+reconciles the actual diagnostic with the preceding saved cohort:
+
+| Mixed publication work | Previous | Candidate |
+| --- | ---: | ---: |
+| Document revisions | 9 | 9 |
+| Index revisions, including seven intrinsic revisions | 42 | 42 |
+| Unique releases / claims | 2 / 10 | 2 / 10 |
+| Recurring index coverage updates | 49 | 0 |
+| Recurring unique coverage updates | 16 | 0 |
+
+The old coverage loop's 65 UPDATEs and 227 SELECTs no longer execute for those
+maintained builds. The 227 SELECTs remain a source-derived gross count of the
+removed loop, not a net server-statement measurement. Fresh maintenance acceptance
+still performs required work. Candidate/build progress retains its real owners.
+
+| Medusa graph | Previous / candidate exchanges | Previous / candidate added CPU ms | Native / Flarex quiet median ms | Paired added median / P95 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Standalone | 87 / 93 | 77 / 95 | 21.11 / 163.33 | 142.66 / 159.69 |
+| Mixed | 58 / 60 | 141 / 94 | 38.10 / 272.90 | 232.27 / 296.12 |
+
+The extra standalone exchanges are exactly `readHeadRecord` and
+`readSelectedEvidence` at Application readiness, logical readiness and logical
+materialization. Mixed adds that pair only at logical materialization. Its 38
+implicit captures and 41 checkouts remain. These observations identify the
+new cost at that checkpoint. The transaction-scoped correction above supersedes
+the standalone rereads; the mixed publication pair remains necessary.
+
+All five graphs still fail the fixed 16 ms added-CPU and 5/10 ms added-median/P95
+latency gates. CPU uses five matched pairs and approximately 16 ms Windows counter
+steps; quiet latency uses 30 matched pairs. Previous and candidate values come
+from separate cohorts and are not exclusive causal attribution. The candidate
+does not establish a general CPU or latency improvement. Sources and settings
+were stable within every run, and source fingerprints agree across runs with the
+same inventory: CPU/quiet include native sources; database diagnostics do not.
+
+Setup is outside request timing and remains visible: standalone Medusa setup was
+34.74 s in the CPU lane and 34.86 s in quiet; mixed setup was 40.93 s and 39.29 s.
+The [handoff](../../../../../work/validation/shared-execution-evidence/binding-maintenance/handoff.md)
+records correctness, migration, review and resource state. No new commit was
+created. The earlier intermittent Currency timeout is not established as resolved
+by this successful cohort. The older inventory below remains the baseline evidence.
 
 ## Evidence and limits
 
@@ -133,7 +217,8 @@ revisions/current pointers and index revisions/current memberships in ordered
 loops. Those are additional candidates for reducing repeated execution, but the
 current evidence does not establish their exclusive cost.
 
-Concrete proposed removal at the existing coverage owner: replace the 97 final
+The initially proposed batching alternative at the existing coverage owner was
+to replace the 97 final
 verification lookups with **three ordered set-based verification SELECTs**, one
 at each existing batch boundary. This would remove 94 table query executions
 for this graph while retaining all 65 coverage updates, immediate post-write
@@ -145,10 +230,17 @@ first-failure behavior before accepting this replacement.
 Further batching must preserve actual lock/write/trigger ordering. Do not
 discard immediate readbacks on the assumption that RETURNING proves the final
 state after AFTER-trigger work. Do not drop revision history, uniqueness,
-coverage, durable outcomes, event facts or final commit guards. A design that
-stops advancing untouched definitions would change the coverage contract across
-writers, readiness readers and build recovery; it is a separate proposed design
-choice, not an available local deletion of 65 updates.
+coverage, durable outcomes, event facts or final commit guards. Removing marker
+advancement changes the contract across writers, readiness readers and build
+recovery. That connected replacement is now selected: extend existing protected
+maintenance obligations to genuine framework binding activation, keep frontiers
+sealed during continuous atomic maintenance, and retain explicit progress for
+actual builds/candidates. Definition selection already filters touched tables
+(participant attempted tables in finite publication); skipping unrelated tables
+is not a new optimization. The target removes all 65 normal serving updates and
+the 227 SELECTs in their old advancement/readback loops after conversion.
+Replacement fresh acceptance still costs work; this is not a net statement-count
+or latency prediction.
 
 At the Commerce publisher, facts are emitted in a separate append call per source
 even after the physical writes have been combined. A bounded accumulator could
@@ -255,23 +347,17 @@ The prior scalar-tuple-to-array transport correction is already implemented.
 
 | Rank | Connected target | Removable work established or proposed | Confidence and decision gate |
 | --- | --- | --- | --- |
-| 1 | Shared publication coverage and materialization, both ordinary and finite consumers | 94 final-verification table query executions can be targeted at unchanged batch boundaries; investigate remaining coverage/readiness repetition and pack source fact pages within the same publication cutover | Source-established repetition and large enclosing wait; exclusive time saving unknown. Preserve ordered failures, full stored proofs, locks and timestamp precision. |
+| 1 | Binding-owned maintenance across activation, publication and ordinary/finite readers | Remove the 65 recurring coverage-marker updates and their old 227 internal SELECTs for fully converted maintained serving builds | Owner approved after discussion. Replacement fresh acceptance has cost; complete CPU/latency savings remain unmeasured. Preserve current authority, atomic complete maintenance, build/recovery and migration proofs. |
 | 2 | Finite demand formation, capture envelope and working-set interpretation | Repeated capture overhead for independent demands available at the same frontier; reuse only exact complete snapshot evidence | 38 captures are observed; zero exact duplicate demands proved. Record demand identity and frontier first; do not predict 38-to-1. |
 | 3 | Client preparation/value processing at the measured owners | Repeated preparation or traversal of genuinely identical owned input; avoid reconstruction before an existing validator/encoder | Current profiles identify locations, not redundant invocation counts. First establish per-operation visits/bytes and authentic value identity; retain native framework boundaries. |
 | 4 | Ordinary authority/clock choreography | Potential repeated observations within one continuously held, authentic transaction capability | Low initial priority: 19 exchanges awaited 6.59 ms total. Freshness, post-wait refresh and revocation forbid generic memoization. |
 
-Recommendation: select a **publication-first connected redesign** across coverage,
-materialization and the standalone/mixed publisher, with capture batching as the
-next evidence-driven decision. The 94-select replacement and fact packing are
-internal steps, not separate performance deliverables. Do not begin an
-Effect-wide rewrite, adapter cache, another scalar SQL transport rewrite, or a
-coverage-watermark schema change on this evidence alone.
-
-Before implementation, agree the publication contract and affected ordinary/
-finite consumers in preflight 27. Initially retain durable schemas and records;
-replace the owner-local verification algorithm and remove displaced loops in the
-same cutover. Broader coverage representation changes require their own explicit
-data/reader/writer/migration inventory. No silent data reset or new host lifecycle.
+Decision: implement the **binding-owned maintenance cutover** in preflight 27.
+The earlier 94-select batching proposal and source-fact packing are superseded
+as the primary direction. They do not remove recurring marker writes. The
+approved preflight inventories the necessary private schema, reader, writer,
+permission and migration changes. No silent data reset, new host lifecycle,
+Effect-wide rewrite, adapter cache or unrelated capture redesign is selected.
 
 Required proofs include batch/prior-page corruption and trigger cases, exact
 failure ordinal, coverage/build concurrency, lock order, native timestamp

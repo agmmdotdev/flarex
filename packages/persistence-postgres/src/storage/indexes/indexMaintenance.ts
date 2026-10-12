@@ -47,7 +47,7 @@ export const replaceActiveIndexMaintenanceInTransactionEffect = Effect.fn("Index
     const outgoingDefinitions = new Map(outgoingRequirements?.definitions.map(definition => [definition.indexDefinitionId, definition]));
     const outgoing = yield* query(tx.select({ id: fxSystemIndexBuildStates.indexDefinitionId })
       .from(fxSystemIndexBuildStates).where(and(eq(fxSystemIndexBuildStates.scopeId, clock.scopeId),
-        isNotNull(fxSystemIndexBuildStates.maintenanceActivationSequence)))
+        eq(fxSystemIndexBuildStates.maintenanceAuthorityKind, "application"), isNotNull(fxSystemIndexBuildStates.maintenanceActivationSequence)))
       .limit(MAX_RECONCILED_DEFINITIONS + 1));
     if (outgoing.length > MAX_RECONCILED_DEFINITIONS || requirements.definitions.length > MAX_RECONCILED_DEFINITIONS) {
       return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
@@ -64,6 +64,7 @@ export const replaceActiveIndexMaintenanceInTransactionEffect = Effect.fn("Index
         .pipe(Effect.mapError(cause => new IndexMaintenanceError({ reason: "storedState", cause })));
       builds.set(build.indexDefinitionId, build);
       if (build.maintenance !== null) {
+        if (build.maintenance.authorityKind !== "application") return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
         const definition = outgoingDefinitions.get(build.indexDefinitionId);
         if (definition === undefined) return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
         const covered = yield* isIndexBuildSnapshotCoveredInTransactionEffect(tx, build, definition, clock.lastCommitSeq, context);

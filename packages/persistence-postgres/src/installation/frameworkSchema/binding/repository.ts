@@ -12,6 +12,7 @@ import type { FlarexMetadataDatabase } from "../../../application/deployments";
 import { runEffectTransaction, runEffectTransactionSettlement } from "../../../database/effectTransaction";
 import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../../storage/indexes/indexBuildReconciliation";
 import { readUniqueMaintenanceRequirements } from "../../../storage/unique/appUniqueConstraintSetBuildV1";
+import { replaceBindingMaintenanceInTransaction, type BindingMaintenanceRequirements } from "../../../storage/indexes/bindingMaintenance";
 import { prepareLogicalStorageMetadataProjection } from "../../../storage/catalog/logicalStorageReadiness";
 import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
 import { isCanonicalPrivateValuePositiveInt64, isPrivateValueSha256 } from "../privateStoredValueShape";
@@ -131,6 +132,66 @@ interface PreparedSelectedStructureState {
     head: DataBindingHeadToken }>;
 }
 const preparedSelectedStructures = new WeakMap<object, PreparedSelectedStructureState>();
+
+type SelectedBindingEvidence = Readonly<{ head: StoredBindingValue<DataBindingHeadFrame>;
+  candidate: StoredBindingValue<DataBindingSetFrame>; activation: Effect.Success<ReturnType<typeof decodeActivationRow>> }>;
+interface TransactionBindingSelection {
+  readonly location: BindingLocation;
+  captureOpen: boolean;
+  selected: Readonly<{ evidence: SelectedBindingEvidence; preparation: PreparedBindingSelectedStructure }> | undefined;
+}
+const transactionBindingSelections = new WeakMap<FlarexMetadataTransaction, TransactionBindingSelection>();
+
+/** The trusted outer admission encloses business execution and publication.
+ * Only pre-business, locked positive selections can enter this scope; later
+ * savepoint work cannot lend a lock that rollback might release. */
+export function withBindingSelectionInTransaction<Value, Failure, Requirements>(
+  tx: FlarexMetadataTransaction, location: BindingLocation,
+  work: () => Effect.Effect<Value, Failure, Requirements>,
+): Effect.Effect<Value, Failure, Requirements> {
+  return Effect.suspend(() => {
+    if (transactionBindingSelections.has(tx))
+      return Effect.die(new Error("Binding selection scope already opened"));
+    const selection: TransactionBindingSelection = { location: Object.freeze({ ...location }), captureOpen: true, selected: undefined };
+    transactionBindingSelections.set(tx, selection);
+    return Effect.suspend(work).pipe(Effect.ensuring(Effect.sync(() => {
+      selection.captureOpen = false;
+      selection.selected = undefined;
+      transactionBindingSelections.delete(tx);
+    })));
+  });
+}
+
+/** End capture before any business callback or business savepoint. */
+export function closeBindingSelectionCaptureInTransaction(tx: FlarexMetadataTransaction): void {
+  const selection = transactionBindingSelections.get(tx);
+  if (selection !== undefined) selection.captureOpen = false;
+}
+
+function retainTransactionBindingSelection(tx: FlarexMetadataTransaction, location: BindingLocation,
+  prepared: PreparedBindingSelectedStructure | undefined, preparation: PreparedSelectedStructureState | undefined,
+  evidence: SelectedBindingEvidence): Option.Option<SelectedBindingEvidence> {
+  const selection = transactionBindingSelections.get(tx);
+  if (selection?.captureOpen === true && prepared !== undefined && preparation?.lifetime !== undefined &&
+    selection.location.scopeId === location.scopeId && selection.location.storageGeneration === location.storageGeneration) {
+    selection.selected = Object.freeze({ evidence, preparation: prepared });
+  }
+  return Option.some(evidence);
+}
+
+/** Only coverage pins borrow this selection. General binding reads still
+ * perform their own fresh head authentication and source admission. */
+export const readBindingCoverageSelectedEvidence = Effect.fn("DataBindingRepository.readCoverageSelectedEvidence")(
+  function* (tx: FlarexMetadataTransaction, location: BindingLocation) {
+    const selection = transactionBindingSelections.get(tx);
+    const selected = selection?.selected;
+    if (selected !== undefined && selection?.location.scopeId === location.scopeId &&
+      selection.location.storageGeneration === location.storageGeneration && hasProtectedMetadataFinalGuardScope(tx)) {
+      yield* requireSelectedBindingPreparation(tx, location, selected.preparation);
+      return Option.some(selected.evidence);
+    }
+    return yield* readBindingSelectedEvidence(tx, location);
+  });
 
 /** Issued by connected source preparation, with nominal Application lineage.
  * The first read still authenticates activation, candidate and complete lanes. */
@@ -576,7 +637,8 @@ export const readBindingSelectedEvidence = Effect.fnUntraced(
     const head = selectedHead.value;
     const retained = preparation?.structure;
     if (observed === undefined && retained !== undefined && retainedStructureMatchesHead(retained, head)) {
-      return Option.some(Object.freeze({ head, candidate: retained.candidate, activation: retained.activation }));
+      return retainTransactionBindingSelection(tx, location, prepared, preparation,
+        Object.freeze({ head, candidate: retained.candidate, activation: retained.activation }));
     }
     const retainedActivation = preparation?.activation;
     const retainedCandidate = preparation?.candidate;
@@ -590,7 +652,8 @@ export const readBindingSelectedEvidence = Effect.fnUntraced(
       yield* Effect.fromResult((preparation.lifetime?.charge(structure.head) ?? Result.succeed(undefined)).pipe(
         Result.mapError(cause => bindingError("resourceFailure", cause))));
       preparation.structure = structure;
-      return Option.some(Object.freeze({ head, candidate: structure.candidate, activation: structure.activation }));
+      return retainTransactionBindingSelection(tx, location, prepared, preparation,
+        Object.freeze({ head, candidate: structure.candidate, activation: structure.activation }));
     }
     const rows = observed === undefined ? yield* bindingStatement(tx.select({
       activation: {
@@ -639,7 +702,8 @@ export const readBindingSelectedEvidence = Effect.fnUntraced(
           Result.map(() => { preparation.structure = structure; })));
       });
     }
-    return Option.some(Object.freeze({ head, candidate: restored, activation }));
+    return retainTransactionBindingSelection(tx, location, prepared, preparation,
+      Object.freeze({ head, candidate: restored, activation }));
   }, effect => observeExecution("DataBindingRepository.readSelectedEvidence", effect, "caller")
 );
 
@@ -772,10 +836,16 @@ export const writeBindingActivation = Effect.fn(
   tx: FlarexMetadataTransaction,
   request: DataBindingActivationRequest,
   strongReferences: readonly StrongReferenceActivationProjection[],
-  metadata: Readonly<{ projection: PreparedFiniteMetadataProjection | null; owners: readonly FiniteMetadataOwner[]; withdrawsPermission: boolean }>,
+  metadata: Readonly<{ projection: PreparedFiniteMetadataProjection | null; owners: readonly FiniteMetadataOwner[]; withdrawsPermission: boolean;
+    maintenance: Readonly<{ outgoing: BindingMaintenanceRequirements | null; incoming: BindingMaintenanceRequirements }> }>,
 ) {
   invalidateAcceptedApplicationBindingInTransaction(tx);
   invalidateSharedLogicalSourceBindingChecks(tx);
+  const selection = transactionBindingSelections.get(tx);
+  if (selection !== undefined) {
+    selection.captureOpen = false;
+    selection.selected = undefined;
+  }
   const scopeId = yield* decodeScopeIdEffect(request.scopeId).pipe(
     Effect.mapError(cause => bindingError("storedCorruption", cause)));
   const times = yield* bindingStatement(
@@ -837,6 +907,9 @@ export const writeBindingActivation = Effect.fn(
     canonicalBytes: head.copyCanonicalBytes(),
     canonicalByteLength: head.canonicalByteLength,
   };
+  yield* replaceBindingMaintenanceInTransaction(tx,{ scopeId: request.scopeId,expectedHead: request.expectedHead,
+    sequence: sequence.toString(),activationSha256: activation.sha256Hex,headSha256: head.sha256Hex,candidateSha256: request.candidateSha256 },
+    metadata.maintenance.outgoing,metadata.maintenance.incoming);
   yield* bindingStatement(
     tx
       .insert(heads)

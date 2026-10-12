@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { sql } from "drizzle-orm";
 import { migrate as migratePGlite } from "drizzle-orm/pglite/migrator";
@@ -10,7 +10,7 @@ import { createPGlitePersistence } from "../../src/database/pglite";
 import { createPostgresPersistence } from "../../src/database/postgres";
 import { prepareTypedMaintenanceMigration } from "../../src/storage/indexes/indexMaintenanceMigration";
 import { verifyInstallationWriterProtection } from "../../src/installation/installationLifecycle";
-import { INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS } from "../../src/storage/indexes/indexMaintenanceInstallation";
+import { INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS, TYPED_MAINTENANCE_FINAL_SQL } from "../../src/storage/indexes/indexMaintenanceInstallation";
 import { fxAppRowCurrent,fxAppRowRevisions,fxSystemScopeClocks,
   fxSystemIndexMaintenanceObligations,fxSystemUniqueMaintenanceObligations } from "../../src/database/schema";
 import { fxSystemApplicationActivations,fxSystemApplicationActiveHeads } from "../../src/application/applicationActivationSchema";
@@ -19,14 +19,15 @@ import { LegacyIndexMaintenanceFrameSchema, legacyIndexMaintenanceFrameBytes, ha
 import { LegacyUniqueMaintenanceFrameSchema,legacyUniqueMaintenanceFrameBytes,hashLegacyUniqueMaintenanceEvidence } from "../../src/storage/unique/LegacyUniqueMaintenanceEvidence";
 import type { ApplicationNativeMutationPersistence } from "../application/applicationNativeMutationTestFixture";
 import { relationReadinessFixture,prepareReadinessEvidence } from "../application/relations/applicationRelationReadinessFixture";
-import { makeDrizzleCopyFixture, injectMigrationFailure, restoreMigrationFile, type DrizzleCopyFixture } from "../support/migrationFixtureSupport";
+import { makeDrizzleCopyFixture, injectMigrationFailure, writeJournalThrough, type DrizzleCopyFixture } from "../support/migrationFixtureSupport";
 import { postgresUrl, withTemporaryPostgresSchema } from "../support/postgresHelpers";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
 import { runEffect } from "../support/effectTestRuntime";
 
 /** Reuse a real published/activated Application opening. Only its private
  * physical maintenance representation and receipt are placed at predecessor135;
- * actual head, schema, requirement closure and business rows remain genuine. */
+ * actual head, schema, requirement closure and business rows remain genuine.
+ * This is a private-format converter witness, not a full historical upgrade. */
 async function predecessorFixture(target: ApplicationNativeMutationPersistence,
   fixture: DrizzleCopyFixture, journalSchema: string) {
   const expected = await target.drizzle.select().from(fxSystemIndexMaintenanceObligations)
@@ -72,22 +73,45 @@ async function predecessorFixture(target: ApplicationNativeMutationPersistence,
   }
   await target.query("alter table fx_system_index_build_state drop constraint fx_index_build_maintenance_opening_fk");
   await target.query("alter table fx_system_unique_constraint_build drop constraint fx_unique_build_maintenance_opening_fk");
+  for (const [table, constraint, migration] of [
+    ["fx_system_index_build_state", "fx_system_index_build_maintenance_check", "0103_index_maintenance.sql"],
+    ["fx_system_unique_constraint_build", "fx_system_unique_build_maintenance_check", "0104_unique_maintenance.sql"],
+  ]) {
+    await target.query(`alter table ${table} drop constraint ${constraint}, drop column maintenance_authority_kind`);
+    const source = await readFile(`${fixture.currentMigrationsFolder}/${migration}`, "utf8");
+    const checkStart = source.indexOf(`ALTER TABLE "${table}" ADD CONSTRAINT "${constraint}"`);
+    if (checkStart < 0) throw new Error("Missing original private maintenance check");
+    await target.query(source.slice(checkStart));
+  }
   await target.query("drop table fx_system_index_maintenance_obligation");
   await target.query("drop table fx_system_unique_maintenance_obligation");
   for (const operation of INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS)
     await target.query(`drop function ${operation.name}(${operation.signature})`);
+  // Retain current unrelated operational definitions. The isolated journal runs
+  // this exact converter/finalization only; replaying later historical routine
+  // creation would conflate a private-format test with a full schema upgrade.
+  await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 136);
+  await restorePrivateConverterMigration(fixture);
   // Restoring the predecessor receipt must use the very backend that owns this
   // fixture's drain marker, including when normal preparation uses a pool.
   await target.drizzle.transaction(async tx => {
     await tx.execute(sql`update fx_system_installation set state='draining',maintenance_owner=gen_random_uuid(),
       maintenance_pid=pg_backend_pid(),maintenance_backend_start=(select backend_start from pg_stat_activity where pid=pg_backend_pid())`);
-    await tx.execute(sql`delete from ${sql.identifier(journalSchema)}.__drizzle_migrations where created_at=1790947800000`);
+    await tx.execute(sql`delete from ${sql.identifier(journalSchema)}.__drizzle_migrations where created_at>=1790947800000`);
   });
   const source = await readFile(`${fixture.currentMigrationsFolder}/0135_frozen_settlement_acceptance.sql`);
   const sourceSha = await runEffect(hashLegacyIndexMaintenanceEvidence(source));
   expect((await target.query(`select hash from "${journalSchema}".__drizzle_migrations order by created_at desc limit 1`)).rows)
     .toEqual([{ hash: encodeBytesToLowercaseHex(sourceSha) }]);
   return { expected,expectedUnique,legacy,legacyUnique };
+}
+
+async function restorePrivateConverterMigration(fixture: DrizzleCopyFixture) {
+  const publishers = INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS.map(operation =>
+    `EXECUTE format($ddl$${operation.ddl.replaceAll("%", "%%").replaceAll("%%1$I", "%1$I")}$ddl$,target_schema);\n` +
+    `EXECUTE format('REVOKE ALL ON FUNCTION %1$I.${operation.name}(${operation.signature}) FROM PUBLIC',target_schema);`).join("\n");
+  await writeFile(fixture.migrationPath, `${TYPED_MAINTENANCE_FINAL_SQL}\n--> statement-breakpoint\n` +
+    `DO $private_converter$ DECLARE target_schema text := current_schema(); BEGIN\n${publishers}\nEND; $private_converter$;\n`);
 }
 
 async function verifyConversion(target: ApplicationNativeMutationPersistence, control: FlarexMetadataDatabase,
@@ -146,7 +170,7 @@ async function verifyConversion(target: ApplicationNativeMutationPersistence, co
   await expect(finish()).rejects.toThrow(/typed_maintenance_final_deliberate_missing_table/);
   expect((await target.query("select scope_id,index_definition_id,maintenance_bytes,maintenance_sha256 from fx_system_index_build_state where maintenance_activation_sequence is not null order by scope_id,index_definition_id")).rows).toEqual(retained);
   expect((await target.query("select scope_id,unique_constraint_definition_id,maintenance_bytes,maintenance_sha256 from fx_system_unique_constraint_build where maintenance_activation_sequence is not null order by scope_id,unique_constraint_definition_id")).rows).toEqual(retainedUnique);
-  await restoreMigrationFile(fixture.migrationPath,fixture.currentMigrationsFolder);
+  await restorePrivateConverterMigration(fixture);
   await convert();
   await finish();
   await runEffect(verifyInstallationWriterProtection(target.drizzle,schema,{ schemaName: journalSchema,tableName: "__drizzle_migrations" }));
@@ -197,7 +221,7 @@ async function verifyPublicMigration(target: ApplicationNativeMutationPersistenc
   expect(await target.drizzle.select().from(fxSystemUniqueMaintenanceObligations)
     .orderBy(fxSystemUniqueMaintenanceObligations.scopeId,fxSystemUniqueMaintenanceObligations.uniqueConstraintDefinitionId)).toEqual(expectedUnique);
 
-  await restoreMigrationFile(fixture.migrationPath,fixture.currentMigrationsFolder);
+  await restorePrivateConverterMigration(fixture);
   await target.migrate();
   await target.migrate();
   expect((await target.query("select state,maintenance_owner,maintenance_pid,maintenance_backend_start from fx_system_installation")).rows)

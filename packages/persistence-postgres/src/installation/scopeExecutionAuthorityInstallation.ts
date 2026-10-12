@@ -1,3 +1,4 @@
+import { bindingMaintenanceSelectionSql, bindingMaintenanceCaptureSql } from "./frameworkSchema/binding/maintenanceSelectionSql";
 import { createHash } from "node:crypto";
 import { getTableColumns, getTableName, sql, type SQL } from "drizzle-orm";
 import { fxSystemScopeClocks, fxSystemScopeExecutionAuthorities, fxSystemMetadataContractObservations,
@@ -238,6 +239,7 @@ export const FINITE_STORAGE_CAPTURE_FUNCTION_SQL = `    CREATE OR REPLACE FUNCTI
       unique_row "__flarex_target__".fx_system_unique_constraint_build;
       table_frontier bigint; historical_change boolean; body_eligible boolean := false;
       retained_floor bigint;
+      binding_selection "__flarex_target__".fx_system_index_maintenance_obligation; binding_captured boolean:=false;
       index_maintenance "__flarex_target__".fx_system_index_maintenance_obligation;
       unique_maintenance "__flarex_target__".fx_system_unique_maintenance_obligation;
       index_ready boolean; unique_ready boolean;
@@ -404,7 +406,7 @@ export const FINITE_STORAGE_CAPTURE_FUNCTION_SQL = `    CREATE OR REPLACE FUNCTI
         END IF;
         SELECT m.* INTO index_maintenance FROM "__flarex_target__".fx_system_index_maintenance_obligation m
           WHERE m.scope_id = build_row.scope_id AND m.index_definition_id = build_row.index_definition_id
-            AND m.activation_sequence = build_row.maintenance_activation_sequence;
+            AND m.authority_kind = build_row.maintenance_authority_kind AND m.activation_sequence = build_row.maintenance_activation_sequence;
         IF (build_row.maintenance_activation_sequence IS NULL) IS DISTINCT FROM (index_maintenance.scope_id IS NULL) THEN
           reason := 'storedCorruption'; body_eligible := false; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, retained_floor, session_row, body_eligible);
         END IF;
@@ -425,14 +427,30 @@ export const FINITE_STORAGE_CAPTURE_FUNCTION_SQL = `    CREATE OR REPLACE FUNCTI
           OR index_maintenance.physical_spec_sha256 IS DISTINCT FROM (p_read_basis).index_physical_spec_sha256) THEN
           reason := 'storedCorruption'; body_eligible := false; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, retained_floor, session_row, body_eligible);
         END IF;
+        IF (index_maintenance.scope_id IS NULL OR index_maintenance.authority_kind='binding') AND NOT binding_captured THEN
+          SELECT selected_binding.activation_sequence,selected_binding.head_sha256,selected_binding.activation_sha256,
+            selected_binding.candidate_sha256,selected_binding.deployment_id,selected_binding.schema_version_id,selected_binding.schema_manifest_sha256
+          INTO binding_selection.activation_sequence,binding_selection.head_sha256,binding_selection.activation_sha256,
+            binding_selection.candidate_sha256,binding_selection.deployment_id,binding_selection.schema_version_id,binding_selection.schema_manifest_sha256
+          FROM (${bindingMaintenanceCaptureSql('"__flarex_target__".', 'p_scope_id', 'p_generation')}) selected_binding;
+          binding_captured:=true;
+        END IF;
+        IF index_maintenance.scope_id IS NULL AND EXISTS(SELECT 1 FROM "__flarex_target__".fx_system_index_maintenance_obligation required
+          WHERE required.scope_id=p_scope_id AND required.authority_kind='binding'
+            AND required.activation_sequence=binding_selection.activation_sequence AND required.index_definition_id=p_index_definition_id
+            AND (${bindingMaintenanceSelectionSql("required")}) IS TRUE)
+          OR index_maintenance.authority_kind='binding' AND (${bindingMaintenanceSelectionSql("index_maintenance")}) IS NOT TRUE THEN
+          reason := 'storedCorruption'; body_eligible := false; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, retained_floor, session_row, body_eligible);
+        END IF;
         index_ready := build_row.covered_through_commit_seq >= p_snapshot_commit_seq
-          OR index_maintenance.scope_id IS NOT NULL
-            AND index_maintenance.deployment_id = (p_read_basis).deployment_id
+          OR index_maintenance.scope_id IS NOT NULL AND (
+            index_maintenance.authority_kind='binding' AND ${bindingMaintenanceSelectionSql("index_maintenance")}
+            OR index_maintenance.authority_kind='application' AND index_maintenance.deployment_id = (p_read_basis).deployment_id
             AND index_maintenance.schema_version_id = (p_read_basis).schema_version_id
             AND index_maintenance.activation_sequence = (p_read_basis).activation_sequence
             AND index_maintenance.head_sha256 = (p_read_basis).head_sha256
             AND index_maintenance.activation_sha256 = (p_read_basis).activation_sha256
-            AND index_maintenance.schema_manifest_sha256 = (p_read_basis).manifest_sha256
+            AND index_maintenance.schema_manifest_sha256 = (p_read_basis).manifest_sha256)
           OR table_frontier IS NULL OR table_frontier <= build_row.covered_through_commit_seq;
         IF index_ready IS TRUE THEN reason := 'accepted'; body_eligible := true; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, retained_floor, session_row, body_eligible); END IF;
         IF build_row.covered_through_commit_seq < retained_floor OR historical_change THEN
@@ -460,17 +478,23 @@ export const FINITE_STORAGE_CAPTURE_FUNCTION_SQL = `    CREATE OR REPLACE FUNCTI
           AND abs(floor(extract(epoch FROM unique_row.created_at)*1000)) <= 8640000000000000
           AND abs(floor(extract(epoch FROM unique_row.updated_at)*1000)) <= 8640000000000000
           AND floor(extract(epoch FROM unique_row.updated_at)*1000) >= floor(extract(epoch FROM unique_row.created_at)*1000)
+          AND (unique_row.maintenance_authority_kind IS NULL) = (unique_row.maintenance_activation_sequence IS NULL)
+          AND (unique_row.maintenance_authority_kind IS NULL OR unique_row.maintenance_authority_kind IN ('application','binding'))
           AND unique_row.start_commit_seq <= serving_commit_seq
           AND (unique_row.covered_through_commit_seq IS NULL OR unique_row.covered_through_commit_seq <= serving_commit_seq)) IS NOT TRUE THEN
           reason := 'storedCorruption'; body_eligible := false; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, retained_floor, session_row, body_eligible);
         END IF;
         SELECT m.* INTO unique_maintenance FROM "__flarex_target__".fx_system_unique_maintenance_obligation m
           WHERE m.scope_id = unique_row.scope_id AND m.unique_constraint_definition_id = unique_row.unique_constraint_definition_id
-            AND m.activation_sequence = unique_row.maintenance_activation_sequence;
+            AND m.authority_kind = unique_row.maintenance_authority_kind AND m.activation_sequence = unique_row.maintenance_activation_sequence;
         IF (unique_row.maintenance_activation_sequence IS NULL) IS DISTINCT FROM (unique_maintenance.scope_id IS NULL) THEN
           reason := 'storedCorruption'; body_eligible := false; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, retained_floor, session_row, body_eligible);
         END IF;
-        IF unique_maintenance.scope_id IS NOT NULL AND (unique_maintenance.activation_sequence > 0
+        IF unique_maintenance.scope_id IS NOT NULL AND (unique_maintenance.authority_kind = unique_row.maintenance_authority_kind
+          AND unique_maintenance.authority_kind IN ('application','binding')
+          AND (unique_maintenance.authority_kind='application' AND unique_maintenance.candidate_sha256 IS NULL AND unique_maintenance.schema_manifest_sha256 IS NULL
+            OR unique_maintenance.authority_kind='binding' AND octet_length(unique_maintenance.candidate_sha256)=32 AND octet_length(unique_maintenance.schema_manifest_sha256)=32)
+          AND unique_maintenance.activation_sequence > 0
           AND unique_maintenance.storage_generation = 'flarexdb_v1'
           AND unique_maintenance.storage_generation_fence > 0
           AND length(unique_maintenance.epoch) > 0
@@ -507,13 +531,29 @@ export const FINITE_STORAGE_CAPTURE_FUNCTION_SQL = `    CREATE OR REPLACE FUNCTI
           OR unique_maintenance.physical_spec_sha256 IS DISTINCT FROM (p_read_basis).unique_physical_spec_sha256) THEN
           reason := 'storedCorruption'; body_eligible := false; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, retained_floor, session_row, body_eligible);
         END IF;
+        IF (unique_maintenance.scope_id IS NULL OR unique_maintenance.authority_kind='binding') AND NOT binding_captured THEN
+          SELECT selected_binding.activation_sequence,selected_binding.head_sha256,selected_binding.activation_sha256,
+            selected_binding.candidate_sha256,selected_binding.deployment_id,selected_binding.schema_version_id,selected_binding.schema_manifest_sha256
+          INTO binding_selection.activation_sequence,binding_selection.head_sha256,binding_selection.activation_sha256,
+            binding_selection.candidate_sha256,binding_selection.deployment_id,binding_selection.schema_version_id,binding_selection.schema_manifest_sha256
+          FROM (${bindingMaintenanceCaptureSql('"__flarex_target__".', 'p_scope_id', 'p_generation')}) selected_binding;
+          binding_captured:=true;
+        END IF;
+        IF unique_maintenance.scope_id IS NULL AND EXISTS(SELECT 1 FROM "__flarex_target__".fx_system_unique_maintenance_obligation required
+          WHERE required.scope_id=p_scope_id AND required.authority_kind='binding'
+            AND required.activation_sequence=binding_selection.activation_sequence AND required.unique_constraint_definition_id=p_unique_definition_id
+            AND (${bindingMaintenanceSelectionSql("required")}) IS TRUE)
+          OR unique_maintenance.authority_kind='binding' AND (${bindingMaintenanceSelectionSql("unique_maintenance")}) IS NOT TRUE THEN
+          reason := 'storedCorruption'; body_eligible := false; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, retained_floor, session_row, body_eligible);
+        END IF;
         unique_ready := unique_row.covered_through_commit_seq >= p_snapshot_commit_seq
-          OR unique_maintenance.scope_id IS NOT NULL
-            AND unique_maintenance.deployment_id = (p_read_basis).deployment_id
+          OR unique_maintenance.scope_id IS NOT NULL AND (
+            unique_maintenance.authority_kind='binding' AND ${bindingMaintenanceSelectionSql("unique_maintenance")}
+            OR unique_maintenance.authority_kind='application' AND unique_maintenance.deployment_id = (p_read_basis).deployment_id
             AND unique_maintenance.schema_version_id = (p_read_basis).schema_version_id
             AND unique_maintenance.activation_sequence = (p_read_basis).activation_sequence
             AND unique_maintenance.head_sha256 = (p_read_basis).head_sha256
-            AND unique_maintenance.activation_sha256 = (p_read_basis).activation_sha256
+            AND unique_maintenance.activation_sha256 = (p_read_basis).activation_sha256)
           OR table_frontier IS NULL OR table_frontier <= unique_row.covered_through_commit_seq;
         IF unique_ready IS NOT TRUE AND (unique_row.covered_through_commit_seq < retained_floor OR historical_change) THEN
           reason := 'notReady'; body_eligible := false; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, retained_floor, session_row, body_eligible);

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { onTestFinished } from "vitest";
 import { Cause, Effect, Exit } from "effect";
 import { createPGlitePersistence } from "../../src/database/pglite";
+import type { FlarexMetadataDatabase } from "../../src/application/deployments";
 import type { QueryResult } from "../../src/index";
 import type { FlarexMetadataTransaction } from "../../src/database/metadataTransaction";
 import { issueRelationalSession } from "../../src/database/relationalTransaction/session";
@@ -16,7 +17,7 @@ import {
 } from "../../src/database/relationalTransaction/model";
 
 /** One Wasm instance, one lease, with an external watchdog that can stop active SQL. */
-export async function createRelationalPGliteFixture(options: { readonly fileBacked?: boolean; readonly transport?: "ordinary" | "finiteCapture"; readonly observeQuery?: (text: string) => Promise<void> | void; readonly registerCleanup?: (cleanup: () => Promise<void>) => void } = {}) {
+export async function createRelationalPGliteFixture(options: { readonly fileBacked?: boolean; readonly immutableCatalog?: FlarexMetadataDatabase; readonly transport?: "ordinary" | "finiteCapture"; readonly observeQuery?: (text: string) => Promise<void> | void; readonly registerCleanup?: (cleanup: () => Promise<void>) => void } = {}) {
   const fixtureOptions = options;
   // Only this fixture-created directory is removed by its registered cleanup.
   const dataDir = options.fileBacked === true ? await mkdtemp(join(tmpdir(), "flarex-relational-")) : undefined;
@@ -142,7 +143,7 @@ export async function createRelationalPGliteFixture(options: { readonly fileBack
         }
       }),
   };
-  const persistence = await createPGlitePersistence({ db: client });
+  const persistence = await createPGlitePersistence({ db: client, ...(options.immutableCatalog===undefined ? {} : { immutableCatalog: options.immutableCatalog }) });
   await persistence.migrate();
   await openPreparedHostTestRuntime(persistence.drizzle);
   runtimeDatabase = persistence.drizzle;

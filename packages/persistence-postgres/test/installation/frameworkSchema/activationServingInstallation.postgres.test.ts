@@ -10,14 +10,30 @@ import { publishVerifiedInstallation, withInstallationMaintenance } from "../../
 import { createActivationServingFileScopedPostgresFixture, postgresUrl,
   type ActivationServingFileScopedPostgresFixture } from "../../support/postgresHelpers";
 import type { AppRowTransaction } from "../../../src/storage/documents/appRows";
+import { CatalogIndexDefinitionIdSchema, CatalogUniqueConstraintDefinitionIdSchema } from "flarex-protocol/catalog";
+import { CommitSeqSchema, FlarexDbV1StorageGenerationSchema, ScopeEpochSchema, ScopeIdSchema,
+  StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
+import { IndexBuildAttemptFenceSchema, IndexBuildCursorCodecVersionV1Schema } from "flarex-protocol/index-build-state";
+import { AppUniqueConstraintSetBuildAttemptFenceV1Schema } from "flarex-protocol/internal/app-unique-constraint-set-v1";
+import { fxSystemIndexBuildStates, fxSystemScopeClocks, fxSystemScopeExecutionAuthorities } from "../../../src/database/schema";
+import { insertIndexBuildState, insertUniqueConstraintBuild } from "../../../src/storage/indexes/indexBuildLifecycleDml";
 
 const native = postgresUrl !== null && process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL
   ? describe : describe.skip;
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
-const publicationArguments = (ordered: boolean): unknown[] => [
-  "scope-with-no-activation", null, null, "1", Buffer.alloc(32), Buffer.alloc(32), null, null,
-  ...(ordered ? [null] : []), "[]", "deployment", "schema", ...(ordered ? [Buffer.alloc(32)] : []), "[]",
-];
+const publicationArguments = (operation: typeof INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS[number]): unknown[] => {
+  const types = operation.signature.split(",");
+  return operation.inputs.map((input, position) => {
+    if (input === "p_scope") return "scope-with-no-activation";
+    if (input === "p_incoming_sequence") return "1";
+    if (input === "p_expected_sequence" || input === "p_expected_head" || input.startsWith("p_outgoing_") && types[position] !== "jsonb")
+      return null;
+    if (types[position] === "jsonb") return "[]";
+    if (input === "p_incoming_deployment") return "deployment";
+    if (input === "p_incoming_schema") return "schema";
+    return types[position] === "bytea" ? Buffer.alloc(32) : "00".repeat(32);
+  });
+};
 const publicationCall = (schemaName: string, operation: typeof INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS[number]) =>
   `select * from ${quote(schemaName)}.${operation.name}(${operation.signature.split(",")
     .map((type, position) => `$${position + 1}::${type}`).join(",")})`;
@@ -60,7 +76,7 @@ native("activation and serving installation identities", () => {
   it("denies ordinary, control and PUBLIC publisher access and raw protected DML", async () => {
     const current = installed();
     for (const operation of INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS) {
-      const arguments_ = publicationArguments(operation.name === "fx_replace_active_index_maintenance");
+      const arguments_ = publicationArguments(operation);
       const statement = publicationCall(current.schemaName, operation);
       for (const member of [current.serving, current.controlRead])
         await expect(member.persistence.query(statement, arguments_)).rejects.toMatchObject({ code: "42501" });
@@ -86,10 +102,12 @@ native("activation and serving installation identities", () => {
       await expect(member.persistence.query("insert into fx_system_application_read_binding select * from fx_system_application_read_binding where false"))
         .rejects.toMatchObject({ code: "42501" });
       for (const build of INDEX_MAINTENANCE_BUILD_PERMISSIONS) {
-        await expect(member.persistence.query(`update ${quote(build.tableName)} set ${quote(build.bindingColumn)} = null where false`))
-          .rejects.toMatchObject({ code: "42501" });
-        await expect(member.persistence.query(`insert into ${quote(build.tableName)} (${quote(build.bindingColumn)}) select null where false`))
-          .rejects.toMatchObject({ code: "42501" });
+        for (const column of build.bindingColumns) {
+          await expect(member.persistence.query(`update ${quote(build.tableName)} set ${quote(column)} = null where false`))
+            .rejects.toMatchObject({ code: "42501" });
+          await expect(member.persistence.query(`insert into ${quote(build.tableName)} (${quote(column)}) select null where false`))
+            .rejects.toMatchObject({ code: "42501" });
+        }
       }
     }
     for (const build of INDEX_MAINTENANCE_BUILD_PERMISSIONS) {
@@ -100,6 +118,35 @@ native("activation and serving installation identities", () => {
       await current.activation.persistence.query(statement);
       await expect(current.controlRead.persistence.query(statement)).rejects.toMatchObject({ code: "42501" });
     }
+  });
+
+  it("creates ordinary index and unique builds without naming either protected binding column", async () => {
+    const current = installed();
+    const scopeId = ScopeIdSchema.make("scope_663c532d-f6f7-42f1-9b61-d6a440c6d389");
+    const common = { scopeId, storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+      storageGenerationFence: StorageGenerationFenceSchema.make(1n),
+      epoch: ScopeEpochSchema.make("epoch_663c532d-f6f7-42f1-9b61-d6a440c6d389"), startCommitSeq: CommitSeqSchema.make(0n) };
+    await current.owner.persistence.drizzle.transaction(async tx => {
+      await tx.insert(fxSystemScopeClocks).values({ scopeId });
+      await tx.insert(fxSystemScopeExecutionAuthorities).values({ scopeId, storageGeneration: common.storageGeneration,
+        storageGenerationFence: common.storageGenerationFence, epoch: common.epoch });
+    });
+    for (const [ordinal, member] of [current.serving, current.activation].entries()) {
+      await member.persistence.drizzle.transaction(async tx => {
+        const indexDefinitionId = CatalogIndexDefinitionIdSchema.make(ordinal + 1);
+        expect(await insertIndexBuildState(tx, { ...common, indexDefinitionId, lifecycle: "declared",
+          cursorCodecVersion: IndexBuildCursorCodecVersionV1Schema.make(1),
+          attemptFence: IndexBuildAttemptFenceSchema.make(1n) })).toEqual([{ id: indexDefinitionId }]);
+        expect(await insertUniqueConstraintBuild(tx, { ...common,
+          uniqueConstraintDefinitionId: CatalogUniqueConstraintDefinitionIdSchema.make(ordinal + 1), lifecycle: "declared",
+          attemptFence: AppUniqueConstraintSetBuildAttemptFenceV1Schema.make(1n) })).toMatchObject([
+          { maintenanceAuthorityKind: null, maintenanceActivationSequence: null, lifecycle: "declared" },
+        ]);
+      });
+    }
+    expect(await current.owner.persistence.drizzle.select({ kind: fxSystemIndexBuildStates.maintenanceAuthorityKind,
+      sequence: fxSystemIndexBuildStates.maintenanceActivationSequence }).from(fxSystemIndexBuildStates))
+      .toEqual([{ kind: null, sequence: null }, { kind: null, sequence: null }]);
   });
 
   it("admits bounded ownership reads for activation and serving logins while denying control and PUBLIC", async () => {

@@ -3,9 +3,10 @@ import { observeExecution } from "../../execution/diagnostics/operation";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex, copyBytes } from "@flarex/utils/bytes";
 import { and, asc, eq, getTableColumns, gt, lte, sql, type SQLWrapper } from "drizzle-orm";
-import { Effect, Result, Schema } from "effect";
+import { Effect, Encoding, Option, Result, Schema } from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
+  CatalogUniqueConstraintDefinitionIdSchema,
   type CatalogIndexDefinitionId,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
@@ -81,10 +82,14 @@ import {
 import {
   fxSystemIndexBuildStates,
   fxSystemIndexMaintenanceObligations,
+  fxSystemUniqueMaintenanceObligations,
   fxSystemCommitAppRowChanges,
   fxSystemScopeClocks,
   fxSystemScopeExecutionAuthorities,
 } from "../../database/schema";
+
+import { readBindingCoverageSelectedEvidence } from "../../installation/frameworkSchema/binding/repository";
+
 
 const READ_INPUT_KEYS = Object.freeze(["scopeId", "indexDefinitionId"]);
 const decodeCatalogIndexDefinitionIdResult = Schema.decodeUnknownResult(
@@ -403,7 +408,7 @@ export const captureRequiredIndexReadinessInTransactionEffect = Effect.fnUntrace
 export type IndexBuildCoverageState = Pick<IndexBuildStateRecord,
   "scopeId" | "indexDefinitionId" | "storageGeneration" | "storageGenerationFence" | "epoch" |
   "lifecycle" | "startCommitSeq" | "coveredThroughCommitSeq" | "firstReadableCommitSeq"> & {
-  readonly maintenance: Pick<IndexMaintenanceObligation, "tableId" | "physicalSpecSha256" | "deploymentId" |
+  readonly maintenance: Pick<IndexMaintenanceObligation, "authorityKind" | "candidateSha256" | "tableId" | "physicalSpecSha256" | "deploymentId" |
     "schemaVersionId" | "schemaManifestSha256" | "activationSequence" | "activationSha256" | "headSha256"> | null;
 };
 
@@ -423,7 +428,7 @@ const decodeOrdinaryIndexProgress = Schema.decodeUnknownResult(OrdinaryIndexProg
 const OrdinaryIndexMaintenanceKeySchema = Schema.Tuple([
   Schema.NonEmptyString, Schema.NonEmptyString, Schema.String,
   CommitSeqSchema.check(Schema.makeFilter(value => value > 0n ? undefined : "Expected positive activation sequence")),
-  Schema.String, Schema.String,
+  Schema.String, Schema.String, Schema.Literals(["application", "binding"]), Schema.NullOr(Schema.String),
 ]);
 const decodeOrdinaryIndexMaintenanceKey = Schema.decodeUnknownResult(Schema.fromJsonString(OrdinaryIndexMaintenanceKeySchema));
 /** Capture once, retain typed invalid results, then consume compact intrinsic
@@ -493,6 +498,7 @@ export const readRequiredIndexBuildProgressInTransactionEffect = Effect.fnUntrac
       return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
     const progress = capturedProgress.map(state => state === null ? null : decodeOrdinaryIndexProgress(state).pipe(
       Result.mapError(cause => new IndexMaintenanceError({ reason: "storedState", cause }))));
+    let requiredChecked = issued.binding === null || requiredBindingMaintenance.has(context);
     const consume = (startAt: number,frontiers: ReturnType<typeof coverageTableFrontiers.get>) => Result.gen(function* () {
       for (let index=startAt;index<definitions.length;index++) {
         const definition=definitions[index],capturedState=progress[index];
@@ -515,11 +521,18 @@ export const readRequiredIndexBuildProgressInTransactionEffect = Effect.fnUntrac
         if (maintenanceActive!==null) {
           const key=yield* decodeOrdinaryIndexMaintenanceKey(maintenanceActive).pipe(
             Result.mapError(cause=>new IndexMaintenanceError({reason:"storedState",cause})));
-          if (maintenanceMatches!==true || issued.active===null || key[0]!==issued.active.schema.deploymentId ||
-            key[1]!==issued.active.schema.schemaVersionId || key[2]!==issued.active.schema.schemaManifestSha256 ||
-            key[3]!==issued.active.head.activationSequence || key[4]!==encodeBytesToLowercaseHex(issued.active.head.activationSha256) ||
-            key[5]!==encodeBytesToLowercaseHex(issued.active.head.headSha256))
+          const authority = key[6] === "binding" ? issued.binding : issued.active === null ? null : {
+            ...issued.active.schema, ...issued.active.head, candidateSha256: null };
+          if (maintenanceMatches!==true || authority===null || key[0]!==authority.deploymentId ||
+            key[1]!==authority.schemaVersionId || key[2]!==authority.schemaManifestSha256 ||
+            key[3]!==authority.activationSequence || key[4]!==encodeBytesToLowercaseHex(authority.activationSha256) ||
+            key[5]!==encodeBytesToLowercaseHex(authority.headSha256) ||
+            key[7] !== (authority.candidateSha256 === null ? null : encodeBytesToLowercaseHex(authority.candidateSha256)))
             return yield* Result.fail(new IndexMaintenanceError({reason:"storedState"}));
+        } else if (!requiredChecked) {
+          return Object.freeze({ status: "bindingMaintenanceRequired" as const, index });
+        } else if (hasRequiredBindingMaintenance(context, "index", definition.indexDefinitionId)) {
+          return yield* Result.fail(new IndexMaintenanceError({ reason: "storedState" }));
         } else if (covered<clock.lastCommitSeq) {
           if (frontiers===undefined) return Object.freeze({status:"frontiersRequired" as const,index});
           const capturedFrontier=frontiers.frontiers.get(definition.tableId);
@@ -531,7 +544,19 @@ export const readRequiredIndexBuildProgressInTransactionEffect = Effect.fnUntrac
       }
       return Object.freeze({status:"ready" as const});
     });
-    const first=yield* Effect.fromResult(consume(0,undefined));
+    const consumeWithRequiredMaintenance = Effect.fnUntraced(function* (
+      startAt: number, frontiers: ReturnType<typeof coverageTableFrontiers.get>,
+    ) {
+      const observed = yield* Effect.fromResult(consume(startAt, frontiers));
+      if (observed.status !== "bindingMaintenanceRequired") return observed;
+      yield* prepareMissingBindingMaintenanceCheck(tx, context);
+      requiredChecked = true;
+      const resumed = yield* Effect.fromResult(consume(observed.index, frontiers));
+      if (resumed.status === "bindingMaintenanceRequired")
+        return yield* Effect.die("Required binding maintenance repeated its capture demand");
+      return resumed;
+    });
+    const first=yield* consumeWithRequiredMaintenance(0,undefined);
     if (first.status!=="frontiersRequired") return first;
     const needed=definitions.filter((_value,ordinal)=> {
       const candidate=progress[ordinal];
@@ -543,7 +568,7 @@ export const readRequiredIndexBuildProgressInTransactionEffect = Effect.fnUntrac
     yield* readIndexCoverageTableFrontiersInTransactionEffect(tx,context,[...new Set([...needed,...searchTableIds])]);
     const frontiers=coverageTableFrontiers.get(context);
     if (frontiers===undefined) return yield* Effect.die("Index frontier batch missing");
-    const accepted=yield* Effect.fromResult(consume(first.index,frontiers));
+    const accepted=yield* consumeWithRequiredMaintenance(first.index,frontiers);
     if (accepted.status==="frontiersRequired") return yield* Effect.die("Index frontier consumption repeated its capture demand");
     return accepted;
   });
@@ -690,23 +715,24 @@ export function indexBuildStateSelection() {
   return indexBuildProjection;
 }
 
-function composeIndexMaintenanceBindingPredicate(scopeId: SQLWrapper, definitionId: SQLWrapper, activationSequence: SQLWrapper) {
-  return and(eq(fxSystemIndexMaintenanceObligations.scopeId, scopeId),
+function composeIndexMaintenanceBindingPredicate(scopeId: SQLWrapper, definitionId: SQLWrapper, activationSequence: SQLWrapper, authorityKind: SQLWrapper) {
+  return and(eq(fxSystemIndexMaintenanceObligations.authorityKind, authorityKind), eq(fxSystemIndexMaintenanceObligations.scopeId, scopeId),
     eq(fxSystemIndexMaintenanceObligations.indexDefinitionId, definitionId),
     eq(fxSystemIndexMaintenanceObligations.activationSequence, activationSequence));
 }
 const fixedIndexMaintenanceBindingPredicate = composeIndexMaintenanceBindingPredicate(fxSystemIndexBuildStates.scopeId,
-  fxSystemIndexBuildStates.indexDefinitionId, fxSystemIndexBuildStates.maintenanceActivationSequence);
+  fxSystemIndexBuildStates.indexDefinitionId, fxSystemIndexBuildStates.maintenanceActivationSequence, fxSystemIndexBuildStates.maintenanceAuthorityKind);
 
 /** Also accepts a native observed build's real composite-column projections. */
 export function indexMaintenanceBindingPredicate(
   scopeId: SQLWrapper = fxSystemIndexBuildStates.scopeId,
   definitionId: SQLWrapper = fxSystemIndexBuildStates.indexDefinitionId,
   activationSequence: SQLWrapper = fxSystemIndexBuildStates.maintenanceActivationSequence,
+  authorityKind: SQLWrapper = fxSystemIndexBuildStates.maintenanceAuthorityKind,
 ) {
   return scopeId === fxSystemIndexBuildStates.scopeId && definitionId === fxSystemIndexBuildStates.indexDefinitionId &&
-    activationSequence === fxSystemIndexBuildStates.maintenanceActivationSequence
-    ? fixedIndexMaintenanceBindingPredicate : composeIndexMaintenanceBindingPredicate(scopeId, definitionId, activationSequence);
+    activationSequence === fxSystemIndexBuildStates.maintenanceActivationSequence && authorityKind === fxSystemIndexBuildStates.maintenanceAuthorityKind
+    ? fixedIndexMaintenanceBindingPredicate : composeIndexMaintenanceBindingPredicate(scopeId, definitionId, activationSequence, authorityKind);
 }
 
 function defineRequiredBuildRead(lock: "key share" | "share" | "update") {
@@ -862,7 +888,8 @@ export function decodeIndexBuildStateRowResult(
       ));
     }
 
-    if ((row.maintenanceActivationSequence === null) !== (maintenanceObligation === null)) {
+    if ((row.maintenanceActivationSequence === null) !== (maintenanceObligation === null) ||
+      (row.maintenanceAuthorityKind === null) !== (maintenanceObligation === null)) {
       return yield* Result.fail(storedBuildStateCorruption(scopeId, indexDefinitionId,
         "Maintenance binding and obligation presence disagree"));
     }
@@ -870,7 +897,7 @@ export function decodeIndexBuildStateRowResult(
       maintenanceObligation,
     ).pipe(Result.mapError(cause => storedBuildStateCorruption(scopeId, indexDefinitionId, cause)));
     if (maintenance !== null && (lifecycle !== "enabled" ||
-      maintenance.activationSequence !== row.maintenanceActivationSequence || maintenance.scopeId !== scopeId ||
+      maintenance.authorityKind !== row.maintenanceAuthorityKind || maintenance.activationSequence !== row.maintenanceActivationSequence || maintenance.scopeId !== scopeId ||
       maintenance.indexDefinitionId !== indexDefinitionId || maintenance.storageGeneration !== storageGeneration ||
       maintenance.storageGenerationFence !== storageGenerationFence || maintenance.epoch !== epoch ||
       maintenance.attemptFence !== attemptFence || maintenance.firstReadableCommitSeq !== firstReadableCommitSeq ||
@@ -930,7 +957,72 @@ type IndexCoverageDefinition = Pick<AppIndexDefinitionRecord, "indexDefinitionId
   readonly tableId: AppIndexDefinitionRecord["access"]["tableId"];
 };
 
+export interface BindingIndexCoveragePins {
+  readonly deploymentId: string;
+  readonly schemaVersionId: string;
+  readonly schemaManifestSha256: string;
+  readonly activationSequence: bigint;
+  readonly activationSha256: Uint8Array;
+  readonly headSha256: Uint8Array;
+  readonly candidateSha256: Uint8Array;
+}
+const digestFromHex = Encoding.decodeHex;
+const readBindingCoveragePins = Effect.fn("IndexBuildState.readBindingCoveragePins")(function* (tx: AppRowTransaction, clock: ScopeClockRecord) {
+  const selected = yield* readBindingCoverageSelectedEvidence(tx, { scopeId: clock.scopeId, storageGeneration: clock.storageGeneration })
+    .pipe(Effect.mapError(cause => new IndexMaintenanceError({ reason: cause.reason === "resourceFailure" ? "resourceFailure" : "storedState", cause })));
+  if (Option.isNone(selected) || selected.value.candidate.frame.logicalSchema === null) return null;
+  const { candidate, head, activation } = selected.value;
+  const logical = candidate.frame.logicalSchema;
+  if (logical === null) return null;
+  const digest = (value: string) => Effect.fromResult(digestFromHex(value)).pipe(Effect.mapError(cause => new IndexMaintenanceError({ reason: "storedState", cause })));
+  return Object.freeze({ deploymentId: candidate.frame.application.deploymentId,
+    schemaVersionId: logical.schemaVersionId,
+    schemaManifestSha256: logical.manifestSha256,
+    activationSequence: BigInt(head.frame.sequence), activationSha256: yield* digest(activation.sha256),
+    headSha256: yield* digest(head.sha256), candidateSha256: yield* digest(candidate.sha256) });
+});
+
+/** These comparisons consume only the context issuer's freshly authenticated selection. */
+export function maintenanceMatchesCoverageContext(obligation: Pick<IndexMaintenanceObligation,
+  "authorityKind" | "deploymentId" | "schemaVersionId" | "activationSequence" | "activationSha256" | "headSha256" | "candidateSha256"> &
+  { readonly schemaManifestSha256?: Uint8Array | null }, context: IndexCoverageContext): boolean {
+  if (obligation.authorityKind === "binding") {
+    const issued = coverageContextTransactions.get(context);
+    if (issued === undefined) return false;
+    const binding = issued.binding;
+    return binding !== null && obligation.candidateSha256 !== null && obligation.schemaManifestSha256 != null &&
+      obligation.deploymentId === binding.deploymentId && obligation.schemaVersionId === binding.schemaVersionId &&
+      obligation.activationSequence === binding.activationSequence && bytesEqualFullScan(obligation.activationSha256, binding.activationSha256) &&
+      bytesEqualFullScan(obligation.headSha256, binding.headSha256) && bytesEqualFullScan(obligation.candidateSha256, binding.candidateSha256) &&
+      encodeBytesToLowercaseHex(obligation.schemaManifestSha256) === binding.schemaManifestSha256;
+  }
+  const active = coverageContextTransactions.get(context)?.active;
+  return active != null && obligation.candidateSha256 === null && obligation.deploymentId === active.schema.deploymentId &&
+    obligation.schemaVersionId === active.schema.schemaVersionId && obligation.activationSequence === active.head.activationSequence &&
+    bytesEqualFullScan(obligation.activationSha256, active.head.activationSha256) && bytesEqualFullScan(obligation.headSha256, active.head.headSha256) &&
+    (obligation.schemaManifestSha256 == null || encodeBytesToLowercaseHex(obligation.schemaManifestSha256) === active.schema.schemaManifestSha256);
+}
+
+/** Compact native readiness keeps its source bytes opaque and compares only
+ * against issuer-held selection pins, never a caller-mutated public projection. */
+export function maintenanceKeyMatchesCoverageContext(key: Readonly<{
+  authorityKind: "application" | "binding"; deploymentId: string; schemaVersionId: string;
+  activationSequence: bigint; activationSha256: string; headSha256: string;
+  candidateSha256: string | null; schemaManifestSha256: string | null;
+}>, context: IndexCoverageContext): boolean {
+  const issued = coverageContextTransactions.get(context);
+  if (issued === undefined) return false;
+  const selected = key.authorityKind === "binding" ? issued.binding : issued.active === null ? null : {
+    ...issued.active.schema, ...issued.active.head, candidateSha256: null };
+  return selected !== null && key.deploymentId === selected.deploymentId && key.schemaVersionId === selected.schemaVersionId &&
+    key.activationSequence === selected.activationSequence && key.activationSha256 === encodeBytesToLowercaseHex(selected.activationSha256) &&
+    key.headSha256 === encodeBytesToLowercaseHex(selected.headSha256) &&
+    key.candidateSha256 === (selected.candidateSha256 === null ? null : encodeBytesToLowercaseHex(selected.candidateSha256)) &&
+    (key.authorityKind === "application" && key.schemaManifestSha256 === null || key.schemaManifestSha256 === selected.schemaManifestSha256);
+}
+
 export interface IndexCoverageContext {
+  readonly binding: BindingIndexCoveragePins | null;
   readonly clock: ScopeClockRecord;
   readonly active: (CoherentApplicationActiveHead & { readonly schema: { readonly deploymentId: string; readonly schemaVersionId: string; readonly schemaManifestSha256: string } }) | null;
 }
@@ -940,11 +1032,52 @@ const coverageTableFrontiers = new WeakMap<IndexCoverageContext, Readonly<{
   frontiers: ReadonlyMap<CatalogTableId, Result.Result<CommitSeq | null, AppRowTableFrontierCorruptionError>>;
 }>>();
 const coverageContextTransactions = new WeakMap<IndexCoverageContext, Readonly<{
-  tx: AppRowTransaction; clock: ScopeClockRecord; active: IndexCoverageContext["active"];
+  tx: AppRowTransaction; clock: ScopeClockRecord; active: IndexCoverageContext["active"]; binding: IndexCoverageContext["binding"];
 }>>();
+const requiredBindingMaintenance = new WeakMap<IndexCoverageContext, Readonly<{
+  indexes: ReadonlySet<number>; unique: ReadonlySet<number>;
+}>>();
+const RequiredBindingMaintenanceInventorySchema = Schema.Array(Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("index"), id: Schema.toType(CatalogIndexDefinitionIdSchema) }),
+  Schema.Struct({ kind: Schema.Literal("unique"), id: Schema.toType(CatalogUniqueConstraintDefinitionIdSchema) }),
+]));
+const decodeRequiredBindingMaintenanceInventory = Schema.decodeUnknownEffect(RequiredBindingMaintenanceInventorySchema);
+
+/** Only bounded fallback needs this inventory. Healthy maintained definitions
+ * already carry their immutable opening and compare the issued selection pins. */
+export const prepareMissingBindingMaintenanceCheck = Effect.fn("IndexBuildState.prepareMissingBindingMaintenanceCheck")(function* (
+  tx: AppRowTransaction, context: IndexCoverageContext,
+) {
+  const issued = coverageContextTransactions.get(context);
+  if (issued === undefined || issued.tx !== tx)
+    return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  if (issued.binding === null || requiredBindingMaintenance.has(context)) return;
+  const binding = issued.binding;
+  const selected = (table: typeof fxSystemIndexMaintenanceObligations | typeof fxSystemUniqueMaintenanceObligations) => and(
+    eq(table.scopeId, issued.clock.scopeId), eq(table.authorityKind, "binding"),
+    eq(table.activationSequence, binding.activationSequence), eq(table.candidateSha256, binding.candidateSha256),
+    eq(table.activationSha256, binding.activationSha256), eq(table.headSha256, binding.headSha256),
+    eq(table.deploymentId, binding.deploymentId), eq(table.schemaVersionId, binding.schemaVersionId),
+    eq(table.schemaManifestSha256, sql`decode(${binding.schemaManifestSha256},'hex')`));
+  const nativeRows = yield* runDrizzleStatementEffect(tx.select({ kind: sql<string>`'index'`,
+    id: sql<number>`${fxSystemIndexMaintenanceObligations.indexDefinitionId}` }).from(fxSystemIndexMaintenanceObligations)
+    .where(selected(fxSystemIndexMaintenanceObligations)).unionAll(tx.select({ kind: sql<string>`'unique'`,
+      id: sql<number>`${fxSystemUniqueMaintenanceObligations.uniqueConstraintDefinitionId}` }).from(fxSystemUniqueMaintenanceObligations)
+      .where(selected(fxSystemUniqueMaintenanceObligations))),
+    cause => new IndexMaintenanceError({ reason: "resourceFailure", cause }));
+  const rows = yield* decodeRequiredBindingMaintenanceInventory(nativeRows).pipe(
+    Effect.mapError(cause => new IndexMaintenanceError({ reason: "storedState", cause })));
+  requiredBindingMaintenance.set(context, { indexes: new Set(rows.filter(row => row.kind === "index").map(row => row.id)),
+    unique: new Set(rows.filter(row => row.kind === "unique").map(row => row.id)) });
+});
+
+export function hasRequiredBindingMaintenance(context: IndexCoverageContext, kind: "index" | "unique", id: number): boolean {
+  const required = requiredBindingMaintenance.get(context);
+  return (kind === "index" ? required?.indexes : required?.unique)?.has(id) === true;
+}
 const registerCoverageContext = (context: IndexCoverageContext, tx: AppRowTransaction, clock: ScopeClockRecord): void => {
   coverageContextTransactions.set(context, { tx, clock: { ...clock, updatedAt: new Date(clock.updatedAt.getTime()) },
-    active: context.active === null ? null : structuredClone(context.active) });
+    active: context.active === null ? null : structuredClone(context.active), binding: context.binding === null ? null : structuredClone(context.binding) });
 };
 
 /** Only an exact, still-current snapshot can lend a coverage observation to another owner. */
@@ -981,8 +1114,10 @@ export function borrowIndexCoverageContextInTransaction(
     const issued = coverageContextTransactions.get(context);
     if (issued === undefined) return yield* Result.fail(new IndexMaintenanceError({ reason: "storedState" }));
     const borrowed = Object.freeze({ clock: { ...issued.clock, updatedAt: new Date(issued.clock.updatedAt.getTime()) },
-      active: issued.active === null ? null : structuredClone(issued.active) });
+      active: issued.active === null ? null : structuredClone(issued.active), binding: issued.binding === null ? null : structuredClone(issued.binding) });
     registerCoverageContext(borrowed, tx, clock);
+    const required = requiredBindingMaintenance.get(context);
+    if (required !== undefined) requiredBindingMaintenance.set(borrowed, required);
     return borrowed;
   });
 }
@@ -1015,10 +1150,10 @@ export function readPreparedIndexCoverageTableFrontiers(
   });
 }
 
-/** Application activation owns a maintained suffix. A separately admitted
- * logical source requires explicit build progress and cannot borrow that suffix.
- * A joint command names exactly which selected tables retain Application
- * maintenance; framework-owned tables still require source-bound coverage. */
+/** Application and data-binding activation own distinct maintained suffixes.
+ * A joint command names its Application-owned definitions; source-bound serving
+ * validates genuine current binding maintenance or an admitted shared App view.
+ * Unbound candidates retain explicit build progress before activation. */
 export type IndexPublicationProfile = "activeApplication" | "sourceBound" |
   Readonly<{ kind: "mixedSelectedSources"; activeApplicationTables: ReadonlySet<CatalogTableId>;
     activeApplicationDeveloperIndexDefinitionIds: ReadonlySet<CatalogIndexDefinitionId> }>;
@@ -1081,7 +1216,7 @@ export const readIndexCoverageContextInTransactionEffect = Effect.fnUntraced(
           return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
         const observation = yield* Effect.fromResult(capturedCoverage.read(tx, clock));
         const active = yield* decodeApplicationMaterializationObservation(tx, clock.scopeId, observation);
-        const context = Object.freeze({ clock, active });
+        const context = Object.freeze({ clock, active, binding: yield* readBindingCoveragePins(tx, clock) });
         registerCoverageContext(context, tx, clock);
         return context;
       }
@@ -1091,7 +1226,7 @@ export const readIndexCoverageContextInTransactionEffect = Effect.fnUntraced(
         ? yield* readCoherentApplicationActiveHeadForShareInTransactionEffect(tx, clock.scopeId)
         : checked;
       if (active === null) {
-        const context = Object.freeze({ clock, active: null });
+        const context = Object.freeze({ clock, active: null, binding: yield* readBindingCoveragePins(tx, clock) });
         registerCoverageContext(context, tx, clock);
         return context;
       }
@@ -1100,7 +1235,7 @@ export const readIndexCoverageContextInTransactionEffect = Effect.fnUntraced(
       const schema = checkedSchema === "refresh"
         ? yield* readApplicationSchemaForHeadForShareInTransactionEffect(tx, active.head)
         : checkedSchema;
-      const context = Object.freeze({ clock, active: Object.freeze({ ...active, schema }) });
+      const context = Object.freeze({ clock, active: Object.freeze({ ...active, schema }), binding: yield* readBindingCoveragePins(tx, clock) });
       registerCoverageContext(context, tx, clock);
       return context;
     }).pipe(Effect.mapError(cause => cause instanceof IndexMaintenanceError ? cause :
@@ -1150,16 +1285,14 @@ export const isIndexBuildSnapshotCoveredInTransactionEffect = Effect.fnUntraced(
     return false;
   if (state.maintenance !== null) {
     const obligation = state.maintenance;
-    if (obligation.tableId !== definition.tableId || encodeBytesToLowercaseHex(obligation.physicalSpecSha256) !== definition.physicalSpecSha256Hex || context.active === null ||
-      obligation.deploymentId !== context.active.schema.deploymentId || obligation.schemaVersionId !== context.active.schema.schemaVersionId ||
-      encodeBytesToLowercaseHex(obligation.schemaManifestSha256) !== context.active.schema.schemaManifestSha256 ||
-      obligation.activationSequence !== context.active.head.activationSequence ||
-      !bytesEqualFullScan(obligation.activationSha256, context.active.head.activationSha256) ||
-      encodeBytesToLowercaseHex(obligation.headSha256) !== encodeBytesToLowercaseHex(context.active.head.headSha256)) {
+    if (obligation.tableId !== definition.tableId || encodeBytesToLowercaseHex(obligation.physicalSpecSha256) !== definition.physicalSpecSha256Hex || !maintenanceMatchesCoverageContext(obligation, context)) {
       return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
     }
     return true;
   }
+  yield* prepareMissingBindingMaintenanceCheck(tx, context);
+  if (hasRequiredBindingMaintenance(context, "index", definition.indexDefinitionId))
+    return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
   if (covered >= snapshotCommitSeq) return true;
   if (pendingPublicationCommitSeq !== undefined) {
     if (pendingPublicationCommitSeq !== context.clock.lastCommitSeq + 1n ||

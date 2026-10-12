@@ -1,3 +1,4 @@
+import { bindingMaintenanceSelectionSql, bindingMaintenanceCaptureSql } from "../../installation/frameworkSchema/binding/maintenanceSelectionSql";
 import { MAX_ORDERED_INDEX_KEY_BYTES_V1 } from "flarex-protocol/ordered-index";
 import { getTableColumns, getTableName, sql, type SQL } from "drizzle-orm";
 import { PgDialect, type PgColumn, type PgTable } from "drizzle-orm/pg-core";
@@ -24,6 +25,8 @@ const scalarRow = (alias: string) => sql`row(${sql.join(Object.values(getTableCo
 /** Complete scalar build acceptance. The fixed publication stage owns these
  * reads and locks; an accepted composite is a server-local value, never JSON. */
 const buildInvalid = sql`(
+  ((${column("b", build.maintenanceAuthorityKind)} IS NULL) <> (${column("b", build.maintenanceActivationSequence)} IS NULL)) OR
+  (${column("b", build.maintenanceAuthorityKind)} IS NOT NULL AND ${column("b", build.maintenanceAuthorityKind)} NOT IN ('application','binding')) OR
   ${column("b", build.scopeId)} IS DISTINCT FROM p_scope OR
   ${column("b", build.indexDefinitionId)} IS DISTINCT FROM selected_id OR
   ${column("b", build.storageGeneration)} IS DISTINCT FROM p_generation OR
@@ -52,6 +55,10 @@ const buildInvalid = sql`(
 const maintenanceInvalid = sql`(${column("m", maintenance.activationSequence)} IS NOT NULL AND (
   ${column("b", build.lifecycle)} IS DISTINCT FROM 'enabled' OR
   ${column("m", maintenance.activationSequence)} <= 0 OR
+  ${column("m", maintenance.authorityKind)} IS DISTINCT FROM ${column("b", build.maintenanceAuthorityKind)} OR
+  ${column("m", maintenance.authorityKind)} NOT IN ('application','binding') OR
+  (${column("m", maintenance.authorityKind)}='application' AND ${column("m", maintenance.candidateSha256)} IS NOT NULL) OR
+  (${column("m", maintenance.authorityKind)}='binding' AND octet_length(${column("m", maintenance.candidateSha256)}) IS DISTINCT FROM 32) OR
   ${column("m", maintenance.scopeId)} IS DISTINCT FROM ${column("b", build.scopeId)} OR
   ${column("m", maintenance.indexDefinitionId)} IS DISTINCT FROM ${column("b", build.indexDefinitionId)} OR
   ${column("m", maintenance.storageGeneration)} IS DISTINCT FROM ${column("b", build.storageGeneration)} OR
@@ -137,7 +144,7 @@ BEGIN
       selected_id := p_intrinsic[i];
       SELECT x.* INTO b FROM ${table(build)} x WHERE ${column("x", build.scopeId)} = p_scope AND ${column("x", build.indexDefinitionId)} = selected_id;
       SELECT x.* INTO m FROM ${table(maintenance)} x WHERE ${column("x", maintenance.scopeId)} = p_scope
-        AND ${column("x", maintenance.indexDefinitionId)} = selected_id AND ${column("x", maintenance.activationSequence)} = ${column("b", build.maintenanceActivationSequence)};
+        AND ${column("x", maintenance.indexDefinitionId)} = selected_id AND ${column("x", maintenance.authorityKind)} = ${column("b", build.maintenanceAuthorityKind)} AND ${column("x", maintenance.activationSequence)} = ${column("b", build.maintenanceActivationSequence)};
       IF ${buildInvalid} OR ${maintenanceInvalid} THEN refusal := 'intrinsicIndexBuildInvalid'; ${refusal} END IF;
       intrinsic[i] := b; intrinsic_maintenance[i] := m;
     END LOOP;
@@ -152,7 +159,7 @@ BEGIN
     selected_id := p_developer[i];
     SELECT x.* INTO b FROM ${table(build)} x WHERE ${column("x", build.scopeId)} = p_scope AND ${column("x", build.indexDefinitionId)} = selected_id;
     SELECT x.* INTO m FROM ${table(maintenance)} x WHERE ${column("x", maintenance.scopeId)} = p_scope
-      AND ${column("x", maintenance.indexDefinitionId)} = selected_id AND ${column("x", maintenance.activationSequence)} = ${column("b", build.maintenanceActivationSequence)};
+      AND ${column("x", maintenance.indexDefinitionId)} = selected_id AND ${column("x", maintenance.authorityKind)} = ${column("b", build.maintenanceAuthorityKind)} AND ${column("x", maintenance.activationSequence)} = ${column("b", build.maintenanceActivationSequence)};
     IF p_developer_access[i] IS DISTINCT FROM 'developer' OR ${buildInvalid} OR ${maintenanceInvalid} THEN refusal := 'developerIndexBuildInvalid'; ${refusal} END IF;
     developer[i] := b; developer_maintenance[i] := m;
   END LOOP; END IF;
@@ -335,7 +342,7 @@ const applicationInputs = [
   ["p_deployment", "text"], ["p_schema", "text"], ["p_mixed", "boolean"], ["p_source_bound", "boolean"],
   ["p_active", "boolean"], ["p_active_deployment", "text"], ["p_active_schema", "text"], ["p_active_manifest", "bytea"],
   ["p_active_sequence", "bigint"], ["p_active_activation", "bytea"], ["p_active_head", "bytea"],
-  ["p_build_ids", "integer[]"], ["p_build_tables", "integer[]"], ["p_build_specs", "bytea[]"], ["p_build_active", "boolean[]"],
+  ["p_build_ids", "integer[]"], ["p_build_tables", "integer[]"], ["p_build_specs", "bytea[]"], ["p_build_active", "boolean[]"], ["p_build_schemas", "text[]"],
   ["p_unique_ids", "integer[]"], ["p_unique_tables", "integer[]"], ["p_unique_specs", "bytea[]"], ["p_unique_active", "boolean[]"],
   ["p_unique_schemas", "text[]"], ["p_unique_deployments", "text[]"], ["p_defer", "boolean"],
   ["p_intrinsic_indexes", "integer[]"], ["p_intrinsic_access", "text[]"], ["p_intrinsic_tables", "integer[]"], ["p_intrinsic_codecs", "integer[]"],
@@ -381,6 +388,7 @@ CREATE FUNCTION ${namespace}.fx_apply_app_publication(${sql.join(applicationInpu
 RETURNS TABLE(${sql.join(applicationOutputs.map(([name,type]) => parameter(name,type)),sql`, `)})
 LANGUAGE plpgsql VOLATILE SECURITY INVOKER SET search_path=pg_catalog,pg_temp AS $publication_application$
 DECLARE i integer:=1; k integer; row_ordinal integer; phase text:='uniqueCoverage'; refusal text; frontier bigint; t record; proof record;
+  binding_selection record; binding_selected boolean:=false;
   inner_message text; inner_detail text; intrinsic_transitions jsonb:='[]'::jsonb;
   u ${table(uniqueBuild)}; um ${table(uniqueMaintenance)}; b ${table(build)}; m ${table(maintenance)};
   indices ${namespace}.fx_app_index_write[]:=ARRAY[]::${namespace}.fx_app_index_write[];
@@ -390,6 +398,36 @@ DECLARE i integer:=1; k integer; row_ordinal integer; phase text:='uniqueCoverag
   unique_coverage ${uniqueCoverage}[]:=ARRAY[]::${uniqueCoverage}[];
   attempts bigint[]:=ARRAY[]::bigint[]; epochs text[]:=ARRAY[]::text[]; fences bigint[]:=ARRAY[]::bigint[];
 BEGIN
+  SELECT * INTO binding_selection FROM (${sql.raw(bindingMaintenanceCaptureSql("%1$I.", "p_scope", "p_generation"))}) selected_binding;
+  binding_selected:=FOUND;
+  -- Every bound-table write retains the complete installed maintenance set,
+  -- including unchanged keys. Transition action IDs are not a closure witness.
+  IF binding_selected THEN
+    IF EXISTS (SELECT 1 FROM ${table(maintenance)} required_index
+      LEFT JOIN ${table(build)} current_build ON current_build.scope_id=required_index.scope_id
+        AND current_build.index_definition_id=required_index.index_definition_id
+      WHERE required_index.scope_id=p_scope AND required_index.authority_kind='binding'
+        AND required_index.activation_sequence=binding_selection.activation_sequence
+        AND required_index.table_id IN (SELECT written.table_id FROM unnest(p_rows) written)
+        AND (${sql.raw(bindingMaintenanceSelectionSql("required_index"))}) IS TRUE
+        AND (NOT required_index.index_definition_id=ANY(p_build_ids)
+          OR current_build.maintenance_authority_kind IS DISTINCT FROM 'binding'
+          OR current_build.maintenance_activation_sequence IS DISTINCT FROM required_index.activation_sequence)) THEN
+      phase:='indexCoverage'; refusal:='indexCoverageMissing'; ${stage2Refusal}
+    END IF;
+    IF EXISTS (SELECT 1 FROM ${table(uniqueMaintenance)} required_unique
+      LEFT JOIN ${table(uniqueBuild)} current_build ON current_build.scope_id=required_unique.scope_id
+        AND current_build.unique_constraint_definition_id=required_unique.unique_constraint_definition_id
+      WHERE required_unique.scope_id=p_scope AND required_unique.authority_kind='binding'
+        AND required_unique.activation_sequence=binding_selection.activation_sequence
+        AND required_unique.table_id IN (SELECT written.table_id FROM unnest(p_rows) written)
+        AND (${sql.raw(bindingMaintenanceSelectionSql("required_unique"))}) IS TRUE
+        AND (NOT required_unique.unique_constraint_definition_id=ANY(p_unique_ids)
+          OR current_build.maintenance_authority_kind IS DISTINCT FROM 'binding'
+          OR current_build.maintenance_activation_sequence IS DISTINCT FROM required_unique.activation_sequence)) THEN
+      phase:='uniqueCoverage'; refusal:='uniqueCoverageMissing'; ${stage2Refusal}
+    END IF;
+  END IF;
   IF cardinality(p_unique_ids)>0 THEN
     IF p_source_bound THEN
       PERFORM 1 FROM ${table(uniqueBuild)} x WHERE ${column("x",uniqueBuild.scopeId)}=p_scope AND ${column("x",uniqueBuild.uniqueConstraintDefinitionId)}=ANY(p_unique_ids)
@@ -404,7 +442,7 @@ BEGIN
     FOR i IN 1..cardinality(p_unique_ids) LOOP
       SELECT x.* INTO u FROM ${table(uniqueBuild)} x WHERE ${column("x",uniqueBuild.scopeId)}=p_scope AND ${column("x",uniqueBuild.uniqueConstraintDefinitionId)}=p_unique_ids[i];
       SELECT x.* INTO um FROM ${table(uniqueMaintenance)} x WHERE ${column("x",uniqueMaintenance.scopeId)}=p_scope
-        AND ${column("x",uniqueMaintenance.uniqueConstraintDefinitionId)}=p_unique_ids[i] AND ${column("x",uniqueMaintenance.activationSequence)}=${column("u",uniqueBuild.maintenanceActivationSequence)};
+        AND ${column("x",uniqueMaintenance.uniqueConstraintDefinitionId)}=p_unique_ids[i] AND ${column("x",uniqueMaintenance.authorityKind)}=${column("u",uniqueBuild.maintenanceAuthorityKind)} AND ${column("x",uniqueMaintenance.activationSequence)}=${column("u",uniqueBuild.maintenanceActivationSequence)};
       IF ${column("u",uniqueBuild.scopeId)} IS DISTINCT FROM p_scope OR ${column("u",uniqueBuild.uniqueConstraintDefinitionId)} IS DISTINCT FROM p_unique_ids[i] OR
         ${column("u",uniqueBuild.storageGeneration)} IS DISTINCT FROM p_generation OR ${column("u",uniqueBuild.storageGenerationFence)} IS DISTINCT FROM p_fence OR
         ${column("u",uniqueBuild.epoch)} IS DISTINCT FROM p_epoch OR ${column("u",uniqueBuild.lifecycle)} IS DISTINCT FROM 'enabled' OR
@@ -416,14 +454,20 @@ BEGIN
         NOT isfinite(${column("u",uniqueBuild.createdAt)}) OR NOT isfinite(${column("u",uniqueBuild.updatedAt)}) OR
         abs(extract(epoch FROM ${column("u",uniqueBuild.createdAt)})*1000)>8640000000000000 OR abs(extract(epoch FROM ${column("u",uniqueBuild.updatedAt)})*1000)>8640000000000000 OR
         date_trunc('milliseconds',${column("u",uniqueBuild.updatedAt)})<date_trunc('milliseconds',${column("u",uniqueBuild.createdAt)}) OR
+        ((${column("u",uniqueBuild.maintenanceAuthorityKind)} IS NULL)<>(${column("u",uniqueBuild.maintenanceActivationSequence)} IS NULL)) OR
+        (${column("u",uniqueBuild.maintenanceAuthorityKind)} IS NOT NULL AND ${column("u",uniqueBuild.maintenanceAuthorityKind)} NOT IN ('application','binding')) OR
         ((${column("u",uniqueBuild.maintenanceActivationSequence)} IS NULL)<>(${column("um",uniqueMaintenance.activationSequence)} IS NULL)) THEN
         refusal:='uniqueBuildInvalid'; ${stage2Refusal}
       END IF;
       IF (p_unique_active[i] AND p_active AND ${column("um",uniqueMaintenance.activationSequence)} IS NULL) OR
-        (NOT p_unique_active[i] AND ${column("um",uniqueMaintenance.activationSequence)} IS NOT NULL) OR
-        (p_mixed AND p_unique_active[i] AND NOT p_active) THEN refusal:='uniqueCoverageMissing'; ${stage2Refusal} END IF;
+        (p_mixed AND p_unique_active[i] AND NOT p_active) OR
+        (binding_selected AND binding_selection.schema_version_id=p_unique_schemas[i] AND NOT p_unique_active[i] AND ${column("um",uniqueMaintenance.activationSequence)} IS NULL) THEN refusal:='uniqueCoverageMissing'; ${stage2Refusal} END IF;
       IF ${column("um",uniqueMaintenance.activationSequence)} IS NOT NULL THEN
-        IF ${column("um",uniqueMaintenance.activationSequence)}<=0 OR ${column("um",uniqueMaintenance.scopeId)} IS DISTINCT FROM p_scope OR
+        IF ${column("um",uniqueMaintenance.authorityKind)} IS DISTINCT FROM ${column("u",uniqueBuild.maintenanceAuthorityKind)} OR
+          ${column("um",uniqueMaintenance.authorityKind)} NOT IN ('application','binding') OR
+          (${column("um",uniqueMaintenance.authorityKind)}='application' AND (${column("um",uniqueMaintenance.candidateSha256)} IS NOT NULL OR ${column("um",uniqueMaintenance.schemaManifestSha256)} IS NOT NULL)) OR
+          (${column("um",uniqueMaintenance.authorityKind)}='binding' AND (octet_length(${column("um",uniqueMaintenance.candidateSha256)}) IS DISTINCT FROM 32 OR octet_length(${column("um",uniqueMaintenance.schemaManifestSha256)}) IS DISTINCT FROM 32)) OR
+          ${column("um",uniqueMaintenance.activationSequence)}<=0 OR ${column("um",uniqueMaintenance.scopeId)} IS DISTINCT FROM p_scope OR
           ${column("um",uniqueMaintenance.uniqueConstraintDefinitionId)} IS DISTINCT FROM p_unique_ids[i] OR
           ${column("um",uniqueMaintenance.storageGeneration)} IS DISTINCT FROM p_generation OR ${column("um",uniqueMaintenance.storageGenerationFence)} IS DISTINCT FROM p_fence OR
           ${column("um",uniqueMaintenance.epoch)} IS DISTINCT FROM p_epoch OR ${column("um",uniqueMaintenance.attemptFence)} IS DISTINCT FROM ${column("u",uniqueBuild.attemptFence)} OR
@@ -431,11 +475,13 @@ BEGIN
           ${column("um",uniqueMaintenance.openedCommitSeq)} IS DISTINCT FROM ${column("u",uniqueBuild.coveredThroughCommitSeq)} OR
           ${column("um",uniqueMaintenance.tableId)} IS DISTINCT FROM p_unique_tables[i] OR ${column("um",uniqueMaintenance.physicalSpecSha256)} IS DISTINCT FROM p_unique_specs[i] OR
           ${column("um",uniqueMaintenance.deploymentId)} IS DISTINCT FROM p_unique_deployments[i] OR
-          ${column("um",uniqueMaintenance.schemaVersionId)} IS DISTINCT FROM (CASE WHEN p_mixed AND p_unique_active[i] THEN p_active_schema ELSE p_unique_schemas[i] END) OR
+          (${column("um",uniqueMaintenance.authorityKind)}='binding' AND ${column("um",uniqueMaintenance.schemaVersionId)} IS DISTINCT FROM p_unique_schemas[i]) OR
+          (${column("um",uniqueMaintenance.authorityKind)}='binding' AND (${sql.raw(bindingMaintenanceSelectionSql("um"))}) IS NOT TRUE) OR
+          (${column("um",uniqueMaintenance.authorityKind)}='application' AND (
           NOT p_active OR ${column("um",uniqueMaintenance.deploymentId)} IS DISTINCT FROM p_active_deployment OR
           ${column("um",uniqueMaintenance.schemaVersionId)} IS DISTINCT FROM p_active_schema OR
           ${column("um",uniqueMaintenance.activationSequence)} IS DISTINCT FROM p_active_sequence OR
-          ${column("um",uniqueMaintenance.activationSha256)} IS DISTINCT FROM p_active_activation OR ${column("um",uniqueMaintenance.headSha256)} IS DISTINCT FROM p_active_head THEN
+          ${column("um",uniqueMaintenance.activationSha256)} IS DISTINCT FROM p_active_activation OR ${column("um",uniqueMaintenance.headSha256)} IS DISTINCT FROM p_active_head)) THEN
           refusal:='uniqueBuildInvalid'; ${stage2Refusal}
         END IF;
       ELSIF ${column("u",uniqueBuild.coveredThroughCommitSeq)}<p_last THEN
@@ -455,12 +501,13 @@ BEGIN
   IF cardinality(p_build_ids)>0 THEN FOR i IN 1..cardinality(p_build_ids) LOOP
     SELECT x.* INTO b FROM ${table(build)} x WHERE ${column("x",build.scopeId)}=p_scope AND ${column("x",build.indexDefinitionId)}=p_build_ids[i];
     SELECT x.* INTO m FROM ${table(maintenance)} x WHERE ${column("x",maintenance.scopeId)}=p_scope AND ${column("x",maintenance.indexDefinitionId)}=p_build_ids[i]
-      AND ${column("x",maintenance.activationSequence)}=${column("b",build.maintenanceActivationSequence)};
+      AND ${column("x",maintenance.authorityKind)}=${column("b",build.maintenanceAuthorityKind)} AND ${column("x",maintenance.activationSequence)}=${column("b",build.maintenanceActivationSequence)};
     IF (p_build_active[i] AND p_active AND (${column("b",build.lifecycle)} IS DISTINCT FROM 'enabled' OR ${column("m",maintenance.activationSequence)} IS NULL)) OR
-      (NOT p_build_active[i] AND (${column("b",build.lifecycle)} IS DISTINCT FROM 'enabled' OR ${column("m",maintenance.activationSequence)} IS NOT NULL)) OR
-      (p_mixed AND p_build_active[i] AND NOT p_active) THEN refusal:='indexCoverageMissing'; ${stage2Refusal} END IF;
+      (NOT p_build_active[i] AND ${column("b",build.lifecycle)} IS DISTINCT FROM 'enabled') OR
+      (p_mixed AND p_build_active[i] AND NOT p_active) OR
+      (binding_selected AND binding_selection.schema_version_id=p_build_schemas[i] AND NOT p_build_active[i] AND ${column("m",maintenance.activationSequence)} IS NULL) THEN refusal:='indexCoverageMissing'; ${stage2Refusal} END IF;
     IF ${column("m",maintenance.activationSequence)} IS NOT NULL THEN
-      IF ${column("m",maintenance.schemaVersionId)} IS DISTINCT FROM (CASE WHEN p_mixed AND p_build_active[i] THEN p_active_schema ELSE p_schema END) OR
+      IF (${column("m",maintenance.authorityKind)}='binding' AND ${column("m",maintenance.schemaVersionId)} IS DISTINCT FROM p_build_schemas[i]) OR
         ${column("m",maintenance.deploymentId)} IS DISTINCT FROM p_deployment OR ${column("m",maintenance.physicalSpecSha256)} IS DISTINCT FROM p_build_specs[i] THEN
         refusal:='indexBuildInvalid'; ${stage2Refusal}
       END IF;
@@ -469,10 +516,12 @@ BEGIN
       IF ${column("b",build.coveredThroughCommitSeq)} IS NULL OR ${column("b",build.firstReadableCommitSeq)} IS NULL OR ${column("b",build.firstReadableCommitSeq)}>p_last THEN
         refusal:='indexCoverageMissing'; ${stage2Refusal} END IF;
       IF ${column("m",maintenance.activationSequence)} IS NOT NULL THEN
-        IF ${column("m",maintenance.tableId)} IS DISTINCT FROM p_build_tables[i] OR NOT p_active OR
+        IF ${column("m",maintenance.tableId)} IS DISTINCT FROM p_build_tables[i] OR
+          (${column("m",maintenance.authorityKind)}='binding' AND (${sql.raw(bindingMaintenanceSelectionSql("m"))}) IS NOT TRUE) OR
+          (${column("m",maintenance.authorityKind)}='application' AND (NOT p_active OR
           ${column("m",maintenance.deploymentId)} IS DISTINCT FROM p_active_deployment OR ${column("m",maintenance.schemaVersionId)} IS DISTINCT FROM p_active_schema OR
           ${column("m",maintenance.schemaManifestSha256)} IS DISTINCT FROM p_active_manifest OR ${column("m",maintenance.activationSequence)} IS DISTINCT FROM p_active_sequence OR
-          ${column("m",maintenance.activationSha256)} IS DISTINCT FROM p_active_activation OR ${column("m",maintenance.headSha256)} IS DISTINCT FROM p_active_head THEN
+          ${column("m",maintenance.activationSha256)} IS DISTINCT FROM p_active_activation OR ${column("m",maintenance.headSha256)} IS DISTINCT FROM p_active_head)) THEN
           refusal:='indexBuildInvalid'; ${stage2Refusal} END IF;
       ELSIF ${column("b",build.coveredThroughCommitSeq)}<p_last THEN
         SELECT ${column("x",current.commitSeq)} INTO frontier FROM ${table(current)} x WHERE ${column("x",current.scopeUuid)}=p_search_scope AND ${column("x",current.tableId)}=p_build_tables[i]

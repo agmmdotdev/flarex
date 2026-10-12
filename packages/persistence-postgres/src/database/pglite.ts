@@ -11,6 +11,7 @@ import {
   InstallationLifecycleError,
 } from "../installation/installationLifecycle";
 import { prepareTypedMaintenanceMigration } from "../storage/indexes/indexMaintenanceMigration";
+import { backfillBindingMaintenance } from "../storage/indexes/bindingMaintenanceMigration";
 import type { FlarexMetadataDatabase } from "../application/deployments";
 import {
   backfillStandaloneApplicationBindings,
@@ -397,6 +398,7 @@ export async function createPGlitePersistence(
       if (gate.state === "unverified") yield* initializeFullProofInstallation(drizzleDb);
       yield* backfillStandaloneApplicationBindings(drizzleDb, immutableCatalog);
       yield* backfillBindingMetadataProjections(drizzleDb, immutableCatalog);
+      yield* backfillBindingMaintenance(drizzleDb, immutableCatalog);
       yield* backfillLogicalReadProjections(drizzleDb);
       })));
       await Effect.runPromise(Effect.gen(function* () {

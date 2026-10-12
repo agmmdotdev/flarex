@@ -781,6 +781,7 @@ export const materializeAcceptedApplicationPublicationRows = Effect.fnUntraced(f
     ${scalar(definitions.map(definition=>definition.access.tableId),"integer",fxControlIndexDefinitions.tableId)},
     ${bytes(definitions.map(definition=>appIndexPhysicalSpecSha256HexV1ToBytes(definition.physicalSpecSha256Hex)),fxControlIndexDefinitions.physicalSpecSha256)},
     ${scalar(definitions.map(definition=>publicationModeForIndex(profile,definition)==="activeApplication"),"boolean",fxAppRowRevisions.isTombstone)},
+    ${scalar(definitions.map(definition=>command.sourceSchemaVersionByTable?.get(definition.access.tableId) ?? command.authorityPins.schemaVersionId),"text",fxControlSchemaVersionUniqueConstraintBindings.schemaVersionId)},
     ${scalar(unique.map(definition=>definition.uniqueConstraintDefinitionId),"integer",fxControlUniqueConstraintDefinitions.uniqueConstraintDefinitionId)},
     ${scalar(unique.map(definition=>definition.tableId),"integer",fxControlUniqueConstraintDefinitions.tableId)},
     ${bytes(unique.map(definition=>appUniqueConstraintSpecSha256HexV1ToBytes(definition.physicalSpecSha256Hex)),fxControlUniqueConstraintDefinitions.physicalSpecSha256)},

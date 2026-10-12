@@ -1,4 +1,5 @@
 /** Explicit declaration surface and driver schema composition. Declaration owners import each other directly. */
+export type { MaintenanceAuthorityKind } from "./schema/buildReadiness";
 import { deployments, fxControlSchemaVersions, fxControlTables } from "./schema/catalogIdentity";
 import {
   fxControlIndexes,

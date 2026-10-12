@@ -725,8 +725,8 @@ export const verifyManagedRuntimePrivileges = Effect.fn("InstallationLifecycle.v
           select 1 from pg_catalog.pg_class c, bounds b where c.relnamespace = b.namespace_oid
             and c.relname = ${build.tableName}
             and not pg_catalog.has_table_privilege(b.login_oid,c.oid,'INSERT,UPDATE')
-            and not pg_catalog.has_column_privilege(b.login_oid,c.oid,${build.bindingColumn},'INSERT')
-            and not pg_catalog.has_column_privilege(b.login_oid,c.oid,${build.bindingColumn},'UPDATE')
+            and ${sql.join(build.bindingColumns.map(column => sql`not pg_catalog.has_column_privilege(b.login_oid,c.oid,${column},'INSERT')
+              and not pg_catalog.has_column_privilege(b.login_oid,c.oid,${column},'UPDATE')`), sql` and `)}
             and not exists (select 1 from pg_catalog.pg_attribute a where a.attrelid = c.oid
               and a.attnum > 0 and not a.attisdropped
               and a.attname <> all(array[${sql.join(build.writableColumns.map(column => sql`${column}`), sql`, `)}]::text[])

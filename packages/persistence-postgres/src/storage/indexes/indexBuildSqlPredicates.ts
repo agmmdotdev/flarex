@@ -2,6 +2,8 @@
  * The accepting owners bind these exact locals; profile-specific liveness,
  * generation, availability and coverage policy remain with those owners. */
 export const INDEX_BUILD_INTRINSIC_VALIDITY_SQL = `build_row.cursor_codec_version = 1
+          AND (build_row.maintenance_authority_kind IS NULL) = (build_row.maintenance_activation_sequence IS NULL)
+          AND (build_row.maintenance_authority_kind IS NULL OR build_row.maintenance_authority_kind IN ('application','binding'))
           AND build_row.scope_id = p_scope_id
           AND build_row.index_definition_id = p_index_definition_id
           AND build_row.index_definition_id > 0
@@ -21,6 +23,10 @@ export const INDEX_BUILD_INTRINSIC_VALIDITY_SQL = `build_row.cursor_codec_versio
           AND abs(floor(extract(epoch FROM build_row.updated_at)*1000)) <= 8640000000000000
           AND floor(extract(epoch FROM build_row.updated_at)*1000) >= floor(extract(epoch FROM build_row.created_at)*1000)`;
 export const INDEX_MAINTENANCE_OPENING_VALIDITY_SQL = `index_maintenance.activation_sequence > 0
+          AND index_maintenance.authority_kind = build_row.maintenance_authority_kind
+          AND index_maintenance.authority_kind IN ('application','binding')
+          AND (index_maintenance.authority_kind = 'application' AND index_maintenance.candidate_sha256 IS NULL
+            OR index_maintenance.authority_kind = 'binding' AND octet_length(index_maintenance.candidate_sha256) = 32)
           AND index_maintenance.storage_generation = 'flarexdb_v1'
           AND index_maintenance.storage_generation_fence > 0
           AND length(index_maintenance.epoch) > 0

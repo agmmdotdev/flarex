@@ -7,6 +7,8 @@ import {
   prepareLogicalStorageMetadataProjection,
 } from "../../../storage/catalog/logicalStorageReadiness";
 import { readUniqueMaintenanceRequirements } from "../../../storage/unique/appUniqueConstraintSetBuildV1";
+import { readBindingMaintenanceRequirements, selectBindingMaintenanceRequirements,
+  type BindingMaintenanceRequirements } from "../../../storage/indexes/bindingMaintenance";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
   IndexBuildReconciliationCatalogV1Error,
@@ -28,7 +30,9 @@ import type { FlarexMetadataDatabase } from "../../../application/deployments";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
 import {
   hasApplicationBindingComposition,
+  readApplicationActivationRepositoryState,
 } from "../../../application/activation/repositoryIdentity";
+import { selectApplicationActivationTargetResult } from "../../../application/readiness/activationTarget";
 import {
   type ApplicationBindingSelectionReader,
 } from "../../../application/activation/contracts";
@@ -246,9 +250,19 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
         tx: FlarexMetadataTransaction,
         authority: TrustedScopeAuthority,
       ) => Effect.Effect<Value, Failure>,
+      activation = false,
     ) =>
-      runLocatedReadCommittedEffect(
-        located.target,
+      Effect.gen(function* () {
+        const owner = readApplicationActivationRepositoryState(application);
+        const executionTarget = activation
+          ? owner === undefined
+            ? yield* Effect.fail(bindingError("invalidAuthority"))
+            : (yield* Effect.fromResult(selectApplicationActivationTargetResult(owner.activation,
+              located.target, located.authority.physicalLocator)).pipe(
+                Effect.mapError(cause => bindingError("invalidAuthority", cause)))).target
+          : located.target;
+        return yield* runLocatedReadCommittedEffect(
+        executionTarget,
         {
           rollbackMessage: "Data binding transaction rollback",
           cleanupDefect: (cause) => bindingError("resourceFailure", cause),
@@ -265,7 +279,8 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
               )
             : error,
         ))),
-      ),
+      );
+      }),
   );
   const lockScope = Effect.fn("DataBindingHost.lockScope")(function* (
     tx: FlarexMetadataTransaction,
@@ -530,19 +545,32 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
             : [];
           yield* requireSafeStrongReferenceActivation(tx, clock.scopeId, previouslyEnforced, proposedReferences);
         }
-        const projection = logicalStorage === null || logicalInput === null ? null : yield* Effect.gen(function* () {
+        const preparedMaintenance = logicalStorage === null || logicalInput === null ? null : yield* Effect.gen(function* () {
           const unique = yield* readUniqueMaintenanceRequirements(logicalInput.controlDb, deploymentId,
             logicalStorage.reference.schemaVersionId, hasLocatedReadCommittedTargetDatabaseV1(located.target, logicalInput.controlDb) ? tx : undefined)
             .pipe(Effect.mapError(cause => bindingError(cause.reason === "resourceFailure" ? "resourceFailure" : "storedCorruption", cause)));
-          return yield* prepareLogicalStorageMetadataProjection(
+          const projection = yield* prepareLogicalStorageMetadataProjection(
             { deploymentId, schemaVersionId: logicalStorage.reference.schemaVersionId, profile: "binding" }, logicalStorage.snapshot, unique.members);
+          const maintenance = yield* Effect.fromResult(selectBindingMaintenanceRequirements(logicalStorage.snapshot,unique));
+          return { projection,maintenance };
         });
+        const projection = preparedMaintenance?.projection ?? null;
         const owners: FiniteMetadataOwner[] = [...(projection === null ? [] : inspectFiniteMetadataProjection(projection)?.owners ?? [])];
+        const maintenanceControl = logicalInput?.controlDb ?? readApplicationActivationRepositoryState(application)?.controlDatabase;
+        const incomingMaintenance: BindingMaintenanceRequirements = preparedMaintenance?.maintenance ??
+          { deploymentId, schemaVersionId: null, manifestSha256: null, indexes: [], unique: [] };
+        let outgoingMaintenance: BindingMaintenanceRequirements | null = null;
         let withdrawsPermission = false;
         if (Option.isSome(current)) {
           const old = yield* readBindingCandidate(tx, authority, current.value.frame.candidateSha256);
           if (Option.isNone(old)) return yield* Effect.fail(bindingError("storedCorruption"));
           const previousFrame = old.value.frame;
+          outgoingMaintenance = previousFrame.logicalSchema === null
+            ? { deploymentId: previousFrame.application.deploymentId, schemaVersionId: null, manifestSha256: null, indexes: [], unique: [] }
+            : maintenanceControl === undefined
+              ? yield* Effect.fail(bindingError("invalidAuthority"))
+              : yield* readBindingMaintenanceRequirements(maintenanceControl,previousFrame.application.deploymentId,
+                previousFrame.logicalSchema,hasLocatedReadCommittedTargetDatabaseV1(located.target,maintenanceControl) ? tx : undefined);
           const incomingProfiles = new Set(profileIds(candidate.value.frame));
           withdrawsPermission = profileIds(previousFrame).some(profile => !incomingProfiles.has(profile)) ||
             (previousFrame.payloadContent !== null && candidate.value.frame.payloadContent === null);
@@ -563,10 +591,10 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           }
         }
         const written = yield* writeBindingActivation(tx, request, proposedReferences,
-          { projection, owners, withdrawsPermission });
+          { projection, owners, withdrawsPermission, maintenance: { outgoing: outgoingMaintenance, incoming: incomingMaintenance } });
         if (afterAcceptance !== undefined) yield* afterAcceptance();
         return written;
-      }),
+      }), true,
     );
     return yield* report(receipt);
   });

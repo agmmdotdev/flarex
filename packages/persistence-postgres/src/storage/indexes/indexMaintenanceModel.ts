@@ -11,6 +11,8 @@ const positiveSequence = Schema.BigInt.check(Schema.makeFilter(value =>
 const digest = Schema.Uint8Array.check(Schema.makeFilter(value => value.byteLength === 32 ? undefined : "Expected SHA-256 bytes"));
 const opening = {
   scopeId: Schema.toType(ScopeIdSchema),
+  authorityKind: Schema.Literals(["application", "binding"]),
+  candidateSha256: Schema.NullOr(digest),
   activationSequence: positiveSequence,
   storageGeneration: FlarexDbV1StorageGenerationSchema,
   storageGenerationFence: Schema.toType(StorageGenerationFenceSchema),
@@ -32,8 +34,10 @@ export const IndexMaintenanceObligationSchema = Schema.Struct({
   attemptFence: Schema.toType(IndexBuildAttemptFenceSchema),
   firstReadableCommitSeq: Schema.toType(CommitSeqSchema),
   schemaManifestSha256: digest,
-}).check(Schema.makeFilter(value => value.firstReadableCommitSeq <= value.openedCommitSeq
-  ? undefined : "First-readable frontier exceeds opening frontier"));
+}).check(Schema.makeFilter(value => value.firstReadableCommitSeq > value.openedCommitSeq
+  ? "First-readable frontier exceeds opening frontier"
+  : (value.authorityKind === "application") === (value.candidateSha256 === null)
+    ? undefined : "Maintenance authority and candidate disagree"));
 export type IndexMaintenanceObligation = typeof IndexMaintenanceObligationSchema.Type;
 
 export const UniqueMaintenanceObligationSchema = Schema.Struct({
@@ -41,8 +45,12 @@ export const UniqueMaintenanceObligationSchema = Schema.Struct({
   uniqueConstraintDefinitionId: CatalogUniqueConstraintDefinitionIdSchema,
   attemptFence: Schema.toType(AppUniqueConstraintSetBuildAttemptFenceV1Schema),
   startCommitSeq: Schema.toType(CommitSeqSchema),
-}).check(Schema.makeFilter(value => value.startCommitSeq <= value.openedCommitSeq
-  ? undefined : "Unique build start exceeds opening frontier"));
+  schemaManifestSha256: Schema.NullOr(digest),
+}).check(Schema.makeFilter(value => value.startCommitSeq > value.openedCommitSeq
+  ? "Unique build start exceeds opening frontier"
+  : value.authorityKind === "application"
+    ? value.candidateSha256 === null && value.schemaManifestSha256 === null ? undefined : "Application opening carries binding pins"
+    : value.candidateSha256 !== null && value.schemaManifestSha256 !== null ? undefined : "Binding opening lacks candidate pins"));
 export type UniqueMaintenanceObligation = typeof UniqueMaintenanceObligationSchema.Type;
 
 export class IndexMaintenanceError extends Data.TaggedError("IndexMaintenanceError")<{
@@ -62,7 +70,7 @@ const decodeUnique = Schema.decodeUnknownEffect(UniqueMaintenanceObligationSchem
 export function decodeIndexMaintenanceObligationResult(row: unknown): Result.Result<IndexMaintenanceObligation, IndexMaintenanceError> {
   return decodeIndex(row).pipe(
     Result.mapError(cause => new IndexMaintenanceError({ reason: "storedState", cause })),
-    Result.map(value => Object.freeze({ ...value, physicalSpecSha256: copyBytes(value.physicalSpecSha256),
+    Result.map(value => Object.freeze({ ...value, candidateSha256: value.candidateSha256 === null ? null : copyBytes(value.candidateSha256), physicalSpecSha256: copyBytes(value.physicalSpecSha256),
       schemaManifestSha256: copyBytes(value.schemaManifestSha256), activationSha256: copyBytes(value.activationSha256),
       headSha256: copyBytes(value.headSha256) })),
   );
@@ -70,7 +78,8 @@ export function decodeIndexMaintenanceObligationResult(row: unknown): Result.Res
 export function decodeUniqueMaintenanceObligationEffect(row: unknown): Effect.Effect<UniqueMaintenanceObligation, UniqueMaintenanceError> {
   return decodeUnique(row).pipe(
     Effect.mapError(cause => new UniqueMaintenanceError({ reason: "storedState", cause })),
-    Effect.map(value => Object.freeze({ ...value, physicalSpecSha256: copyBytes(value.physicalSpecSha256),
+    Effect.map(value => Object.freeze({ ...value, candidateSha256: value.candidateSha256 === null ? null : copyBytes(value.candidateSha256),
+      schemaManifestSha256: value.schemaManifestSha256 === null ? null : copyBytes(value.schemaManifestSha256), physicalSpecSha256: copyBytes(value.physicalSpecSha256),
       activationSha256: copyBytes(value.activationSha256), headSha256: copyBytes(value.headSha256) })),
   );
 }

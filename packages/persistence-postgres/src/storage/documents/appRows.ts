@@ -1,15 +1,17 @@
 import { AppRowScopeAuthorityUnavailableError, AppRowStorageCorruptionError, AppRowRevisionChainConflictError, AppRowCreationTimeConflictError, AppRowRevisionAlreadyExistsError, InvalidAppRowRevisionV1InputError } from "./appRowErrors";
 import type { AppendAppRowRevisionV1Error } from "./appRowErrors";
-import { fxSystemScopeExecutionAuthorities } from "../../database/schema";
+import { fxSystemScopeExecutionAuthorities, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds,
+  fxSystemIndexMaintenanceObligations, fxSystemUniqueMaintenanceObligations } from "../../database/schema";
 import { closeExactAttemptScopeClockObservation, exactScopeWriteClockObservationIdentity, readExactScopeWriteClockObservation,
   readFiniteExecutionAuthorityObservation, requireFiniteExecutionAuthorityObservation,
-  readProtectedScopeReadIdentity, requireProtectedScopeReadIdentity } from "../../scope/scopeClock";
+  readProtectedScopeReadIdentity, requireProtectedScopeReadIdentity, lockScopeClockForUpdateInTransactionEffect } from "../../scope/scopeClock";
 import type { PointCommitPublicationObservation } from "../../commit/point/observation";
-import { and, desc, eq, getTableColumns, inArray, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { observeDrizzleQuery, observeDrizzleRawQuery } from "../../database/drizzleQueryObservation";
 import { rowsFromDriverExecuteResult } from "../../database/driverExecuteResult";
 import { requireAdmittedTargetInstallationSchema } from "../../installation/installationLifecycle";
+import { bindingMaintenanceCaptureSql, bindingMaintenanceSelectionSql } from "../../installation/frameworkSchema/binding/maintenanceSelectionSql";
 import { applicationDomainFailureDetail, buildAppRowBatchStatement } from "../materialization/domainApplication";
 import { runPointCommitInTransactionEffect, projectPointCommitTransactionResult } from "../../commit/point/promiseBoundary";
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
@@ -218,7 +220,7 @@ export class InvalidAppRowBatchInputError extends Error {
   readonly _tag = "InvalidAppRowBatchInputError" as const;
   constructor(
     readonly reason:
-      "mixedPublication" | "duplicateIdentity" | "documentBytesExceeded" | "rowCountExceeded" | "byteCountExceeded",
+      "mixedPublication" | "duplicateIdentity" | "documentBytesExceeded" | "rowCountExceeded" | "byteCountExceeded" | "bindingMaintenanceRequired",
   ) {
     super(`Invalid prepared app-row batch: ${reason}`);
   }
@@ -1360,8 +1362,50 @@ const appendPreparedRowBatchEffect = Effect.fn("AppRows.applyPreparedBatch")(fun
 ): Effect.fn.Return<void, AppRowBatchError> {
   const first = batch[0];
   if (first === undefined) return;
+  // This low-level writer has no complete framework maintenance selection.
+  // The genuine scope exclusion prevents a binding opening between this check
+  // and its row application. Complete publications use their owning SQL path.
+  const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, first.identity.scopeId).pipe(
+    Effect.mapError(cause => new AppRowWritePersistenceError(cause)));
   const schemaName = yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx)).pipe(
     Effect.mapError(cause => new AppRowWritePersistenceError(cause)));
+  const tables = [...new Set(batch.map(row => row.identity.tableId))];
+  const selectedBinding = bindingMaintenanceCaptureSql(`"${schemaName.replaceAll('"','""')}".`,
+    "location.scope_id","location.storage_generation");
+  const protectedTables = sql.join(tables.map(tableId => sql`${tableId}::integer`),sql`, `);
+  const [obligated] = yield* appRowBatchQueryEffect(() => tx.select({ required: sql<boolean>`(
+    with selected_binding as materialized (${sql.raw(selectedBinding)}) select
+      exists(select 1 from selected_binding selected join ${fxSystemIndexMaintenanceObligations} as required
+        on required.scope_id=location.scope_id and required.authority_kind='binding'
+        and (${sql.raw(bindingMaintenanceSelectionSql("required","selected"))}) is true
+        where required.table_id in (${protectedTables})) or
+      exists(select 1 from selected_binding selected join ${fxSystemUniqueMaintenanceObligations} as required
+        on required.scope_id=location.scope_id and required.authority_kind='binding'
+        and (${sql.raw(bindingMaintenanceSelectionSql("required","selected"))}) is true
+        where required.table_id in (${protectedTables})))` })
+    .from(sql`(values(${first.identity.scopeId}::text,${clock.storageGeneration}::text)) as location(scope_id,storage_generation)`));
+  if (obligated?.required!==false)
+    return yield* Effect.fail(new InvalidAppRowBatchInputError("bindingMaintenanceRequired"));
+  const boundIndexes = yield* appRowBatchQueryEffect(() => tx.select({ id: fxSystemIndexBuildStates.indexDefinitionId })
+    .from(fxSystemIndexBuildStates).leftJoin(fxSystemIndexMaintenanceObligations,and(
+      eq(fxSystemIndexMaintenanceObligations.scopeId,fxSystemIndexBuildStates.scopeId),
+      eq(fxSystemIndexMaintenanceObligations.indexDefinitionId,fxSystemIndexBuildStates.indexDefinitionId),
+      eq(fxSystemIndexMaintenanceObligations.authorityKind,fxSystemIndexBuildStates.maintenanceAuthorityKind),
+      eq(fxSystemIndexMaintenanceObligations.activationSequence,fxSystemIndexBuildStates.maintenanceActivationSequence)))
+    .where(and(eq(fxSystemIndexBuildStates.scopeId,first.identity.scopeId),
+      eq(fxSystemIndexBuildStates.maintenanceAuthorityKind,"binding"),
+      or(isNull(fxSystemIndexMaintenanceObligations.scopeId),inArray(fxSystemIndexMaintenanceObligations.tableId,tables)))).limit(1));
+  const boundUnique = yield* appRowBatchQueryEffect(() => tx.select({ id: fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId })
+    .from(fxSystemUniqueConstraintBuilds).leftJoin(fxSystemUniqueMaintenanceObligations,and(
+      eq(fxSystemUniqueMaintenanceObligations.scopeId,fxSystemUniqueConstraintBuilds.scopeId),
+      eq(fxSystemUniqueMaintenanceObligations.uniqueConstraintDefinitionId,fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId),
+      eq(fxSystemUniqueMaintenanceObligations.authorityKind,fxSystemUniqueConstraintBuilds.maintenanceAuthorityKind),
+      eq(fxSystemUniqueMaintenanceObligations.activationSequence,fxSystemUniqueConstraintBuilds.maintenanceActivationSequence)))
+    .where(and(eq(fxSystemUniqueConstraintBuilds.scopeId,first.identity.scopeId),
+      eq(fxSystemUniqueConstraintBuilds.maintenanceAuthorityKind,"binding"),
+      or(isNull(fxSystemUniqueMaintenanceObligations.scopeId),inArray(fxSystemUniqueMaintenanceObligations.tableId,tables)))).limit(1));
+  if (boundIndexes.length!==0 || boundUnique.length!==0)
+    return yield* Effect.fail(new InvalidAppRowBatchInputError("bindingMaintenanceRequired"));
   const statement = buildAppRowBatchStatement(preparedAppRowWrites(batch), schemaName, preparedAppRowWrites(verification));
   const result = yield* Effect.uninterruptible(Effect.tryPromise({
     try: () => tx.execute(statement), catch: cause => rowBatchFailure(cause, batch, verification),

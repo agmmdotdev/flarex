@@ -5,6 +5,7 @@ import { fxAppRowCurrent, fxSystemApplicationReadinessV1, fxSystemIndexBuildStat
   fxSystemUniqueConstraintBuilds, fxSystemUniqueMaintenanceObligations } from "../../database/schema";
 import { fxSystemApplicationReadiness } from "../../application/relations/applicationRelationSchema";
 import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../../application/applicationActivationSchema";
+import { BINDING_MAINTENANCE_PUBLISHER_FUNCTIONS } from "./bindingMaintenancePublishers";
 
 const dialect = new PgDialect();
 const identifier = (name: string) => dialect.sqlToQuery(sql`${sql.identifier(name)}`).sql;
@@ -128,6 +129,7 @@ function fixedPublisher(domain: "index" | "unique"): string {
     END LOOP;
   END LOOP;`;
   const validateBuild = `
+    IF build.${column(b.maintenanceAuthorityKind)} = 'binding' THEN ${refusal("storedState")} END IF;
     IF build.${column(b.lifecycle)} <> 'enabled' OR build.${column(b.storageGeneration)} IS DISTINCT FROM live_authority.${column(a.storageGeneration)} OR
       build.${column(b.storageGenerationFence)} IS DISTINCT FROM live_authority.${column(a.storageGenerationFence)} OR
       build.${column(b.epoch)} IS DISTINCT FROM live_authority.${column(a.epoch)} OR
@@ -135,12 +137,13 @@ function fixedPublisher(domain: "index" | "unique"): string {
       build.${column(frontier)} > build.${column(b.coveredThroughCommitSeq)} OR build.${column(b.coveredThroughCommitSeq)} > live_clock.${column(c.lastCommitSeq)}
       THEN ${refusal("unavailable")} END IF;`;
   const validateOutgoing = `
-    IF build.${column(b.maintenanceActivationSequence)} IS NOT NULL THEN
+    IF build.${column(b.maintenanceAuthorityKind)} = 'application' THEN
       SELECT value INTO outgoing_member FROM jsonb_array_elements(p_outgoing_members)
         WHERE (value->>'definitionId')::integer = build.${column(definition)};
       IF NOT FOUND OR NOT had_head THEN ${refusal("storedState")} END IF;
       SELECT * INTO opening FROM ${obligations} WHERE ${column(o.scopeId)} = p_scope
         AND ${column(obligationDefinition)} = build.${column(definition)}
+        AND ${column(o.authorityKind)} = 'application'
         AND ${column(o.activationSequence)} = build.${column(b.maintenanceActivationSequence)};
       IF NOT FOUND OR opening.${column(o.activationSequence)} IS DISTINCT FROM p_expected_sequence OR
         opening.${column(o.deploymentId)} IS DISTINCT FROM p_outgoing_deployment OR opening.${column(o.schemaVersionId)} IS DISTINCT FROM p_outgoing_schema OR
@@ -159,7 +162,7 @@ function fixedPublisher(domain: "index" | "unique"): string {
     END IF;`;
   const validateIncoming = `
     IF incoming_member IS NOT NULL THEN
-      IF build.${column(b.maintenanceActivationSequence)} IS NOT NULL THEN
+      IF build.${column(b.maintenanceAuthorityKind)} = 'application' THEN
         IF opening.${column(o.tableId)} IS DISTINCT FROM (incoming_member->>'tableId')::integer OR
           opening.${column(o.physicalSpecSha256)} IS DISTINCT FROM decode(incoming_member->>'physicalSpecSha256','hex')
           THEN ${refusal("storedState")} END IF;
@@ -169,7 +172,7 @@ function fixedPublisher(domain: "index" | "unique"): string {
           AND ${column(rows.commitSeq)} > build.${column(b.coveredThroughCommitSeq)}) THEN ${refusal("unavailable")} END IF;
     END IF;`;
   const orderedValidation = `
-  FOR build IN SELECT * FROM ${builds} WHERE ${column(b.scopeId)} = p_scope AND ${column(b.maintenanceActivationSequence)} IS NOT NULL
+  FOR build IN SELECT * FROM ${builds} WHERE ${column(b.scopeId)} = p_scope AND ${column(b.maintenanceAuthorityKind)} = 'application'
     ORDER BY ${column(definition)} FOR UPDATE LOOP ${validateBuild} ${validateOutgoing} END LOOP;
   FOR incoming_member IN SELECT value FROM jsonb_array_elements(p_incoming_members) LOOP
     SELECT * INTO build FROM ${builds} WHERE ${column(b.scopeId)} = p_scope AND ${column(definition)} = (incoming_member->>'definitionId')::integer FOR UPDATE;
@@ -181,15 +184,15 @@ function fixedPublisher(domain: "index" | "unique"): string {
     (SELECT (value->>'definitionId')::integer FROM jsonb_array_elements(p_incoming_members))) <> jsonb_array_length(p_incoming_members)
     THEN ${refusal("unavailable")} END IF;
   FOR build IN SELECT * FROM ${builds} WHERE ${column(b.scopeId)} = p_scope AND
-    (${column(b.maintenanceActivationSequence)} IS NOT NULL OR ${column(definition)} IN
+    (${column(b.maintenanceAuthorityKind)} = 'application' OR ${column(definition)} IN
       (SELECT (value->>'definitionId')::integer FROM jsonb_array_elements(p_incoming_members)))
     ORDER BY ${column(definition)} FOR UPDATE LOOP
     SELECT value INTO incoming_member FROM jsonb_array_elements(p_incoming_members) WHERE (value->>'definitionId')::integer = build.${column(definition)};
     ${validateBuild} ${validateOutgoing} ${validateIncoming}
   END LOOP;`;
-  const writeColumns = [o.scopeId, obligationDefinition, o.activationSequence, o.storageGeneration, o.storageGenerationFence,
+  const writeColumns = [o.scopeId, obligationDefinition, o.authorityKind, o.activationSequence, o.storageGeneration, o.storageGenerationFence,
     o.epoch, o.attemptFence, openingFrontier, o.openedCommitSeq, o.tableId, o.physicalSpecSha256, o.deploymentId,
-    o.schemaVersionId, ...(ordered ? [fxSystemIndexMaintenanceObligations.schemaManifestSha256] : []), o.activationSha256, o.headSha256];
+    o.schemaVersionId, o.schemaManifestSha256, o.activationSha256, o.headSha256, o.candidateSha256];
   return `CREATE FUNCTION %1$I.${operation}(
   p_scope text, p_expected_sequence bigint, p_expected_head bytea, p_incoming_sequence bigint,
   p_incoming_activation bytea, p_next_head bytea, p_outgoing_deployment text, p_outgoing_schema text,
@@ -207,24 +210,24 @@ BEGIN
   ${activationProof(operation, domain)}
   ${ordered ? orderedValidation : uniqueValidation}
   FOR build IN SELECT * FROM ${builds} WHERE ${column(b.scopeId)} = p_scope AND
-    (${column(b.maintenanceActivationSequence)} IS NOT NULL OR ${column(definition)} IN
+    (${column(b.maintenanceAuthorityKind)} = 'application' OR ${column(definition)} IN
       (SELECT (value->>'definitionId')::integer FROM jsonb_array_elements(p_incoming_members)))
     ORDER BY ${column(definition)} FOR UPDATE LOOP
     SELECT value INTO incoming_member FROM jsonb_array_elements(p_incoming_members) WHERE (value->>'definitionId')::integer = build.${column(definition)};
     IF incoming_member IS NOT NULL THEN
       INSERT INTO ${obligations} (${writeColumns.map(column).join(",")}) VALUES (
-        p_scope, build.${column(definition)}, p_incoming_sequence, build.${column(b.storageGeneration)},
+        p_scope, build.${column(definition)}, 'application', p_incoming_sequence, build.${column(b.storageGeneration)},
         build.${column(b.storageGenerationFence)}, build.${column(b.epoch)}, build.${column(b.attemptFence)},
         build.${column(frontier)}, live_clock.${column(c.lastCommitSeq)}, (incoming_member->>'tableId')::integer,
         decode(incoming_member->>'physicalSpecSha256','hex'), p_incoming_deployment, p_incoming_schema,
-        ${ordered ? "p_incoming_manifest," : ""} p_incoming_activation, p_next_head);
+        ${ordered ? "p_incoming_manifest" : "NULL"}, p_incoming_activation, p_next_head, NULL);
       UPDATE ${builds} SET ${column(b.coveredThroughCommitSeq)} = live_clock.${column(c.lastCommitSeq)},
-        ${column(b.maintenanceActivationSequence)} = p_incoming_sequence, ${column(b.updatedAt)} = clock_timestamp()
+        ${column(b.maintenanceAuthorityKind)} = 'application', ${column(b.maintenanceActivationSequence)} = p_incoming_sequence, ${column(b.updatedAt)} = clock_timestamp()
         WHERE ${column(b.scopeId)} = p_scope AND ${column(definition)} = build.${column(definition)};
       opened_total := opened_total + 1;
     ELSE
       UPDATE ${builds} SET ${column(b.coveredThroughCommitSeq)} = live_clock.${column(c.lastCommitSeq)},
-        ${column(b.maintenanceActivationSequence)} = NULL, ${column(b.updatedAt)} = clock_timestamp()
+        ${column(b.maintenanceAuthorityKind)} = NULL, ${column(b.maintenanceActivationSequence)} = NULL, ${column(b.updatedAt)} = clock_timestamp()
         WHERE ${column(b.scopeId)} = p_scope AND ${column(definition)} = build.${column(definition)};
       closed_total := closed_total + 1;
     END IF;
@@ -247,4 +250,5 @@ export const INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS = [
     inputs: ["p_scope", "p_expected_sequence", "p_expected_head", "p_incoming_sequence", "p_incoming_activation", "p_next_head",
       "p_outgoing_deployment", "p_outgoing_schema", "p_outgoing_members", "p_incoming_deployment", "p_incoming_schema", "p_incoming_members"],
     outputs: ["closed_count", "opened_count"], outputTypes: ["integer", "integer"], result: "record" },
+  ...BINDING_MAINTENANCE_PUBLISHER_FUNCTIONS,
 ] as const;

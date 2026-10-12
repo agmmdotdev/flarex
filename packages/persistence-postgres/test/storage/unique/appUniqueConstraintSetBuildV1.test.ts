@@ -1403,12 +1403,12 @@ function observeForLockModes<T extends AppRowTransaction>(
         const member = Reflect.get(target, property, target);
         if (typeof member !== "function") return wrap(member);
         return (...args: ReadonlyArray<unknown>) => {
-          if (property === "for" && typeof args[0] === "string") {
-            lockModes.push(args[0]);
-          }
           if (property === "prepareQuery") {
             const query = args[0];
-            if (typeof query === "object" && query !== null && "sql" in query && typeof query.sql === "string") {
+            // The witness concerns build and scope authority locks. Fresh Application and binding
+            // head authentication independently retains its SHARE locks.
+            if (typeof query === "object" && query !== null && "sql" in query && typeof query.sql === "string" &&
+              /\b(?:fx_system_unique_constraint_build|fx_system_scope_execution_authority)\b/.test(query.sql)) {
               const lock = /\bfor (no key update|key share|share|update)\b/i.exec(query.sql)?.[1];
               if (lock !== undefined) lockModes.push(lock);
             }

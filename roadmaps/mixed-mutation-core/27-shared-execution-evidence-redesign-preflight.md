@@ -1,18 +1,128 @@
 # Shared execution evidence redesign
 
-## Current Decision: Cost Inventory Before Further Implementation
+## Approved Correction: Transaction Binding Selection Reuse
 
-The owner requests an exact work inventory and ranked proposal covering
+Status: implemented. All six duplicate standalone head/evidence reads are
+removed; mixed publication retains its fresh pair. Complete native-relative
+performance acceptance remains unmet for all five graphs.
+
+The owner authorizes removal of the six duplicate standalone binding reads.
+Atomic commerce admission lends its repository-authenticated positive binding
+selection to coverage acceptance in the same guarded transaction. The repository
+owns the selection, exact transaction/location identity, prepared metadata guard
+and live preparation lease. Capture ends before business callbacks; its lifetime
+continues through publication and closes on every Exit. Evidence acquired inside
+business savepoints cannot enter this scope. Binding replacement invalidates the
+selection before writing. Absence, failure and source/readiness permission are
+not retained. Current authority, build/obligation/lifecycle/frontier acceptance
+remains fresh; coverage contexts are independently issued for each phase.
+
+This extends private evidence lending only: no schema, durable format or public
+contract changes. The three coverage phases borrow the source admission's first
+locked and authenticated selection instead of rereading head/body. Mixed finite
+publication retains its fresh head/evidence pair because entry and publication
+use different transactions. The distinct final reference-publication check also
+remains. Remove displaced standalone rereads without cross-transaction lending.
+
+Require scope exit/rollback/interruption, preparation closure, own binding change,
+savepoint rollback and concurrent activation witnesses, PGlite and ordinary-role
+PostgreSQL consumer regressions, strict/lint/source guards and both reviews. The
+structural target is six fewer standalone exchanges with unchanged mixed fresh
+publication and maintained business work. Repeat all five complete matched native
+graphs in database, CPU and quiet lanes with frozen sources; keep fixed CPU and
+latency acceptance and report failed gates. The owner explicitly requests a
+checkpoint commit while complete performance acceptance remains open.
+
+## Current Decision: Binding-Owned Maintenance Cutover
+
+Status: **implemented; complete performance acceptance remains unmet**. The selected outcome is
+removal of recurring index and unique coverage-marker updates for genuinely
+maintained framework-bound builds. The measured mixed request advances 49 index
+and 16 unique markers for nine document revisions. Definition selection already
+uses touched tables; merely filtering unrelated tables or batching the 97 final
+coverage verification reads does not remove this multiplier.
+
+Extend the existing typed index/unique maintenance owner to distinguish genuine
+Application activation from genuine framework binding activation. Binding
+activation authenticates the complete immutable requirement set, proves build
+coverage under publication exclusion, and opens protected obligations tied to
+the exact binding, physical specification, generation, epoch and build attempt.
+Separate issuer identities prevent equal activation sequence numbers from
+colliding. Framework adapters do not gain obligation creation or commit authority.
+Binding activation borrows the existing Application repository's authenticated
+activation target profile, with exact serving/activation installation and locator
+agreement. Its fixed maintenance publishers are available only to the activation
+principal; ordinary request credentials cannot install obligations. Preparation
+and reads retain the serving target. Application-owned shared physical views keep
+Application maintenance and their existing write-ownership restrictions.
+
+Every supported subsequent writer accepts the complete current maintenance
+closure and applies actual document/index/unique changes atomically with the
+outer publication. Readers verify the genuine current obligation and retain
+fresh authority, binding, lifecycle, retention and snapshot checks. Healthy
+serving builds retain their sealed opening frontier instead of rewriting it
+on each commit. Backfill, validation and genuinely unmaintained builds retain
+their explicit progress contracts. Missing maintenance is refusal, not a
+fallback to a second serving protocol.
+
+Binding replacement, withdrawal, Application activation, epoch changes and
+build retirement must preserve ownership, lock order and uninterrupted coverage.
+Carry or close outgoing obligations before opening replacements in the same
+authoritative lifecycle transaction. A physical build cannot acquire conflicting
+maintenance owners. Historical evidence remains immutable. Unknown COMMIT uses
+existing durable resolution before replay; failed transitions roll back together.
+
+Affected owners are binding activation, typed maintenance schema/permissions and
+installation integrity, shared publication, ordinary/native finite readiness,
+builders and recovery. Private storage and runtime contracts may break within
+this cutover. Convert populated installations under the existing maintenance
+interlock using authenticated current bindings and exact build coverage; reject
+inconsistent evidence without inventing authority or deleting application data.
+Preserve rows, history, claims, outcomes and activation history. Migrate consumers
+and remove displaced serving-path advancement and representation-only fixtures
+in the same cutover. Candidate/build progress remains only for its actual owners.
+
+The steady-state structural target for the measured converted graph is zero of
+the 65 marker updates and their existing 227 internal SELECTs. This is removal
+of the old 292-statement loop, not a net latency prediction: replacement fresh
+acceptance still has cost. Actual index revisions, uniqueness, search maintenance,
+events, outcomes, immediate actual-write proofs and final guards remain required.
+Search coverage redesign, new framework capabilities and unrelated capture/CPU
+changes are not selected by this approval.
+
+The converted mixed graph now has zero recurring index/unique coverage updates,
+while retaining nine document revisions, 42 index revisions, two unique releases
+and ten claims. The three ordinary coverage phases borrow authenticated binding
+evidence within the same protected transaction; mixed publication retains its
+fresh head/evidence pair in its distinct settlement transaction. The
+complete native-relative CPU and latency gates still fail for all five graphs.
+The [cost ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-business/cost-inventory-proposal.md#transaction-binding-reuse-result)
+owns the measured result and its limits. Structural work removal does not close
+the complete performance outcome or authorize the separate capture/CPU proposals.
+
+Validate missing/forged obligations, incomplete maintenance, equal issuer
+sequences, concurrent binding changes/publication, shared definitions, rebuilds,
+old snapshots, retention, rollback, interruption and uncertain outcomes. Require
+populated migration and ordinary-role permission proofs on PGlite and PostgreSQL,
+affected standalone/mixed consumers, strict/source/lint checks and both final
+reviews. Freeze the complete checkpoint for matched native measurements; report
+counts, complete latency and CPU separately and retain the fixed acceptance
+gates. Failed performance acceptance remains open after the correctness checkpoint.
+
+## Cost Inventory And Discussion Basis
+
+The owner requested an exact work inventory and ranked proposal covering
 publication, repeated finite captures and client CPU, followed by discussion
-before implementation. This instruction supersedes automatic continuation of
-the implementation approvals recorded below. The connected replacement is
+before implementation. That discussion selected the binding-owned maintenance
+cutover above; repeated captures and client CPU remain investigation proposals.
+The preceding connected replacement is
 committed; complete native-relative performance acceptance remains unmet.
 
 The [cost inventory and ranked proposal](../../packages/medusa-adapter/benchmarks/core-performance/native-business/cost-inventory-proposal.md)
 owns measured counts, source-derived internal work, fresh CPU evidence and its
-limits. The recommended direction is a connected publication-first correction
-across coverage, materialization and ordinary/finite consumers. Ordered final
-coverage verification is a concrete batching candidate. Retain full stored
+limits. The selected direction is the connected maintenance cutover above.
+Ordered final coverage verification batching was the initial alternative and
+is not the selected primary mechanism. Retain full stored
 proofs, immediate post-write checks, failure order, locks and durable records.
 Reduced internal statement executions are a hypothesis to validate, not a
 complete performance deliverable or a claim of saved milliseconds.
@@ -21,7 +131,7 @@ Finite rows and complete index selections already have root-owned reuse. A
 bounded demand identity/frontier ledger must establish actual duplicates or
 independent demands before assigning capture savings. CPU profiles identify
 sampled locations; neither an Effect/Drizzle percentage nor a repeated value
-visitor proves redundant work. Further runtime changes await discussion of the
+visitor proves redundant work. Other runtime changes await discussion of the
 concrete contract, consumers, validation and removal gates. Existing native
 CPU/latency targets and the separate standalone-read pause remain unchanged.
 

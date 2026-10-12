@@ -33,9 +33,15 @@ function buildUniqueReadinessCapture(db:FlarexMetadataDatabase,lock:"share"|"key
         and abs(floor(extract(epoch from build_row.created_at)*1000))<=8640000000000000
         and abs(floor(extract(epoch from build_row.updated_at)*1000))<=8640000000000000
         and floor(extract(epoch from build_row.updated_at)*1000)>=floor(extract(epoch from build_row.created_at)*1000)
-        and (build_row.maintenance_activation_sequence is null) is not distinct from (unique_maintenance.scope_id is null)
+        AND (build_row.maintenance_authority_kind IS NULL) = (build_row.maintenance_activation_sequence IS NULL)
+          AND (build_row.maintenance_authority_kind IS NULL OR build_row.maintenance_authority_kind IN ('application','binding'))
+          and (build_row.maintenance_activation_sequence is null) is not distinct from (unique_maintenance.scope_id is null)
         and (unique_maintenance.scope_id is null or (
           unique_maintenance.scope_id=build_row.scope_id and unique_maintenance.unique_constraint_definition_id=build_row.unique_constraint_definition_id
+          and unique_maintenance.authority_kind=build_row.maintenance_authority_kind
+          and unique_maintenance.authority_kind in ('application','binding')
+          and (unique_maintenance.authority_kind='application' and unique_maintenance.candidate_sha256 is null and unique_maintenance.schema_manifest_sha256 is null
+            or unique_maintenance.authority_kind='binding' and octet_length(unique_maintenance.candidate_sha256)=32 and octet_length(unique_maintenance.schema_manifest_sha256)=32)
           and unique_maintenance.activation_sequence>0 and unique_maintenance.activation_sequence=build_row.maintenance_activation_sequence
           and unique_maintenance.storage_generation=build_row.storage_generation
           and unique_maintenance.storage_generation_fence=build_row.storage_generation_fence and unique_maintenance.epoch=build_row.epoch
@@ -51,11 +57,12 @@ function buildUniqueReadinessCapture(db:FlarexMetadataDatabase,lock:"share"|"key
         unique_maintenance.table_id=requested.table_id and encode(unique_maintenance.physical_spec_sha256,'hex')=requested.spec,
         case when unique_maintenance.scope_id is not null then
           jsonb_build_array(unique_maintenance.deployment_id,unique_maintenance.schema_version_id,
-            unique_maintenance.activation_sequence::text,encode(unique_maintenance.activation_sha256,'hex'),encode(unique_maintenance.head_sha256,'hex'))::text
+            unique_maintenance.activation_sequence::text,encode(unique_maintenance.activation_sha256,'hex'),encode(unique_maintenance.head_sha256,'hex'),unique_maintenance.authority_kind,encode(unique_maintenance.candidate_sha256,'hex'),encode(unique_maintenance.schema_manifest_sha256,'hex'))::text
           else null end) as progress
     from locked build_row join requested on requested.id=build_row.unique_constraint_definition_id
     left join ${maintenance} unique_maintenance on unique_maintenance.scope_id=build_row.scope_id
       and unique_maintenance.unique_constraint_definition_id=build_row.unique_constraint_definition_id
+      and unique_maintenance.authority_kind=build_row.maintenance_authority_kind
       and unique_maintenance.activation_sequence=build_row.maintenance_activation_sequence
   ), captured as materialized (
     select coalesce(jsonb_object_agg(id::text,case when intrinsic then progress else null end),'{}'::jsonb)::text as progress,

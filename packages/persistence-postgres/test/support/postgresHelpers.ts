@@ -538,7 +538,7 @@ export interface FileScopedPostgresFixture {
 
 export async function createFileScopedPostgresFixture(
   journal: Readonly<{ sameSchema?: boolean; tableName?: string }> = {},
-  maintenanceSession: Readonly<{ standardConformingStrings?: "off" }> = {},
+  maintenanceSession: Readonly<{ standardConformingStrings?: "off"; immutableCatalog?: FlarexMetadataDatabase }> = {},
   transport: "ordinary" | "finiteCapture" = "ordinary",
   postgresEndpoints?: PostgresFixtureEndpoints,
 ): Promise<FileScopedPostgresFixture> {
@@ -557,6 +557,7 @@ export async function createFileScopedPostgresFixture(
       connectionString,
       migrationsSchema,
       migrationsTable,
+      ...(maintenanceSession.immutableCatalog===undefined ? {} : { immutableCatalog: maintenanceSession.immutableCatalog }),
       poolConfig: {
         options: `-c search_path=${schemaName}`,
         application_name: schemaName,

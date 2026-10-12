@@ -56,7 +56,7 @@ describe.skipIf(postgresUrl === null)("finite scalar frontier PostgreSQL install
               await new Promise<void>(resolve => { setTimeout(resolve, 5); });
             }
             expect(blocked).toBe(true);
-            await writer.query("update fx_system_index_build_state set covered_through_commit_seq=3,maintenance_activation_sequence=null where scope_id=$1", [scopeId]);
+            await writer.query("update fx_system_index_build_state set covered_through_commit_seq=3,maintenance_activation_sequence=null,maintenance_authority_kind=null where scope_id=$1", [scopeId]);
             await writer.query("update fx_system_scope_clock set last_commit_seq=5 where scope_id=$1", [scopeId]);
             await writer.query("commit");
             expect(await pending).toMatchObject([{ reason: "accepted", serving: "5" }]);

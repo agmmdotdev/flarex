@@ -198,6 +198,7 @@ export function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFai
     deploymentId: captured.deploymentId, scopeId: captured.scopeId,
     controlDatabase: Result.getOrElse(readApplicationReadinessControlDatabase(captured.readiness), () => undefined),
     authority: captured.authority,
+    activation: captured.activation,
   }));
   const prepare = makeActivePreparationReader(captured);
   registerFiniteActivePreparationReader(repository, makeFiniteActivePreparationReader(repository, captured, prepare));
@@ -402,6 +403,7 @@ export function makeCompositeApplicationActivationRepository<
     deploymentId: captured.deploymentId, scopeId: captured.scopeId,
     controlDatabase: Result.getOrElse(readApplicationReadinessControlDatabase(captured.readiness), () => undefined),
     authority: captured.authority,
+    activation: captured.activation,
   }));
   const prepareActive = makeActivePreparationReader(captured);
   registerApplicationBindingPreparationReader(repository, makeCompositeBindingPreparationReader(captured, prepareActive));

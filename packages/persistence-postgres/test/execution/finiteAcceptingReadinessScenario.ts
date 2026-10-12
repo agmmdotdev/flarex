@@ -92,13 +92,13 @@ export async function finiteAcceptingReadinessScenario(
   // A genuine opening still authenticates table and digest before coverage's
   // early return. Matching activation can cover a retained-history gap.
   await persistence.query(`insert into fx_system_index_maintenance_obligation
-    (scope_id,index_definition_id,activation_sequence,storage_generation,storage_generation_fence,epoch,
+    (scope_id,index_definition_id,authority_kind,activation_sequence,storage_generation,storage_generation_fence,epoch,
       attempt_fence,first_readable_commit_seq,opened_commit_seq,table_id,physical_spec_sha256,
       deployment_id,schema_version_id,schema_manifest_sha256,activation_sha256,head_sha256)
-    values ($1,141,1,'flarexdb_v1',1,$2,1,0,1,141,decode($3,'hex'),
+    values ($1,141,'application',1,'flarexdb_v1',1,$2,1,0,1,141,decode($3,'hex'),
       'finite-ready','schema_session_v1',decode($4,'hex'),decode($5,'hex'),decode($6,'hex'))`,
     [scopeId,epoch,digest,manifest,activation,head]);
-  await persistence.query("update fx_system_index_build_state set covered_through_commit_seq=1,maintenance_activation_sequence=1 where scope_id=$1", [scopeId]);
+  await persistence.query("update fx_system_index_build_state set covered_through_commit_seq=1,maintenance_activation_sequence=1,maintenance_authority_kind='application' where scope_id=$1", [scopeId]);
   await persistence.query(`insert into fx_app_row_rev
     (scope_uuid,table_id,row_id,commit_seq,write_epoch_uuid,schema_version_id,creation_time,value_codec_version,is_tombstone)
     values ($1::uuid,141,decode('61410000000040008000000000000001','hex'),3,$2::uuid,'schema_session_v1',1,1,true)`,
@@ -133,16 +133,16 @@ export async function finiteAcceptingReadinessScenario(
   await expectReason("storedCorruption", { index: null, unique: 142 });
   await persistence.query("update fx_system_unique_constraint_build set start_commit_seq=0,covered_through_commit_seq=3,storage_generation_fence=1 where scope_id=$1", [scopeId]);
   await persistence.query(`insert into fx_system_unique_maintenance_obligation
-    (scope_id,unique_constraint_definition_id,activation_sequence,storage_generation,storage_generation_fence,epoch,
+    (scope_id,unique_constraint_definition_id,authority_kind,activation_sequence,storage_generation,storage_generation_fence,epoch,
       attempt_fence,start_commit_seq,opened_commit_seq,table_id,physical_spec_sha256,
       deployment_id,schema_version_id,activation_sha256,head_sha256)
-    values ($1,142,1,'flarexdb_v1',1,$2,1,0,3,141,decode($3,'hex'),
+    values ($1,142,'application',1,'flarexdb_v1',1,$2,1,0,3,141,decode($3,'hex'),
       'finite-ready','schema_session_v1',decode($4,'hex'),decode($5,'hex'))`, [scopeId,epoch,digest,activation,head]);
-  await persistence.query("update fx_system_unique_constraint_build set maintenance_activation_sequence=1 where scope_id=$1", [scopeId]);
+  await persistence.query("update fx_system_unique_constraint_build set maintenance_activation_sequence=1,maintenance_authority_kind='application' where scope_id=$1", [scopeId]);
   await expectReason("accepted", { index: null, unique: 142 });
   await expectReason("storedCorruption", { index: null, unique: 142, uniquePhysical: "e".repeat(64) });
   if (interleave !== undefined) await interleave(scopeId, () => read());
-  await persistence.query("update fx_system_unique_constraint_build set start_commit_seq=999,covered_through_commit_seq=999,maintenance_activation_sequence=null where scope_id=$1", [scopeId]);
+  await persistence.query("update fx_system_unique_constraint_build set start_commit_seq=999,covered_through_commit_seq=999,maintenance_activation_sequence=null,maintenance_authority_kind=null where scope_id=$1", [scopeId]);
   // Earlier attempt refusal is retained even when the selected build is bad.
   await persistence.query("update fx_system_tx_session set lifecycle='aborted',validated_args_json=null,validated_args_canonical_bytes=null,authorization_grant_json=null,authorization_grant_canonical_bytes=null where session_id=$1", [sessionId]);
   await expectReason("lifecycleChanged", { index: null, unique: 142 });
