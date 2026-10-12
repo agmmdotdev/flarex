@@ -3712,3 +3712,29 @@ removal is not a promised CPU saving. Connected correctness, both database lanes
 strict checks, guards, lint and both reviews remain required. This bounded scope
 does not establish complete native-relative performance acceptance; the existing
 complete CPU/quiet gates and broader redesign remain open.
+### Approved bounded client CPU corrections: query handoff and capture headers
+
+The owner authorizes both corrections on the current checkout, measured
+independently against saved originals. The production choice retains both
+original implementations: neither isolated correction demonstrates a CPU
+saving, and the combined observation does not separate from block variation.
+Retain genuine header failure/defect-order regression coverage and the existing
+resource/authority fixtures. A future handoff correction still needs complete
+root CPU evidence. The existing source-bound read program
+already retains immutable interpretation between find/count executions. Carry
+its captured, charged, validated compiler through the trusted read frontier in
+one synchronous Result preparation; consume fresh access metadata before every
+selection compilation or reuse. Do not introduce a second predicate validator,
+authority cache or early adapter validation. Foreign capture, budget crossing,
+table checks, recursive query validation, pending overlays and complete row
+validation retain their original order and checks.
+
+Consolidate finite capture header acceptance using the same authoritative Schema
+Result decoders, in their original order, followed by one Effect handoff. Keep
+replacement-anchor validation, retirement branches, late timestamp decoding,
+sequence/epoch comparisons and layout failure precedence. Every capture still
+executes fresh database authorization. No stored result or serving verdict is
+retained. Correctness in both database lanes, affected consumers, strict/lint
+checks and both reviews precede retention. Complete matched native counter-only
+roots determine each observed CPU difference; a structural dispatch reduction
+does not prove a saving or satisfy the complete performance gates.

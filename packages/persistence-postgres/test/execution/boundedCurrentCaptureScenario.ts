@@ -15,11 +15,11 @@ import {
   CommitSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
-  FlarexDbV1StorageGenerationSchema,
   projectScopeIdUuidV1,
 } from "flarex-protocol/storage-authority";
 import { CanonicalFlarexValueBytesV1Schema } from "flarex-protocol/value";
 import type { FlarexMetadataDatabase } from "../../src/application/deployments";
+import type { FlarexMetadataTransaction } from "../../src/database/metadataTransaction";
 import {
   appendPreparedAppRowRevisionsInTransactionEffect,
   readBoundedCurrentAppRowsInTransactionEffect,
@@ -27,10 +27,11 @@ import {
 import {
   fxAppRowCurrent,
   fxAppRowRevisions,
-  fxSystemScopeClocks,
 } from "../../src/database/schema";
 import { lockScopeClockForUpdateInTransactionEffect } from "../../src/scope/scopeClock";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
+import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../src/installation/installationLifecycle";
 
 /** Shared semantic cases; PostgreSQL additionally observes the driver's received bytes. */
 export async function verifyBoundedCurrentCapture(
@@ -66,14 +67,9 @@ export async function verifyBoundedCurrentCapture(
     "bounded_current_capture",
   );
   const snapshotCommitSeq = CommitSeqSchema.make(2n);
-  await db.insert(fxSystemScopeClocks).values(
-    [scopeId, otherScopeId].map((id) => ({
-      scopeId: id,
-      storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-      epoch: writeEpoch,
-      lastCommitSeq: snapshotCommitSeq,
-    })),
-  );
+  for (const id of [scopeId, otherScopeId]) await insertCurrentScopeClockFixture(db, {
+    scopeId: id, epoch: writeEpoch, lastCommitSeq: snapshotCommitSeq,
+  });
   const documents = await Promise.all(
     rowIds.map((rowId, index) =>
       canonicalizeAppDocumentV1({
@@ -100,7 +96,11 @@ export async function verifyBoundedCurrentCapture(
     prevCommitSeq: null,
     document: firstDocument,
   };
-  await db.transaction(async (tx) => {
+  const withInstallation = <A>(work: (tx: FlarexMetadataTransaction) => Promise<A>) => db.transaction(async tx => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try { return await work(tx); } finally { closeInstallationAdmission(tx); }
+  });
+  await withInstallation(async (tx) => {
     await runEffect(
       appendPreparedAppRowRevisionsInTransactionEffect(
         tx,
@@ -151,7 +151,7 @@ export async function verifyBoundedCurrentCapture(
     maximumDocumentBytes: 1_048_576,
     maximumTotalValueBytes: 1_048_576,
   };
-  await db.transaction(async (tx) => {
+  await withInstallation(async (tx) => {
     await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, scopeId));
     const captured: string[] = [];
     const read = (
@@ -287,7 +287,7 @@ export async function verifyBoundedCurrentCapture(
   const rollback = new Error("Rollback capture corruption probe");
   for (const corruption of ["dangling", "future", "canonical"] as const) {
     await expect(
-      db.transaction(async (tx) => {
+      withInstallation(async (tx) => {
         await runEffect(
           lockScopeClockForUpdateInTransactionEffect(tx, scopeId),
         );

@@ -26,7 +26,7 @@ import { runEffect } from "../support/effectTestRuntime";
  * This observes mapping only; genuine entry, SQL acceptance and driver execution
  * still belong to the connected scenario. */
 function observeCaptureProjectionParity() {
-  let onPglitePrepare: ((args: Parameters<typeof PgliteSession.prototype.prepareQuery>) => void) | undefined;
+  let onCapturePrepare: ((args: Parameters<typeof PgliteSession.prototype.prepareQuery>) => void) | undefined;
   const reference: unknown = Reflect.get(drizzleUtils, "mapResultRow");
   if (typeof reference !== "function") throw new Error("Pinned Drizzle result mapper is missing");
   let mappedCaptureRows = 0;
@@ -65,13 +65,13 @@ function observeCaptureProjectionParity() {
   };
   const pglite = vi.spyOn(PgliteSession.prototype, "prepareQuery").mockImplementation(function (
     this: typeof PgliteSession.prototype, ...args
-  ) { compare(args); onPglitePrepare?.(args); return originalPglite.apply(this, args); });
+  ) { compare(args); onCapturePrepare?.(args); return originalPglite.apply(this, args); });
   const postgres = vi.spyOn(NodePgSession.prototype, "prepareQuery").mockImplementation(function (
     this: typeof NodePgSession.prototype, ...args
-  ) { compare(args); return originalPostgres.apply(this, args); });
+  ) { compare(args); onCapturePrepare?.(args); return originalPostgres.apply(this, args); });
   return {
     verify: () => expect(mappedCaptureRows).toBeGreaterThan(0),
-    observePglite: (observe: typeof onPglitePrepare) => { onPglitePrepare = observe; },
+    observeCapture: (observe: typeof onCapturePrepare) => { onCapturePrepare = observe; },
     restore: () => { pglite.mockRestore(); postgres.mockRestore(); },
   };
 }
@@ -118,7 +118,8 @@ async function verifyCaptureLayoutFailureOrder(capture: ObservedOwnershipCapture
   projection: ReturnType<typeof observeCaptureProjectionParity>) {
   type Mutation = (rows: unknown[][], index: (path: readonly string[]) => number) => void;
   const malformedMarker: Mutation = (rows, index) => { rows[0]![index(["storagePresent"])] = "true"; };
-  const cases: ReadonlyArray<Readonly<{ mutate: Mutation; reason: string; retirement?: true; frontier?: true; native?: true }>> = [
+  const cases: ReadonlyArray<Readonly<{ mutate: Mutation; reason: string; retirement?: true; frontier?: true; native?: true;
+    unreadHeader?: string; defect?: true }>> = [
     { mutate: rows => { rows[0]!.push(null); }, reason: "storedCorruption" },
     { mutate: malformedMarker, reason: "storedCorruption" },
     { mutate: (rows, index) => { rows[0]![index(["storagePresent"])] = false; }, reason: "storedCorruption" },
@@ -131,6 +132,21 @@ async function verifyCaptureLayoutFailureOrder(capture: ObservedOwnershipCapture
       rows[1]![index(["targetMetadataEpoch"])] = "changed";
     }, reason: "storedCorruption" },
     { mutate: (rows, index) => { malformedMarker(rows, index); rows[0]![index(["reason"])] = "expired"; }, reason: "expired" },
+    { mutate: (rows, index) => { rows[0]![index(["reason"])] = "unknown refusal"; },
+      reason: "storedCorruption", unreadHeader: "databaseNow" },
+    { mutate: (rows, index) => { rows[0]![index(["reason"])] = "expired"; },
+      reason: "expired", unreadHeader: "databaseNow" },
+    { mutate: (rows, index) => { malformedMarker(rows, index); rows[0]![index(["databaseNow"])] = "corrupt time"; },
+      reason: "storedCorruption", unreadHeader: "servingCommitSeq" },
+    { mutate: (rows, index) => { malformedMarker(rows, index); rows[0]![index(["servingCommitSeq"])] = "corrupt sequence"; },
+      reason: "storedCorruption", unreadHeader: "retainedFloor" },
+    { mutate: (rows, index) => {
+      rows[0]![index(["servingCommitSeq"])] = "1";
+      rows[0]![index(["retainedFloor"])] = "2";
+    }, reason: "storedCorruption", unreadHeader: "targetMetadataEpoch" },
+    { mutate: (rows, index) => { rows[0]![index(["reason"])] = "expired"; },
+      reason: "retired", retirement: true, unreadHeader: "databaseNow" },
+    { mutate: () => undefined, reason: "defect", unreadHeader: "databaseNow", defect: true },
     { mutate: (rows, index) => { malformedMarker(rows, index); rows[0]![index(["reason"])] = "expired"; },
       reason: "retired", retirement: true },
     { mutate: (rows, index) => { malformedMarker(rows, index); rows[0]![index(["reason"])] = "attemptReplaced"; },
@@ -143,7 +159,8 @@ async function verifyCaptureLayoutFailureOrder(capture: ObservedOwnershipCapture
   ];
   for (const witness of cases) {
     let captures = 0;
-    projection.observePglite(args => {
+    const laterHeaderDefect = new Error("Later finite capture header read");
+    projection.observeCapture(args => {
       if (!args[2]?.startsWith("fx_finite_")) return;
       captures++;
       const fields = args[1];
@@ -156,7 +173,14 @@ async function verifyCaptureLayoutFailureOrder(capture: ObservedOwnershipCapture
           if (index < 0) throw new Error("Missing genuine capture field: " + path.join("."));
           return index;
         });
-        return mapper(changed);
+        const mapped: unknown = mapper(changed);
+        if (witness.unreadHeader !== undefined) {
+          if (mapped === null || typeof mapped !== "object") throw new Error("Missing mapped capture");
+          const header: unknown = Reflect.get(mapped, "header");
+          if (header === null || typeof header !== "object") throw new Error("Missing mapped capture header");
+          Object.defineProperty(header, witness.unreadHeader, { get: () => { throw laterHeaderDefect; } });
+        }
+        return mapped;
       };
     });
     try {
@@ -164,7 +188,10 @@ async function verifyCaptureLayoutFailureOrder(capture: ObservedOwnershipCapture
         executionClaim: capture.input.executionClaim } : capture.operation;
       const exit = await runEffect(Effect.exit(capture.owner.capture(capture.input, operation)));
       expect(captures).toBe(1);
-      if (witness.reason === "retired") expect(exit).toMatchObject({ _tag: "Success", value: { kind: "retirement", retired: true } });
+      if (witness.defect) {
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) expect(exit.cause.reasons).toEqual([expect.objectContaining({ _tag: "Die", defect: laterHeaderDefect })]);
+      } else if (witness.reason === "retired") expect(exit).toMatchObject({ _tag: "Success", value: { kind: "retirement", retired: true } });
       else {
         expect(Exit.isFailure(exit)).toBe(true);
         if (Exit.isFailure(exit)) {
@@ -174,7 +201,7 @@ async function verifyCaptureLayoutFailureOrder(capture: ObservedOwnershipCapture
           if (witness.native) expect(failures[0]).toMatchObject({ cause: expect.any(SyntaxError) });
         }
       }
-    } finally { projection.observePglite(undefined); }
+    } finally { projection.observeCapture(undefined); }
   }
 }
 
@@ -193,11 +220,17 @@ it("accepts retained ownership successor catalogs from the original separate con
 }, 240_000);
 it.skipIf(postgresUrl === null)("accepts retained ownership successor catalogs from the original separate control owner before allowing original unmanaged writes in PostgreSQL", async () => {
   const projection = observeCaptureProjectionParity();
+  const observed = observeGenuineOwnershipCapture(false);
   try {
     const fixture = await createFileScopedPostgresFixture({}, {}, "finiteCapture");
-    try { await finiteApplicationMetadataScenario(fixture.persistence, { ownershipSuccessor: true }); projection.verify(); }
+    try { await finiteApplicationMetadataScenario(fixture.persistence, { ownershipSuccessor: true,
+      observeOwnershipOperation: async (phase, work) => {
+        await work();
+        if (phase === "accepted") await verifyCaptureLayoutFailureOrder(observed.read(), projection);
+      },
+    }); projection.verify(); }
     finally { await fixture.dispose(); }
-  } finally { projection.restore(); }
+  } finally { observed.restore(); projection.restore(); }
 }, 240_000);
 
 it.skipIf(postgresUrl === null)("accepts retained ownership successor catalogs through the restricted installed control reader before allowing original unmanaged writes", async () => {
