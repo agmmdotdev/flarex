@@ -1,5 +1,28 @@
 # Shared execution evidence redesign
 
+## Issued metadata selection and ordered consumption
+
+Status: implemented. Complete native-relative CPU acceptance remains unmet.
+The existing finite metadata
+projection owns retained selector tuples and identity strings for exact issued
+immutable facts. Reuse those facts inside its original consumers; retain the
+generic protocol encoder and complete foreign/missing-selector validation.
+Selector indexes are bounded by admitted present contracts and end with the
+projection. Escaped immutable facts may retain their encoding while referenced.
+It grants no serving, database or settlement authority. Root closure, watermark,
+issuer/observation equality, dependency consistency and budgets stay live per
+consumption; final database metadata comparison stays authoritative.
+
+Simplify adjacent pure table/access consumption within the existing Result
+owner. Preserve lazy first-failure sequencing: table consumption precedes
+source-policy selection, and access families/unique fields retain their order.
+Keep the Effect lifetime and all checks around these pure steps. Measure selector
+reuse and consumption composition independently in complete matched roots;
+elapsed owner envelopes are not CPU savings or complete acceptance.
+The table helper uses lazy Result.flatMap; the ordered access loop keeps its
+Result.gen interpreter and yields unused Result values directly, preserving
+immediate refusal without delegated success iterators or eager traversal.
+
 ## Mixed measurement runner diagnostic policy
 
 Unconfigured mixed performance requests must use the existing execution

@@ -1,15 +1,24 @@
 import { Effect, Result } from "effect";
 import { expect, it } from "vitest";
-import { decodeCatalogTableId } from "flarex-protocol/catalog";
+import { decodeCatalogTableId, CatalogIndexDefinitionIdSchema, CatalogUniqueConstraintDefinitionIdSchema, CatalogUniqueConstraintIdSchema } from "flarex-protocol/catalog";
 import { MetadataSequenceSchema, logicalMetadataDependencyIdentity } from "flarex-protocol/commit-protocol";
-import { decodeSchemaManifestAppSchemaV1 } from "flarex-protocol/schema-manifest";
-import { CommitSeqSchema, ScopeIdSchema } from "flarex-protocol/storage-authority";
+import { decodeSchemaManifestAppSchemaV1, decodeSchemaManifestAppDeveloperOrderedIndexSpecV1 } from "flarex-protocol/schema-manifest";
+import { lowerAppDeveloperOrderedIndexPhysicalSpecV1 } from "flarex-protocol/ordered-index";
+import { canonicalizeAppIndexPhysicalSpecV1, decodeAppPhysicalIndexAccessIdentityV1 } from "flarex-protocol/index-definition";
+import { canonicalizeAppUniqueConstraintPhysicalSpecV1, decodeAppUniqueConstraintPhysicalSpecV1,
+  APP_UNIQUE_KEY_CODEC_IDENTITY_V1, APP_UNIQUE_KEY_CODEC_VERSION_V1 } from "flarex-protocol/app-unique-constraint-definition";
+import { CommitSeqSchema, ScopeIdSchema, ScopeEpochSchema, FlarexDbV1StorageGenerationSchema, StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
+import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { SessionJournalAttempt } from "../../src/execution/journal/api";
 import { captureFiniteMetadataDependency, disposeFiniteMetadataProjection, finiteMetadataAccessKey, finiteMetadataTableKey, finiteMetadataDefinitionKey,
-  prepareFiniteMetadataProjection, matchesFiniteMetadataDependencyObservation } from "../../src/execution/finiteMetadataDependencies";
+  prepareFiniteMetadataProjection, matchesFiniteMetadataDependencyObservation, finiteMetadataDependencyIdentity,
+  mergeFiniteMetadataProjections, getFiniteMetadataProjectionSource } from "../../src/execution/finiteMetadataDependencies";
 import { attachLogicalDocumentRootEvaluator, consumeLogicalDocumentRootMetadataDependency, makeLogicalDocumentRootEvaluator,
   recordLogicalDocumentRootMetadataDependency } from "../../src/storage/documents/logicalDocuments/rootEvaluator";
 import { runEffect } from "../support/effectTestRuntime";
+import { makeBoundedRequestLifetime } from "../../src/execution/preparation/boundedRequestLifetime";
+import { makeLogicalDocumentWorkingSet, prepareLogicalWriteMechanics } from "../../src/storage/documents/logicalDocuments/workingSet";
+import { useCapturedPrivateJsonData } from "../../src/values/privateJsonData";
 
 const tableId = decodeCatalogTableId(1);
 const manifest = decodeSchemaManifestAppSchemaV1({ kind: "appSchema", manifestVersion: 1,
@@ -18,6 +27,124 @@ const manifest = decodeSchemaManifestAppSchemaV1({ kind: "appSchema", manifestVe
       name: { fieldType: { type: "string" }, optional: false },
     } } } }] }, indexBindings: { kind: "indexBindings", sectionVersion: 1, indexes: [] } });
 const prepare = () => prepareFiniteMetadataProjection({ indexes: [], unique: [], applicationSchema: { manifest } });
+
+it.each(["table", "access"] as const)("stops at the first %s consumption refusal before selecting revoked later facts", stage => runEffect(Effect.scoped(Effect.gen(function* () {
+  const projection = yield* prepare();
+  const input = { where: { name: "first", absent: "later" }, offset: 0, limit: 1 };
+  const errors: Error[] = [];
+  let armed = false, storageCalls = 0;
+  const failure = (reason: string, cause?: unknown) => {
+    const error = new Error(reason, { cause });
+    if (armed) { errors.push(error); disposeFiniteMetadataProjection(projection); }
+    return error;
+  };
+  const mechanics = yield* prepareLogicalWriteMechanics({ tables: [{ tableId, logicalName: "items" }], indexes: [], unique: [],
+    metadataProjection: projection }, failure);
+  const captured = Result.getOrThrow(useCapturedPrivateJsonData(input, 262_144, failure));
+  const metadataCharge = (kind: "table" | "sourcePolicy") => {
+    const key = finiteMetadataTableKey(projection, tableId, kind);
+    if (key === null) throw new Error("Missing genuine table metadata");
+    return 256 + 2 * (key.ownerKey.length + key.contractKey.length);
+  };
+  // SAFETY: this local root fixture never invokes the journal issuer. Only the
+  // genuine root and request lifetime compare this opaque attempt identity.
+  const attempt = Object.freeze({}) as SessionJournalAttempt;
+  const scopeId = ScopeIdSchema.make("scope_60000000-0000-0000-0000-000000000001");
+  const snapshotCommitSeq = CommitSeqSchema.make(1n), metadataWatermark = MetadataSequenceSchema.make(1n);
+  const pins = { attempt, scopeId, snapshotCommitSeq, metadataWatermark, attemptFence: "1" };
+  const root = makeLogicalDocumentRootEvaluator(pins, { identities: 16,
+    workingBytes: captured.bytes + (stage === "access" ? metadataCharge("table") + metadataCharge("sourcePolicy") : 0) });
+  try {
+    const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
+      { calls: 16, commandBytes: 262_144, commandMs: 60_000 }, attempt, {}, "metadata-refusal-order", "write"), resource => resource.close);
+    const working = yield* makeLogicalDocumentWorkingSet({ scopeId, clock: { scopeId,
+      storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"), storageGenerationFence: StorageGenerationFenceSchema.make(1n),
+      lastCommitSeq: snapshotCommitSeq, lastMetadataSequence: metadataWatermark, oldestAvailableCommitSeq: snapshotCommitSeq,
+      epoch: ScopeEpochSchema.make("metadata-order"), updatedAt: new Date(0) }, lifetime,
+      rootEvaluator: root, rootAttempt: attempt, rootAttemptFence: pins.attemptFence, snapshotCommitSeq,
+      tables: mechanics.tables, searchDefinitions: mechanics.searchDefinitions,
+      ...(mechanics.relationalCapabilities === undefined ? {} : { relationalCapabilities: mechanics.relationalCapabilities }),
+      writeMechanics: mechanics, requireAdmission: Effect.void,
+      readTransaction: () => { storageCalls++; return Effect.fail(new Error("Unexpected storage entry")); },
+      validateDocument: () => Effect.void, error: failure, uniqueConflict: () => failure("uniqueConflict"),
+      limits: { pageRows: 8, identities: 16, documentBytes: 65_536 },
+    }, AppCreationTimeV1Schema.make(1), mechanics.unique, mechanics.indexes);
+    const id = yield* lifetime.begin(lifetime.context);
+    armed = true;
+    const result = yield* Effect.result(working.documents.find(lifetime.context, id, "items", input));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toBe("invalidAuthority");
+    expect(result).toMatchObject({ _tag: "Failure", failure: errors[0] });
+    if (Result.isFailure(result)) expect(result.failure).toBe(errors[0]);
+    expect(storageCalls).toBe(0);
+    expect(root.snapshot().metadataDependencies).toHaveLength(stage === "access" ? 2 : 0);
+  } finally { armed = false; root.close(); disposeFiniteMetadataProjection(projection); }
+}))));
+
+it("reuses present table, definition and access facts without retaining negative selectors or coercing foreign selectors", () => runEffect(Effect.gen(function* () {
+  const physicalSpec = lowerAppDeveloperOrderedIndexPhysicalSpecV1(decodeSchemaManifestAppDeveloperOrderedIndexSpecV1({
+    kind: "developerOrdered", specVersion: 1, fields: ["name"] }));
+  const canonicalIndex = yield* Effect.promise(() => canonicalizeAppIndexPhysicalSpecV1(physicalSpec));
+  const uniqueSpec = decodeAppUniqueConstraintPhysicalSpecV1({ kind: "appUniqueConstraint", specVersion: 1,
+    orderedFields: ["name"], sparse: true, localePolicy: { kind: "none" },
+    keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1, keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1 });
+  const canonicalUnique = yield* Effect.promise(() => canonicalizeAppUniqueConstraintPhysicalSpecV1(uniqueSpec));
+  const firstTable = manifest.tableDefinitions.tables[0];
+  if (firstTable === undefined) throw new Error("Missing manifest table");
+  const otherTableId = decodeCatalogTableId(2);
+  const twoTables = decodeSchemaManifestAppSchemaV1({ ...manifest, tableDefinitions: { ...manifest.tableDefinitions,
+    tables: [firstTable, { ...firstTable, tableId: otherTableId, logicalName: "other" }] } });
+  const projection = yield* prepareFiniteMetadataProjection({ applicationSchema: { manifest: twoTables },
+    indexes: [{ indexDefinitionId: CatalogIndexDefinitionIdSchema.make(1),
+      access: decodeAppPhysicalIndexAccessIdentityV1({ kind: "developer", tableId, logicalIndexId: 1 }),
+      physicalSpec, physicalSpecSha256Hex: canonicalIndex.sha256Hex }],
+    unique: [{ tableId, uniqueConstraintDefinitionId: CatalogUniqueConstraintDefinitionIdSchema.make(1),
+      logicalUniqueConstraintId: CatalogUniqueConstraintIdSchema.make(1), physicalSpec: uniqueSpec,
+      physicalSpecSha256Hex: canonicalUnique.sha256Hex }] });
+  const merged = Result.getOrThrow(mergeFiniteMetadataProjections([projection]));
+  const source = getFiniteMetadataProjectionSource(projection, "application");
+  if (source === null) throw new Error("Missing source projection");
+  try {
+    const selections = [() => finiteMetadataTableKey(projection, tableId, "writeClosure"),
+      () => finiteMetadataDefinitionKey(projection, tableId, "index", 1),
+      () => finiteMetadataDefinitionKey(projection, tableId, "unique", 1),
+      () => finiteMetadataAccessKey(projection, tableId, "ordered", "name"),
+      () => finiteMetadataAccessKey(projection, tableId, "unique", "name")];
+    for (const select of selections) {
+      const key = select();
+      if (key === null) throw new Error("Missing selector");
+      expect(select()).toBe(key);
+      expect(Object.isFrozen(key)).toBe(true);
+      expect(finiteMetadataDependencyIdentity(key)).toBe(logicalMetadataDependencyIdentity(key));
+      const dependency = Result.getOrThrow(captureFiniteMetadataDependency(projection, key, MetadataSequenceSchema.make(1n)));
+      expect(dependency.observed.kind).toBe("present");
+      expect(finiteMetadataDependencyIdentity(dependency)).toBe(logicalMetadataDependencyIdentity(dependency));
+    }
+    // Definition keys describe owner contracts; selecting through another
+    // authentic table must not invent a table-association restriction.
+    expect(finiteMetadataDefinitionKey(projection, otherTableId, "index", 1))
+      .toBe(finiteMetadataDefinitionKey(projection, tableId, "index", 1));
+    expect(finiteMetadataTableKey(projection, otherTableId, "table"))
+      .not.toBe(finiteMetadataTableKey(projection, tableId, "table"));
+    const original = finiteMetadataTableKey(projection, tableId, "table");
+    expect(finiteMetadataTableKey(merged, tableId, "table")).toEqual(original);
+    expect(finiteMetadataTableKey(merged, tableId, "table")).not.toBe(original);
+    expect(finiteMetadataTableKey(source, tableId, "table")).not.toBe(original);
+    const absent = () => finiteMetadataAccessKey(projection, tableId, "ordered", "absent");
+    expect(absent()).not.toBe(absent());
+    let coerced = 0;
+    const foreignFamily = { toString() { coerced++; return "ordered"; } };
+    expect(() => Reflect.apply(finiteMetadataAccessKey, undefined, [projection, tableId, foreignFamily, "name"]))
+      .toThrow("Owned metadata semantics are not JSON");
+    expect(coerced).toBe(0);
+    if (original === null) throw new Error("Missing table key");
+    const foreign = { ...original };
+    foreign.contractKey = "changed";
+    expect(finiteMetadataDependencyIdentity(foreign)).toBe(logicalMetadataDependencyIdentity(foreign));
+    disposeFiniteMetadataProjection(projection);
+    for (const select of selections) expect(select()).toBeNull();
+  } finally { disposeFiniteMetadataProjection(projection); disposeFiniteMetadataProjection(merged); disposeFiniteMetadataProjection(source); }
+})));
 
 it.each(["table", "sourcePolicy"] as const)("retains exact projection-issued %s keys, validates foreign keys, and binds each watermark", kind => runEffect(Effect.gen(function* () {
   const projection = yield* prepare(), foreign = yield* prepare();

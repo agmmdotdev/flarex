@@ -586,11 +586,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     if (root?.pins.metadataWatermark === undefined) return Result.succeed(undefined);
     const projection = projectionForTable(tableId), key = projection === undefined ? null : finiteMetadataTableKey(projection, tableId, kind);
     if (projection === undefined || key === null) return Result.fail(error("invalidAuthority"));
-    return Result.gen(function* () {
-      yield* consumeMetadataResult(projection, key);
+    return Result.flatMap(consumeMetadataResult(projection, key), () => {
       const policy = finiteMetadataTableKey(projection, tableId, "sourcePolicy");
-      if (policy === null) return yield* Result.fail(error("invalidAuthority"));
-      yield* consumeMetadataResult(projection, policy);
+      return policy === null ? Result.fail(error("invalidAuthority")) : consumeMetadataResult(projection, policy);
     });
   };
   const consumeDefinitionMetadataResult = (tableId: CatalogTableId, kind: "index" | "unique", definitionId: number): Result.Result<void, Failure> => {
@@ -601,12 +599,14 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
   const consumeAccessMetadataResult = (tableId: CatalogTableId, families: readonly string[], fields: readonly string[]) => Result.gen(function* () {
     if (root?.pins.metadataWatermark === undefined) return;
     const projection = projectionForTable(tableId);
-    if (projection === undefined) return yield* Result.fail(error("invalidAuthority"));
+    if (projection === undefined) { yield Result.fail(error("invalidAuthority")); return; }
     const selectedFields = new Set(fields);
     for (const family of families) for (const field of selectedFields) {
       const key = finiteMetadataAccessKey(projection, tableId, family, field);
-      if (key === null) return yield* Result.fail(error("invalidAuthority"));
-      yield* consumeMetadataResult(projection, key);
+      if (key === null) { yield Result.fail(error("invalidAuthority")); return; }
+      // No success value is needed: yield the Result directly to the owning
+      // interpreter, preserving its immediate refusal and iterator behavior.
+      yield consumeMetadataResult(projection, key);
     }
   });
   const consumeAccessMetadata = (tableId: CatalogTableId, families: readonly string[], fields: readonly string[]) =>

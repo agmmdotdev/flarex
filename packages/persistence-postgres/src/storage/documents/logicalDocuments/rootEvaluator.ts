@@ -5,7 +5,7 @@ import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CommitSeq, ScopeId } from "flarex-protocol/storage-authority";
-import { logicalMetadataDependencyIdentity, MAX_COMMIT_METADATA_READ_DEPENDENCIES,
+import { MAX_COMMIT_METADATA_READ_DEPENDENCIES,
   LogicalMetadataReadDependencySchema,
   type LogicalMetadataKey, type LogicalMetadataReadDependency, type MetadataSequence } from "flarex-protocol/commit-protocol";
 import { Effect, Result, Schema } from "effect";
@@ -20,7 +20,7 @@ import { appDocumentIdV1FromRowIdentity } from "flarex-protocol/app-document-id"
 import { isJsonObject } from "flarex-protocol/json";
 import { detachLogicalDocumentChanges, detachLogicalDocumentRootChanges } from "./detachChanges";
 import { detachLogicalCanonicalDocument, detachLogicalCanonicalRevision, forgetLogicalCanonicalDerivedKeys } from "./relationalRows";
-import { captureFiniteMetadataDependency, matchesFiniteMetadataDependencyObservation,
+import { captureFiniteMetadataDependency, matchesFiniteMetadataDependencyObservation, finiteMetadataDependencyIdentity,
   type PreparedFiniteMetadataProjection, type FiniteMetadataError } from "../../../execution/finiteMetadataDependencies";
 import type { LogicalDocumentAttempt, LogicalDocumentChanges, LogicalDocumentObservedRow,
   LogicalRelationalLifecycleObservation, LogicalReferenceReplacementIntent, LogicalSetNullIntent,
@@ -182,7 +182,7 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
       ...(state.pins.metadataWatermark === undefined ? {} : {
         metadataWatermark: state.pins.metadataWatermark,
         metadataDependencies: Object.freeze([...state.metadataDependencies.values()].toSorted((a, b) =>
-          compareUtf16Strings(logicalMetadataDependencyIdentity(a), logicalMetadataDependencyIdentity(b)))) }),
+          compareUtf16Strings(finiteMetadataDependencyIdentity(a), finiteMetadataDependencyIdentity(b)))) }),
       scans: Object.freeze([...state.scans].map(([tableId, frontier]) => Object.freeze({ tableId, frontier }))),
       uniqueReads: Object.freeze([...state.uniqueReads.values()]), indexReads: Object.freeze([...state.indexReads.values()]),
       pageReads: Object.freeze([...state.pageReads]), searchReads: Object.freeze([...state.searchReads]),
@@ -370,7 +370,7 @@ const recordDecodedMetadataDependency = (state: LogicalDocumentRootState,
   dependency: LogicalMetadataReadDependency): boolean => {
   if (state.closed || state.pins.metadataWatermark === undefined || dependency.capturedWatermark !== state.pins.metadataWatermark)
     return false;
-  const key = logicalMetadataDependencyIdentity(dependency);
+  const key = finiteMetadataDependencyIdentity(dependency);
   const previous = state.metadataDependencies.get(key);
   if (previous !== undefined) return previous.observed.kind === dependency.observed.kind &&
     (previous.observed.kind === "missing" || dependency.observed.kind === "present" &&
@@ -392,7 +392,7 @@ export const consumeLogicalDocumentRootMetadataDependency = (state: LogicalDocum
 ): Result.Result<void, FiniteMetadataError | LogicalDocumentRootPointFailure> => {
   if (state.closed) return Result.fail("closed");
   if (state.pins.metadataWatermark === undefined) return Result.fail("observationMismatch");
-  const identity = logicalMetadataDependencyIdentity(key);
+  const identity = finiteMetadataDependencyIdentity(key);
   const consumed = state.metadataConsumptions.get(projection);
   const previous = consumed?.get(identity);
   if (previous !== undefined && matchesFiniteMetadataDependencyObservation(projection, key,

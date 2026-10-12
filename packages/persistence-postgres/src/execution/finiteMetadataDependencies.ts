@@ -123,6 +123,11 @@ export const submitFiniteMetadataEntryComparisonEffect = Effect.fn("FiniteMetada
 declare const projectionBrand: unique symbol;
 /** An authenticated retained semantic projection, never an admission authority. */
 export interface PreparedFiniteMetadataProjection { readonly [projectionBrand]: true }
+interface MetadataKeySelectors {
+  readonly table: Map<"table" | "writeClosure" | "sourcePolicy", LogicalMetadataKey>;
+  readonly definitions: Map<"index" | "unique", Map<number, LogicalMetadataKey>>;
+  readonly access: Map<string, Map<string, LogicalMetadataKey>>;
+}
 interface ProjectionState {
   readonly sourcePreparation?: FiniteMetadataSourcePreparation;
   readonly sourceComposition?: FiniteMetadataSourceComposition;
@@ -136,6 +141,7 @@ interface ProjectionState {
   readonly ownedExpected: readonly FiniteMetadataComparisonExpected[];
   readonly keyTemplates: Map<string, Readonly<{ key: LogicalMetadataKey; observed: LogicalMetadataReadDependency["observed"];
     dependencies: WeakSet<LogicalMetadataReadDependency> }>>;
+  readonly keySelectors: ReadonlyMap<CatalogTableId, MetadataKeySelectors>;
 }
 export interface FiniteMetadataSourcePreparation {
   readonly selection: LogicalParticipantSelection;
@@ -156,6 +162,11 @@ export interface FiniteMetadataSourceComposition {
   readonly requirePrepared: Effect.Effect<void, FiniteMetadataError>;
 }
 const projections = new WeakMap<PreparedFiniteMetadataProjection, ProjectionState>();
+const issuedMetadataIdentities = new WeakMap<LogicalMetadataKey, string>();
+/** Immutable issued facts may retain their encoding. This is never an
+ * observation/admission verdict; foreign values keep the protocol encoder. */
+export const finiteMetadataDependencyIdentity = (key: LogicalMetadataKey): string =>
+  issuedMetadataIdentities.get(key) ?? logicalMetadataDependencyIdentity(key);
 
 /** Source provenance lives with the already authenticated projection issuer.
  * There is no adapter cache or second source/composition registry. */
@@ -188,7 +199,22 @@ const encodedExpectations = new WeakMap<FiniteMetadataComparisonExpected, string
  * negative observations are encoded anew; no structural equality grants reuse. */
 export const encodeFiniteMetadataComparison = (expected: readonly FiniteMetadataComparisonExpected[]): string =>
   `[${expected.map(member => encodedExpectations.get(member) ?? JSON.stringify(member)).join(",")}]`;
-type ProjectionInputState = Omit<ProjectionState, "entryExpected" | "entryByIdentity" | "writeClosures" | "ownedExpected" | "keyTemplates">;
+type ProjectionInputState = Omit<ProjectionState, "entryExpected" | "entryByIdentity" | "writeClosures" | "ownedExpected" | "keyTemplates" | "keySelectors">;
+/** Definition contracts are owned by namespace/source, not by the selecting
+ * table. Share that selector index so cross-table selection cannot multiply
+ * retained entries. Table/access keys keep their original table routing. */
+function makeMetadataKeySelectors(tables: ProjectionState["tables"]): ProjectionState["keySelectors"] {
+  const selectors = new Map<CatalogTableId, MetadataKeySelectors>();
+  const owners = new Map<FiniteMetadataOwner["namespace"], Map<string, MetadataKeySelectors["definitions"]>>();
+  for (const [tableId, table] of tables) {
+    let namespace = owners.get(table.namespace);
+    if (namespace === undefined) { namespace = new Map(); owners.set(table.namespace, namespace); }
+    let definitions = namespace.get(table.ownerKey);
+    if (definitions === undefined) { definitions = new Map(); namespace.set(table.ownerKey, definitions); }
+    selectors.set(tableId, { table: new Map(), definitions, access: new Map() });
+  }
+  return selectors;
+}
 function compileProjectionComparisons(state: ProjectionInputState): ProjectionState {
   const entryExpected = Object.freeze([...state.contracts.values()].map(contract => {
     const expected = Object.freeze({ namespace: contract.namespace, ownerKey: contract.ownerKey,
@@ -200,7 +226,7 @@ function compileProjectionComparisons(state: ProjectionInputState): ProjectionSt
   for (const [tableId, table] of state.tables) {
     const key = { namespace: table.namespace, ownerKey: table.ownerKey,
       contractKey: finiteMetadataContractKey("writeClosure", table.localName) };
-    const identity = logicalMetadataDependencyIdentity(key);
+    const identity = finiteMetadataDependencyIdentity(key);
     const contract = state.contracts.get(identity), bytes = state.semanticBytes.get(identity);
     if (contract === undefined || bytes === undefined) continue;
     const expected = Object.freeze({ ...key, present: true, semanticSha256Hex: contract.semanticSha256Hex,
@@ -208,8 +234,8 @@ function compileProjectionComparisons(state: ProjectionInputState): ProjectionSt
     encodedExpectations.set(expected, JSON.stringify(expected));
     writeClosures.set(tableId, expected);
   }
-  return { ...state, entryExpected, writeClosures, keyTemplates: new Map(),
-    entryByIdentity: new Map(entryExpected.map(expected => [logicalMetadataDependencyIdentity(expected), expected])),
+  return { ...state, entryExpected, writeClosures, keyTemplates: new Map(), keySelectors: makeMetadataKeySelectors(state.tables),
+    entryByIdentity: new Map(entryExpected.map(expected => [finiteMetadataDependencyIdentity(expected), expected])),
     ownedExpected: Object.freeze([...entryExpected, ...writeClosures.values()]) };
 }
 /** Existing issuer disposal removes every retained comparison along with its
@@ -252,7 +278,7 @@ export const prepareFiniteMetadataProjection = Effect.fn("FiniteMetadata.prepare
       semantic }, 4_194_304, { invalidInput: () => failure("invalidProjection"), hashFailure: cause => failure("resourceFailure", cause) });
     const contract = yield* decodeContractEffect({ ...owner, contractKey,
       semanticSha256Hex: captured.sha256Hex }).pipe(Effect.mapError(cause => failure("invalidProjection", cause)));
-    const identity = logicalMetadataDependencyIdentity(contract);
+    const identity = finiteMetadataDependencyIdentity(contract);
     const prior = contracts.get(identity);
     if (prior !== undefined && prior.semanticSha256Hex !== contract.semanticSha256Hex)
       return yield* Effect.fail(failure("invalidProjection"));
@@ -445,7 +471,7 @@ const mergeAuthenticatedMetadataProjections = (inputs: readonly PreparedFiniteMe
   // SAFETY: the private registry authenticates every composed projection.
   const projection = Object.freeze({}) as PreparedFiniteMetadataProjection;
   projections.set(projection, { contracts, semanticBytes, owners: Object.freeze([...owners.values()]), tables,
-    entryByIdentity, entryExpected: Object.freeze([...entryByIdentity.values()]), writeClosures, ownedExpected: Object.freeze([]), keyTemplates: new Map() });
+    entryByIdentity, entryExpected: Object.freeze([...entryByIdentity.values()]), writeClosures, ownedExpected: Object.freeze([]), keyTemplates: new Map(), keySelectors: makeMetadataKeySelectors(tables) });
   return Result.succeed(projection);
 };
 export const mergeFiniteMetadataProjections = (inputs: readonly PreparedFiniteMetadataProjection[]) =>
@@ -462,18 +488,19 @@ export const getFiniteMetadataProjectionSource = (projection: PreparedFiniteMeta
   // SAFETY: a subprojection preserves its original authenticated semantic issuer.
   const selected = Object.freeze({}) as PreparedFiniteMetadataProjection;
   const entryByIdentity = new Map([...state.entryByIdentity].filter(([, expected]) => expected.ownerKey === sourceKey));
+  const tables = new Map([...state.tables].filter(([, table]) => table.ownerKey === sourceKey));
   projections.set(selected, { owners: Object.freeze(owners),
     contracts: new Map([...state.contracts].filter(([, contract]) => contract.ownerKey === sourceKey)),
     semanticBytes: new Map([...state.semanticBytes].filter(([identity]) => state.contracts.get(identity)?.ownerKey === sourceKey)),
-    tables: new Map([...state.tables].filter(([, table]) => table.ownerKey === sourceKey)),
-    entryByIdentity, entryExpected: Object.freeze([...entryByIdentity.values()]), ownedExpected: Object.freeze([]), keyTemplates: new Map(),
+    tables,
+    entryByIdentity, entryExpected: Object.freeze([...entryByIdentity.values()]), ownedExpected: Object.freeze([]), keyTemplates: new Map(), keySelectors: makeMetadataKeySelectors(tables),
     writeClosures: new Map([...state.writeClosures].filter(([, expected]) => expected.ownerKey === sourceKey)) });
   return selected;
 };
 /** Retained tuples are immutable semantic facts of this exact projection.
  * Their identity carries no database, serving or settlement authority. */
 function retainMetadataKey(state: ProjectionState, key: LogicalMetadataKey): LogicalMetadataKey {
-  const identity = logicalMetadataDependencyIdentity(key);
+  const identity = finiteMetadataDependencyIdentity(key);
   const retained = state.keyTemplates.get(identity);
   if (retained !== undefined) return retained.key;
   // Invalid dynamically selected families still reach the ordinary full
@@ -489,6 +516,7 @@ function retainMetadataKey(state: ProjectionState, key: LogicalMetadataKey): Log
       if (contract === undefined) return ownedKey;
       const observed = Object.freeze({ kind: "present" as const, semanticSha256Hex: contract.semanticSha256Hex });
       state.keyTemplates.set(identity, Object.freeze({ key: ownedKey, observed, dependencies: new WeakSet() }));
+      issuedMetadataIdentities.set(ownedKey, identity);
       return ownedKey;
     },
   }));
@@ -496,16 +524,32 @@ function retainMetadataKey(state: ProjectionState, key: LogicalMetadataKey): Log
 /** Source policy is selected through the table's original metadata owner. */
 export const finiteMetadataTableKey = (projection: PreparedFiniteMetadataProjection, tableId: CatalogTableId, kind: "table" | "writeClosure" | "sourcePolicy") => {
   const state = projections.get(projection), table = state?.tables.get(tableId);
-  return table === undefined || state === undefined ? null : retainMetadataKey(state, { namespace: table.namespace, ownerKey: table.ownerKey,
+  if (table === undefined || state === undefined) return null;
+  const selectors = state.keySelectors.get(tableId)?.table;
+  const retained = selectors?.get(kind);
+  if (retained !== undefined) return retained;
+  const key = retainMetadataKey(state, { namespace: table.namespace, ownerKey: table.ownerKey,
     contractKey: kind === "sourcePolicy" ? finiteMetadataContractKey(kind) : finiteMetadataContractKey(kind, table.localName) });
+  if (issuedMetadataIdentities.has(key)) selectors?.set(kind, key);
+  return key;
 };
 
 /** Retain only present admitted contracts; missing selectors keep full decoding. */
 export const finiteMetadataDefinitionKey = (projection: PreparedFiniteMetadataProjection, tableId: CatalogTableId,
   kind: "index" | "unique", definitionId: number): LogicalMetadataKey | null => {
   const state = projections.get(projection), table = state?.tables.get(tableId);
-  return table === undefined || state === undefined ? null : retainMetadataKey(state, { namespace: table.namespace, ownerKey: table.ownerKey,
+  if (table === undefined || state === undefined) return null;
+  const selectors = state.keySelectors.get(tableId)?.definitions;
+  let members = selectors?.get(kind);
+  const retained = members?.get(definitionId);
+  if (retained !== undefined) return retained;
+  const key = retainMetadataKey(state, { namespace: table.namespace, ownerKey: table.ownerKey,
     contractKey: finiteMetadataContractKey(kind, definitionId) });
+  if (issuedMetadataIdentities.has(key) && selectors !== undefined) {
+    if (members === undefined) { members = new Map(); selectors.set(kind, members); }
+    members.set(definitionId, key);
+  }
+  return key;
 };
 
 /** Transaction-local cache comparison consults the genuine private projection,
@@ -514,8 +558,8 @@ export const matchesFiniteTableWriteClosureProjections = (left: PreparedFiniteMe
   right: PreparedFiniteMetadataProjection, tableId: CatalogTableId): boolean => {
   const leftKey = finiteMetadataTableKey(left, tableId, "writeClosure");
   const rightKey = finiteMetadataTableKey(right, tableId, "writeClosure");
-  const leftBytes = leftKey === null ? undefined : projections.get(left)?.semanticBytes.get(logicalMetadataDependencyIdentity(leftKey));
-  const rightBytes = rightKey === null ? undefined : projections.get(right)?.semanticBytes.get(logicalMetadataDependencyIdentity(rightKey));
+  const leftBytes = leftKey === null ? undefined : projections.get(left)?.semanticBytes.get(finiteMetadataDependencyIdentity(leftKey));
+  const rightBytes = rightKey === null ? undefined : projections.get(right)?.semanticBytes.get(finiteMetadataDependencyIdentity(rightKey));
   return leftBytes !== undefined && rightBytes !== undefined && bytesEqualFullScan(leftBytes, rightBytes);
 };
 /** Distinct demanded tables share an ordered actual full-byte comparison.
@@ -564,8 +608,18 @@ export const requireFiniteTableWriteClosures = Effect.fn("FiniteMetadata.require
 export const finiteMetadataAccessKey = (projection: PreparedFiniteMetadataProjection, tableId: CatalogTableId,
   family: string, leadingField: string): LogicalMetadataKey | null => {
   const state = projections.get(projection), table = state?.tables.get(tableId);
-  return table === undefined || state === undefined ? null : retainMetadataKey(state, { namespace: table.namespace, ownerKey: table.ownerKey,
+  if (table === undefined || state === undefined) return null;
+  const selectors = state.keySelectors.get(tableId)?.access;
+  let members = selectors?.get(family);
+  const retained = members?.get(leadingField);
+  if (retained !== undefined) return retained;
+  const key = retainMetadataKey(state, { namespace: table.namespace, ownerKey: table.ownerKey,
     contractKey: finiteMetadataContractKey("accessFamily", table.localName, family, leadingField) });
+  if (issuedMetadataIdentities.has(key) && selectors !== undefined) {
+    if (members === undefined) { members = new Map(); selectors.set(family, members); }
+    members.set(leadingField, key);
+  }
+  return key;
 };
 
 /** Every consumption uses the entry watermark, including a first use after an
@@ -574,16 +628,17 @@ export const captureFiniteMetadataDependency = (projection: PreparedFiniteMetada
   key: LogicalMetadataKey, capturedWatermark: MetadataSequence): Result.Result<LogicalMetadataReadDependency, FiniteMetadataError> => {
   const state = projections.get(projection);
   if (state === undefined) return Result.fail(failure("invalidProjection"));
-  const template = state.keyTemplates.get(logicalMetadataDependencyIdentity(key));
+  const template = state.keyTemplates.get(finiteMetadataDependencyIdentity(key));
   if (template?.key === key) return decodeSequenceTypeResult(capturedWatermark).pipe(
     Result.mapError(cause => failure("invalidInput", cause)),
     Result.map(watermark => {
       const dependency = Object.freeze({ kind: "metadata" as const, ...template.key,
         capturedWatermark: watermark, observed: template.observed });
       template.dependencies.add(dependency);
+      issuedMetadataIdentities.set(dependency, finiteMetadataDependencyIdentity(template.key));
       return dependency;
     }));
-  const selected = state.contracts.get(logicalMetadataDependencyIdentity(key));
+  const selected = state.contracts.get(finiteMetadataDependencyIdentity(key));
   return decodeDependencyTypeResult({ kind: "metadata", ...key,
     capturedWatermark, observed: selected === undefined ? { kind: "missing" } :
       { kind: "present", semanticSha256Hex: selected.semanticSha256Hex } }).pipe(
@@ -601,11 +656,11 @@ export const matchesFiniteMetadataDependencyObservation = (projection: PreparedF
   const matches = (decodedKey: LogicalMetadataKey, decodedDependency: LogicalMetadataReadDependency): boolean => {
     if (decodedDependency.capturedWatermark !== capturedWatermark || decodedDependency.namespace !== decodedKey.namespace ||
       decodedDependency.ownerKey !== decodedKey.ownerKey || decodedDependency.contractKey !== decodedKey.contractKey) return false;
-    const selected = state.contracts.get(logicalMetadataDependencyIdentity(decodedKey));
+    const selected = state.contracts.get(finiteMetadataDependencyIdentity(decodedKey));
     return selected === undefined ? decodedDependency.observed.kind === "missing" :
       decodedDependency.observed.kind === "present" && decodedDependency.observed.semanticSha256Hex === selected.semanticSha256Hex;
   };
-  const template = state.keyTemplates.get(logicalMetadataDependencyIdentity(key));
+  const template = state.keyTemplates.get(finiteMetadataDependencyIdentity(key));
   if (template?.key === key && template.dependencies.has(dependency)) return matches(key, dependency);
   // Foreign keys and supplied observations keep their complete authoritative
   // data contracts. Structural equality lends no retained template verdict.
@@ -645,7 +700,7 @@ export const applyFiniteMetadataActivationProjection = Effect.fn("FiniteMetadata
     const next = new Map(selected.map(contract => [contract.contractKey, contract]));
     for (const row of existing) {
       const contract = next.get(row.contractKey);
-      const semanticBytes = contract === undefined ? null : state.semanticBytes.get(logicalMetadataDependencyIdentity(contract));
+      const semanticBytes = contract === undefined ? null : state.semanticBytes.get(finiteMetadataDependencyIdentity(contract));
       if (contract !== undefined && semanticBytes === undefined) return yield* Effect.fail(failure("invalidProjection"));
       if (contract !== undefined && row.present && row.semanticSha256Hex === contract.semanticSha256Hex &&
         row.semanticBytes !== null && semanticBytes !== null && semanticBytes !== undefined &&
@@ -660,7 +715,7 @@ export const applyFiniteMetadataActivationProjection = Effect.fn("FiniteMetadata
       next.delete(row.contractKey);
     }
     for (const contract of next.values()) yield* runDrizzleStatementEffect(tx.insert(fxSystemMetadataContractObservations).values({
-      scopeId, ...contract, semanticBytes: state.semanticBytes.get(logicalMetadataDependencyIdentity(contract)),
+      scopeId, ...contract, semanticBytes: state.semanticBytes.get(finiteMetadataDependencyIdentity(contract)),
       present: true, lastChangedMetadataSequence: sequence }), cause => failure("resourceFailure", cause));
   }
   return sequence;
@@ -696,7 +751,7 @@ export const initializeCurrentFiniteMetadataProjection = Effect.fn("FiniteMetada
     for (const row of rows) {
       if (row.lastChangedMetadataSequence > sequence) return yield* Effect.fail(failure("projectionMissing"));
       const contract = expected.get(row.contractKey);
-      const bytes = contract === undefined ? undefined : state.semanticBytes.get(logicalMetadataDependencyIdentity(contract));
+      const bytes = contract === undefined ? undefined : state.semanticBytes.get(finiteMetadataDependencyIdentity(contract));
       if (contract === undefined ? row.present : !row.present || row.semanticSha256Hex !== contract.semanticSha256Hex ||
         row.semanticBytes === null || bytes === undefined || !bytesEqualFullScan(row.semanticBytes, bytes)) complete = false;
       expected.delete(row.contractKey);
@@ -718,7 +773,7 @@ export function prepareConsumedFiniteMetadataComparison(capturedWatermark: Metad
   const seen = new Map<string, LogicalMetadataReadDependency>();
   for (const dependency of dependencies) {
     if (dependency.capturedWatermark !== capturedWatermark) return yield* Result.fail(failure("invalidInput"));
-    const identity = logicalMetadataDependencyIdentity(dependency);
+    const identity = finiteMetadataDependencyIdentity(dependency);
     const prior = seen.get(identity);
     if (prior !== undefined) {
       if (prior.observed.kind !== dependency.observed.kind || prior.observed.kind === "present" && dependency.observed.kind === "present" &&
