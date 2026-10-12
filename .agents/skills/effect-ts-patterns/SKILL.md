@@ -25,10 +25,8 @@ For the connected operation and its owning execution graph, identify:
 
 Reuse the existing contract owner before adding another interface, validator,
 codec, service, or helper. Correct connected touched-flow gaps inside the approved
-scope. Operation-level API analysis does not cap implementation or delivery size:
-an approved redesign must replace the connected owners and consumers required
-for its complete outcome. Public, transaction, authority, or lifecycle changes
-outside that approval need their own preflight. Skill compliance never expands
+scope. Preserve public, transaction, authority, and lifecycle contracts unless
+the requested work authorizes changing them. Skill compliance never expands
 the user's authorization.
 
 ## Choose the representation

@@ -11,7 +11,7 @@ change Medusa internals where they do not. Do not recreate Medusa in the adapter
 preserve unnecessary layers for their own sake, or make Flarex core commerce-aware.
 
 This skill guides design decisions, not capability approval. Follow the current
-checkout's `AGENTS.md` for preflight, ownership boundaries, review, validation,
+checkout's `AGENTS.md` for scope, ownership boundaries, review, validation,
 and commits. Creating or invoking this skill does not authorize broad cleanup,
 new capabilities, source promotion, or changes to accepted architecture.
 
@@ -27,7 +27,7 @@ skill's directory. Inspect the relevant current sources:
   and its [roadmap](../../../roadmaps/shared-logical-storage/README.md) for the
   accepted three-consumer storage, relationship and schema-evolution target.
 - `roadmaps/flarexdb-framework-integration/06-medusa-adoption.md` and the owning
-  focused preflight for the requested capability. For shared adapter mechanics,
+  design evidence for the requested capability. For shared adapter mechanics,
   start with `preflight/47-medusa-shared-persistence-adapter.md` in that domain.
 - `roadmaps/workflow-foundations/` when workflow execution is involved.
 - `third_party/medusa/SOURCE.json`, the relevant pinned sources under
@@ -123,7 +123,7 @@ in-scope fixes and test-harness-only defects do not require repeated approval.
 
 Medusa core is not untouchable. A scoped fork change is a valid, sometimes better,
 integration solution. Explain the existing behavior, mismatch, proposed contract,
-affected consumers, and compatibility consequences in the preflight. Distinguish
+affected consumers, and compatibility consequences. Distinguish
 an internal portability/refactor change from an intentional business or public
 contract divergence; the latter needs an explicit decision, not a silent patch.
 
@@ -150,7 +150,7 @@ module within that supported contract should need declarations and its genuine
 adapter extensions, not another core branch, factory or binding redesign.
 
 Introduce module-specific core behavior only when absolutely necessary. Before
-proposing an exception, demonstrate all of the following in the preflight:
+proposing an exception, demonstrate all of the following:
 
 - The exact required behavior and a reproducible witness, grounded in the native
   contract or an explicitly approved divergence.

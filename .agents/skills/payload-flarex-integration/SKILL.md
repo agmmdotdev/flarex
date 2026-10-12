@@ -27,7 +27,7 @@ root. Start with the sources relevant to the requested outcome:
   and its [roadmap](../../../roadmaps/shared-logical-storage/README.md) for the
   accepted three-consumer storage, relationship and schema-evolution target.
 - `roadmaps/flarexdb-framework-integration/07-payload-adoption.md` and its
-  focused preflight for current scope. The exact-release contract and
+  current scope. The exact-release contract and
   `preflight/payload-release-capability-map.json` identify compatibility evidence.
 - `packages/payload-adapter/`, its package manifest, the lockfile, and the
   installed Payload exports, declarations, and implementation. Compare a pinned

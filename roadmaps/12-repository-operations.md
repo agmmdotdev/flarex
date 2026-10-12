@@ -12,18 +12,17 @@ correctness and the quality of TypeScript/Effect implementation.
   `https://github.com/agmmdotdev/flarex.git` as `origin`. The parent Convex
   checkout ignores it, while remaining available as the primary Convex behavior
   reference.
-- `AGENTS.md` owns durable workspace workflow: design challenge, implementation
-  preflight, design precedence, living-roadmap maintenance, reviewer cadence,
+- `AGENTS.md` owns durable workspace workflow: design precedence,
+  ownership boundaries, living-roadmap maintenance, review standards,
   proportional validation, and automatic scoped commits.
 - Git owns chronological implementation history. Domain roadmaps own current
   architecture, rationale, status, gaps, direction, and correctness gates; they
   do not duplicate commit logs or verification receipts.
-- The main thread owns all writes and Git operations. Reviewer subagents are
-  read-only and review only the current changed checkpoint.
-- Significant code changes use two standing reviewers:
-  `typescript-diff-reviewer` and `code-quality-diff-reviewer`. Docs-only,
-  formatting-only, generated refresh, and minor mechanical changes do not
-  require them.
+- Preserve unrelated shared-worktree changes and commit only owned files or
+  hunks. Review significant changes for TypeScript/Effect quality and systems
+  correctness; validation remains proportional to the affected behavior.
+- `typescript-diff-reviewer` and `code-quality-diff-reviewer` are available
+  read-only review roles. Their definitions do not require spawning agents.
 - Effect implementation and TypeScript review use the repo-local
   `.agents/skills/effect-ts-patterns/SKILL.md` skill plus
   `.codex/agents/effect-review-guide.md`. The skill owns reusable workflow and
@@ -51,7 +50,7 @@ correctness and the quality of TypeScript/Effect implementation.
   framework signatures, defects, and narrow foreign adapters remain plain when
   their contracts require it.
 
-## Standing Reviewer Responsibilities
+## Reviewer Responsibilities
 
 The TypeScript reviewer owns the Effect-applicability assessment for all
 materially changed TypeScript operations, static/runtime contract agreement,

@@ -3,8 +3,7 @@
 Status: active cross-cutting implementation guidance.
 
 Evidence basis: the transaction-grant protocol and executor verification flow
-inspected on 2026-07-16. Re-check current code before an implementation
-preflight.
+inspected on 2026-07-16. Re-check current code before implementation.
 
 ## Decision
 
@@ -212,8 +211,8 @@ the remaining transitional debt:
   remain an `if`.
 
 This classification is guidance, not authorization to refactor the active
-transaction-grant slice. A behavior-changing port still requires its own
-preflight and focused verification.
+transaction-grant slice. A behavior-changing port must stay within the
+requested scope and receive focused verification.
 
 ## Review Checklist
 

@@ -25,11 +25,9 @@ inconsistency is migration evidence, not authority.
 
 When a change calls, extends, copies, or materially relies on a concrete Effect
 pattern violation, correct its connected owners and consumers in the same
-approved scope when decisive validation exists. Do not cap a redesign at a
-helper or component while the approved complete outcome remains unmet.
-Operation-level review granularity does not constrain delivery size. A package,
-public-contract, trust, transaction or lifecycle change outside the approved
-scope needs a new preflight; in-scope changes follow the standing approval.
+approved scope when decisive validation exists. Preserve package, public,
+trust, transaction, and lifecycle contracts unless the requested work authorizes
+changing them.
 
 For each new or materially changed data boundary, identify its named Schema or
 existing authoritative decoder, or state the concrete reason for custom capture

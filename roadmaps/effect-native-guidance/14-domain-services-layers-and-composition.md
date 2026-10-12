@@ -4,7 +4,7 @@ Status: active cross-cutting implementation guidance.
 
 Evidence snapshot: 2026-07-16 current working tree, local T3 Code snapshot,
 local Effect-smol documentation, and installed Effect 4.0.0-beta.90. Re-check
-the code and installed APIs before an implementation preflight.
+the code and installed APIs before implementation.
 
 ## Decision
 
@@ -253,7 +253,7 @@ service contract into executor would make Postgres depend back on executor and
 risk a cycle.
 
 Preserve the current package direction during mechanical organization. A later
-preflight may choose a narrow adapter-neutral ports/contracts package, but it
+design may choose a narrow adapter-neutral ports/contracts package, but it
 must first verify accepted FlarexDB ownership, public exports, generated types,
 and compatibility obligations. Do not create that package implicitly during a
 service refactor.
@@ -291,7 +291,7 @@ Classify each touched module as one of:
   or
 - `delete with legacy path`: the approved replacement removes its only owner.
 
-Apply this to one vertical domain slice after preflight. Avoid a repository-wide
+Apply this to the requested vertical domain slice. Avoid a repository-wide
 file move because it obscures behavioral changes, breaks package subpaths, and
 makes transaction regressions difficult to isolate.
 

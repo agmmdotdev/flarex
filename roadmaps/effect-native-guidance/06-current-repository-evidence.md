@@ -4,7 +4,7 @@
 
 This evidence was collected from the 2026-07-15 current working tree. It
 includes uncommitted C03 journal work already present in the workspace and
-therefore must be refreshed before a later implementation preflight.
+therefore must be refreshed before later implementation.
 
 The scan covered production `.ts` files under the named `src` roots, excluding
 tests and declarations. Counts are line hits, not AST nodes or quality scores.
@@ -169,5 +169,5 @@ deterministic concurrency or lifecycle testing provides concrete value.
   capability-bearing platform dispatch, and which external calls require
   bounded streaming before Schema decoding.
 
-Those questions belong in the preflight for the first concrete vertical port,
+Resolve those questions for the first concrete vertical port,
 not in a speculative file-by-file migration checklist.
