@@ -1,181 +1,116 @@
 # Flarex Agent Rules
 
-This file is the compact, always-loaded operating policy for agents working in
-this repository. Architecture, rationale, capability status, implementation
-notes, compatibility inventories, exact commands, and test receipts belong in
-their owning design notes, roadmaps, skills, or Git history.
+Keep shared policy here; domain architecture and status belong in design notes
+and living roadmaps, API guidance in skills, review methods in `.codex/agents/`,
+and chronology and validation receipts in Git.
 
-## Purpose And Authority
+## Authority And Architecture
 
-Flarex is a Convex-inspired, Postgres-authoritative backend hosted on
-Cloudflare. Postgres is the only authoritative committed application-data
-store. Cloudflare hosts sandboxed execution, service bindings, WebSockets,
-coordination, and explicitly non-authoritative freshness or cache state.
+Use accepted design notes, especially `design-notes/flarex-db-accepted-design.md`,
+then the owning roadmap and task scope, current code/schemas/tests, and pinned
+primary sources. Git supplies provenance, not current architecture. Read status
+labels literally; proposals and prototypes do not override accepted decisions.
+`roadmaps/README.md` indexes owners; `roadmaps/16-package-boundaries.md` governs
+dependencies and utility placement.
 
-Use current evidence in this order:
+- Preserve the portable Convex developer model; inspect Convex first and record
+  necessary Cloudflare, partitioning, licensing, or product divergences.
+- Postgres alone owns committed application data, settlement, history, facts,
+  and durable outcomes. Cloudflare coordination, caches, freshness state, and
+  publication prefixes are not commit authority.
+- Keep native Application OCC and framework-compatible Payload/Medusa profiles
+  distinct. Shared persistence does not imply one universal transaction API.
+- Framework adapters own their lifecycle and business semantics; only the
+  trusted outer owner settles. Untrusted code must never receive raw database,
+  transaction, scope-clock, commit, or finalizer capabilities.
+- Runtime hosts are adapters. Trusted transaction logic stays framework-neutral.
+  The production target is a private Cloudflare Worker using service bindings
+  and cache-disabled Hyperdrive; compatibility hosts keep their recorded gates.
+- Never hold a database transaction across untrusted execution, workflow pauses,
+  or remote effects. Preserve lock order, fencing, idempotency, cancellation,
+  rollback-only behavior, uncertain-outcome recovery, and atomic publication.
+- Application reads record exact dependencies; writes retain revision/tombstone
+  history. Independent committed calls do not become atomic implicitly.
+- Backend analysis owns deployed-function metadata; managed execution artifacts
+  remain invisible to application developers. Unsupported capabilities fail
+  closed. Bounded tests do not establish deployment, scale, or arbitrary
+  framework support.
 
-1. Accepted design notes for cross-domain architecture, trust boundaries, and
-   replacement policy, especially `design-notes/flarex-db-accepted-design.md`.
-2. The relevant living domain roadmap and current task scope.
-3. Current schemas, code, and decisive tests for exact implemented behavior.
-4. Checked-in primary sources such as Convex or a pinned framework fork for
-   compatibility semantics.
-5. Git history and older checkpoints for chronology and provenance only.
+## Ownership And Changes
 
-Read status labels literally. A prototype, proposal, deferred idea, existing
-code path, or newer timestamp does not override an accepted design. Verify the
-current owner and status instead of copying historical assumptions.
+- Scope work by authority, lifecycle, resources, compatibility, and activation;
+  do not cap connected outcomes by file count. Reuse existing owners and types
+  before adding interfaces, validators, codecs, services, or helpers.
+- Generic utilities are total, deterministic, domain-neutral dependency leaves.
+  Protocol, canonical encoding, crypto, Effect, persistence, host, framework,
+  test, and authority policy stay with their actual owner.
+- Existing code or fixtures alone do not prove compatibility obligations.
+  Preserve supported public contracts, live traffic, external identities, and
+  named durable data. Prefer clean replacement otherwise; retained duplicates
+  need a named consumer/obligation and removal gate.
+- Migrate callers and remove displaced code, exports, dependencies, fixtures,
+  and stale documentation in the same scope. Preserve behavioral coverage;
+  durable tables/data require an approved migration or reset disposition.
+- Preserve unrelated shared-worktree changes. Inspect status and overlap; stage
+  only owned paths/hunks. The main thread owns edits and Git; reviewers are
+  read-only.
 
-Use plain, unversioned names for the accepted current implementation and
-`Legacy...` for a retained displaced implementation. Use `V1`, `V2`, and
-similar suffixes only for concrete compatibility contracts that may coexist or
-require exact decoding or migration. Do not opportunistically rename symbols,
-add dual paths, or preserve legacy code without an owner-approved slice and a
-proven compatibility obligation.
+Adapters translate contracts; they must not repair shared-owner defects with
+direct SQL, duplicate enforcement, extra transactions/lifetimes/recovery paths,
+looser limits, swallowed failures, fallback behavior, or weakened tests.
+Preserve a failing witness, identify its owner, record expected/actual behavior
+and disposition in the owning roadmap, and tell the user. Stop dependent work
+until that core correction is authorized; existing explicit in-scope approval
+counts. Fix the correct owner and rerun owner and consumer regressions.
+Test-harness defects may be fixed in scope, but harnesses must not reproduce
+shared system logic. A passing rerun alone does not prove an intermittent
+failure's root cause.
 
-## Durable Architecture Invariants
+Use plain current names and `Legacy...` for retained displaced implementations.
+Reserve `V1`/`V2` for real coexisting or decodable compatibility contracts.
+Do not opportunistically rename symbols or add unneeded legacy/dual paths.
 
-- Preserve the Convex developer mental model and core behavior where portable.
-  Inspect Convex first; record each necessary Cloudflare, partitioning,
-  licensing, or product divergence in the owning roadmap.
-- Postgres owns authoritative state, transaction settlement, commit history,
-  facts, and durable outcomes. A cache, actor, host, adapter, or publication
-  prefix is not commit authority.
-- Native Application OCC and framework-compatible Payload or Medusa relational
-  profiles may share persistence and publication infrastructure without
-  becoming one universal transaction or journal API.
-- Keep framework lifecycle and business semantics with their framework adapter.
-  Only the trusted outer owner settles. Never expose raw database, transaction,
-  scope-clock, commit, or finalizer capabilities to untrusted code.
-- Runtime hosts are adapters, not executor core. Keep trusted transaction logic
-  in framework-neutral packages. The production host target is a private
-  Cloudflare Worker through service bindings and cache-disabled Hyperdrive;
-  compatibility hosts retain their recorded gates.
-- Do not hold a database transaction across untrusted execution, workflow
-  pauses, or remote effects. Preserve lock order, fencing, idempotency,
-  cancellation, rollback-only behavior, uncertain-outcome recovery, and atomic
-  publication.
-- Application reads must record exact dependencies and writes must retain
-  revision/tombstone history. Independently committed calls do not silently
-  become one atomic mutation.
-- Keep backend analysis authoritative for deployed function metadata and keep
-  Flarex-managed execution artifacts invisible to application developers.
-- Unsupported capabilities fail closed. Do not present a bounded test,
-  compatibility adapter, HTTP success, or private profile as production,
-  deployment, scale, or arbitrary-framework proof.
+## Skills And Checks
 
-The accepted architecture and current package responsibilities are indexed in
-`roadmaps/README.md`; repository-wide dependency rules and utility ownership
-are owned by `roadmaps/16-package-boundaries.md`.
+Apply repo-local Medusa/Payload integration skills for their respective adapters.
+For Effect or plain TypeScript whose semantics require Effect constructs, read
+`.agents/skills/effect-ts-patterns/SKILL.md` and
+`.codex/agents/effect-review-guide.md` before implementation/refactoring.
+Apply `effect-ts-error-handling` when classification, recovery, retry, foreign
+error mapping, or boundary logging changes.
 
-## No Glue-Fixing Core Owners
+For material JS/TS changes in configured Oxlint roots, run `pnpm lint:core` and
+`pnpm lint:diff` before review, then `pnpm lint:diff -- --staged` on the exact
+index before commit. No baselines, blanket disables, severity downgrades, or
+assertion laundering. Policy/rule/scope changes require the `flarex-oxlint`
+skill; `tools/oxlint/README.md` owns detailed commands.
 
-Adapters may translate framework-owned inputs, outputs, lifecycle callbacks,
-errors, and capabilities. They must not compensate for a defect, missing
-invariant, or insufficient contract in a shared or core owner.
+Run affected typechecks, tests, builds, and source/compatibility guards.
+Schema, transaction, isolation, locking, migration, outbox, and query-plan claims
+require both PGlite and focused ordinary-role real Postgres validation; report
+them separately. Use workspace-wide checks only for cross-cutting changes.
+Stop owned Wrangler, Workerd, database, and temporary runtime resources.
 
-When an integration, system test, or application simulation exposes a
-shared-owner problem:
+## Review And Commit
 
-1. preserve or strengthen the failing witness;
-2. identify the responsible owner and trust boundary;
-3. record the reproducible scenario, expected and actual behavior, evidence,
-   and current disposition in the owning roadmap or design note; and
-4. tell the user and stop at that ownership boundary until a core correction is
-   explicitly approved.
+Before committing significant code changes, spawn both read-only project agents:
+`typescript-diff-reviewer` (TypeScript, contracts, reuse, Effect quality) and
+`code-quality-diff-reviewer` (systems, data, trust, concurrency, recovery, tests).
+Use model `gpt-6.1-sol` with `reasoning_effort: high` for both reviewers.
+Significant includes behavior, public types/contracts, schemas/migrations,
+non-trivial refactors, and material test expectations. Docs-only, formatting,
+generated refreshes, and minor mechanical changes do not require these agents.
+Give both the exact base/checkpoint, owned paths/hunks including untracked files,
+contract, and validation evidence. Fix findings and rerun affected validation;
+rerun both agents after substantive code changes. Their prompts own review
+methods and evidence reporting.
 
-Do not make the consumer pass by weakening assertions or validation, raising or
-bypassing limits locally, introducing direct SQL or storage access, creating a
-second transaction, lifetime, publication, or recovery path, duplicating core
-logic, swallowing failures, or adding fallback, comparison, or dual behavior.
-Test-harness-local defects may be corrected within the approved slice, but a
-test package must not reproduce shared system logic.
+After successful implementation, documentation, required review, cleanup, and
+verification, create one scoped imperative Git commit without another request.
+Do not commit failing or incomplete work unless explicitly requested; report
+the blocker instead. Report the commit ID/title and material validation limits.
 
-After approval, fix the narrowest correct owner, retain its trust and lifecycle
-semantics, remove diagnostic or compatibility scaffolding without a proven
-obligation, and rerun both owner and consumer regressions. A passing rerun does
-not establish the root cause of an intermittent failure.
-
-## Implementation Scope And Ownership
-
-- Work in coherent, bounded capabilities. Bounded means explicit authority,
-  ownership, resource, compatibility, and activation limits; it does not mean
-  artificially tiny files, turns, or commits.
-- Reuse an existing owner before creating another interface, validator, codec,
-  service, registry, transaction API, or helper. Repetition alone does not make
-  a helper generic.
-- Keep generic utilities total, deterministic, domain-neutral dependency
-  leaves. Protocol, persistence, host, framework, test, authority, crypto,
-  canonical encoding, Effect, and compatibility policy stay with their real
-  owner. Apply `roadmaps/16-package-boundaries.md` for detailed cases.
-- Compatibility is evidence-triggered, not code-triggered. Existing code,
-  fixtures, and regression tests do not alone establish a shipped obligation.
-  Prefer clean replacement when no durable data, live traffic, external
-  identity, or supported public contract requires coexistence.
-- Preserve unrelated work in shared worktrees. Inspect status and overlap,
-  stage explicit owned files or hunks, and never revert, rewrite, or absorb
-  another task's changes.
-
-## Integration, Effect, And Oxlint Routing
-
-For Payload integration planning, implementation, refactoring, or review, apply
-`.agents/skills/payload-flarex-integration/SKILL.md` for native reuse, typed
-operation boundaries, runtime/test separation, and cleanup evidence.
-
-Any agent implementing or refactoring a flow that uses or semantically requires
-Effect, Schema, Result, Option, Exit, Match, Config, Context, Layer, Scope,
-Fiber, Effect HTTP, Effect tests, runtime bridges, or typed Effect errors must
-read and apply `.agents/skills/effect-ts-patterns/SKILL.md` and
-`.codex/agents/effect-review-guide.md`. Also apply
-`.agents/skills/effect-ts-error-handling/SKILL.md` when failure classification,
-recovery, retry, foreign error mapping, or boundary logging changes.
-
-Apply those standards during implementation, not only review. Preserve exact
-data contracts, expected failures versus defects/interruption, evaluation and
-first-failure order, dependency requirements, and request/transaction/Worker/
-Durable Object lifetimes. The skills own API-selection detail and examples;
-do not reproduce their cookbook here.
-
-For materially changed JavaScript or TypeScript in configured Oxlint roots, run
-`pnpm lint:core` and `pnpm lint:diff` before significant review, then
-`pnpm lint:diff -- --staged` against the exact index before commit. Do not add
-baselines, blanket disables, severity downgrades, assertion laundering, or
-unrelated cleanup. Changes to Oxlint policy, rules, severity, provenance, or
-scope must apply `.agents/skills/flarex-oxlint/SKILL.md` and its full validation.
-`tools/oxlint/README.md` owns command and rollout details.
-
-## Review, Validation, And Git
-
-Review significant changes for type and runtime contract agreement, reuse of
-existing owners, Effect composition, behavioral correctness, trust boundaries,
-concurrency, failure recovery, and test adequacy. Keep review scope explicit
-and separate from unrelated dirty work. Fix findings and rerun affected checks.
-
-Validate proportionally with affected typechecks, focused tests, builds, source
-or compatibility guards, and lint. Schema, transaction, isolation, locking,
-migration, outbox, and query-plan claims require both a fast PGlite lane and a
-focused ordinary-role real-Postgres lane. Keep those results distinct; a small
-or passing test does not prove production performance, Cloudflare behavior, or
-deployment readiness. Run workspace-wide commands only for genuinely
-cross-cutting changes. Stop any owned Wrangler, Workerd, database, or temporary
-runtime resources after validation.
-
-After a repository-changing capability is implemented, documented, reviewed
-when required, and successfully verified, create one scoped Git commit without
-waiting for another request. Never commit known-failing or incomplete work
-unless the user explicitly asks. Stage only owned files/hunks, use an imperative
-title, and report the commit ID and title. If verification fails, leave the work
-uncommitted and explain the blocker.
-
-## Living Roadmaps
-
-Roadmaps own current architecture, rationale, domain status, known gaps,
-direction, and correctness gates. Accepted design notes own cross-domain
-decisions; code, schemas, and tests own exact behavior; Git owns chronology and
-verification receipts.
-
-Update a roadmap only when durable domain truth changes. Do not add commit IDs,
-commit summaries, reviewer receipts, test receipts, or chronological checkpoint
-logs. Verify claims against current evidence, remove or clearly mark superseded
-statements, and never rewrite a roadmap merely to legitimize accidental code
-drift. Use `roadmaps/_domain-template.md` when no focused owner exists.
+Update living roadmaps only when durable domain truth changes. Accepted design
+notes own architecture; code/schemas/tests own behavior. Do not add commit logs,
+review/test receipts, or rewrite roadmaps to justify accidental drift. Use
+`roadmaps/_domain-template.md` when no focused owner exists.

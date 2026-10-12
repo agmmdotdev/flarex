@@ -1,169 +1,103 @@
 ---
 name: effect-ts-patterns
-description: Choose and apply Effect TypeScript constructs during implementation, refactoring, and review. Use for runtime data contracts and validation, typed failures, absence/outcomes, async or cancellable work, injected services, resource lifetimes, and Effect composition, including equivalent handwritten Promise, validator, or result code. Choose Schema, Effect, Result, Option, Exit, gen, pipelines, services, and Scope by semantics; preserve pure helpers and framework or protocol boundaries.
+description: Choose Effect constructs for runtime data contracts, failures, absence, composition, services, resources and tests, including plain TypeScript that needs those semantics. Use during implementation, refactoring or review; preserve pure helpers and protocol/framework boundaries.
 ---
 
 # Effect TypeScript Patterns
 
-Choose the construct from the claim, evaluation order, and lifetime it owns.
-Apply these decisions while implementing, including where Effect imports are
-missing. Import counts and stylistic uniformity are not completion criteria.
+Read repository instructions and its Effect overlay; verify installed exports.
+Examples target v4. For the connected operation identify its data contract,
+outcomes, evaluation order, dependencies, and resource lifetime. Apply the
+standard while writing code, even when Effect imports are absent; stay within
+authorized scope.
 
-## Before choosing an API
+## Representation
 
-Read repository instructions and its Effect overlay first. Verify the installed
-major version and relevant exports/types. This skill's examples target Effect v4;
-use the installed equivalent in other versions. A repo-local copy and project
-contracts take precedence over a global copy or historical source example.
-
-For the connected operation and its owning execution graph, identify:
-
-1. Data entering/leaving the boundary and its authoritative runtime contract.
-2. Expected failures, ordinary absence, defects, and interruption.
-3. Which computations are pure, eager, lazy, dependent, or concurrent.
-4. Dependencies, resources, mutable state, and their owning lifetime.
-
-Reuse the existing contract owner before adding another interface, validator,
-codec, service, or helper. Correct connected touched-flow gaps inside the approved
-scope. Preserve public, transaction, authority, and lifecycle contracts unless
-the requested work authorizes changing them. Skill compliance never expands
-the user's authorization.
-
-## Choose the representation
-
-| Need or claim | Default | Important boundary |
-| --- | --- | --- |
-| Runtime data shape, primitive constraints, encoded form, or stable cross-field invariants | Effect Schema | Derive validated data types from the schema; preserve an existing authoritative validator/codec when its semantics differ |
-| Pure recoverable parse or policy verdict retained as data | v4 Result | Schema can produce Result; Result is not a replacement for the data schema |
-| Async work, expected failure during execution, cancellation, or injected capabilities | Effect<A, E, R> | Schema can decode into Effect; retain precise success, failure, and requirements |
-| Ordinary composable absence with no failure reason | Option<A> | Invalid input, corruption, authorization and I/O failure are not absence |
-| Completed outcome including typed failure, defect and interruption | Exit<A, E> with Cause | Runtime, supervision, cleanup, diagnostics and tests; not normal service sequencing |
-| Pure total calculation, simple guard on established values, or deliberate framework signature | Plain TypeScript | A large handwritten structural validator does not become exempt merely by returning boolean |
-| Expected domain/integration error used only in process | Data.TaggedError or established tagged owner | Use Schema-backed tagged errors when encoding/decoding the error is part of its contract |
-| Environment/startup settings | Config, with Schema/typed construction for structured data | Validate at the stable construction boundary; do not reread per operation |
-| Shared injected capability | Context service | Keep real requirements visible until composition provides them |
-| Dependency construction, resource acquisition and startup | Layer and Scope | Business effects remain service operations; request/transaction state is not global |
-| Multiple simultaneous instances or a borrowed request/transaction capability | Explicit value or scoped factory | A Context tag represents one value in a given Context; do not collapse instance identity |
-| Managed mutable state in an Effect lifetime | Ref family; stronger coordination when needed | A local accumulator may remain local; Ref is not database authority or a durable lock |
-| Functional updates with useful structural sharing | Persistent collections | Preserve ordinary array/record/wire contracts at boundaries |
-
-These choices work together. For example, Schema defines a stored record,
-decodeUnknownResult performs a pure decode, and Effect.fromResult enters the
-service failure channel. Choose each independently; using Effect.gen does not
-establish input validity.
-
-## Schema is the default data-contract owner
-
-For new or materially changed runtime data boundaries:
-
-- Find or define one named schema for required/optional fields, literals, unions,
-  primitive types, bounds, and intrinsic cross-field invariants. Keep the schema
-  with the domain/protocol owner; derive decoded and encoded types from it where
-  possible instead of maintaining a parallel interface and boolean validator.
-- Decode unknown input before using it as domain data. Choose the appropriate
-  unknown-input decoder: Effect in an Effect-owned flow; Result for a deliberate
-  pure API. Schema.is fits a true boolean membership decision with no needed
-  parse diagnostics or transformation. Throwing decoders belong only at a
-  deliberate synchronous startup/framework/compatibility boundary.
-- Compile stable decoders once. Compile metadata-derived schemas once per stable
-  definition/factory. Make excess keys, coercion, defaults, null/undefined,
-  first-error order and encoded/decoded forms explicit.
-- Preserve existing authoritative metadata, public validators and canonical
-  codecs. A similarly shaped Schema is not evidence of equivalent behavior.
-- Keep current policy, database state, clock comparisons, digest verification,
-  admission and issuer/WeakMap identity checks in their owning operations.
-  Schema does not establish authority, byte ownership or runtime deep freezing.
-- Preserve narrow object-inspection/capture code when it owns getter avoidance,
-  prototype/key policy, cycles, resource bounds or authentic reference identity
-  that an ordinary structural decode does not establish.
-
-Before retaining handwritten structural validation, name the concrete semantic
-reason. "Already typed", "returns boolean", "existing code does it", or wrapping
-the checks in Result/Effect is insufficient for a foreign data boundary.
-Do not add a second validator merely to introduce Schema.
-
-Read [data-contracts.md](references/data-contracts.md) for data-boundary work,
-including database rows, configuration and custom capture exceptions.
-
-## Choose composition and evaluation
-
-| Shape | Use |
+| Semantics | Owner |
 | --- | --- |
-| Reusable operation or service method | Effect.fn, named when the operation warrants an observable span |
-| Standalone lazy computation or Layer construction | Effect.gen or a focused pipeline |
-| One or a few linear transformations | map/flatMap/mapError through pipe |
-| Several dependent successes, branches or loops | The installed Effect.gen, Result.gen or Option.gen |
-| Independent collection members | The owning all/traverse combinator with deliberate evaluation/concurrency/failure policy |
-| Both branches become plain values | The owning match/fold; Effect.match for Effects |
-| Both branches execute Effects | Effect.matchEffect or focused typed recovery |
-| Growing tagged union needs exhaustiveness | Match or exhaustive switch with never |
-| One clear local predicate | if, ternary or guard clause |
+| Runtime structure, encoded form, intrinsic value invariants | Schema; derive types from its authoritative decoder |
+| Pure recoverable verdict retained as data | v4 Result |
+| Async/cancellable work, expected execution failure, injected capabilities | Effect<A, E, R> |
+| Intentional absence with no failure reason | Option |
+| Completed outcome including defects/interruption | Exit with full Cause at an owning boundary |
+| Total pure calculation, simple established-value guard, required framework signature | Plain TypeScript |
+| In-process expected error | Data.TaggedError or existing tagged owner |
+| Error payload requiring encoding/decoding | Schema-backed tagged error |
+| Startup settings | Config; structured validation at construction |
+| Shared capability and dependency/resource construction | Context service, Layer and Scope |
+| Multiple instances or borrowed request/transaction capability | Explicit value or scoped factory |
+| Lifecycle-owned mutable state / useful structural sharing | Ref family / persistent collections |
 
-Preserve first-failure and call order. Result and Option are eager: JavaScript
-evaluates an array/record's members before all sees them. A lazy iterable can
-short-circuit member construction; gen makes sequential dependency explicit.
-Effect members are lazy descriptions, but JavaScript creating those descriptions
-still runs eagerly. Do not use Effect.all on a shared transaction unless its
-ordering, concurrency and cancellation contract permits that execution.
+Schema and Result/Effect solve different problems. Decode unknown before domain
+use; prefer Effect decoding in Effect flow and Result for deliberate pure APIs.
+Use Schema.is only for membership without parse diagnostics/transformation;
+throwing decoders require a deliberate synchronous startup/framework boundary.
 
-Do not sequence Result by inspecting its tag, extracting success, and manually
-reboxing failure. Use map, flatMap, mapError or gen. Originate a new failure with
-Result.fail; fold intentionally at a data boundary. Apply the same distinction
-to Option propagation. Exit has no role as a general sequencing abstraction.
+Reuse one authoritative validator/codec rather than adding parallel schemas.
+Hoist stable compilers; compile metadata-derived schemas at their stable factory.
+Preserve excess-key policy, coercion/defaults, null/undefined, encoded/decoded
+forms, and first-error order. Schema does not prove authorization, database
+state, clock/freshness, digests, issuer identity, byte ownership, or freezing.
+Keep no-getter/prototype/key/cycle/bounded capture where its semantics require it.
+"Already typed", boolean returns, and Result/Effect wrappers do not justify
+handwritten structural validation. See [data contracts](references/data-contracts.md).
 
-Refactor the connected composition, not every if into a separate combinator.
-Avoid deeply nested pipelines and one-combinator generators that obscure a
-simple flow. A thin function delegating to an existing operation may remain
-plain; reusable operations hidden behind anonymous Effect.gen wrappers should
-use the appropriate Effect.fn boundary. fnUntraced needs a concrete reason.
+## Composition
 
-## Keep failures and lifetimes explicit
+- Reusable Effect operations/service methods use Effect.fn; name observable
+  operations. Use gen for standalone values, Layer construction, test bodies,
+  or dependent orchestration; short map/flatMap/mapError pipelines for linear
+  transforms. fnUntraced needs a concrete boundary or measured-performance reason.
+- Use the owning gen for several dependent Result/Option successes. Propagate
+  with map/flatMap/mapError rather than tag inspection, extraction and reboxing;
+  Result.fail originates new failures. Fold only when plain outcome data is
+  the boundary contract. Exit is not an ordinary sequencing abstraction.
+- Result/Option are eager: array/record members run before all. A lazy iterable
+  or gen can preserve construction short-circuiting. Effect values are lazy,
+  but their JavaScript factories run eagerly.
+- Use all/traverse only for independent work with explicit ordering, failure,
+  concurrency and cancellation policy. A shared transaction is not automatically
+  parallel-safe. Preserve first-failure order.
+- Use match/fold for plain branches, Effect.matchEffect for Effect branches;
+  use Match or exhaustive switch/never for growing tagged unions. Keep simple
+  guards simple and avoid nested pipelines or one-combinator generator ceremony.
 
-- Retain expected failures in E; use tag-specific recovery. Do not convert to
-  Option, Result or Exit merely to inspect and reconstruct the same channel.
-- Use Effect.sync for deferred synchronous work whose unexpected throw is a
-  defect. Use Effect.try/tryPromise at actual foreign throw/rejection boundaries
-  where expected failures must be classified. A pure total helper stays plain.
-- Keep one lifecycle-owned runtime bridge per real foreign/executable edge.
-  Never call runPromise inside ordinary Effect code to hide R or E.
-- Keep service contracts, substantial live Layers and composition roots separate
-  when they own different responsibilities. Provide dependencies at the host,
-  application or test boundary. A scoped factory is justified by actual
-  locality/lifetime/cardinality, not by a preference for manual injection.
-- Pair acquisition with release. Fork work into a Scope or another explicit
-  supervisor and join/interrupt it before its owner ends. A cancellation signal
-  alone does not prove a foreign Promise has settled.
-- Use Effect time and Schedule for in-process policies; preserve database time
-  and durable retry/claim state with their persistence owner. Safe retry requires
-  idempotency/reconciliation and eligibility checked on every failed attempt.
-- Use the installed Effect HTTP client for ordinary outbound HTTP where its
-  contract fits. Keep platform-specific fetch capabilities at narrow adapters.
-- Keep readonly typing, detached ownership, runtime freezing, Ref and persistent
-  collections distinct. None substitutes for authorization or durable state.
+## Failure And Lifetime
 
-When failure classification, retry, recovery or logging changes, apply the
-sibling [effect-ts-error-handling](../effect-ts-error-handling/SKILL.md) skill.
-Read relevant sections of [pattern-catalog.md](references/pattern-catalog.md)
-for services, state, time, HTTP, codecs and composition; use
-[curated-examples.md](references/curated-examples.md) for concrete comparisons.
+- Keep exact A/E/R. Recover specific tagged failures; do not convert to
+  Option/Result/Exit merely to inspect and rebuild the same channel.
+- Effect.sync defers synchronous work whose unexpected throw is a defect;
+  try/tryPromise classify actual foreign throws/rejections. Pure helpers stay
+  plain. Apply [error handling](../effect-ts-error-handling/SKILL.md) for changed
+  classification, retry, recovery or logging.
+- Provide services/Layers at host/application/test composition roots. Separate
+  substantial live adapters from contracts; Layer construction owns dependencies,
+  resources and startup, not ordinary business effects. Preserve Context
+  cardinality; do not put request/transaction state into global services.
+- Pair acquisition/release; scope/supervise fibers and join/interrupt them before
+  their owner ends. A cancellation signal does not prove foreign work settled.
+  Keep one lifecycle-owned runner per real executable/foreign callback edge;
+  never runPromise inside Effect code to conceal requirements/failures.
+- Use Effect time/Schedule for in-process policy; keep database time and durable
+  retry/claim state with persistence. Retry requires per-attempt eligibility,
+  bounds, and idempotency/reconciliation.
+- Prefer installed Effect HTTP for ordinary outbound requests; platform fetch
+  capabilities remain narrow adapters. Preserve byte limits as well as decoding.
+- Readonly typing, detached ownership, freezing, Ref and persistent collections
+  have different guarantees; none establishes authority or durable state.
 
-## Verify decisions, including missing usage
+## Verification And References
 
-For a substantive implementation/review, assess the actual touched boundaries:
+Check named data-contract owners, absence/failure/defect/interruption, evaluation
+order, dependency closure, cleanup and mutation ownership. Recommend missing
+constructs only for concrete semantic gaps, including plain TypeScript; give the
+smallest connected correction. Imports and green lint do not prove quality.
 
-- **Data contracts:** name each schema/authoritative decoder or justified custom
-  boundary; inspect types, strictness, malformed input and ownership semantics.
-- **Outcomes:** distinguish absence, expected failure, defect and interruption;
-  verify that conversions intentionally preserve or discard information.
-- **Composition:** verify evaluation/first-failure order and concurrency policy.
-- **Services and lifetimes:** explain service/Layer versus scoped-instance choice,
-  requirement closure, cleanup, escaped work and cancellation ownership.
-- **Validation:** use focused typechecks and meaningful tests for changed claims,
-  including malformed input, later non-retryable failures, cleanup and replay
-  when relevant. Prefer Effect-aware tests/TestClock where available; retain one
-  explicit test bridge where the package requires it.
+Use focused typechecks and behavioral cases for changed claims: malformed
+input, first-failure order, later terminal retry errors, cancellation/cleanup
+and replay as relevant. Prefer Effect-aware tests, test Layers and TestClock;
+keep one explicit test runner where the package requires a Promise bridge.
 
-Report a missing Schema/Effect/Option/Result/Exit/service abstraction when the
-semantics require it, even if the code has no such imports. Give a concrete
-bounded correction; do not demand all constructs in every file. Counted imports,
-green lint and broad "Effect coverage" alone do not establish these decisions.
+Read relevant [catalog](references/pattern-catalog.md) sections for services,
+state, time, HTTP and codecs, and [curated examples](references/curated-examples.md)
+for comparisons. Load references only for the task's actual boundary.

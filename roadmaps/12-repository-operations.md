@@ -1,186 +1,61 @@
 # Repository Operations
 
-## Goal
+## Goal And Ownership
 
-Flarex should operate as an independent project with durable, evidence-backed
-agent rules, scoped checkpoints, and reviewers that evaluate both systems
-correctness and the quality of TypeScript/Effect implementation.
+Flarex operates as an independent project with scoped commits, evidence-backed
+rules and complementary TypeScript/Effect and systems reviews.
 
-## Current Durable State
-
-- `custom/cloudflare-executor` is its own Git repository with
-  `https://github.com/agmmdotdev/flarex.git` as `origin`. The parent Convex
-  checkout ignores it, while remaining available as the primary Convex behavior
-  reference.
-- `AGENTS.md` owns durable workspace workflow: design precedence,
-  ownership boundaries, living-roadmap maintenance, review standards,
-  proportional validation, and automatic scoped commits.
-- Git owns chronological implementation history. Domain roadmaps own current
-  architecture, rationale, status, gaps, direction, and correctness gates; they
-  do not duplicate commit logs or verification receipts.
-- Preserve unrelated shared-worktree changes and commit only owned files or
-  hunks. Review significant changes for TypeScript/Effect quality and systems
-  correctness; validation remains proportional to the affected behavior.
-- `typescript-diff-reviewer` and `code-quality-diff-reviewer` are available
-  read-only review roles. Their definitions do not require spawning agents.
-- Effect implementation and TypeScript review use the repo-local
-  `.agents/skills/effect-ts-patterns/SKILL.md` skill plus
-  `.codex/agents/effect-review-guide.md`. The skill owns reusable workflow and
-  curated examples; the checked-in overlay owns Flarex's version-specific APIs,
-  contracts, Cloudflare boundaries, and reviewer responsibility split.
-- [`effect-native-guidance/`](./effect-native-guidance/README.md) records the
-  current repository-wide pattern evidence and target direction for boundaries,
-  failures, persistence, services/Layers, data types, tests, and incremental
-  adoption. It is guidance for an approved slice, not a package-wide checklist.
-- The Effect standard is active during implementation rather than deferred to
-  review. Neighboring inconsistent code is not precedent, and bounded
-  behavior-preserving touched-flow debt is corrected in the approved slice
-  when focused validation exists.
-- TypeScript Effect review includes the smallest connected operation,
-  service/Layer, runtime boundary, and direct call path. Concrete pre-existing
-  debt may be reported when the diff materially exercises or relies on it, but
-  the reviewer does not roam unrelated files or turn checkpoints into
-  package-wide migrations.
-- Every materially changed TypeScript operation receives an Effect-applicability
-  assessment even when it was initially written without Effect imports. The
-  reviewer actively reports a bounded transformation when recoverable failure,
-  async/cancellation, capability, resource/lifecycle, or domain-service
-  semantics call for Effect, Result, Option, a service, or a Layer. Pure total
-  helpers, simple guards, protocol-owned shapes, required compatibility or
-  framework signatures, defects, and narrow foreign adapters remain plain when
-  their contracts require it.
+- `custom/cloudflare-executor` is its own Git repository; the parent Convex
+  checkout remains a primary behavior reference and ignores this nested repo.
+- `AGENTS.md` owns shared workflow, design precedence, ownership, checks, cleanup
+  and scoped commits. Accepted designs/domain roadmaps own architecture and
+  current status; Git owns chronology and validation receipts.
+- Significant code changes require spawning both read-only project reviewers:
+  `typescript-diff-reviewer` and `code-quality-diff-reviewer`. AGENTS.md owns
+  exemptions, checkpoint inputs and final rerun requirements. The main thread
+  owns fixes and Git and preserves unrelated work.
+- No routine requirement to create a new planning document or spawn other
+  agents follows from these review rules.
 
 ## Reviewer Responsibilities
 
-The TypeScript reviewer owns the Effect-applicability assessment for all
-materially changed TypeScript operations, static/runtime contract agreement,
-public API compatibility, exact success/failure/requirement channels, Schema
-and encoded shape agreement, service and Layer dependency types, tagged errors,
-type soundness, TypeScript design, responsibility and utility placement, reuse
-of existing owners and stable repo-owned types, and all Effect
-implementation-quality review, including composition, services/Layers,
-lifecycles, errors, HTTP, state ownership, and tests.
+The TypeScript reviewer owns type/runtime/encoded contract agreement, public
+API compatibility, soundness, responsibility/utility placement, existing-owner
+reuse and Effect implementation quality. Every materially changed TypeScript
+operation receives a semantic applicability assessment, including plain
+Promise/throw/null/ad-hoc substitutes without Effect imports.
 
-The code-quality reviewer owns behavioral and data correctness, trust and
-transaction boundaries, reliability, lifecycle and concurrency, performance,
-operability, general maintainability degradation, obvious defects, plausible
-failure modes, and test quality. It reports concrete system consequences in
-Effect code without duplicating Effect idiom, API-selection, or pattern review.
+The systems reviewer owns behavioral/data correctness, trust, transactions,
+concurrency, recovery, reliability, performance, operability, maintainability
+consequences and test adequacy. It reports concrete systems effects in Effect
+code without repeating Effect API/style checks.
 
-The main thread supplies an exact base/checkpoint, owned paths or hunks,
-included untracked files, approved contract, and validation evidence. Reviewers
-inspect that scope and its connected dependencies without absorbing unrelated
-dirty work. A changing checkpoint requires a fresh pass on affected conclusions.
+Reviewer definitions in `.codex/agents/*.toml` own investigation and finding
+formats. Reviews trace connected contracts/owners and falsifiable failure
+scenarios, distinguish executed checks from supplied/static evidence, and
+disclose scope/gaps. Green checks, counts and "no findings" do not prove overall
+quality. Concrete materially connected pre-existing debt is labeled; unrelated
+audits and package migrations are outside checkpoint scope.
 
-The TypeScript reviewer traces producers, decoders, operations, dependencies,
-and consumers; searches existing owners before accepting new machinery; and
-compares semantics before recommending reuse. It evaluates the connected API
-and Effect composition, including caller burden and unnecessary abstractions.
-Utility placement follows `16-package-boundaries.md`; repeated domain logic
-does not automatically belong in generic utils.
+## Implementation Guidance
 
-The systems reviewer selects high-risk invariants, traces concrete failure and
-recovery scenarios through their enforcing owners, and checks whether test
-assertions would detect broken behavior. It challenges competing authority,
-consumer workarounds, hidden ordering, and unsupported performance claims.
+`.agents/skills/effect-ts-patterns/SKILL.md` owns construct selection and active
+implementation practice. `effect-ts-error-handling` owns failure/retry/recovery
+semantics; `.codex/agents/effect-review-guide.md` owns Flarex API facts and
+platform/contract exceptions. Their optional references and
+[Effect-native guidance](./effect-native-guidance/README.md) supply focused
+examples and domain evidence; do not duplicate their cookbook here.
 
-Both report concise investigation evidence and unresolved gaps as well as
-findings. Static traces, executed checks, and supplied validation remain
-distinct. Concrete design and maintainability defects are reportable without
-a runtime failure; generic preferences and hypothetical reuse are not. Green
-lint, applicability counts, and no findings do not establish review depth or
-measured reviewer effectiveness. The prompts own the detailed methods.
+Apply those standards while implementing and correct authorized connected
+touched-flow debt with decisive validation. Existing inconsistency is not
+precedent. Preserve pure helpers and deliberate framework/protocol boundaries;
+do not turn a checkpoint into a repository-wide migration.
 
-Both reviewers remain risk-adaptive. The TypeScript reviewer reports an explicit
-Effect guide violation introduced by the diff or pre-existing in its materially
-touched flow when it is concrete and actionable, normally as a low-severity
-defect when it has not yet caused a runtime failure. Pre-existing findings are
-labeled touched-flow debt and must explain the connection to the change. Higher
-severity still requires evidence of real correctness, security, data-loss,
-compatibility, reliability, or operational impact.
+## Limits And Sources
 
-A new or materially extended plain TypeScript substitute is reportable under
-that rule when its semantics belong in Effect, Result, Option, a service, or a
-Layer; the absence of Effect imports does not make the issue optional. The
-reviewer records a compact applicability count for every TypeScript diff and,
-when a candidate exists, gives the smallest target shape and connected test or
-caller boundary.
-
-## Effect Implementation And Review Boundary
-
-The repo-local skill and Flarex overlay record the durable distinctions
-established from the current Effect v4 source, Flarex code, and curated T3
-Code application evidence:
-
-- observable Effect-producing operations and service-method implementations
-  normally use named `Effect.fn`;
-- reusable internal Effect functions may use unnamed `Effect.fn` for a stack
-  boundary without an implicit span;
-- demonstrated hot-path or deliberately zero-instrumentation Effect functions
-  may use `Effect.fnUntraced`;
-- pure functions remain ordinary TypeScript;
-- standalone Effect values and one-off inline composition may use
-  `Effect.gen`;
-- concise pipelines and lifecycle-owned host bridges are judged by their real
-  boundary rather than a syntax-only rule;
-- Effect v4 `Result`, not v3 `Either`, carries recoverable failure as data;
-  `Option` is for intentional absence, while `Exit` is reserved for complete
-  Cause-aware outcomes at lifecycle, runtime, diagnostic, and test boundaries;
-- simple Boolean guards remain ordinary TypeScript, while tagged and structural
-  unions use exhaustive Match patterns or exhaustive `switch` / `never` checks
-  when a hidden fallback would make future variants unsafe;
-- `Effect.match` is for pure branches and `Effect.matchEffect` for effectful
-  branches; `pipe` supports clear linear composition and `Effect.gen` is
-  preferred when several dependent binds, loops, or branches are clearer
-  imperatively;
-- ordinary outbound HTTP in Effect-native services uses an injected Effect
-  `HttpClient` with explicit status, decoding, timeout, and retry policy;
-  Cloudflare service-binding and Durable Object `fetch` calls remain narrow
-  platform adapters rather than being mechanically treated as Internet HTTP;
-- typed error provenance, exact `A`/`E`/`R`, Layer closure, Scope and structured
-  concurrency, runtime placement, Schema compiler placement, observability,
-  and Effect-native tests are part of the review, not optional extras.
-
-Existing inconsistent code is migration input, not authority for new changes.
-Reviewers do not turn a checkpoint review into an unrelated repository-wide
-Effect migration.
-
-## Authority And Reference Sources
-
-- `AGENTS.md` is the workspace workflow authority.
-- `.codex/agents/*.toml` is the source of truth for each reviewer.
-- `.agents/skills/effect-ts-patterns/SKILL.md` is the repo-local implementation
-  and review workflow; its optional references contain the detailed pattern
-  catalog and curated examples.
-- `.agents/skills/effect-ts-error-handling/SKILL.md` is the repo-local focused
-  workflow for failure classification, mapping, recovery, retry, and boundary
-  logging.
-- `.codex/agents/effect-review-guide.md` is the concise Flarex overlay for
-  installed-version facts, contracts, platform boundaries, review scope, and
-  reviewer ownership.
-- `roadmaps/effect-native-guidance/` is the checked-in map of current Flarex
-  pattern gaps and the target engineering direction for future vertical ports.
-- `opensrc/repos/github.com/effect-TS/effect-smol` is the preferred local API
-  and library-pattern reference when available.
-- `opensrc/repos/github.com/pingdotgg/t3code` provides curated application
-  examples, diagnostics, and lint patterns; it is evidence rather than a
-  uniformly correct authority.
-- The parent `convex-backend` checkout remains the source reference for
-  Convex-inspired behavior.
-
-The local `opensrc/` cache is optional and may be refreshed for deeper research.
-The repo-local skills and checked-in overlay keep the decision rules available
-when that cache is absent.
-
-## Known Limitations
-
-- Source snapshots can lag their upstream repositories; version-specific APIs
-  must be checked against the Effect version installed by Flarex.
-- Standing reviewers do not replace focused security, database, migration,
-  Cloudflare-host, or real-Postgres validation when a future slice crosses
-  those boundaries.
-- The repository still contains legacy wrapper-style Effect functions and
-  manual runtime bridges, raw-fetch/JavaScript error subsystems, and
-  non-exhaustive conditional flows. They should be corrected incrementally
-  when a change materially touches them and the correction fits the approved
-  slice, rather than silently used as precedent or swept into unrelated work.
+Verify installed APIs against manifests/lockfile before copying version-specific
+examples. Optional `opensrc/` caches (Effect-smol and T3 Code) can be stale or
+absent; current installed source and accepted contracts take precedence.
+Reviewers do not replace focused security/database/migration/Cloudflare or
+ordinary-role real-Postgres validation. Distinguish private conformance from
+public capability, deployment and production evidence.
