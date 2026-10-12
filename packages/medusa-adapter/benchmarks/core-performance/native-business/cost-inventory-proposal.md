@@ -26,9 +26,43 @@ and 18 activity preparations total 0.833 ms per workflow at the median. Includin
 complete finite settlement and definition preparation, the disjoint entire envelope
 is median 6.185 ms; required work and instrumentation are included. These elapsed
 costs are not removable CPU estimates. Retained Exit outcomes preserve original
-publication refusal ordering. The next proposal must attribute the measured OCC,
-application materialization, durable-prefix and remaining client costs before
-changing their owners. No pure-preparation runtime cutover is implemented.
+publication refusal ordering. No pure-preparation runtime cutover is implemented.
+
+The [OCC, materialization, publication and client attribution](../../../../../work/validation/shared-execution-evidence/slow-capture-diagnostic/owner-cost-results-and-design.md)
+now separates current-index planning from execution and retains exact nested
+statement counts. Three ordinary-role observed workflows show one OCC query with
+26 range-query copies: 5.229–5.648 ms PostgreSQL planning versus 0.238–0.259 ms
+execution. Its client dialect rendering is median 0.409 ms; all 20 render calls
+total median 3.051 ms in a separate ten-observed/ten-off workflow cohort. Whole
+application acceptance, materialization and prefix PostgreSQL execution ranges
+are 5.046–5.404, 18.764–20.499 and 5.211–6.185 ms respectively. These observed
+cohorts and inclusive server stages are not exclusive CPU or causal savings.
+
+The concrete **proposal for discussion** replaces the repeated OCC query structure
+at the existing bounded current-index reader with one static ordinal demand-vector
+statement. Keep every exact range, current transaction snapshot, empty witness,
+limit/cursor bound, membership check and original preparation/consumer/body refusal
+order. Prove actual plan reuse and index access; a prepared name alone does not
+establish planning savings. No runtime implementation is approved by this diagnostic.
+
+Materialization performs nine row revisions, 42 index revisions, 39 current-index
+inserts and three current-index deletes, alongside current-row, unique and search
+effects. Immediate per-item RETURNING checks are required failure barriers:
+`verifySamePageReturningOrder` proves a later trigger must not replace the earlier
+corruption refusal. Bulk DML followed by aggregate validation is therefore not a
+semantics-preserving substitute. Durable-prefix writes already append by family;
+no duplicate publication facts have been proved. Keep final/prior-page proofs.
+
+Remaining removable client CPU is unresolved. Five instrumented profiles count
+2,550 authored Effect factory invocations per workflow, with median 10.528 ms
+complete construction elapsed, including required work and observer cost.
+Interpretation is outside that factory timer. Short phase boundaries leave
+53.167 ms median active sample spacing ambiguous despite tighter clock alignment;
+library sample locations do not grant caller attribution or a removal budget.
+This supports the bounded OCC planning proposal, not a broad Effect rewrite or
+a claim to resolve the earlier 125 ms paired added CPU. The plan-log SDK lane
+exceeded its unchanged cap and remains incomplete; its separately bounded existing
+window parse supports witnessed call/row counts, not quiet timing or completeness.
 
 ## Immutable metadata key correction
 

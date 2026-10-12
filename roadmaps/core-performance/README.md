@@ -25,9 +25,17 @@ The bounded diagnostic in the cost inventory rejects broad pure-preparation
 cleanup as the next performance cutover: key lowering already uses Result passes,
 activity data already reuses its owner generation, and the remaining measured
 pure preparation envelopes are small. Preserve retained publication refusal
-ordering. Attribution of current-index dependency validation, application
-materialization, durable-prefix work and remaining client cost is the next design
-gate; their driver waits do not establish exclusive server or removable CPU cost.
+ordering. Current-index attribution identifies repeated query structure as a
+planning target: the bounded OCC batch copies the range query per demand. The
+cost inventory proposes one static ordinal demand-vector statement, retaining
+every exact range, bound, empty witness and original refusal order. Actual plan
+reuse and complete-request savings remain candidate gates; runtime implementation
+is pending discussion. Materialization's immediate per-item RETURNING checks and
+final/prior-page publication proofs are required failure barriers, so bulk DML
+followed by aggregate validation is not an accepted shortcut. Exclusive removable
+client CPU remains unresolved; observed factory/rendering envelopes and library
+sample locations do not justify a broad execution rewrite. Server/client stages
+are distinct, and nested server timings cannot be summed with their parents.
 The installation interlock, query-required preparation and independent direct
 read capabilities are implemented. The full latency/scaling targets below remain
 unproven; accepting current latency does not claim those targets were met.
