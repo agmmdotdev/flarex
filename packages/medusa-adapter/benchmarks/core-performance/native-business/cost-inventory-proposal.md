@@ -10,13 +10,33 @@ are reported separately below.
 
 ## Remaining capture and client cost
 
-The [bounded capture and CPU diagnostic](../../../../../work/validation/shared-execution-evidence/slow-capture-diagnostic/results-and-proposal.md)
-confirms continuing cost without reproducing the historical pricing outlier:
-100 workflows retain all 38 captures, and no capture driver await exceeds 20 ms.
-The separate matched root-counter cohort measures 125 ms median added thread CPU;
-exclusive removable CPU attribution remains unresolved. Prepared statements and
-issued private-value reuse are already active. Equal-content encoding and inactive
-frontier mapping are small observed envelopes, not supported remedies for that excess.
+The latest validated mixed baseline remains **125 ms median paired added thread
+CPU** (a separate root-counter cohort has native/Flarex medians 31/156 ms).
+The latest valid quiet comparison has native/Flarex medians **34.76/252.58 ms**,
+paired added median **219.55 ms**, and paired added P95 **251.80 ms**, as retained
+in the [complete metadata-key results](../../../../../work/validation/shared-execution-evidence/metadata-key-reuse/results.md).
+No new matched CPU or quiet-latency comparison has been run after the ongoing OCC
+correction. These remain baseline measurements, not post-OCC acceptance.
+
+The [correlated pricing follow-up](../../../../../work/validation/shared-execution-evidence/price-wait-investigation/correlated-results.md)
+corrects the wait attribution: historical **172.1902 ms is one driver wait, not
+added CPU**; its exact cause remains unresolved. Eight fresh source-stable full
+diagnostics have pricing median **2.6064 ms**, maximum **13.2492 ms**, and seven
+other capture waits of **192.4477-728.0731 ms** with repeated PostgreSQL
+IO/WalWrite observations, advancing client/independent heartbeats and no
+overlapping GC. Logged Parse/Bind/Execute durations exclude implicit transaction
+completion at Sync; their residual can contain server WAL I/O, not just client
+or transport work. Logging may amplify local disk pressure. The logging-off
+20-root repeat completes all business samples but fails source stability; the
+100-root attempt stops after 23 roots on a setup statement timeout. Neither is
+replacement acceptance evidence, and no CPU saving follows from reclassification.
+
+The earlier [bounded capture diagnostic](../../../../../work/validation/shared-execution-evidence/slow-capture-diagnostic/results-and-proposal.md)
+retained 100 workflows with no capture await above 20 ms; that is a cohort-specific
+observation, not a current bound on all captures. Exclusive removable CPU remains
+unresolved. Prepared statements and issued private-value reuse are already active.
+Equal-content encoding and inactive frontier mapping remain small observed
+envelopes, not supported remedies for the CPU excess.
 
 The follow-up pure-preparation hypothesis is **rejected as the next implementation**.
 Existing index/unique/relation lowering already uses ordered Result passes, and
