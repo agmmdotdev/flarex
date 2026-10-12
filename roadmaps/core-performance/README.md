@@ -21,6 +21,13 @@ interpretation; it is not a business SQL cache or complete performance acceptanc
 Exact work
 counts, source-derived internal repetition and sampled CPU locations remain
 distinct from causal latency savings and complete performance acceptance.
+The bounded diagnostic in the cost inventory rejects broad pure-preparation
+cleanup as the next performance cutover: key lowering already uses Result passes,
+activity data already reuses its owner generation, and the remaining measured
+pure preparation envelopes are small. Preserve retained publication refusal
+ordering. Attribution of current-index dependency validation, application
+materialization, durable-prefix work and remaining client cost is the next design
+gate; their driver waits do not establish exclusive server or removable CPU cost.
 The installation interlock, query-required preparation and independent direct
 read capabilities are implemented. The full latency/scaling targets below remain
 unproven; accepting current latency does not claim those targets were met.

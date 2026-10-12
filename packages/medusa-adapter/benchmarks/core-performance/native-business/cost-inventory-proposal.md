@@ -8,6 +8,28 @@ broader repeated-capture and client CPU changes remain investigation proposals.
 Structural work removal and complete performance results
 are reported separately below.
 
+## Remaining capture and client cost
+
+The [bounded capture and CPU diagnostic](../../../../../work/validation/shared-execution-evidence/slow-capture-diagnostic/results-and-proposal.md)
+confirms continuing cost without reproducing the historical pricing outlier:
+100 workflows retain all 38 captures, and no capture driver await exceeds 20 ms.
+The separate matched root-counter cohort measures 125 ms median added thread CPU;
+exclusive removable CPU attribution remains unresolved. Prepared statements and
+issued private-value reuse are already active. Equal-content encoding and inactive
+frontier mapping are small observed envelopes, not supported remedies for that excess.
+
+The follow-up pure-preparation hypothesis is **rejected as the next implementation**.
+Existing index/unique/relation lowering already uses ordered Result passes, and
+activity preparation already reuses generation-owned data. In the focused observed
+cohort, source acceptance costs 0.241 ms, 43 relational result passes total 2.521 ms,
+and 18 activity preparations total 0.833 ms per workflow at the median. Including
+complete finite settlement and definition preparation, the disjoint entire envelope
+is median 6.185 ms; required work and instrumentation are included. These elapsed
+costs are not removable CPU estimates. Retained Exit outcomes preserve original
+publication refusal ordering. The next proposal must attribute the measured OCC,
+application materialization, durable-prefix and remaining client costs before
+changing their owners. No pure-preparation runtime cutover is implemented.
+
 ## Immutable metadata key correction
 
 The [demand and cost diagnostic](../../../../../work/validation/shared-execution-evidence/capture-diagnostic/results-and-proposal.md)
