@@ -70,10 +70,3 @@ corruption. Retain/redact parse issues under the diagnostic owner. Admission,
 policy, clock and identity refusal remain distinct, not all invalidSchema.
 Data.TaggedError fits in-process failures; Schema-backed errors fit validated
 encoded error payloads. Never expose arbitrary causes on the wire.
-
-## Review evidence
-
-Name the Schema/authoritative decoder or custom-capture reason for each changed
-boundary. Classify scoped fixes versus compatibility/authority exceptions or
-separate owner decisions. Test actual omissions, stored states and coercions;
-Schema-call counts do not prove semantic agreement.

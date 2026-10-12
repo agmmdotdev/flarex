@@ -67,11 +67,10 @@ latch rollback-only state. Preserve the first complete Cause and propagate
 already-latched failures without re-registering them. Revoked/foreign handles
 cannot read or change another request's failure state.
 
-Use Scope/acquire-release and owned fibers; place runners and dependency
-provision at actual host/test/foreign edges. Observe failures at the diagnostic
-owner with useful correlation fields and explicit redaction. Avoid repeated
-logs, raw inputs/secrets/causes in public output, and diagnostic failure replacing
-the original outcome. Keep defects and interruption distinct.
+Observe failures at the diagnostic owner with useful correlation fields and
+explicit redaction. Avoid repeated logs, raw inputs/secrets/causes in public
+output, and diagnostic failure replacing the original outcome. Keep defects
+and interruption distinct.
 
 ## Verify
 

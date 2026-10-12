@@ -84,11 +84,6 @@ RC.112 specifics:
 
 Correct connected touched-flow violations within authorized scope when decisive
 validation exists. Neighboring inconsistency is evidence, not an exception.
-TypeScript review must assess every materially changed operation for missing
-Schema/Effect/Result/Option/service/Layer usage even with no Effect imports;
-report concrete semantic gaps and justified plain/framework boundary exceptions.
-The systems reviewer independently reports behavioral consequences without
-duplicating Effect API/style review.
 
 ## Focused References
 

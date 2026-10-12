@@ -151,10 +151,3 @@ Use typed Config/injectable providers after package adoption. Prefer Effect-awar
 tests, test Layers, deterministic clocks and structured concurrency; test changed
 failure/interruption/release/retry/Layer behavior. Keep unavoidable Promise test
 bridges in one adapter.
-
-## Active review checklist
-
-Use the skill's verification section and repository reviewer prompts. Identify
-the actual contract/outcome, composition order, codec precision, ownership,
-cardinality and resource lifetime; inspect connected touched flows and concrete
-witnesses rather than counting imports or completing a repeated checklist.
