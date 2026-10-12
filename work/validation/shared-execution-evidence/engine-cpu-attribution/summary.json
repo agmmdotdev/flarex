@@ -1,0 +1,1142 @@
+{
+  "runtimeBase": "c613211e3",
+  "runtimeChanged": false,
+  "worktreeCreated": false,
+  "control": {
+    "runId": "6cffac07-6b7a-4d65-b4aa-ca0dab175228",
+    "rawReport": "6cffac07-6b7a-4d65-b4aa-ca0dab175228.json",
+    "warmups": 5,
+    "samples": 40,
+    "execution": "complete",
+    "acceptance": "notEvaluated",
+    "source": {
+      "before": "23fb438c16ca6c07d144aa409405df283e84b07237284c789192ef0e9d679d32",
+      "after": "23fb438c16ca6c07d144aa409405df283e84b07237284c789192ef0e9d679d32",
+      "files": 6962
+    },
+    "gates": [
+      {
+        "name": "sourceStability",
+        "passed": true,
+        "detail": "Authored package code, locks and loaded native sources remain stable"
+      },
+      {
+        "name": "settingsStability",
+        "passed": true,
+        "detail": "Ordinary-role durable settings are retained before and after"
+      },
+      {
+        "name": "cleanup",
+        "passed": true,
+        "detail": "Owned command resources drained"
+      }
+    ],
+    "cleanup": "completed",
+    "cpu": {
+      "thread": {
+        "addedMs": {
+          "count": 40,
+          "mean": 116.45,
+          "median": 125,
+          "min": 62,
+          "max": 172
+        },
+        "nativeMs": {
+          "count": 40,
+          "mean": 24.175,
+          "median": 23.5,
+          "min": 0,
+          "max": 47
+        },
+        "flarexMs": {
+          "count": 40,
+          "mean": 140.625,
+          "median": 141,
+          "min": 93,
+          "max": 204
+        },
+        "pairs": [
+          {
+            "index": 5,
+            "addedMs": 157
+          },
+          {
+            "index": 6,
+            "addedMs": 141
+          },
+          {
+            "index": 7,
+            "addedMs": 142
+          },
+          {
+            "index": 8,
+            "addedMs": 63
+          },
+          {
+            "index": 9,
+            "addedMs": 63
+          },
+          {
+            "index": 10,
+            "addedMs": 141
+          },
+          {
+            "index": 11,
+            "addedMs": 94
+          },
+          {
+            "index": 12,
+            "addedMs": 110
+          },
+          {
+            "index": 13,
+            "addedMs": 125
+          },
+          {
+            "index": 14,
+            "addedMs": 125
+          },
+          {
+            "index": 15,
+            "addedMs": 142
+          },
+          {
+            "index": 16,
+            "addedMs": 141
+          },
+          {
+            "index": 17,
+            "addedMs": 62
+          },
+          {
+            "index": 18,
+            "addedMs": 93
+          },
+          {
+            "index": 19,
+            "addedMs": 62
+          },
+          {
+            "index": 20,
+            "addedMs": 125
+          },
+          {
+            "index": 21,
+            "addedMs": 62
+          },
+          {
+            "index": 22,
+            "addedMs": 111
+          },
+          {
+            "index": 23,
+            "addedMs": 94
+          },
+          {
+            "index": 24,
+            "addedMs": 141
+          },
+          {
+            "index": 25,
+            "addedMs": 125
+          },
+          {
+            "index": 26,
+            "addedMs": 124
+          },
+          {
+            "index": 27,
+            "addedMs": 124
+          },
+          {
+            "index": 28,
+            "addedMs": 172
+          },
+          {
+            "index": 29,
+            "addedMs": 109
+          },
+          {
+            "index": 30,
+            "addedMs": 78
+          },
+          {
+            "index": 31,
+            "addedMs": 171
+          },
+          {
+            "index": 32,
+            "addedMs": 94
+          },
+          {
+            "index": 33,
+            "addedMs": 125
+          },
+          {
+            "index": 34,
+            "addedMs": 141
+          },
+          {
+            "index": 35,
+            "addedMs": 94
+          },
+          {
+            "index": 36,
+            "addedMs": 140
+          },
+          {
+            "index": 37,
+            "addedMs": 110
+          },
+          {
+            "index": 38,
+            "addedMs": 125
+          },
+          {
+            "index": 39,
+            "addedMs": 140
+          },
+          {
+            "index": 40,
+            "addedMs": 140
+          },
+          {
+            "index": 41,
+            "addedMs": 79
+          },
+          {
+            "index": 42,
+            "addedMs": 140
+          },
+          {
+            "index": 43,
+            "addedMs": 155
+          },
+          {
+            "index": 44,
+            "addedMs": 78
+          }
+        ]
+      },
+      "process": {
+        "addedMs": {
+          "count": 40,
+          "mean": 131.6,
+          "median": 140,
+          "min": 62,
+          "max": 218
+        },
+        "nativeMs": {
+          "count": 40,
+          "mean": 30.9,
+          "median": 31,
+          "min": 0,
+          "max": 78
+        },
+        "flarexMs": {
+          "count": 40,
+          "mean": 162.5,
+          "median": 164,
+          "min": 93,
+          "max": 250
+        },
+        "pairs": [
+          {
+            "index": 5,
+            "addedMs": 172
+          },
+          {
+            "index": 6,
+            "addedMs": 203
+          },
+          {
+            "index": 7,
+            "addedMs": 141
+          },
+          {
+            "index": 8,
+            "addedMs": 62
+          },
+          {
+            "index": 9,
+            "addedMs": 63
+          },
+          {
+            "index": 10,
+            "addedMs": 125
+          },
+          {
+            "index": 11,
+            "addedMs": 141
+          },
+          {
+            "index": 12,
+            "addedMs": 218
+          },
+          {
+            "index": 13,
+            "addedMs": 141
+          },
+          {
+            "index": 14,
+            "addedMs": 171
+          },
+          {
+            "index": 15,
+            "addedMs": 204
+          },
+          {
+            "index": 16,
+            "addedMs": 124
+          },
+          {
+            "index": 17,
+            "addedMs": 62
+          },
+          {
+            "index": 18,
+            "addedMs": 110
+          },
+          {
+            "index": 19,
+            "addedMs": 78
+          },
+          {
+            "index": 20,
+            "addedMs": 140
+          },
+          {
+            "index": 21,
+            "addedMs": 79
+          },
+          {
+            "index": 22,
+            "addedMs": 126
+          },
+          {
+            "index": 23,
+            "addedMs": 77
+          },
+          {
+            "index": 24,
+            "addedMs": 172
+          },
+          {
+            "index": 25,
+            "addedMs": 188
+          },
+          {
+            "index": 26,
+            "addedMs": 125
+          },
+          {
+            "index": 27,
+            "addedMs": 124
+          },
+          {
+            "index": 28,
+            "addedMs": 188
+          },
+          {
+            "index": 29,
+            "addedMs": 141
+          },
+          {
+            "index": 30,
+            "addedMs": 63
+          },
+          {
+            "index": 31,
+            "addedMs": 156
+          },
+          {
+            "index": 32,
+            "addedMs": 110
+          },
+          {
+            "index": 33,
+            "addedMs": 187
+          },
+          {
+            "index": 34,
+            "addedMs": 141
+          },
+          {
+            "index": 35,
+            "addedMs": 124
+          },
+          {
+            "index": 36,
+            "addedMs": 140
+          },
+          {
+            "index": 37,
+            "addedMs": 62
+          },
+          {
+            "index": 38,
+            "addedMs": 172
+          },
+          {
+            "index": 39,
+            "addedMs": 140
+          },
+          {
+            "index": 40,
+            "addedMs": 141
+          },
+          {
+            "index": 41,
+            "addedMs": 78
+          },
+          {
+            "index": 42,
+            "addedMs": 141
+          },
+          {
+            "index": 43,
+            "addedMs": 156
+          },
+          {
+            "index": 44,
+            "addedMs": 78
+          }
+        ]
+      }
+    }
+  },
+  "cycles": {
+    "primary": {
+      "runId": "6ad7d275-c734-4417-8aab-5c29e04adb47",
+      "roots": 12,
+      "engineCycles": 5087981074,
+      "totalCycles": 6374426298,
+      "nativeCycles": 1166388074,
+      "addedCycles": 5208038224,
+      "engineFraction": 0.7981865090504494,
+      "engineToNetAddedRatio": 0.9769477210350059
+    },
+    "countedRepeat": {
+      "runId": "a2bf3ec7-851b-4549-b62b-c4c35a38f499",
+      "roots": 12,
+      "engineCycles": 5990482167,
+      "totalCycles": 7394047725,
+      "nativeCycles": 1209512970,
+      "addedCycles": 6184534755,
+      "engineFraction": 0.8101762917685252,
+      "engineToNetAddedRatio": 0.9686229286943348
+    },
+    "rootPartitions": 96,
+    "enabledPartitions": 48,
+    "observerCpuMeanAddedMs": 13.375,
+    "observerCpu95IntervalMs": [
+      -1.334374999999999,
+      27
+    ],
+    "variants": [
+      {
+        "runId": "6ad7d275-c734-4417-8aab-5c29e04adb47",
+        "variants": {
+          "on": {
+            "addedCpuMs": {
+              "count": 12,
+              "mean": 109.16666666666667,
+              "median": 102,
+              "min": 93,
+              "max": 141
+            },
+            "addedMillionCycles": {
+              "count": 12,
+              "mean": 434.0031853333334,
+              "median": 427.069607,
+              "min": 407.558611,
+              "max": 499.979593
+            }
+          },
+          "off": {
+            "addedCpuMs": {
+              "count": 12,
+              "mean": 106.83333333333333,
+              "median": 109.5,
+              "min": 78,
+              "max": 141
+            },
+            "addedMillionCycles": {
+              "count": 12,
+              "mean": 411.2092804166667,
+              "median": 402.58655350000004,
+              "min": 382.380291,
+              "max": 456.24936
+            }
+          }
+        }
+      },
+      {
+        "runId": "a2bf3ec7-851b-4549-b62b-c4c35a38f499",
+        "variants": {
+          "on": {
+            "addedCpuMs": {
+              "count": 12,
+              "mean": 141.75,
+              "median": 140.5,
+              "min": 93,
+              "max": 188
+            },
+            "addedMillionCycles": {
+              "count": 12,
+              "mean": 515.3778962499999,
+              "median": 491.84759699999995,
+              "min": 470.733687,
+              "max": 681.542936
+            }
+          },
+          "off": {
+            "addedCpuMs": {
+              "count": 12,
+              "mean": 117.33333333333333,
+              "median": 117.5,
+              "min": 77,
+              "max": 172
+            },
+            "addedMillionCycles": {
+              "count": 12,
+              "mean": 417.03867758333337,
+              "median": 407.0495935,
+              "min": 396.158366,
+              "max": 472.514123
+            }
+          }
+        }
+      }
+    ],
+    "phases": [
+      {
+        "phase": "boundary",
+        "engineMillionCycles": {
+          "count": 24,
+          "mean": 0,
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "outsideMillionCycles": {
+          "count": 24,
+          "mean": 0.29372033333333336,
+          "median": 0.264562,
+          "min": 0.253371,
+          "max": 0.455919
+        }
+      },
+      {
+        "phase": "request admission",
+        "engineMillionCycles": {
+          "count": 24,
+          "mean": 33.36572554166667,
+          "median": 31.8608215,
+          "min": 29.054376,
+          "max": 47.854386
+        },
+        "outsideMillionCycles": {
+          "count": 24,
+          "mean": 15.461169166666664,
+          "median": 14.835179499999999,
+          "min": 13.74393,
+          "max": 20.590304
+        }
+      },
+      {
+        "phase": "portable runtime execution",
+        "engineMillionCycles": {
+          "count": 24,
+          "mean": 331.97014279166666,
+          "median": 330.906831,
+          "min": 284.860381,
+          "max": 486.019472
+        },
+        "outsideMillionCycles": {
+          "count": 24,
+          "mean": 65.61415858333334,
+          "median": 62.6890025,
+          "min": 58.626504,
+          "max": 94.917167
+        }
+      },
+      {
+        "phase": "runtime result validation",
+        "engineMillionCycles": {
+          "count": 24,
+          "mean": 1.142925791666667,
+          "median": 1.107556,
+          "min": 1.00818,
+          "max": 1.507719
+        },
+        "outsideMillionCycles": {
+          "count": 24,
+          "mean": 0.36322704166666675,
+          "median": 0.3499045,
+          "min": 0.315957,
+          "max": 0.461608
+        }
+      },
+      {
+        "phase": "finite freeze and validation",
+        "engineMillionCycles": {
+          "count": 24,
+          "mean": 8.14905525,
+          "median": 8.159500999999999,
+          "min": 7.301904,
+          "max": 9.432813
+        },
+        "outsideMillionCycles": {
+          "count": 24,
+          "mean": 0.31350725,
+          "median": 0.30837000000000003,
+          "min": 0.235924,
+          "max": 0.403196
+        }
+      },
+      {
+        "phase": "authoritative publication",
+        "engineMillionCycles": {
+          "count": 24,
+          "mean": 85.82670808333334,
+          "median": 84.5283295,
+          "min": 75.685527,
+          "max": 100.112063
+        },
+        "outsideMillionCycles": {
+          "count": 24,
+          "mean": 29.831724249999997,
+          "median": 28.566222000000003,
+          "min": 26.928024,
+          "max": 44.384931
+        }
+      },
+      {
+        "phase": "complete call cleanup",
+        "engineMillionCycles": {
+          "count": 24,
+          "mean": 1.1480775833333334,
+          "median": 1.1337275,
+          "min": 0.985799,
+          "max": 1.572199
+        },
+        "outsideMillionCycles": {
+          "count": 24,
+          "mean": 0.20627595833333334,
+          "median": 0.1934435,
+          "min": 0.155511,
+          "max": 0.337955
+        }
+      }
+    ],
+    "contextElapsedMs": {
+      "count": 24,
+      "mean": 2.423408333327643,
+      "median": 2.382699999572651,
+      "min": 2.3141000002797227,
+      "max": 2.8020000000979053
+    },
+    "runLoops": {
+      "count": 24,
+      "mean": 826,
+      "median": 826,
+      "min": 826,
+      "max": 826
+    }
+  },
+  "primitives": {
+    "total": {
+      "count": 12,
+      "mean": 35276,
+      "median": 35276,
+      "min": 35276,
+      "max": 35276
+    },
+    "nativeTotal": {
+      "count": 12,
+      "mean": 18,
+      "median": 18,
+      "min": 18,
+      "max": 18
+    },
+    "operations": {
+      "Sync": {
+        "count": 12,
+        "mean": 1606,
+        "median": 1606,
+        "min": 1606,
+        "max": 1606
+      },
+      "Success": {
+        "count": 12,
+        "mean": 15039,
+        "median": 15039,
+        "min": 15039,
+        "max": 15039
+      },
+      "Suspend": {
+        "count": 12,
+        "mean": 5155,
+        "median": 5155,
+        "min": 5155,
+        "max": 5155
+      },
+      "WithFiber": {
+        "count": 12,
+        "mean": 5137,
+        "median": 5137,
+        "min": 5137,
+        "max": 5137
+      },
+      "OnExit": {
+        "count": 12,
+        "mean": 3079,
+        "median": 3079,
+        "min": 3079,
+        "max": 3079
+      },
+      "Iterator": {
+        "count": 12,
+        "mean": 3775,
+        "median": 3775,
+        "min": 3775,
+        "max": 3775
+      },
+      "Async": {
+        "count": 12,
+        "mean": 647,
+        "median": 647,
+        "min": 647,
+        "max": 647
+      },
+      "AsyncFinalizer": {
+        "count": 12,
+        "mean": 291,
+        "median": 291,
+        "min": 291,
+        "max": 291
+      },
+      "Failure": {
+        "count": 12,
+        "mean": 335,
+        "median": 335,
+        "min": 335,
+        "max": 335
+      },
+      "Exit": {
+        "count": 12,
+        "mean": 205,
+        "median": 205,
+        "min": 205,
+        "max": 205
+      },
+      "While": {
+        "count": 12,
+        "mean": 7,
+        "median": 7,
+        "min": 7,
+        "max": 7
+      }
+    },
+    "phases": [
+      {
+        "phase": "request admission",
+        "count": {
+          "count": 12,
+          "mean": 2023,
+          "median": 2023,
+          "min": 2023,
+          "max": 2023
+        }
+      },
+      {
+        "phase": "portable runtime execution",
+        "count": {
+          "count": 12,
+          "mean": 26233,
+          "median": 26233,
+          "min": 26233,
+          "max": 26233
+        }
+      },
+      {
+        "phase": "runtime result validation",
+        "count": {
+          "count": 12,
+          "mean": 23,
+          "median": 23,
+          "min": 23,
+          "max": 23
+        }
+      },
+      {
+        "phase": "finite freeze and validation",
+        "count": {
+          "count": 12,
+          "mean": 166,
+          "median": 166,
+          "min": 166,
+          "max": 166
+        }
+      },
+      {
+        "phase": "authoritative publication",
+        "count": {
+          "count": 12,
+          "mean": 6729,
+          "median": 6729,
+          "min": 6729,
+          "max": 6729
+        }
+      },
+      {
+        "phase": "complete call cleanup",
+        "count": {
+          "count": 12,
+          "mean": 102,
+          "median": 102,
+          "min": 102,
+          "max": 102
+        }
+      }
+    ],
+    "owners": [
+      {
+        "owner": "portable runtime execution/ProductAdapter.replaceRows",
+        "count": {
+          "count": 12,
+          "mean": 4853,
+          "median": 4853,
+          "min": 4853,
+          "max": 4853
+        }
+      },
+      {
+        "owner": "portable runtime execution/MedusaAdapter.readRelationRows",
+        "count": {
+          "count": 12,
+          "mean": 4045,
+          "median": 4045,
+          "min": 4045,
+          "max": 4045
+        }
+      },
+      {
+        "owner": "authoritative publication/<none>",
+        "count": {
+          "count": 12,
+          "mean": 3117,
+          "median": 3117,
+          "min": 3117,
+          "max": 3117
+        }
+      },
+      {
+        "owner": "portable runtime execution/<none>",
+        "count": {
+          "count": 12,
+          "mean": 2957,
+          "median": 2957,
+          "min": 2957,
+          "max": 2957
+        }
+      },
+      {
+        "owner": "portable runtime execution/MedusaWorkflow.captureValue",
+        "count": {
+          "count": 12,
+          "mean": 1764,
+          "median": 1764,
+          "min": 1764,
+          "max": 1764
+        }
+      },
+      {
+        "owner": "portable runtime execution/MedusaRead.window",
+        "count": {
+          "count": 12,
+          "mean": 1693,
+          "median": 1693,
+          "min": 1693,
+          "max": 1693
+        }
+      },
+      {
+        "owner": "portable runtime execution/LogicalCommerce.workflowCall",
+        "count": {
+          "count": 12,
+          "mean": 1118,
+          "median": 1118,
+          "min": 1118,
+          "max": 1118
+        }
+      },
+      {
+        "owner": "portable runtime execution/PointMutationJournal.runAdmittedOperation",
+        "count": {
+          "count": 12,
+          "mean": 1003,
+          "median": 1003,
+          "min": 1003,
+          "max": 1003
+        }
+      },
+      {
+        "owner": "portable runtime execution/MedusaRead.execute",
+        "count": {
+          "count": 12,
+          "mean": 908,
+          "median": 908,
+          "min": 908,
+          "max": 908
+        }
+      },
+      {
+        "owner": "authoritative publication/LogicalDocuments.consumeIndexRanges",
+        "count": {
+          "count": 12,
+          "mean": 873,
+          "median": 873,
+          "min": 873,
+          "max": 873
+        }
+      },
+      {
+        "owner": "portable runtime execution/MedusaGraph.insert",
+        "count": {
+          "count": 12,
+          "mean": 681,
+          "median": 681,
+          "min": 681,
+          "max": 681
+        }
+      },
+      {
+        "owner": "authoritative publication/StoredAttemptAuthentication.publishKnownSettledPointCommit",
+        "count": {
+          "count": 12,
+          "mean": 619,
+          "median": 619,
+          "min": 619,
+          "max": 619
+        }
+      },
+      {
+        "owner": "portable runtime execution/LogicalParticipantAttemptAdmission.with",
+        "count": {
+          "count": 12,
+          "mean": 587,
+          "median": 587,
+          "min": 587,
+          "max": 587
+        }
+      },
+      {
+        "owner": "portable runtime execution/PointMutationJournal.runPointOperation",
+        "count": {
+          "count": 12,
+          "mean": 503,
+          "median": 503,
+          "min": 503,
+          "max": 503
+        }
+      },
+      {
+        "owner": "authoritative publication/LogicalDocuments.validateContribution",
+        "count": {
+          "count": 12,
+          "mean": 447,
+          "median": 447,
+          "min": 447,
+          "max": 447
+        }
+      },
+      {
+        "owner": "portable runtime execution/ProductAdapter.updateRelated",
+        "count": {
+          "count": 12,
+          "mean": 373,
+          "median": 373,
+          "min": 373,
+          "max": 373
+        }
+      },
+      {
+        "owner": "portable runtime execution/ProductAdapter.validateGraphLink",
+        "count": {
+          "count": 12,
+          "mean": 347,
+          "median": 347,
+          "min": 347,
+          "max": 347
+        }
+      },
+      {
+        "owner": "portable runtime execution/PayloadParticipant.invoke",
+        "count": {
+          "count": 12,
+          "mean": 312,
+          "median": 312,
+          "min": 312,
+          "max": 312
+        }
+      },
+      {
+        "owner": "portable runtime execution/AppRows.consumeCapturedSnapshotRead",
+        "count": {
+          "count": 12,
+          "mean": 296,
+          "median": 296,
+          "min": 296,
+          "max": 296
+        }
+      },
+      {
+        "owner": "portable runtime execution/ProductAdapter.executePrivateAttempt",
+        "count": {
+          "count": 12,
+          "mean": 292,
+          "median": 292,
+          "min": 292,
+          "max": 292
+        }
+      }
+    ],
+    "sourceTransform": {
+      "expected": "file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/core.js",
+      "loaded": [
+        {
+          "url": "file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/core.js",
+          "before": "00a904f9f06154abb87daa77956475567de0f154e78fbb27f67f7cf8458123cf",
+          "after": "bb51fa28a06a79e913c2c8dded9fc89621abc21e87a920e0a6d39dce12c1dcb6",
+          "matches": 2
+        }
+      ]
+    },
+    "countsAreAllocationsNotCpuCost": true,
+    "ownerLabelsIncludeDescendants": true
+  },
+  "profile": {
+    "runId": "17e1ae8d-b40a-4415-a2ea-018ebf02b9a9",
+    "profilesPerLane": 24,
+    "alignmentUncertaintyMs": 0.45120003819465637,
+    "groups": [
+      [
+        "outside/idle",
+        1648
+      ],
+      [
+        "engine/Effect",
+        679
+      ],
+      [
+        "engine/persistence",
+        491
+      ],
+      [
+        "engine/protocol",
+        222
+      ],
+      [
+        "engine/Node",
+        129
+      ],
+      [
+        "engine/unknown",
+        91
+      ],
+      [
+        "outside/unknown",
+        88
+      ],
+      [
+        "outside/Drizzle",
+        69
+      ],
+      [
+        "outside/GC",
+        52
+      ],
+      [
+        "outside/Effect",
+        51
+      ],
+      [
+        "outside/Node",
+        44
+      ],
+      [
+        "engine/Medusa",
+        42
+      ],
+      [
+        "outside/Medusa",
+        40
+      ],
+      [
+        "engine/other package",
+        40
+      ],
+      [
+        "engine/Drizzle",
+        37
+      ],
+      [
+        "outside/pg",
+        33
+      ],
+      [
+        "outside/protocol",
+        28
+      ],
+      [
+        "engine/pg",
+        26
+      ],
+      [
+        "outside/persistence",
+        21
+      ],
+      [
+        "outside/Payload",
+        15
+      ],
+      [
+        "outside/other package",
+        8
+      ],
+      [
+        "engine/Payload",
+        2
+      ]
+    ],
+    "effectGroups": {
+      "Schema": 121,
+      "engine implementation": 495,
+      "Context": 21,
+      "Result/Option": 58,
+      "other Effect": 35
+    },
+    "selfSamplesAreLocationsNotCpuDurations": true
+  },
+  "disposition": {
+    "shortThreadCounterPartition": "Discarded for fine attribution: roughly 16ms updates alias hundreds of short boundaries. Reconciliation alone does not establish where CPU ran.",
+    "cause": "Added work concentrates in Effect-executed logical storage, validation and authority paths. It contains required business and safety checks plus dense primitive construction; no complete removable millisecond partition established.",
+    "schemaApi": "Installed SchemaParser.decodeUnknownResult delegates to decodeUnknownEffect. An API-only switch does not remove Schema internals.",
+    "proposed": [
+      "Fuse adjacent private synchronous validation/composition at existing shared owners, preserving Schema and lazy first-failure order; keep IO, hashes, resources, fresh authority, cancellation and RETURNING barriers at their present boundaries.",
+      "Retain already decoded current-index batch ordinal/presence envelopes through grouping, then consume row bodies and presence rules in their original demand order."
+    ],
+    "savings": "Not established. No runtime optimization performed."
+  },
+  "cleanup": {
+    "postgres": "stopped",
+    "listeners56434": 0
+  },
+  "limits": [
+    "CPU clock cycles include user and kernel work on the actual current native thread. Do not convert them to CPU milliseconds or elapsed time; frequency behavior is hardware dependent.",
+    "A root cycle read occurs just after each original SDK CPU boundary reading. Partition cycle totals reconcile exactly at those cycle boundaries; original root CPU readings reconcile separately.",
+    "Engine includes required business/validation and diagnostic work. Enabled/disabled comparison estimates observer cost; it does not establish a runtime optimization."
+  ]
+}
