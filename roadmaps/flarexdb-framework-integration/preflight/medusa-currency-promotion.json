@@ -582,7 +582,7 @@
     {
       "target": "packages/medusa-adapter/src/commerce-relations.ts",
       "classification": "authored",
-      "targetSha256": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      "targetSha256": "7cc68e2f7e75682ca12a03237f9a1fef890fb4c466f0503ac1065f0ce532c0eb"
     },
     {
       "target": "packages/medusa-adapter/src/commerce-repository-context.ts",

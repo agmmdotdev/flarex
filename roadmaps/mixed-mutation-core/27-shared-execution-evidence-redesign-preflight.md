@@ -3604,3 +3604,27 @@ retain median added thread CPU <=16 ms and paired quiet median/P95 <=5/10 ms.
 If these fail, continue correction at the real core owners; do not lower the
 gates or commit an incomplete performance deliverable. Root owns final validation,
 Git and resource cleanup; assigned workers own disjoint edits.
+
+### Approved bounded client CPU corrections: row checks and relation factories
+
+The owner evaluates two changes separately in the current checkout: repeated
+canonical-buffer comparisons inside one synchronous row operation, and Medusa
+relation helpers' named Effect definitions inside each population invocation.
+The production choice retains every original row comparison. A future shortcut
+must preserve mutable carrier and buffer getters, Proxy traps, complete foreign
+capture, issuer/table identity, bounds and original failure/defect order, and
+demonstrate a performance benefit. No unchecked entry point or cross-call
+integrity cache is admitted.
+
+Retain the relation helpers' named definitions outside population invocations.
+Request maps, manager, filters and ordering remain invocation-local. Relation
+reads, grouping, empty/null behavior, tracing, cancellation and cache lifetime
+remain unchanged. Definition reuse establishes no measured CPU saving by itself.
+
+Measure each correction independently against saved original implementations,
+with native complete business roots, stable source/variant manifests and no CPU
+profiler in counter comparisons. Retain actual pairs and uncertainty; structural
+removal is not a promised CPU saving. Connected correctness, both database lanes,
+strict checks, guards, lint and both reviews remain required. This bounded scope
+does not establish complete native-relative performance acceptance; the existing
+complete CPU/quiet gates and broader redesign remain open.

@@ -1,0 +1,2694 @@
+{
+  "status": "Measured bounded corrections; complete native performance acceptance not established",
+  "sequence": [
+    "01-baseline",
+    "02-checks",
+    "03-relations",
+    "04-combined",
+    "05-combined",
+    "06-relations",
+    "07-checks",
+    "08-baseline"
+  ],
+  "unit": "milliseconds of current Node worker thread CPU per complete mixed-workflow endpoint; native/Flarex paired difference",
+  "method": "Two independent processes per variant, reversed block order, five warmups per lane then15 alternating native/Flarex measured pairs. No CPU profiler, phase observers, server sampling or SQL logging. Original/current module paths and loaded bytes proved by hashes. Root source/settings/cleanup gates required. Confidence intervals are seeded request-resampling exploratory95percent intervals; process/block dependence and coarse OS counters prevent interpreting intervals as a full repeated-campaign guarantee.",
+  "variants": {
+    "baseline": {
+      "blocks": [
+        "01-baseline",
+        "08-baseline"
+      ],
+      "addedThreadCpu": {
+        "count": 30,
+        "mean": 108.8,
+        "median": 110,
+        "p95": 156.55,
+        "min": 47,
+        "max": 171
+      },
+      "nativeThreadCpu": {
+        "count": 30,
+        "mean": 30.333333333333332,
+        "median": 31,
+        "p95": 47,
+        "min": 0,
+        "max": 47
+      },
+      "flarexThreadCpu": {
+        "count": 30,
+        "mean": 139.13333333333333,
+        "median": 141,
+        "p95": 188,
+        "min": 78,
+        "max": 188
+      },
+      "addedProcessCpu": {
+        "count": 30,
+        "mean": 136.36666666666667,
+        "median": 126,
+        "p95": 250.49999999999991,
+        "min": 15,
+        "max": 266
+      }
+    },
+    "checks": {
+      "blocks": [
+        "02-checks",
+        "07-checks"
+      ],
+      "addedThreadCpu": {
+        "count": 30,
+        "mean": 130.43333333333334,
+        "median": 125,
+        "p95": 181.79999999999995,
+        "min": 78,
+        "max": 266
+      },
+      "nativeThreadCpu": {
+        "count": 30,
+        "mean": 29.1,
+        "median": 31,
+        "p95": 47,
+        "min": 0,
+        "max": 47
+      },
+      "flarexThreadCpu": {
+        "count": 30,
+        "mean": 159.53333333333333,
+        "median": 156,
+        "p95": 204,
+        "min": 125,
+        "max": 281
+      },
+      "addedProcessCpu": {
+        "count": 30,
+        "mean": 159.2,
+        "median": 140,
+        "p95": 257.79999999999995,
+        "min": 77,
+        "max": 515
+      }
+    },
+    "relations": {
+      "blocks": [
+        "03-relations",
+        "06-relations"
+      ],
+      "addedThreadCpu": {
+        "count": 30,
+        "mean": 111.9,
+        "median": 109,
+        "p95": 165.24999999999994,
+        "min": 46,
+        "max": 188
+      },
+      "nativeThreadCpu": {
+        "count": 30,
+        "mean": 27.633333333333333,
+        "median": 31,
+        "p95": 47,
+        "min": 0,
+        "max": 47
+      },
+      "flarexThreadCpu": {
+        "count": 30,
+        "mean": 139.53333333333333,
+        "median": 141,
+        "p95": 172,
+        "min": 93,
+        "max": 204
+      },
+      "addedProcessCpu": {
+        "count": 30,
+        "mean": 134.73333333333332,
+        "median": 125,
+        "p95": 226.34999999999997,
+        "min": 47,
+        "max": 235
+      }
+    },
+    "combined": {
+      "blocks": [
+        "04-combined",
+        "05-combined"
+      ],
+      "addedThreadCpu": {
+        "count": 30,
+        "mean": 122.9,
+        "median": 125,
+        "p95": 172.55,
+        "min": 63,
+        "max": 187
+      },
+      "nativeThreadCpu": {
+        "count": 30,
+        "mean": 27.1,
+        "median": 31,
+        "p95": 47,
+        "min": 0,
+        "max": 47
+      },
+      "flarexThreadCpu": {
+        "count": 30,
+        "mean": 150,
+        "median": 148.5,
+        "p95": 203.55,
+        "min": 94,
+        "max": 219
+      },
+      "addedProcessCpu": {
+        "count": 30,
+        "mean": 141.06666666666666,
+        "median": 141,
+        "p95": 211.69999999999996,
+        "min": 32,
+        "max": 235
+      }
+    }
+  },
+  "comparisons": {
+    "checks": {
+      "positiveMeansReduction": true,
+      "medianReductionMs": -15,
+      "meanReductionMs": -21.63333333333334,
+      "meanReductionBootstrap95Ms": [
+        -39.16749999999999,
+        -5
+      ],
+      "medianReductionBootstrap95Ms": [
+        -31.5,
+        7.5
+      ],
+      "blockMeanReductionsMs": [
+        -27.53333333333333,
+        -15.733333333333334
+      ],
+      "blockMedianReductionsMs": [
+        -17,
+        0
+      ]
+    },
+    "relations": {
+      "positiveMeansReduction": true,
+      "medianReductionMs": 1,
+      "meanReductionMs": -3.1000000000000085,
+      "meanReductionBootstrap95Ms": [
+        -19.299999999999997,
+        12.733333333333334
+      ],
+      "medianReductionBootstrap95Ms": [
+        -17,
+        23.5
+      ],
+      "blockMeanReductionsMs": [
+        -3.1333333333333258,
+        -3.066666666666663
+      ],
+      "blockMedianReductionsMs": [
+        15,
+        2
+      ]
+    },
+    "combined": {
+      "positiveMeansReduction": true,
+      "medianReductionMs": -15,
+      "meanReductionMs": -14.100000000000009,
+      "meanReductionBootstrap95Ms": [
+        -30.53333333333333,
+        2.7999999999999976
+      ],
+      "medianReductionBootstrap95Ms": [
+        -32,
+        7.5
+      ],
+      "blockMeanReductionsMs": [
+        -6.333333333333329,
+        -21.86666666666666
+      ],
+      "blockMedianReductionsMs": [
+        14,
+        -16
+      ]
+    }
+  },
+  "blocks": [
+    {
+      "name": "01-baseline",
+      "variant": "baseline",
+      "runId": "f5b78f94-38fa-4c2f-b212-cfb71874943e",
+      "sampling": {
+        "requestedSamples": 15,
+        "warmups": 5,
+        "size": "small",
+        "scenario": "mixed-workflow",
+        "driver": "postgres",
+        "pairOrder": "alternating"
+      },
+      "sources": {
+        "before": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "after": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "files": 6962
+      },
+      "loaded": {
+        "relationalRows.ts": "47c9a04ace2724d39e3c9714cf8b1c7422307bec3ff665af4c06dd0689d47dfc",
+        "commerce-relations.ts": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      },
+      "expected": {
+        "relationalRows.ts": "47c9a04ace2724d39e3c9714cf8b1c7422307bec3ff665af4c06dd0689d47dfc",
+        "commerce-relations.ts": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      },
+      "cleanup": "completed",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "environment": {
+        "before": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803039386_8etzbr83dge",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_56b738ab3d8383a449e38352d0e3fdf5",
+              "role": "fx_measure_native_56b738ab3d8383a449e38352d0e3fdf5",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_56b738ab3d8383a449e38352d0e3fdf5",
+              "role": "fx_measure_native_56b738ab3d8383a449e38352d0e3fdf5",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        },
+        "after": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803039386_8etzbr83dge",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_56b738ab3d8383a449e38352d0e3fdf5",
+              "role": "fx_measure_native_56b738ab3d8383a449e38352d0e3fdf5",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_56b738ab3d8383a449e38352d0e3fdf5",
+              "role": "fx_measure_native_56b738ab3d8383a449e38352d0e3fdf5",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        }
+      },
+      "artifacts": {
+        "raw": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\01-baseline\\f5b78f94-38fa-4c2f-b212-cfb71874943e.json",
+        "human": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\01-baseline\\f5b78f94-38fa-4c2f-b212-cfb71874943e.md"
+      },
+      "addedThreadCpu": {
+        "count": 15,
+        "mean": 114.4,
+        "median": 124,
+        "p95": 160.49999999999997,
+        "min": 62,
+        "max": 171
+      },
+      "nativeThreadCpu": {
+        "count": 15,
+        "mean": 29.4,
+        "median": 31,
+        "p95": 47,
+        "min": 16,
+        "max": 47
+      },
+      "flarexThreadCpu": {
+        "count": 15,
+        "mean": 143.8,
+        "median": 141,
+        "p95": 187.3,
+        "min": 78,
+        "max": 188
+      },
+      "addedProcessCpu": {
+        "count": 15,
+        "mean": 131.33333333333334,
+        "median": 125,
+        "p95": 201.79999999999995,
+        "min": 77,
+        "max": 234
+      },
+      "pairedElapsed": {
+        "samples": 15,
+        "medianAddedMs": 205.7163000000146,
+        "p95AddedMs": 225.6299999999901
+      },
+      "pairs": [
+        {
+          "index": 5,
+          "nativeMs": 47,
+          "flarexMs": 141,
+          "addedMs": 94,
+          "processAddedMs": 141
+        },
+        {
+          "index": 6,
+          "nativeMs": 16,
+          "flarexMs": 187,
+          "addedMs": 171,
+          "processAddedMs": 234
+        },
+        {
+          "index": 7,
+          "nativeMs": 47,
+          "flarexMs": 172,
+          "addedMs": 125,
+          "processAddedMs": 79
+        },
+        {
+          "index": 8,
+          "nativeMs": 31,
+          "flarexMs": 141,
+          "addedMs": 110,
+          "processAddedMs": 125
+        },
+        {
+          "index": 9,
+          "nativeMs": 31,
+          "flarexMs": 157,
+          "addedMs": 126,
+          "processAddedMs": 124
+        },
+        {
+          "index": 10,
+          "nativeMs": 47,
+          "flarexMs": 188,
+          "addedMs": 141,
+          "processAddedMs": 156
+        },
+        {
+          "index": 11,
+          "nativeMs": 16,
+          "flarexMs": 172,
+          "addedMs": 156,
+          "processAddedMs": 188
+        },
+        {
+          "index": 12,
+          "nativeMs": 32,
+          "flarexMs": 141,
+          "addedMs": 109,
+          "processAddedMs": 125
+        },
+        {
+          "index": 13,
+          "nativeMs": 31,
+          "flarexMs": 93,
+          "addedMs": 62,
+          "processAddedMs": 77
+        },
+        {
+          "index": 14,
+          "nativeMs": 16,
+          "flarexMs": 78,
+          "addedMs": 62,
+          "processAddedMs": 94
+        },
+        {
+          "index": 15,
+          "nativeMs": 31,
+          "flarexMs": 156,
+          "addedMs": 125,
+          "processAddedMs": 126
+        },
+        {
+          "index": 16,
+          "nativeMs": 32,
+          "flarexMs": 110,
+          "addedMs": 78,
+          "processAddedMs": 78
+        },
+        {
+          "index": 17,
+          "nativeMs": 16,
+          "flarexMs": 141,
+          "addedMs": 125,
+          "processAddedMs": 188
+        },
+        {
+          "index": 18,
+          "nativeMs": 16,
+          "flarexMs": 124,
+          "addedMs": 108,
+          "processAddedMs": 94
+        },
+        {
+          "index": 19,
+          "nativeMs": 32,
+          "flarexMs": 156,
+          "addedMs": 124,
+          "processAddedMs": 141
+        }
+      ]
+    },
+    {
+      "name": "02-checks",
+      "variant": "checks",
+      "runId": "9cc924fd-6fe8-4163-954c-1160dd4a8e19",
+      "sampling": {
+        "requestedSamples": 15,
+        "warmups": 5,
+        "size": "small",
+        "scenario": "mixed-workflow",
+        "driver": "postgres",
+        "pairOrder": "alternating"
+      },
+      "sources": {
+        "before": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "after": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "files": 6962
+      },
+      "loaded": {
+        "relationalRows.ts": "75ccc379f6173b216129679375436d5c0b4efbe215e893c3923d2492b4c57ffc",
+        "commerce-relations.ts": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      },
+      "expected": {
+        "relationalRows.ts": "75ccc379f6173b216129679375436d5c0b4efbe215e893c3923d2492b4c57ffc",
+        "commerce-relations.ts": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      },
+      "cleanup": "completed",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "environment": {
+        "before": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803144010_thn4bj94h8e",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_063c2f276fe2b8bae722fd0a7ba3eacb",
+              "role": "fx_measure_native_063c2f276fe2b8bae722fd0a7ba3eacb",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_063c2f276fe2b8bae722fd0a7ba3eacb",
+              "role": "fx_measure_native_063c2f276fe2b8bae722fd0a7ba3eacb",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        },
+        "after": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803144010_thn4bj94h8e",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_063c2f276fe2b8bae722fd0a7ba3eacb",
+              "role": "fx_measure_native_063c2f276fe2b8bae722fd0a7ba3eacb",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_063c2f276fe2b8bae722fd0a7ba3eacb",
+              "role": "fx_measure_native_063c2f276fe2b8bae722fd0a7ba3eacb",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        }
+      },
+      "artifacts": {
+        "raw": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\02-checks\\9cc924fd-6fe8-4163-954c-1160dd4a8e19.json",
+        "human": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\02-checks\\9cc924fd-6fe8-4163-954c-1160dd4a8e19.md"
+      },
+      "addedThreadCpu": {
+        "count": 15,
+        "mean": 141.93333333333334,
+        "median": 141,
+        "p95": 189.69999999999987,
+        "min": 78,
+        "max": 266
+      },
+      "nativeThreadCpu": {
+        "count": 15,
+        "mean": 28,
+        "median": 31,
+        "p95": 47,
+        "min": 0,
+        "max": 47
+      },
+      "flarexThreadCpu": {
+        "count": 15,
+        "mean": 169.93333333333334,
+        "median": 172,
+        "p95": 227.0999999999999,
+        "min": 125,
+        "max": 281
+      },
+      "addedProcessCpu": {
+        "count": 15,
+        "mean": 171.93333333333334,
+        "median": 156,
+        "p95": 297.29999999999967,
+        "min": 109,
+        "max": 515
+      },
+      "pairedElapsed": {
+        "samples": 15,
+        "medianAddedMs": 203.63790000000154,
+        "p95AddedMs": 5451.594600000011
+      },
+      "pairs": [
+        {
+          "index": 5,
+          "nativeMs": 31,
+          "flarexMs": 188,
+          "addedMs": 157,
+          "processAddedMs": 156
+        },
+        {
+          "index": 6,
+          "nativeMs": 47,
+          "flarexMs": 204,
+          "addedMs": 157,
+          "processAddedMs": 186
+        },
+        {
+          "index": 7,
+          "nativeMs": 47,
+          "flarexMs": 172,
+          "addedMs": 125,
+          "processAddedMs": 125
+        },
+        {
+          "index": 8,
+          "nativeMs": 16,
+          "flarexMs": 125,
+          "addedMs": 109,
+          "processAddedMs": 110
+        },
+        {
+          "index": 9,
+          "nativeMs": 15,
+          "flarexMs": 172,
+          "addedMs": 157,
+          "processAddedMs": 109
+        },
+        {
+          "index": 10,
+          "nativeMs": 47,
+          "flarexMs": 125,
+          "addedMs": 78,
+          "processAddedMs": 109
+        },
+        {
+          "index": 11,
+          "nativeMs": 15,
+          "flarexMs": 281,
+          "addedMs": 266,
+          "processAddedMs": 515
+        },
+        {
+          "index": 12,
+          "nativeMs": 31,
+          "flarexMs": 156,
+          "addedMs": 125,
+          "processAddedMs": 140
+        },
+        {
+          "index": 13,
+          "nativeMs": 15,
+          "flarexMs": 172,
+          "addedMs": 157,
+          "processAddedMs": 157
+        },
+        {
+          "index": 14,
+          "nativeMs": 32,
+          "flarexMs": 157,
+          "addedMs": 125,
+          "processAddedMs": 204
+        },
+        {
+          "index": 15,
+          "nativeMs": 31,
+          "flarexMs": 172,
+          "addedMs": 141,
+          "processAddedMs": 172
+        },
+        {
+          "index": 16,
+          "nativeMs": 31,
+          "flarexMs": 141,
+          "addedMs": 110,
+          "processAddedMs": 111
+        },
+        {
+          "index": 17,
+          "nativeMs": 31,
+          "flarexMs": 156,
+          "addedMs": 125,
+          "processAddedMs": 157
+        },
+        {
+          "index": 18,
+          "nativeMs": 31,
+          "flarexMs": 187,
+          "addedMs": 156,
+          "processAddedMs": 188
+        },
+        {
+          "index": 19,
+          "nativeMs": 0,
+          "flarexMs": 141,
+          "addedMs": 141,
+          "processAddedMs": 140
+        }
+      ]
+    },
+    {
+      "name": "03-relations",
+      "variant": "relations",
+      "runId": "26b2d4c6-bba3-489a-8343-7251119d93ca",
+      "sampling": {
+        "requestedSamples": 15,
+        "warmups": 5,
+        "size": "small",
+        "scenario": "mixed-workflow",
+        "driver": "postgres",
+        "pairOrder": "alternating"
+      },
+      "sources": {
+        "before": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "after": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "files": 6962
+      },
+      "loaded": {
+        "relationalRows.ts": "47c9a04ace2724d39e3c9714cf8b1c7422307bec3ff665af4c06dd0689d47dfc",
+        "commerce-relations.ts": "7cc68e2f7e75682ca12a03237f9a1fef890fb4c466f0503ac1065f0ce532c0eb"
+      },
+      "expected": {
+        "relationalRows.ts": "47c9a04ace2724d39e3c9714cf8b1c7422307bec3ff665af4c06dd0689d47dfc",
+        "commerce-relations.ts": "7cc68e2f7e75682ca12a03237f9a1fef890fb4c466f0503ac1065f0ce532c0eb"
+      },
+      "cleanup": "completed",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "environment": {
+        "before": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803268212_7l1jz7aas8",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_778594747532f55b536e851133feb3d3",
+              "role": "fx_measure_native_778594747532f55b536e851133feb3d3",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_778594747532f55b536e851133feb3d3",
+              "role": "fx_measure_native_778594747532f55b536e851133feb3d3",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        },
+        "after": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803268212_7l1jz7aas8",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_778594747532f55b536e851133feb3d3",
+              "role": "fx_measure_native_778594747532f55b536e851133feb3d3",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_778594747532f55b536e851133feb3d3",
+              "role": "fx_measure_native_778594747532f55b536e851133feb3d3",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        }
+      },
+      "artifacts": {
+        "raw": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\03-relations\\26b2d4c6-bba3-489a-8343-7251119d93ca.json",
+        "human": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\03-relations\\26b2d4c6-bba3-489a-8343-7251119d93ca.md"
+      },
+      "addedThreadCpu": {
+        "count": 15,
+        "mean": 117.53333333333333,
+        "median": 109,
+        "p95": 176.79999999999998,
+        "min": 62,
+        "max": 188
+      },
+      "nativeThreadCpu": {
+        "count": 15,
+        "mean": 26.133333333333333,
+        "median": 31,
+        "p95": 47,
+        "min": 0,
+        "max": 47
+      },
+      "flarexThreadCpu": {
+        "count": 15,
+        "mean": 143.66666666666666,
+        "median": 156,
+        "p95": 181.59999999999997,
+        "min": 109,
+        "max": 204
+      },
+      "addedProcessCpu": {
+        "count": 15,
+        "mean": 142.46666666666667,
+        "median": 140,
+        "p95": 222.39999999999998,
+        "min": 78,
+        "max": 235
+      },
+      "pairedElapsed": {
+        "samples": 15,
+        "medianAddedMs": 200.57390000000305,
+        "p95AddedMs": 233.66389999999956
+      },
+      "pairs": [
+        {
+          "index": 5,
+          "nativeMs": 15,
+          "flarexMs": 156,
+          "addedMs": 141,
+          "processAddedMs": 172
+        },
+        {
+          "index": 6,
+          "nativeMs": 16,
+          "flarexMs": 172,
+          "addedMs": 156,
+          "processAddedMs": 171
+        },
+        {
+          "index": 7,
+          "nativeMs": 47,
+          "flarexMs": 156,
+          "addedMs": 109,
+          "processAddedMs": 125
+        },
+        {
+          "index": 8,
+          "nativeMs": 0,
+          "flarexMs": 172,
+          "addedMs": 172,
+          "processAddedMs": 235
+        },
+        {
+          "index": 9,
+          "nativeMs": 32,
+          "flarexMs": 157,
+          "addedMs": 125,
+          "processAddedMs": 141
+        },
+        {
+          "index": 10,
+          "nativeMs": 31,
+          "flarexMs": 157,
+          "addedMs": 126,
+          "processAddedMs": 140
+        },
+        {
+          "index": 11,
+          "nativeMs": 32,
+          "flarexMs": 140,
+          "addedMs": 108,
+          "processAddedMs": 217
+        },
+        {
+          "index": 12,
+          "nativeMs": 16,
+          "flarexMs": 204,
+          "addedMs": 188,
+          "processAddedMs": 172
+        },
+        {
+          "index": 13,
+          "nativeMs": 15,
+          "flarexMs": 109,
+          "addedMs": 94,
+          "processAddedMs": 109
+        },
+        {
+          "index": 14,
+          "nativeMs": 47,
+          "flarexMs": 156,
+          "addedMs": 109,
+          "processAddedMs": 125
+        },
+        {
+          "index": 15,
+          "nativeMs": 16,
+          "flarexMs": 109,
+          "addedMs": 93,
+          "processAddedMs": 93
+        },
+        {
+          "index": 16,
+          "nativeMs": 31,
+          "flarexMs": 124,
+          "addedMs": 93,
+          "processAddedMs": 109
+        },
+        {
+          "index": 17,
+          "nativeMs": 16,
+          "flarexMs": 125,
+          "addedMs": 109,
+          "processAddedMs": 140
+        },
+        {
+          "index": 18,
+          "nativeMs": 47,
+          "flarexMs": 109,
+          "addedMs": 62,
+          "processAddedMs": 78
+        },
+        {
+          "index": 19,
+          "nativeMs": 31,
+          "flarexMs": 109,
+          "addedMs": 78,
+          "processAddedMs": 110
+        }
+      ]
+    },
+    {
+      "name": "04-combined",
+      "variant": "combined",
+      "runId": "51d717aa-2fc6-4c32-ab17-fc6bb7606c5e",
+      "sampling": {
+        "requestedSamples": 15,
+        "warmups": 5,
+        "size": "small",
+        "scenario": "mixed-workflow",
+        "driver": "postgres",
+        "pairOrder": "alternating"
+      },
+      "sources": {
+        "before": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "after": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "files": 6962
+      },
+      "loaded": {
+        "relationalRows.ts": "75ccc379f6173b216129679375436d5c0b4efbe215e893c3923d2492b4c57ffc",
+        "commerce-relations.ts": "7cc68e2f7e75682ca12a03237f9a1fef890fb4c466f0503ac1065f0ce532c0eb"
+      },
+      "expected": {
+        "relationalRows.ts": "75ccc379f6173b216129679375436d5c0b4efbe215e893c3923d2492b4c57ffc",
+        "commerce-relations.ts": "7cc68e2f7e75682ca12a03237f9a1fef890fb4c466f0503ac1065f0ce532c0eb"
+      },
+      "cleanup": "completed",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "environment": {
+        "before": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803367891_6756f26wke4",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_feb757c70b253298afef4dc954230901",
+              "role": "fx_measure_native_feb757c70b253298afef4dc954230901",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_feb757c70b253298afef4dc954230901",
+              "role": "fx_measure_native_feb757c70b253298afef4dc954230901",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        },
+        "after": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803367891_6756f26wke4",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_feb757c70b253298afef4dc954230901",
+              "role": "fx_measure_native_feb757c70b253298afef4dc954230901",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_feb757c70b253298afef4dc954230901",
+              "role": "fx_measure_native_feb757c70b253298afef4dc954230901",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        }
+      },
+      "artifacts": {
+        "raw": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\04-combined\\51d717aa-2fc6-4c32-ab17-fc6bb7606c5e.json",
+        "human": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\04-combined\\51d717aa-2fc6-4c32-ab17-fc6bb7606c5e.md"
+      },
+      "addedThreadCpu": {
+        "count": 15,
+        "mean": 120.73333333333333,
+        "median": 110,
+        "p95": 177.2,
+        "min": 63,
+        "max": 187
+      },
+      "nativeThreadCpu": {
+        "count": 15,
+        "mean": 26.133333333333333,
+        "median": 31,
+        "p95": 46,
+        "min": 0,
+        "max": 46
+      },
+      "flarexThreadCpu": {
+        "count": 15,
+        "mean": 146.86666666666667,
+        "median": 140,
+        "p95": 208.49999999999997,
+        "min": 94,
+        "max": 219
+      },
+      "addedProcessCpu": {
+        "count": 15,
+        "mean": 129.26666666666668,
+        "median": 125,
+        "p95": 203.3,
+        "min": 32,
+        "max": 204
+      },
+      "pairedElapsed": {
+        "samples": 15,
+        "medianAddedMs": 210.591499999995,
+        "p95AddedMs": 311.2184999999881
+      },
+      "pairs": [
+        {
+          "index": 5,
+          "nativeMs": 32,
+          "flarexMs": 203,
+          "addedMs": 171,
+          "processAddedMs": 156
+        },
+        {
+          "index": 6,
+          "nativeMs": 31,
+          "flarexMs": 171,
+          "addedMs": 140,
+          "processAddedMs": 204
+        },
+        {
+          "index": 7,
+          "nativeMs": 16,
+          "flarexMs": 94,
+          "addedMs": 78,
+          "processAddedMs": 62
+        },
+        {
+          "index": 8,
+          "nativeMs": 16,
+          "flarexMs": 141,
+          "addedMs": 125,
+          "processAddedMs": 156
+        },
+        {
+          "index": 9,
+          "nativeMs": 46,
+          "flarexMs": 109,
+          "addedMs": 63,
+          "processAddedMs": 32
+        },
+        {
+          "index": 10,
+          "nativeMs": 31,
+          "flarexMs": 125,
+          "addedMs": 94,
+          "processAddedMs": 94
+        },
+        {
+          "index": 11,
+          "nativeMs": 32,
+          "flarexMs": 140,
+          "addedMs": 108,
+          "processAddedMs": 125
+        },
+        {
+          "index": 12,
+          "nativeMs": 16,
+          "flarexMs": 140,
+          "addedMs": 124,
+          "processAddedMs": 140
+        },
+        {
+          "index": 13,
+          "nativeMs": 0,
+          "flarexMs": 110,
+          "addedMs": 110,
+          "processAddedMs": 110
+        },
+        {
+          "index": 14,
+          "nativeMs": 32,
+          "flarexMs": 125,
+          "addedMs": 93,
+          "processAddedMs": 94
+        },
+        {
+          "index": 15,
+          "nativeMs": 0,
+          "flarexMs": 172,
+          "addedMs": 172,
+          "processAddedMs": 188
+        },
+        {
+          "index": 16,
+          "nativeMs": 31,
+          "flarexMs": 204,
+          "addedMs": 173,
+          "processAddedMs": 203
+        },
+        {
+          "index": 17,
+          "nativeMs": 46,
+          "flarexMs": 141,
+          "addedMs": 95,
+          "processAddedMs": 109
+        },
+        {
+          "index": 18,
+          "nativeMs": 31,
+          "flarexMs": 109,
+          "addedMs": 78,
+          "processAddedMs": 63
+        },
+        {
+          "index": 19,
+          "nativeMs": 32,
+          "flarexMs": 219,
+          "addedMs": 187,
+          "processAddedMs": 203
+        }
+      ]
+    },
+    {
+      "name": "05-combined",
+      "variant": "combined",
+      "runId": "5e228a1c-c4cc-45ac-ab8c-98898d6d9457",
+      "sampling": {
+        "requestedSamples": 15,
+        "warmups": 5,
+        "size": "small",
+        "scenario": "mixed-workflow",
+        "driver": "postgres",
+        "pairOrder": "alternating"
+      },
+      "sources": {
+        "before": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "after": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "files": 6962
+      },
+      "loaded": {
+        "relationalRows.ts": "75ccc379f6173b216129679375436d5c0b4efbe215e893c3923d2492b4c57ffc",
+        "commerce-relations.ts": "7cc68e2f7e75682ca12a03237f9a1fef890fb4c466f0503ac1065f0ce532c0eb"
+      },
+      "expected": {
+        "relationalRows.ts": "75ccc379f6173b216129679375436d5c0b4efbe215e893c3923d2492b4c57ffc",
+        "commerce-relations.ts": "7cc68e2f7e75682ca12a03237f9a1fef890fb4c466f0503ac1065f0ce532c0eb"
+      },
+      "cleanup": "completed",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "environment": {
+        "before": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803495607_i5en57eo6qn",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_e22c62a7f7d5e3025f6765cd18b24f6c",
+              "role": "fx_measure_native_e22c62a7f7d5e3025f6765cd18b24f6c",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_e22c62a7f7d5e3025f6765cd18b24f6c",
+              "role": "fx_measure_native_e22c62a7f7d5e3025f6765cd18b24f6c",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        },
+        "after": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803495607_i5en57eo6qn",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_e22c62a7f7d5e3025f6765cd18b24f6c",
+              "role": "fx_measure_native_e22c62a7f7d5e3025f6765cd18b24f6c",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_e22c62a7f7d5e3025f6765cd18b24f6c",
+              "role": "fx_measure_native_e22c62a7f7d5e3025f6765cd18b24f6c",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        }
+      },
+      "artifacts": {
+        "raw": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\05-combined\\5e228a1c-c4cc-45ac-ab8c-98898d6d9457.json",
+        "human": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\05-combined\\5e228a1c-c4cc-45ac-ab8c-98898d6d9457.md"
+      },
+      "addedThreadCpu": {
+        "count": 15,
+        "mean": 125.06666666666666,
+        "median": 126,
+        "p95": 160.49999999999997,
+        "min": 63,
+        "max": 171
+      },
+      "nativeThreadCpu": {
+        "count": 15,
+        "mean": 28.066666666666666,
+        "median": 31,
+        "p95": 47,
+        "min": 15,
+        "max": 47
+      },
+      "flarexThreadCpu": {
+        "count": 15,
+        "mean": 153.13333333333333,
+        "median": 157,
+        "p95": 187.3,
+        "min": 94,
+        "max": 188
+      },
+      "addedProcessCpu": {
+        "count": 15,
+        "mean": 152.86666666666667,
+        "median": 156,
+        "p95": 223.1,
+        "min": 63,
+        "max": 235
+      },
+      "pairedElapsed": {
+        "samples": 15,
+        "medianAddedMs": 208.9814999999944,
+        "p95AddedMs": 252.335699999996
+      },
+      "pairs": [
+        {
+          "index": 5,
+          "nativeMs": 47,
+          "flarexMs": 172,
+          "addedMs": 125,
+          "processAddedMs": 171
+        },
+        {
+          "index": 6,
+          "nativeMs": 46,
+          "flarexMs": 109,
+          "addedMs": 63,
+          "processAddedMs": 63
+        },
+        {
+          "index": 7,
+          "nativeMs": 32,
+          "flarexMs": 172,
+          "addedMs": 140,
+          "processAddedMs": 156
+        },
+        {
+          "index": 8,
+          "nativeMs": 47,
+          "flarexMs": 187,
+          "addedMs": 140,
+          "processAddedMs": 140
+        },
+        {
+          "index": 9,
+          "nativeMs": 47,
+          "flarexMs": 188,
+          "addedMs": 141,
+          "processAddedMs": 140
+        },
+        {
+          "index": 10,
+          "nativeMs": 16,
+          "flarexMs": 94,
+          "addedMs": 78,
+          "processAddedMs": 93
+        },
+        {
+          "index": 11,
+          "nativeMs": 16,
+          "flarexMs": 172,
+          "addedMs": 156,
+          "processAddedMs": 171
+        },
+        {
+          "index": 12,
+          "nativeMs": 31,
+          "flarexMs": 156,
+          "addedMs": 125,
+          "processAddedMs": 172
+        },
+        {
+          "index": 13,
+          "nativeMs": 15,
+          "flarexMs": 156,
+          "addedMs": 141,
+          "processAddedMs": 171
+        },
+        {
+          "index": 14,
+          "nativeMs": 31,
+          "flarexMs": 109,
+          "addedMs": 78,
+          "processAddedMs": 94
+        },
+        {
+          "index": 15,
+          "nativeMs": 15,
+          "flarexMs": 157,
+          "addedMs": 142,
+          "processAddedMs": 218
+        },
+        {
+          "index": 16,
+          "nativeMs": 16,
+          "flarexMs": 187,
+          "addedMs": 171,
+          "processAddedMs": 235
+        },
+        {
+          "index": 17,
+          "nativeMs": 32,
+          "flarexMs": 157,
+          "addedMs": 125,
+          "processAddedMs": 125
+        },
+        {
+          "index": 18,
+          "nativeMs": 15,
+          "flarexMs": 141,
+          "addedMs": 126,
+          "processAddedMs": 142
+        },
+        {
+          "index": 19,
+          "nativeMs": 15,
+          "flarexMs": 140,
+          "addedMs": 125,
+          "processAddedMs": 202
+        }
+      ]
+    },
+    {
+      "name": "06-relations",
+      "variant": "relations",
+      "runId": "1f0e4463-a81f-4044-84b4-aeea1dc9a654",
+      "sampling": {
+        "requestedSamples": 15,
+        "warmups": 5,
+        "size": "small",
+        "scenario": "mixed-workflow",
+        "driver": "postgres",
+        "pairOrder": "alternating"
+      },
+      "sources": {
+        "before": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "after": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "files": 6962
+      },
+      "loaded": {
+        "relationalRows.ts": "47c9a04ace2724d39e3c9714cf8b1c7422307bec3ff665af4c06dd0689d47dfc",
+        "commerce-relations.ts": "7cc68e2f7e75682ca12a03237f9a1fef890fb4c466f0503ac1065f0ce532c0eb"
+      },
+      "expected": {
+        "relationalRows.ts": "47c9a04ace2724d39e3c9714cf8b1c7422307bec3ff665af4c06dd0689d47dfc",
+        "commerce-relations.ts": "7cc68e2f7e75682ca12a03237f9a1fef890fb4c466f0503ac1065f0ce532c0eb"
+      },
+      "cleanup": "completed",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "environment": {
+        "before": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803601699_9xofh9ufhaj",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_1455f3facecae623c9abebf0c5ebe319",
+              "role": "fx_measure_native_1455f3facecae623c9abebf0c5ebe319",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_1455f3facecae623c9abebf0c5ebe319",
+              "role": "fx_measure_native_1455f3facecae623c9abebf0c5ebe319",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        },
+        "after": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803601699_9xofh9ufhaj",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_1455f3facecae623c9abebf0c5ebe319",
+              "role": "fx_measure_native_1455f3facecae623c9abebf0c5ebe319",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_1455f3facecae623c9abebf0c5ebe319",
+              "role": "fx_measure_native_1455f3facecae623c9abebf0c5ebe319",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        }
+      },
+      "artifacts": {
+        "raw": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\06-relations\\1f0e4463-a81f-4044-84b4-aeea1dc9a654.json",
+        "human": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\06-relations\\1f0e4463-a81f-4044-84b4-aeea1dc9a654.md"
+      },
+      "addedThreadCpu": {
+        "count": 15,
+        "mean": 106.26666666666667,
+        "median": 108,
+        "p95": 145.1,
+        "min": 46,
+        "max": 157
+      },
+      "nativeThreadCpu": {
+        "count": 15,
+        "mean": 29.133333333333333,
+        "median": 31,
+        "p95": 47,
+        "min": 0,
+        "max": 47
+      },
+      "flarexThreadCpu": {
+        "count": 15,
+        "mean": 135.4,
+        "median": 141,
+        "p95": 160.79999999999998,
+        "min": 93,
+        "max": 172
+      },
+      "addedProcessCpu": {
+        "count": 15,
+        "mean": 127,
+        "median": 125,
+        "p95": 212.99999999999997,
+        "min": 47,
+        "max": 234
+      },
+      "pairedElapsed": {
+        "samples": 15,
+        "medianAddedMs": 201.6996999999974,
+        "p95AddedMs": 217.05369999998948
+      },
+      "pairs": [
+        {
+          "index": 5,
+          "nativeMs": 31,
+          "flarexMs": 125,
+          "addedMs": 94,
+          "processAddedMs": 108
+        },
+        {
+          "index": 6,
+          "nativeMs": 32,
+          "flarexMs": 94,
+          "addedMs": 62,
+          "processAddedMs": 93
+        },
+        {
+          "index": 7,
+          "nativeMs": 16,
+          "flarexMs": 141,
+          "addedMs": 125,
+          "processAddedMs": 125
+        },
+        {
+          "index": 8,
+          "nativeMs": 32,
+          "flarexMs": 140,
+          "addedMs": 108,
+          "processAddedMs": 110
+        },
+        {
+          "index": 9,
+          "nativeMs": 47,
+          "flarexMs": 141,
+          "addedMs": 94,
+          "processAddedMs": 110
+        },
+        {
+          "index": 10,
+          "nativeMs": 0,
+          "flarexMs": 140,
+          "addedMs": 140,
+          "processAddedMs": 140
+        },
+        {
+          "index": 11,
+          "nativeMs": 15,
+          "flarexMs": 172,
+          "addedMs": 157,
+          "processAddedMs": 204
+        },
+        {
+          "index": 12,
+          "nativeMs": 15,
+          "flarexMs": 141,
+          "addedMs": 126,
+          "processAddedMs": 142
+        },
+        {
+          "index": 13,
+          "nativeMs": 47,
+          "flarexMs": 156,
+          "addedMs": 109,
+          "processAddedMs": 125
+        },
+        {
+          "index": 14,
+          "nativeMs": 47,
+          "flarexMs": 141,
+          "addedMs": 94,
+          "processAddedMs": 124
+        },
+        {
+          "index": 15,
+          "nativeMs": 15,
+          "flarexMs": 141,
+          "addedMs": 126,
+          "processAddedMs": 234
+        },
+        {
+          "index": 16,
+          "nativeMs": 31,
+          "flarexMs": 125,
+          "addedMs": 94,
+          "processAddedMs": 140
+        },
+        {
+          "index": 17,
+          "nativeMs": 31,
+          "flarexMs": 156,
+          "addedMs": 125,
+          "processAddedMs": 125
+        },
+        {
+          "index": 18,
+          "nativeMs": 31,
+          "flarexMs": 125,
+          "addedMs": 94,
+          "processAddedMs": 78
+        },
+        {
+          "index": 19,
+          "nativeMs": 47,
+          "flarexMs": 93,
+          "addedMs": 46,
+          "processAddedMs": 47
+        }
+      ]
+    },
+    {
+      "name": "07-checks",
+      "variant": "checks",
+      "runId": "6d9e3e8b-8de7-4f31-b197-0e566f35e4c8",
+      "sampling": {
+        "requestedSamples": 15,
+        "warmups": 5,
+        "size": "small",
+        "scenario": "mixed-workflow",
+        "driver": "postgres",
+        "pairOrder": "alternating"
+      },
+      "sources": {
+        "before": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "after": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "files": 6962
+      },
+      "loaded": {
+        "relationalRows.ts": "75ccc379f6173b216129679375436d5c0b4efbe215e893c3923d2492b4c57ffc",
+        "commerce-relations.ts": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      },
+      "expected": {
+        "relationalRows.ts": "75ccc379f6173b216129679375436d5c0b4efbe215e893c3923d2492b4c57ffc",
+        "commerce-relations.ts": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      },
+      "cleanup": "completed",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "environment": {
+        "before": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803702532_3mtdrh6e0go",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_e4d78474fa6b7633d09e7ca42ed3174a",
+              "role": "fx_measure_native_e4d78474fa6b7633d09e7ca42ed3174a",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_e4d78474fa6b7633d09e7ca42ed3174a",
+              "role": "fx_measure_native_e4d78474fa6b7633d09e7ca42ed3174a",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        },
+        "after": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803702532_3mtdrh6e0go",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_e4d78474fa6b7633d09e7ca42ed3174a",
+              "role": "fx_measure_native_e4d78474fa6b7633d09e7ca42ed3174a",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_e4d78474fa6b7633d09e7ca42ed3174a",
+              "role": "fx_measure_native_e4d78474fa6b7633d09e7ca42ed3174a",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        }
+      },
+      "artifacts": {
+        "raw": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\07-checks\\6d9e3e8b-8de7-4f31-b197-0e566f35e4c8.json",
+        "human": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\07-checks\\6d9e3e8b-8de7-4f31-b197-0e566f35e4c8.md"
+      },
+      "addedThreadCpu": {
+        "count": 15,
+        "mean": 118.93333333333334,
+        "median": 110,
+        "p95": 177.79999999999998,
+        "min": 79,
+        "max": 189
+      },
+      "nativeThreadCpu": {
+        "count": 15,
+        "mean": 30.2,
+        "median": 31,
+        "p95": 47,
+        "min": 0,
+        "max": 47
+      },
+      "flarexThreadCpu": {
+        "count": 15,
+        "mean": 149.13333333333333,
+        "median": 141,
+        "p95": 192.79999999999998,
+        "min": 125,
+        "max": 204
+      },
+      "addedProcessCpu": {
+        "count": 15,
+        "mean": 146.46666666666667,
+        "median": 140,
+        "p95": 253.79999999999998,
+        "min": 77,
+        "max": 265
+      },
+      "pairedElapsed": {
+        "samples": 15,
+        "medianAddedMs": 202.01280000001134,
+        "p95AddedMs": 246.63029999999708
+      },
+      "pairs": [
+        {
+          "index": 5,
+          "nativeMs": 47,
+          "flarexMs": 126,
+          "addedMs": 79,
+          "processAddedMs": 77
+        },
+        {
+          "index": 6,
+          "nativeMs": 15,
+          "flarexMs": 188,
+          "addedMs": 173,
+          "processAddedMs": 172
+        },
+        {
+          "index": 7,
+          "nativeMs": 31,
+          "flarexMs": 140,
+          "addedMs": 109,
+          "processAddedMs": 204
+        },
+        {
+          "index": 8,
+          "nativeMs": 16,
+          "flarexMs": 125,
+          "addedMs": 109,
+          "processAddedMs": 124
+        },
+        {
+          "index": 9,
+          "nativeMs": 31,
+          "flarexMs": 157,
+          "addedMs": 126,
+          "processAddedMs": 109
+        },
+        {
+          "index": 10,
+          "nativeMs": 0,
+          "flarexMs": 125,
+          "addedMs": 125,
+          "processAddedMs": 140
+        },
+        {
+          "index": 11,
+          "nativeMs": 32,
+          "flarexMs": 141,
+          "addedMs": 109,
+          "processAddedMs": 140
+        },
+        {
+          "index": 12,
+          "nativeMs": 31,
+          "flarexMs": 125,
+          "addedMs": 94,
+          "processAddedMs": 141
+        },
+        {
+          "index": 13,
+          "nativeMs": 32,
+          "flarexMs": 156,
+          "addedMs": 124,
+          "processAddedMs": 265
+        },
+        {
+          "index": 14,
+          "nativeMs": 46,
+          "flarexMs": 156,
+          "addedMs": 110,
+          "processAddedMs": 124
+        },
+        {
+          "index": 15,
+          "nativeMs": 15,
+          "flarexMs": 204,
+          "addedMs": 189,
+          "processAddedMs": 249
+        },
+        {
+          "index": 16,
+          "nativeMs": 31,
+          "flarexMs": 141,
+          "addedMs": 110,
+          "processAddedMs": 125
+        },
+        {
+          "index": 17,
+          "nativeMs": 32,
+          "flarexMs": 125,
+          "addedMs": 93,
+          "processAddedMs": 93
+        },
+        {
+          "index": 18,
+          "nativeMs": 47,
+          "flarexMs": 172,
+          "addedMs": 125,
+          "processAddedMs": 141
+        },
+        {
+          "index": 19,
+          "nativeMs": 47,
+          "flarexMs": 156,
+          "addedMs": 109,
+          "processAddedMs": 93
+        }
+      ]
+    },
+    {
+      "name": "08-baseline",
+      "variant": "baseline",
+      "runId": "d3eda792-f82d-4400-9d9c-505ca4e570ea",
+      "sampling": {
+        "requestedSamples": 15,
+        "warmups": 5,
+        "size": "small",
+        "scenario": "mixed-workflow",
+        "driver": "postgres",
+        "pairOrder": "alternating"
+      },
+      "sources": {
+        "before": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "after": "a5957c92f21b380699f091676379d433fc3d4cb1956dbee070515276288cf352",
+        "files": 6962
+      },
+      "loaded": {
+        "relationalRows.ts": "47c9a04ace2724d39e3c9714cf8b1c7422307bec3ff665af4c06dd0689d47dfc",
+        "commerce-relations.ts": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      },
+      "expected": {
+        "relationalRows.ts": "47c9a04ace2724d39e3c9714cf8b1c7422307bec3ff665af4c06dd0689d47dfc",
+        "commerce-relations.ts": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      },
+      "cleanup": "completed",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "environment": {
+        "before": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803803371_apoaujlxdj",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_5fb0a0f40d33e33a4b2a03b1b61f6abb",
+              "role": "fx_measure_native_5fb0a0f40d33e33a4b2a03b1b61f6abb",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_5fb0a0f40d33e33a4b2a03b1b61f6abb",
+              "role": "fx_measure_native_5fb0a0f40d33e33a4b2a03b1b61f6abb",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        },
+        "after": {
+          "flarex": {
+            "driver": "postgres",
+            "control": {
+              "postgresVersion": "18.3",
+              "role": "flarex_cpu_fixture",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            },
+            "target": {
+              "postgresVersion": "18.3",
+              "role": "flarex_dataruntime_1791803803371_apoaujlxdj",
+              "superuser": false,
+              "bypassRls": false,
+              "createDb": false,
+              "createRole": false,
+              "synchronousCommit": "on",
+              "fsync": "on",
+              "fullPageWrites": "on",
+              "statementTracking": "none",
+              "autoExplainMinDuration": "-1"
+            }
+          },
+          "native": [
+            {
+              "database": "fx_measure_medusa_5fb0a0f40d33e33a4b2a03b1b61f6abb",
+              "role": "fx_measure_native_5fb0a0f40d33e33a4b2a03b1b61f6abb",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            },
+            {
+              "database": "fx_measure_payload_5fb0a0f40d33e33a4b2a03b1b61f6abb",
+              "role": "fx_measure_native_5fb0a0f40d33e33a4b2a03b1b61f6abb",
+              "superuser": false,
+              "synchronous_commit": "on",
+              "fsync": "on",
+              "full_page_writes": "on",
+              "server_version": "18.3",
+              "track": "none"
+            }
+          ]
+        }
+      },
+      "artifacts": {
+        "raw": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\08-baseline\\d3eda792-f82d-4400-9d9c-505ca4e570ea.json",
+        "human": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\cpu-first-two\\08-baseline\\d3eda792-f82d-4400-9d9c-505ca4e570ea.md"
+      },
+      "addedThreadCpu": {
+        "count": 15,
+        "mean": 103.2,
+        "median": 110,
+        "p95": 156.3,
+        "min": 47,
+        "max": 157
+      },
+      "nativeThreadCpu": {
+        "count": 15,
+        "mean": 31.266666666666666,
+        "median": 31,
+        "p95": 47,
+        "min": 0,
+        "max": 47
+      },
+      "flarexThreadCpu": {
+        "count": 15,
+        "mean": 134.46666666666667,
+        "median": 125,
+        "p95": 188,
+        "min": 94,
+        "max": 188
+      },
+      "addedProcessCpu": {
+        "count": 15,
+        "mean": 141.4,
+        "median": 140,
+        "p95": 264.6,
+        "min": 15,
+        "max": 266
+      },
+      "pairedElapsed": {
+        "samples": 15,
+        "medianAddedMs": 205.87099999999919,
+        "p95AddedMs": 236.74839999999676
+      },
+      "pairs": [
+        {
+          "index": 5,
+          "nativeMs": 31,
+          "flarexMs": 188,
+          "addedMs": 157,
+          "processAddedMs": 188
+        },
+        {
+          "index": 6,
+          "nativeMs": 32,
+          "flarexMs": 188,
+          "addedMs": 156,
+          "processAddedMs": 264
+        },
+        {
+          "index": 7,
+          "nativeMs": 47,
+          "flarexMs": 125,
+          "addedMs": 78,
+          "processAddedMs": 108
+        },
+        {
+          "index": 8,
+          "nativeMs": 47,
+          "flarexMs": 94,
+          "addedMs": 47,
+          "processAddedMs": 15
+        },
+        {
+          "index": 9,
+          "nativeMs": 47,
+          "flarexMs": 157,
+          "addedMs": 110,
+          "processAddedMs": 125
+        },
+        {
+          "index": 10,
+          "nativeMs": 15,
+          "flarexMs": 125,
+          "addedMs": 110,
+          "processAddedMs": 126
+        },
+        {
+          "index": 11,
+          "nativeMs": 31,
+          "flarexMs": 109,
+          "addedMs": 78,
+          "processAddedMs": 172
+        },
+        {
+          "index": 12,
+          "nativeMs": 31,
+          "flarexMs": 171,
+          "addedMs": 140,
+          "processAddedMs": 266
+        },
+        {
+          "index": 13,
+          "nativeMs": 16,
+          "flarexMs": 141,
+          "addedMs": 125,
+          "processAddedMs": 187
+        },
+        {
+          "index": 14,
+          "nativeMs": 0,
+          "flarexMs": 125,
+          "addedMs": 125,
+          "processAddedMs": 140
+        },
+        {
+          "index": 15,
+          "nativeMs": 15,
+          "flarexMs": 125,
+          "addedMs": 110,
+          "processAddedMs": 140
+        },
+        {
+          "index": 16,
+          "nativeMs": 31,
+          "flarexMs": 125,
+          "addedMs": 94,
+          "processAddedMs": 94
+        },
+        {
+          "index": 17,
+          "nativeMs": 32,
+          "flarexMs": 110,
+          "addedMs": 78,
+          "processAddedMs": 140
+        },
+        {
+          "index": 18,
+          "nativeMs": 47,
+          "flarexMs": 110,
+          "addedMs": 63,
+          "processAddedMs": 93
+        },
+        {
+          "index": 19,
+          "nativeMs": 47,
+          "flarexMs": 124,
+          "addedMs": 77,
+          "processAddedMs": 63
+        }
+      ]
+    }
+  ],
+  "runtimeDisposition": {
+    "rowChecks": "Rejected after higher complete endpoint CPU; restored original row source byte-for-byte. Original checks and 15 regression cases retained.",
+    "relationDefinitions": "Retained named Effect helper definition reuse with invocation-local context/cache; no demonstrated CPU reduction.",
+    "finalProductionSha256": {
+      "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts": "47c9a04ace2724d39e3c9714cf8b1c7422307bec3ff665af4c06dd0689d47dfc",
+      "packages/medusa-adapter/src/commerce-relations.ts": "7cc68e2f7e75682ca12a03237f9a1fef890fb4c466f0503ac1065f0ce532c0eb"
+    },
+    "finalLoadedSourceMatch": "Final production bytes equal both measured relation-only blocks. All other authored sources were held fixed during the campaign. Rejected candidate snapshots and replay harness remain local diagnostic artifacts."
+  },
+  "validation": {
+    "persistence": {
+      "tests": 63,
+      "files": 6,
+      "ordinaryPostgresWorkingSet": 4,
+      "pgliteWorkingSet": 4,
+      "newCanonicalRowTests": 15,
+      "savedOriginalCanonicalRowTests": 15,
+      "typecheck": "Final source/test noEmit passed with TypeScript7 --singleThreaded --checkers1; strict/declaration checking unchanged."
+    },
+    "medusa": {
+      "pglite": {
+        "passed": 53,
+        "skipped": 1,
+        "files": 6
+      },
+      "ordinaryPostgres": {
+        "passed": 4,
+        "files": 2
+      },
+      "typecheck": "All five configured adapter/composite/compatibility/Product/SalesChannel configs passed."
+    },
+    "guards": [
+      "Medusa source-island boundary",
+      "connected runtime source map",
+      "Effect runtime boundaries"
+    ],
+    "lint": [
+      "lint:core",
+      "lint:diff",
+      "lint:diff -- --staged"
+    ],
+    "review": "Both project reviewers performed read-only initial/corrected/exact-index passes. Final retained disposition and evidence review recorded in Git validation workflow."
+  },
+  "intermediateFailures": {
+    "postgresFixture": "Initial unchanged30s CREATE TABLE statement timeout SQL57014 before changed code; retained log; isolated and final regressions passed without changing limits; cause unresolved.",
+    "compiler": "Unbounded TypeScript7 allocation failure retained; bounded attempts stopped by exact ownedPID before successful single-threaded one-checker runs. No compiler/tests overlapped CPU campaign.",
+    "discardedCandidate": "Initial buffer-getter integrity witness failed before correction; safe descriptor/Proxy guard tested and measured, then rejected for CPU regression. No candidate row runtime retained."
+  },
+  "postgres": {
+    "version": "18.3",
+    "port": 56434,
+    "dataDirectory": "work/validation/medusa-cpu-investigation-20261010/postgres-data",
+    "runtimeRole": "ordinary fixture roles",
+    "provisioner": "separate fixture provisioner",
+    "durability": "fsync/full_page_writes/synchronous_commit enabled",
+    "observations": "SQL duration logs, auto_explain, pg_stat_statements tracking, CPU profiles/phase counters/server samplers disabled during campaign",
+    "cleanup": "Stopped exact owned data directory with pg_ctl fast stop; status confirms no server running and no listener on56434."
+  }
+}
