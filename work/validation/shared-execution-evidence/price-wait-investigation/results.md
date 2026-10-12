@@ -1,10 +1,13 @@
 # Historical pricing-query wait investigation
 
-The 172.1902 ms pricing wait remains a one-request outlier with an unresolved
-cause. A focused reconstruction excludes pool acquisition, overlapping observed
-application queries and substantial recorded observer work. A new full-observer
-campaign did not reproduce it. No runtime fix or performance improvement is
-claimed, and this investigation does not authorize the proposed OCC replacement.
+The exact historical 172.1902 ms pricing wait remains unresolved. The subsequent
+[correlated investigation](correlated-results.md) reproduced natural 192-728 ms
+waits on other captures with PostgreSQL IO/WalWrite observations and advancing
+client/independent-process heartbeats. Pricing reached 13.2492 ms with a WalWrite
+observation, but its original 172 ms outlier did not recur. This establishes a
+database-side stall mechanism in fresh requests, not the historical cause.
+No runtime fix or performance improvement is claimed, and this investigation
+does not authorize the proposed OCC replacement.
 
 ## Original witness
 
@@ -92,11 +95,13 @@ the monotonic client submission/message/Promise intervals above.
 
 ## Disposition and reproduction
 
-No repeatable pricing owner defect or remedial change is established. The next
-occurrence needs a correlated server execution/lock witness and client GC/event
-loop/response witness for that same request. Choose the correction only after
-those witnesses distinguish server time, transport/response handling and client
-scheduling. The separate OCC planning proposal concerns final current-index
+No repeatable pricing owner defect or remedial change is established. The
+correlated follow-up now provides same-query server/client witnesses for fresh
+stalls. It also corrects the timing interpretation: logged Parse/Bind/Execute
+durations omit implicit transaction completion at Sync, so their difference
+from the client await can include server WAL I/O. It cannot be assigned entirely
+to transport, client scheduling or CPU. The original pricing event still lacks
+those witnesses. The separate OCC planning proposal concerns final current-index
 validation; it does not explain this earlier pricing capture.
 
 `diagnostic.test.ts`, `vitest.config.ts`, `sampler.cjs`, `analyze.cjs`,
