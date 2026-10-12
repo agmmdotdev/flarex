@@ -19,14 +19,19 @@ Logged Parse/Bind/Execute times omit implicit transaction completion at Sync;
 their difference from the client await can include server WAL I/O. Do not
 reclassify that difference as client CPU or solely transport time.
 
-The latest validated mixed added thread CPU remains **125 ms median**. The
-separate latest valid quiet comparison remains native **34.76 ms**, Flarex
-**252.58 ms**, paired added median **219.55 ms** and P95 **251.80 ms** in
-[metadata-key results](../metadata-key-reuse/results.md). No new matched CPU or
-quiet-latency comparison was run after the ongoing OCC correction; these are
-baselines, not fresh post-OCC measurements. Reclassifying waits changes no CPU
-counter or acceptance result. Logging-off/partial follow-ups have their failed
-source-stability/setup gates explicitly retained in the correlated report.
+The pre-OCC mixed added thread CPU is **125 ms median**, with quiet native/Flarex
+medians **34.76/252.58 ms**, paired added median/P95 **219.55/251.80 ms**, in
+[metadata-key results](../metadata-key-reuse/results.md). The newer
+[fixed OCC campaign](../occ-vector/results.md) measures **109 ms median added
+thread CPU**, quiet native/Flarex **42.04/276.83 ms**, and paired added median/P95
+**234.15/349.75 ms**. Complete performance acceptance remains failed; the OCC
+implementation is uncommitted. These are separate cohorts, and the approximately
+one Windows-counter-tick CPU difference does not establish causal savings.
+The [paired client CPU investigation](../cpu-excess-investigation/results.md)
+locates the largest CPU phase in business execution, followed by publication and
+admission; it retains diagnostic/source boundaries and establishes no large safe
+removable CPU block. Reclassifying waits changes no CPU counter. Logging-off/
+partial pricing follow-ups retain their failed source-stability/setup gates.
 
 ## Campaign and measurement limits
 
@@ -117,7 +122,7 @@ has been established.
 
 ## Remaining client CPU: what is and is not proved
 
-The earlier observer-free matched five-pair cohort remains the CPU comparison:
+The earlier observer-free matched five-pair cohort is the pre-OCC CPU comparison:
 native median 31 ms, Flarex median 156 ms, paired added median **125 ms**, with
 roughly 16 ms Windows counter resolution. The historical pricing **172.1902 ms**
 is one driver-await duration, not added CPU; it did not recur in the prior
