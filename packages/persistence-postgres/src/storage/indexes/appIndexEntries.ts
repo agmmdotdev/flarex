@@ -7,7 +7,7 @@ import { closeExactAttemptScopeClockObservation, readExactScopeWriteClockObserva
   readProtectedScopeReadIdentity, requireProtectedScopeReadIdentity } from "../../scope/scopeClock";
 import { defineNativeMetadataRead } from "../../database/physicalSession/drizzle";
 import type { PointCommitPublicationObservation } from "../../commit/point/observation";
-import { bytesEqualFullScan, isUint8Array } from "@flarex/utils/bytes";
+import { bytesEqualFullScan, isUint8Array, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { eq, sql, type SQL } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
@@ -1036,13 +1036,20 @@ export const consumeCurrentAppIndexPagesInTransactionEffect = Effect.fnUntraced(
         outputBound += bound;
       }
       if (prepared.length > 0) {
-        const statement = sql.join(prepared.map((input, ordinal) => sql`
-          select ${ordinal}::integer as "ordinal", member.* from (values (1)) as request(present)
-          left join lateral (select true as "present", page.* from (${buildCurrentRangeStatement(input)}) as page) as member on true
-        `), sql` union all `);
-        const result = yield* Effect.uninterruptible(runDrizzleStatementEffect(tx.execute(sql`
-          select * from (${statement}) as demands order by "ordinal", "encodedKeyBytes", "rowIdBytes"
-        `), cause => new AppIndexEntryReadPersistenceError("scanCurrent", cause))).pipe(Effect.mapError(error));
+        const result = yield* Effect.uninterruptible(runDrizzleStatementEffect(readCurrentDemandPages(tx, {
+          // Fresh scalar records from already decoded owner inputs, never a
+          // foreign JSON value or reusable storage/authority verdict.
+          demands: JSON.stringify(prepared.map(input => ({
+            scope_uuid: input.scopeUuid, definition_id: input.indexDefinitionId,
+            shape: (input.bounds.startInclusive === undefined ? 0 : 1) |
+              (input.bounds.endExclusive === undefined ? 0 : 2) | (input.after === undefined ? 0 : 4),
+            start_hex: input.bounds.startInclusive === undefined ? null : encodeBytesToLowercaseHex(input.bounds.startInclusive),
+            end_hex: input.bounds.endExclusive === undefined ? null : encodeBytesToLowercaseHex(input.bounds.endExclusive),
+            after_key_hex: input.after === undefined ? null : encodeBytesToLowercaseHex(input.after.keyBytes),
+            after_row_hex: input.after === undefined ? null : encodeBytesToLowercaseHex(input.after.rowIdBytes),
+            page_limit: input.limit + 1,
+          }))),
+        }), cause => new AppIndexEntryReadPersistenceError("scanCurrent", cause))).pipe(Effect.mapError(error));
         const rows = yield* Effect.fromResult(captureDriverRowsResult(result)).pipe(Effect.mapError(error));
         const grouped: unknown[][] = prepared.map(() => []);
         for (const raw of rows) {
@@ -1838,29 +1845,61 @@ type CurrentRangeExpressions = Readonly<{ scopeUuid: SQL; indexDefinitionId: SQL
   bounds: Readonly<{ startInclusive?: SQL; endExclusive?: SQL }>;
   after?: Readonly<{ keyBytes: SQL; rowIdBytes: SQL }>; limit: SQL }>;
 
-function buildCurrentRangeStatement(input: DecodedAppIndexRangeReadV1): SQL {
-  return buildPreparedCurrentRangeStatement({ scopeUuid: sql`${input.scopeUuid}`, indexDefinitionId: sql`${input.indexDefinitionId}`,
-    bounds: { ...(input.bounds.startInclusive === undefined ? {} : { startInclusive: sql`${input.bounds.startInclusive}` }),
-      ...(input.bounds.endExclusive === undefined ? {} : { endExclusive: sql`${input.bounds.endExclusive}` }) },
-    ...(input.after === undefined ? {} : { after: { keyBytes: sql`${input.after.keyBytes}`, rowIdBytes: sql`${input.after.rowIdBytes}` } }),
-    limit: sql`${input.limit + 1}` });
+function buildDemandPointerStatement(shape: number): SQL {
+  const input: CurrentRangeExpressions = {
+    scopeUuid: sql`d.scope_uuid`, indexDefinitionId: sql`d.definition_id`,
+    bounds: {
+      ...(shape & 1 ? { startInclusive: sql`decode(d.start_hex, 'hex')` } : {}),
+      ...(shape & 2 ? { endExclusive: sql`decode(d.end_hex, 'hex')` } : {}),
+    },
+    ...(shape & 4 ? { after: { keyBytes: sql`decode(d.after_key_hex, 'hex')`, rowIdBytes: sql`decode(d.after_row_hex, 'hex')` } } : {}),
+    limit: sql`d.page_limit`,
+  };
+  return buildCurrentPointerStatement(input,
+    [sql`d.shape = ${sql.raw(String(shape))}`, ...rangePredicates("current_entry", input)]);
 }
 
-function buildPreparedCurrentRangeStatement(input: CurrentRangeExpressions): SQL {
-  const predicates = rangePredicates("current_entry", input);
+// One code-defined query for every bounded demand vector. Eight one-time-gated
+// shapes keep bounds/cursors as index conditions rather than nullable filters.
+// Only predicate presence selects a branch; all values bind freshly per demand.
+const readCurrentDemandPages = defineNativeMetadataRead(db => db.execute(sql`
+  select (d.ordinal - 1)::integer as "ordinal", member.*
+  from rows from (jsonb_to_recordset(${sql.placeholder("demands")}::jsonb) as
+    (scope_uuid uuid, definition_id integer, start_hex text, end_hex text,
+      after_key_hex text, after_row_hex text, page_limit integer, shape integer)) with ordinality
+    as d(scope_uuid, definition_id, start_hex, end_hex, after_key_hex, after_row_hex, page_limit, shape, ordinal)
+  left join lateral (
+    select true as "present", page.* from (${buildCurrentRevisionStatement(
+      sql.join(Array.from({ length: 8 }, (_, shape) => sql`(${buildDemandPointerStatement(shape)})`), sql` union all `),
+    )}) as page
+  ) as member on true
+  order by "ordinal", "encodedKeyBytes", "rowIdBytes"
+`), "raw", "fx_index_demands");
+
+function buildPreparedCurrentRangeStatement(input: CurrentRangeExpressions,
+  predicates = rangePredicates("current_entry", input)): SQL {
+  return buildCurrentRevisionStatement(buildCurrentPointerStatement(input, predicates));
+}
+
+function buildCurrentPointerStatement(input: CurrentRangeExpressions,
+  predicates = rangePredicates("current_entry", input)): SQL {
   predicates.unshift(
     sql`current_entry.scope_uuid = ${input.scopeUuid}`,
     sql`current_entry.index_definition_id = ${input.indexDefinitionId}`,
   );
   return sql`
-    with page as materialized (
-      select current_entry.scope_uuid, current_entry.index_definition_id,
+    select current_entry.scope_uuid, current_entry.index_definition_id,
         current_entry.encoded_key, current_entry.row_id, current_entry.commit_seq
       from fx_app_index_entry_current as current_entry
       where ${sql.join(predicates, sql` and `)}
       order by current_entry.encoded_key asc, current_entry.row_id asc
       limit ${input.limit}
-    )
+  `;
+}
+
+function buildCurrentRevisionStatement(pointerStatement: SQL): SQL {
+  return sql`
+    with page as materialized (${pointerStatement})
     select
       current_entry.encoded_key as "currentEncodedKeyBytes",
       current_entry.row_id as "currentRowIdBytes",
@@ -1873,12 +1912,17 @@ function buildPreparedCurrentRangeStatement(input: CurrentRangeExpressions): SQL
       revision.commit_seq::text as "commitSeqText",
       revision.is_tombstone as "isTombstone"
     from page as current_entry
-    left join fx_app_index_entry_rev as revision
-      on revision.scope_uuid = current_entry.scope_uuid
-      and revision.index_definition_id = current_entry.index_definition_id
-      and revision.encoded_key = current_entry.encoded_key
-      and revision.row_id = current_entry.row_id
-      and revision.commit_seq = current_entry.commit_seq
+    left join lateral (
+      with matched_revision as materialized (
+        select stored.* from fx_app_index_entry_rev as stored
+        where stored.scope_uuid = current_entry.scope_uuid
+          and stored.index_definition_id = current_entry.index_definition_id
+          and stored.encoded_key = current_entry.encoded_key
+          and stored.row_id = current_entry.row_id
+          and stored.commit_seq = current_entry.commit_seq
+      )
+      select matched_revision.* from matched_revision
+    ) as revision on true
     order by current_entry.encoded_key asc, current_entry.row_id asc
   `;
 }

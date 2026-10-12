@@ -26,11 +26,26 @@ cleanup as the next performance cutover: key lowering already uses Result passes
 activity data already reuses its owner generation, and the remaining measured
 pure preparation envelopes are small. Preserve retained publication refusal
 ordering. Current-index attribution identifies repeated query structure as a
-planning target: the bounded OCC batch copies the range query per demand. The
-cost inventory proposes one static ordinal demand-vector statement, retaining
-every exact range, bound, empty witness and original refusal order. Actual plan
-reuse and complete-request savings remain candidate gates; runtime implementation
-is pending discussion. Materialization's immediate per-item RETURNING checks and
+planning target. The owner-approved current-index correction replaces per-demand
+query copies with one fixed ordinal demand-vector statement, retaining every
+exact range, bound, empty witness and original refusal order. Eight static gated
+predicate shapes preserve indexed cursor/end bounds. Actual physical-session
+generic-plan reuse and selective large-range access are validated. The
+refinement now shares one pointer-page revision lookup and result projection
+across those shapes, reducing the fixed SQL statement to 6,235 characters.
+Exact checks, all demands and fresh observations remain. The
+refinement's [isolated complete results](../../work/validation/shared-execution-evidence/occ-vector-compact-isolated/results.md)
+exclude active peer runtime changes and still fail every fixed CPU/latency gate;
+the owner requests committing this correction despite those failed gates.
+Smaller SQL text does not establish CPU
+improvement. Complete
+performance acceptance remains unmet on all five complete graphs. This correction
+is committed at the owner's explicit request without complete performance
+acceptance; the earlier actual mixed-workflow diagnostic confirms reused
+planning while every demand and fresh check remains. The
+[complete results](../../work/validation/shared-execution-evidence/occ-vector/results.md)
+keep client CPU, quiet latency and database counts distinct. Materialization's
+immediate per-item RETURNING checks and
 final/prior-page publication proofs are required failure barriers, so bulk DML
 followed by aggregate validation is not an accepted shortcut. Exclusive removable
 client CPU remains unresolved; observed factory/rendering envelopes and library

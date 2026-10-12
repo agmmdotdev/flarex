@@ -10,13 +10,31 @@ are reported separately below.
 
 ## Remaining capture and client cost
 
-The latest validated mixed baseline remains **125 ms median paired added thread
+The pre-OCC mixed baseline is **125 ms median paired added thread
 CPU** (a separate root-counter cohort has native/Flarex medians 31/156 ms).
-The latest valid quiet comparison has native/Flarex medians **34.76/252.58 ms**,
+Its valid quiet comparison has native/Flarex medians **34.76/252.58 ms**,
 paired added median **219.55 ms**, and paired added P95 **251.80 ms**, as retained
 in the [complete metadata-key results](../../../../../work/validation/shared-execution-evidence/metadata-key-reuse/results.md).
-No new matched CPU or quiet-latency comparison has been run after the ongoing OCC
-correction. These remain baseline measurements, not post-OCC acceptance.
+The [fixed OCC correction results](../../../../../work/validation/shared-execution-evidence/occ-vector/results.md)
+retain all 15 final-source counter/quiet/database processes with successful
+requests and unchanged sources/settings. Mixed workflow added thread CPU is
+**109 ms**; quiet native/Flarex medians are **42.04/276.83 ms**, with paired added
+median/P95 **234.15/349.75 ms**. All five graphs still fail every fixed CPU and
+latency gate. The correction is committed at the owner's explicit request despite
+failed complete performance acceptance. These are separate cohorts;
+the approximately one Windows-counter-tick CPU difference does not establish
+causal savings. The historical pricing wait remains a distinct diagnostic.
+
+The [compact OCC refinement results](../../../../../work/validation/shared-execution-evidence/occ-vector-compact-isolated/results.md)
+retain a separate isolated baseline plus the owned correction. All five graphs
+still fail the fixed CPU/latency gates: mixed workflow adds **125 ms** paired
+thread CPU and **240.29/291.26 ms** paired quiet median/P95 latency. Fifteen valid
+fresh-process results include one explicit Payload quiet replacement after a
+PostgreSQL fixture crash; the failed original process retained warmups and zero
+measured pairs. Active commerce/relation changes in the shared checkout are
+excluded. Source isolation does not establish an idle host or causal improvement
+over the earlier cohort. The owner requests committing the refinement while
+retaining the failed complete performance gates; the performance goal remains open.
 
 The [correlated pricing follow-up](../../../../../work/validation/shared-execution-evidence/price-wait-investigation/correlated-results.md)
 corrects the wait attribution: historical **172.1902 ms is one driver wait, not
@@ -58,12 +76,40 @@ application acceptance, materialization and prefix PostgreSQL execution ranges
 are 5.046–5.404, 18.764–20.499 and 5.211–6.185 ms respectively. These observed
 cohorts and inclusive server stages are not exclusive CPU or causal savings.
 
-The concrete **proposal for discussion** replaces the repeated OCC query structure
-at the existing bounded current-index reader with one static ordinal demand-vector
-statement. Keep every exact range, current transaction snapshot, empty witness,
+The owner approved the fixed OCC demand-vector correction in preflight 27. The
+existing bounded current-index reader now binds fresh typed JSON records to one
+6,235-character statement with eight static gated predicate shapes. The compact
+refinement replaces seven duplicated revision lookups and projections with one
+shared materialized pointer page and correlated five-key revision lookup. This
+removes 58.30% of the first 14,952-character fixed statement and 85.74% of the
+former 43,712-character per-demand query. Its seven
+UNION separators do not grow with demand count. Nullable cursor filters failed
+the scale witness by discarding 10,001 memberships; the direct predicates retain
+indexed cursor/end bounds and leave seven nonselected scans unexecuted.
+Correlated materialized revision lookups preserve all five pointer keys; this
+also removes the candidate's 12,004-revision hash scan for a one-pointer page.
+No LIMIT masks missing or duplicate evidence. Real
+prepared execution records 40 generic and five custom plans with default planner
+settings. Every exact range, current transaction snapshot, empty witness,
 limit/cursor bound, membership check and original preparation/consumer/body refusal
-order. Prove actual plan reuse and index access; a prepared name alone does not
-establish planning savings. No runtime implementation is approved by this diagnostic.
+order remain required. Plan reuse establishes removal of repeated planning after
+warmup on the physical session; it does not establish complete CPU/latency savings.
+The earlier 14,952-character candidate's bounded actual mixed-workflow server
+diagnostic confirms zero new OCC plans
+and zero planning milliseconds on each of three requests after five warmups,
+with execution **0.304/0.365/0.327 ms** and all 26 demand results retained.
+The replacement removes repeated planning on the witnessed physical connection,
+while exchanges remain **44/48/87/45/60** across the five complete graphs.
+All 38 mixed captures and fresh storage/authorization/publication checks remain.
+See the [implementation handoff](../../../../../work/validation/shared-execution-evidence/occ-vector/handoff.md)
+for the physical-session and large-range proofs, retained failed prototypes,
+diagnostic profile correction and complete performance disposition.
+The [compact handoff](../../../../../work/validation/shared-execution-evidence/occ-vector-compact/handoff.md)
+owns the refined plan/scale and overlapping commit/rollback/failure witnesses.
+Its supplementary actual-server diagnostic failed during fixture acquisition on
+the retained publication timeout, before measured business requests; it is not
+evidence of the refined query's execution cost. The physical-session fixture
+proves the refined statement's plan reuse independently.
 
 Materialization performs nine row revisions, 42 index revisions, 39 current-index
 inserts and three current-index deletes, alongside current-row, unique and search

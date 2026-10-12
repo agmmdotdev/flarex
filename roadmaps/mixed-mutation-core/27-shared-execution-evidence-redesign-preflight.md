@@ -3584,6 +3584,90 @@ both final reviews. Repeat the complete matched native performance matrix with
 sources stable across every lane. The existing CPU and latency acceptance gates
 remain fixed; reduced interpretation counts do not establish complete acceptance.
 
+#### Approved correction: fixed OCC demand-vector query
+
+The owner approves replacing the current-index batch reader's repeated UNION
+query structure with one fixed, bounded ordinal demand-vector statement. The
+measured mixed workflow has 26 exact range demands in one query; PostgreSQL
+planning dominates its execution. This correction removes repeated SQL structure
+and permits physical-session plan reuse, without removing a demand or caching
+storage results, authority, readiness or publication evidence.
+
+Keep `consumeCurrentAppIndexPagesInTransactionEffect` as the owner of ordered
+preparation and consumption. Preserve 32-demand and projected-output bounds,
+scope resolution, empty sentinels, limit+1, key/row cursor ordering, exact
+pointer/revision membership, envelope validation and per-ordinal body decoding.
+Execute the successful prepared prefix before surfacing a later preparation
+failure; an earlier consumer conflict must precede later malformed stored data.
+All original transaction/freshness/metadata/authorization checks remain in place.
+
+Compile the code-defined statement through the existing native read owner and
+bind fresh typed scalar-record vectors to each actual checkout. The internal JSON
+recordset representation keeps generic/custom cardinality estimates consistent;
+array unnest permitted repeated custom planning in the default-planner witness.
+Use eight static, one-time-gated predicate shapes inside that statement. A
+nullable cursor filter discarded 10,001 memberships in the scale witness;
+direct shape predicates preserve indexed end bounds and key/row cursors. The
+seven fixed UNION separators do not grow with demand count. Nonselected shapes
+must not scan memberships; do not substitute sentinel maxima or force planner
+settings to obtain this proof.
+Keep each selected pointer's revision lookup correlated and materialized using
+all five existing keys. Unknown vector page limits otherwise allowed a generic
+hash join to scan 12,004 revisions for one pointer. Preserve missing-revision
+NULL evidence and all matching rows; do not mask corruption with an added LIMIT.
+A content-derived prepared identity
+retains no session or results and must not introduce another registry or host
+lifecycle. Delete the displaced per-demand UNION builder; single-range readers
+keep their existing shapes. No durable data, schema, public API or transaction
+contract is replaced. Optional bounds must retain their original semantics,
+including malformed stored membership, rather than assume sentinel maxima.
+
+Prove parameter/ordinal isolation and failure ordering, bounded/empty/cursor
+reads, rollback and concurrent range changes on PGlite and ordinary PostgreSQL.
+Verify actual prepared execution and generic/custom plan counters with default
+planner settings and representative index access, including variable demand
+counts on one physical session. Run affected consumers, strict checks, lint and
+both reviewers, then complete five-graph matched native CPU/quiet/database lanes
+with stable sources and unchanged acceptance gates. Planning improvement alone
+does not establish complete performance acceptance or resolve the remaining CPU.
+The fixed-query candidate is implemented with bounded pointer/revision access
+and reused physical-session planning. Complete native-relative CPU and latency
+acceptance remains unmet on all five graphs. The owner explicitly requests this
+correction be committed while the performance deliverable remains unfinished.
+Retain all fresh
+checks and measured demands; further work must follow demonstrated owner costs,
+not assume that plan reuse resolves capture waits or client interpretation.
+
+#### Approved refinement: shared demand-vector revision lookup
+
+The owner requests further optimization of the fixed OCC statement. The eight
+indexed predicate shapes currently duplicate the revision lookup and decoded-row
+projection. Retain eight bounded, one-time-gated pointer selections, materialize
+their selected union once per demand, then apply one shared correlated,
+materialized five-key revision lookup and projection. Single-range and vector
+readers reuse the same pointer and revision statement owners. No storage demand,
+fresh check, public contract, durable format or schema changes; no result cache,
+sentinel bounds, forced planner setting or database-function relocation.
+
+Preserve ordered preparation/consumption, empty and missing-revision evidence,
+all matching revisions, exact cursor/lookahead and first-failure ordering. Delete
+the duplicated full-range branch construction within this refinement. Verify all
+eight shapes, rollback and concurrent publication on PGlite and ordinary-role
+PostgreSQL; prove default-planner reuse and selective large-range/history access.
+Run both reviews and complete matched performance before reporting acceptance.
+Smaller SQL text is a structural result, not evidence of lower client CPU.
+
+The implemented refinement shares one revision lookup/projection across the
+eight bounded pointer selections. Physical-session reuse and selective scale
+access are proved for its 6,235-character statement. Overlapping genuine writer
+commit/rollback and acquisition refusal preserve fresh validation and terminal
+cleanup. The isolated complete native-relative CPU and latency gates remain
+unmet for all five graphs. The owner explicitly authorizes committing this
+correctness-proved refinement despite those failed gates; this exception does
+not lower the gates or complete the performance deliverable. Active
+commerce/relation changes are outside that measured baseline. Keep every fresh
+check and demand; no complete CPU improvement follows from this structural cut.
+
 #### Validation and complete delivery gate
 
 Prove fixed commands execute through one physical lifecycle without exposing a

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   createTableRelationsHelpers,
   extractTablesRelationalConfig,
@@ -41,6 +42,7 @@ type NativeReadPreparation = Readonly<{
   queryMetadata: NativeQueryMetadata;
   cacheConfig: NativeCacheConfig;
   isResponseInArrayMode: boolean;
+  statementName?: string;
 }>;
 
 /** PgSelectBase._prepare writes this native runtime property after preparation.
@@ -105,7 +107,7 @@ class BoundNativeRead<Value> extends QueryPromise<Value> {
     // this map to collapse nullable nested selections, without a custom mapper.
     const query: PgPreparedQuery<PreparedQueryConfig & { execute: Value }> & Pick<NativeReadPreparation, "joinsNotNullableMap"> = Object.assign(
       this.database._.session.prepareQuery<PreparedQueryConfig & { execute: Value }>(prepared.query, prepared.fields,
-        undefined, prepared.isResponseInArrayMode, undefined, prepared.queryMetadata, prepared.cacheConfig),
+        prepared.statementName, prepared.isResponseInArrayMode, undefined, prepared.queryMetadata, prepared.cacheConfig),
       { joinsNotNullableMap: prepared.joinsNotNullableMap },
     );
     return query;
@@ -121,7 +123,7 @@ class BoundNativeRead<Value> extends QueryPromise<Value> {
  * row type. Raw mode retains native eager preparation with lazy transport. */
 export function defineNativeMetadataRead<Statement extends
   { prepare(name: string): PgPreparedQuery<PreparedQueryConfig> } | { execute(): Promise<unknown> }
->(build: (database: FlarexMetadataDatabase) => Statement, mode: "select" | "raw" = "select") {
+>(build: (database: FlarexMetadataDatabase) => Statement, mode: "select" | "raw" = "select", name?: string) {
   type Value = Statement extends { prepare(name: string): infer Prepared extends PgPreparedQuery<PreparedQueryConfig> }
     ? Awaited<ReturnType<Prepared["execute"]>>
     : Statement extends { execute(): Promise<infer RawValue> } ? RawValue : never;
@@ -139,7 +141,9 @@ export function defineNativeMetadataRead<Statement extends
     if ("prepare" in statement) statement.prepare("compile_static_metadata_read");
     const captured = session.captured;
     if (captured === undefined) throw new Error("Native metadata read did not prepare a statement");
-    preparation = captured.preparation();
+    const native = captured.preparation();
+    preparation = name === undefined ? native : Object.freeze({ ...native,
+      statementName: `${name}_${createHash("sha256").update(native.query.sql).digest("hex").slice(0, 40)}` });
     return preparation;
   };
   return (database: FlarexMetadataDatabase, bindings: Record<string, unknown>) => new BoundNativeRead<Value>(compile, database, bindings, mode === "raw");

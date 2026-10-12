@@ -1,6 +1,10 @@
+import { createHash } from "node:crypto";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import { verifyIndexBatches } from "./indexBatchScenario";
 import { verifyMembershipReadPreparation } from "./indexMembershipReadScenario";
+import { verifyDemandVectorFreshness } from "../documents/logicalDependencyValidationScenario";
+import { consumeLogicalIndexRanges, readLogicalIndexRange, sameLogicalIndexMembership } from "../../../src/storage/documents/logicalDocuments/indexReads";
+import { closeExactAttemptScopeClockObservation, lockScopeClockRowsForOrdinaryWriteInTransactionEffect } from "../../../src/scope/scopeClock";
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import {
   canonicalizeAppDocumentV1,
@@ -14,6 +18,7 @@ import {
 import {
   APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
   APP_BY_ID_PHYSICAL_SPEC_V1,
+  decodeOrderedIndexBoundHexV1,
   encodeOrderedIndexComponentsV1,
   orderedIndexCreationTimeV1,
   type OrderedIndexKeyHexV1,
@@ -29,7 +34,10 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { Deferred, Effect, Result, Schema } from "effect";
+import { fillPlaceholders, sql } from "drizzle-orm";
+import { rowsFromDriverExecuteResult } from "../../../src/database/driverExecuteResult";
 
 import {
   AppIndexEntryRevisionAlreadyExistsError,
@@ -40,6 +48,7 @@ import {
   scanAppIndexAtSnapshotInTransactionEffect,
   scanCurrentAppIndexInTransactionEffect,
   scanCurrentPublicationIndexInTransactionEffect,
+  consumeCurrentAppIndexPagesInTransactionEffect,
 } from "../../../src/storage/indexes/appIndexEntries";
 import {
   locateAppIndexDefinitionByIdEffect,
@@ -124,6 +133,13 @@ return await runEffectFailure(
     });
   });
 
+  it("retains rollback and fresh OCC across interleaved predicate writers", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      await insertClock(persistence);
+      await verifyDemandVectorFreshness(persistence.drizzle, scopeId, epoch, locatedDefinition);
+    });
+  });
+
   it("applies bounded index batches with exact returned keys and atomic rollback", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
       await insertClock(persistence);
@@ -135,6 +151,81 @@ return await runEffectFailure(
           .toEqual([{ checkout: 1, submittedCommand: "begin", returnedCommand: "BEGIN" },
             { checkout: 1, submittedCommand: "commit", returnedCommand: "ROLLBACK" }]);
       });
+    });
+  }, 120_000);
+
+  it.each(["commit", "rollback", "acquisitionFailure"] as const)("keeps nonempty demand validation fresh across an overlapping writer %s", async disposition => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      await insertClock(persistence);
+      const write = async (tx: Parameters<typeof appendRow>[0], sequence: bigint) => {
+        await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
+        await appendRow(tx, rowA, sequence, sequence === 1n ? null : 1n, "overlap");
+        await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx,
+          [{ ...indexEntry(rowA, keyA, sequence), kind: sequence === 1n ? "live" : "tombstone" }]));
+      };
+      await persistence.drizzle.transaction(async tx => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try { await write(tx, 1n); }
+        finally { closeExactAttemptScopeClockObservation(tx); closeInstallationAdmission(tx); }
+      });
+      const entered = await runEffect(Deferred.make<void, unknown>());
+      const release = await runEffect(Deferred.make<void>());
+      const rollback = new Error("overlapping vector writer rollback");
+      const acquisitionRefusal = new Error("overlapping vector writer acquisition refused");
+      const transactionFailure = disposition === "acquisitionFailure"
+        ? vi.spyOn(persistence.drizzle, "transaction").mockRejectedValueOnce(acquisitionRefusal) : undefined;
+      const writer = runEffect(Effect.tryPromise({
+        try: () => persistence.drizzle.transaction(async tx => {
+          await runEffect(lockInstallationForCurrentTransaction(tx));
+          try {
+            await write(tx, 2n);
+            await runEffect(Deferred.succeed(entered, undefined));
+            await runEffect(Deferred.await(release));
+            if (disposition === "rollback") throw rollback;
+          } finally {
+            closeExactAttemptScopeClockObservation(tx); closeInstallationAdmission(tx);
+          }
+        }), catch: cause => cause,
+      }).pipe(Effect.onExit(exit => Deferred.done(entered, exit)), Effect.result));
+      try {
+        if (disposition === "acquisitionFailure") {
+          await expect(runEffect(Deferred.await(entered))).rejects.toBe(acquisitionRefusal);
+          Result.match(await writer, {
+            onSuccess: () => expect.fail("Writer acquisition unexpectedly succeeded"),
+            onFailure: cause => expect(cause).toBe(acquisitionRefusal),
+          });
+          return;
+        }
+        await runEffect(Deferred.await(entered));
+        await persistence.drizzle.transaction(async tx => {
+          await runEffect(lockInstallationForCurrentTransaction(tx));
+          try {
+            const bounds = { startInclusive: decodeOrderedIndexBoundHexV1(keyA),
+              endExclusive: decodeOrderedIndexBoundHexV1(keyB) };
+            const captured = await runEffect(readLogicalIndexRange(tx, scopeId, { definition: locatedDefinition, bounds }, 4096,
+              reason => reason));
+            expect(captured.map(entry => entry.commitSeq)).toEqual([1n]);
+            const conflict = "overlapping writer changed the range";
+            const validate = () => consumeLogicalIndexRanges(tx, scopeId,
+              [{ definition: locatedDefinition, bounds, entries: captured }], 4096, reason => reason,
+              (_, current) => sameLogicalIndexMembership(current, captured) ? Effect.void : Effect.fail(conflict));
+            // The uncommitted pointer/revision must be invisible to the vector.
+            await runEffect(validate());
+            await runEffect(Deferred.succeed(release, undefined));
+            const outcome = await writer;
+            Result.match(outcome, {
+              onSuccess: () => expect(disposition).toBe("commit"),
+              onFailure: cause => { expect(disposition).toBe("rollback"); expect(cause).toBe(rollback); },
+            });
+            await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
+            if (disposition === "commit") expect(await runEffectFailure(validate())).toBe(conflict);
+            else await runEffect(validate());
+          } finally { closeExactAttemptScopeClockObservation(tx); closeInstallationAdmission(tx); }
+        });
+      } finally {
+        await runEffect(Deferred.succeed(release, undefined)); await writer;
+        transactionFailure?.mockRestore();
+      }
     });
   }, 120_000);
 
@@ -246,9 +337,126 @@ return await runEffect(
         expect(revisionCondition).toContain(`current_entry.${field}`);
       }
       expect(plans.current).not.toMatch(/Join Filter:/);
+      await verifyDemandVectorPlanReuse(persistence);
     });
   }, 30_000);
 });
+
+/** Real named executions on one checkout with the default planner. Inspect the
+ * server counters, then explain that exact prepared command and bound vector. */
+async function verifyDemandVectorPlanReuse(persistence: PostgresFlarexPersistence) {
+  await persistence.drizzle.transaction(async tx => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    const nativePrepare = tx._.session.prepareQuery.bind(tx._.session);
+    let lastBindings: readonly unknown[] = [];
+    const prepare = vi.spyOn(tx._.session, "prepareQuery").mockImplementation((...args) => {
+      const prepared = nativePrepare(...args);
+      if (args[2]?.startsWith("fx_index_demands_")) {
+        vi.spyOn(prepared, "execute").mockImplementation(bindings => {
+          lastBindings = fillPlaceholders(args[0].params, bindings ?? {});
+          return nativePrepare(...args).execute(bindings);
+        });
+      }
+      return prepared;
+    });
+    try {
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const count = [1, 26, 4, 32][attempt % 4];
+        if (count === undefined) throw new Error("Missing demand-count witness");
+        let consumed = 0;
+        await runEffect(consumeCurrentAppIndexPagesInTransactionEffect(tx, Array.from({ length: count }, (_, ordinal) => ({
+          scopeId, definition: locatedDefinition,
+          bounds: ordinal % 2 === 0 ? {} : { startInclusive: decodeOrderedIndexBoundHexV1(keyC) }, limit: 10,
+        })), cause => cause, (ordinal, page) => Effect.sync(() => {
+          expect(ordinal).toBe(consumed++);
+          expect(page.entries.map(entry => entry.rowId)).toEqual(ordinal % 2 === 0 ? [rowB, rowA] : [rowA]);
+        })));
+        expect(consumed).toBe(count);
+      }
+      const records = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({
+        name: Schema.String, statement: Schema.String,
+        generic: Schema.BigIntFromString, custom: Schema.BigIntFromString,
+      })))(rowsFromDriverExecuteResult(await tx.execute(sql`
+        select name, statement, generic_plans::text as generic, custom_plans::text as custom
+        from pg_prepared_statements where name like 'fx_index_demands_%'
+      `), () => { throw new Error("Missing prepared statement rows"); }));
+      expect(records).toHaveLength(1);
+      const command = records[0];
+      if (command === undefined) throw new Error("Missing prepared demand command");
+      expect(command.statement.match(/union all/gi)).toHaveLength(7);
+      expect(command.statement.length).toBeLessThan(8000);
+      expect(command.generic).toBeGreaterThan(0n);
+      expect(command.generic + command.custom).toBeGreaterThanOrEqual(20n);
+      expect(lastBindings).toHaveLength(1);
+      // EXECUTE requires utility-statement literals, not protocol placeholders.
+      // The observed binding is internally encoded scalar JSON; escape SQL
+      // quotes explicitly, and retain default standard-conforming string policy.
+      expect(rowsFromDriverExecuteResult(await tx.execute(sql`show standard_conforming_strings`),
+        () => { throw new Error("Missing string policy"); })).toEqual([{ standard_conforming_strings: "on" }]);
+      const literals = lastBindings.map(value => {
+        if (typeof value !== "string") throw new Error("Demand binding is not encoded JSON");
+        return sql.raw(`'${value.replaceAll("'", "''")}'`);
+      });
+      const explained = rowsFromDriverExecuteResult(await tx.execute(sql`
+        explain (costs off) execute ${sql.identifier(command.name)}(${sql.join(literals, sql`, `)})
+      `), () => { throw new Error("Missing prepared plan"); });
+      const text = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ "QUERY PLAN": Schema.String })))(explained)
+        .map(row => row["QUERY PLAN"]).join("\n");
+      expect(text).toMatch(/Function Scan on jsonb_to_recordset d/);
+      expect(text).toMatch(/fx_app_index_entry_rev_(?:pk|commit_range_idx)/);
+      expect(text).toContain("current_entry.commit_seq");
+      // Genuine encoded keys preceding the late cursor. Clone the existing
+      // authoritative row identity and index metadata, preserving both FKs.
+      const keys = Array.from({ length: 10000 }, (_, ordinal) => {
+        const encoded = encodeOrderedIndexComponentsV1([orderedIndexCreationTimeV1(90 + ordinal / 100000)]);
+        return { key: encoded, sha: createHash("sha256").update(Buffer.from(encoded, "hex")).digest("hex") };
+      });
+      await tx.execute(sql`
+        insert into fx_app_index_entry_rev
+          (scope_uuid,index_definition_id,table_id,key_codec_version,physical_spec_sha256,
+           encoded_key,key_sha256,row_id,commit_seq,is_tombstone)
+        select r.scope_uuid,r.index_definition_id,r.table_id,r.key_codec_version,r.physical_spec_sha256,
+          decode(k.key,'hex'),decode(k.sha,'hex'),r.row_id,r.commit_seq,r.is_tombstone
+        from fx_app_index_entry_rev r cross join jsonb_to_recordset(${JSON.stringify(keys)}::jsonb) as k(key text,sha text)
+        where r.row_id=decode(${rowB},'hex') and r.commit_seq=2
+      `);
+      await tx.execute(sql`
+        insert into fx_app_index_entry_current (scope_uuid,index_definition_id,encoded_key,row_id,commit_seq)
+        select r.scope_uuid,r.index_definition_id,r.encoded_key,r.row_id,r.commit_seq
+        from fx_app_index_entry_rev r where r.row_id=decode(${rowB},'hex') and r.commit_seq=2
+          and r.encoded_key < decode(${keyA},'hex')
+      `);
+      await tx.execute(sql`analyze fx_app_index_entry_current`);
+      await tx.execute(sql`analyze fx_app_index_entry_rev`);
+      const scalePlans: string[] = [];
+      for (const demand of [
+        { scopeId, definition: locatedDefinition, bounds: {}, after: { encodedKey: keyB, rowId: rowB }, limit: 10 },
+        { scopeId, definition: locatedDefinition, bounds: { endExclusive: decodeOrderedIndexBoundHexV1(keys[0]?.key ?? keyA) }, limit: 10 },
+      ]) {
+        await runEffect(consumeCurrentAppIndexPagesInTransactionEffect(tx, [demand], cause => cause,
+          (_, page) => Effect.sync(() => expect(page.entries.map(entry => entry.rowId))
+            .toEqual(demand.after === undefined ? [] : [rowA]))));
+        const binding = lastBindings[0];
+        if (typeof binding !== "string") throw new Error("Missing scale demand binding");
+        const result = rowsFromDriverExecuteResult(await tx.execute(sql`
+          explain (analyze, costs off, timing off) execute ${sql.identifier(command.name)}
+            (${sql.raw(`'${binding.replaceAll("'", "''")}'`)})
+        `), () => { throw new Error("Missing scale plan"); });
+        const plan = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ "QUERY PLAN": Schema.String })))(result)
+          .map(row => row["QUERY PLAN"]).join("\n");
+        scalePlans.push(plan);
+        expect(plan.match(/One-Time Filter:/g)).toHaveLength(8);
+        expect(plan.match(/Index (?:Only )?Scan using fx_app_index_entry_current_pk[^\n]*\(never executed\)/g)).toHaveLength(7);
+        // Pointer selection alone is insufficient: unknown JSON page limits
+        // must not turn the revision point lookup into a whole-history hash join.
+        expect(plan).not.toMatch(/Seq Scan on fx_app_index_entry_rev/);
+        for (const match of plan.matchAll(/Rows Removed by Filter: (\d+)/g)) expect(Number(match[1])).toBeLessThan(20);
+      }
+      console.log(JSON.stringify({ demandVectorPlan: { chars: command.statement.length,
+        genericPlans: command.generic.toString(), customPlans: command.custom.toString(), plan: text, scalePlans } }));
+    } finally { prepare.mockRestore(); closeInstallationAdmission(tx); }
+  });
+}
 
 async function insertClock(
   persistence: PostgresFlarexPersistence,

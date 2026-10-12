@@ -4441,7 +4441,7 @@
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-business/cost-inventory-proposal.md",
       "classification": "authored",
-      "targetSha256": "e15eb9bdb30bd9a6f89864810b7273d3e611df0b7882f2cdbe882262ae11257a"
+      "targetSha256": "64c01277c3a1de5e329478cdec3032ec5f9f2e610267949b623fa48a6e3dde4a"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",

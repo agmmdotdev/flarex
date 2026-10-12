@@ -6,14 +6,18 @@ import { canonicalizeAppDocumentV1, decodeAppCreationTimeV1 } from "flarex-proto
 import { appRowIdHexV1ToBytes, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { decodeOrderedIndexBoundHexV1, encodeAppOrderedIndexKeyV1, orderedIndexCreationTimeV1 } from "flarex-protocol/ordered-index";
+import { decodeOrderedIndexBoundHexV1, encodeAppOrderedIndexKeyV1, encodeOrderedIndexComponentsV1,
+  orderedIndexCreationTimeV1 } from "flarex-protocol/ordered-index";
 import { CommitSeqSchema, type ScopeEpoch, type ScopeId } from "flarex-protocol/storage-authority";
 import type { LocatedAppIndexDefinitionV1 } from "../../../src/storage/indexes/appIndexDefinitions";
-import { appendAppIndexEntryRevisionsInTransactionEffect } from "../../../src/storage/indexes/appIndexEntries";
+import { appendAppIndexEntryRevisionsInTransactionEffect, consumeCurrentAppIndexPagesInTransactionEffect,
+  scanCurrentAppIndexInTransactionEffect, type ScanCurrentAppIndexV1Input,
+  type AppIndexRangePageV1 } from "../../../src/storage/indexes/appIndexEntries";
 import { appendPreparedAppRowRevisionsInTransactionEffect, consumeAppTableWriteFrontiersInTransactionEffect } from "../../../src/storage/documents/appRows";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
 import { validateLogicalDocumentChanges, type LogicalDocumentConflictObservation } from "../../../src/storage/documents/logicalDocuments/contribution";
-import { readLogicalIndexRange } from "../../../src/storage/documents/logicalDocuments/indexReads";
+import { readLogicalIndexRange, consumeLogicalIndexRanges,
+  sameLogicalIndexMembership } from "../../../src/storage/documents/logicalDocuments/indexReads";
 import type { LogicalDocumentFailureReason } from "../../../src/storage/documents/logicalDocuments/model";
 import type { LogicalDocumentChanges } from "../../../src/storage/documents/logicalDocuments/workingSet";
 import { fxAppIndexEntryRevisions } from "../../../src/database/schema";
@@ -61,7 +65,7 @@ export async function verifyLogicalDependencyValidation(db: FlarexMetadataDataba
           endExclusive: decodeOrderedIndexBoundHexV1(encodedKey)
         }, entries: []
       };
-      const execute = vi.spyOn(tx, "execute");
+      const execute = vi.spyOn(tx._.session, "prepareQuery");
       try {
         await runEffect(validateLogicalDocumentChanges(input, {
           ...empty,
@@ -89,6 +93,32 @@ export async function verifyLogicalDependencyValidation(db: FlarexMetadataDataba
       const firstEntry = entries[0];
       const secondEntry = entries[1];
       if (firstEntry === undefined || secondEntry === undefined) throw new Error("Missing genuine range members");
+      // The fixed statement must preserve every nullable predicate combination,
+      // cursor tie-break and empty witness, with fresh bindings across calls.
+      const demands: ScanCurrentAppIndexV1Input[] = Array.from({ length: 8 }, (_, shape) => ({
+        scopeId, definition, limit: 1,
+        bounds: { ...(shape & 1 ? { startInclusive: decodeOrderedIndexBoundHexV1(encodedKey) } : {}),
+          ...(shape & 2 ? { endExclusive: decodeOrderedIndexBoundHexV1(encodedKey + "ff") } : {}) },
+        ...(shape & 4 ? { after: { encodedKey: firstEntry.encodedKey, rowId: firstEntry.rowId } } : {}),
+      }));
+      const expected: AppIndexRangePageV1[] = [];
+      for (const demand of demands) expected.push(await runEffect(scanCurrentAppIndexInTransactionEffect(tx, demand)));
+      for (const count of [1, 8, 35]) {
+        const vector = Array.from({ length: count }, (_, ordinal) => {
+          const demand = demands[ordinal % demands.length];
+          if (demand === undefined) throw new Error("Missing demand fixture");
+          return demand;
+        });
+        const pages: typeof expected = [];
+        await runEffect(consumeCurrentAppIndexPagesInTransactionEffect(tx, vector, cause => error("storedCorruption", cause),
+          (ordinal, page) => Effect.sync(() => { expect(ordinal).toBe(pages.length); pages.push(page); })));
+        expect(pages).toEqual(vector.map((_, ordinal) => expected[ordinal % demands.length]));
+      }
+      const firstRefusal = error("writeConflict");
+      const validDemand = { scopeId, definition, bounds: {}, limit: 1 };
+      expect(await runEffectFailure(consumeCurrentAppIndexPagesInTransactionEffect(tx,
+        [validDemand, { ...validDemand, limit: 0 }], cause => error("storedCorruption", cause),
+        () => Effect.fail(firstRefusal)))).toBe(firstRefusal);
       const pageRead = { ...read, entries: [firstEntry], isDone: false };
       await runEffect(validateLogicalDocumentChanges(input, { ...empty, pageReads: [pageRead] }));
       expect(await runEffectFailure(validateLogicalDocumentChanges(input,
@@ -121,6 +151,10 @@ export async function verifyLogicalDependencyValidation(db: FlarexMetadataDataba
       await tx.update(fxAppIndexEntryRevisions).set({ keySha256: new Uint8Array(32) }).where(and(
         eq(fxAppIndexEntryRevisions.indexDefinitionId, definition.indexDefinitionId),
         eq(fxAppIndexEntryRevisions.rowId, appRowIdHexV1ToBytes(lastRow))));
+      // An earlier empty-page consumer refusal precedes later stored-body decoding.
+      expect(await runEffectFailure(consumeCurrentAppIndexPagesInTransactionEffect(tx,
+        [{ scopeId, definition, bounds: negative.bounds, limit: 1 }, { ...validDemand, limit: 10 }],
+        cause => error("storedCorruption", cause), () => Effect.fail(firstRefusal)))).toBe(firstRefusal);
       // The third body is beyond the initial one-member page and its lookahead.
       // Its corruption must be read before a cardinality mismatch becomes conflict.
       expect(await runEffectFailure(validateLogicalDocumentChanges(input,
@@ -131,4 +165,68 @@ export async function verifyLogicalDependencyValidation(db: FlarexMetadataDataba
       closeInstallationAdmission(tx);
     }
   })).rejects.toBe(rollback);
+}
+
+/** A captured predicate and settlement are separate transactions. A committed
+ * writer between them must produce a phantom/revision conflict, never a reused
+ * result. PGlite exercises committed interleaving; PostgreSQL also has independent
+ * connection/lock concurrency witnesses in the owner suite. */
+export async function verifyDemandVectorFreshness(db: FlarexMetadataDatabase, scopeId: ScopeId,
+  epoch: ScopeEpoch, definition: LocatedAppIndexDefinitionV1) {
+  const tableId = definition.access.tableId;
+  const rowId = decodeAppRowIdHexV1("000000000000000000000000000000ef");
+  const creationTime = decodeAppCreationTimeV1(45);
+  const encodedKey = encodeOrderedIndexComponentsV1([orderedIndexCreationTimeV1(45)]);
+  const bounds = { startInclusive: decodeOrderedIndexBoundHexV1(encodedKey),
+    endExclusive: decodeOrderedIndexBoundHexV1(encodedKey + "ff") };
+  const document = await canonicalizeAppDocumentV1({ tableId, rowId, creationTime, fields: { title: "fresh-demand" } });
+  const read = () => db.transaction(async tx => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try { return await runEffect(readLogicalIndexRange(tx, scopeId, { definition, bounds }, 4096, error)); }
+    finally { closeInstallationAdmission(tx); }
+  });
+  const write = (sequence: bigint, rollback?: Error, tombstone = false) => db.transaction(async tx => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
+      await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{ kind: "live", scopeId, tableId, rowId,
+        writeEpoch: epoch, commitSeq: CommitSeqSchema.make(sequence),
+        prevCommitSeq: sequence === 1n ? null : CommitSeqSchema.make(sequence - 1n),
+        schemaVersionId: decodeCatalogSchemaVersionId("demand_freshness"), creationTime, document }]));
+      await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{ kind: tombstone ? "tombstone" : "live",
+        scopeId, definition, encodedKey, rowId, writeEpoch: epoch, commitSeq: CommitSeqSchema.make(sequence) }]));
+      if (rollback !== undefined) throw rollback;
+    } finally { closeExactAttemptScopeClockObservation(tx); closeInstallationAdmission(tx); }
+  });
+  const initial = await read();
+  expect(initial).toEqual([]);
+  const rollback = new Error("demand-vector writer rollback");
+  await expect(write(1n, rollback)).rejects.toBe(rollback);
+  expect(await read()).toEqual(initial);
+  await write(1n);
+  const validate = (entries: typeof initial) => db.transaction(async tx => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
+      // This fixture's genuine intrinsic definition is a storage demand, not a
+      // developer contribution capability. Exercise the existing range consumer
+      // and membership verdict without fabricating developer authority.
+      return await runEffectFailure(consumeLogicalIndexRanges(tx, scopeId, [{ definition, bounds, entries }], 4096, error,
+        (ordinal, current) => {
+          expect(ordinal).toBe(0);
+          return sameLogicalIndexMembership(current, entries) ? Effect.void : Effect.fail(error("writeConflict"));
+        }));
+    } finally { closeExactAttemptScopeClockObservation(tx); closeInstallationAdmission(tx); }
+  });
+  expect(await validate(initial)).toMatchObject({ reason: "writeConflict" });
+  const first = await read();
+  expect(first).toHaveLength(1);
+  await write(2n, undefined, true);
+  expect(await validate(first)).toMatchObject({ reason: "writeConflict" });
+  const second = await read();
+  expect(second).toEqual([]);
+  await write(3n);
+  expect((await read())[0]?.commitSeq).toBe(3n);
+  expect(await validate(second)).toMatchObject({ reason: "writeConflict" });
+  expect(await validate(first)).toMatchObject({ reason: "writeConflict" });
 }

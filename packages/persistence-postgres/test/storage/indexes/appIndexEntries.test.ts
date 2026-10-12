@@ -2,6 +2,7 @@ import { lockInstallationForCurrentTransaction, closeInstallationAdmission } fro
 import { verifyIndexBatches } from "./indexBatchScenario";
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import { verifyMembershipReadPreparation } from "./indexMembershipReadScenario";
+import { verifyDemandVectorFreshness } from "../documents/logicalDependencyValidationScenario";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -162,6 +163,11 @@ return await runEffectFailure(
   it("prepares mixed membership definitions with one fresh scope check per operation", async () => {
     const persistence = await indexPersistence();
     await verifyMembershipReadPreparation(persistence.drizzle, scopeId, epoch, locatedDefinition);
+  });
+
+  it("retains rollback and fresh OCC across interleaved predicate writers", async () => {
+    const persistence = await indexPersistence();
+    await verifyDemandVectorFreshness(persistence.drizzle, scopeId, epoch, locatedDefinition);
   });
 
   it.each(["membership", "range"] as const)("preserves %s query construction defects and classifies SQL rejections", async (kind) => {
