@@ -8,6 +8,7 @@ import { maxCorePerformanceSeriesSamples } from "./measurementPlan";
 import { inspect } from "node:util";
 import { and, eq, sql } from "drizzle-orm";
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema, Scope } from "effect";
+import { withExecutionDiagnosticDefaults } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import type { makeNativeProductOperationDiagnostics } from "./nativeProductOperationDiagnostics";
 import { commerceError, isJsonObject, type CommerceTransactionError, type Json } from
   "@flarex/persistence-postgres/internal/commerce-values";
@@ -563,8 +564,11 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
       Effect.fromResult(readPreparedFiniteApplicationMutationInputs(graph.preparedAdmission, admissionContext)).pipe(
         Effect.map(applicationAdmission => ({ preparedAdmission: graph.preparedAdmission, candidateSchemaWriteGuard: graph.candidateSchemaWriteGuard, applicationAdmission })));
     const preparation = selected === undefined ? readApplicationPreparation.pipe(Effect.flatMap(read)) : read(selected);
-    const { preparedAdmission, candidateSchemaWriteGuard, applicationAdmission } = await Effect.runPromise(
-      diagnostics === undefined ? preparation : diagnostics.provide(preparation));
+    // The signed-evidence helper also starts independent runners. Lend this
+    // exact diagnostic-only composition rather than losing it at that edge.
+    const runPreparation = <A, E>(work: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(
+      diagnostics === undefined ? withExecutionDiagnosticDefaults(work) : diagnostics.provide(work));
+    const { preparedAdmission, candidateSchemaWriteGuard, applicationAdmission } = await runPreparation(preparation);
     const activationInput = await applicationMutationActivationEvidenceFixture({
       deploymentId: currency.deploymentId,
       executionAuthority: applicationAdmission.executionAuthority,
@@ -573,7 +577,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
         grantLifetimeMilliseconds: input.hooks.finiteGrantLifetimeMilliseconds,
       }),
       ...(validatedArgsJson === undefined ? {} : { validatedArgsJson }),
-    });
+    }, runPreparation);
     return { preparedAdmission, candidateSchemaWriteGuard, applicationAdmission, activationInput };
   };
   const store = createSessionJournalStorePersistence(application.sessionAuthority,
@@ -860,7 +864,7 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
           const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
             result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
           const decodedResult = decodePointMutationExactRuntimeResultV1Effect(success.result.result);
-          return Effect.runPromise(diagnostics === undefined ? decodedResult : diagnostics.provide(decodedResult));
+          return Effect.runPromise(diagnostics === undefined ? withExecutionDiagnosticDefaults(decodedResult) : diagnostics.provide(decodedResult));
         })).value;
         const preparePublication = async () => {
           if (publicationServer === undefined) return fixture.preparePublication(returnedValue);
@@ -871,13 +875,13 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
         const publicationEffect = await runPhase("finite freeze and validation",
           publicationServer === undefined ? () => fixture.preparePublication(returnedValue) : preparePublication);
         const publish = async () => {
-          if (publicationServer === undefined) return Effect.runPromise(diagnostics === undefined ? publicationEffect : diagnostics.provide(publicationEffect));
+          if (publicationServer === undefined) return Effect.runPromise(diagnostics === undefined ? withExecutionDiagnosticDefaults(publicationEffect) : diagnostics.provide(publicationEffect));
           await publicationServer.beginPublication();
-          try { return await Effect.runPromise(diagnostics === undefined ? publicationEffect : diagnostics.provide(publicationEffect)); }
+          try { return await Effect.runPromise(diagnostics === undefined ? withExecutionDiagnosticDefaults(publicationEffect) : diagnostics.provide(publicationEffect)); }
           finally { await publicationServer.endPublication(); }
         };
         const publication = await runPhase("authoritative publication",
-          publicationServer === undefined ? () => Effect.runPromise(diagnostics === undefined ? publicationEffect : diagnostics.provide(publicationEffect)) : publish);
+          publicationServer === undefined ? () => Effect.runPromise(diagnostics === undefined ? withExecutionDiagnosticDefaults(publicationEffect) : diagnostics.provide(publicationEffect)) : publish);
         if (publication.kind !== "published") throw new Error("Missing first committed outcome");
         if (canonicalResultBytes === null || canonicalResultBytes < 1)
           throw new Error("Missing canonical successful result byte count");
@@ -937,7 +941,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     yield* Deferred.succeed(ready, fixture);
     yield* Deferred.await(closed);
   })).pipe(Effect.onError(cause => Deferred.failCause(ready, cause)));
-  const fiber = Effect.runFork(performance?.diagnostics === undefined ? construction : performance.diagnostics.provideRequest(construction));
+  const fiber = Effect.runFork(performance?.diagnostics === undefined ? withExecutionDiagnosticDefaults(construction) : performance.diagnostics.provideRequest(construction));
   const fixture = await Effect.runPromise(Deferred.await(ready));
   return { ...fixture, close: () => closeMixedMutationResources([
     fixture.close,
@@ -965,7 +969,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
   const { sourceCatalog, prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections } = graph;
   const { seed, baseline } = seedGraph;
   const provideDiagnostic = <A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
-    performance?.diagnostics === undefined ? work : performance.diagnostics.provide(work);
+    performance?.diagnostics === undefined ? withExecutionDiagnosticDefaults(work) : performance.diagnostics.provide(work);
   const runEffect = async <A, E>(work: Effect.Effect<A, E>): Promise<A> => {
     const exit = await Effect.runPromiseExit(provideDiagnostic(work));
     if (Exit.isFailure(exit)) throw exit.cause;
@@ -975,7 +979,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
   // The initial finite fiber remains alive until fixture.close joins it. Its
   // supervisor is the request, beyond the shorter admission Promise phase.
   const runForkEffect = <A, E>(work: Effect.Effect<A, E>): Fiber.Fiber<A, E> => Effect.runFork(
-    performance?.diagnostics === undefined ? work : performance.diagnostics.provideRequest(work));
+    performance?.diagnostics === undefined ? withExecutionDiagnosticDefaults(work) : performance.diagnostics.provideRequest(work));
   const tracePhase = <A>(name: string, run: () => Promise<A>): Promise<A> => {
     const traced = () => performance?.trace === undefined ? run() : performance.trace.withPhase(name, run);
     return performance?.diagnostics === undefined ? traced() : performance.diagnostics.withPhase(name, traced);
@@ -1429,7 +1433,9 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
       },
     } } };`;
     const applicationSource = source ?? workflowSource ?? payloadSource ?? productSource;
-    const execution = await (input.executionHost ?? runMixedMutationInProcess)({
+    const execute = input.executionHost ?? ((request: Parameters<MixedMutationExecutionHost>[0]) =>
+      runMixedMutationInProcess(request, performance?.diagnostics));
+    const execution = await execute({
       source: applicationSource, request, executionModule, executionTime,
       bridge, trace: performance?.trace, onReady: performance?.onWorkerReady,
     });

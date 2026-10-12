@@ -1,6 +1,6 @@
 import { fxSystemScopeExecutionAuthorities } from "../database/schema";
 import { Data, Effect, Result, Schema } from "effect";
-import { observeExecution } from "../execution/diagnostics/operation";
+import { observeExecution, withExecutionDiagnosticDefaults } from "../execution/diagnostics/operation";
 import { getTableName, sql, type SQL } from "drizzle-orm";
 import type { PreparedQueryConfig } from "drizzle-orm/pg-core";
 import type { SelectedFieldsOrdered } from "drizzle-orm/pg-core/query-builders/select.types";
@@ -364,7 +364,7 @@ export function makeInstallationProtectedScopeAuthorityControlReader(database: F
   function read<Value>(work: (tx: FlarexMetadataTransaction) => Promise<Value>): Promise<Value> {
     return database.transaction(async tx => {
       try {
-        await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+        await Effect.runPromise(withExecutionDiagnosticDefaults(lockInstallationForCurrentTransaction(tx)));
         return await work(tx);
       } finally { closeInstallationAdmission(tx); }
     });

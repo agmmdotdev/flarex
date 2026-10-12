@@ -71,7 +71,7 @@ export async function applicationMutationActivationEvidenceFixture(input: Readon
   grantId: string;
   validatedArgsJson?: Readonly<{ body: string }>;
   grantLifetimeMilliseconds?: number;
-}>): Promise<Omit<PreparedApplicationMutationSessionActivationV1, "activeSelection"> & Readonly<{
+}>, runPreparedEffect: typeof runEffect = runEffect): Promise<Omit<PreparedApplicationMutationSessionActivationV1, "activeSelection"> & Readonly<{
   verificationKey: ApplicationMutationGrantVerificationKeyV1;
 }>> {
   const now = Date.now();
@@ -91,7 +91,7 @@ export async function applicationMutationActivationEvidenceFixture(input: Readon
     deploymentId, functionPath, validatedArgsSha256, requestKey,
   })).sha256);
   const kid = TransactionGrantKeyIdV1Schema.make("application-key-1");
-  const segments = await runEffect(prepareApplicationMutationGrantV1({ kid, deploymentId,
+  const segments = await runPreparedEffect(prepareApplicationMutationGrantV1({ kid, deploymentId,
     grantId: TransactionAuthorizationGrantIdV1Schema.make(input.grantId), executionAuthority: input.executionAuthority,
     policyVersion, identityAccessPolicy: policy, validatedArgsValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
     validatedArgsSha256: encodeBytesToLowercaseHex(validatedArgsSha256), requestKey, requestSha256: encodeBytesToLowercaseHex(requestSha256),
@@ -105,7 +105,7 @@ export async function applicationMutationActivationEvidenceFixture(input: Readon
   const verificationKey = Object.freeze({ kid, purpose: APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
     state: "active" as const, issuedAtInclusiveEpochMilliseconds: now - 60 * 60_000,
     publicKey: keys.publicKey });
-  const verifiedGrant = await runEffect(verifyApplicationMutationGrantV1(authorizationGrant,
+  const verifiedGrant = await runPreparedEffect(verifyApplicationMutationGrantV1(authorizationGrant,
     createApplicationMutationGrantVerifierNamespaceV1({ deploymentId, grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       trustedNowEpochMilliseconds: Effect.succeed(now), keys: [verificationKey] })));
   const authority = input.executionAuthority.authority;

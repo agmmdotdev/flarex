@@ -1,5 +1,27 @@
 # Shared execution evidence redesign
 
+## Mixed measurement runner diagnostic policy
+
+Unconfigured mixed performance requests must use the existing execution
+diagnostic defaults at each independent fixture runner. Plain work previously
+enabled default Effect spans in business/publication runners and in nested
+signed-evidence preparation and in-process request decoding. The shared default
+located-transaction runner and installation-protected scope control reader also
+start unconfigured installation-admission runtimes; apply the same defaults at
+those owners without changing admission locks or transaction settlement. Correct
+the test owners by reusing the policy and lending only the selected diagnostic
+composition through their existing runner boundaries. Configured tracing stays
+explicit and request-local; no business service, Clock, transaction, resource
+owner or settlement capability is inherited implicitly. Preserve every original
+codec, database check, failure channel and cleanup sequence.
+
+This is a measurement-policy correction, not evidence of a large CPU saving or
+complete performance acceptance. Measure the quiet policy independently from
+row-path changes. Ordered row acceptance/projection remains an investigation:
+identify a witnessed removable frontier and preserve existing immutable-value
+issuers, foreign capture, mutable-buffer checks, membership/decode/hydration
+order and per-consumption charges before selecting an implementation.
+
 ## Approved Correction: Transaction Binding Selection Reuse
 
 Status: implemented. All six duplicate standalone head/evidence reads are

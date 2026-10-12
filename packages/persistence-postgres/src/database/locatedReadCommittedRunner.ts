@@ -14,6 +14,7 @@ import type { PreparedInstalledAttemptScopeAuthority } from "../scope/scopeAutho
 import type { AppRowTransaction } from "../storage/documents/appRows";
 import type { RunLocatedReadCommittedTransactionV1 } from "./locatedTransactionIdentity";
 import { Effect, Result } from "effect";
+import { withExecutionDiagnosticDefaults } from "../execution/diagnostics/operation";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
 interface LocatedReadCommittedSettlementState {
@@ -40,9 +41,9 @@ export function createDefaultLocatedReadCommittedTransactionRunnerV1(
       return await db.transaction(async (tx) => {
         await tx.setTransaction({ isolationLevel: "read committed" });
         if (accepting !== undefined) Result.getOrThrowWith(accepting.owner.requireDatabase(db), cause => cause);
-        if (accepting === undefined) await Effect.runPromise(installation === undefined ? lockInstallationForCurrentTransaction(tx)
+        if (accepting === undefined) await Effect.runPromise(withExecutionDiagnosticDefaults(installation === undefined ? lockInstallationForCurrentTransaction(tx)
           : installation.kind === "coLocated" ? acquireCoLocatedInstallationAdmission(installation.installation, db, tx).pipe(Effect.asVoid)
-          : acquireInstallationAdmission(installation.installation, db, tx).pipe(Effect.asVoid));
+          : acquireInstallationAdmission(installation.installation, db, tx).pipe(Effect.asVoid)));
         state.phase = "running";
         try {
           const result = await work(tx);

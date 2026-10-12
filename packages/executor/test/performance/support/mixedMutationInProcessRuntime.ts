@@ -1,4 +1,6 @@
 import { Effect, Result, Schema } from "effect";
+import { withExecutionDiagnosticDefaults } from "@flarex/persistence-postgres/internal/execution-diagnostics";
+import type { MixedMutationEffectDiagnostics } from "./measurement";
 import { executePointMutationV1 } from "../../../../function-runtime/src/pointMutation";
 import { createFunctionRuntimeAuthV1, createFunctionRuntimePointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1 } from "../../../../function-runtime/src/functionApiCore";
@@ -89,13 +91,16 @@ function capturedPatch(value: unknown) {
 /** Runs trusted benchmark source through the actual portable mutation kernel.
  * Node execution deliberately does not claim Worker sandbox or deterministic
  * global replacement. Scenarios receive only this restricted journal facade. */
-export const runMixedMutationInProcess: MixedMutationExecutionHost = async input => {
+export const runMixedMutationInProcess = async (input: Parameters<MixedMutationExecutionHost>[0],
+  diagnostics?: MixedMutationEffectDiagnostics): ReturnType<MixedMutationExecutionHost> => {
   const rawRequest = Schema.decodeUnknownSync(RecordSchema)(JSON.parse(input.request));
   const rawContext = Schema.decodeUnknownSync(RecordSchema)(rawRequest.context);
   const seed = Schema.decodeUnknownSync(RequestContextSchema)(rawContext).randomSeed;
-  const request = await Effect.runPromise(decodePointMutationExactRuntimeRequestV1Effect({
+  const decodeRequest = decodePointMutationExactRuntimeRequestV1Effect({
     ...rawRequest, context: { ...rawContext, randomSeed: new Uint8Array(seed) },
-  }));
+  });
+  const request = await Effect.runPromise(diagnostics === undefined ? withExecutionDiagnosticDefaults(decodeRequest)
+    : diagnostics.provide(decodeRequest));
   // These benchmark modules contain only authored JS and no imports. Evaluation
   // is the fixture's executable boundary, never a production untrusted runner.
   const namespace = Schema.decodeUnknownSync(RecordSchema)(

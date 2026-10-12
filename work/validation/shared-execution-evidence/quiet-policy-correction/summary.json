@@ -1,0 +1,2954 @@
+{
+  "base": "feda403192e7d5809901891e10bcd0552f9924cc",
+  "unit": "Root-thread CPU milliseconds: complete Flarex call minus its matched complete native call.",
+  "quietPolicy": {
+    "processes": [
+      {
+        "lane": "variant-a",
+        "runId": "b7dafe01-1325-4d68-826d-89a7d20d06d7",
+        "sources": {
+          "before": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+          "after": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+          "files": 6962
+        },
+        "loaded": {
+          "mixedMutationInProcessRuntime.ts": {
+            "originalHash": "450f51e44a58a07b1c0df1ff60462d93d59a48c059e77fcbb4757491fd4d2d32",
+            "transformedHash": "f0c711861efdabb3c9daf29037325688432754756dfb08a50ebb5e8a80769553",
+            "sites": 1
+          },
+          "mixedMutationProductFixture.ts": {
+            "originalHash": "72cfbf86cb719a5be78b7c2e5fc136acf961086595d2aa870b0706858b049d13",
+            "transformedHash": "4bffe7d3669d7f7dab3d2f6aae65ae48c5ec35666b118f246a0e499b091c67a8",
+            "sites": 8
+          }
+        },
+        "quiet": {
+          "count": 20,
+          "mean": 125.85,
+          "median": 125.5,
+          "min": 61,
+          "max": 188
+        },
+        "original": {
+          "count": 20,
+          "mean": 116.85,
+          "median": 110,
+          "min": 46,
+          "max": 203
+        },
+        "blocks": [
+          -40.5,
+          8.5,
+          6,
+          0.5,
+          -40,
+          24,
+          30.5,
+          -31,
+          -55,
+          7
+        ],
+        "pairs": [
+          {
+            "index": 5,
+            "quiet": true,
+            "addedMs": 188
+          },
+          {
+            "index": 6,
+            "quiet": false,
+            "addedMs": 202
+          },
+          {
+            "index": 7,
+            "quiet": false,
+            "addedMs": 61
+          },
+          {
+            "index": 8,
+            "quiet": true,
+            "addedMs": 156
+          },
+          {
+            "index": 9,
+            "quiet": true,
+            "addedMs": 78
+          },
+          {
+            "index": 10,
+            "quiet": false,
+            "addedMs": 124
+          },
+          {
+            "index": 11,
+            "quiet": false,
+            "addedMs": 95
+          },
+          {
+            "index": 12,
+            "quiet": true,
+            "addedMs": 124
+          },
+          {
+            "index": 13,
+            "quiet": true,
+            "addedMs": 110
+          },
+          {
+            "index": 14,
+            "quiet": false,
+            "addedMs": 93
+          },
+          {
+            "index": 15,
+            "quiet": false,
+            "addedMs": 108
+          },
+          {
+            "index": 16,
+            "quiet": true,
+            "addedMs": 79
+          },
+          {
+            "index": 17,
+            "quiet": true,
+            "addedMs": 140
+          },
+          {
+            "index": 18,
+            "quiet": false,
+            "addedMs": 141
+          },
+          {
+            "index": 19,
+            "quiet": false,
+            "addedMs": 140
+          },
+          {
+            "index": 20,
+            "quiet": true,
+            "addedMs": 140
+          },
+          {
+            "index": 21,
+            "quiet": true,
+            "addedMs": 125
+          },
+          {
+            "index": 22,
+            "quiet": false,
+            "addedMs": 93
+          },
+          {
+            "index": 23,
+            "quiet": false,
+            "addedMs": 46
+          },
+          {
+            "index": 24,
+            "quiet": true,
+            "addedMs": 94
+          },
+          {
+            "index": 25,
+            "quiet": true,
+            "addedMs": 157
+          },
+          {
+            "index": 26,
+            "quiet": false,
+            "addedMs": 125
+          },
+          {
+            "index": 27,
+            "quiet": false,
+            "addedMs": 141
+          },
+          {
+            "index": 28,
+            "quiet": true,
+            "addedMs": 61
+          },
+          {
+            "index": 29,
+            "quiet": true,
+            "addedMs": 126
+          },
+          {
+            "index": 30,
+            "quiet": false,
+            "addedMs": 141
+          },
+          {
+            "index": 31,
+            "quiet": false,
+            "addedMs": 203
+          },
+          {
+            "index": 32,
+            "quiet": true,
+            "addedMs": 157
+          },
+          {
+            "index": 33,
+            "quiet": true,
+            "addedMs": 125
+          },
+          {
+            "index": 34,
+            "quiet": false,
+            "addedMs": 95
+          },
+          {
+            "index": 35,
+            "quiet": false,
+            "addedMs": 110
+          },
+          {
+            "index": 36,
+            "quiet": true,
+            "addedMs": 142
+          },
+          {
+            "index": 37,
+            "quiet": true,
+            "addedMs": 141
+          },
+          {
+            "index": 38,
+            "quiet": false,
+            "addedMs": 46
+          },
+          {
+            "index": 39,
+            "quiet": false,
+            "addedMs": 109
+          },
+          {
+            "index": 40,
+            "quiet": true,
+            "addedMs": 124
+          },
+          {
+            "index": 41,
+            "quiet": true,
+            "addedMs": 110
+          },
+          {
+            "index": 42,
+            "quiet": false,
+            "addedMs": 110
+          },
+          {
+            "index": 43,
+            "quiet": false,
+            "addedMs": 154
+          },
+          {
+            "index": 44,
+            "quiet": true,
+            "addedMs": 140
+          }
+        ]
+      },
+      {
+        "lane": "variant-b",
+        "runId": "485045af-a935-4ed4-979b-b1e75a944bf5",
+        "sources": {
+          "before": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+          "after": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+          "files": 6962
+        },
+        "loaded": {
+          "mixedMutationInProcessRuntime.ts": {
+            "originalHash": "450f51e44a58a07b1c0df1ff60462d93d59a48c059e77fcbb4757491fd4d2d32",
+            "transformedHash": "f0c711861efdabb3c9daf29037325688432754756dfb08a50ebb5e8a80769553",
+            "sites": 1
+          },
+          "mixedMutationProductFixture.ts": {
+            "originalHash": "72cfbf86cb719a5be78b7c2e5fc136acf961086595d2aa870b0706858b049d13",
+            "transformedHash": "4bffe7d3669d7f7dab3d2f6aae65ae48c5ec35666b118f246a0e499b091c67a8",
+            "sites": 8
+          }
+        },
+        "quiet": {
+          "count": 20,
+          "mean": 119.75,
+          "median": 125,
+          "min": 78,
+          "max": 156
+        },
+        "original": {
+          "count": 20,
+          "mean": 117.45,
+          "median": 125,
+          "min": 47,
+          "max": 158
+        },
+        "blocks": [
+          -39.5,
+          -24,
+          -30.5,
+          40.5,
+          23,
+          -23,
+          7.5,
+          -31.5,
+          39,
+          15.5
+        ],
+        "pairs": [
+          {
+            "index": 5,
+            "quiet": false,
+            "addedMs": 94
+          },
+          {
+            "index": 6,
+            "quiet": true,
+            "addedMs": 141
+          },
+          {
+            "index": 7,
+            "quiet": true,
+            "addedMs": 126
+          },
+          {
+            "index": 8,
+            "quiet": false,
+            "addedMs": 94
+          },
+          {
+            "index": 9,
+            "quiet": false,
+            "addedMs": 47
+          },
+          {
+            "index": 10,
+            "quiet": true,
+            "addedMs": 141
+          },
+          {
+            "index": 11,
+            "quiet": true,
+            "addedMs": 94
+          },
+          {
+            "index": 12,
+            "quiet": false,
+            "addedMs": 140
+          },
+          {
+            "index": 13,
+            "quiet": false,
+            "addedMs": 126
+          },
+          {
+            "index": 14,
+            "quiet": true,
+            "addedMs": 140
+          },
+          {
+            "index": 15,
+            "quiet": true,
+            "addedMs": 141
+          },
+          {
+            "index": 16,
+            "quiet": false,
+            "addedMs": 94
+          },
+          {
+            "index": 17,
+            "quiet": false,
+            "addedMs": 158
+          },
+          {
+            "index": 18,
+            "quiet": true,
+            "addedMs": 94
+          },
+          {
+            "index": 19,
+            "quiet": true,
+            "addedMs": 140
+          },
+          {
+            "index": 20,
+            "quiet": false,
+            "addedMs": 157
+          },
+          {
+            "index": 21,
+            "quiet": false,
+            "addedMs": 125
+          },
+          {
+            "index": 22,
+            "quiet": true,
+            "addedMs": 110
+          },
+          {
+            "index": 23,
+            "quiet": true,
+            "addedMs": 110
+          },
+          {
+            "index": 24,
+            "quiet": false,
+            "addedMs": 141
+          },
+          {
+            "index": 25,
+            "quiet": false,
+            "addedMs": 110
+          },
+          {
+            "index": 26,
+            "quiet": true,
+            "addedMs": 140
+          },
+          {
+            "index": 27,
+            "quiet": true,
+            "addedMs": 125
+          },
+          {
+            "index": 28,
+            "quiet": false,
+            "addedMs": 109
+          },
+          {
+            "index": 29,
+            "quiet": false,
+            "addedMs": 125
+          },
+          {
+            "index": 30,
+            "quiet": true,
+            "addedMs": 125
+          },
+          {
+            "index": 31,
+            "quiet": true,
+            "addedMs": 79
+          },
+          {
+            "index": 32,
+            "quiet": false,
+            "addedMs": 94
+          },
+          {
+            "index": 33,
+            "quiet": false,
+            "addedMs": 110
+          },
+          {
+            "index": 34,
+            "quiet": true,
+            "addedMs": 126
+          },
+          {
+            "index": 35,
+            "quiet": true,
+            "addedMs": 125
+          },
+          {
+            "index": 36,
+            "quiet": false,
+            "addedMs": 78
+          },
+          {
+            "index": 37,
+            "quiet": false,
+            "addedMs": 125
+          },
+          {
+            "index": 38,
+            "quiet": true,
+            "addedMs": 94
+          },
+          {
+            "index": 39,
+            "quiet": true,
+            "addedMs": 78
+          },
+          {
+            "index": 40,
+            "quiet": false,
+            "addedMs": 125
+          },
+          {
+            "index": 41,
+            "quiet": false,
+            "addedMs": 141
+          },
+          {
+            "index": 42,
+            "quiet": true,
+            "addedMs": 156
+          },
+          {
+            "index": 43,
+            "quiet": true,
+            "addedMs": 110
+          },
+          {
+            "index": 44,
+            "quiet": false,
+            "addedMs": 156
+          }
+        ]
+      }
+    ],
+    "original": {
+      "count": 40,
+      "mean": 117.15,
+      "median": 117,
+      "min": 46,
+      "max": 203
+    },
+    "quiet": {
+      "count": 40,
+      "mean": 122.8,
+      "median": 125,
+      "min": 61,
+      "max": 188
+    },
+    "meanReductionMs": -5.65,
+    "bootstrap95Ms": [
+      -18.225,
+      7.05
+    ],
+    "bootstrapRepetitions": 20000,
+    "seed": 137,
+    "intervalScope": "Four-pair blocks resampled within each of the two observed processes; does not estimate independent host or process variance."
+  },
+  "control": {
+    "runId": "656e529c-78c1-45df-a88c-f4cf7248f135",
+    "sources": {
+      "before": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+      "after": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+      "files": 6962
+    },
+    "added": {
+      "count": 15,
+      "mean": 119.6,
+      "median": 124,
+      "min": 78,
+      "max": 156
+    },
+    "addedUser": {
+      "count": 15,
+      "mean": 113.53333333333333,
+      "median": 110,
+      "min": 62,
+      "max": 172
+    },
+    "addedSystem": {
+      "count": 15,
+      "mean": 6.066666666666666,
+      "median": 0,
+      "min": -16,
+      "max": 47
+    },
+    "pairs": [
+      {
+        "index": 5,
+        "nativeRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:native:5",
+        "flarexRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:flarex:5",
+        "process": {
+          "nativeUserMicroseconds": 47000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 203000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 156000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 156000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 47000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 141000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 94000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 94000
+        }
+      },
+      {
+        "index": 6,
+        "nativeRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:native:6",
+        "flarexRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:flarex:6",
+        "process": {
+          "nativeUserMicroseconds": 16000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 188000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 172000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 172000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 15000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 140000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 125000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 125000
+        }
+      },
+      {
+        "index": 7,
+        "nativeRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:native:7",
+        "flarexRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:flarex:7",
+        "process": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 157000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 126000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 126000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 15000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 156000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 141000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 141000
+        }
+      },
+      {
+        "index": 8,
+        "nativeRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:native:8",
+        "flarexRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:flarex:8",
+        "process": {
+          "nativeUserMicroseconds": 78000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 125000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 47000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 47000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 16000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 125000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 109000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 109000
+        }
+      },
+      {
+        "index": 9,
+        "nativeRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:native:9",
+        "flarexRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:flarex:9",
+        "process": {
+          "nativeUserMicroseconds": 32000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 203000,
+          "flarexSystemMicroseconds": 15000,
+          "addedUserMicroseconds": 171000,
+          "addedSystemMicroseconds": 15000,
+          "addedTotalMicroseconds": 186000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 32000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 140000,
+          "flarexSystemMicroseconds": 15000,
+          "addedUserMicroseconds": 108000,
+          "addedSystemMicroseconds": 15000,
+          "addedTotalMicroseconds": 123000
+        }
+      },
+      {
+        "index": 10,
+        "nativeRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:native:10",
+        "flarexRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:flarex:10",
+        "process": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 172000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 141000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 141000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 172000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 141000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 141000
+        }
+      },
+      {
+        "index": 11,
+        "nativeRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:native:11",
+        "flarexRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:flarex:11",
+        "process": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 15000,
+          "flarexUserMicroseconds": 234000,
+          "flarexSystemMicroseconds": 16000,
+          "addedUserMicroseconds": 203000,
+          "addedSystemMicroseconds": 1000,
+          "addedTotalMicroseconds": 204000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 16000,
+          "flarexUserMicroseconds": 203000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 172000,
+          "addedSystemMicroseconds": -16000,
+          "addedTotalMicroseconds": 156000
+        }
+      },
+      {
+        "index": 12,
+        "nativeRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:native:12",
+        "flarexRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:flarex:12",
+        "process": {
+          "nativeUserMicroseconds": 47000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 203000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 156000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 156000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 47000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 187000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 140000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 140000
+        }
+      },
+      {
+        "index": 13,
+        "nativeRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:native:13",
+        "flarexRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:flarex:13",
+        "process": {
+          "nativeUserMicroseconds": 15000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 125000,
+          "flarexSystemMicroseconds": 16000,
+          "addedUserMicroseconds": 110000,
+          "addedSystemMicroseconds": 16000,
+          "addedTotalMicroseconds": 126000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 16000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 125000,
+          "flarexSystemMicroseconds": 15000,
+          "addedUserMicroseconds": 109000,
+          "addedSystemMicroseconds": 15000,
+          "addedTotalMicroseconds": 124000
+        }
+      },
+      {
+        "index": 14,
+        "nativeRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:native:14",
+        "flarexRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:flarex:14",
+        "process": {
+          "nativeUserMicroseconds": 32000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 172000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 140000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 140000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 32000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 172000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 140000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 140000
+        }
+      },
+      {
+        "index": 15,
+        "nativeRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:native:15",
+        "flarexRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:flarex:15",
+        "process": {
+          "nativeUserMicroseconds": 0,
+          "nativeSystemMicroseconds": 31000,
+          "flarexUserMicroseconds": 109000,
+          "flarexSystemMicroseconds": 47000,
+          "addedUserMicroseconds": 109000,
+          "addedSystemMicroseconds": 16000,
+          "addedTotalMicroseconds": 125000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 0,
+          "nativeSystemMicroseconds": 32000,
+          "flarexUserMicroseconds": 110000,
+          "flarexSystemMicroseconds": 47000,
+          "addedUserMicroseconds": 110000,
+          "addedSystemMicroseconds": 15000,
+          "addedTotalMicroseconds": 125000
+        }
+      },
+      {
+        "index": 16,
+        "nativeRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:native:16",
+        "flarexRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:flarex:16",
+        "process": {
+          "nativeUserMicroseconds": 63000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 125000,
+          "flarexSystemMicroseconds": 47000,
+          "addedUserMicroseconds": 62000,
+          "addedSystemMicroseconds": 47000,
+          "addedTotalMicroseconds": 109000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 93000,
+          "flarexSystemMicroseconds": 47000,
+          "addedUserMicroseconds": 62000,
+          "addedSystemMicroseconds": 47000,
+          "addedTotalMicroseconds": 109000
+        }
+      },
+      {
+        "index": 17,
+        "nativeRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:native:17",
+        "flarexRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:flarex:17",
+        "process": {
+          "nativeUserMicroseconds": 15000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 156000,
+          "flarexSystemMicroseconds": 16000,
+          "addedUserMicroseconds": 141000,
+          "addedSystemMicroseconds": 16000,
+          "addedTotalMicroseconds": 157000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 15000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 94000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 79000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 79000
+        }
+      },
+      {
+        "index": 18,
+        "nativeRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:native:18",
+        "flarexRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:flarex:18",
+        "process": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 93000,
+          "flarexSystemMicroseconds": 16000,
+          "addedUserMicroseconds": 62000,
+          "addedSystemMicroseconds": 16000,
+          "addedTotalMicroseconds": 78000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 15000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 78000,
+          "flarexSystemMicroseconds": 15000,
+          "addedUserMicroseconds": 63000,
+          "addedSystemMicroseconds": 15000,
+          "addedTotalMicroseconds": 78000
+        }
+      },
+      {
+        "index": 19,
+        "nativeRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:native:19",
+        "flarexRequestId": "656e529c-78c1-45df-a88c-f4cf7248f135:flarex:19",
+        "process": {
+          "nativeUserMicroseconds": 47000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 141000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 94000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 94000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 141000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 110000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 110000
+        }
+      }
+    ]
+  },
+  "rows": {
+    "runId": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460",
+    "sources": {
+      "before": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+      "after": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+      "files": 6962
+    },
+    "loaded": {
+      "privateJsonData.ts": {
+        "originalHash": "9a22075af29fff5cfaa98904f08ed8678f79b2bdfd4ec063156cf1c76905ed7e",
+        "transformedHash": "e0e77c56c74f843c9804b1c47265a3d9aee29ba510d6d5f326a622df55187eb5",
+        "names": [
+          "capturePrivateJsonData",
+          "useCapturedPrivateJsonData"
+        ]
+      },
+      "relationalRows.ts": {
+        "originalHash": "47c9a04ace2724d39e3c9714cf8b1c7422307bec3ff665af4c06dd0689d47dfc",
+        "transformedHash": "fcbd2ead87a2bdbe8c943b1a3ff38b21be122d744c916bd501620057095ff3b9",
+        "names": [
+          "canonicalBytesMatch",
+          "captureLogicalRelationalCanonicalRow",
+          "captureLogicalRelationalActivityJson",
+          "inspectLogicalRelationalCanonicalRow",
+          "nativeLogicalRelationalCanonicalRow",
+          "validateLogicalRelationalCanonicalRow"
+        ]
+      },
+      "workingSet.ts": {
+        "originalHash": "a9c0cee1fc75fa9c9a58fdb12c740f6c4e7840caba4713c518b4a40f92365247",
+        "transformedHash": "1ebf4e98209aaf258b0cbd70e415dd191da9bd56450271f22eccad39b8d1df9a",
+        "names": [
+          "output",
+          "projectedOutput"
+        ]
+      }
+    },
+    "owners": {
+      "useCapturedPrivateJsonData": {
+        "calls": {
+          "count": 6,
+          "mean": 313,
+          "median": 313,
+          "min": 313,
+          "max": 313
+        },
+        "issued": {
+          "count": 6,
+          "mean": 85,
+          "median": 85,
+          "min": 85,
+          "max": 85
+        },
+        "unissued": {
+          "count": 6,
+          "mean": 228,
+          "median": 228,
+          "min": 228,
+          "max": 228
+        },
+        "labels": {},
+        "elapsedInclusiveMs": {
+          "count": 6,
+          "mean": 3.947516666650093,
+          "median": 3.7345499999646563,
+          "min": 3.5514000000839587,
+          "max": 5.213099999979022
+        },
+        "elapsedSelfMs": {
+          "count": 6,
+          "mean": 3.947516666650093,
+          "median": 3.7345499999646563,
+          "min": 3.5514000000839587,
+          "max": 5.213099999979022
+        }
+      },
+      "capturePrivateJsonData": {
+        "calls": {
+          "count": 6,
+          "mean": 47,
+          "median": 47,
+          "min": 47,
+          "max": 47
+        },
+        "issued": {
+          "count": 6,
+          "mean": 5,
+          "median": 5,
+          "min": 5,
+          "max": 5
+        },
+        "unissued": {
+          "count": 6,
+          "mean": 42,
+          "median": 42,
+          "min": 42,
+          "max": 42
+        },
+        "labels": {},
+        "elapsedInclusiveMs": {
+          "count": 6,
+          "mean": 0.9795999999987544,
+          "median": 0.9139500000092085,
+          "min": 0.8866000000271015,
+          "max": 1.2787999999709427
+        },
+        "elapsedSelfMs": {
+          "count": 6,
+          "mean": 0.9795999999987544,
+          "median": 0.9139500000092085,
+          "min": 0.8866000000271015,
+          "max": 1.2787999999709427
+        }
+      },
+      "captureLogicalRelationalCanonicalRow": {
+        "calls": {
+          "count": 6,
+          "mean": 55,
+          "median": 55,
+          "min": 55,
+          "max": 55
+        },
+        "issued": {
+          "count": 6,
+          "mean": 47,
+          "median": 47,
+          "min": 47,
+          "max": 47
+        },
+        "unissued": {
+          "count": 6,
+          "mean": 8,
+          "median": 8,
+          "min": 8,
+          "max": 8
+        },
+        "labels": {},
+        "elapsedInclusiveMs": {
+          "count": 6,
+          "mean": 0.9505666666736943,
+          "median": 0.9057000000175321,
+          "min": 0.8617000000085682,
+          "max": 1.2162000000098487
+        },
+        "elapsedSelfMs": {
+          "count": 6,
+          "mean": 0.335916666634148,
+          "median": 0.32044999994832324,
+          "min": 0.29079999997338746,
+          "max": 0.4389999999984866
+        }
+      },
+      "output": {
+        "calls": {
+          "count": 6,
+          "mean": 53,
+          "median": 53,
+          "min": 53,
+          "max": 53
+        },
+        "issued": {
+          "count": 6,
+          "mean": 0,
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "unissued": {
+          "count": 6,
+          "mean": 0,
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "labels": {},
+        "elapsedInclusiveMs": {
+          "count": 6,
+          "mean": 1.2548000000072836,
+          "median": 1.186649999996007,
+          "min": 1.137799999967683,
+          "max": 1.6094999999768334
+        },
+        "elapsedSelfMs": {
+          "count": 6,
+          "mean": 0.31451666666786576,
+          "median": 0.3088000000570901,
+          "min": 0.26969999985885806,
+          "max": 0.4066999999631662
+        }
+      },
+      "canonicalBytesMatch": {
+        "calls": {
+          "count": 6,
+          "mean": 176,
+          "median": 176,
+          "min": 176,
+          "max": 176
+        },
+        "issued": {
+          "count": 6,
+          "mean": 176,
+          "median": 176,
+          "min": 176,
+          "max": 176
+        },
+        "unissued": {
+          "count": 6,
+          "mean": 0,
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "labels": {},
+        "elapsedInclusiveMs": {
+          "count": 6,
+          "mean": 0.24308333334435397,
+          "median": 0.2438999999940279,
+          "min": 0.22119999991264194,
+          "max": 0.2691000000486383
+        },
+        "elapsedSelfMs": {
+          "count": 6,
+          "mean": 0.24308333334435397,
+          "median": 0.2438999999940279,
+          "min": 0.22119999991264194,
+          "max": 0.2691000000486383
+        }
+      },
+      "inspectLogicalRelationalCanonicalRow": {
+        "calls": {
+          "count": 6,
+          "mean": 56,
+          "median": 56,
+          "min": 56,
+          "max": 56
+        },
+        "issued": {
+          "count": 6,
+          "mean": 0,
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "unissued": {
+          "count": 6,
+          "mean": 0,
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "labels": {
+          "unacceptedMechanics": {
+            "count": 6,
+            "mean": 8,
+            "median": 8,
+            "min": 8,
+            "max": 8
+          },
+          "sameMechanics": {
+            "count": 6,
+            "mean": 48,
+            "median": 48,
+            "min": 48,
+            "max": 48
+          }
+        },
+        "elapsedInclusiveMs": {
+          "count": 6,
+          "mean": 0.32263333334897953,
+          "median": 0.3127500000409782,
+          "min": 0.2965999999869382,
+          "max": 0.38139999998384155
+        },
+        "elapsedSelfMs": {
+          "count": 6,
+          "mean": 0.26831666668658727,
+          "median": 0.26074999998672865,
+          "min": 0.24230000002717134,
+          "max": 0.3186999999525142
+        }
+      },
+      "projectedOutput": {
+        "calls": {
+          "count": 6,
+          "mean": 36,
+          "median": 36,
+          "min": 36,
+          "max": 36
+        },
+        "issued": {
+          "count": 6,
+          "mean": 0,
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "unissued": {
+          "count": 6,
+          "mean": 0,
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "labels": {},
+        "elapsedInclusiveMs": {
+          "count": 6,
+          "mean": 0.7539166666598854,
+          "median": 0.7165500000119209,
+          "min": 0.6751999999687541,
+          "max": 0.9715999999971245
+        },
+        "elapsedSelfMs": {
+          "count": 6,
+          "mean": 0.18071666666825573,
+          "median": 0.1688000000140164,
+          "min": 0.15850000001955777,
+          "max": 0.23350000002392335
+        }
+      },
+      "nativeLogicalRelationalCanonicalRow": {
+        "calls": {
+          "count": 6,
+          "mean": 2,
+          "median": 2,
+          "min": 2,
+          "max": 2
+        },
+        "issued": {
+          "count": 6,
+          "mean": 2,
+          "median": 2,
+          "min": 2,
+          "max": 2
+        },
+        "unissued": {
+          "count": 6,
+          "mean": 0,
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "labels": {},
+        "elapsedInclusiveMs": {
+          "count": 6,
+          "mean": 0.027899999999741947,
+          "median": 0.027999999998428393,
+          "min": 0.023400000005494803,
+          "max": 0.03430000000662403
+        },
+        "elapsedSelfMs": {
+          "count": 6,
+          "mean": 0.013416666672128486,
+          "median": 0.01389999999810243,
+          "min": 0.011100000003352761,
+          "max": 0.015400000011140946
+        }
+      },
+      "validateLogicalRelationalCanonicalRow": {
+        "calls": {
+          "count": 6,
+          "mean": 18,
+          "median": 18,
+          "min": 18,
+          "max": 18
+        },
+        "issued": {
+          "count": 6,
+          "mean": 18,
+          "median": 18,
+          "min": 18,
+          "max": 18
+        },
+        "unissued": {
+          "count": 6,
+          "mean": 0,
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "labels": {},
+        "elapsedInclusiveMs": {
+          "count": 6,
+          "mean": 0.15036666666977302,
+          "median": 0.1481500000008964,
+          "min": 0.14179999999760184,
+          "max": 0.16460000001097796
+        },
+        "elapsedSelfMs": {
+          "count": 6,
+          "mean": 0.08661666667224684,
+          "median": 0.08740000001853332,
+          "min": 0.07840000005671754,
+          "max": 0.09350000003178138
+        }
+      },
+      "captureLogicalRelationalActivityJson": {
+        "calls": {
+          "count": 6,
+          "mean": 34,
+          "median": 34,
+          "min": 34,
+          "max": 34
+        },
+        "issued": {
+          "count": 6,
+          "mean": 34,
+          "median": 34,
+          "min": 34,
+          "max": 34
+        },
+        "unissued": {
+          "count": 6,
+          "mean": 0,
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "labels": {},
+        "elapsedInclusiveMs": {
+          "count": 6,
+          "mean": 0.5466500000147789,
+          "median": 0.5316499999826192,
+          "min": 0.5029000000213273,
+          "max": 0.6311000000350759
+        },
+        "elapsedSelfMs": {
+          "count": 6,
+          "mean": 0.17293333335449765,
+          "median": 0.1597499999916181,
+          "min": 0.14769999995769467,
+          "max": 0.22660000015457626
+        }
+      }
+    },
+    "selectedElapsedSelfMs": {
+      "count": 6,
+      "mean": 6.542633333348931,
+      "median": 6.225150000114809,
+      "min": 5.946699999942211,
+      "max": 8.46120000002702
+    },
+    "observerOnAdded": {
+      "count": 6,
+      "mean": 109.5,
+      "median": 102,
+      "min": 77,
+      "max": 156
+    },
+    "observerOffAdded": {
+      "count": 6,
+      "mean": 127.66666666666667,
+      "median": 133,
+      "min": 94,
+      "max": 171
+    },
+    "requests": [
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:0",
+        "index": 0,
+        "kind": "warmup",
+        "lane": "flarex",
+        "enabled": false,
+        "owners": {}
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:1",
+        "index": 1,
+        "kind": "warmup",
+        "lane": "flarex",
+        "enabled": false,
+        "owners": {}
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:2",
+        "index": 2,
+        "kind": "warmup",
+        "lane": "flarex",
+        "enabled": false,
+        "owners": {}
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:3",
+        "index": 3,
+        "kind": "warmup",
+        "lane": "flarex",
+        "enabled": false,
+        "owners": {}
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:4",
+        "index": 4,
+        "kind": "warmup",
+        "lane": "flarex",
+        "enabled": false,
+        "owners": {}
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:5",
+        "index": 5,
+        "kind": "diagnostic",
+        "lane": "flarex",
+        "enabled": true,
+        "owners": {
+          "useCapturedPrivateJsonData": {
+            "calls": 313,
+            "issued": 85,
+            "unissued": 228,
+            "labels": {},
+            "totalMs": 5.213099999979022,
+            "selfMs": 5.213099999979022
+          },
+          "capturePrivateJsonData": {
+            "calls": 47,
+            "issued": 5,
+            "unissued": 42,
+            "labels": {},
+            "totalMs": 1.2787999999709427,
+            "selfMs": 1.2787999999709427
+          },
+          "captureLogicalRelationalCanonicalRow": {
+            "calls": 55,
+            "issued": 47,
+            "unissued": 8,
+            "labels": {},
+            "totalMs": 1.2162000000098487,
+            "selfMs": 0.4389999999984866
+          },
+          "output": {
+            "calls": 53,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 1.6094999999768334,
+            "selfMs": 0.4066999999631662
+          },
+          "canonicalBytesMatch": {
+            "calls": 176,
+            "issued": 176,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.2691000000486383,
+            "selfMs": 0.2691000000486383
+          },
+          "inspectLogicalRelationalCanonicalRow": {
+            "calls": 56,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {
+              "unacceptedMechanics": 8,
+              "sameMechanics": 48
+            },
+            "totalMs": 0.38139999998384155,
+            "selfMs": 0.3186999999525142
+          },
+          "projectedOutput": {
+            "calls": 36,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.9715999999971245,
+            "selfMs": 0.23350000002392335
+          },
+          "nativeLogicalRelationalCanonicalRow": {
+            "calls": 2,
+            "issued": 2,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.03430000000662403,
+            "selfMs": 0.015400000011140946
+          },
+          "validateLogicalRelationalCanonicalRow": {
+            "calls": 18,
+            "issued": 18,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.16460000001097796,
+            "selfMs": 0.09350000003178138
+          },
+          "captureLogicalRelationalActivityJson": {
+            "calls": 34,
+            "issued": 34,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.6311000000350759,
+            "selfMs": 0.19340000004740432
+          }
+        }
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:6",
+        "index": 6,
+        "kind": "diagnostic",
+        "lane": "flarex",
+        "enabled": false,
+        "owners": {}
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:7",
+        "index": 7,
+        "kind": "diagnostic",
+        "lane": "flarex",
+        "enabled": false,
+        "owners": {}
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:8",
+        "index": 8,
+        "kind": "diagnostic",
+        "lane": "flarex",
+        "enabled": true,
+        "owners": {
+          "useCapturedPrivateJsonData": {
+            "calls": 313,
+            "issued": 85,
+            "unissued": 228,
+            "labels": {},
+            "totalMs": 3.834799999909592,
+            "selfMs": 3.834799999909592
+          },
+          "capturePrivateJsonData": {
+            "calls": 47,
+            "issued": 5,
+            "unissued": 42,
+            "labels": {},
+            "totalMs": 0.9313000000256579,
+            "selfMs": 0.9313000000256579
+          },
+          "captureLogicalRelationalCanonicalRow": {
+            "calls": 55,
+            "issued": 47,
+            "unissued": 8,
+            "labels": {},
+            "totalMs": 0.9474999999656575,
+            "selfMs": 0.33779999997932464
+          },
+          "output": {
+            "calls": 53,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 1.2492000000347616,
+            "selfMs": 0.3114000000641681
+          },
+          "canonicalBytesMatch": {
+            "calls": 176,
+            "issued": 176,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.25329999993846286,
+            "selfMs": 0.25329999993846286
+          },
+          "inspectLogicalRelationalCanonicalRow": {
+            "calls": 56,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {
+              "unacceptedMechanics": 8,
+              "sameMechanics": 48
+            },
+            "totalMs": 0.33410000006551854,
+            "selfMs": 0.2793000001256587
+          },
+          "projectedOutput": {
+            "calls": 36,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.758799999995972,
+            "selfMs": 0.19219999999040738
+          },
+          "nativeLogicalRelationalCanonicalRow": {
+            "calls": 2,
+            "issued": 2,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.026799999992363155,
+            "selfMs": 0.013500000000931323
+          },
+          "validateLogicalRelationalCanonicalRow": {
+            "calls": 18,
+            "issued": 18,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.15699999997741543,
+            "selfMs": 0.09099999998579733
+          },
+          "captureLogicalRelationalActivityJson": {
+            "calls": 34,
+            "issued": 34,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.5029000000213273,
+            "selfMs": 0.15039999998407438
+          }
+        }
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:9",
+        "index": 9,
+        "kind": "diagnostic",
+        "lane": "flarex",
+        "enabled": true,
+        "owners": {
+          "useCapturedPrivateJsonData": {
+            "calls": 313,
+            "issued": 85,
+            "unissued": 228,
+            "labels": {},
+            "totalMs": 3.5514000000839587,
+            "selfMs": 3.5514000000839587
+          },
+          "capturePrivateJsonData": {
+            "calls": 47,
+            "issued": 5,
+            "unissued": 42,
+            "labels": {},
+            "totalMs": 0.8937999999616295,
+            "selfMs": 0.8937999999616295
+          },
+          "captureLogicalRelationalCanonicalRow": {
+            "calls": 55,
+            "issued": 47,
+            "unissued": 8,
+            "labels": {},
+            "totalMs": 0.866600000023027,
+            "selfMs": 0.2985999999800697
+          },
+          "output": {
+            "calls": 53,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 1.137799999967683,
+            "selfMs": 0.2816999999486143
+          },
+          "canonicalBytesMatch": {
+            "calls": 176,
+            "issued": 176,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.2580000000016298,
+            "selfMs": 0.2580000000016298
+          },
+          "inspectLogicalRelationalCanonicalRow": {
+            "calls": 56,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {
+              "unacceptedMechanics": 8,
+              "sameMechanics": 48
+            },
+            "totalMs": 0.2965999999869382,
+            "selfMs": 0.24230000002717134
+          },
+          "projectedOutput": {
+            "calls": 36,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.6751999999687541,
+            "selfMs": 0.1624999999476131
+          },
+          "nativeLogicalRelationalCanonicalRow": {
+            "calls": 2,
+            "issued": 2,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.02959999999438878,
+            "selfMs": 0.014899999994668178
+          },
+          "validateLogicalRelationalCanonicalRow": {
+            "calls": 18,
+            "issued": 18,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.14250000003085006,
+            "selfMs": 0.07840000005671754
+          },
+          "captureLogicalRelationalActivityJson": {
+            "calls": 34,
+            "issued": 34,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.5126999999629334,
+            "selfMs": 0.16509999994013924
+          }
+        }
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:10",
+        "index": 10,
+        "kind": "diagnostic",
+        "lane": "flarex",
+        "enabled": false,
+        "owners": {}
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:11",
+        "index": 11,
+        "kind": "diagnostic",
+        "lane": "flarex",
+        "enabled": false,
+        "owners": {}
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:12",
+        "index": 12,
+        "kind": "diagnostic",
+        "lane": "flarex",
+        "enabled": true,
+        "owners": {
+          "useCapturedPrivateJsonData": {
+            "calls": 313,
+            "issued": 85,
+            "unissued": 228,
+            "labels": {},
+            "totalMs": 3.8317999999562744,
+            "selfMs": 3.8317999999562744
+          },
+          "capturePrivateJsonData": {
+            "calls": 47,
+            "issued": 5,
+            "unissued": 42,
+            "labels": {},
+            "totalMs": 0.9905000000144355,
+            "selfMs": 0.9905000000144355
+          },
+          "captureLogicalRelationalCanonicalRow": {
+            "calls": 55,
+            "issued": 47,
+            "unissued": 8,
+            "labels": {},
+            "totalMs": 0.8617000000085682,
+            "selfMs": 0.29079999997338746
+          },
+          "output": {
+            "calls": 53,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 1.1590000000724103,
+            "selfMs": 0.306200000050012
+          },
+          "canonicalBytesMatch": {
+            "calls": 176,
+            "issued": 176,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.22119999991264194,
+            "selfMs": 0.22119999991264194
+          },
+          "inspectLogicalRelationalCanonicalRow": {
+            "calls": 56,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {
+              "unacceptedMechanics": 8,
+              "sameMechanics": 48
+            },
+            "totalMs": 0.29819999997562263,
+            "selfMs": 0.24810000004072208
+          },
+          "projectedOutput": {
+            "calls": 36,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.7155999999813503,
+            "selfMs": 0.16740000000572763
+          },
+          "nativeLogicalRelationalCanonicalRow": {
+            "calls": 2,
+            "issued": 2,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.024099999995087273,
+            "selfMs": 0.011300000027404167
+          },
+          "validateLogicalRelationalCanonicalRow": {
+            "calls": 18,
+            "issued": 18,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.1463999999978114,
+            "selfMs": 0.0883000000321772
+          },
+          "captureLogicalRelationalActivityJson": {
+            "calls": 34,
+            "issued": 34,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.5124000000068918,
+            "selfMs": 0.15440000004309695
+          }
+        }
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:13",
+        "index": 13,
+        "kind": "diagnostic",
+        "lane": "flarex",
+        "enabled": true,
+        "owners": {
+          "useCapturedPrivateJsonData": {
+            "calls": 313,
+            "issued": 85,
+            "unissued": 228,
+            "labels": {},
+            "totalMs": 3.637299999973038,
+            "selfMs": 3.637299999973038
+          },
+          "capturePrivateJsonData": {
+            "calls": 47,
+            "issued": 5,
+            "unissued": 42,
+            "labels": {},
+            "totalMs": 0.896599999992759,
+            "selfMs": 0.896599999992759
+          },
+          "captureLogicalRelationalCanonicalRow": {
+            "calls": 55,
+            "issued": 47,
+            "unissued": 8,
+            "labels": {},
+            "totalMs": 0.8697999999567401,
+            "selfMs": 0.30309999991732184
+          },
+          "output": {
+            "calls": 53,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 1.1707000000606058,
+            "selfMs": 0.3114000001223758
+          },
+          "canonicalBytesMatch": {
+            "calls": 176,
+            "issued": 176,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.23450000004959293,
+            "selfMs": 0.23450000004959293
+          },
+          "inspectLogicalRelationalCanonicalRow": {
+            "calls": 56,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {
+              "unacceptedMechanics": 8,
+              "sameMechanics": 48
+            },
+            "totalMs": 0.31290000000444707,
+            "selfMs": 0.2597999999416061
+          },
+          "projectedOutput": {
+            "calls": 36,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.7175000000424916,
+            "selfMs": 0.17020000002230518
+          },
+          "nativeLogicalRelationalCanonicalRow": {
+            "calls": 2,
+            "issued": 2,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.02920000000449363,
+            "selfMs": 0.014299999995273538
+          },
+          "validateLogicalRelationalCanonicalRow": {
+            "calls": 18,
+            "issued": 18,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.1499000000039814,
+            "selfMs": 0.08650000000488944
+          },
+          "captureLogicalRelationalActivityJson": {
+            "calls": 34,
+            "issued": 34,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.5702000000601402,
+            "selfMs": 0.22660000015457626
+          }
+        }
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:14",
+        "index": 14,
+        "kind": "diagnostic",
+        "lane": "flarex",
+        "enabled": false,
+        "owners": {}
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:15",
+        "index": 15,
+        "kind": "diagnostic",
+        "lane": "flarex",
+        "enabled": false,
+        "owners": {}
+      },
+      {
+        "id": "29d5f5e6-36a4-44bb-bc51-3be51dc7f460:flarex:16",
+        "index": 16,
+        "kind": "diagnostic",
+        "lane": "flarex",
+        "enabled": true,
+        "owners": {
+          "useCapturedPrivateJsonData": {
+            "calls": 313,
+            "issued": 85,
+            "unissued": 228,
+            "labels": {},
+            "totalMs": 3.616699999998673,
+            "selfMs": 3.616699999998673
+          },
+          "capturePrivateJsonData": {
+            "calls": 47,
+            "issued": 5,
+            "unissued": 42,
+            "labels": {},
+            "totalMs": 0.8866000000271015,
+            "selfMs": 0.8866000000271015
+          },
+          "captureLogicalRelationalCanonicalRow": {
+            "calls": 55,
+            "issued": 47,
+            "unissued": 8,
+            "labels": {},
+            "totalMs": 0.9416000000783242,
+            "selfMs": 0.3461999999562977
+          },
+          "output": {
+            "calls": 53,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 1.202599999931408,
+            "selfMs": 0.26969999985885806
+          },
+          "canonicalBytesMatch": {
+            "calls": 176,
+            "issued": 176,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.22240000011515804,
+            "selfMs": 0.22240000011515804
+          },
+          "inspectLogicalRelationalCanonicalRow": {
+            "calls": 56,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {
+              "unacceptedMechanics": 8,
+              "sameMechanics": 48
+            },
+            "totalMs": 0.3126000000775093,
+            "selfMs": 0.26170000003185123
+          },
+          "projectedOutput": {
+            "calls": 36,
+            "issued": 0,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.6847999999736203,
+            "selfMs": 0.15850000001955777
+          },
+          "nativeLogicalRelationalCanonicalRow": {
+            "calls": 2,
+            "issued": 2,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.023400000005494803,
+            "selfMs": 0.011100000003352761
+          },
+          "validateLogicalRelationalCanonicalRow": {
+            "calls": 18,
+            "issued": 18,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.14179999999760184,
+            "selfMs": 0.08199999992211815
+          },
+          "captureLogicalRelationalActivityJson": {
+            "calls": 34,
+            "issued": 34,
+            "unissued": 0,
+            "labels": {},
+            "totalMs": 0.550600000002305,
+            "selfMs": 0.14769999995769467
+          }
+        }
+      }
+    ],
+    "instrumentation": "Synchronous original function bodies and arrow expressions forwarded; existing private WeakMap issuance classified without extra foreign property reads. Nested timers subtract selected children; all checks, original codecs, byte comparisons, SQL, budgets and order remain. Half of complete pairs have numeric timers enabled; both variants retain forwarding observers and issuance lookup. Elapsed envelopes include observer/preemption and are not savings."
+  },
+  "acceptedCounterPairs": 107,
+  "scope": "Nine fixture quiet-default applications toggled; both variants share grant/decoder handoffs and corrected unconfigured admission roots. No row runtime changes.",
+  "profile": {
+    "runId": "91274ee6-1176-4782-acc2-8641332c4b08",
+    "sources": {
+      "before": "ab68aa5ec064e003bbf961d682d89406a4b2613228113b00eec7cf8e9bb1a357",
+      "after": "ab68aa5ec064e003bbf961d682d89406a4b2613228113b00eec7cf8e9bb1a357",
+      "files": 2993
+    },
+    "alignment": {
+      "offsetLowMs": -87123943.63159999,
+      "offsetHighMs": -87123920.4762,
+      "uncertaintyMs": 23.15539999306202,
+      "assumption": "shared-monotonic-rate"
+    },
+    "phases": {
+      "request admission": {
+        "count": 6,
+        "mean": 7.833333333333333,
+        "median": 7.5,
+        "min": 0,
+        "max": 16
+      },
+      "portable runtime execution": {
+        "count": 6,
+        "mean": 88.5,
+        "median": 94,
+        "min": 46,
+        "max": 125
+      },
+      "runtime result validation": {
+        "count": 6,
+        "mean": 2.6666666666666665,
+        "median": 0,
+        "min": 0,
+        "max": 16
+      },
+      "finite freeze and validation": {
+        "count": 6,
+        "mean": 0,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "authoritative publication": {
+        "count": 6,
+        "mean": 23.333333333333332,
+        "median": 30.5,
+        "min": 0,
+        "max": 32
+      },
+      "complete call cleanup": {
+        "count": 6,
+        "mean": 0,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "categories": {
+      "Persistence owners": {
+        "samples": 123,
+        "percent": 23.837209302325583
+      },
+      "Effect runtime and other helpers": {
+        "samples": 119,
+        "percent": 23.06201550387597
+      },
+      "Protocol owners": {
+        "samples": 68,
+        "percent": 13.178294573643413
+      },
+      "Node and native runtime": {
+        "samples": 61,
+        "percent": 11.821705426356589
+      },
+      "Other": {
+        "samples": 59,
+        "percent": 11.434108527131782
+      },
+      "Effect Schema": {
+        "samples": 33,
+        "percent": 6.395348837209303
+      },
+      "Drizzle": {
+        "samples": 21,
+        "percent": 4.069767441860465
+      },
+      "Effect Result": {
+        "samples": 20,
+        "percent": 3.875968992248062
+      },
+      "GC": {
+        "samples": 12,
+        "percent": 2.3255813953488373
+      }
+    },
+    "topTerminalLocations": [
+      {
+        "functionName": "makePrimitive",
+        "url": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js",
+        "lineNumber": 924,
+        "columnNumber": 9,
+        "samples": 27
+      },
+      {
+        "functionName": "[redacted]",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "samples": 23
+      },
+      {
+        "functionName": "",
+        "url": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js",
+        "lineNumber": 853,
+        "columnNumber": 52,
+        "samples": 19
+      },
+      {
+        "functionName": "gen",
+        "url": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Result.js",
+        "lineNumber": 1061,
+        "columnNumber": 19,
+        "samples": 15
+      },
+      {
+        "functionName": "visit",
+        "url": "./packages/persistence-postgres/src/values/privateJsonData.ts",
+        "lineNumber": 66,
+        "columnNumber": 15,
+        "samples": 12
+      },
+      {
+        "functionName": "(garbage collector)",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "samples": 12
+      },
+      {
+        "functionName": "(program)",
+        "url": "",
+        "lineNumber": -1,
+        "columnNumber": -1,
+        "samples": 12
+      },
+      {
+        "functionName": "is",
+        "url": "./node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/entity.js",
+        "lineNumber": 2,
+        "columnNumber": 11,
+        "samples": 11
+      },
+      {
+        "functionName": "assignProperty",
+        "url": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/record.js",
+        "lineNumber": 1,
+        "columnNumber": 30,
+        "samples": 8
+      },
+      {
+        "functionName": "encodeCanonicalJson",
+        "url": "./packages/flarex-protocol/src/json.ts",
+        "lineNumber": 93,
+        "columnNumber": 28,
+        "samples": 5
+      },
+      {
+        "functionName": "addFields",
+        "url": "./node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/result.js",
+        "lineNumber": 81,
+        "columnNumber": 11,
+        "samples": 5
+      },
+      {
+        "functionName": "runLoop",
+        "url": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js",
+        "lineNumber": 441,
+        "columnNumber": 9,
+        "samples": 5
+      },
+      {
+        "functionName": "fn",
+        "url": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js",
+        "lineNumber": 823,
+        "columnNumber": 15,
+        "samples": 5
+      },
+      {
+        "functionName": "effectIsExit",
+        "url": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js",
+        "lineNumber": 1059,
+        "columnNumber": 28,
+        "samples": 5
+      },
+      {
+        "functionName": "parseLocal",
+        "url": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaParser.js",
+        "lineNumber": 899,
+        "columnNumber": 21,
+        "samples": 5
+      },
+      {
+        "functionName": "encodeBytesToLowercaseHex",
+        "url": "./packages/utils/src/bytes.ts",
+        "lineNumber": 57,
+        "columnNumber": 34,
+        "samples": 5
+      },
+      {
+        "functionName": "",
+        "url": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaParser.js",
+        "lineNumber": 798,
+        "columnNumber": 9,
+        "samples": 4
+      },
+      {
+        "functionName": "capture",
+        "url": "./packages/persistence-postgres/src/values/privateJsonData.ts",
+        "lineNumber": 49,
+        "columnNumber": 16,
+        "samples": 4
+      },
+      {
+        "functionName": "isJson",
+        "url": "./packages/flarex-protocol/src/json.ts",
+        "lineNumber": 341,
+        "columnNumber": 15,
+        "samples": 4
+      },
+      {
+        "functionName": "",
+        "url": "./packages/persistence-postgres/src/execution/finiteStorageCapture.ts",
+        "lineNumber": 499,
+        "columnNumber": 64,
+        "samples": 4
+      },
+      {
+        "functionName": "retainCanonicalFlarexValueOwnershipV1",
+        "url": "./packages/flarex-protocol/src/value.ts",
+        "lineNumber": 75,
+        "columnNumber": 46,
+        "samples": 4
+      },
+      {
+        "functionName": "withAncestor",
+        "url": "./packages/flarex-protocol/src/value.ts",
+        "lineNumber": 553,
+        "columnNumber": 21,
+        "samples": 4
+      },
+      {
+        "functionName": "getCont",
+        "url": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js",
+        "lineNumber": 486,
+        "columnNumber": 9,
+        "samples": 4
+      },
+      {
+        "functionName": "structuredClone",
+        "url": "node:internal/worker/js_transferable",
+        "lineNumber": 111,
+        "columnNumber": 24,
+        "samples": 4
+      },
+      {
+        "functionName": "makeExit",
+        "url": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/core.js",
+        "lineNumber": 294,
+        "columnNumber": 12,
+        "samples": 3
+      },
+      {
+        "functionName": "",
+        "url": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/core.js",
+        "lineNumber": 252,
+        "columnNumber": 18,
+        "samples": 3
+      },
+      {
+        "functionName": "setContext",
+        "url": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js",
+        "lineNumber": 513,
+        "columnNumber": 12,
+        "samples": 3
+      },
+      {
+        "functionName": "getRef",
+        "url": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js",
+        "lineNumber": 373,
+        "columnNumber": 8,
+        "samples": 3
+      },
+      {
+        "functionName": "captureFiniteMetadataDependency",
+        "url": "./packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts",
+        "lineNumber": 632,
+        "columnNumber": 40,
+        "samples": 3
+      },
+      {
+        "functionName": "",
+        "url": "./packages/flarex-protocol/src/value.ts",
+        "lineNumber": 323,
+        "columnNumber": 43,
+        "samples": 3
+      }
+    ],
+    "activeCount": 516,
+    "byRoot": [
+      {
+        "id": "91274ee6-1176-4782-acc2-8641332c4b08:flarex:6",
+        "inside": 150,
+        "ambiguous": 16,
+        "idle": 50,
+        "active": 100,
+        "rootCpuMs": 140,
+        "phaseSumMs": 140,
+        "phases": [
+          {
+            "name": "request admission",
+            "start": 75876.8576,
+            "end": 75903.3315,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "portable runtime execution",
+            "start": 75903.3417,
+            "end": 76057.3014,
+            "userMicroseconds": 94000,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "runtime result validation",
+            "start": 76057.3116,
+            "end": 76057.9056,
+            "userMicroseconds": 16000,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "finite freeze and validation",
+            "start": 76057.9107,
+            "end": 76060.5823,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "authoritative publication",
+            "start": 76060.5849,
+            "end": 76136.0482,
+            "userMicroseconds": 15000,
+            "systemMicroseconds": 15000
+          },
+          {
+            "name": "complete call cleanup",
+            "start": 76136.0614,
+            "end": 76136.4632,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          }
+        ]
+      },
+      {
+        "id": "91274ee6-1176-4782-acc2-8641332c4b08:flarex:7",
+        "inside": 133,
+        "ambiguous": 16,
+        "idle": 46,
+        "active": 87,
+        "rootCpuMs": 78,
+        "phaseSumMs": 78,
+        "phases": [
+          {
+            "name": "request admission",
+            "start": 77947.8802,
+            "end": 77967.7794,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "portable runtime execution",
+            "start": 77967.7853,
+            "end": 78110.2423,
+            "userMicroseconds": 46000,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "runtime result validation",
+            "start": 78110.2465,
+            "end": 78110.664,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "finite freeze and validation",
+            "start": 78110.6658,
+            "end": 78113.1281,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "authoritative publication",
+            "start": 78113.1301,
+            "end": 78186.0606,
+            "userMicroseconds": 16000,
+            "systemMicroseconds": 16000
+          },
+          {
+            "name": "complete call cleanup",
+            "start": 78186.0751,
+            "end": 78186.3598,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          }
+        ]
+      },
+      {
+        "id": "91274ee6-1176-4782-acc2-8641332c4b08:flarex:10",
+        "inside": 136,
+        "ambiguous": 16,
+        "idle": 53,
+        "active": 83,
+        "rootCpuMs": 125,
+        "phaseSumMs": 125,
+        "phases": [
+          {
+            "name": "request admission",
+            "start": 83519.6019,
+            "end": 83538.548,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "portable runtime execution",
+            "start": 83538.5559,
+            "end": 83684.71,
+            "userMicroseconds": 125000,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "runtime result validation",
+            "start": 83684.7145,
+            "end": 83685.0592,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "finite freeze and validation",
+            "start": 83685.0606,
+            "end": 83687.3633,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "authoritative publication",
+            "start": 83687.3649,
+            "end": 83759.145,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "complete call cleanup",
+            "start": 83759.1584,
+            "end": 83759.4228,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          }
+        ]
+      },
+      {
+        "id": "91274ee6-1176-4782-acc2-8641332c4b08:flarex:11",
+        "inside": 135,
+        "ambiguous": 16,
+        "idle": 52,
+        "active": 83,
+        "rootCpuMs": 110,
+        "phaseSumMs": 110,
+        "phases": [
+          {
+            "name": "request admission",
+            "start": 85681.1158,
+            "end": 85699.7478,
+            "userMicroseconds": 16000,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "portable runtime execution",
+            "start": 85699.7535,
+            "end": 85840.9119,
+            "userMicroseconds": 78000,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "runtime result validation",
+            "start": 85840.9156,
+            "end": 85841.2692,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "finite freeze and validation",
+            "start": 85841.2705,
+            "end": 85843.6225,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "authoritative publication",
+            "start": 85843.6241,
+            "end": 85917.9778,
+            "userMicroseconds": 16000,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "complete call cleanup",
+            "start": 85917.9877,
+            "end": 85918.2687,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          }
+        ]
+      },
+      {
+        "id": "91274ee6-1176-4782-acc2-8641332c4b08:flarex:14",
+        "inside": 133,
+        "ambiguous": 16,
+        "idle": 57,
+        "active": 76,
+        "rootCpuMs": 140,
+        "phaseSumMs": 140,
+        "phases": [
+          {
+            "name": "request admission",
+            "start": 91362.0295,
+            "end": 91381.5363,
+            "userMicroseconds": 15000,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "portable runtime execution",
+            "start": 91381.5425,
+            "end": 91517.0338,
+            "userMicroseconds": 94000,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "runtime result validation",
+            "start": 91517.038,
+            "end": 91517.4277,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "finite freeze and validation",
+            "start": 91517.4293,
+            "end": 91519.4463,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "authoritative publication",
+            "start": 91519.4481,
+            "end": 91593.9398,
+            "userMicroseconds": 31000,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "complete call cleanup",
+            "start": 91593.9477,
+            "end": 91594.2143,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          }
+        ]
+      },
+      {
+        "id": "91274ee6-1176-4782-acc2-8641332c4b08:flarex:15",
+        "inside": 144,
+        "ambiguous": 16,
+        "idle": 57,
+        "active": 87,
+        "rootCpuMs": 141,
+        "phaseSumMs": 141,
+        "phases": [
+          {
+            "name": "request admission",
+            "start": 93528.8168,
+            "end": 93548.3439,
+            "userMicroseconds": 16000,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "portable runtime execution",
+            "start": 93548.3491,
+            "end": 93701.0174,
+            "userMicroseconds": 94000,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "runtime result validation",
+            "start": 93701.0219,
+            "end": 93701.4832,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "finite freeze and validation",
+            "start": 93701.4858,
+            "end": 93703.8427,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "authoritative publication",
+            "start": 93703.8443,
+            "end": 93780.1612,
+            "userMicroseconds": 31000,
+            "systemMicroseconds": 0
+          },
+          {
+            "name": "complete call cleanup",
+            "start": 93780.1692,
+            "end": 93780.43,
+            "userMicroseconds": 0,
+            "systemMicroseconds": 0
+          }
+        ]
+      }
+    ],
+    "gc": {
+      "count": 6,
+      "mean": 2.6959333394964538,
+      "median": 2.7115500047802925,
+      "min": 2.3564000129699707,
+      "max": 3.0684000104665756
+    },
+    "instrumentation": "Current quiet source: root profiler, no Effect measurement collector, no allocations profiler. Existing six phase boundaries have numeric thread counters; complete-root profile is separate from paired CPU savings. Extra counters and profiler affect execution.",
+    "limits": [
+      "No native phase subtraction",
+      "Profiler/counter overhead",
+      "Terminal location percentages are not excess or removable CPU",
+      "No stack-spacing-to-CPU conversion",
+      "Profile coordinates refer to captured compiled frames"
+    ]
+  },
+  "spans": {
+    "roots": [
+      {
+        "quiet": false,
+        "ordinarySpans": 824,
+        "names": {
+          "ApplicationMutationGrant.prepareV1": 1,
+          "ApplicationMutationExecutionAuthority.canonicalizeV1": 1,
+          "TransactionGrant.canonicalizeIdentityAccessPolicyV1": 2,
+          "FlarexValue.canonicalizeV1": 42,
+          "ApplicationMutationGrant.verifyV1": 1,
+          "ApplicationMutationGrant.deriveInertEvidenceV1": 1,
+          "ApplicationMutationGrant.decodeProtectedHeaderV1": 1,
+          "ApplicationMutationGrant.parseJsonBytes": 2,
+          "FlarexValue.canonicalizeJsonV1": 21,
+          "ApplicationSyscallValidator.derive": 1,
+          "PointMutationExactRuntimeProtocol.decodeRequest": 1,
+          "PointMutationJournal.resolvePointTable": 1,
+          "PointMutationJournal.runPointOperation": 2,
+          "SessionJournalStore.resolveJournalTarget": 1,
+          "LogicalStorageReadiness.requireCatalog": 52,
+          "ApplicationWriteOwnership.decodeCapturedSnapshot": 1,
+          "ApplicationActiveHead.decodeCapturedRow": 1,
+          "ApplicationActiveHead.decodeRow": 2,
+          "ApplicationActiveHead.validateFrame": 4,
+          "ApplicationActivation.decodeCapturedRow": 1,
+          "ApplicationActivation.decodeRow": 2,
+          "ApplicationSyscallValidator.validateSessionPinnedDocument": 2,
+          "ApplicationSyscallValidator.validateCapturedDocument": 2,
+          "PointMutationJournal.runAdmittedOperation": 7,
+          "LogicalCommerce.borrowAttempt": 2,
+          "LogicalRelationalAttemptAdmission.with": 5,
+          "LogicalParticipantAttemptAdmission.with": 9,
+          "ProductAdapter.executePrivateAttempt": 2,
+          "ProductAdapter.change": 1,
+          "CommerceModule.use": 9,
+          "MedusaAdapter.withService": 11,
+          "CommerceRepository.select": 20,
+          "ProductAdapter.find": 4,
+          "MedusaRead.execute": 14,
+          "MedusaRead.window": 14,
+          "AppRows.consumeCapturedSnapshotRead": 8,
+          "AppDocument.decodeCanonicalEvidenceV1": 8,
+          "MedusaAdapter.populateRelations": 14,
+          "MedusaAdapter.populateTree": 24,
+          "MedusaAdapter.readRelation": 13,
+          "MedusaAdapter.readRelationRows": 17,
+          "ProductAdapter.replaceRows": 2,
+          "CommerceEvents.dispatch": 1,
+          "CommerceEvents.invoke": 4,
+          "ProductEvents.capture": 7,
+          "LogicalCommerce.projectActivity": 11,
+          "Product.validateNativeCall": 7,
+          "ProductEvents.validateLogicalCall": 7,
+          "ProductEvents.validateLogicalUpdate": 1,
+          "ProductEvents.membershipPivots": 1,
+          "AtomicEvents.prepareAdmittedIntents": 2,
+          "productretrieve": 1,
+          "ProductAdapter.readInput": 2,
+          "MedusaWorkflow.borrowPrivateProductLaunch": 1,
+          "LogicalCommerce.borrowWorkflow": 1,
+          "LogicalParticipantAdmissionBundle.with": 1,
+          "AtomicEvents.prepare": 1,
+          "PreparedHostRuntime.charge": 1,
+          "Workflow.runAtomic": 1,
+          "Commerce.checkedValue": 22,
+          "MedusaWorkflow.runNative": 1,
+          "MedusaWorkflow.execute": 1,
+          "MedusaWorkflow.frame": 3,
+          "MedusaWorkflow.resolve": 15,
+          "MedusaWorkflow.captureValue": 42,
+          "LogicalCommerce.workflowCall": 9,
+          "productCreatevariant": 1,
+          "ProductAdapter.relatedCreateInput": 1,
+          "ProductAdapter.findRelated": 6,
+          "ProductAdapter.validateGraphLink": 1,
+          "CommerceEvents.created": 2,
+          "AtomicEvents.captureSelected": 5,
+          "Workflow.selectModuleEvent": 5,
+          "AtomicEvents.retain": 6,
+          "Workflow.moduleEvent": 5,
+          "Workflow.validateModuleCall": 9,
+          "ProductEvents.validateLogicalVariantCreate": 1,
+          "pricingCreate": 1,
+          "PricingCommand.prepare": 2,
+          "PricingRepository.createGraph": 1,
+          "MedusaGraph.capture": 1,
+          "MedusaGraph.captureNode": 2,
+          "MedusaAdapter.encodeExactNumeric": 1,
+          "MedusaGraph.insert": 1,
+          "PricingRepository.find": 2,
+          "MedusaAdapter.decodeExactNumeric": 6,
+          "PricingEvents.captureLogical": 4,
+          "PricingEvents.validateLogicalCreate": 2,
+          "linkCreate": 1,
+          "VariantPricingLink.command": 2,
+          "LinkRepository.find": 2,
+          "LinkEvents.captureLogical": 2,
+          "LinkEvents.validateLogicalCall": 2,
+          "LocalGraph.query": 4,
+          "productVariantcount": 1,
+          "ProductAdapter.relatedListInput": 2,
+          "ProductAdapter.relatedReadInput": 2,
+          "pricingCount": 1,
+          "linkCount": 1,
+          "productTaglist": 1,
+          "ProductAdapter.updateTagsBySelector": 1,
+          "ProductAdapter.updateRelated": 1,
+          "CommerceEvents.rows": 1,
+          "ProductEvents.validateLogicalTagCall": 1,
+          "ProductEvents.validateLogicalEntity": 1,
+          "AtomicEvents.capture": 1,
+          "productcount": 1,
+          "AtomicEvents.close": 1,
+          "ProductTagWorkflow.validateComposition": 1,
+          "ProductTagWorkflow.validateEvents": 1,
+          "ProductTagWorkflow.returnedIds": 1,
+          "AtomicEvents.consume": 1,
+          "CommitEvents.digest": 2,
+          "PrivateSha256V1.digest": 2,
+          "MixedFixture.borrowPayload": 4,
+          "MixedFixture.ensurePayloadRuntime": 4,
+          "PayloadMixedConformance.makeAttempt": 1,
+          "PayloadAdapter.makeAttempt": 1,
+          "PayloadAdapter.makeAttemptOwnership": 1,
+          "PayloadParticipant.bind": 1,
+          "PayloadParticipant.borrow": 4,
+          "LogicalCms.makeInvocation": 4,
+          "LogicalCms.borrowAttempt": 4,
+          "LogicalDocumentAttemptAdmission.with": 4,
+          "MixedFixture.observePayload": 4,
+          "PayloadParticipant.invoke": 4,
+          "LogicalCms.invoke": 4,
+          "PayloadInput.create": 1,
+          "PayloadInput.envelope": 4,
+          "PayloadInput.collection": 4,
+          "PayloadInput.writeData": 2,
+          "PayloadInput.findByID": 2,
+          "PayloadInput.readOptions": 2,
+          "PayloadInput.update": 1,
+          "PointMutationExactRuntimeProtocol.decodeResult": 1,
+          "FinitePointMutationExecution.prepare": 1,
+          "PointMutationJournal.freezeFiniteAttempt": 1,
+          "CommitProtocol.canonicalizeSuccessfulResultV1": 1,
+          "StoredAttemptAuthentication.verifyFiniteCommitValues": 1,
+          "MixedFixture.closePayloadScopes": 2,
+          "FinitePointMutationExecution.settle": 1,
+          "StoredAttemptAuthentication.publishKnownSettledPointCommit": 1,
+          "PointCommitTransaction.prepareFiniteResolution": 1,
+          "CommittedPointOutcome.resolve": 1,
+          "CommittedPointOutcome.executeStatement": 1,
+          "AtomicEvents.validateAdmittedIntents": 5,
+          "AtomicEvents.validateSelectedIntents": 6,
+          "AtomicEvents.validateOperationIntents": 1,
+          "AppSchemaCandidateValidation.prepareFiniteCapturedWriteGuard": 1,
+          "AppSchemaCandidateValidation.decodeHeadRow": 2,
+          "AppSchemaCandidateValidation.decodeCanonicalFrameV1": 2,
+          "AppSchemaCandidateValidation.canonicalizeFrameV1": 2,
+          "InstallationLifecycle.acceptCoLocatedFrontier": 1,
+          "PreparedMetadataEpoch.recordManagedFrontier": 2,
+          "PreparedMetadataEpoch.recordManagedSnapshot": 2,
+          "PreparedMetadataEpoch.registerManagedFinalGuard": 2,
+          "PreparedMetadataEpoch.registerTransactionFinalGuard": 2,
+          "PreparedMetadataEpoch.capture": 3,
+          "PreparedMetadataEpoch.registerFinalGuard": 3,
+          "FiniteAttemptAnchor.lendPublication": 1,
+          "FiniteAttemptAnchor.readContext": 1,
+          "FinitePublication.observeMetadata": 1,
+          "ApplicationWriteOwnership.validateCommit": 1,
+          "LogicalSourceAdmission.consumeFiniteCommitClosure": 5,
+          "LogicalDocuments.validateContribution": 1,
+          "AppRows.consumeTableWriteFrontiers": 1,
+          "AppUniqueKeys.consumeSlots": 1,
+          "AppUniqueKeys.withSlots": 1,
+          "AppUniqueKeys.prepareSlotRead": 15,
+          "AppUniqueKeys.hashClaim": 29,
+          "AppUniqueKeys.hashBytes": 29,
+          "AppUniqueKeys.readCapturedSlotOrdinal": 15,
+          "LogicalDocuments.consumeIndexRanges": 1,
+          "LogicalDocuments.consumeIndexPages": 1,
+          "AppUniqueKeys.requireScopeAuthority": 2,
+          "ApplicationDocumentMaterialization.runCandidateSchemaWriteGuard": 1,
+          "AppSchemaCandidateValidation.applyWriteGuardInTransaction": 1,
+          "PreparedMetadataEpoch.authenticateTargetSnapshot": 1,
+          "IndexBuildState.readCoverageContext": 1,
+          "ApplicationActiveHead.decodeMaterializationObservation": 1,
+          "ApplicationActiveHead.decodeFiniteEntryObservation": 1,
+          "ApplicationActiveHead.retainCoherentPreparation": 1,
+          "ApplicationActiveHead.decodeSchemaBinding": 1,
+          "IndexBuildState.readBindingCoveragePins": 1,
+          "DataBindingRepository.readCoverageSelectedEvidence": 1,
+          "DataBindingRepository.readSelectedEvidence": 1,
+          "DataBindingRepository.readSelectedHead": 1,
+          "DataBindingRepository.requireSelectedPreparation": 1,
+          "DataBindingRepository.readPreparedSelectedHead": 1,
+          "DataBindingRepository.readHeadRecord": 1,
+          "DataBindingRepository.restoreHeadRecord": 1,
+          "DataBindingRepository.decode": 4,
+          "DataBinding.restoreValue": 4,
+          "FrameworkSchema.verifyStoredPrivateCanonicalValue": 4,
+          "FrameworkSchema.capturePrivateCanonicalValue": 4,
+          "DataBindingRepository.decodeActivation": 1,
+          "DataBindingRepository.decodeActiveReferences": 1,
+          "DataBindingRepository.decodeCandidateWithLanes": 1,
+          "AppRows.prepareRevisionApplication": 1,
+          "AppUniqueKeys.bindCanonicalMutationApplication": 1,
+          "ApplicationDocument.resetDeveloperValidation": 1,
+          "ScopePublication.requireFinalReferences": 1,
+          "ScopePublication.requireStrongReferences": 1,
+          "DataBindingRepository.readHeadProjection": 1,
+          "PreparedMetadataEpoch.prepareFinalBatch": 1,
+          "PreparedMetadataEpoch.acceptFinalBatch": 1
+        }
+      },
+      {
+        "quiet": true,
+        "ordinarySpans": 0,
+        "names": {}
+      }
+    ],
+    "loaded": {
+      "mixedMutationInProcessRuntime.ts": {
+        "originalHash": "450f51e44a58a07b1c0df1ff60462d93d59a48c059e77fcbb4757491fd4d2d32",
+        "transformedHash": "f0c711861efdabb3c9daf29037325688432754756dfb08a50ebb5e8a80769553",
+        "sites": 1
+      },
+      "mixedMutationProductFixture.ts": {
+        "originalHash": "72cfbf86cb719a5be78b7c2e5fc136acf961086595d2aa870b0706858b049d13",
+        "transformedHash": "4bffe7d3669d7f7dab3d2f6aae65ae48c5ec35666b118f246a0e499b091c67a8",
+        "sites": 8
+      }
+    },
+    "instrumentation": "Forwarding tracer spy; separate successful complete workflows; no CPU saving inferred."
+  },
+  "validation": {
+    "correctness": {
+      "files": 3,
+      "tests": 6,
+      "drivers": [
+        "pglite",
+        "ordinary-role PostgreSQL"
+      ]
+    },
+    "locatedOwner": {
+      "files": 2,
+      "tests": 16
+    },
+    "typechecks": [
+      "@flarex/executor",
+      "@flarex/persistence-postgres"
+    ],
+    "checks": [
+      "lint:core",
+      "lint:diff",
+      "check-effect-boundaries.mjs",
+      "lint:diff -- --staged"
+    ],
+    "scope": "Existing business, failure, lock, transaction and cleanup operations retained; production edits only default two unconfigured admission runtimes.",
+    "finalExecutorTypecheck": "passed"
+  },
+  "resourceCleanup": {
+    "postgres": {
+      "listeners": 0,
+      "stopped": true,
+      "statusExit": 3
+    },
+    "settingsBeforeStop": {
+      "role": "flarex_cpu_fixture",
+      "fsync": "on",
+      "fullPageWrites": "on",
+      "synchronousCommit": "on",
+      "statementTracking": "none",
+      "autoExplainMinDuration": "-1",
+      "otherClients": 0
+    },
+    "createdWranglerOrWorkerd": false
+  },
+  "reviews": {
+    "base": "feda403192e7d5809901891e10bcd0552f9924cc",
+    "checkpoint": "Nine staged paths, production source unchanged after review; final report-only completion and derived CPU wording checked by main.",
+    "typescript": {
+      "agent": "typescript-diff-reviewer",
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": "high",
+      "result": "No actionable findings",
+      "executedChecks": [
+        "lint:core",
+        "lint:diff",
+        "staged diff whitespace",
+        "source and retained arithmetic reads"
+      ],
+      "limits": "No independent test, benchmark or bootstrap reproduction"
+    },
+    "systems": {
+      "agent": "code-quality-diff-reviewer",
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": "high",
+      "result": "No actionable findings",
+      "executedChecks": [
+        "staged diff whitespace",
+        "source, logs and retained arithmetic reads"
+      ],
+      "limits": "Owner failure regressions include mocks; no new real-Postgres failure injection or independent profile/bootstrap reproduction"
+    }
+  }
+}
