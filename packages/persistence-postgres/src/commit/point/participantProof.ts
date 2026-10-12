@@ -119,7 +119,6 @@ import {
 } from "../../storage/documents/logicalDocuments/journalEvidence";
 import {
   finiteMetadataTableKey,
-  finiteMetadataContractKey,
   captureFiniteMetadataDependency,
 } from "../../execution/finiteMetadataDependencies";
 import {
@@ -398,7 +397,9 @@ function* (
           for (const tableId of new Set(contribution.effects.map(effect => effect.tableId))) {
             const table = finiteMetadataTableKey(projection, tableId, "table"), closure = finiteMetadataTableKey(projection, tableId, "writeClosure");
             if (table === null || closure === null) return yield* Effect.fail(corruption("dependencySetInvalid"));
-            for (const key of [table, closure, { namespace: table.namespace, ownerKey: table.ownerKey, contractKey: finiteMetadataContractKey("sourcePolicy") }]) {
+            const policy = finiteMetadataTableKey(projection, tableId, "sourcePolicy");
+            if (policy === null) return yield* Effect.fail(corruption("dependencySetInvalid"));
+            for (const key of [table, closure, policy]) {
               const expected = yield* Effect.fromResult(captureFiniteMetadataDependency(projection, key, finiteReservation.metadataWatermark)
                 .pipe(Result.mapError(() => corruption("dependencySetInvalid"))));
               if (expected.observed.kind !== "present") return yield* Effect.fail(corruption("dependencySetInvalid"));

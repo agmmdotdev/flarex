@@ -151,8 +151,10 @@ describePostgres("mixed Product commit recovery on real PostgreSQL", () => {
       const afterStandalone = await committedMixedFacts(fixture);
       expect(afterStandalone).toEqual({ commits: before.commits + 1,
         productEvents: before.productEvents });
-      await expect(fixture.publish(returnedValue)).rejects.toMatchObject({
-        _tag: "PointCommitConflictV1Error",
+      const publication = await fixture.preparePublication(returnedValue);
+      const outcome = await Effect.runPromise(Effect.result(publication));
+      expect(outcome).toMatchObject({
+        _tag: "Failure", failure: { _tag: "PointCommitConflictV1Error" },
       });
       expect(await committedMixedFacts(fixture)).toEqual(afterStandalone);
       expect(Object.fromEntries(fixture.nativeInvokeCount)).toMatchObject({ update: 1,

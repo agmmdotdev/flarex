@@ -3540,6 +3540,50 @@ frontier has no approved host-lifetime replacement. Remove only the displaced
 dynamic dispatcher; do not silently treat fewer statements as complete native
 performance acceptance.
 
+#### Approved correction: immutable metadata key reuse
+
+The owner approves replacing repeated structural interpretation of internally
+constructed metadata keys before further capture redesign. The exact demand
+diagnostic distinguishes 26 different index ranges and eight different single-row
+packets in the mixed workflow; an exact-demand SQL cache has no demonstrated
+business-read removal there. Its client metadata comparison path repeatedly
+constructs source-policy and index/unique keys even though their original
+projection owns immutable semantic facts. Table and admitted access-family keys
+already use that owner's retained templates.
+
+Extend `finiteMetadataDependencies`' existing projection-issued key mechanism to
+source policy selected through the table owner and to demanded index/unique
+definitions. Migrate working-set consumption, native Application write/read
+metadata selection and final participant validation together. Retain only present
+finite admitted contracts; missing dynamic selectors remain fully decoded and do
+not grow an unbounded prepared cache. Original projection disposal, root closure,
+watermark agreement, dependency identity/semantic comparison and first-consumption
+charging remain checked. Copied or foreign inputs retain complete structural
+validation; immutable keys grant no live database capability.
+
+Native Application selection carries each original projection with its issued
+key into the existing root consumption owner. Keep the aggregate issuer validity
+check and explicit entry/root watermark agreement after selection, before
+consumption. Required-present refusal precedes recording or charging, including
+an already recorded missing dependency. Preserve the original corruption error
+mapping and table, closure, policy, index order; the aggregate remains entry
+authentication evidence rather than a second immutable-key issuer.
+
+Replace and remove the internal literal construction paths. Do not replace the
+fresh capture/placement, authorization, post-wait clocks, readiness, retention,
+rollback-only, final metadata/OCC or publication checks. This slice has no durable
+data, schema, public API, transaction-lifetime or time-contract cutover. Compact
+replacement-frontier responses, timestamp reuse, speculative body transfer and a
+general capture cache are outside this approval.
+
+Prove genuine/copy/foreign/missing/disposed key behavior, root closure and budget
+first-crossing, distinct root/watermark isolation, activation rollback and
+concurrent metadata change/ABA refusal. Run affected PGlite and ordinary-role
+PostgreSQL owners and complete standalone/mixed consumers, lint/strict checks and
+both final reviews. Repeat the complete matched native performance matrix with
+sources stable across every lane. The existing CPU and latency acceptance gates
+remain fixed; reduced interpretation counts do not establish complete acceptance.
+
 #### Validation and complete delivery gate
 
 Prove fixed commands execute through one physical lifecycle without exposing a

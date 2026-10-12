@@ -105,7 +105,7 @@ import {
   mergeFiniteMetadataProjections,
   mergeFiniteMetadataContractProjections,
   finiteMetadataTableKey,
-  finiteMetadataContractKey,
+  finiteMetadataDefinitionKey,
   requireCurrentFiniteMetadataProjection,
   matchesFiniteTableWriteClosureProjections,
   requireFiniteTableWriteClosures,
@@ -351,27 +351,32 @@ export const prepareFiniteAttemptMetadataProjection = Effect.fn("LogicalSourceAd
 
 /** Native calls consume their schema; bound writes additionally consume the
  * independently authenticated source owner's complete closure and policy. */
-export function getFiniteApplicationDemandMetadataKeys(metadata: FiniteAttemptMetadata, root: SessionJournalAttempt,
+export function getFiniteApplicationDemandMetadataSelections(metadata: FiniteAttemptMetadata, root: SessionJournalAttempt,
   tableId: CatalogTableId, purpose: "read" | "write", indexDefinitionId?: CatalogIndexDefinitionId):
-  Result.Result<readonly LogicalMetadataKey[], LogicalSourceAdmissionError> {
+  Result.Result<readonly Readonly<{ projection: PreparedFiniteMetadataProjection; key: LogicalMetadataKey }>[], LogicalSourceAdmissionError> {
   const state = finiteAttemptMetadata.get(metadata);
   const native = state?.nativeApplicationProjection;
   if (state === undefined || state.root !== root || native === undefined || state.nativeApplicationCatalog === undefined)
     return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
   const table = finiteMetadataTableKey(native, tableId, "table");
   if (table === null) return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
-  const keys: LogicalMetadataKey[] = [table];
+  const selections = [{ projection: native, key: table }];
   if (purpose === "write") {
-    const closure = finiteMetadataTableKey(state.boundApplicationProjection ?? native, tableId, "writeClosure");
+    const projection = state.boundApplicationProjection ?? native;
+    const closure = finiteMetadataTableKey(projection, tableId, "writeClosure");
     if (closure === null) return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
-    keys.push(closure, { ...closure, contractKey: finiteMetadataContractKey("sourcePolicy") });
+    const policy = finiteMetadataTableKey(projection, tableId, "sourcePolicy");
+    if (policy === null) return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    selections.push({ projection, key: closure }, { projection, key: policy });
   }
   if (indexDefinitionId !== undefined) {
     if (!state.nativeApplicationCatalog.definitions.some(member => member.indexDefinitionId === indexDefinitionId && member.tableId === tableId))
       return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
-    keys.push({ ...table, contractKey: finiteMetadataContractKey("index", indexDefinitionId) });
+    const index = finiteMetadataDefinitionKey(native, tableId, "index", indexDefinitionId);
+    if (index === null) return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    selections.push({ projection: native, key: index });
   }
-  return Result.succeed(Object.freeze(keys));
+  return Result.succeed(Object.freeze(selections.map(selection => Object.freeze(selection))));
 }
 
 /** Native Application demand uses the same retained entry tuple as framework sources. */

@@ -388,6 +388,7 @@ const recordDecodedMetadataDependency = (state: LogicalDocumentRootState,
 export const consumeLogicalDocumentRootMetadataDependency = (state: LogicalDocumentRootState,
   projection: PreparedFiniteMetadataProjection,
   key: LogicalMetadataKey,
+  requirePresent = false,
 ): Result.Result<void, FiniteMetadataError | LogicalDocumentRootPointFailure> => {
   if (state.closed) return Result.fail("closed");
   if (state.pins.metadataWatermark === undefined) return Result.fail("observationMismatch");
@@ -395,9 +396,10 @@ export const consumeLogicalDocumentRootMetadataDependency = (state: LogicalDocum
   const consumed = state.metadataConsumptions.get(projection);
   const previous = consumed?.get(identity);
   if (previous !== undefined && matchesFiniteMetadataDependencyObservation(projection, key,
-    state.pins.metadataWatermark, previous)) return recordDecodedMetadataDependency(state, previous)
+    state.pins.metadataWatermark, previous)) return (!requirePresent || previous.observed.kind === "present") && recordDecodedMetadataDependency(state, previous)
       ? Result.succeed(undefined) : Result.fail("observationMismatch");
   return captureFiniteMetadataDependency(projection, key, state.pins.metadataWatermark).pipe(Result.flatMap(dependency => {
+    if (requirePresent && dependency.observed.kind !== "present") return Result.fail("observationMismatch" as const);
     if (!recordDecodedMetadataDependency(state, dependency)) return Result.fail("observationMismatch" as const);
     const observations = consumed ?? new Map<string, LogicalMetadataReadDependency>();
     if (previous === undefined) observations.set(identity, dependency);

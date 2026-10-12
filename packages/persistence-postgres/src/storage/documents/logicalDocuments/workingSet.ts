@@ -65,7 +65,7 @@ import type { BoundedRequestContext, PresentedTransactionId, BoundedRequestLifet
 import type { LogicalDocumentWorkingSetInput, LogicalRelationalStore, LogicalRelationalReadProgram, LogicalStorageReadDemand } from "./model";
 import { attachLogicalDocumentRootEvaluator, consumeLogicalDocumentRootMetadataDependency } from "./rootEvaluator";
 import { finiteMetadataTableKey, finiteMetadataAccessKey,
-  finiteMetadataContractKey, type PreparedFiniteMetadataProjection } from "../../../execution/finiteMetadataDependencies";
+  finiteMetadataDefinitionKey, type PreparedFiniteMetadataProjection } from "../../../execution/finiteMetadataDependencies";
 import { detachLogicalDocumentChanges } from "./detachChanges";
 import { captureHostPreparationLifetime, PreparedHostRuntimeError } from "../../../execution/preparation/preparedHostRuntime";
 import type { LogicalDocumentTable, PreparedLogicalDocumentReadMechanics, PreparedLogicalDocumentWriteMechanics,
@@ -588,16 +588,15 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     if (projection === undefined || key === null) return Result.fail(error("invalidAuthority"));
     return Result.gen(function* () {
       yield* consumeMetadataResult(projection, key);
-      yield* consumeMetadataResult(projection, { namespace: key.namespace, ownerKey: key.ownerKey,
-        contractKey: finiteMetadataContractKey("sourcePolicy") });
+      const policy = finiteMetadataTableKey(projection, tableId, "sourcePolicy");
+      if (policy === null) return yield* Result.fail(error("invalidAuthority"));
+      yield* consumeMetadataResult(projection, policy);
     });
   };
   const consumeDefinitionMetadataResult = (tableId: CatalogTableId, kind: "index" | "unique", definitionId: number): Result.Result<void, Failure> => {
     if (root?.pins.metadataWatermark === undefined) return Result.succeed(undefined);
-    const projection = projectionForTable(tableId), tableKey = projection === undefined ? null : finiteMetadataTableKey(projection, tableId, "table");
-    return projection === undefined || tableKey === null ? Result.fail(error("invalidAuthority")) :
-      consumeMetadataResult(projection, { namespace: tableKey.namespace, ownerKey: tableKey.ownerKey,
-        contractKey: finiteMetadataContractKey(kind, definitionId) });
+    const projection = projectionForTable(tableId), key = projection === undefined ? null : finiteMetadataDefinitionKey(projection, tableId, kind, definitionId);
+    return projection === undefined || key === null ? Result.fail(error("invalidAuthority")) : consumeMetadataResult(projection, key);
   };
   const consumeAccessMetadataResult = (tableId: CatalogTableId, families: readonly string[], fields: readonly string[]) => Result.gen(function* () {
     if (root?.pins.metadataWatermark === undefined) return;

@@ -3,9 +3,63 @@
 Status: binding-owned maintenance and transaction-scoped binding reuse are implemented;
 complete performance acceptance remains unmet. [Preflight 27](../../../../../roadmaps/mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#current-decision-binding-owned-maintenance-cutover)
 owns that connected implementation contract and migration. This ledger supplies
-the measured baseline and its limits. Repeated captures and client CPU remain
-investigation proposals. Structural work removal and complete performance results
+the measured baseline and its limits. Immutable metadata key reuse is implemented;
+broader repeated-capture and client CPU changes remain investigation proposals.
+Structural work removal and complete performance results
 are reported separately below.
+
+## Immutable metadata key correction
+
+The [demand and cost diagnostic](../../../../../work/validation/shared-execution-evidence/capture-diagnostic/results-and-proposal.md)
+establishes that the 38 mixed captures contain 26 distinct index ranges, eight
+distinct single-row packets, two separately fresh participant timestamps and
+one ownership/identity demand each. Equal labels or empty answers do not make
+the Link or Variant find/create bounds equal. General exact-demand reuse has
+no measured business SQL removal in this graph. The historical 172.19 ms pricing
+driver wait did not recur; its cause cannot be recovered from the older trace.
+
+The same diagnostic finds 691 client metadata comparison calls per workflow.
+Source-policy comparison takes the full structural fallback 282 times for five
+original projection/key pairs; known index/unique definitions add 23 full
+fallback comparisons. The source-policy group's observed instrumented wall
+cost is 6.35–6.58 ms, including collector hashing; this is neither exclusive CPU
+nor predicted savings. The [approved correction](../../../../../roadmaps/mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#approved-correction-immutable-metadata-key-reuse)
+extends the existing projection-issued immutable key mechanism and removes
+literal key reconstruction at working-set, native Application and final
+participant consumers. Missing/foreign inputs retain full validation and the
+original root/watermark, dependency semantics and charging remain live.
+
+Fresh capture, placement, authorization, post-wait time/readiness, rollback-only,
+metadata/OCC and publication checks are unchanged. The complete native-relative
+CPU/latency gates remain fixed; correctness and reduced structural interpretation
+do not establish performance acceptance. Compact replacement responses remain
+a proposal with unisolated cost, outside this key correction.
+
+The [three-call key-path diagnostic](../../../../../work/validation/shared-execution-evidence/metadata-key-reuse/key-path-results.json)
+confirms all 305 formerly structural source-policy/index/unique comparisons use
+original retained templates. Semantic checks remain live: total comparisons are
+694 rather than 691 because native root consumption adds three template checks
+while removing its repeated capture/record decoding. Missing access-family
+comparisons remain 39 fully validated calls. Captures, checkouts and exchanges
+remain 38, 41 and 60 in the mixed workflow.
+
+The [complete matched results](../../../../../work/validation/shared-execution-evidence/metadata-key-reuse/results.md)
+retain all 15 successful processes and unchanged sources/settings, with
+[owned-source and native-inventory stability](../../../../../work/validation/shared-execution-evidence/metadata-key-reuse/source-integrity.json).
+
+| Medusa graph | Added thread CPU ms | Native / Flarex quiet median ms | Paired added median / P95 ms | Exchanges |
+| --- | ---: | ---: | ---: | ---: |
+| Standalone | 78 | 19.45 / 149.59 | 130.06 / 134.57 | 87 |
+| Mixed | 125 | 34.76 / 252.58 | 219.55 / 251.80 | 60 |
+
+Four CPU gates and all five quiet latency gates fail; Payload's median added
+thread CPU meets the fixed gate at 16 ms. The preceding binding-reuse cohort's
+Medusa CPU excess was 63/156 ms. These are separate cohorts, with approximately
+16 ms Windows counter resolution, not exclusive causal improvement evidence.
+The correction is implemented and correctness-reviewed. The owner requested a
+checkpoint commit with complete performance acceptance explicitly still unmet. The
+[validation and handoff](../../../../../work/validation/shared-execution-evidence/metadata-key-reuse/validation-and-handoff.md)
+retains rollback, concurrency, recovery, review and resource disposition.
 
 ## Transaction binding reuse result
 

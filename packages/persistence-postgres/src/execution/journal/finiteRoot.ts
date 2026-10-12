@@ -61,12 +61,13 @@ import {
   getFiniteAttemptMetadataProjection,
   getFiniteApplicationWriteMetadataProjection,
   getFiniteApplicationPublicationDefinitions,
-  getFiniteApplicationDemandMetadataKeys,
+  getFiniteApplicationDemandMetadataSelections,
 } from "../../storage/documents/logicalDocuments/sourceAdmission";
 import type { FiniteAttemptMetadata } from "../../storage/documents/logicalDocuments/sourceAdmission";
 import {
   APPLICATION_EXECUTION_METADATA_OWNER,
   captureFiniteMetadataDependency,
+  prepareFiniteMetadataEntryComparison,
   finiteMetadataContractKey,
 } from "../finiteMetadataDependencies";
 import { captureFiniteMetadataReservation } from "../finiteMetadataReservation";
@@ -79,6 +80,7 @@ import {
   makeLogicalDocumentRootEvaluator,
   attachLogicalDocumentRootEvaluator,
   recordLogicalDocumentRootMetadataDependency,
+  consumeLogicalDocumentRootMetadataDependency,
   takeLogicalDocumentRootSnapshot,
   borrowClosedLogicalDocumentRoot,
 } from "../../storage/documents/logicalDocuments/rootEvaluator";
@@ -552,8 +554,8 @@ export const recordFiniteApplicationDemandMetadataEffect = Effect.fnUntraced(
     });
     if (projection === null || root === null)
       return yield* Effect.fail(corruption(attempt, "exactAttemptPinsChanged"));
-    const keys = yield* Effect.fromResult(
-      getFiniteApplicationDemandMetadataKeys(
+    const selections = yield* Effect.fromResult(
+      getFiniteApplicationDemandMetadataSelections(
         finite.metadata,
         finite.handle,
         tableId,
@@ -565,21 +567,19 @@ export const recordFiniteApplicationDemandMetadataEffect = Effect.fnUntraced(
         ),
       ),
     );
-    for (const key of keys) {
-      const dependency = yield* Effect.fromResult(
-        captureFiniteMetadataDependency(projection, key, watermark).pipe(
-          Result.mapError((cause) =>
-            corruption(attempt, "exactAttemptPinsChanged", cause),
-          ),
+    yield* Effect.fromResult(prepareFiniteMetadataEntryComparison(projection).pipe(
+      Result.mapError(cause => corruption(attempt, "exactAttemptPinsChanged", cause)),
+    ));
+    if (root.pins.metadataWatermark !== watermark)
+      return yield* Effect.fail(corruption(attempt, "exactAttemptPinsChanged"));
+    for (const selection of selections) {
+      yield* Effect.fromResult(
+        consumeLogicalDocumentRootMetadataDependency(root, selection.projection, selection.key, true).pipe(
+          Result.mapError((cause) => typeof cause === "string"
+            ? corruption(attempt, "exactAttemptPinsChanged")
+            : corruption(attempt, "exactAttemptPinsChanged", cause)),
         ),
       );
-      if (
-        dependency.observed.kind !== "present" ||
-        !recordLogicalDocumentRootMetadataDependency(root, dependency)
-      )
-        return yield* Effect.fail(
-          corruption(attempt, "exactAttemptPinsChanged"),
-        );
     }
   },
 );

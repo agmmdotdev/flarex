@@ -2,10 +2,14 @@ import { describe, it } from "vitest";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { flarexSchema } from "../../src/database/schema";
 import { finiteMetadataDependenciesScenario } from "./finiteMetadataDependenciesScenario";
+import { finiteMetadataPolicyScenario } from "./finiteMetadataPolicyScenario";
 import { postgresUrl, withTemporaryPostgresPersistence } from "../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 describePostgres("finite consumed metadata OCC PostgreSQL", () => {
+  it("keeps issued policy keys through rollback and rejects both parallel stale settlements and ABA", async () => {
+    await withTemporaryPostgresPersistence(persistence => finiteMetadataPolicyScenario(persistence.drizzle));
+  }, 180_000);
   it("retains unchanged semantics and rejects ABA, lazy stale use and negative changes atomically", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
       let comparatorCount = 0;

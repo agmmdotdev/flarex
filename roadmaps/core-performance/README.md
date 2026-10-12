@@ -10,8 +10,15 @@ The current deliverable is the [publication/capture/CPU cost inventory and ranke
 Its implemented publication correction removes recurring coverage-marker writes
 through genuine binding-owned maintenance and reuses protected binding evidence
 within the standalone transaction; the [approved preflight](../mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#approved-correction-transaction-binding-selection-reuse)
-owns the connected contract, migration and validation. Repeated captures and
-client CPU remain investigation proposals. Exact work
+owns the connected contract, migration and validation. Further capture and
+client CPU changes remain investigation proposals. The owner has approved the
+[immutable metadata key correction](../mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#approved-correction-immutable-metadata-key-reuse):
+the existing projection issuer now retains source-policy and index/unique keys
+across working-set consumption, native Application metadata selection and final
+participant validation. Original root/watermark, first-use charging and all fresh
+database checks remain mandatory. This removes repeated internal structural
+interpretation; it is not a business SQL cache or complete performance acceptance.
+Exact work
 counts, source-derived internal repetition and sampled CPU locations remain
 distinct from causal latency savings and complete performance acceptance.
 The installation interlock, query-required preparation and independent direct

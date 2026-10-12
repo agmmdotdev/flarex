@@ -493,10 +493,19 @@ function retainMetadataKey(state: ProjectionState, key: LogicalMetadataKey): Log
     },
   }));
 }
-export const finiteMetadataTableKey = (projection: PreparedFiniteMetadataProjection, tableId: CatalogTableId, kind: "table" | "writeClosure") => {
+/** Source policy is selected through the table's original metadata owner. */
+export const finiteMetadataTableKey = (projection: PreparedFiniteMetadataProjection, tableId: CatalogTableId, kind: "table" | "writeClosure" | "sourcePolicy") => {
   const state = projections.get(projection), table = state?.tables.get(tableId);
   return table === undefined || state === undefined ? null : retainMetadataKey(state, { namespace: table.namespace, ownerKey: table.ownerKey,
-    contractKey: finiteMetadataContractKey(kind, table.localName) });
+    contractKey: kind === "sourcePolicy" ? finiteMetadataContractKey(kind) : finiteMetadataContractKey(kind, table.localName) });
+};
+
+/** Retain only present admitted contracts; missing selectors keep full decoding. */
+export const finiteMetadataDefinitionKey = (projection: PreparedFiniteMetadataProjection, tableId: CatalogTableId,
+  kind: "index" | "unique", definitionId: number): LogicalMetadataKey | null => {
+  const state = projections.get(projection), table = state?.tables.get(tableId);
+  return table === undefined || state === undefined ? null : retainMetadataKey(state, { namespace: table.namespace, ownerKey: table.ownerKey,
+    contractKey: finiteMetadataContractKey(kind, definitionId) });
 };
 
 /** Transaction-local cache comparison consults the genuine private projection,
