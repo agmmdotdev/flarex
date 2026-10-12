@@ -16,7 +16,7 @@ Use current evidence in this order:
 
 1. Accepted design notes for cross-domain architecture, trust boundaries, and
    replacement policy, especially `design-notes/flarex-db-accepted-design.md`.
-2. The relevant living domain roadmap and approved focused preflight.
+2. The relevant living domain roadmap and current task scope.
 3. Current schemas, code, and decisive tests for exact implemented behavior.
 4. Checked-in primary sources such as Convex or a pinned framework fork for
    compatibility semantics.
@@ -32,123 +32,6 @@ similar suffixes only for concrete compatibility contracts that may coexist or
 require exact decoding or migration. Do not opportunistically rename symbols,
 add dual paths, or preserve legacy code without an owner-approved slice and a
 proven compatibility obligation.
-
-## Shared Core Redesign: Breaking Changes Accepted
-
-For the Application/Payload/Medusa shared-core redesign, the owner explicitly
-accepts breaking changes and prioritizes the correct design over backward
-compatibility. This overrides default compatibility-preservation rules elsewhere
-for that work. APIs, types, internal interfaces, schemas, codecs, identities
-and integration seams may be replaced when the approved design requires it.
-
-Tell the user which contracts should break, why the replacement is better,
-which callers/data/formats are affected, and how cutover, validation and removal
-will work. Keep that inventory in the focused preflight. Do not hide breaking
-changes or ask to preserve an old contract merely because it exists. Once the
-slice is approved, necessary in-scope breaking changes need no separate
-compatibility permission. The standing approval below governs the active core
-redesign; other work follows the approval rule below.
-
-The same breaking-change and cleanup policy explicitly applies to the proposed
-[mixed Application/Payload/Medusa mutation core](design-notes/flarexdb-mixed-mutation-execution.md).
-Correct core design takes priority over backward compatibility for this work,
-including OCC, transaction orchestration, journal/protocol formats, working-set
-contracts, index/search definitions, schemas, identities and framework integration
-seams. Do not preserve displaced internals or add compatibility layers merely
-to avoid migrating consumers. Once its implementation scope is approved,
-necessary in-scope breaks need no separate compatibility permission; inventory
-affected callers and durable data/formats, migrate and validate them, and remove
-displaced paths in the same coherent slice. Preserve intended correctness and
-explicit durable-data disposition. This extends the replacement policy only:
-implementation requires the other shared-storage session to finish its active
-slice, review, validate and commit it, then confirm a clean pause and handoff.
-The remaining shared-storage backlog stays with its owner; whole-goal completion
-is not a prerequisite. Audit the handed-off baseline and agree a focused core
-scope and preflight before runtime changes. Read the [mixed mutation core roadmap](roadmaps/mixed-mutation-core/README.md)
-and the relevant numbered slice preflight before doing this work; they own the
-sequence and connected delivery gates. Developer APIs remain
-deferred; the standing implementation approvals for the goals below do not
-automatically start this work.
-
-The owner grants standing approval for the Flarex DB core redesign tracked in
-[core execution redesign](roadmaps/shared-transaction-core/10-core-execution-redesign.md).
-For this work, record and explain each focused preflight, then implement,
-validate, review, clean up and commit without waiting for another approval.
-This overrides per-slice approval and core-correction pause requirements below
-within that goal, including necessary breaking changes. Explain materially
-different decisions before proceeding and preserve the evidence and ownership
-checks. New Medusa integration, unrelated capability expansion and silent
-durable-data deletion are outside this standing approval. Keep deferred work
-within its recorded gates.
-
-Deliver substantial connected redesigns across the owners and consumers needed
-to reach the selected outcome. Do not cap work by component, file count or slice
-size. Helpers, test matrices, diagnostic campaigns and minor SQL reductions are
-internal steps, not completed performance deliverables or separate goal turns.
-Use the owning remaining-work plan; measurements must resolve a concrete design
-decision or assess the complete outcome. Keep transaction cutovers coherent.
-
-For the selected [complete standalone read redesign](roadmaps/core-performance/standalone-read-redesign-preflight.md),
-the owner authorizes a connected replacement of read preparation, query-required
-readiness and installation integrity. Record and explain the concrete contract,
-then implement, validate, review, remove displaced code and commit without
-repeated general approval. The current requested deliverable is the design and
-roadmaps first; target acceptance is not a claim of implemented cutover.
-Preserve behavioral invariants, not the current proof choreography. Installation
-maintenance interlock, its writer inventory and bounded preparation lifetime
-are in scope; arbitrary privileged-change detection, broader compute changes,
-general schema evolution and silent durable deletion are not. The first slice's
-complete native latency/scaling gates supersede the old standalone 400 ms gate
-for this work. Passing an individual component does not finish the slice.
-Frozen failed publication changes remain separate from its clean baseline.
-
-For the owner-authorized performance program, follow
-[core performance](roadmaps/core-performance/README.md). The deliverable is a
-substantial connected redesign measured against complete matched native business
-graphs. Select scope from the actual latency, CPU and SQL cost multipliers; cross
-preparation, admission, readiness, execution and settlement owners when the
-replacement requires it. Component experiments support attribution and design;
-they do not justify ending delivery after a small isolated improvement. Continue
-through consumer migration, displaced-path removal, correctness validation, both
-reviews and a coherent commit. Report remaining complete-request excess honestly
-and retain the fixed native-relative acceptance gates. A failed gate requires
-correction of the responsible design, not a smaller substitute goal.
-
-Keep complete authentication, liveness and every actual fresh check, with setup
-cost separately visible. Run complete matched integration measurements for the
-connected cutover and final acceptance, not after every internal edit. PGlite,
-ordinary-role PostgreSQL and affected standalone/mixed consumer proofs remain
-required. Earlier component ordering does not constrain an approved connected
-redesign. New host lifecycle, public capabilities and durable-data disposition
-retain their explicit approval gates. Root orchestration, disjoint worker edits,
-read-only reviews and Git ownership remain unchanged.
-
-The owner also grants standing approval for the successor
-[shared-storage completion goal](roadmaps/shared-logical-storage/03-completion-plan.md).
-This covers generic-storage cutover of existing Medusa/Payload/Application
-consumers, required core corrections and structural migration consolidation and
-retirement. Apply the same preflight, review, cleanup and commit rules without
-repeat approval. Unrelated framework expansion, advanced evolution, developer
-APIs, hosted activation and silent durable-data deletion remain outside scope.
-
-Do not add compatibility wrappers, dual writes/readers, fallback engines or
-legacy APIs to avoid updating consumers. Migrate affected callers and remove
-displaced code within the coherent slice. Temporary retention requires a named
-not-yet-migrated consumer and removal gate, not a hypothetical compatibility
-obligation. Preserve intended correctness, isolation and settlement guarantees;
-breaking old contracts is not permission to weaken behavioral proofs or silently
-delete named durable data. Keep advanced migrations and developer APIs deferred
-as recorded in [shared logical storage](roadmaps/shared-logical-storage/README.md).
-
-Cleanup is a completion gate for every implementation slice, not a separate
-end-of-redesign task. Migrate affected consumers and remove displaced code,
-exports, dependencies, tests/fixtures and stale documentation in that same slice,
-preserving behavioral coverage in the replacement. This includes obsolete
-framework migration logic and tables once their consumers and recovery obligations
-have moved; table removal must follow the approved data migration or reset policy.
-Record any temporary retention, its named consumer and removal gate in the owning
-roadmap. Final retirement is an audit of incremental cleanup, not permission to
-postpone it; deferring advanced schema evolution does not defer this cleanup.
 
 ## Durable Architecture Invariants
 
@@ -184,42 +67,6 @@ postpone it; deferring advanced schema evolution does not defer this cleanup.
 The accepted architecture and current package responsibilities are indexed in
 `roadmaps/README.md`; repository-wide dependency rules and utility ownership
 are owned by `roadmaps/16-package-boundaries.md`.
-
-## Design Challenge And Capability Approval
-
-The [Medusa design-quality refactor](roadmaps/medusa-design-quality/README.md)
-owns the approved construction/composition, semantic-ownership and query-contract
-work. Use its remaining gates for refactor status and continuation; do not replace
-that scope with the broader shared-storage integration/migration backlog.
-
-Treat user proposals, markdown, current code, and the agent's first idea as
-hypotheses. Before a meaningful implementation capability, inspect the accepted
-design, owning roadmap/preflight, current code and tests, related completed or
-deferred work, and the governing primary source. Challenge duplicate authority,
-unsafe trust or transaction boundaries, stale assumptions, missing failure or
-recovery behavior, premature abstractions, and unnecessary compatibility.
-
-Discuss one proportional preflight with the user before implementation. State:
-
-1. the coherent outcome, affected owners, and explicit non-goals;
-2. why it should happen now and the nearest end-to-end proof it advances;
-3. the evidence and owning design or roadmap;
-4. challenged alternatives and the recommended direction; and
-5. validation, compatibility, cleanup, and completion gates.
-
-When legacy or displaced paths are involved, classify them as retain, extend,
-replace, or delete and name the evidence and retirement gate for anything kept.
-Do not begin the capability until the user approves it. Approval then covers
-ordinary in-scope implementation, test fixes, validation, roadmap
-reconciliation, required review reruns, cleanup, and one coherent commit.
-
-Pause for a new preflight only when evidence requires a materially different
-owner, trust/authority boundary, schema or migration, transaction contract,
-public contract, identity/version, compatibility obligation, routing, or
-activation decision. An additional in-scope file, ordinary implementation
-detail, or test failure does not by itself require another approval. Discussion,
-research, documentation, formatting, and mechanical work do not need a
-ceremonial preflight.
 
 ## No Glue-Fixing Core Owners
 
@@ -268,13 +115,6 @@ not establish the root cause of an intermittent failure.
 - Preserve unrelated work in shared worktrees. Inspect status and overlap,
   stage explicit owned files or hunks, and never revert, rewrite, or absorb
   another task's changes.
-- The main thread owns every file edit and Git operation. Reviewer agents are
-  read-only. For this owner-authorized mixed-mutation-core session, explicitly
-  assigned workers instead own disjoint edits and fixes. Spawn every subagent,
-  including workers, explorers and both read-only reviewers, with model
-  `gpt-6.1-sol` and `reasoning_effort: high`. The root coordinates, plans,
-  discusses, reviews and owns all Git operations. Dependent edits serialize;
-  workers preserve unrelated work and reviewers remain read-only.
 
 ## Integration, Effect, And Oxlint Routing
 
@@ -306,32 +146,10 @@ scope must apply `.agents/skills/flarex-oxlint/SKILL.md` and its full validation
 
 ## Review, Validation, And Git
 
-Before committing a significant code change, spawn both project reviewers:
-`typescript-diff-reviewer` and `code-quality-diff-reviewer`. Significant means
-behavior, public contract/type, schema/migration/data model, non-trivial
-refactor, or material test-coverage/expectation change. Docs-only, planning,
-formatting, generated refreshes, and minor mechanical changes do not require
-them; ordinary investigation and test-fix loops use main-thread self-review.
-
-The TypeScript reviewer owns TypeScript design, responsibility and utility
-placement, reuse of existing owners and types, API/runtime contract agreement,
-type soundness, typed errors, Effect applicability, and Effect composition and
-implementation quality. The code-quality reviewer owns behavioral/data
-correctness, trust, transactions/concurrency, reliability, performance, operability,
-maintainability degradation, failure modes, and test adequacy. Their source of
-truth is `.codex/agents/`. If substantive code changes after review, rerun both
-reviewers against the final diff. The main thread triages findings, makes all
-fixes, and reruns validation. For this owner-authorized mixed-mutation-core
-session, the root triages findings and delegates fixes to assigned
-workers, then owns final validation and Git operations.
-
-Give both reviewers the exact base/checkpoint, owned paths or hunks (including
-untracked files), approved contract, and validation evidence. Keep that scope
-stable during review; unrelated dirty work is not part of the checkpoint.
-Reviewers must investigate connected contracts and existing owners or concrete
-failure scenarios, and report evidence and gaps alongside findings. Passing
-checks, coverage counts, and no findings do not establish review depth. The
-reviewer prompts own the investigation and reporting details.
+Review significant changes for type and runtime contract agreement, reuse of
+existing owners, Effect composition, behavioral correctness, trust boundaries,
+concurrency, failure recovery, and test adequacy. Keep review scope explicit
+and separate from unrelated dirty work. Fix findings and rerun affected checks.
 
 Validate proportionally with affected typechecks, focused tests, builds, source
 or compatibility guards, and lint. Schema, transaction, isolation, locking,
