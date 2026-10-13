@@ -54,6 +54,12 @@ module sets remain unadmitted. Medusa services
 remain above the existing Flarex transaction and publication owners.
 
 The user-selected next integration outcome is full Product workflow execution.
+With performance optimization paused, the next proposed connected admission is
+[Product Variant Inventory](./preflight/95-product-variant-inventory-workflow.md):
+managed/default InventoryItems and rich Variant–InventoryItem Links, retaining
+the native empty inventory-level and Stock Location query dependencies. This
+is a researched proposal; Inventory support and the full Product composer are
+not implemented by selecting this scope.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a

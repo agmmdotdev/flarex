@@ -51,8 +51,8 @@ describe.each(drivers)("finite original-snapshot Product serving on %s", driver 
     let checked = false;
     const observe = (statement: string) => {
       if (!observing) return;
-      // Each installed capture is one implicit target statement. Its accepted
-      // authority cut and named historical read share this submission.
+      // Membership and bodies use separate implicit target statements, each
+      // with its own fresh acceptance header.
       if (/\bfx_accept_finite_storage_capture\b/.test(statement)) frontiers.push([statement]);
     };
     fixture = await createMixedMutationProductFixture({ driver, suffix: `finite-snapshot-${driver}`, hooks: {
@@ -99,9 +99,11 @@ describe.each(drivers)("finite original-snapshot Product serving on %s", driver 
         observing = false;
         expect(first).toMatchObject([{ id: fixture.seed.productId, title: baseline.title,
           handle: baseline.handle }]);
-        expect(frontiers).toHaveLength(1);
+        expect(frontiers).toHaveLength(2);
         expect(frontiers[0]?.[0]).toMatch(/\bfx_read_snapshot_index_page\b/);
-        expect(frontiers[0]?.[0]).toMatch(/\bfx_read_snapshot_rows\b/);
+        expect(frontiers[0]?.[0]).not.toMatch(/\bfx_read_snapshot_rows\b/);
+        expect(frontiers[1]?.[0]).toMatch(/\bfx_read_snapshot_rows\b/);
+        expect(frontiers[1]?.[0]).not.toMatch(/\bfx_read_snapshot_index_page\b/);
         // A repeated exact unique selection consumes its authenticated cached
         // owner and original body without opening another storage demand.
         observing = true;
@@ -110,7 +112,7 @@ describe.each(drivers)("finite original-snapshot Product serving on %s", driver 
           order: { column: "id", direction: "asc" },
         })).toEqual(first);
         observing = false;
-        expect(frontiers).toHaveLength(1);
+        expect(frontiers).toHaveLength(2);
         observing = true;
         const missing = yield* store.find(borrowed.context.manager, {
           predicate: { kind: "in", column: "id", values: [`${fixture.seed.productId}-missing`] },
@@ -118,9 +120,9 @@ describe.each(drivers)("finite original-snapshot Product serving on %s", driver 
         });
         observing = false;
         expect(missing).toEqual([]);
-        expect(frontiers).toHaveLength(2);
-        expect(frontiers[1]?.[0]).toMatch(/\bfx_read_snapshot_index_page\b/);
-        expect(frontiers[1]?.[0]).toMatch(/\bfx_read_snapshot_rows\b/);
+        expect(frontiers).toHaveLength(3);
+        expect(frontiers[2]?.[0]).toMatch(/\bfx_read_snapshot_index_page\b/);
+        expect(frontiers[2]?.[0]).not.toMatch(/\bfx_read_snapshot_rows\b/);
         expect(fixture.getOpenTransactionDepth()).toBe(0);
 
         const requirements = yield* readLogicalStorageRequirements(fixture.currency.control.drizzle,
@@ -219,14 +221,18 @@ describe.each(drivers)("finite original-snapshot Product serving on %s", driver 
         expect(historical).toMatchObject([{ id: fixture.seed.productId, title: baseline.title,
           handle: baseline.handle }]);
         expect(historical).toHaveLength(1);
+        // This different index authenticates the original snapshot membership,
+        // while the already observed Product body remains cached.
         expect(frontiers).toHaveLength(beforeLookup + 1);
-        const frontier = frontiers.at(-1);
-        if (frontier === undefined) throw new Error("Missing actual original-snapshot frontier");
-        expect(frontier.some(statement => /\bfx_read_snapshot_index_page\b/.test(statement))).toBe(true);
-        expect(frontier.some(statement => /\bfx_read_snapshot_rows\b/.test(statement))).toBe(true);
-        expect(frontier.some(statement => /\bfx_accept_finite_storage_capture\b/.test(statement))).toBe(true);
-        expect(frontier.some(statement => /\bfx_system_(?:snapshot_lease|tx_journal|tx_execution_claim)\b/.test(statement))).toBe(false);
-        expect(frontier.some(statement => /\bfrom\s+"fx_system_(?:data_binding_head|application_active_head)"/i.test(statement))).toBe(false);
+        const historicalCaptures = frontiers.slice(beforeLookup);
+        expect(historicalCaptures[0]?.[0]).toMatch(/\bfx_read_snapshot_index_page\b/);
+        expect(historicalCaptures[0]?.[0]).not.toMatch(/\bfx_read_snapshot_rows\b/);
+        for (const frontier of historicalCaptures) {
+          expect(frontier).toHaveLength(1);
+          expect(frontier[0]).toMatch(/\bfx_accept_finite_storage_capture\b/);
+          expect(frontier[0]).not.toMatch(/\bfx_system_(?:snapshot_lease|tx_journal|tx_execution_claim)\b/);
+          expect(frontier[0]).not.toMatch(/\bfrom\s+"fx_system_(?:data_binding_head|application_active_head)"/i);
+        }
         expect(fixture.getOpenTransactionDepth()).toBe(0);
         checked = true;
       }),
@@ -235,6 +241,16 @@ describe.each(drivers)("finite original-snapshot Product serving on %s", driver 
       const success = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runExecution());
       const returnedValue = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(success.result.result))).value;
       expect(checked, fixture.bridgeFailures.join("\n")).toBe(true);
+      expect(frontiers.map(frontier => frontier.map(statement => ({
+        accepted: /\bfx_accept_finite_storage_capture\b/.test(statement),
+        indexPage: /\bfx_read_snapshot_index_page\b/.test(statement),
+        rows: /\bfx_read_snapshot_rows\b/.test(statement),
+      })))).toEqual([
+        [{ accepted: true, indexPage: true, rows: false }],
+        [{ accepted: true, indexPage: false, rows: true }],
+        [{ accepted: true, indexPage: true, rows: false }],
+        [{ accepted: true, indexPage: true, rows: false }],
+      ]);
       const frozen = await Effect.runPromise(fixture.freeze(returnedValue));
       const graph = readFrozenFiniteAttempt(frozen);
       if (graph === undefined) throw new Error("Missing issuer-authentic frozen graph");

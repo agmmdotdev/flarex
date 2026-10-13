@@ -1,5 +1,16 @@
 # Core Performance
 
+## Current Priority
+
+Performance optimization is paused at the owner's request. Preserve the
+committed runtime and diagnostic evidence while continuing Medusa Product
+workflow integration. The existing CPU, latency and scaling targets remain
+unmet; pausing does not establish performance acceptance. Further optimization
+requires a separately selected scope. Correctness regressions remain actionable
+at their actual owners during integration.
+
+## Preserved Optimization Status
+
 Status: **binding-owned maintenance and transaction-scoped binding reuse are implemented.
 Recurring mixed coverage updates and six duplicate standalone binding reads are
 removed; mixed publication retains its fresh binding check. Complete matched
