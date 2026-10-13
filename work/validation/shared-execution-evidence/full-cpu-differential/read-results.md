@@ -1,5 +1,9 @@
 # Repetition within relational reads and finite storage capture
 
+The [candidate/command follow-up](./candidate-results.md) measures those residuals
+with a lighter observer. Command launch/completion dominates its command path;
+no dominant safely removable function is established.
+
 Investigation against `313da4670`, current checkout. Production runtime, SQL,
 business checks and failure order are unchanged; no new worktree.
 

@@ -65,6 +65,16 @@ export function validateCampaign(raw:typeof RawSchema.Type,label:'control'|'prof
 }
 
 export type OperationRoot=typeof OperationLedgerSchema.Type.roots[number];
+/** Attribute an instantaneous sampled stack only when its entire calibrated
+ * timestamp uncertainty has one deepest selected owner. Input spans must have
+ * passed partitionOperations; the preceding sampling gap is not execution time. */
+export function sampleOperationOwner(intervals:OperationRoot['intervals'],stamp:number,low:number,high:number,names:readonly string[]) {
+  assert(Number.isFinite(stamp)&&Number.isFinite(low)&&Number.isFinite(high)&&low<=high);
+  const selected=intervals.filter(p=>names.includes(p.name));
+  const overlaps=selected.filter(p=>{assert(p.end);return stamp+high>=p.start.time&&stamp+low<=p.end.time;});
+  const contained=overlaps.filter(p=>{assert(p.end);return stamp+low>=p.start.time&&stamp+high<=p.end.time;});
+  return overlaps.length!==contained.length?'focus-boundary':contained.sort((a,b)=>b.ordinal-a.ordinal)[0]?.name??'outside-focus';
+}
 type Interval=OperationRoot['intervals'][number];
 type Span=Pick<OperationRoot,'start'|'end'>;
 const duration=(span:Span)=>{

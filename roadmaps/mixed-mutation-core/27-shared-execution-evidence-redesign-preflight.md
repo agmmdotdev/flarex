@@ -21,6 +21,12 @@ The [read repetition evidence](../../work/validation/shared-execution-evidence/f
 prices the identified duplicate pure preparation at about 0.3 ms in warm replay,
 with no exact repeated input among 26 index-page and eight row captures. That
 does not establish a large safe removal or an end-to-end CPU saving.
+The [candidate/command investigation](../../work/validation/shared-execution-evidence/full-cpu-differential/candidate-results.md)
+places 56–63% of checked-command cycles in launch/completion and only about 3%
+in drain/release. Candidate processing is spread across selection composition,
+decoding, keys and live metadata. It establishes no dominant safe removal;
+the disposable cancellation-client allocation costs about 0.4 ms in warm replay.
+Keep the redesign gate closed: operation cost is not an achievable saving.
 Use the current checkout. This proposal does not reopen completed cutovers
 below or change accepted authority, failure, storage or framework contracts.
 

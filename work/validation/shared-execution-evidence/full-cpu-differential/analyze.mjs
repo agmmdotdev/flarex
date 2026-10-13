@@ -3,10 +3,11 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { gunzipSync } from 'node:zlib';
-import { decodeRaw, decodeMarkers, decodeOperations, partitionOperations, readRetainedJson, validateCampaign } from './evidence.ts';
+import { decodeRaw, decodeMarkers, decodeOperations, partitionOperations, readRetainedJson, validateCampaign, sampleOperationOwner } from './evidence.ts';
 import { analyzeCpuEvidence } from '../../../../packages/executor/test/performance/measurement/cpu.ts';
 const directory=dirname(fileURLToPath(import.meta.url));
-const operationMode=process.env.FLAREX_PROFILE_OPERATION_CORRELATION==='on';
+const candidateMode=process.env.FLAREX_PROFILE_CANDIDATE_CORRELATION==='on';
+const operationMode=candidateMode||process.env.FLAREX_PROFILE_OPERATION_CORRELATION==='on';
 const timestampToleranceMs=Number(process.env.FLAREX_PROFILE_TIMESTAMP_TOLERANCE_MS??0.4);
 assert(Number.isFinite(timestampToleranceMs)&&timestampToleranceMs>=0.4&&timestampToleranceMs<=2);
 const mean=xs=>xs.reduce((s,n)=>s+n,0)/xs.length;
@@ -22,7 +23,7 @@ const location=f=>`${f.url}:${f.lineNumber+1}:${f.columnNumber+1} ${f.functionNa
 const runs=[], profiles=[];
 let operationSources;
 for(const label of ['profile-a','control','profile-b']) {
-  const folder=operationMode?(label==='control'?'owned-pipeline-baseline-a':'operation-'+label):label;
+  const folder=candidateMode?'candidate-'+(label==='profile-a'?'profile-b':label==='profile-b'?'profile-c':label):operationMode?(label==='control'?'owned-pipeline-baseline-a':'operation-'+label):label;
   const files=(await readdir(resolve(directory,folder))).filter(f=>/^[a-f0-9-]{36}\.json(?:\.gz)?$/.test(f));
   const originals=[...new Set(files.map(f=>f.replace(/\.gz$/,'')))];assert.equal(originals.length,1);
   const file=files.includes(originals[0]+'.gz')?originals[0]+'.gz':originals[0];
@@ -78,7 +79,7 @@ for(const label of ['profile-a','control','profile-b']) {
     const operation=operationLedger?.roots.filter(r=>r.start.time>=root.startMonotonicMs&&r.end?.time<=root.endMonotonicMs);
     if(operationLedger)assert.equal(operation.length,1,'Unique original root join');
     const intervals=operation?.[0]?.intervals??[];
-    const phaseSamples=new Map(),phaseCategories=new Map(),stacks=new Map(),coarsePhases=new Map(),coarseCategories=new Map(),businessPhases=new Map(),businessCategories=new Map(),businessFrames=new Map();
+    const phaseSamples=new Map(),phaseCategories=new Map(),stacks=new Map(),coarsePhases=new Map(),coarseCategories=new Map(),businessPhases=new Map(),businessCategories=new Map(),businessFrames=new Map(),focusFrames=new Map(),focusCategories=new Map();
     for(const point of points){
       if(point.stamp+high<root.startMonotonicMs||point.stamp+low>root.endMonotonicMs){outside++;continue;}
       if(point.previous+low<root.startMonotonicMs||point.stamp+high>root.endMonotonicMs){boundary++;continue;}
@@ -104,6 +105,14 @@ for(const label of ['profile-a','control','profile-b']) {
         const phase=overlapping.length!==within.length?'operation-boundary':selected?.name??'outside-named-operations';
         if(cat!=='idle'){add(phaseSamples,phase);add(phaseCategories,phase+'|'+cat);add(stacks,phase+'|'+point.chain.map(location).join(' <- '));add(coarsePhases,coarseName);add(coarseCategories,coarseName+'|'+cat);}
         if(cat!=='idle'){add(businessPhases,businessName);add(businessCategories,businessName+'|'+cat);add(businessFrames,businessName+'|'+location(f));}
+        if(candidateMode&&cat!=='idle'){
+          // A V8 stack is observed at its timestamp, not continuously over the
+          // gap since the previous sample. Require the whole calibrated point
+          // uncertainty inside an owner; never weight this gap as CPU time.
+          const owner=sampleOperationOwner(intervals,point.stamp,low,high,
+            ['PostgresPhysicalSession.implicitCommand','LogicalDocuments.withCandidateSelection']);
+          add(focusFrames,owner+'|'+location(f));add(focusCategories,owner+'|'+cat);
+        }
       }
     }
     assert.equal([...groups.values()].reduce((a,b)=>a+b,0),inside);
@@ -115,7 +124,8 @@ for(const label of ['profile-a','control','profile-b']) {
       previousAdmission:original.definitelyInsideSamples,groups:Object.fromEntries(groups),frames:Object.fromEntries(frames),callers:Object.fromEntries(callers),modules:Object.fromEntries(modules),contexts:Object.fromEntries(contexts),
       gcOverlapMs:e.gc.events.reduce((sum,g)=>sum+Math.max(0,Math.min(root.endMonotonicMs,g.startMonotonicMs+g.durationMs)-Math.max(root.startMonotonicMs,g.startMonotonicMs)),0),
       estimates:Object.fromEntries([...groups].filter(([cat])=>cat!=='idle').map(([cat,n])=>[cat,cpu*n/active])),
-      ...(operationMode?{operation:operation[0],phaseSamples:Object.fromEntries(phaseSamples),phaseCategories:Object.fromEntries(phaseCategories),stacks:Object.fromEntries(stacks),coarsePhases:Object.fromEntries(coarsePhases),coarseCategories:Object.fromEntries(coarseCategories),businessPhases:Object.fromEntries(businessPhases),businessCategories:Object.fromEntries(businessCategories),businessFrames:Object.fromEntries(businessFrames)}:{})});
+      ...(operationMode?{operation:operation[0],phaseSamples:Object.fromEntries(phaseSamples),phaseCategories:Object.fromEntries(phaseCategories),stacks:Object.fromEntries(stacks),coarsePhases:Object.fromEntries(coarsePhases),coarseCategories:Object.fromEntries(coarseCategories),businessPhases:Object.fromEntries(businessPhases),businessCategories:Object.fromEntries(businessCategories),businessFrames:Object.fromEntries(businessFrames)}:{}),
+      ...(candidateMode?{focusFrames:Object.fromEntries(focusFrames),focusCategories:Object.fromEntries(focusCategories)}:{})});
   }
 }
 assert(runs.every(r=>r.sources.before===runs[0].sources.before));
@@ -145,9 +155,9 @@ const detailDifferential=key=>{
   }
   return [...rows.values()].map(r=>({...r,estimatedAddedMs:r.flarexEstimatedMs-r.nativeEstimatedMs})).sort((a,b)=>b.estimatedAddedMs-a.estimatedAddedMs);
 };
-const details=Object.fromEntries(['modules','frames','callers','contexts',...(operationMode?['phaseSamples','phaseCategories','stacks','coarsePhases','coarseCategories','businessPhases','businessCategories','businessFrames']:[])].map(key=>[key,detailDifferential(key)]));
+const details=Object.fromEntries(['modules','frames','callers','contexts',...(operationMode?['phaseSamples','phaseCategories','stacks','coarsePhases','coarseCategories','businessPhases','businessCategories','businessFrames']:[]),...(candidateMode?['focusFrames','focusCategories']:[])].map(key=>[key,detailDifferential(key)]));
 for(const rows of Object.values(details))assert(Math.abs(rows.reduce((s,r)=>s+r.estimatedAddedMs,0)-estimatedTotal)<1e-8);
 const summary={method:'Complete matched SDK roots, unchanged business code. Six-ms pre/post profiler landmarks outside original CPU-counter windows; explicit timestampToleranceMs (default 0.4 as prior marker probe). Disjoint admitted non-idle self samples allocate each observed root thread counter statistically. Estimated category milliseconds sum by construction, are not exact owner timings, removable savings or independent causal proof. 10000 stratified four-pair block-bootstrap draws; intervals omit systematic profiler/classification bias. No elapsed sample weights converted to CPU.',
   timestampToleranceMs,runs:runs.map(({pairs,...r})=>r),profileAddedMs:stats(pairs.map(p=>p.addedCpuMs)),differential,details,lanes,profiles,pairs};
-await writeFile(resolve(directory,(operationMode?'operation-':'')+(timestampToleranceMs===0.4?'summary.json':`summary-tolerance-${timestampToleranceMs}.json`)),JSON.stringify(summary,null,2));
+await writeFile(resolve(directory,(candidateMode?'candidate-':operationMode?'operation-':'')+(timestampToleranceMs===0.4?'summary.json':`summary-tolerance-${timestampToleranceMs}.json`)),JSON.stringify(summary,null,2));
 console.log(JSON.stringify({runs:summary.runs,profileAddedMs:summary.profileAddedMs,differential,lanes:Object.fromEntries(Object.entries(lanes).map(([k,v])=>[k,{...v,frames:Object.entries(v.frames).slice(0,30),modules:Object.entries(v.modules).slice(0,25),callers:Object.entries(v.callers).slice(0,25),contexts:v.contexts}]))},null,2));
