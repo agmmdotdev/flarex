@@ -1,0 +1,8 @@
+{
+  "extends": "../../../../packages/executor/test/performance/measurement/tsconfig.json",
+  "compilerOptions": { "allowJs": true, "paths": {
+    "effect": ["../../../../packages/executor/node_modules/effect/dist/index.d.ts"],
+    "@medusajs/framework/utils/portable": ["../../../../packages/medusa-framework/dist/utils/portable.d.ts"]
+  } },
+  "include": ["./probe.ts", "./probe.test.ts", "./campaign.test.ts", "./vitest.config.ts", "./unit.config.ts", "./analysis.config.ts", "./analysis.test.ts", "./analysisEvidence.ts"]
+}

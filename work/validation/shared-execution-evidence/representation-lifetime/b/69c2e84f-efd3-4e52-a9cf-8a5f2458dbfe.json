@@ -1,0 +1,6960 @@
+{
+  "runId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe",
+  "operation": "compare",
+  "mode": "root-counters",
+  "execution": "complete",
+  "acceptance": "notEvaluated",
+  "sampling": {
+    "requestedSamples": 32,
+    "warmups": 5,
+    "size": "small",
+    "scenario": "mixed-workflow",
+    "driver": "postgres",
+    "pairOrder": "alternating"
+  },
+  "workload": {
+    "flow": "Application + Product launch + Payload lifecycle",
+    "cardinality": {
+      "applicationRoots": 1,
+      "productRoots": 1,
+      "payloadRoots": 1,
+      "workflows": 1
+    },
+    "limitations": [
+      "Original finite business graph has fixed cardinality across size selections."
+    ]
+  },
+  "samples": [
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:0",
+      "lane": "flarex",
+      "index": 0,
+      "kind": "warmup",
+      "requestMs": 488.2876000000033,
+      "seedMs": 0.09590000000025611,
+      "verificationMs": 1616.3001999999979,
+      "cleanupMs": 0.01359999999840511,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": []
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:0",
+      "lane": "native",
+      "index": 0,
+      "kind": "warmup",
+      "requestMs": 140.85869999999704,
+      "seedMs": 88.09330000000045,
+      "verificationMs": 10.77499999999418,
+      "cleanupMs": 18.386899999997695,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": []
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:1",
+      "lane": "flarex",
+      "index": 1,
+      "kind": "warmup",
+      "requestMs": 285.6041000000041,
+      "seedMs": 367.8145999999979,
+      "verificationMs": 1363.5149999999994,
+      "cleanupMs": 0.0033000000039464794,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": []
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:1",
+      "lane": "native",
+      "index": 1,
+      "kind": "warmup",
+      "requestMs": 47.51900000000023,
+      "seedMs": 10.971299999997427,
+      "verificationMs": 9.642899999998917,
+      "cleanupMs": 10.544699999998556,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": []
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:2",
+      "lane": "flarex",
+      "index": 2,
+      "kind": "warmup",
+      "requestMs": 250.2094999999972,
+      "seedMs": 330.8310999999958,
+      "verificationMs": 1223.1189000000013,
+      "cleanupMs": 0.0039000000033411197,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": []
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:2",
+      "lane": "native",
+      "index": 2,
+      "kind": "warmup",
+      "requestMs": 46.158299999995506,
+      "seedMs": 10.206300000005285,
+      "verificationMs": 8.258300000001327,
+      "cleanupMs": 10.143000000003667,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": []
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:3",
+      "lane": "flarex",
+      "index": 3,
+      "kind": "warmup",
+      "requestMs": 237.77309999999852,
+      "seedMs": 315.36560000000463,
+      "verificationMs": 1216.895899999996,
+      "cleanupMs": 0.0033000000039464794,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": []
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:3",
+      "lane": "native",
+      "index": 3,
+      "kind": "warmup",
+      "requestMs": 38.38100000000122,
+      "seedMs": 9.385600000001432,
+      "verificationMs": 7.907900000005611,
+      "cleanupMs": 9.468699999997625,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": []
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:4",
+      "lane": "flarex",
+      "index": 4,
+      "kind": "warmup",
+      "requestMs": 232.83589999999822,
+      "seedMs": 312.6912999999986,
+      "verificationMs": 1222.4681000000055,
+      "cleanupMs": 0.0031000000017229468,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": []
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:4",
+      "lane": "native",
+      "index": 4,
+      "kind": "warmup",
+      "requestMs": 38.13249999999971,
+      "seedMs": 9.159500000001572,
+      "verificationMs": 7.952299999997194,
+      "cleanupMs": 9.609799999998359,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": []
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:5",
+      "lane": "native",
+      "index": 5,
+      "kind": "diagnostic",
+      "requestMs": 40.470799999995506,
+      "seedMs": 10.679700000000594,
+      "verificationMs": 7.696499999998196,
+      "cleanupMs": 9.687900000004447,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 62731.0994,
+          "endMonotonicMs": 62771.4927
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 62731.0778,
+            "endMonotonicMs": 62731.0994
+          },
+          "after": {
+            "startMonotonicMs": 62771.4927,
+            "endMonotonicMs": 62771.5152
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 34609000,
+              "system": 4718000
+            },
+            "thread": {
+              "user": 28593000,
+              "system": 3562000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 34656000,
+              "system": 4718000
+            },
+            "thread": {
+              "user": 28609000,
+              "system": 3562000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 47000,
+            "system": 0
+          },
+          "thread": {
+            "user": 16000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 62731.0778,
+            "endMonotonicMs": 62771.5152
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:5",
+      "lane": "flarex",
+      "index": 5,
+      "kind": "diagnostic",
+      "requestMs": 259.02189999999973,
+      "seedMs": 336.13320000000385,
+      "verificationMs": 1270.5866999999998,
+      "cleanupMs": 0.0036000000036437996,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 63125.3577,
+          "endMonotonicMs": 63384.3216
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 63125.3347,
+            "endMonotonicMs": 63125.3577
+          },
+          "after": {
+            "startMonotonicMs": 63384.3216,
+            "endMonotonicMs": 63384.3493
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 34812000,
+              "system": 4734000
+            },
+            "thread": {
+              "user": 28750000,
+              "system": 3578000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 35015000,
+              "system": 4734000
+            },
+            "thread": {
+              "user": 28890000,
+              "system": 3578000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 203000,
+            "system": 0
+          },
+          "thread": {
+            "user": 140000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 63125.3347,
+            "endMonotonicMs": 63384.3493
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:6",
+      "lane": "flarex",
+      "index": 6,
+      "kind": "diagnostic",
+      "requestMs": 306.58690000000206,
+      "seedMs": 325.7635999999984,
+      "verificationMs": 1219.4879,
+      "cleanupMs": 0.0031999999919207767,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 64981.0961,
+          "endMonotonicMs": 65287.6294
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 64981.0729,
+            "endMonotonicMs": 64981.0961
+          },
+          "after": {
+            "startMonotonicMs": 65287.6294,
+            "endMonotonicMs": 65287.6545
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 36593000,
+              "system": 4859000
+            },
+            "thread": {
+              "user": 30078000,
+              "system": 3625000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 36796000,
+              "system": 4890000
+            },
+            "thread": {
+              "user": 30234000,
+              "system": 3656000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 203000,
+            "system": 31000
+          },
+          "thread": {
+            "user": 156000,
+            "system": 31000
+          },
+          "window": {
+            "startMonotonicMs": 64981.0729,
+            "endMonotonicMs": 65287.6545
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:6",
+      "lane": "native",
+      "index": 6,
+      "kind": "diagnostic",
+      "requestMs": 38.520999999993364,
+      "seedMs": 9.143600000010338,
+      "verificationMs": 7.708200000008219,
+      "cleanupMs": 9.232499999998254,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 66516.6029,
+          "endMonotonicMs": 66555.0736
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 66516.5813,
+            "endMonotonicMs": 66516.6029
+          },
+          "after": {
+            "startMonotonicMs": 66555.0736,
+            "endMonotonicMs": 66555.0971
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 37859000,
+              "system": 4921000
+            },
+            "thread": {
+              "user": 31203000,
+              "system": 3656000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 37890000,
+              "system": 4921000
+            },
+            "thread": {
+              "user": 31234000,
+              "system": 3656000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 31000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 66516.5813,
+            "endMonotonicMs": 66555.0971
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:7",
+      "lane": "native",
+      "index": 7,
+      "kind": "diagnostic",
+      "requestMs": 38.423500000004424,
+      "seedMs": 7.439899999997579,
+      "verificationMs": 7.800700000007055,
+      "cleanupMs": 8.531999999991967,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 66579.6949,
+          "endMonotonicMs": 66618.0674
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 66579.673,
+            "endMonotonicMs": 66579.6949
+          },
+          "after": {
+            "startMonotonicMs": 66618.0674,
+            "endMonotonicMs": 66618.0912
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 37906000,
+              "system": 4921000
+            },
+            "thread": {
+              "user": 31250000,
+              "system": 3656000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 37953000,
+              "system": 4921000
+            },
+            "thread": {
+              "user": 31296000,
+              "system": 3656000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 47000,
+            "system": 0
+          },
+          "thread": {
+            "user": 46000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 66579.673,
+            "endMonotonicMs": 66618.0912
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:7",
+      "lane": "flarex",
+      "index": 7,
+      "kind": "diagnostic",
+      "requestMs": 280.6325999999972,
+      "seedMs": 318.8387000000075,
+      "verificationMs": 1192.503199999992,
+      "cleanupMs": 0.003299999996670522,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 66953.4536,
+          "endMonotonicMs": 67234.0341
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 66953.4323,
+            "endMonotonicMs": 66953.4536
+          },
+          "after": {
+            "startMonotonicMs": 67234.0341,
+            "endMonotonicMs": 67234.0594
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 38109000,
+              "system": 4953000
+            },
+            "thread": {
+              "user": 31421000,
+              "system": 3687000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 38312000,
+              "system": 4984000
+            },
+            "thread": {
+              "user": 31578000,
+              "system": 3718000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 203000,
+            "system": 31000
+          },
+          "thread": {
+            "user": 157000,
+            "system": 31000
+          },
+          "window": {
+            "startMonotonicMs": 66953.4323,
+            "endMonotonicMs": 67234.0594
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:8",
+      "lane": "flarex",
+      "index": 8,
+      "kind": "diagnostic",
+      "requestMs": 232.23339999999735,
+      "seedMs": 318.96229999999923,
+      "verificationMs": 1196.0977999999886,
+      "cleanupMs": 0.004000000000814907,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 68745.8605,
+          "endMonotonicMs": 68978.0404
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 68745.8374,
+            "endMonotonicMs": 68745.8605
+          },
+          "after": {
+            "startMonotonicMs": 68978.0404,
+            "endMonotonicMs": 68978.065
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 39515000,
+              "system": 5078000
+            },
+            "thread": {
+              "user": 32687000,
+              "system": 3781000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 39625000,
+              "system": 5093000
+            },
+            "thread": {
+              "user": 32796000,
+              "system": 3796000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 110000,
+            "system": 15000
+          },
+          "thread": {
+            "user": 109000,
+            "system": 15000
+          },
+          "window": {
+            "startMonotonicMs": 68745.8374,
+            "endMonotonicMs": 68978.065
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:8",
+      "lane": "native",
+      "index": 8,
+      "kind": "diagnostic",
+      "requestMs": 35.720100000005914,
+      "seedMs": 8.266900000002352,
+      "verificationMs": 7.6907999999966705,
+      "cleanupMs": 9.48979999999574,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 70182.6282,
+          "endMonotonicMs": 70218.2968
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 70182.6055,
+            "endMonotonicMs": 70182.6282
+          },
+          "after": {
+            "startMonotonicMs": 70218.2968,
+            "endMonotonicMs": 70218.3199
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 40750000,
+              "system": 5171000
+            },
+            "thread": {
+              "user": 33781000,
+              "system": 3828000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 40781000,
+              "system": 5171000
+            },
+            "thread": {
+              "user": 33812000,
+              "system": 3828000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 31000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 70182.6055,
+            "endMonotonicMs": 70218.3199
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:9",
+      "lane": "native",
+      "index": 9,
+      "kind": "diagnostic",
+      "requestMs": 37.181299999996554,
+      "seedMs": 8.708499999993364,
+      "verificationMs": 7.690899999986868,
+      "cleanupMs": 125.71849999998813,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 70244.4475,
+          "endMonotonicMs": 70281.5716
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 70244.4242,
+            "endMonotonicMs": 70244.4475
+          },
+          "after": {
+            "startMonotonicMs": 70281.5716,
+            "endMonotonicMs": 70281.595
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 40812000,
+              "system": 5171000
+            },
+            "thread": {
+              "user": 33828000,
+              "system": 3828000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 40828000,
+              "system": 5171000
+            },
+            "thread": {
+              "user": 33843000,
+              "system": 3828000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 16000,
+            "system": 0
+          },
+          "thread": {
+            "user": 15000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 70244.4242,
+            "endMonotonicMs": 70281.595
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:9",
+      "lane": "flarex",
+      "index": 9,
+      "kind": "diagnostic",
+      "requestMs": 229.10050000000047,
+      "seedMs": 319.04649999999674,
+      "verificationMs": 1178.4541000000027,
+      "cleanupMs": 0.004500000010011718,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 70734.258,
+          "endMonotonicMs": 70963.302
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 70734.2356,
+            "endMonotonicMs": 70734.258
+          },
+          "after": {
+            "startMonotonicMs": 70963.302,
+            "endMonotonicMs": 70963.328
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 41046000,
+              "system": 5171000
+            },
+            "thread": {
+              "user": 34031000,
+              "system": 3828000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 41171000,
+              "system": 5171000
+            },
+            "thread": {
+              "user": 34140000,
+              "system": 3828000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 125000,
+            "system": 0
+          },
+          "thread": {
+            "user": 109000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 70734.2356,
+            "endMonotonicMs": 70963.328
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:10",
+      "lane": "flarex",
+      "index": 10,
+      "kind": "diagnostic",
+      "requestMs": 276.6252999999997,
+      "seedMs": 313.0365999999922,
+      "verificationMs": 1189.9397000000026,
+      "cleanupMs": 0.004300000000512227,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 72455.042,
+          "endMonotonicMs": 72731.6143
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 72455.0208,
+            "endMonotonicMs": 72455.042
+          },
+          "after": {
+            "startMonotonicMs": 72731.6143,
+            "endMonotonicMs": 72731.6402
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 42312000,
+              "system": 5250000
+            },
+            "thread": {
+              "user": 35234000,
+              "system": 3890000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 42453000,
+              "system": 5281000
+            },
+            "thread": {
+              "user": 35343000,
+              "system": 3921000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 141000,
+            "system": 31000
+          },
+          "thread": {
+            "user": 109000,
+            "system": 31000
+          },
+          "window": {
+            "startMonotonicMs": 72455.0208,
+            "endMonotonicMs": 72731.6402
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:10",
+      "lane": "native",
+      "index": 10,
+      "kind": "diagnostic",
+      "requestMs": 35.1533999999956,
+      "seedMs": 7.727700000003097,
+      "verificationMs": 8.066099999996368,
+      "cleanupMs": 9.034299999999348,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 73929.6207,
+          "endMonotonicMs": 73964.7232
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 73929.5981,
+            "endMonotonicMs": 73929.6207
+          },
+          "after": {
+            "startMonotonicMs": 73964.7232,
+            "endMonotonicMs": 73964.7464
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 43656000,
+              "system": 5296000
+            },
+            "thread": {
+              "user": 36328000,
+              "system": 3937000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 43687000,
+              "system": 5296000
+            },
+            "thread": {
+              "user": 36359000,
+              "system": 3937000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 31000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 73929.5981,
+            "endMonotonicMs": 73964.7464
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:11",
+      "lane": "native",
+      "index": 11,
+      "kind": "diagnostic",
+      "requestMs": 36.302899999995134,
+      "seedMs": 7.098400000002584,
+      "verificationMs": 7.6159999999945285,
+      "cleanupMs": 8.236600000003818,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 73989.1618,
+          "endMonotonicMs": 74025.4144
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 73989.1398,
+            "endMonotonicMs": 73989.1618
+          },
+          "after": {
+            "startMonotonicMs": 74025.4144,
+            "endMonotonicMs": 74025.4385
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 43703000,
+              "system": 5296000
+            },
+            "thread": {
+              "user": 36375000,
+              "system": 3937000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 43734000,
+              "system": 5296000
+            },
+            "thread": {
+              "user": 36406000,
+              "system": 3937000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 31000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 73989.1398,
+            "endMonotonicMs": 74025.4385
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:11",
+      "lane": "flarex",
+      "index": 11,
+      "kind": "diagnostic",
+      "requestMs": 323.1777000000002,
+      "seedMs": 317.56759999999485,
+      "verificationMs": 1206.0620999999956,
+      "cleanupMs": 0.006500000003143214,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 74359.0493,
+          "endMonotonicMs": 74682.1671
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 74359.0204,
+            "endMonotonicMs": 74359.0493
+          },
+          "after": {
+            "startMonotonicMs": 74682.1671,
+            "endMonotonicMs": 74682.192
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 43937000,
+              "system": 5296000
+            },
+            "thread": {
+              "user": 36593000,
+              "system": 3937000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 44390000,
+              "system": 5296000
+            },
+            "thread": {
+              "user": 36796000,
+              "system": 3937000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 453000,
+            "system": 0
+          },
+          "thread": {
+            "user": 203000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 74359.0204,
+            "endMonotonicMs": 74682.192
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:12",
+      "lane": "flarex",
+      "index": 12,
+      "kind": "diagnostic",
+      "requestMs": 230.39640000001236,
+      "seedMs": 320.4519,
+      "verificationMs": 1386.9462000000058,
+      "cleanupMs": 0.003400000001420267,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 76209.07,
+          "endMonotonicMs": 76439.4032
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 76209.048,
+            "endMonotonicMs": 76209.07
+          },
+          "after": {
+            "startMonotonicMs": 76439.4032,
+            "endMonotonicMs": 76439.4388
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 45562000,
+              "system": 5328000
+            },
+            "thread": {
+              "user": 37859000,
+              "system": 3953000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 45687000,
+              "system": 5343000
+            },
+            "thread": {
+              "user": 37984000,
+              "system": 3953000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 125000,
+            "system": 15000
+          },
+          "thread": {
+            "user": 125000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 76209.048,
+            "endMonotonicMs": 76439.4388
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:12",
+      "lane": "native",
+      "index": 12,
+      "kind": "diagnostic",
+      "requestMs": 43.3180999999895,
+      "seedMs": 9.440300000002026,
+      "verificationMs": 8.652499999996508,
+      "cleanupMs": 9.037899999995716,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 77836.002,
+          "endMonotonicMs": 77879.2687
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 77835.9793,
+            "endMonotonicMs": 77836.002
+          },
+          "after": {
+            "startMonotonicMs": 77879.2687,
+            "endMonotonicMs": 77879.292
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 46750000,
+              "system": 5437000
+            },
+            "thread": {
+              "user": 39015000,
+              "system": 4031000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 46796000,
+              "system": 5437000
+            },
+            "thread": {
+              "user": 39046000,
+              "system": 4031000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 46000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 77835.9793,
+            "endMonotonicMs": 77879.292
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:13",
+      "lane": "native",
+      "index": 13,
+      "kind": "diagnostic",
+      "requestMs": 38.7728999999963,
+      "seedMs": 7.161500000001979,
+      "verificationMs": 8.057800000009593,
+      "cleanupMs": 8.821799999990617,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 77904.3702,
+          "endMonotonicMs": 77943.0909
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 77904.3477,
+            "endMonotonicMs": 77904.3702
+          },
+          "after": {
+            "startMonotonicMs": 77943.0909,
+            "endMonotonicMs": 77943.1153
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 46843000,
+              "system": 5437000
+            },
+            "thread": {
+              "user": 39078000,
+              "system": 4031000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 46843000,
+              "system": 5437000
+            },
+            "thread": {
+              "user": 39078000,
+              "system": 4031000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 0,
+            "system": 0
+          },
+          "thread": {
+            "user": 0,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 77904.3477,
+            "endMonotonicMs": 77943.1153
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:13",
+      "lane": "flarex",
+      "index": 13,
+      "kind": "diagnostic",
+      "requestMs": 376.46540000000095,
+      "seedMs": 356.18859999999404,
+      "verificationMs": 1304.412599999996,
+      "cleanupMs": 0.003400000001420267,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 78316.4126,
+          "endMonotonicMs": 78692.807
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 78316.3781,
+            "endMonotonicMs": 78316.4126
+          },
+          "after": {
+            "startMonotonicMs": 78692.807,
+            "endMonotonicMs": 78692.8357
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 47078000,
+              "system": 5437000
+            },
+            "thread": {
+              "user": 39296000,
+              "system": 4031000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 47296000,
+              "system": 5437000
+            },
+            "thread": {
+              "user": 39500000,
+              "system": 4031000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 218000,
+            "system": 0
+          },
+          "thread": {
+            "user": 204000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 78316.3781,
+            "endMonotonicMs": 78692.8357
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:14",
+      "lane": "flarex",
+      "index": 14,
+      "kind": "diagnostic",
+      "requestMs": 286.4886000000115,
+      "seedMs": 344.0774999999994,
+      "verificationMs": 1260.1070000000036,
+      "cleanupMs": 0.003200000006472692,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 80341.5484,
+          "endMonotonicMs": 80627.9806
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 80341.5233,
+            "endMonotonicMs": 80341.5484
+          },
+          "after": {
+            "startMonotonicMs": 80627.9806,
+            "endMonotonicMs": 80628.0064
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 48546000,
+              "system": 5500000
+            },
+            "thread": {
+              "user": 40640000,
+              "system": 4062000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 48703000,
+              "system": 5546000
+            },
+            "thread": {
+              "user": 40765000,
+              "system": 4109000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 157000,
+            "system": 46000
+          },
+          "thread": {
+            "user": 125000,
+            "system": 47000
+          },
+          "window": {
+            "startMonotonicMs": 80341.5233,
+            "endMonotonicMs": 80628.0064
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:14",
+      "lane": "native",
+      "index": 14,
+      "kind": "diagnostic",
+      "requestMs": 42.258499999996275,
+      "seedMs": 9.101899999994203,
+      "verificationMs": 8.860000000000582,
+      "cleanupMs": 9.7158999999956,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 81897.5049,
+          "endMonotonicMs": 81939.7067
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 81897.4815,
+            "endMonotonicMs": 81897.5049
+          },
+          "after": {
+            "startMonotonicMs": 81939.7067,
+            "endMonotonicMs": 81939.7344
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 49796000,
+              "system": 5546000
+            },
+            "thread": {
+              "user": 41828000,
+              "system": 4109000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 49843000,
+              "system": 5546000
+            },
+            "thread": {
+              "user": 41859000,
+              "system": 4109000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 47000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 81897.4815,
+            "endMonotonicMs": 81939.7344
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:15",
+      "lane": "native",
+      "index": 15,
+      "kind": "diagnostic",
+      "requestMs": 42.98120000000927,
+      "seedMs": 7.486199999999371,
+      "verificationMs": 7.936600000000908,
+      "cleanupMs": 9.919600000008359,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 81966.0288,
+          "endMonotonicMs": 82008.9574
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 81966.0047,
+            "endMonotonicMs": 81966.0288
+          },
+          "after": {
+            "startMonotonicMs": 82008.9574,
+            "endMonotonicMs": 82008.9811
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 49859000,
+              "system": 5546000
+            },
+            "thread": {
+              "user": 41875000,
+              "system": 4109000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 49906000,
+              "system": 5546000
+            },
+            "thread": {
+              "user": 41921000,
+              "system": 4109000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 47000,
+            "system": 0
+          },
+          "thread": {
+            "user": 46000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 81966.0047,
+            "endMonotonicMs": 82008.9811
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:15",
+      "lane": "flarex",
+      "index": 15,
+      "kind": "diagnostic",
+      "requestMs": 284.6594999999943,
+      "seedMs": 335.01020000000426,
+      "verificationMs": 1246.8337000000029,
+      "cleanupMs": 0.0028999999922234565,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 82362.0354,
+          "endMonotonicMs": 82646.6415
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 82362.0126,
+            "endMonotonicMs": 82362.0354
+          },
+          "after": {
+            "startMonotonicMs": 82646.6415,
+            "endMonotonicMs": 82646.6667
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 50031000,
+              "system": 5546000
+            },
+            "thread": {
+              "user": 42046000,
+              "system": 4109000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 50234000,
+              "system": 5562000
+            },
+            "thread": {
+              "user": 42234000,
+              "system": 4125000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 203000,
+            "system": 16000
+          },
+          "thread": {
+            "user": 188000,
+            "system": 16000
+          },
+          "window": {
+            "startMonotonicMs": 82362.0126,
+            "endMonotonicMs": 82646.6667
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:16",
+      "lane": "flarex",
+      "index": 16,
+      "kind": "diagnostic",
+      "requestMs": 232.44620000000577,
+      "seedMs": 327.7395000000106,
+      "verificationMs": 1188.9830000000075,
+      "cleanupMs": 0.003599999996367842,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 84221.59,
+          "endMonotonicMs": 84453.9805
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 84221.5662,
+            "endMonotonicMs": 84221.59
+          },
+          "after": {
+            "startMonotonicMs": 84453.9805,
+            "endMonotonicMs": 84454.0076
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 51812000,
+              "system": 5656000
+            },
+            "thread": {
+              "user": 43406000,
+              "system": 4218000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 51937000,
+              "system": 5671000
+            },
+            "thread": {
+              "user": 43531000,
+              "system": 4234000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 125000,
+            "system": 15000
+          },
+          "thread": {
+            "user": 125000,
+            "system": 16000
+          },
+          "window": {
+            "startMonotonicMs": 84221.5662,
+            "endMonotonicMs": 84454.0076
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:16",
+      "lane": "native",
+      "index": 16,
+      "kind": "diagnostic",
+      "requestMs": 36.1244999999908,
+      "seedMs": 8.967499999998836,
+      "verificationMs": 8.276500000007218,
+      "cleanupMs": 8.960100000011153,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 85652.1464,
+          "endMonotonicMs": 85688.2217
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 85652.1251,
+            "endMonotonicMs": 85652.1464
+          },
+          "after": {
+            "startMonotonicMs": 85688.2217,
+            "endMonotonicMs": 85688.2446
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 53093000,
+              "system": 5687000
+            },
+            "thread": {
+              "user": 44546000,
+              "system": 4250000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 53125000,
+              "system": 5687000
+            },
+            "thread": {
+              "user": 44578000,
+              "system": 4250000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 32000,
+            "system": 0
+          },
+          "thread": {
+            "user": 32000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 85652.1251,
+            "endMonotonicMs": 85688.2446
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:17",
+      "lane": "native",
+      "index": 17,
+      "kind": "diagnostic",
+      "requestMs": 34.05659999999625,
+      "seedMs": 6.990499999999884,
+      "verificationMs": 6.888700000010431,
+      "cleanupMs": 7.533999999999651,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 85712.6817,
+          "endMonotonicMs": 85746.6874
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 85712.6592,
+            "endMonotonicMs": 85712.6817
+          },
+          "after": {
+            "startMonotonicMs": 85746.6874,
+            "endMonotonicMs": 85746.7108
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 53171000,
+              "system": 5687000
+            },
+            "thread": {
+              "user": 44609000,
+              "system": 4250000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 53250000,
+              "system": 5687000
+            },
+            "thread": {
+              "user": 44640000,
+              "system": 4250000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 79000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 85712.6592,
+            "endMonotonicMs": 85746.7108
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:17",
+      "lane": "flarex",
+      "index": 17,
+      "kind": "diagnostic",
+      "requestMs": 225.6362999999983,
+      "seedMs": 330.87339999999676,
+      "verificationMs": 1586.7026999999944,
+      "cleanupMs": 0.0028999999922234565,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 86092.1818,
+          "endMonotonicMs": 86317.766
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 86092.1602,
+            "endMonotonicMs": 86092.1818
+          },
+          "after": {
+            "startMonotonicMs": 86317.766,
+            "endMonotonicMs": 86317.7918
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 53453000,
+              "system": 5687000
+            },
+            "thread": {
+              "user": 44812000,
+              "system": 4250000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 53546000,
+              "system": 5687000
+            },
+            "thread": {
+              "user": 44890000,
+              "system": 4250000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 93000,
+            "system": 0
+          },
+          "thread": {
+            "user": 78000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 86092.1602,
+            "endMonotonicMs": 86317.7918
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:18",
+      "lane": "flarex",
+      "index": 18,
+      "kind": "diagnostic",
+      "requestMs": 262.04069999999774,
+      "seedMs": 324.66109999999753,
+      "verificationMs": 1182.6097000000009,
+      "cleanupMs": 0.0029999999969732016,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 88229.3564,
+          "endMonotonicMs": 88491.3421
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 88229.3326,
+            "endMonotonicMs": 88229.3564
+          },
+          "after": {
+            "startMonotonicMs": 88491.3421,
+            "endMonotonicMs": 88491.3678
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 54468000,
+              "system": 5765000
+            },
+            "thread": {
+              "user": 45796000,
+              "system": 4296000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 54656000,
+              "system": 5765000
+            },
+            "thread": {
+              "user": 45968000,
+              "system": 4296000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 188000,
+            "system": 0
+          },
+          "thread": {
+            "user": 172000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 88229.3326,
+            "endMonotonicMs": 88491.3678
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:18",
+      "lane": "native",
+      "index": 18,
+      "kind": "diagnostic",
+      "requestMs": 32.47990000000573,
+      "seedMs": 7.366500000003725,
+      "verificationMs": 6.923999999999069,
+      "cleanupMs": 8.257400000002235,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 89681.6104,
+          "endMonotonicMs": 89714.0393
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 89681.5884,
+            "endMonotonicMs": 89681.6104
+          },
+          "after": {
+            "startMonotonicMs": 89714.0393,
+            "endMonotonicMs": 89714.0633
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 55625000,
+              "system": 5796000
+            },
+            "thread": {
+              "user": 46921000,
+              "system": 4312000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 55640000,
+              "system": 5796000
+            },
+            "thread": {
+              "user": 46937000,
+              "system": 4312000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 15000,
+            "system": 0
+          },
+          "thread": {
+            "user": 16000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 89681.5884,
+            "endMonotonicMs": 89714.0633
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:19",
+      "lane": "native",
+      "index": 19,
+      "kind": "diagnostic",
+      "requestMs": 35.15600000000268,
+      "seedMs": 7.528900000004796,
+      "verificationMs": 7.09769999999844,
+      "cleanupMs": 7.894200000009732,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 89736.9625,
+          "endMonotonicMs": 89772.0662
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 89736.9395,
+            "endMonotonicMs": 89736.9625
+          },
+          "after": {
+            "startMonotonicMs": 89772.0662,
+            "endMonotonicMs": 89772.0908
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 55640000,
+              "system": 5796000
+            },
+            "thread": {
+              "user": 46937000,
+              "system": 4312000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 55703000,
+              "system": 5796000
+            },
+            "thread": {
+              "user": 46968000,
+              "system": 4312000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 63000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 89736.9395,
+            "endMonotonicMs": 89772.0908
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:19",
+      "lane": "flarex",
+      "index": 19,
+      "kind": "diagnostic",
+      "requestMs": 271.599000000002,
+      "seedMs": 332.98309999999765,
+      "verificationMs": 1193.075800000006,
+      "cleanupMs": 0.003299999996670522,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 90120.2565,
+          "endMonotonicMs": 90391.7994
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 90120.2327,
+            "endMonotonicMs": 90120.2565
+          },
+          "after": {
+            "startMonotonicMs": 90391.7994,
+            "endMonotonicMs": 90391.8258
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 55859000,
+              "system": 5796000
+            },
+            "thread": {
+              "user": 47125000,
+              "system": 4312000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 56046000,
+              "system": 5796000
+            },
+            "thread": {
+              "user": 47281000,
+              "system": 4312000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 187000,
+            "system": 0
+          },
+          "thread": {
+            "user": 156000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 90120.2327,
+            "endMonotonicMs": 90391.8258
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:20",
+      "lane": "flarex",
+      "index": 20,
+      "kind": "diagnostic",
+      "requestMs": 221.7378000000026,
+      "seedMs": 334.08899999999267,
+      "verificationMs": 1175.0256000000081,
+      "cleanupMs": 0.003499999991618097,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 91919.2883,
+          "endMonotonicMs": 92140.9698
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 91919.264,
+            "endMonotonicMs": 91919.2883
+          },
+          "after": {
+            "startMonotonicMs": 92140.9698,
+            "endMonotonicMs": 92140.9963
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 57203000,
+              "system": 5796000
+            },
+            "thread": {
+              "user": 48359000,
+              "system": 4312000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 57406000,
+              "system": 5796000
+            },
+            "thread": {
+              "user": 48546000,
+              "system": 4312000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 203000,
+            "system": 0
+          },
+          "thread": {
+            "user": 187000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 91919.264,
+            "endMonotonicMs": 92140.9963
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:20",
+      "lane": "native",
+      "index": 20,
+      "kind": "diagnostic",
+      "requestMs": 32.807300000000396,
+      "seedMs": 7.545400000002701,
+      "verificationMs": 6.86699999999837,
+      "cleanupMs": 8.110500000009779,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 93323.7353,
+          "endMonotonicMs": 93356.4924
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 93323.7129,
+            "endMonotonicMs": 93323.7353
+          },
+          "after": {
+            "startMonotonicMs": 93356.4924,
+            "endMonotonicMs": 93356.5154
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 58406000,
+              "system": 5812000
+            },
+            "thread": {
+              "user": 49500000,
+              "system": 4328000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 58437000,
+              "system": 5812000
+            },
+            "thread": {
+              "user": 49531000,
+              "system": 4328000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 31000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 93323.7129,
+            "endMonotonicMs": 93356.5154
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:21",
+      "lane": "native",
+      "index": 21,
+      "kind": "diagnostic",
+      "requestMs": 35.953999999997905,
+      "seedMs": 6.340300000010757,
+      "verificationMs": 7.17160000000149,
+      "cleanupMs": 7.511899999997695,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 93378.0202,
+          "endMonotonicMs": 93413.9234
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 93377.9976,
+            "endMonotonicMs": 93378.0202
+          },
+          "after": {
+            "startMonotonicMs": 93413.9234,
+            "endMonotonicMs": 93413.9472
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 58437000,
+              "system": 5812000
+            },
+            "thread": {
+              "user": 49531000,
+              "system": 4328000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 58484000,
+              "system": 5812000
+            },
+            "thread": {
+              "user": 49562000,
+              "system": 4328000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 47000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 93377.9976,
+            "endMonotonicMs": 93413.9472
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:21",
+      "lane": "flarex",
+      "index": 21,
+      "kind": "diagnostic",
+      "requestMs": 232.40190000001166,
+      "seedMs": 331.0003999999899,
+      "verificationMs": 1188.08679999999,
+      "cleanupMs": 0.0031999999919207767,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 93759.8006,
+          "endMonotonicMs": 93992.1474
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 93759.7788,
+            "endMonotonicMs": 93759.8006
+          },
+          "after": {
+            "startMonotonicMs": 93992.1474,
+            "endMonotonicMs": 93992.176
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 58640000,
+              "system": 5812000
+            },
+            "thread": {
+              "user": 49687000,
+              "system": 4328000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 58781000,
+              "system": 5812000
+            },
+            "thread": {
+              "user": 49812000,
+              "system": 4328000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 141000,
+            "system": 0
+          },
+          "thread": {
+            "user": 125000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 93759.7788,
+            "endMonotonicMs": 93992.176
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:22",
+      "lane": "flarex",
+      "index": 22,
+      "kind": "diagnostic",
+      "requestMs": 261.9194000000134,
+      "seedMs": 328.95329999999376,
+      "verificationMs": 1246.8224000000046,
+      "cleanupMs": 0.003499999991618097,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 95509.3967,
+          "endMonotonicMs": 95771.2463
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 95509.3742,
+            "endMonotonicMs": 95509.3967
+          },
+          "after": {
+            "startMonotonicMs": 95771.2463,
+            "endMonotonicMs": 95771.2873
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 59984000,
+              "system": 5890000
+            },
+            "thread": {
+              "user": 50906000,
+              "system": 4375000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 60125000,
+              "system": 5906000
+            },
+            "thread": {
+              "user": 51046000,
+              "system": 4390000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 141000,
+            "system": 16000
+          },
+          "thread": {
+            "user": 140000,
+            "system": 15000
+          },
+          "window": {
+            "startMonotonicMs": 95509.3742,
+            "endMonotonicMs": 95771.2873
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:22",
+      "lane": "native",
+      "index": 22,
+      "kind": "diagnostic",
+      "requestMs": 32.69310000000405,
+      "seedMs": 7.794999999998254,
+      "verificationMs": 7.2585999999864725,
+      "cleanupMs": 7.786899999991874,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 97026.1897,
+          "endMonotonicMs": 97058.8318
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 97026.167,
+            "endMonotonicMs": 97026.1897
+          },
+          "after": {
+            "startMonotonicMs": 97058.8318,
+            "endMonotonicMs": 97058.8548
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 61234000,
+              "system": 5937000
+            },
+            "thread": {
+              "user": 52062000,
+              "system": 4406000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 61281000,
+              "system": 5937000
+            },
+            "thread": {
+              "user": 52093000,
+              "system": 4406000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 47000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 97026.167,
+            "endMonotonicMs": 97058.8548
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:23",
+      "lane": "native",
+      "index": 23,
+      "kind": "diagnostic",
+      "requestMs": 36.56350000000384,
+      "seedMs": 7.645300000003772,
+      "verificationMs": 7.052899999995134,
+      "cleanupMs": 8.296699999991688,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 97081.7554,
+          "endMonotonicMs": 97118.2683
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 97081.7327,
+            "endMonotonicMs": 97081.7554
+          },
+          "after": {
+            "startMonotonicMs": 97118.2683,
+            "endMonotonicMs": 97118.2916
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 61296000,
+              "system": 5937000
+            },
+            "thread": {
+              "user": 52109000,
+              "system": 4406000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 61375000,
+              "system": 5937000
+            },
+            "thread": {
+              "user": 52156000,
+              "system": 4406000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 79000,
+            "system": 0
+          },
+          "thread": {
+            "user": 47000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 97081.7327,
+            "endMonotonicMs": 97118.2916
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:23",
+      "lane": "flarex",
+      "index": 23,
+      "kind": "diagnostic",
+      "requestMs": 270.71809999999823,
+      "seedMs": 331.5147999999899,
+      "verificationMs": 1170.2565000000031,
+      "cleanupMs": 0.0031000000017229468,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 97465.3326,
+          "endMonotonicMs": 97735.9971
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 97465.3105,
+            "endMonotonicMs": 97465.3326
+          },
+          "after": {
+            "startMonotonicMs": 97735.9971,
+            "endMonotonicMs": 97736.0238
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 61562000,
+              "system": 5953000
+            },
+            "thread": {
+              "user": 52343000,
+              "system": 4421000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 61750000,
+              "system": 5953000
+            },
+            "thread": {
+              "user": 52531000,
+              "system": 4421000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 188000,
+            "system": 0
+          },
+          "thread": {
+            "user": 188000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 97465.3105,
+            "endMonotonicMs": 97736.0238
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:24",
+      "lane": "flarex",
+      "index": 24,
+      "kind": "diagnostic",
+      "requestMs": 222.95769999999902,
+      "seedMs": 350.3255000000063,
+      "verificationMs": 1168.8554000000004,
+      "cleanupMs": 0.0031000000017229468,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 99256.8963,
+          "endMonotonicMs": 99479.7987
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 99256.8736,
+            "endMonotonicMs": 99256.8963
+          },
+          "after": {
+            "startMonotonicMs": 99479.7987,
+            "endMonotonicMs": 99479.8256
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 62859000,
+              "system": 6015000
+            },
+            "thread": {
+              "user": 53578000,
+              "system": 4484000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 62937000,
+              "system": 6015000
+            },
+            "thread": {
+              "user": 53656000,
+              "system": 4484000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 78000,
+            "system": 0
+          },
+          "thread": {
+            "user": 78000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 99256.8736,
+            "endMonotonicMs": 99479.8256
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:24",
+      "lane": "native",
+      "index": 24,
+      "kind": "diagnostic",
+      "requestMs": 32.333599999998114,
+      "seedMs": 7.533499999990454,
+      "verificationMs": 7.130900000003749,
+      "cleanupMs": 8.841899999999441,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 100656.3797,
+          "endMonotonicMs": 100688.6633
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 100656.3574,
+            "endMonotonicMs": 100656.3797
+          },
+          "after": {
+            "startMonotonicMs": 100688.6633,
+            "endMonotonicMs": 100688.6859
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 64062000,
+              "system": 6031000
+            },
+            "thread": {
+              "user": 54687000,
+              "system": 4500000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 64109000,
+              "system": 6031000
+            },
+            "thread": {
+              "user": 54718000,
+              "system": 4500000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 47000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 100656.3574,
+            "endMonotonicMs": 100688.6859
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:25",
+      "lane": "native",
+      "index": 25,
+      "kind": "diagnostic",
+      "requestMs": 34.82140000000072,
+      "seedMs": 7.049200000008568,
+      "verificationMs": 7.051000000006752,
+      "cleanupMs": 8.221900000004098,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 100711.901,
+          "endMonotonicMs": 100746.6714
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 100711.8776,
+            "endMonotonicMs": 100711.901
+          },
+          "after": {
+            "startMonotonicMs": 100746.6714,
+            "endMonotonicMs": 100746.6941
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 64140000,
+              "system": 6031000
+            },
+            "thread": {
+              "user": 54750000,
+              "system": 4500000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 64171000,
+              "system": 6031000
+            },
+            "thread": {
+              "user": 54781000,
+              "system": 4500000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 31000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 100711.8776,
+            "endMonotonicMs": 100746.6941
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:25",
+      "lane": "flarex",
+      "index": 25,
+      "kind": "diagnostic",
+      "requestMs": 230.77330000000075,
+      "seedMs": 336.8542000000016,
+      "verificationMs": 1171.9097000000038,
+      "cleanupMs": 0.002299999992828816,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 101098.9948,
+          "endMonotonicMs": 101329.7147
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 101098.9728,
+            "endMonotonicMs": 101098.9948
+          },
+          "after": {
+            "startMonotonicMs": 101329.7147,
+            "endMonotonicMs": 101329.741
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 64390000,
+              "system": 6031000
+            },
+            "thread": {
+              "user": 54984000,
+              "system": 4500000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 64609000,
+              "system": 6031000
+            },
+            "thread": {
+              "user": 55140000,
+              "system": 4500000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 219000,
+            "system": 0
+          },
+          "thread": {
+            "user": 156000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 101098.9728,
+            "endMonotonicMs": 101329.741
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:26",
+      "lane": "flarex",
+      "index": 26,
+      "kind": "diagnostic",
+      "requestMs": 267.8015000000014,
+      "seedMs": 334.17179999999644,
+      "verificationMs": 1183.6293999999907,
+      "cleanupMs": 0.0031999999919207767,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 102836.001,
+          "endMonotonicMs": 103103.7493
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 102835.979,
+            "endMonotonicMs": 102836.001
+          },
+          "after": {
+            "startMonotonicMs": 103103.7493,
+            "endMonotonicMs": 103103.7754
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 65750000,
+              "system": 6046000
+            },
+            "thread": {
+              "user": 56234000,
+              "system": 4515000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 65890000,
+              "system": 6062000
+            },
+            "thread": {
+              "user": 56375000,
+              "system": 4531000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 140000,
+            "system": 16000
+          },
+          "thread": {
+            "user": 141000,
+            "system": 16000
+          },
+          "window": {
+            "startMonotonicMs": 102835.979,
+            "endMonotonicMs": 103103.7754
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:26",
+      "lane": "native",
+      "index": 26,
+      "kind": "diagnostic",
+      "requestMs": 33.226599999994505,
+      "seedMs": 7.65240000000631,
+      "verificationMs": 7.0305999999982305,
+      "cleanupMs": 8.016099999993457,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 104295.324,
+          "endMonotonicMs": 104328.4992
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 104295.3024,
+            "endMonotonicMs": 104295.324
+          },
+          "after": {
+            "startMonotonicMs": 104328.4992,
+            "endMonotonicMs": 104328.5238
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 66968000,
+              "system": 6078000
+            },
+            "thread": {
+              "user": 57359000,
+              "system": 4546000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 67000000,
+              "system": 6078000
+            },
+            "thread": {
+              "user": 57390000,
+              "system": 4546000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 32000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 104295.3024,
+            "endMonotonicMs": 104328.5238
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:27",
+      "lane": "native",
+      "index": 27,
+      "kind": "diagnostic",
+      "requestMs": 34.59779999998864,
+      "seedMs": 6.69989999999234,
+      "verificationMs": 7.224999999991269,
+      "cleanupMs": 7.584400000007008,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 104350.4616,
+          "endMonotonicMs": 104385.0095
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 104350.4394,
+            "endMonotonicMs": 104350.4616
+          },
+          "after": {
+            "startMonotonicMs": 104385.0095,
+            "endMonotonicMs": 104385.0325
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 67015000,
+              "system": 6078000
+            },
+            "thread": {
+              "user": 57406000,
+              "system": 4546000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 67062000,
+              "system": 6078000
+            },
+            "thread": {
+              "user": 57437000,
+              "system": 4546000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 47000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 104350.4394,
+            "endMonotonicMs": 104385.0325
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:27",
+      "lane": "flarex",
+      "index": 27,
+      "kind": "diagnostic",
+      "requestMs": 266.20990000000165,
+      "seedMs": 332.0905999999959,
+      "verificationMs": 1174.8264000000054,
+      "cleanupMs": 0.0029999999969732016,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 104732.1068,
+          "endMonotonicMs": 104998.2634
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 104732.0841,
+            "endMonotonicMs": 104732.1068
+          },
+          "after": {
+            "startMonotonicMs": 104998.2634,
+            "endMonotonicMs": 104998.2896
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 67343000,
+              "system": 6078000
+            },
+            "thread": {
+              "user": 57640000,
+              "system": 4546000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 67484000,
+              "system": 6078000
+            },
+            "thread": {
+              "user": 57781000,
+              "system": 4546000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 141000,
+            "system": 0
+          },
+          "thread": {
+            "user": 141000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 104732.0841,
+            "endMonotonicMs": 104998.2896
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:28",
+      "lane": "flarex",
+      "index": 28,
+      "kind": "diagnostic",
+      "requestMs": 229.9271000000008,
+      "seedMs": 337.4633000000031,
+      "verificationMs": 1278.949099999998,
+      "cleanupMs": 0.003700000001117587,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 106510.8749,
+          "endMonotonicMs": 106740.7467
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 106510.8512,
+            "endMonotonicMs": 106510.8749
+          },
+          "after": {
+            "startMonotonicMs": 106740.7467,
+            "endMonotonicMs": 106740.7724
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 68593000,
+              "system": 6140000
+            },
+            "thread": {
+              "user": 58843000,
+              "system": 4593000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 68718000,
+              "system": 6156000
+            },
+            "thread": {
+              "user": 58953000,
+              "system": 4609000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 125000,
+            "system": 16000
+          },
+          "thread": {
+            "user": 110000,
+            "system": 16000
+          },
+          "window": {
+            "startMonotonicMs": 106510.8512,
+            "endMonotonicMs": 106740.7724
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:28",
+      "lane": "native",
+      "index": 28,
+      "kind": "diagnostic",
+      "requestMs": 45.822099999990314,
+      "seedMs": 9.850200000000768,
+      "verificationMs": 9.38760000000184,
+      "cleanupMs": 11.706200000000536,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 108029.7791,
+          "endMonotonicMs": 108075.5457
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 108029.7562,
+            "endMonotonicMs": 108029.7791
+          },
+          "after": {
+            "startMonotonicMs": 108075.5457,
+            "endMonotonicMs": 108075.573
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 70140000,
+              "system": 6234000
+            },
+            "thread": {
+              "user": 59968000,
+              "system": 4656000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 70187000,
+              "system": 6234000
+            },
+            "thread": {
+              "user": 60015000,
+              "system": 4656000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 47000,
+            "system": 0
+          },
+          "thread": {
+            "user": 47000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 108029.7562,
+            "endMonotonicMs": 108075.573
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:29",
+      "lane": "native",
+      "index": 29,
+      "kind": "diagnostic",
+      "requestMs": 45.213999999992666,
+      "seedMs": 8.01600000000326,
+      "verificationMs": 9.215100000001257,
+      "cleanupMs": 10.500799999994342,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 108104.9112,
+          "endMonotonicMs": 108150.07
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 108104.8873,
+            "endMonotonicMs": 108104.9112
+          },
+          "after": {
+            "startMonotonicMs": 108150.07,
+            "endMonotonicMs": 108150.0956
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 70203000,
+              "system": 6234000
+            },
+            "thread": {
+              "user": 60031000,
+              "system": 4656000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 70234000,
+              "system": 6234000
+            },
+            "thread": {
+              "user": 60062000,
+              "system": 4656000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 31000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 108104.8873,
+            "endMonotonicMs": 108150.0956
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:29",
+      "lane": "flarex",
+      "index": 29,
+      "kind": "diagnostic",
+      "requestMs": 234.15320000000065,
+      "seedMs": 380.6793000000034,
+      "verificationMs": 1192.8485999999975,
+      "cleanupMs": 0.004300000000512227,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 108550.6938,
+          "endMonotonicMs": 108784.79
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 108550.6692,
+            "endMonotonicMs": 108550.6938
+          },
+          "after": {
+            "startMonotonicMs": 108784.79,
+            "endMonotonicMs": 108784.8164
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 70406000,
+              "system": 6250000
+            },
+            "thread": {
+              "user": 60203000,
+              "system": 4671000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 70609000,
+              "system": 6265000
+            },
+            "thread": {
+              "user": 60343000,
+              "system": 4687000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 203000,
+            "system": 15000
+          },
+          "thread": {
+            "user": 140000,
+            "system": 16000
+          },
+          "window": {
+            "startMonotonicMs": 108550.6692,
+            "endMonotonicMs": 108784.8164
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:30",
+      "lane": "flarex",
+      "index": 30,
+      "kind": "diagnostic",
+      "requestMs": 275.91479999999865,
+      "seedMs": 348.2752000000037,
+      "verificationMs": 1187.6345000000001,
+      "cleanupMs": 0.0029999999969732016,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 110326.1344,
+          "endMonotonicMs": 110601.995
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 110326.1123,
+            "endMonotonicMs": 110326.1344
+          },
+          "after": {
+            "startMonotonicMs": 110601.995,
+            "endMonotonicMs": 110602.0213
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 71953000,
+              "system": 6296000
+            },
+            "thread": {
+              "user": 61468000,
+              "system": 4718000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 72125000,
+              "system": 6312000
+            },
+            "thread": {
+              "user": 61640000,
+              "system": 4734000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 172000,
+            "system": 16000
+          },
+          "thread": {
+            "user": 172000,
+            "system": 16000
+          },
+          "window": {
+            "startMonotonicMs": 110326.1123,
+            "endMonotonicMs": 110602.0213
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:30",
+      "lane": "native",
+      "index": 30,
+      "kind": "diagnostic",
+      "requestMs": 31.860999999989872,
+      "seedMs": 8.053099999990081,
+      "verificationMs": 6.616099999999278,
+      "cleanupMs": 7.726800000004005,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 111797.9898,
+          "endMonotonicMs": 111829.8004
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 111797.9675,
+            "endMonotonicMs": 111797.9898
+          },
+          "after": {
+            "startMonotonicMs": 111829.8004,
+            "endMonotonicMs": 111829.8239
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 73062000,
+              "system": 6328000
+            },
+            "thread": {
+              "user": 62546000,
+              "system": 4750000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 73093000,
+              "system": 6328000
+            },
+            "thread": {
+              "user": 62578000,
+              "system": 4750000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 31000,
+            "system": 0
+          },
+          "thread": {
+            "user": 32000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 111797.9675,
+            "endMonotonicMs": 111829.8239
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:31",
+      "lane": "native",
+      "index": 31,
+      "kind": "diagnostic",
+      "requestMs": 33.382500000006985,
+      "seedMs": 6.19560000000638,
+      "verificationMs": 7.742700000002515,
+      "cleanupMs": 8.041299999997136,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 111850.5486,
+          "endMonotonicMs": 111883.8801
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 111850.5259,
+            "endMonotonicMs": 111850.5486
+          },
+          "after": {
+            "startMonotonicMs": 111883.8801,
+            "endMonotonicMs": 111883.904
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 73125000,
+              "system": 6328000
+            },
+            "thread": {
+              "user": 62609000,
+              "system": 4750000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 73156000,
+              "system": 6328000
+            },
+            "thread": {
+              "user": 62640000,
+              "system": 4750000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 31000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 111850.5259,
+            "endMonotonicMs": 111883.904
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:31",
+      "lane": "flarex",
+      "index": 31,
+      "kind": "diagnostic",
+      "requestMs": 272.45650000000023,
+      "seedMs": 339.6982999999891,
+      "verificationMs": 1184.5106000000087,
+      "cleanupMs": 0.0029999999969732016,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 112239.5631,
+          "endMonotonicMs": 112511.9665
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 112239.5413,
+            "endMonotonicMs": 112239.5631
+          },
+          "after": {
+            "startMonotonicMs": 112511.9665,
+            "endMonotonicMs": 112511.9924
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 73234000,
+              "system": 6390000
+            },
+            "thread": {
+              "user": 62718000,
+              "system": 4796000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 73437000,
+              "system": 6421000
+            },
+            "thread": {
+              "user": 62843000,
+              "system": 4828000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 203000,
+            "system": 31000
+          },
+          "thread": {
+            "user": 125000,
+            "system": 32000
+          },
+          "window": {
+            "startMonotonicMs": 112239.5413,
+            "endMonotonicMs": 112511.9924
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:32",
+      "lane": "flarex",
+      "index": 32,
+      "kind": "diagnostic",
+      "requestMs": 244.54879999998957,
+      "seedMs": 347.7920000000013,
+      "verificationMs": 1200.6717000000062,
+      "cleanupMs": 0.003299999996670522,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 114044.6152,
+          "endMonotonicMs": 114289.1099
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 114044.5929,
+            "endMonotonicMs": 114044.6152
+          },
+          "after": {
+            "startMonotonicMs": 114289.1099,
+            "endMonotonicMs": 114289.1362
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 74562000,
+              "system": 6500000
+            },
+            "thread": {
+              "user": 63875000,
+              "system": 4890000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 74671000,
+              "system": 6500000
+            },
+            "thread": {
+              "user": 63968000,
+              "system": 4890000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 109000,
+            "system": 0
+          },
+          "thread": {
+            "user": 93000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 114044.5929,
+            "endMonotonicMs": 114289.1362
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:32",
+      "lane": "native",
+      "index": 32,
+      "kind": "diagnostic",
+      "requestMs": 36.3524999999936,
+      "seedMs": 8.765299999999115,
+      "verificationMs": 7.25340000000142,
+      "cleanupMs": 8.14320000000589,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 115498.7508,
+          "endMonotonicMs": 115535.0517
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 115498.7283,
+            "endMonotonicMs": 115498.7508
+          },
+          "after": {
+            "startMonotonicMs": 115535.0517,
+            "endMonotonicMs": 115535.0756
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 75765000,
+              "system": 6515000
+            },
+            "thread": {
+              "user": 65015000,
+              "system": 4890000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 75828000,
+              "system": 6515000
+            },
+            "thread": {
+              "user": 65046000,
+              "system": 4890000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 63000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 115498.7283,
+            "endMonotonicMs": 115535.0756
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:33",
+      "lane": "native",
+      "index": 33,
+      "kind": "diagnostic",
+      "requestMs": 34.796999999991385,
+      "seedMs": 6.200100000001839,
+      "verificationMs": 7.303299999999581,
+      "cleanupMs": 9.175699999992503,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 115556.866,
+          "endMonotonicMs": 115591.6122
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 115556.8441,
+            "endMonotonicMs": 115556.866
+          },
+          "after": {
+            "startMonotonicMs": 115591.6122,
+            "endMonotonicMs": 115591.6363
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 75843000,
+              "system": 6515000
+            },
+            "thread": {
+              "user": 65062000,
+              "system": 4890000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 75890000,
+              "system": 6515000
+            },
+            "thread": {
+              "user": 65093000,
+              "system": 4890000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 47000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 115556.8441,
+            "endMonotonicMs": 115591.6363
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:33",
+      "lane": "flarex",
+      "index": 33,
+      "kind": "diagnostic",
+      "requestMs": 238.4782000000123,
+      "seedMs": 352.71280000000843,
+      "verificationMs": 1272.5175000000017,
+      "cleanupMs": 0.0026999999972758815,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 115961.0171,
+          "endMonotonicMs": 116199.4423
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 115960.9945,
+            "endMonotonicMs": 115961.0171
+          },
+          "after": {
+            "startMonotonicMs": 116199.4423,
+            "endMonotonicMs": 116199.4676
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 76015000,
+              "system": 6515000
+            },
+            "thread": {
+              "user": 65218000,
+              "system": 4890000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 76140000,
+              "system": 6515000
+            },
+            "thread": {
+              "user": 65328000,
+              "system": 4890000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 125000,
+            "system": 0
+          },
+          "thread": {
+            "user": 110000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 115960.9945,
+            "endMonotonicMs": 116199.4676
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:34",
+      "lane": "flarex",
+      "index": 34,
+      "kind": "diagnostic",
+      "requestMs": 278.321100000001,
+      "seedMs": 360.02790000000095,
+      "verificationMs": 1162.7256000000052,
+      "cleanupMs": 0.003200000006472692,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 117832.2049,
+          "endMonotonicMs": 118110.4723
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 117832.1816,
+            "endMonotonicMs": 117832.2049
+          },
+          "after": {
+            "startMonotonicMs": 118110.4723,
+            "endMonotonicMs": 118110.4975
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 77421000,
+              "system": 6546000
+            },
+            "thread": {
+              "user": 66484000,
+              "system": 4906000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 77609000,
+              "system": 6546000
+            },
+            "thread": {
+              "user": 66656000,
+              "system": 4906000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 188000,
+            "system": 0
+          },
+          "thread": {
+            "user": 172000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 117832.1816,
+            "endMonotonicMs": 118110.4975
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:34",
+      "lane": "native",
+      "index": 34,
+      "kind": "diagnostic",
+      "requestMs": 32.025499999988824,
+      "seedMs": 7.629700000004959,
+      "verificationMs": 7.163300000000163,
+      "cleanupMs": 7.600900000004913,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 119281.1315,
+          "endMonotonicMs": 119313.1055
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 119281.1093,
+            "endMonotonicMs": 119281.1315
+          },
+          "after": {
+            "startMonotonicMs": 119313.1055,
+            "endMonotonicMs": 119313.1299
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 78578000,
+              "system": 6562000
+            },
+            "thread": {
+              "user": 67593000,
+              "system": 4906000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 78609000,
+              "system": 6562000
+            },
+            "thread": {
+              "user": 67625000,
+              "system": 4906000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 31000,
+            "system": 0
+          },
+          "thread": {
+            "user": 32000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 119281.1093,
+            "endMonotonicMs": 119313.1299
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:35",
+      "lane": "native",
+      "index": 35,
+      "kind": "diagnostic",
+      "requestMs": 33.447000000000116,
+      "seedMs": 6.725200000000768,
+      "verificationMs": 6.8549999999959255,
+      "cleanupMs": 7.774999999994179,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 119334.8084,
+          "endMonotonicMs": 119368.2064
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 119334.7861,
+            "endMonotonicMs": 119334.8084
+          },
+          "after": {
+            "startMonotonicMs": 119368.2064,
+            "endMonotonicMs": 119368.2291
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 78640000,
+              "system": 6562000
+            },
+            "thread": {
+              "user": 67656000,
+              "system": 4906000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 78671000,
+              "system": 6562000
+            },
+            "thread": {
+              "user": 67671000,
+              "system": 4906000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 31000,
+            "system": 0
+          },
+          "thread": {
+            "user": 15000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 119334.7861,
+            "endMonotonicMs": 119368.2291
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:35",
+      "lane": "flarex",
+      "index": 35,
+      "kind": "diagnostic",
+      "requestMs": 262.3003000000026,
+      "seedMs": 318.0405000000028,
+      "verificationMs": 1180.7149000000063,
+      "cleanupMs": 0.0028999999922234565,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 119701.079,
+          "endMonotonicMs": 119963.3261
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 119701.0564,
+            "endMonotonicMs": 119701.079
+          },
+          "after": {
+            "startMonotonicMs": 119963.3261,
+            "endMonotonicMs": 119963.3516
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 78812000,
+              "system": 6562000
+            },
+            "thread": {
+              "user": 67796000,
+              "system": 4906000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 78953000,
+              "system": 6578000
+            },
+            "thread": {
+              "user": 67921000,
+              "system": 4921000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 141000,
+            "system": 16000
+          },
+          "thread": {
+            "user": 125000,
+            "system": 15000
+          },
+          "window": {
+            "startMonotonicMs": 119701.0564,
+            "endMonotonicMs": 119963.3516
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:36",
+      "lane": "flarex",
+      "index": 36,
+      "kind": "diagnostic",
+      "requestMs": 277.28910000000906,
+      "seedMs": 349.02380000000994,
+      "verificationMs": 1190.490300000005,
+      "cleanupMs": 0.0028999999922234565,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 121493.3922,
+          "endMonotonicMs": 121770.6272
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 121493.3693,
+            "endMonotonicMs": 121493.3922
+          },
+          "after": {
+            "startMonotonicMs": 121770.6272,
+            "endMonotonicMs": 121770.6529
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 80093000,
+              "system": 6640000
+            },
+            "thread": {
+              "user": 69000000,
+              "system": 4953000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 80312000,
+              "system": 6640000
+            },
+            "thread": {
+              "user": 69218000,
+              "system": 4953000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 219000,
+            "system": 0
+          },
+          "thread": {
+            "user": 218000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 121493.3693,
+            "endMonotonicMs": 121770.6529
+          }
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:36",
+      "lane": "native",
+      "index": 36,
+      "kind": "diagnostic",
+      "requestMs": 32.3012000000017,
+      "seedMs": 7.5406999999977415,
+      "verificationMs": 6.968299999993178,
+      "cleanupMs": 7.767999999996391,
+      "outcome": "success",
+      "failureStage": null,
+      "failures": [],
+      "rootCounters": {
+        "complete": true,
+        "host": {
+          "pid": 15640,
+          "threadId": 0,
+          "node": "24.16.0",
+          "platform": "win32",
+          "exclusivity": "controlled-isolate-only",
+          "externalContention": "unavailable"
+        },
+        "resolution": {
+          "unit": "microseconds",
+          "processMicroseconds": null,
+          "threadMicroseconds": null,
+          "wallPrecisionMs": null
+        },
+        "callWindow": {
+          "startMonotonicMs": 122968.8484,
+          "endMonotonicMs": 123001.0975
+        },
+        "counterReads": {
+          "before": {
+            "startMonotonicMs": 122968.8256,
+            "endMonotonicMs": 122968.8484
+          },
+          "after": {
+            "startMonotonicMs": 123001.0975,
+            "endMonotonicMs": 123001.122
+          }
+        },
+        "readings": {
+          "before": {
+            "process": {
+              "user": 81406000,
+              "system": 6734000
+            },
+            "thread": {
+              "user": 70234000,
+              "system": 5031000
+            }
+          },
+          "after": {
+            "process": {
+              "user": 81437000,
+              "system": 6734000
+            },
+            "thread": {
+              "user": 70265000,
+              "system": 5031000
+            }
+          }
+        },
+        "counters": {
+          "process": {
+            "user": 31000,
+            "system": 0
+          },
+          "thread": {
+            "user": 31000,
+            "system": 0
+          },
+          "window": {
+            "startMonotonicMs": 122968.8256,
+            "endMonotonicMs": 123001.122
+          }
+        },
+        "failures": []
+      }
+    }
+  ],
+  "pairs": [
+    {
+      "index": 5,
+      "nativeMs": 40.470799999995506,
+      "flarexMs": 259.02189999999973,
+      "addedMs": 218.55110000000423
+    },
+    {
+      "index": 6,
+      "nativeMs": 38.520999999993364,
+      "flarexMs": 306.58690000000206,
+      "addedMs": 268.0659000000087
+    },
+    {
+      "index": 7,
+      "nativeMs": 38.423500000004424,
+      "flarexMs": 280.6325999999972,
+      "addedMs": 242.20909999999276
+    },
+    {
+      "index": 8,
+      "nativeMs": 35.720100000005914,
+      "flarexMs": 232.23339999999735,
+      "addedMs": 196.51329999999143
+    },
+    {
+      "index": 9,
+      "nativeMs": 37.181299999996554,
+      "flarexMs": 229.10050000000047,
+      "addedMs": 191.9192000000039
+    },
+    {
+      "index": 10,
+      "nativeMs": 35.1533999999956,
+      "flarexMs": 276.6252999999997,
+      "addedMs": 241.4719000000041
+    },
+    {
+      "index": 11,
+      "nativeMs": 36.302899999995134,
+      "flarexMs": 323.1777000000002,
+      "addedMs": 286.87480000000505
+    },
+    {
+      "index": 12,
+      "nativeMs": 43.3180999999895,
+      "flarexMs": 230.39640000001236,
+      "addedMs": 187.07830000002286
+    },
+    {
+      "index": 13,
+      "nativeMs": 38.7728999999963,
+      "flarexMs": 376.46540000000095,
+      "addedMs": 337.69250000000466
+    },
+    {
+      "index": 14,
+      "nativeMs": 42.258499999996275,
+      "flarexMs": 286.4886000000115,
+      "addedMs": 244.23010000001523
+    },
+    {
+      "index": 15,
+      "nativeMs": 42.98120000000927,
+      "flarexMs": 284.6594999999943,
+      "addedMs": 241.67829999998503
+    },
+    {
+      "index": 16,
+      "nativeMs": 36.1244999999908,
+      "flarexMs": 232.44620000000577,
+      "addedMs": 196.32170000001497
+    },
+    {
+      "index": 17,
+      "nativeMs": 34.05659999999625,
+      "flarexMs": 225.6362999999983,
+      "addedMs": 191.57970000000205
+    },
+    {
+      "index": 18,
+      "nativeMs": 32.47990000000573,
+      "flarexMs": 262.04069999999774,
+      "addedMs": 229.560799999992
+    },
+    {
+      "index": 19,
+      "nativeMs": 35.15600000000268,
+      "flarexMs": 271.599000000002,
+      "addedMs": 236.4429999999993
+    },
+    {
+      "index": 20,
+      "nativeMs": 32.807300000000396,
+      "flarexMs": 221.7378000000026,
+      "addedMs": 188.9305000000022
+    },
+    {
+      "index": 21,
+      "nativeMs": 35.953999999997905,
+      "flarexMs": 232.40190000001166,
+      "addedMs": 196.44790000001376
+    },
+    {
+      "index": 22,
+      "nativeMs": 32.69310000000405,
+      "flarexMs": 261.9194000000134,
+      "addedMs": 229.22630000000936
+    },
+    {
+      "index": 23,
+      "nativeMs": 36.56350000000384,
+      "flarexMs": 270.71809999999823,
+      "addedMs": 234.1545999999944
+    },
+    {
+      "index": 24,
+      "nativeMs": 32.333599999998114,
+      "flarexMs": 222.95769999999902,
+      "addedMs": 190.6241000000009
+    },
+    {
+      "index": 25,
+      "nativeMs": 34.82140000000072,
+      "flarexMs": 230.77330000000075,
+      "addedMs": 195.95190000000002
+    },
+    {
+      "index": 26,
+      "nativeMs": 33.226599999994505,
+      "flarexMs": 267.8015000000014,
+      "addedMs": 234.5749000000069
+    },
+    {
+      "index": 27,
+      "nativeMs": 34.59779999998864,
+      "flarexMs": 266.20990000000165,
+      "addedMs": 231.61210000001302
+    },
+    {
+      "index": 28,
+      "nativeMs": 45.822099999990314,
+      "flarexMs": 229.9271000000008,
+      "addedMs": 184.10500000001048
+    },
+    {
+      "index": 29,
+      "nativeMs": 45.213999999992666,
+      "flarexMs": 234.15320000000065,
+      "addedMs": 188.939200000008
+    },
+    {
+      "index": 30,
+      "nativeMs": 31.860999999989872,
+      "flarexMs": 275.91479999999865,
+      "addedMs": 244.05380000000878
+    },
+    {
+      "index": 31,
+      "nativeMs": 33.382500000006985,
+      "flarexMs": 272.45650000000023,
+      "addedMs": 239.07399999999325
+    },
+    {
+      "index": 32,
+      "nativeMs": 36.3524999999936,
+      "flarexMs": 244.54879999998957,
+      "addedMs": 208.19629999999597
+    },
+    {
+      "index": 33,
+      "nativeMs": 34.796999999991385,
+      "flarexMs": 238.4782000000123,
+      "addedMs": 203.6812000000209
+    },
+    {
+      "index": 34,
+      "nativeMs": 32.025499999988824,
+      "flarexMs": 278.321100000001,
+      "addedMs": 246.2956000000122
+    },
+    {
+      "index": 35,
+      "nativeMs": 33.447000000000116,
+      "flarexMs": 262.3003000000026,
+      "addedMs": 228.8533000000025
+    },
+    {
+      "index": 36,
+      "nativeMs": 32.3012000000017,
+      "flarexMs": 277.28910000000906,
+      "addedMs": 244.98790000000736
+    }
+  ],
+  "cpuPairs": [
+    {
+      "index": 5,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:5",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:5",
+      "process": {
+        "nativeUserMicroseconds": 47000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 203000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 156000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 156000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 16000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 140000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 124000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 124000
+      }
+    },
+    {
+      "index": 6,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:6",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:6",
+      "process": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 203000,
+        "flarexSystemMicroseconds": 31000,
+        "addedUserMicroseconds": 172000,
+        "addedSystemMicroseconds": 31000,
+        "addedTotalMicroseconds": 203000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 156000,
+        "flarexSystemMicroseconds": 31000,
+        "addedUserMicroseconds": 125000,
+        "addedSystemMicroseconds": 31000,
+        "addedTotalMicroseconds": 156000
+      }
+    },
+    {
+      "index": 7,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:7",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:7",
+      "process": {
+        "nativeUserMicroseconds": 47000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 203000,
+        "flarexSystemMicroseconds": 31000,
+        "addedUserMicroseconds": 156000,
+        "addedSystemMicroseconds": 31000,
+        "addedTotalMicroseconds": 187000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 46000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 157000,
+        "flarexSystemMicroseconds": 31000,
+        "addedUserMicroseconds": 111000,
+        "addedSystemMicroseconds": 31000,
+        "addedTotalMicroseconds": 142000
+      }
+    },
+    {
+      "index": 8,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:8",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:8",
+      "process": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 110000,
+        "flarexSystemMicroseconds": 15000,
+        "addedUserMicroseconds": 79000,
+        "addedSystemMicroseconds": 15000,
+        "addedTotalMicroseconds": 94000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 109000,
+        "flarexSystemMicroseconds": 15000,
+        "addedUserMicroseconds": 78000,
+        "addedSystemMicroseconds": 15000,
+        "addedTotalMicroseconds": 93000
+      }
+    },
+    {
+      "index": 9,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:9",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:9",
+      "process": {
+        "nativeUserMicroseconds": 16000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 125000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 109000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 109000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 15000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 109000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 94000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 94000
+      }
+    },
+    {
+      "index": 10,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:10",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:10",
+      "process": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 141000,
+        "flarexSystemMicroseconds": 31000,
+        "addedUserMicroseconds": 110000,
+        "addedSystemMicroseconds": 31000,
+        "addedTotalMicroseconds": 141000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 109000,
+        "flarexSystemMicroseconds": 31000,
+        "addedUserMicroseconds": 78000,
+        "addedSystemMicroseconds": 31000,
+        "addedTotalMicroseconds": 109000
+      }
+    },
+    {
+      "index": 11,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:11",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:11",
+      "process": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 453000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 422000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 422000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 203000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 172000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 172000
+      }
+    },
+    {
+      "index": 12,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:12",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:12",
+      "process": {
+        "nativeUserMicroseconds": 46000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 125000,
+        "flarexSystemMicroseconds": 15000,
+        "addedUserMicroseconds": 79000,
+        "addedSystemMicroseconds": 15000,
+        "addedTotalMicroseconds": 94000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 125000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 94000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 94000
+      }
+    },
+    {
+      "index": 13,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:13",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:13",
+      "process": {
+        "nativeUserMicroseconds": 0,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 218000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 218000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 218000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 0,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 204000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 204000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 204000
+      }
+    },
+    {
+      "index": 14,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:14",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:14",
+      "process": {
+        "nativeUserMicroseconds": 47000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 157000,
+        "flarexSystemMicroseconds": 46000,
+        "addedUserMicroseconds": 110000,
+        "addedSystemMicroseconds": 46000,
+        "addedTotalMicroseconds": 156000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 125000,
+        "flarexSystemMicroseconds": 47000,
+        "addedUserMicroseconds": 94000,
+        "addedSystemMicroseconds": 47000,
+        "addedTotalMicroseconds": 141000
+      }
+    },
+    {
+      "index": 15,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:15",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:15",
+      "process": {
+        "nativeUserMicroseconds": 47000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 203000,
+        "flarexSystemMicroseconds": 16000,
+        "addedUserMicroseconds": 156000,
+        "addedSystemMicroseconds": 16000,
+        "addedTotalMicroseconds": 172000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 46000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 188000,
+        "flarexSystemMicroseconds": 16000,
+        "addedUserMicroseconds": 142000,
+        "addedSystemMicroseconds": 16000,
+        "addedTotalMicroseconds": 158000
+      }
+    },
+    {
+      "index": 16,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:16",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:16",
+      "process": {
+        "nativeUserMicroseconds": 32000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 125000,
+        "flarexSystemMicroseconds": 15000,
+        "addedUserMicroseconds": 93000,
+        "addedSystemMicroseconds": 15000,
+        "addedTotalMicroseconds": 108000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 32000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 125000,
+        "flarexSystemMicroseconds": 16000,
+        "addedUserMicroseconds": 93000,
+        "addedSystemMicroseconds": 16000,
+        "addedTotalMicroseconds": 109000
+      }
+    },
+    {
+      "index": 17,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:17",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:17",
+      "process": {
+        "nativeUserMicroseconds": 79000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 93000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 14000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 14000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 78000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 47000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 47000
+      }
+    },
+    {
+      "index": 18,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:18",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:18",
+      "process": {
+        "nativeUserMicroseconds": 15000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 188000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 173000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 173000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 16000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 172000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 156000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 156000
+      }
+    },
+    {
+      "index": 19,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:19",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:19",
+      "process": {
+        "nativeUserMicroseconds": 63000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 187000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 124000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 124000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 156000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 125000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 125000
+      }
+    },
+    {
+      "index": 20,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:20",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:20",
+      "process": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 203000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 172000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 172000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 187000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 156000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 156000
+      }
+    },
+    {
+      "index": 21,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:21",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:21",
+      "process": {
+        "nativeUserMicroseconds": 47000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 141000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 94000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 94000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 125000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 94000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 94000
+      }
+    },
+    {
+      "index": 22,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:22",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:22",
+      "process": {
+        "nativeUserMicroseconds": 47000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 141000,
+        "flarexSystemMicroseconds": 16000,
+        "addedUserMicroseconds": 94000,
+        "addedSystemMicroseconds": 16000,
+        "addedTotalMicroseconds": 110000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 140000,
+        "flarexSystemMicroseconds": 15000,
+        "addedUserMicroseconds": 109000,
+        "addedSystemMicroseconds": 15000,
+        "addedTotalMicroseconds": 124000
+      }
+    },
+    {
+      "index": 23,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:23",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:23",
+      "process": {
+        "nativeUserMicroseconds": 79000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 188000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 109000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 109000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 47000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 188000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 141000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 141000
+      }
+    },
+    {
+      "index": 24,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:24",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:24",
+      "process": {
+        "nativeUserMicroseconds": 47000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 78000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 31000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 31000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 78000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 47000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 47000
+      }
+    },
+    {
+      "index": 25,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:25",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:25",
+      "process": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 219000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 188000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 188000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 156000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 125000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 125000
+      }
+    },
+    {
+      "index": 26,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:26",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:26",
+      "process": {
+        "nativeUserMicroseconds": 32000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 140000,
+        "flarexSystemMicroseconds": 16000,
+        "addedUserMicroseconds": 108000,
+        "addedSystemMicroseconds": 16000,
+        "addedTotalMicroseconds": 124000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 141000,
+        "flarexSystemMicroseconds": 16000,
+        "addedUserMicroseconds": 110000,
+        "addedSystemMicroseconds": 16000,
+        "addedTotalMicroseconds": 126000
+      }
+    },
+    {
+      "index": 27,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:27",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:27",
+      "process": {
+        "nativeUserMicroseconds": 47000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 141000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 94000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 94000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 141000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 110000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 110000
+      }
+    },
+    {
+      "index": 28,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:28",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:28",
+      "process": {
+        "nativeUserMicroseconds": 47000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 125000,
+        "flarexSystemMicroseconds": 16000,
+        "addedUserMicroseconds": 78000,
+        "addedSystemMicroseconds": 16000,
+        "addedTotalMicroseconds": 94000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 47000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 110000,
+        "flarexSystemMicroseconds": 16000,
+        "addedUserMicroseconds": 63000,
+        "addedSystemMicroseconds": 16000,
+        "addedTotalMicroseconds": 79000
+      }
+    },
+    {
+      "index": 29,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:29",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:29",
+      "process": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 203000,
+        "flarexSystemMicroseconds": 15000,
+        "addedUserMicroseconds": 172000,
+        "addedSystemMicroseconds": 15000,
+        "addedTotalMicroseconds": 187000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 140000,
+        "flarexSystemMicroseconds": 16000,
+        "addedUserMicroseconds": 109000,
+        "addedSystemMicroseconds": 16000,
+        "addedTotalMicroseconds": 125000
+      }
+    },
+    {
+      "index": 30,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:30",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:30",
+      "process": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 172000,
+        "flarexSystemMicroseconds": 16000,
+        "addedUserMicroseconds": 141000,
+        "addedSystemMicroseconds": 16000,
+        "addedTotalMicroseconds": 157000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 32000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 172000,
+        "flarexSystemMicroseconds": 16000,
+        "addedUserMicroseconds": 140000,
+        "addedSystemMicroseconds": 16000,
+        "addedTotalMicroseconds": 156000
+      }
+    },
+    {
+      "index": 31,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:31",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:31",
+      "process": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 203000,
+        "flarexSystemMicroseconds": 31000,
+        "addedUserMicroseconds": 172000,
+        "addedSystemMicroseconds": 31000,
+        "addedTotalMicroseconds": 203000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 125000,
+        "flarexSystemMicroseconds": 32000,
+        "addedUserMicroseconds": 94000,
+        "addedSystemMicroseconds": 32000,
+        "addedTotalMicroseconds": 126000
+      }
+    },
+    {
+      "index": 32,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:32",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:32",
+      "process": {
+        "nativeUserMicroseconds": 63000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 109000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 46000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 46000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 93000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 62000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 62000
+      }
+    },
+    {
+      "index": 33,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:33",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:33",
+      "process": {
+        "nativeUserMicroseconds": 47000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 125000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 78000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 78000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 110000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 79000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 79000
+      }
+    },
+    {
+      "index": 34,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:34",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:34",
+      "process": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 188000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 157000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 157000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 32000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 172000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 140000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 140000
+      }
+    },
+    {
+      "index": 35,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:35",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:35",
+      "process": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 141000,
+        "flarexSystemMicroseconds": 16000,
+        "addedUserMicroseconds": 110000,
+        "addedSystemMicroseconds": 16000,
+        "addedTotalMicroseconds": 126000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 15000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 125000,
+        "flarexSystemMicroseconds": 15000,
+        "addedUserMicroseconds": 110000,
+        "addedSystemMicroseconds": 15000,
+        "addedTotalMicroseconds": 125000
+      }
+    },
+    {
+      "index": 36,
+      "nativeRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:native:36",
+      "flarexRequestId": "69c2e84f-efd3-4e52-a9cf-8a5f2458dbfe:flarex:36",
+      "process": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 219000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 188000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 188000
+      },
+      "thread": {
+        "nativeUserMicroseconds": 31000,
+        "nativeSystemMicroseconds": 0,
+        "flarexUserMicroseconds": 218000,
+        "flarexSystemMicroseconds": 0,
+        "addedUserMicroseconds": 187000,
+        "addedSystemMicroseconds": 0,
+        "addedTotalMicroseconds": 187000
+      }
+    }
+  ],
+  "counterCalibration": [
+    {
+      "complete": true,
+      "host": {
+        "pid": 15640,
+        "threadId": 0,
+        "node": "24.16.0",
+        "platform": "win32",
+        "exclusivity": "controlled-isolate-only",
+        "externalContention": "unavailable"
+      },
+      "resolution": {
+        "unit": "microseconds",
+        "processMicroseconds": null,
+        "threadMicroseconds": null,
+        "wallPrecisionMs": null
+      },
+      "callWindow": {
+        "startMonotonicMs": 62719.4452,
+        "endMonotonicMs": 62719.4669
+      },
+      "counterReads": {
+        "before": {
+          "startMonotonicMs": 62719.2674,
+          "endMonotonicMs": 62719.4452
+        },
+        "after": {
+          "startMonotonicMs": 62719.4669,
+          "endMonotonicMs": 62719.4817
+        }
+      },
+      "readings": {
+        "before": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        },
+        "after": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        }
+      },
+      "counters": {
+        "process": {
+          "user": 0,
+          "system": 0
+        },
+        "thread": {
+          "user": 0,
+          "system": 0
+        },
+        "window": {
+          "startMonotonicMs": 62719.2674,
+          "endMonotonicMs": 62719.4817
+        }
+      },
+      "failures": []
+    },
+    {
+      "complete": true,
+      "host": {
+        "pid": 15640,
+        "threadId": 0,
+        "node": "24.16.0",
+        "platform": "win32",
+        "exclusivity": "controlled-isolate-only",
+        "externalContention": "unavailable"
+      },
+      "resolution": {
+        "unit": "microseconds",
+        "processMicroseconds": null,
+        "threadMicroseconds": null,
+        "wallPrecisionMs": null
+      },
+      "callWindow": {
+        "startMonotonicMs": 62719.8484,
+        "endMonotonicMs": 62719.8511
+      },
+      "counterReads": {
+        "before": {
+          "startMonotonicMs": 62719.8325,
+          "endMonotonicMs": 62719.8484
+        },
+        "after": {
+          "startMonotonicMs": 62719.8511,
+          "endMonotonicMs": 62719.8599
+        }
+      },
+      "readings": {
+        "before": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        },
+        "after": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        }
+      },
+      "counters": {
+        "process": {
+          "user": 0,
+          "system": 0
+        },
+        "thread": {
+          "user": 0,
+          "system": 0
+        },
+        "window": {
+          "startMonotonicMs": 62719.8325,
+          "endMonotonicMs": 62719.8599
+        }
+      },
+      "failures": []
+    },
+    {
+      "complete": true,
+      "host": {
+        "pid": 15640,
+        "threadId": 0,
+        "node": "24.16.0",
+        "platform": "win32",
+        "exclusivity": "controlled-isolate-only",
+        "externalContention": "unavailable"
+      },
+      "resolution": {
+        "unit": "microseconds",
+        "processMicroseconds": null,
+        "threadMicroseconds": null,
+        "wallPrecisionMs": null
+      },
+      "callWindow": {
+        "startMonotonicMs": 62719.9138,
+        "endMonotonicMs": 62719.9165
+      },
+      "counterReads": {
+        "before": {
+          "startMonotonicMs": 62719.9006,
+          "endMonotonicMs": 62719.9138
+        },
+        "after": {
+          "startMonotonicMs": 62719.9165,
+          "endMonotonicMs": 62719.9247
+        }
+      },
+      "readings": {
+        "before": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        },
+        "after": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        }
+      },
+      "counters": {
+        "process": {
+          "user": 0,
+          "system": 0
+        },
+        "thread": {
+          "user": 0,
+          "system": 0
+        },
+        "window": {
+          "startMonotonicMs": 62719.9006,
+          "endMonotonicMs": 62719.9247
+        }
+      },
+      "failures": []
+    },
+    {
+      "complete": true,
+      "host": {
+        "pid": 15640,
+        "threadId": 0,
+        "node": "24.16.0",
+        "platform": "win32",
+        "exclusivity": "controlled-isolate-only",
+        "externalContention": "unavailable"
+      },
+      "resolution": {
+        "unit": "microseconds",
+        "processMicroseconds": null,
+        "threadMicroseconds": null,
+        "wallPrecisionMs": null
+      },
+      "callWindow": {
+        "startMonotonicMs": 62719.9659,
+        "endMonotonicMs": 62719.9694
+      },
+      "counterReads": {
+        "before": {
+          "startMonotonicMs": 62719.9556,
+          "endMonotonicMs": 62719.9659
+        },
+        "after": {
+          "startMonotonicMs": 62719.9694,
+          "endMonotonicMs": 62719.9777
+        }
+      },
+      "readings": {
+        "before": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        },
+        "after": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        }
+      },
+      "counters": {
+        "process": {
+          "user": 0,
+          "system": 0
+        },
+        "thread": {
+          "user": 0,
+          "system": 0
+        },
+        "window": {
+          "startMonotonicMs": 62719.9556,
+          "endMonotonicMs": 62719.9777
+        }
+      },
+      "failures": []
+    },
+    {
+      "complete": true,
+      "host": {
+        "pid": 15640,
+        "threadId": 0,
+        "node": "24.16.0",
+        "platform": "win32",
+        "exclusivity": "controlled-isolate-only",
+        "externalContention": "unavailable"
+      },
+      "resolution": {
+        "unit": "microseconds",
+        "processMicroseconds": null,
+        "threadMicroseconds": null,
+        "wallPrecisionMs": null
+      },
+      "callWindow": {
+        "startMonotonicMs": 62720.0329,
+        "endMonotonicMs": 62720.0357
+      },
+      "counterReads": {
+        "before": {
+          "startMonotonicMs": 62720.0066,
+          "endMonotonicMs": 62720.0329
+        },
+        "after": {
+          "startMonotonicMs": 62720.0357,
+          "endMonotonicMs": 62720.0534
+        }
+      },
+      "readings": {
+        "before": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        },
+        "after": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        }
+      },
+      "counters": {
+        "process": {
+          "user": 0,
+          "system": 0
+        },
+        "thread": {
+          "user": 0,
+          "system": 0
+        },
+        "window": {
+          "startMonotonicMs": 62720.0066,
+          "endMonotonicMs": 62720.0534
+        }
+      },
+      "failures": []
+    },
+    {
+      "complete": true,
+      "host": {
+        "pid": 15640,
+        "threadId": 0,
+        "node": "24.16.0",
+        "platform": "win32",
+        "exclusivity": "controlled-isolate-only",
+        "externalContention": "unavailable"
+      },
+      "resolution": {
+        "unit": "microseconds",
+        "processMicroseconds": null,
+        "threadMicroseconds": null,
+        "wallPrecisionMs": null
+      },
+      "callWindow": {
+        "startMonotonicMs": 62720.1118,
+        "endMonotonicMs": 62720.1137
+      },
+      "counterReads": {
+        "before": {
+          "startMonotonicMs": 62720.1004,
+          "endMonotonicMs": 62720.1118
+        },
+        "after": {
+          "startMonotonicMs": 62720.1137,
+          "endMonotonicMs": 62720.122
+        }
+      },
+      "readings": {
+        "before": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        },
+        "after": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        }
+      },
+      "counters": {
+        "process": {
+          "user": 0,
+          "system": 0
+        },
+        "thread": {
+          "user": 0,
+          "system": 0
+        },
+        "window": {
+          "startMonotonicMs": 62720.1004,
+          "endMonotonicMs": 62720.122
+        }
+      },
+      "failures": []
+    },
+    {
+      "complete": true,
+      "host": {
+        "pid": 15640,
+        "threadId": 0,
+        "node": "24.16.0",
+        "platform": "win32",
+        "exclusivity": "controlled-isolate-only",
+        "externalContention": "unavailable"
+      },
+      "resolution": {
+        "unit": "microseconds",
+        "processMicroseconds": null,
+        "threadMicroseconds": null,
+        "wallPrecisionMs": null
+      },
+      "callWindow": {
+        "startMonotonicMs": 62720.1867,
+        "endMonotonicMs": 62720.1877
+      },
+      "counterReads": {
+        "before": {
+          "startMonotonicMs": 62720.1762,
+          "endMonotonicMs": 62720.1867
+        },
+        "after": {
+          "startMonotonicMs": 62720.1877,
+          "endMonotonicMs": 62720.1926
+        }
+      },
+      "readings": {
+        "before": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        },
+        "after": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        }
+      },
+      "counters": {
+        "process": {
+          "user": 0,
+          "system": 0
+        },
+        "thread": {
+          "user": 0,
+          "system": 0
+        },
+        "window": {
+          "startMonotonicMs": 62720.1762,
+          "endMonotonicMs": 62720.1926
+        }
+      },
+      "failures": []
+    },
+    {
+      "complete": true,
+      "host": {
+        "pid": 15640,
+        "threadId": 0,
+        "node": "24.16.0",
+        "platform": "win32",
+        "exclusivity": "controlled-isolate-only",
+        "externalContention": "unavailable"
+      },
+      "resolution": {
+        "unit": "microseconds",
+        "processMicroseconds": null,
+        "threadMicroseconds": null,
+        "wallPrecisionMs": null
+      },
+      "callWindow": {
+        "startMonotonicMs": 62720.2255,
+        "endMonotonicMs": 62720.2261
+      },
+      "counterReads": {
+        "before": {
+          "startMonotonicMs": 62720.2203,
+          "endMonotonicMs": 62720.2255
+        },
+        "after": {
+          "startMonotonicMs": 62720.2261,
+          "endMonotonicMs": 62720.2303
+        }
+      },
+      "readings": {
+        "before": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        },
+        "after": {
+          "process": {
+            "user": 34593000,
+            "system": 4718000
+          },
+          "thread": {
+            "user": 28578000,
+            "system": 3562000
+          }
+        }
+      },
+      "counters": {
+        "process": {
+          "user": 0,
+          "system": 0
+        },
+        "thread": {
+          "user": 0,
+          "system": 0
+        },
+        "window": {
+          "startMonotonicMs": 62720.2203,
+          "endMonotonicMs": 62720.2303
+        }
+      },
+      "failures": []
+    }
+  ],
+  "pairedSummary": {
+    "samples": 32,
+    "medianAddedMs": 229.22630000000936,
+    "p95AddedMs": 286.87480000000505
+  },
+  "gates": [
+    {
+      "name": "sourceStability",
+      "passed": true,
+      "detail": "Authored package code, locks and loaded native sources remain stable"
+    },
+    {
+      "name": "settingsStability",
+      "passed": true,
+      "detail": "Ordinary-role durable settings are retained before and after"
+    },
+    {
+      "name": "cleanup",
+      "passed": true,
+      "detail": "Owned command resources drained"
+    }
+  ],
+  "setupMs": 37739.7443,
+  "cleanupMs": 4097.916700000002,
+  "cleanup": "completed",
+  "failures": [],
+  "sources": {
+    "before": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+    "after": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+    "files": 6965
+  },
+  "environment": {
+    "before": {
+      "flarex": {
+        "driver": "postgres",
+        "control": {
+          "postgresVersion": "18.3",
+          "role": "flarex_cpu_fixture",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        },
+        "target": {
+          "postgresVersion": "18.3",
+          "role": "flarex_dataruntime_1791879315663_53zev0rb3we",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        }
+      },
+      "native": [
+        {
+          "database": "fx_measure_medusa_5988de4a1a756d2b49c40c889b5b0a44",
+          "role": "fx_measure_native_5988de4a1a756d2b49c40c889b5b0a44",
+          "superuser": false,
+          "synchronous_commit": "on",
+          "fsync": "on",
+          "full_page_writes": "on",
+          "server_version": "18.3",
+          "track": "none"
+        },
+        {
+          "database": "fx_measure_payload_5988de4a1a756d2b49c40c889b5b0a44",
+          "role": "fx_measure_native_5988de4a1a756d2b49c40c889b5b0a44",
+          "superuser": false,
+          "synchronous_commit": "on",
+          "fsync": "on",
+          "full_page_writes": "on",
+          "server_version": "18.3",
+          "track": "none"
+        }
+      ]
+    },
+    "after": {
+      "flarex": {
+        "driver": "postgres",
+        "control": {
+          "postgresVersion": "18.3",
+          "role": "flarex_cpu_fixture",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        },
+        "target": {
+          "postgresVersion": "18.3",
+          "role": "flarex_dataruntime_1791879315663_53zev0rb3we",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        }
+      },
+      "native": [
+        {
+          "database": "fx_measure_medusa_5988de4a1a756d2b49c40c889b5b0a44",
+          "role": "fx_measure_native_5988de4a1a756d2b49c40c889b5b0a44",
+          "superuser": false,
+          "synchronous_commit": "on",
+          "fsync": "on",
+          "full_page_writes": "on",
+          "server_version": "18.3",
+          "track": "none"
+        },
+        {
+          "database": "fx_measure_payload_5988de4a1a756d2b49c40c889b5b0a44",
+          "role": "fx_measure_native_5988de4a1a756d2b49c40c889b5b0a44",
+          "superuser": false,
+          "synchronous_commit": "on",
+          "fsync": "on",
+          "full_page_writes": "on",
+          "server_version": "18.3",
+          "track": "none"
+        }
+      ]
+    }
+  }
+}
