@@ -1,5 +1,10 @@
 # Complete Flarex versus native CPU profile
 
+Later evidence: the proposed document replacement below was implemented and
+rejected by its CPU gate. [Operation-correlated counters and profiles](operation-results.md)
+now bound the executing operation families. Treat this report's redesign section
+as a historical hypothesis, not a current recommendation or removable-cost proof.
+
 The remaining CPU is substantially located. The largest concentration is the
 Flarex document execution path: persistence and protocol code, and the
 Effect/Result/Schema machinery executing it. There is no single 110 ms function.

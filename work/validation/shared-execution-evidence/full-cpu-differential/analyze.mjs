@@ -3,9 +3,10 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { gunzipSync } from 'node:zlib';
-import { decodeRaw, decodeMarkers, validateCampaign } from './evidence.ts';
+import { decodeRaw, decodeMarkers, decodeOperations, partitionOperations, readRetainedJson, validateCampaign } from './evidence.ts';
 import { analyzeCpuEvidence } from '../../../../packages/executor/test/performance/measurement/cpu.ts';
 const directory=dirname(fileURLToPath(import.meta.url));
+const operationMode=process.env.FLAREX_PROFILE_OPERATION_CORRELATION==='on';
 const timestampToleranceMs=Number(process.env.FLAREX_PROFILE_TIMESTAMP_TOLERANCE_MS??0.4);
 assert(Number.isFinite(timestampToleranceMs)&&timestampToleranceMs>=0.4&&timestampToleranceMs<=2);
 const mean=xs=>xs.reduce((s,n)=>s+n,0)/xs.length;
@@ -19,9 +20,14 @@ const category=f=>f.functionName==='(idle)'?'idle':f.functionName==='(garbage co
   f.url.startsWith('node:')?'node':f.url.includes('/packages/')?'other-authored':'unknown';
 const location=f=>`${f.url}:${f.lineNumber+1}:${f.columnNumber+1} ${f.functionName}`;
 const runs=[], profiles=[];
+let operationSources;
 for(const label of ['profile-a','control','profile-b']) {
-  const files=(await readdir(resolve(directory,label))).filter(f=>/^[a-f0-9-]{36}\.json.gz$/.test(f));assert.equal(files.length,1);
-  const raw=decodeRaw(JSON.parse(gunzipSync(await readFile(resolve(directory,label,files[0]))).toString('utf8')));
+  const folder=operationMode?(label==='control'?'owned-pipeline-baseline-a':'operation-'+label):label;
+  const files=(await readdir(resolve(directory,folder))).filter(f=>/^[a-f0-9-]{36}\.json(?:\.gz)?$/.test(f));
+  const originals=[...new Set(files.map(f=>f.replace(/\.gz$/,'')))];assert.equal(originals.length,1);
+  const file=files.includes(originals[0]+'.gz')?originals[0]+'.gz':originals[0];
+  const bytes=await readFile(resolve(directory,folder,file));
+  const raw=decodeRaw(JSON.parse((file.endsWith('.gz')?gunzipSync(bytes):bytes).toString('utf8')));
   validateCampaign(raw,label);
   assert.equal(raw.execution,'complete');assert.equal(raw.cleanup,'completed');assert.equal(raw.cpuPairs.length,40);
   assert(raw.gates.length>0&&raw.gates.every(g=>g.passed));assert(raw.samples.every(s=>s.outcome==='success'));assert.equal(raw.sources.before,raw.sources.after);
@@ -30,7 +36,11 @@ for(const label of ['profile-a','control','profile-b']) {
   runs.push({label,runId:raw.runId,sources:raw.sources,pairs:raw.cpuPairs,thread:stats(raw.cpuPairs.map(p=>p.thread.addedTotalMicroseconds/1000)),
     native:stats(raw.cpuPairs.map(p=>(p.thread.nativeUserMicroseconds+p.thread.nativeSystemMicroseconds)/1000)),flarex:stats(raw.cpuPairs.map(p=>(p.thread.flarexUserMicroseconds+p.thread.flarexSystemMicroseconds)/1000))});
   if(label==='control'){assert(diagnostic.every(s=>s.cpuEvidence===undefined));continue;}
-  const ledger=decodeMarkers(JSON.parse(await readFile(resolve(directory,label,'markers.json'),'utf8')));assert.deepEqual(ledger.before,ledger.after);assert.equal(ledger.markers.length,160);
+  const ledger=decodeMarkers(await readRetainedJson(resolve(directory,folder,'markers.json')));assert.deepEqual(ledger.before,ledger.after);assert.equal(ledger.markers.length,160);
+  const operationLedger=operationMode?decodeOperations(await readRetainedJson(resolve(directory,folder,'operations.json'))):null;
+  if(operationLedger){assert.deepEqual(operationLedger.before,operationLedger.after);assert.deepEqual(operationLedger.faults,[]);assert.equal(operationLedger.roots.length,80);}
+  if(operationLedger)for(const root of operationLedger.roots)partitionOperations(root);
+  if(operationLedger){if(operationSources===undefined)operationSources=operationLedger.before;else assert.deepEqual(operationLedger.before,operationSources,'Operation instrumentation changed between profile processes');}
   const prepared=[];let sharedLow=-Infinity,sharedHigh=Infinity;
   for(const [i,s] of diagnostic.entries()) {
     const e=s.cpuEvidence;assert(e?.complete&&e.cpuProfile?.samples&&e.cpuProfile.timeDeltas&&e.callWindow&&e.cpuStartCommand&&e.cpuStopCommand);
@@ -65,6 +75,10 @@ for(const label of ['profile-a','control','profile-b']) {
   for(const {s,e,root,points,initialUncertainty,calibration} of prepared){
     const low=sharedLow,high=sharedHigh;
     const groups=new Map(),frames=new Map(),callers=new Map(),modules=new Map(),contexts=new Map();let boundary=0,outside=0,inside=0;
+    const operation=operationLedger?.roots.filter(r=>r.start.time>=root.startMonotonicMs&&r.end?.time<=root.endMonotonicMs);
+    if(operationLedger)assert.equal(operation.length,1,'Unique original root join');
+    const intervals=operation?.[0]?.intervals??[];
+    const phaseSamples=new Map(),phaseCategories=new Map(),stacks=new Map(),coarsePhases=new Map(),coarseCategories=new Map(),businessPhases=new Map(),businessCategories=new Map(),businessFrames=new Map();
     for(const point of points){
       if(point.stamp+high<root.startMonotonicMs||point.stamp+low>root.endMonotonicMs){outside++;continue;}
       if(point.previous+low<root.startMonotonicMs||point.stamp+high>root.endMonotonicMs){boundary++;continue;}
@@ -74,6 +88,23 @@ for(const label of ['profile-a','control','profile-b']) {
       const authored=point.chain.filter(f=>f.url.includes('/packages/')&&f.url.includes('/src/'));
       const nearest=authored.slice(0,3).map(location).join(' <- ')||'no authored caller';add(callers,cat+'|'+nearest);
       const runner=point.chain.some(f=>f.functionName==='runLoop'&&f.url.endsWith('/internal/effect.js'));add(contexts,cat+'|'+(runner?'inside-runner':'outside-runner'));
+      if(operationMode){
+        const coarse=intervals.filter(p=>p.parent===null);
+        const coarseOverlaps=coarse.filter(p=>point.stamp+high>=p.start.time&&point.previous+low<=p.end.time);
+        const coarseWithin=coarseOverlaps.filter(p=>point.previous+low>=p.start.time&&point.stamp+high<=p.end.time);
+        const coarseName=coarseOverlaps.length!==coarseWithin.length?'operation-boundary':coarseWithin[0]?.name??'outside-named-operations';
+        const runtime=coarse.find(p=>p.name==='portable runtime execution');
+        const business=intervals.filter(p=>p.parent===null&&p!==runtime||runtime&&p.parent===runtime.ordinal);
+        const businessOverlaps=business.filter(p=>point.stamp+high>=p.start.time&&point.previous+low<=p.end.time);
+        const businessWithin=businessOverlaps.filter(p=>point.previous+low>=p.start.time&&point.stamp+high<=p.end.time);
+        const businessName=businessOverlaps.length!==businessWithin.length?'operation-boundary':businessWithin[0]?.name??coarseName;
+        const overlapping=intervals.filter(p=>point.stamp+high>=p.start.time&&point.previous+low<=p.end.time);
+        const within=overlapping.filter(p=>point.previous+low>=p.start.time&&point.stamp+high<=p.end.time);
+        const selected=within.sort((a,b)=>b.start.time-a.start.time)[0];
+        const phase=overlapping.length!==within.length?'operation-boundary':selected?.name??'outside-named-operations';
+        if(cat!=='idle'){add(phaseSamples,phase);add(phaseCategories,phase+'|'+cat);add(stacks,phase+'|'+point.chain.map(location).join(' <- '));add(coarsePhases,coarseName);add(coarseCategories,coarseName+'|'+cat);}
+        if(cat!=='idle'){add(businessPhases,businessName);add(businessCategories,businessName+'|'+cat);add(businessFrames,businessName+'|'+location(f));}
+      }
     }
     assert.equal([...groups.values()].reduce((a,b)=>a+b,0),inside);
     const active=inside-(groups.get('idle')??0);assert(active>0,'No active samples for native comparison');
@@ -83,7 +114,8 @@ for(const label of ['profile-a','control','profile-b']) {
       alignment:{initialUncertaintyMs:initialUncertainty,uncertaintyMs:high-low,low,high,calibration},inside,boundary,outside,active,
       previousAdmission:original.definitelyInsideSamples,groups:Object.fromEntries(groups),frames:Object.fromEntries(frames),callers:Object.fromEntries(callers),modules:Object.fromEntries(modules),contexts:Object.fromEntries(contexts),
       gcOverlapMs:e.gc.events.reduce((sum,g)=>sum+Math.max(0,Math.min(root.endMonotonicMs,g.startMonotonicMs+g.durationMs)-Math.max(root.startMonotonicMs,g.startMonotonicMs)),0),
-      estimates:Object.fromEntries([...groups].filter(([cat])=>cat!=='idle').map(([cat,n])=>[cat,cpu*n/active]))});
+      estimates:Object.fromEntries([...groups].filter(([cat])=>cat!=='idle').map(([cat,n])=>[cat,cpu*n/active])),
+      ...(operationMode?{operation:operation[0],phaseSamples:Object.fromEntries(phaseSamples),phaseCategories:Object.fromEntries(phaseCategories),stacks:Object.fromEntries(stacks),coarsePhases:Object.fromEntries(coarsePhases),coarseCategories:Object.fromEntries(coarseCategories),businessPhases:Object.fromEntries(businessPhases),businessCategories:Object.fromEntries(businessCategories),businessFrames:Object.fromEntries(businessFrames)}:{})});
   }
 }
 assert(runs.every(r=>r.sources.before===runs[0].sources.before));
@@ -113,9 +145,9 @@ const detailDifferential=key=>{
   }
   return [...rows.values()].map(r=>({...r,estimatedAddedMs:r.flarexEstimatedMs-r.nativeEstimatedMs})).sort((a,b)=>b.estimatedAddedMs-a.estimatedAddedMs);
 };
-const details=Object.fromEntries(['modules','frames','callers','contexts'].map(key=>[key,detailDifferential(key)]));
+const details=Object.fromEntries(['modules','frames','callers','contexts',...(operationMode?['phaseSamples','phaseCategories','stacks','coarsePhases','coarseCategories','businessPhases','businessCategories','businessFrames']:[])].map(key=>[key,detailDifferential(key)]));
 for(const rows of Object.values(details))assert(Math.abs(rows.reduce((s,r)=>s+r.estimatedAddedMs,0)-estimatedTotal)<1e-8);
 const summary={method:'Complete matched SDK roots, unchanged business code. Six-ms pre/post profiler landmarks outside original CPU-counter windows; explicit timestampToleranceMs (default 0.4 as prior marker probe). Disjoint admitted non-idle self samples allocate each observed root thread counter statistically. Estimated category milliseconds sum by construction, are not exact owner timings, removable savings or independent causal proof. 10000 stratified four-pair block-bootstrap draws; intervals omit systematic profiler/classification bias. No elapsed sample weights converted to CPU.',
   timestampToleranceMs,runs:runs.map(({pairs,...r})=>r),profileAddedMs:stats(pairs.map(p=>p.addedCpuMs)),differential,details,lanes,profiles,pairs};
-await writeFile(resolve(directory,timestampToleranceMs===0.4?'summary.json':`summary-tolerance-${timestampToleranceMs}.json`),JSON.stringify(summary,null,2));
+await writeFile(resolve(directory,(operationMode?'operation-':'')+(timestampToleranceMs===0.4?'summary.json':`summary-tolerance-${timestampToleranceMs}.json`)),JSON.stringify(summary,null,2));
 console.log(JSON.stringify({runs:summary.runs,profileAddedMs:summary.profileAddedMs,differential,lanes:Object.fromEntries(Object.entries(lanes).map(([k,v])=>[k,{...v,frames:Object.entries(v.frames).slice(0,30),modules:Object.entries(v.modules).slice(0,25),callers:Object.entries(v.callers).slice(0,25),contexts:v.contexts}]))},null,2));

@@ -12,6 +12,11 @@ establish a material saving; this design is no longer pending implementation.
 The [checkpoint evidence](../../work/validation/shared-execution-evidence/full-cpu-differential/pipeline-results.md)
 establishes no CPU reduction from those initial changes. Do not continue stacking
 helper changes or present either experiment as an accepted performance redesign.
+The subsequent [operation-correlated CPU evidence](../../work/validation/shared-execution-evidence/full-cpu-differential/operation-results.md)
+locates the largest combined family in 43 relational selections and 38 finite
+captures: approximately 45 ms of observed Flarex CPU, excluding double counting.
+Publication and workflow work are also substantial. These are execution costs,
+not proved removable savings; no further runtime redesign is selected.
 Use the current checkout. This proposal does not reopen completed cutovers
 below or change accepted authority, failure, storage or framework contracts.
 
