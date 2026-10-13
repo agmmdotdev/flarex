@@ -1,0 +1,257 @@
+{
+  "stage": "snapshot",
+  "reverse": "1",
+  "assignments": [
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:5",
+      "index": 5,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:6",
+      "index": 6,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:7",
+      "index": 7,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:8",
+      "index": 8,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:9",
+      "index": 9,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:10",
+      "index": 10,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:11",
+      "index": 11,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:12",
+      "index": 12,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:13",
+      "index": 13,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:14",
+      "index": 14,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:15",
+      "index": 15,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:16",
+      "index": 16,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:17",
+      "index": 17,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:18",
+      "index": 18,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:19",
+      "index": 19,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:20",
+      "index": 20,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:21",
+      "index": 21,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:22",
+      "index": 22,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:23",
+      "index": 23,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:24",
+      "index": 24,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:25",
+      "index": 25,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:26",
+      "index": 26,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:27",
+      "index": 27,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:28",
+      "index": 28,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:29",
+      "index": 29,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:30",
+      "index": 30,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:31",
+      "index": 31,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:32",
+      "index": 32,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:33",
+      "index": 33,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:34",
+      "index": 34,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:35",
+      "index": 35,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:36",
+      "index": 36,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:37",
+      "index": 37,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:38",
+      "index": 38,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:39",
+      "index": 39,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:40",
+      "index": 40,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:41",
+      "index": 41,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:42",
+      "index": 42,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:43",
+      "index": 43,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "83c85281-d971-4b6c-8541-e3e037fdfd9c:flarex:44",
+      "index": 44,
+      "kind": "diagnostic",
+      "variant": "before"
+    }
+  ],
+  "loaded": [
+    {
+      "id": "C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/storage/documents/logicalDocuments/detachChanges.ts",
+      "stage": "snapshot",
+      "originalHash": "33b8c6db86515945e47509b0d93cf6b2b6c1172babbf3c30d8180a58cc8f2f14",
+      "baselineHash": "a092920a489aea2b68d94bf36f2f6bdf22cb80a2657c41735513d99d1f783565",
+      "transformedHash": "60469fe8f0169faf3fa8660df19088d9f47f97c02f87c1d8ca0d5b7e51792c99",
+      "name": "detachLogicalDocumentRootChanges"
+    }
+  ],
+  "report": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\composition-snapshot-reduction\\snapshot-b\\83c85281-d971-4b6c-8541-e3e037fdfd9c.json"
+}

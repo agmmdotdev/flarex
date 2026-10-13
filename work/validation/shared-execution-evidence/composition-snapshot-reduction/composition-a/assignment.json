@@ -1,0 +1,281 @@
+{
+  "stage": "composition",
+  "reverse": "0",
+  "assignments": [
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:5",
+      "index": 5,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:6",
+      "index": 6,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:7",
+      "index": 7,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:8",
+      "index": 8,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:9",
+      "index": 9,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:10",
+      "index": 10,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:11",
+      "index": 11,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:12",
+      "index": 12,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:13",
+      "index": 13,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:14",
+      "index": 14,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:15",
+      "index": 15,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:16",
+      "index": 16,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:17",
+      "index": 17,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:18",
+      "index": 18,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:19",
+      "index": 19,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:20",
+      "index": 20,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:21",
+      "index": 21,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:22",
+      "index": 22,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:23",
+      "index": 23,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:24",
+      "index": 24,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:25",
+      "index": 25,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:26",
+      "index": 26,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:27",
+      "index": 27,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:28",
+      "index": 28,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:29",
+      "index": 29,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:30",
+      "index": 30,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:31",
+      "index": 31,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:32",
+      "index": 32,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:33",
+      "index": 33,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:34",
+      "index": 34,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:35",
+      "index": 35,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:36",
+      "index": 36,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:37",
+      "index": 37,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:38",
+      "index": 38,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:39",
+      "index": 39,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:40",
+      "index": 40,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:41",
+      "index": 41,
+      "kind": "diagnostic",
+      "variant": "after"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:42",
+      "index": 42,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:43",
+      "index": 43,
+      "kind": "diagnostic",
+      "variant": "before"
+    },
+    {
+      "id": "defdad0a-c71a-4b50-a68f-e721b36b00c5:flarex:44",
+      "index": 44,
+      "kind": "diagnostic",
+      "variant": "after"
+    }
+  ],
+  "loaded": [
+    {
+      "id": "C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/storage/documents/logicalDocuments/detachChanges.ts",
+      "stage": "composition",
+      "fixed": "before-snapshot",
+      "originalHash": "33b8c6db86515945e47509b0d93cf6b2b6c1172babbf3c30d8180a58cc8f2f14",
+      "baselineHash": "a092920a489aea2b68d94bf36f2f6bdf22cb80a2657c41735513d99d1f783565",
+      "transformedHash": "a092920a489aea2b68d94bf36f2f6bdf22cb80a2657c41735513d99d1f783565"
+    },
+    {
+      "id": "C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts",
+      "stage": "composition",
+      "fixed": "before-snapshot",
+      "originalHash": "eb742c6eac2f52715f51fb86da37f9573bf4c345b63e2cc8e747330b3a941840",
+      "baselineHash": "6c7a9a7f243cecc6186f86940dbc4048c70ce5ce147eaabf116fed732debf368",
+      "transformedHash": "6c7a9a7f243cecc6186f86940dbc4048c70ce5ce147eaabf116fed732debf368"
+    },
+    {
+      "id": "C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/storage/documents/logicalDocuments/journalEvidence.ts",
+      "stage": "composition",
+      "originalHash": "178a54a955a47ac0263234391614fd6f9681e50e2769be731fda9d87111ecdcc",
+      "baselineHash": "c7064164d673c09daff504aaca00f57014451d735f18470611e092b7cb397773",
+      "transformedHash": "1e86186f1e35263ac55eb6a82935cce13479991b6fda5d8a9cc572339bc1e30a",
+      "name": "serializeLogicalParticipantDependencyEvidence"
+    },
+    {
+      "id": "C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/storage/documents/logicalDocuments/journalContribution.ts",
+      "stage": "composition",
+      "originalHash": "e82584e620a107c558fc90b19b50af63060e93e2cf69b8213f5b542bbb8c1c09",
+      "baselineHash": "da4e033787d35793cb2cd1ccc5959a531473502fc28f0364c03bb45216a6aa6d",
+      "transformedHash": "6f509e2bea067679d2ff6c50f57034d4d8a6dfa4974e5423beba2536dadcf427",
+      "name": "projectLogicalDocumentJournalContribution"
+    }
+  ],
+  "report": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\shared-execution-evidence\\composition-snapshot-reduction\\composition-a\\defdad0a-c71a-4b50-a68f-e721b36b00c5.json"
+}
