@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+const require=createRequire(import.meta.url),native=require('./gc-cycles.node');
+const buffer=new BigUint64Array(4);
+const read=()=>{native.snapshot(buffer);return [...buffer];};
+assert.throws(()=>native.snapshot(new BigUint64Array(3)),TypeError);
+native.enable();native.enable();const first=read();
+global.gc();global.gc();const last=read();
+assert(last[0]>first[0]);assert(last[1]>first[1]);assert(last[1]-first[1]<=last[0]-first[0]);
+assert(last[2]>=first[2]+2n);assert.equal(last[3],0n);
+native.disable();native.disable();const off=read();global.gc();const after=read();
+assert.equal(after[1],off[1]);assert.equal(after[2],off[2]);assert.equal(after[3],0n);
+console.log('Native GC cycles: forced collection, monotonicity, bounds, disable and argument checks passed');
