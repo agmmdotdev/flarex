@@ -1,5 +1,244 @@
 # Shared execution evidence redesign
 
+## Proposed full document-pipeline redesign
+
+Status: **planning only; runtime implementation is not selected by this request**.
+Use the current checkout. This proposal supersedes further isolated CPU-helper
+experiments as the next discussion target; it does not reopen completed cutovers
+below or change accepted authority, failure, storage or framework contracts.
+
+### Outcome and evidence boundary
+
+The [complete differential profile](../../work/validation/shared-execution-evidence/full-cpu-differential/results.md)
+reproduces 110.20 ms mean added thread CPU in the unprofiled mixed workflow.
+Two independent profile cohorts locate about 94.83 ms of their 113.71 ms gap in
+persistence, protocol and Effect/Result/Schema execution. That is a source-owner
+concentration, not 94.83 ms of proved redundant work. The interpreter is the
+largest individual module; no single document helper explains the gap.
+
+Redesign the complete admitted document operation from captured input through
+row selection, accepted storage observations, ordered validation, pending state,
+result projection and closure. The intended removals are intermediate execution
+objects and avoidable representation transitions throughout that connected path.
+Keep the actual checks, observations, accounting, interruption and publication.
+Do not reapply the unsuccessful bounded row-comparison, query-handoff or capture-
+header candidates merely because their owners appear in the profile.
+
+Convex's current transaction/read/write owners are the semantic reference:
+`crates/database/src/transaction.rs`, `reads.rs` and `writes.rs` at the repository
+root retain snapshot/read dependencies and original-to-pending write consistency.
+The transferable rule is one owned observation/current value with precise read
+dependencies. Flarex's short PostgreSQL transactions, explicit framework profiles,
+canonical transport and atomic durable publication remain necessary divergences;
+this is not a port of Convex's Rust engine or a replacement storage engine.
+
+### Existing owners and target path
+
+The existing `workingSet.ts` remains the document-operation owner. Extend the
+codec's existing canonical-value ownership and `relationalRows.ts`'s existing
+table-semantic evidence, rather than introduce a new validator, registry, VM,
+opcode interpreter, generic CRUD service or adapter-local fast path.
+
+The intended execution shape is:
+
+1. Existing request/operation admission and lifetime checks.
+2. Lazy, ordered local preparation using the existing input/metadata owners.
+3. Actual storage acquisition, capture and acceptance at the existing cut.
+4. Bounded local interpretation of one accepted row/operation segment.
+5. Existing asynchronous validator, uniqueness frontier, callback or next-row
+   boundary whenever the operation requires it; repeat 3–4 in original order.
+6. Ordered pending-state update, return accounting and native projection.
+7. Existing contribution/root closure, OCC, settlement and publication owners.
+
+Within a local segment, use one existing authoritative Result composition and
+one necessary Effect handoff. Total established-value calculations stay plain.
+Do not replace Schema with handwritten field validators or Result with exception
+control flow. Effect continues to own async work, typed failure, injected
+capabilities, interruption, scopes, callbacks and finalizers. Preserve each
+profile's real `state.validateDocument` callback: CMS has a transaction-backed
+validator as well as pure native cases. A common signature is not proof that
+all validation can be made synchronous.
+
+The core already retains prepared table mechanics, query interpretation,
+metadata selector facts, private JSON trees, canonical semantic verdicts,
+derived index/unique keys and activity projections. Root closure already creates
+one detached graph with original provenance. Preserve these owners and bounds;
+none is a new proposed cache or a fresh savings claim.
+
+### What can be removed, and the condition for removal
+
+| Current work / concrete owner | Proposed replacement and removal | Checks and limits retained |
+| --- | --- | --- |
+| Per-member `Effect.fromResult` / generator composition around identity decoding, observation, hydration, projection and charging in `getMany`, `readFiniteBase`, `readRelationalSelection`, `executeRelationalPage` | Let one local Result operation sequence adjacent synchronous work at the existing row/packet position; remove the displaced per-scalar Effect factories and helper-only continuations. `chargeResult`, observation and hydration Result owners remain authoritative. | No eager traversal of later raw rows; preserve callback, row-consumption, cancellation and packet boundaries. Any loop with those boundaries keeps Effect sequencing. |
+| `relationalChange` round trip: normalized native fields -> canonical document -> captured runtime/native views -> `output` -> strip `_id`/`_creationTime` -> recapture native wrapper | Carry the existing issuer's checked row and named runtime/native/policy projections through `withInsertedRecord` / `withWrittenDocument` and `afterWrite`; remove reconstructed intermediate wrappers and walks whose exact value/projection ownership is proved. | Normalize at the same position; preserve negative zero, codec tags, managed fields, optional/undefined/null, complete row validation, output byte limits and every original charge. Stored rows gain table semantics only at their original inspection point. |
+| Repeated full-buffer comparisons protect externally mutable `CanonicalFlarexValueV1` carriers in protocol ownership and `relationalRows.ts` | Evolve the existing codec ownership record so internal loans never expose backing bytes/digest or mutable binary leaves. Migrate actual internal consumers to that owner-held representation, then remove defensive rescans only between genuinely non-escaping loans. | **Conditional removal**, not permission to skip current checks. Every raw/foreign/exported carrier retains its original integrity/descriptor checks, error order and detached bytes. If an alias can still mutate data, the comparison stays. No Boolean trust flag, unchecked entry point or cross-call integrity cache. |
+| Helper-only tracing/stack/context construction and conversion chains beneath the named document operation | Compose directly in that operation after its pure segments are consolidated; delete only redundant private boundaries made unnecessary by the new owner path. | Preserve required public/semantic diagnostic operations and configured tracing, lazy factories, exact A/E/R and Cause. Do not rename helpers and count that as a CPU improvement. Existing untraced helpers are not new savings. |
+| Whole-row projection used only to hand the same value between trusted activity/closure consumers | Use existing issued activity contribution and closed-root loans with their exact source/cursor/generation; let each real escape create its required projection. Remove a conversion only after its consumer moves. | Current activity caching and one root-close copy already exist. No new elimination is assumed there. Public inspection, framework-mutable outputs, native event snapshots and durable encodings retain their required detachment. |
+| SQL, OCC, materialization and publication work | Preserve the prepared-query/fixed-OCC owners and existing durable write path; pass the accepted value through their existing private contracts. | No fewer observations or durable facts are promised. Preserve immediate returned-tuple checks and final stored proofs; no bulk-write/aggregate-validation substitution. |
+
+The main new structural change is that the internal operation carries the
+accepted row instead of repeatedly leaving and re-entering its value owner.
+Local composition is then changed around that representation, across complete
+read/write operations. Applying a few more `fnUntraced` substitutions, replacing
+Result generators mechanically, or adding another WeakMap to current wrappers
+would not deliver this redesign.
+
+### Representation and lifetime contract
+
+Reuse and extend the existing `canonicalValueOwnership` and `canonicalRows`
+records by responsibility: the protocol owner proves value/encoding identity;
+persistence proves the exact table/source-generation semantics. Neither proves
+current admission or committed state. Do not merge those claims into one token.
+
+Internal byte/digest storage must be unreachable through a returned object,
+closure, typed-array view, driver parameter retained past its borrowing scope,
+or runtime binary leaf. Exporting bytes or a mutable framework object creates
+the owner's detached projection. Re-entry from an exported carrier is a checked
+boundary, including when that carrier was originally issued here. A raw carrier
+and a private loan must not accidentally share mutable backing storage.
+
+Keep runtime, policy JSON and native framework views distinct. `valueJson` can
+contain codec tags where runtime has negative zero or other non-JSON values;
+one view cannot silently replace another. Carry intrinsic sizes as facts, while
+each consuming request still applies its current bound and charges in order.
+Do not collapse physical allocation accounting and existing logical charges.
+
+The existing attempt/root owns pending revisions, originals and derived keys.
+Prepared mechanics retain only immutable generation-scoped interpretation.
+Release replaced values/derived state at the current invalidation points and
+closure; no global request, observation, permission or negative-result cache.
+Canonical-format, digest, stored row/journal/outcome encodings and database
+schemas stay unchanged. No data migration or reset is part of this proposal.
+
+### Failure-order contract to preserve
+
+These are source-derived operation-specific cuts, not a new universal order.
+The implementation must retain all branches inside each cut and add witnesses
+for any changed composition before removing the corresponding old helper.
+
+| Operation/cut | Required sequence and observable behavior |
+| --- | --- |
+| Operation entry | `lifetime.operation` then `state.requireAdmission`, closed/root/intent checks, then activity-generation invalidation and operation body. Foreign input work stays lazy. Even a later failed operation may already invalidate activity. |
+| Ordinary point read | The no-root/no-transaction `get` branch acquires live read admission before identity inspection. Finite/local and borrowed-transaction branches retain their distinct order. Do not force them through one prevalidation routine. |
+| Insert versus edit | Insert selects the table before `captureFields`; edit captures fields before `locate`. Generated insertion records intent, not a fabricated observed absence. Keep identity generation, dependency charges and creation-time ordering. |
+| Batched relational input | Operation/table/mechanics checks precede captured input and its charge. The complete existing input array shape/key/duplicate validation runs before per-row changes. This is different from the later lazy storage-row consumer. |
+| Each relational row | Identity selection/current-row acceptance precedes normalization and canonicalization. Missing-row, insert conflict, upsert reactivation, managed timestamps and unchanged restore retain their existing branch behavior. Later row values are not normalized or encoded before earlier row continuation completes. |
+| Write acceptance | Canonicalization -> document byte bound -> table metadata consumption -> `state.validateDocument` -> each unique definition in current order. Unique lowering/storage lookup/pending-row checks and their error kinds remain ordered. |
+| Unique continuation | For each definition, fresh storage selection and ordered pending membership precede the next definition and final consume callback. `withUniqueValidation` and `withAccessCandidates` can retain a borrowed frontier through later continuations. Do not release it early by turning recursion into an outer loop. |
+| Pending mutation and returned value | Identity bound -> document charge -> `recordAttempt` (write-closure metadata, attempt charge, append) -> replace/set pending row -> output capture/return charge -> consumer. A return-budget failure can follow tentative mutation today. Preserve this state and first Cause; do not move all checks before mutation or invent a new rollback point. |
+| Finite indexed read | Index/page membership and lookahead are accepted before body permission. Preserve completeness, exact table/unique-membership checks, membership charge, identity limits and row-body demands in the branch's current order. Keep cursor, range, limit, EOF/empty-page and negative-gap witnesses. |
+| Row/packet consumption | Original ordinal/columns -> row decode -> consumer acceptance/observation/charge/hydration -> next raw slot. Current bounded packets complete their required decode phase before hydration; next packets use remaining budget after actual prior charges. Preserve missing/tombstone and withheld-body branches. |
+| Pure predicates | Actual candidate lowering still precedes a bound's first eligible lowering. Earlier false/missing comparisons suppress later malformed bounds exactly as today; no failed derivation is retained. |
+| Mutable canonical input | Keep the specific authority/bounds/corruption precedence of each entry function. In particular `nativeLogicalRelationalCanonicalRow` and `validateLogicalRelationalCanonicalRow` intentionally have different orders. Buffer getters, inherited getters and Proxy defects remain observable at the same positions. |
+| Close/contribution | Check closing/ownership, fresh admission, relational references and activity before marking closed/releasing state. Source filtering, cursor offsets, attempt/lifecycle ordinals, original revision and closed-root pins remain exact. |
+| Materialization/publication | Preserve locks, validation/write family order, each write's immediate returned evidence and final stored proof. Earlier row/index RETURNING corruption wins over a later trigger failure. Publication facts, outcome, wake and uncertain-COMMIT resolution remain with the current outer owner. |
+
+Do not call this preservation based only on matching final errors. Witnesses
+must also establish which later input/SQL/callback was never reached, the last
+budget/state mutation, held scope, full Cause and cleanup. Preserve partial
+tentative state after failure wherever it is observable before the existing
+owner closes or marks rollback-only. Unexpected getter throws remain defects;
+do not convert them to ordinary input failures.
+
+Fusion is limited to bounded local work that has no required interruption or
+resource boundary. Keep the existing next-row/callback checks, not merely one
+check at the end of a long synchronous loop. Do not increase uninterruptible
+work with input size, replace scope finalizers with `try/finally` around foreign
+Promises, parallelize checks, or retain a SQL transaction across user execution.
+
+### Connected delivery and deletion gates
+
+1. **Freeze the contract and baseline.** Use the existing harness and profile
+   artifacts; before implementation collect a fresh counter-only baseline on the
+   exact source revision. Expand existing tests with paired-fault/order witnesses
+   at the cuts above. Use real owners and observable hooks/getters, not a second
+   implementation of document semantics in the harness. Record source hashes and
+   preserve unrelated checkout changes. No new measurement API is needed.
+2. **Replace the internal row handoff end to end.** Start with relational
+   normalization/canonical issuance, then working-set reads/writes, activity and
+   the existing root/materialization handoffs. Preserve the full Application
+   value domain as well as JSON framework rows. Carry existing owner-issued
+   projections; seal backing storage before removing any alias-defense check.
+   Migrate every touched ordinary/finite consumer in the checkpoint. Remove the
+   superseded internal raw-carrier/projection adapters after their last caller
+   moves; retain raw decoders only for real foreign/durable/public boundaries.
+3. **Replace internal execution composition across those same operations.**
+   Consolidate adjacent Result work, retain Effect at actual async/callback/row/
+   scope cuts, and remove displaced per-scalar wrappers and helper-only diagnostic
+   construction. Keep the core source/table validator callback and recursive
+   borrowed frontiers intact where necessary. This is one operation-path change,
+   not a series of isolated helper experiments.
+4. **Close consumers and remove obsolete internals.** Exercise ordinary Commerce,
+   CMS/Payload, finite mixed roots and Application reads/writes through their real
+   entry points. Framework hooks/access, native normalization, lifecycle events,
+   compensation and serialization keep their existing owners. Use existing
+   `LogicalDocumentChanges`, activity contributions and closed-root contracts;
+   change a private contract only when the actual ownership transition requires
+   it. Remove displaced exports, factories and representation-only fixtures;
+   preserve behavioral tests and migrate diagnostic consumers to retained events.
+
+These are independently measurable checkpoints of one connected design, not
+permission to keep permanent old/new engines or a production feature-flag fork.
+No new package is needed. Protocol value changes belong in `flarex-protocol`;
+working-set, stored evidence, metadata, capture and materialization remain in
+`persistence-postgres`. The existing CMS/Commerce caller sites and framework
+adapters translate only their current contracts. Executor tests own measurements.
+
+### Correctness and measurement gates
+
+Extend the existing witnesses rather than build another test harness:
+
+* `storage/documents/logicalRelationalCanonicalRows.test.ts` and
+  `logicalCanonicalDocumentSemantics.test.ts`: exact issuer/generation,
+  foreign clone/getter, buffer alias/tampering, full runtime domain,
+  detachment, byte bounds and distinct entry refusal orders.
+* `values/privateJsonData.test.ts`, `logicalQueryPredicate.test.ts` and
+  `logicalPreparedWriteMechanics.test.ts`: descriptor/Unicode/negative-zero
+  behavior, lazy bounds, no failed reuse, preparation disposal and retained bytes.
+* `execution/finiteStorageReads.test.ts` and the logical working-set read
+  transaction scenarios: first row refusal before later access, interruption,
+  missing/tombstone, withheld body, membership-before-body, packet charge cuts,
+  current/snapshot reads, overlay generations and original dependencies.
+* Materialization composition scenarios on both PGlite and ordinary-role
+  PostgreSQL: immediate RETURNING corruption before later failure, final stored
+  proof after later corruption, unique ownership, rollback and atomic publication.
+* Existing real Product/Pricing/Link workflow, Payload Local API and Application
+  consumers: result parity, hooks/events/access, nested failure, closed state,
+  cancellation/drain and uncertain-outcome/recovery behavior. Use separate
+  PostgreSQL connections for the existing concurrency/freshness witnesses.
+
+For each implementation checkpoint, measure fresh complete native/Flarex roots
+with five warmups and 40 alternating matched pairs in the unprofiled root-counter
+lane, repeated in an independent process. Preserve all pairs, workload/size,
+data, source/variant hashes and verification/cleanup gates. Report absolute
+native/Flarex CPU, paired mean and median, block uncertainty, process versus
+thread counters and deltas from both baseline and prior checkpoint. Measure
+quiet wall latency separately; keep profiles out of savings measurements.
+Use the existing complete dual-lane CPU profile only to confirm that removed
+work disappeared, with the corrected marker admission and observer control.
+
+Proposed material-progress gate for the connected redesign: at least **25% lower
+mean added CPU** in repeated matched cohorts (about 27.6 ms against the current
+110.2 ms baseline), with no correctness or meaningful tail regression. This is
+a proposed intermediate decision threshold, **not a savings forecast or relaxed
+completion target**. If reductions remain a few milliseconds or within variation,
+stop stacking helper changes and report that the redesign hypothesis failed.
+Do not retain a speculative private representation break solely because its
+microbenchmark or factory counts improve.
+
+Final acceptance remains the existing **<=16 ms median added thread CPU** and
+**<=5/10 ms paired quiet added median/P95 latency** policy on all selected
+complete native graphs; this proposal does not claim either target is feasible
+or achieved. Validate small and typical/multi-row cases where a complete native
+reference exists, and label missing comparisons without substituting SQL-only
+baselines. Track retained memory/large-value behavior as well as CPU.
+
+Before retaining runtime changes, require affected typechecks, source/compatibility
+guards, both database lanes, configured lint checks and both required read-only
+reviews. Report those independently of performance. Current request delivers
+this plan only; no runtime edits, new worktree, database run or fresh CPU saving
+is part of this planning checkpoint.
+
 ## Issued metadata selection and ordered consumption
 
 Status: implemented. Complete native-relative CPU acceptance remains unmet.
