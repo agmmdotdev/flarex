@@ -1,5 +1,10 @@
 # CPU cost by executing operation
 
+The [read-family follow-up](./read-results.md) finds five repeated query
+preparations and 28 repeated bounds compilations, about 0.3 ms of warm replay CPU.
+No exact duplicate appears among its 26 index-page and eight row-read inputs;
+the 45 ms family is not established as removable CPU.
+
 The CPU is measurable. Relational read processing plus finite storage captures
 is the largest measured combined operation family. Workflow execution and
 publication are also substantial. There is no observed single 107 ms stall or

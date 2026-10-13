@@ -51,6 +51,12 @@ const end = (interval: Interval | undefined) => {
   } catch { faults.push('end'); }
 };
 const probe = {
+  sync<A>(name: string, run: () => A): A {
+    const token = begin(name);
+    try { return run(); } finally { end(token); }
+  },
+  current() { return active === undefined ? undefined : { root: active.ordinal, next: active.intervals.length,
+    inReadFamily: stack.some(span => span.name === 'LogicalDocuments.readRelationalSelection' || span.name === 'FiniteStorageCapture.run') }; },
   async root<A>(run: () => Promise<A>): Promise<A> {
     if (active !== undefined) throw Error('Overlapping diagnostic roots');
     const root: Root = { ordinal: roots.length, start: reading(), end: null, threadId: threadIdentity(), intervals: [] };

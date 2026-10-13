@@ -17,6 +17,10 @@ locates the largest combined family in 43 relational selections and 38 finite
 captures: approximately 45 ms of observed Flarex CPU, excluding double counting.
 Publication and workflow work are also substantial. These are execution costs,
 not proved removable savings; no further runtime redesign is selected.
+The [read repetition evidence](../../work/validation/shared-execution-evidence/full-cpu-differential/read-results.md)
+prices the identified duplicate pure preparation at about 0.3 ms in warm replay,
+with no exact repeated input among 26 index-page and eight row captures. That
+does not establish a large safe removal or an end-to-end CPU saving.
 Use the current checkout. This proposal does not reopen completed cutovers
 below or change accepted authority, failure, storage or framework contracts.
 
