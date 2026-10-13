@@ -1,0 +1,122 @@
+[
+  {
+    "label": "owned-pipeline-baseline-a",
+    "runId": "f139e948-9dc0-4ec6-8019-90df69f5871e",
+    "sourceHash": "538fc3029841137484c694a534f93ca9e295add368ca4c55681d8713904d0d68",
+    "samples": 40,
+    "thread": {
+      "nativeMeanMs": 25.8,
+      "flarexMeanMs": 134.1,
+      "addedMeanMs": 108.3,
+      "addedMedianMs": 110,
+      "consecutiveTenPairMeansMs": [
+        112.9,
+        117.1,
+        102.9,
+        100.3
+      ]
+    },
+    "process": {
+      "nativeMeanMs": 29.725,
+      "flarexMeanMs": 162.475,
+      "addedMeanMs": 132.75,
+      "addedMedianMs": 126,
+      "consecutiveTenPairMeansMs": [
+        140.4,
+        131.3,
+        129.9,
+        129.4
+      ]
+    }
+  },
+  {
+    "label": "owned-pipeline-baseline-b",
+    "runId": "0292f7f6-7bd8-4fcd-9433-0f4ee5d22df1",
+    "sourceHash": "538fc3029841137484c694a534f93ca9e295add368ca4c55681d8713904d0d68",
+    "samples": 40,
+    "thread": {
+      "nativeMeanMs": 27.325,
+      "flarexMeanMs": 132.95,
+      "addedMeanMs": 105.625,
+      "addedMedianMs": 108.5,
+      "consecutiveTenPairMeansMs": [
+        101.7,
+        114.4,
+        100.4,
+        106
+      ]
+    },
+    "process": {
+      "nativeMeanMs": 34.35,
+      "flarexMeanMs": 149.275,
+      "addedMeanMs": 114.925,
+      "addedMedianMs": 125,
+      "consecutiveTenPairMeansMs": [
+        114.1,
+        127.9,
+        111.1,
+        106.6
+      ]
+    }
+  },
+  {
+    "label": "owned-pipeline-replacement-a",
+    "runId": "e68a3f1c-1af1-465b-889f-f7535d04afa2",
+    "sourceHash": "9549467ac3022ea6087f48940169f1861ad98e698715eef1749b304c3b844db8",
+    "samples": 40,
+    "thread": {
+      "nativeMeanMs": 25.9,
+      "flarexMeanMs": 131.65,
+      "addedMeanMs": 105.75,
+      "addedMedianMs": 109,
+      "consecutiveTenPairMeansMs": [
+        126.5,
+        104.3,
+        92.1,
+        100.1
+      ]
+    },
+    "process": {
+      "nativeMeanMs": 33.475,
+      "flarexMeanMs": 154.25,
+      "addedMeanMs": 120.775,
+      "addedMedianMs": 117.5,
+      "consecutiveTenPairMeansMs": [
+        145.2,
+        132.9,
+        105.1,
+        99.9
+      ]
+    }
+  },
+  {
+    "label": "owned-pipeline-replacement-b",
+    "runId": "c9d35dc7-75d7-4868-914d-f374d8ddbf00",
+    "sourceHash": "9549467ac3022ea6087f48940169f1861ad98e698715eef1749b304c3b844db8",
+    "samples": 40,
+    "thread": {
+      "nativeMeanMs": 28.425,
+      "flarexMeanMs": 142.55,
+      "addedMeanMs": 114.125,
+      "addedMedianMs": 110,
+      "consecutiveTenPairMeansMs": [
+        120.4,
+        108.1,
+        123.6,
+        104.4
+      ]
+    },
+    "process": {
+      "nativeMeanMs": 31.35,
+      "flarexMeanMs": 163.625,
+      "addedMeanMs": 132.275,
+      "addedMedianMs": 125,
+      "consecutiveTenPairMeansMs": [
+        142.2,
+        123.2,
+        146.7,
+        117
+      ]
+    }
+  }
+]

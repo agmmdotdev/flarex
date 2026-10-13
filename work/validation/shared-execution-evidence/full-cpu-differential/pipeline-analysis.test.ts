@@ -15,8 +15,11 @@ const median = (values: readonly number[]) => {
 };
 
 it("validates and summarizes each separate document-pipeline campaign", async () => {
+  const prefix = process.env.FLAREX_PIPELINE_EVIDENCE_PREFIX ?? "pipeline";
+  assert(prefix === "pipeline" || prefix === "owned-pipeline");
   const labels = (await readdir(directory, { withFileTypes: true }))
-    .filter(entry => entry.isDirectory() && /^pipeline-(baseline|handoff|composition|reverted)-[ab]$/.test(entry.name))
+    .filter(entry => entry.isDirectory() && entry.name.startsWith(prefix + "-") &&
+      /^(?:owned-)?pipeline-(baseline|handoff|composition|reverted|replacement)-[ab]$/.test(entry.name))
     .map(entry => entry.name).sort();
   assert(labels.length >= 2);
   const campaigns = [];
@@ -49,6 +52,6 @@ it("validates and summarizes each separate document-pipeline campaign", async ()
     campaigns.push({ label, runId: raw.runId, sourceHash: raw.sources.before, samples: raw.cpuPairs.length,
       thread: counters("thread"), process: counters("process") });
   }
-  await writeFile(join(directory, "pipeline-summary.json"), JSON.stringify(campaigns, null, 2) + "\n");
+  await writeFile(join(directory, `${prefix}-summary.json`), JSON.stringify(campaigns, null, 2) + "\n");
   console.log(JSON.stringify(campaigns));
 });

@@ -1,15 +1,31 @@
 # Shared execution evidence redesign
 
-## Proposed full document-pipeline redesign
+## Full document-pipeline redesign
 
-Status: **initial handoff and local-composition checkpoints rejected by the
-performance gate; original runtime retained**. The sealed internal representation
-and complete pipeline cutover below remain proposed, not implemented or disproved.
+Status: **both the initial checkpoints and the connected isolated-document
+replacement were implemented, measured and rejected by the performance gate;
+original runtime retained**. The [full replacement evidence](../../work/validation/shared-execution-evidence/full-cpu-differential/owned-pipeline-results.md)
+records 106.9625 ms baseline versus 109.9375 ms replacement added mean thread CPU.
+The selected codec ownership, producer/consumer migration and local-composition
+candidate is preserved as a reproducible patch, not active runtime. It did not
+establish a material saving; this design is no longer pending implementation.
 The [checkpoint evidence](../../work/validation/shared-execution-evidence/full-cpu-differential/pipeline-results.md)
 establishes no CPU reduction from those initial changes. Do not continue stacking
-helper changes or describe this as a completed full-pipeline redesign.
+helper changes or present either experiment as an accepted performance redesign.
 Use the current checkout. This proposal does not reopen completed cutovers
 below or change accepted authority, failure, storage or framework contracts.
+
+The rejected replacement extended the existing codec ownership record with an isolated
+canonical projection: its byte/digest getters and binary runtime loans detach
+mutable storage. Only the issuing codec can construct it. Persistence retains
+that projection through validation, pending state and private root closure;
+public snapshots still detach, and raw carriers keep their corruption checks.
+The fresh stored decoder and document canonicalizer issue these projections
+before any callback escape. Existing table-semantic evidence remains distinct
+from codec ownership. Complete-operation composition and connected consumer
+migration preceded the whole-replacement performance gate. The design below
+records the tested hypothesis and preserved contracts, not a new implementation
+authorization or a claim that the profile concentration is removable.
 
 ### Outcome and evidence boundary
 

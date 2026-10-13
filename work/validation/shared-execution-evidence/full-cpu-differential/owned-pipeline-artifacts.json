@@ -1,0 +1,42 @@
+{
+  "base": "5913fe15ec4c3bac8af311f634a20961b2f625af",
+  "campaigns": [
+    {
+      "path": "owned-pipeline-baseline-a/f139e948-9dc0-4ec6-8019-90df69f5871e.json",
+      "bytes": 228183,
+      "sha256": "044e1deedb2271760bcf8e612c1d6934d16b7f1e1bb3e6a2555be578f0861267",
+      "gzipBytes": 15713,
+      "gzipSha256": "8a502b53a2d71493f70ba3b61abd38d53a9c182e6e41729c4372c258a9fe6f67"
+    },
+    {
+      "path": "owned-pipeline-baseline-b/0292f7f6-7bd8-4fcd-9433-0f4ee5d22df1.json",
+      "bytes": 228093,
+      "sha256": "53d2c61bf522960f8b93443c4cddfbf80617d591419cccaacd6a18eb3ce14cc9",
+      "gzipBytes": 15648,
+      "gzipSha256": "252a8825f3172416e739f67f8e5502727e42af7a5f072621d226551c3aa6c278"
+    },
+    {
+      "path": "owned-pipeline-replacement-a/e68a3f1c-1af1-465b-889f-f7535d04afa2.json",
+      "bytes": 228381,
+      "sha256": "7c4cf01a7d55fe1745a5c000717e3ac805b16ae58847f06d558f331cb8211853",
+      "gzipBytes": 15649,
+      "gzipSha256": "a2c3a5101b8bbf87f0583672927811f45cd2d1b033b07503b007645b24c2d182"
+    },
+    {
+      "path": "owned-pipeline-replacement-b/c9d35dc7-75d7-4868-914d-f374d8ddbf00.json",
+      "bytes": 227749,
+      "sha256": "86daa34938646674233e874a397b314b2c324dbbd19b2fd698bb306b7496acd2",
+      "gzipBytes": 15484,
+      "gzipSha256": "82e1de63138608c2b7a73ca2d31b3da5d737251d2ed0d3f75fb16c728a99dfd6"
+    }
+  ],
+  "patches": [
+    {
+      "path": "owned-pipeline-replacement.patch",
+      "bytes": 90974,
+      "sha256": "2288a1751a240f1c4e11e60241a08d419bdf73f760af20d572a511eb2a902920",
+      "gzipBytes": 18013,
+      "gzipSha256": "15d6b726ee0982702fa5f11bbc265aa18f8db3bac944f1989b07a3fc0d1f8639"
+    }
+  ]
+}
