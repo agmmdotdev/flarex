@@ -1,0 +1,8 @@
+
+ RUN  v5.0.3 C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres
+
+
+ Test Files  10 passed (10)
+      Tests  102 passed (102)
+   Start at  16:49:52
+   Duration  161.21s (tests 83%, import 11%, transform 7%)

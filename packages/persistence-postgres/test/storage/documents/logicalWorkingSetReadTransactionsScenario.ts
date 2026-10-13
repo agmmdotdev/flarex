@@ -4,7 +4,7 @@ import type {
 } from "../../../src/execution/finiteStorageCapture";
 import { fxSystemScopeExecutionAuthorities } from "../../../src/database/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { Deferred, Effect, Fiber, Option, Result } from "effect";
+import { Cause, Deferred, Effect, Fiber, Option, Result } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { expect, vi } from "vitest";
 import { canonicalizeAppDocumentV1, AppCreationTimeV1Schema } from "flarex-protocol/app-document";
@@ -210,6 +210,43 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
     const clock = await getScopeClock(db, scopeId);
     if (clock === null) throw new Error("Missing neutral working-set scope");
     const failure = (reason: string, cause?: unknown) => new Error(reason, { cause });
+    // The return allowance is checked after tentative mutation. A validator
+    // failure at the earlier callback must leave no attempt; a later return
+    // refusal must retain the attempt and original Cause until owner cleanup.
+    await db.transaction(tx => runEffect(Effect.scoped(Effect.gen(function* () {
+      for (const at of ["validator", "return"] as const) {
+        const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
+          { calls: 16, commandBytes: 262_144, commandMs: 60_000 }, {}, {}, `write-order-${at}`, "write"), resource => resource.close);
+        let returnBytes = 0;
+        let validations = 0;
+        const validatorFailure = failure("validatorFirst");
+        const working = yield* makeLogicalDocumentWorkingSet({ scopeId, clock, lifetime, tx,
+          tables: [{ tableId: firstTable, logicalName: "notes" }], readReadiness: { kind: "full" }, requireAdmission: Effect.void,
+          validateDocument: ({ document }) => Effect.gen(function* () {
+            validations++;
+            if (at === "validator") return yield* Effect.fail(validatorFailure);
+            returnBytes = yield* Effect.fromResult(capturePrivateJsonData(document.value, 65_536, failure).pipe(Result.map(value => value.bytes)));
+            yield* Effect.fromResult(lifetime.charge(lifetime.remainingBytes() - document.canonicalBytes.byteLength - 128 - returnBytes + 1));
+          }), error: failure, uniqueConflict: () => failure("uniqueConflict"),
+          limits: { pageRows: 8, identities: 8, documentBytes: 65_536 },
+        }, firstTime, [], []);
+        const id = yield* lifetime.begin(lifetime.context);
+        const written = yield* Effect.result(working.documents.insert(lifetime.context, id, "notes", { label: "pending-return" }));
+        if (Result.isSuccess(written)) throw failure("Expected ordered write refusal");
+        expect(written.failure.message).toBe(at === "validator" ? "validatorFirst" : "limitExceeded");
+        if (at === "validator") expect(written.failure).toBe(validatorFailure);
+        else expect(lifetime.remainingBytes()).toBe(returnBytes - 1);
+        const activity = yield* working.activitySnapshot();
+        expect(activity.attempts).toHaveLength(at === "validator" ? 0 : 1);
+        expect(activity.observedRows).toHaveLength(at === "validator" ? 0 : 1);
+        if (at === "return") expect(activity.observedRows[0]?.value).toMatchObject({ label: "pending-return" });
+        const later = yield* Effect.result(working.documents.insert(lifetime.context, id, "notes", { label: "unreached" }));
+        if (Result.isSuccess(later)) throw failure("Expected rollback-only refusal");
+        expect(later.failure.message).toBe("rollbackOnly");
+        expect(later.failure.cause).toEqual(Cause.fail(written.failure));
+        expect(validations).toBe(1);
+      }
+    }))));
     const keyDocument = await canonicalizeAppDocumentV1({ tableId: firstTable, rowId: firstRow,
       creationTime: firstTime, fields: { label: "owned-key-cache" } });
     const keySemantics = prepareLogicalCanonicalDocumentSemantics(() => Result.succeed(true), () => failure("storedCorruption"));

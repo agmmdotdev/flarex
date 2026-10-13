@@ -1,0 +1,182 @@
+[
+  {
+    "label": "pipeline-baseline-a",
+    "runId": "18b4edcf-73f3-4e4e-8532-353404370396",
+    "sourceHash": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+    "samples": 40,
+    "thread": {
+      "nativeMeanMs": 29.975,
+      "flarexMeanMs": 143.8,
+      "addedMeanMs": 113.825,
+      "addedMedianMs": 110,
+      "consecutiveTenPairMeansMs": [
+        104.8,
+        114.6,
+        119.9,
+        116
+      ]
+    },
+    "process": {
+      "nativeMeanMs": 37.5,
+      "flarexMeanMs": 166.425,
+      "addedMeanMs": 128.925,
+      "addedMedianMs": 126,
+      "consecutiveTenPairMeansMs": [
+        124.9,
+        134.5,
+        140.5,
+        115.8
+      ]
+    }
+  },
+  {
+    "label": "pipeline-baseline-b",
+    "runId": "748482d8-fcb1-4639-b62c-47bdc9294000",
+    "sourceHash": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+    "samples": 40,
+    "thread": {
+      "nativeMeanMs": 25.35,
+      "flarexMeanMs": 135.475,
+      "addedMeanMs": 110.125,
+      "addedMedianMs": 124,
+      "consecutiveTenPairMeansMs": [
+        119,
+        117,
+        102.9,
+        101.6
+      ]
+    },
+    "process": {
+      "nativeMeanMs": 31.325,
+      "flarexMeanMs": 158.2,
+      "addedMeanMs": 126.875,
+      "addedMedianMs": 125,
+      "consecutiveTenPairMeansMs": [
+        129.6,
+        129.4,
+        117.2,
+        131.3
+      ]
+    }
+  },
+  {
+    "label": "pipeline-composition-a",
+    "runId": "59c98702-6ac1-4fce-b0f3-3f6e336d8ee0",
+    "sourceHash": "02e4c05ee269395a4f7c0ee5f721868adce496ebed3436acd1e3e574fff209ef",
+    "samples": 40,
+    "thread": {
+      "nativeMeanMs": 26.95,
+      "flarexMeanMs": 142.45,
+      "addedMeanMs": 115.5,
+      "addedMedianMs": 109,
+      "consecutiveTenPairMeansMs": [
+        131.1,
+        124.9,
+        98.2,
+        107.8
+      ]
+    },
+    "process": {
+      "nativeMeanMs": 30.425,
+      "flarexMeanMs": 160.225,
+      "addedMeanMs": 129.8,
+      "addedMedianMs": 125.5,
+      "consecutiveTenPairMeansMs": [
+        156.1,
+        146.9,
+        103.4,
+        112.8
+      ]
+    }
+  },
+  {
+    "label": "pipeline-composition-b",
+    "runId": "d0978fe9-6c11-4d9e-9900-b941ebe9962e",
+    "sourceHash": "02e4c05ee269395a4f7c0ee5f721868adce496ebed3436acd1e3e574fff209ef",
+    "samples": 40,
+    "thread": {
+      "nativeMeanMs": 26.2,
+      "flarexMeanMs": 135.55,
+      "addedMeanMs": 109.35,
+      "addedMedianMs": 110,
+      "consecutiveTenPairMeansMs": [
+        107.8,
+        126.7,
+        109.2,
+        93.7
+      ]
+    },
+    "process": {
+      "nativeMeanMs": 31.7,
+      "flarexMeanMs": 157.4,
+      "addedMeanMs": 125.7,
+      "addedMedianMs": 125,
+      "consecutiveTenPairMeansMs": [
+        137.2,
+        135.8,
+        112.6,
+        117.2
+      ]
+    }
+  },
+  {
+    "label": "pipeline-handoff-a",
+    "runId": "effd89ea-67e0-4280-89fd-cbf61ea9aabb",
+    "sourceHash": "0d66af8a78da1bc8c48560cb018700d98d8d6740eea8e452d5d2e4467a56ca44",
+    "samples": 40,
+    "thread": {
+      "nativeMeanMs": 25.725,
+      "flarexMeanMs": 141.525,
+      "addedMeanMs": 115.8,
+      "addedMedianMs": 117.5,
+      "consecutiveTenPairMeansMs": [
+        118.8,
+        123.8,
+        93.9,
+        126.7
+      ]
+    },
+    "process": {
+      "nativeMeanMs": 31.225,
+      "flarexMeanMs": 166.5,
+      "addedMeanMs": 135.275,
+      "addedMedianMs": 140.5,
+      "consecutiveTenPairMeansMs": [
+        145.8,
+        132.8,
+        112.6,
+        149.9
+      ]
+    }
+  },
+  {
+    "label": "pipeline-handoff-b",
+    "runId": "a5457549-ba70-44fe-bdc5-fa0dfcaf3c1d",
+    "sourceHash": "0d66af8a78da1bc8c48560cb018700d98d8d6740eea8e452d5d2e4467a56ca44",
+    "samples": 40,
+    "thread": {
+      "nativeMeanMs": 28.5,
+      "flarexMeanMs": 143.65,
+      "addedMeanMs": 115.15,
+      "addedMedianMs": 109,
+      "consecutiveTenPairMeansMs": [
+        112.4,
+        123.2,
+        120.5,
+        104.5
+      ]
+    },
+    "process": {
+      "nativeMeanMs": 32.775,
+      "flarexMeanMs": 163.2,
+      "addedMeanMs": 130.425,
+      "addedMedianMs": 124.5,
+      "consecutiveTenPairMeansMs": [
+        125,
+        148.3,
+        140.5,
+        107.9
+      ]
+    }
+  }
+]

@@ -2,9 +2,13 @@
 
 ## Proposed full document-pipeline redesign
 
-Status: **planning only; runtime implementation is not selected by this request**.
-Use the current checkout. This proposal supersedes further isolated CPU-helper
-experiments as the next discussion target; it does not reopen completed cutovers
+Status: **initial handoff and local-composition checkpoints rejected by the
+performance gate; original runtime retained**. The sealed internal representation
+and complete pipeline cutover below remain proposed, not implemented or disproved.
+The [checkpoint evidence](../../work/validation/shared-execution-evidence/full-cpu-differential/pipeline-results.md)
+establishes no CPU reduction from those initial changes. Do not continue stacking
+helper changes or describe this as a completed full-pipeline redesign.
+Use the current checkout. This proposal does not reopen completed cutovers
 below or change accepted authority, failure, storage or framework contracts.
 
 ### Outcome and evidence boundary
@@ -235,9 +239,10 @@ baselines. Track retained memory/large-value behavior as well as CPU.
 
 Before retaining runtime changes, require affected typechecks, source/compatibility
 guards, both database lanes, configured lint checks and both required read-only
-reviews. Report those independently of performance. Current request delivers
-this plan only; no runtime edits, new worktree, database run or fresh CPU saving
-is part of this planning checkpoint.
+reviews. Report those independently of performance. Measure the row handoff and
+execution composition independently before retaining the connected change.
+The rejected initial candidates are preserved only as diagnostic patches; they
+do not create an alternate runtime, supported API or accepted architecture.
 
 ## Issued metadata selection and ordered consumption
 
