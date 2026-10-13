@@ -11,15 +11,17 @@ const directory=dirname(fileURLToPath(import.meta.url));
 const operationMode=process.env.FLAREX_PROFILE_OPERATION_CORRELATION==='on';
 const readMode=process.env.FLAREX_PROFILE_READ_CORRELATION==='on';
 const candidateMode=process.env.FLAREX_PROFILE_CANDIDATE_CORRELATION==='on';
+const launchMode=process.env.FLAREX_PROFILE_LAUNCH_CORRELATION==='on';
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
-const paths=candidateMode?['candidate-costs.json','candidate-summary.json']:readMode?['read-costs.json']:operationMode?['operation-summary.json','operation-costs.json']:['summary.json','summary-tolerance-2.json'];
-for(const label of candidateMode?['candidate-control','candidate-profile-a','candidate-profile-b','candidate-profile-c']:readMode?['read-final-b','read-final-c']:operationMode?['operation-profile-a','operation-profile-b','operation-counters']:['profile-a','control','profile-b']){
+const paths=launchMode?['launch-costs.json']:candidateMode?['candidate-costs.json','candidate-summary.json']:readMode?['read-costs.json']:operationMode?['operation-summary.json','operation-costs.json']:['summary.json','summary-tolerance-2.json'];
+for(const label of launchMode?['launch-abba','launch-baab']:candidateMode?['candidate-control','candidate-profile-a','candidate-profile-b','candidate-profile-c']:readMode?['read-final-b','read-final-c']:operationMode?['operation-profile-a','operation-profile-b','operation-counters']:['profile-a','control','profile-b']){
   const names=(await readdir(resolve(directory,label))).filter(f=>/^[a-f0-9-]{36}\.json$/.test(f));
   assert.equal(names.length,1);
   paths.push(`${label}/${names[0]}`);
   if(operationMode)paths.push(`${label}/operations.json`,`${label}/markers.json`);
   if(readMode)paths.push(`${label}/operations.json`,`${label}/read-facts.json`);
   if(candidateMode)paths.push(`${label}/operations.json`,`${label}/markers.json`,`${label}/candidate-probe.json`);
+  if(launchMode)paths.push(`${label}/operations.json`,`${label}/markers.json`,`${label}/launch-ledger.json`);
 }
 const manifest=[];
 for(const path of paths){
@@ -30,4 +32,4 @@ for(const path of paths){
   assert.deepEqual(gunzipSync(await readFile(resolve(directory,path+'.gz'))),original);
   manifest.push({path,bytes:original.length,sha256:hash(original),gzipBytes:packed.length,gzipSha256:hash(packed)});
 }
-await writeFile(resolve(directory,candidateMode?'candidate-artifacts.json':readMode?'read-artifacts.json':operationMode?'operation-artifacts.json':'artifacts.json'),JSON.stringify(manifest,null,2)+'\n');
+await writeFile(resolve(directory,launchMode?'launch-artifacts.json':candidateMode?'candidate-artifacts.json':readMode?'read-artifacts.json':operationMode?'operation-artifacts.json':'artifacts.json'),JSON.stringify(manifest,null,2)+'\n');

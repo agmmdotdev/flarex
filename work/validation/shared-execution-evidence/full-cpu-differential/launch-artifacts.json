@@ -1,0 +1,65 @@
+[
+  {
+    "path": "launch-costs.json",
+    "bytes": 159669,
+    "sha256": "4513da80eab27071c7600cd5b7269fe3b6577e056dda827d3d311f2047ea608d",
+    "gzipBytes": 10314,
+    "gzipSha256": "fec80cbbae15edc414167395f5d9becbb20184b19a6eba7dbfbcfd5603b53a79"
+  },
+  {
+    "path": "launch-abba/6ef3a363-46c3-44c9-928f-1bfc7fdd40af.json",
+    "bytes": 227855,
+    "sha256": "1c1130c41fac5f4ea82ea4d0dc7c480542121558189ab211c54ee4949332bf4f",
+    "gzipBytes": 15410,
+    "gzipSha256": "15c343c5c04cd3bd9a0ab4274263a69b5a4f991a219e1c15188c65956fb0484b"
+  },
+  {
+    "path": "launch-abba/operations.json",
+    "bytes": 4288106,
+    "sha256": "af2c2ae4b9215e32e28ea295d6e1c8a9e57f6ac20e0341f4247ff9c47a6e5c3e",
+    "gzipBytes": 292994,
+    "gzipSha256": "9d6781821b7021fb2ece86209b98b247d60c3ac8b3eec4b333e640dbed049e52"
+  },
+  {
+    "path": "launch-abba/markers.json",
+    "bytes": 824,
+    "sha256": "97086ef3ecdedf7769813d780069875f417b439a682f8a18c8e00ac80fb9e6ab",
+    "gzipBytes": 269,
+    "gzipSha256": "b64e2e1acabd50d87b2bce2bb9fac571ba06f8fecbd96e8ad31bb752aae5cc60"
+  },
+  {
+    "path": "launch-abba/launch-ledger.json",
+    "bytes": 3301333,
+    "sha256": "0b43665748872159c37425b91eea8f83d9a9096c5e14a7cc868d2b269c629e40",
+    "gzipBytes": 97251,
+    "gzipSha256": "fb76e0fd7b80a44d7e1b06cb644b048eefa8e9b998644fa0b9b47c9f37556f05"
+  },
+  {
+    "path": "launch-baab/ab24160f-8915-4caa-8ae3-33ff3b934f6a.json",
+    "bytes": 227910,
+    "sha256": "c83d560018c3346773c6499a11fe3d63cd2e203a060b7e7387831b5fbc38283d",
+    "gzipBytes": 15474,
+    "gzipSha256": "cae07d38e21d508eff42efddbf411708b24c2a9c9662b9fd51703c0140e063b0"
+  },
+  {
+    "path": "launch-baab/operations.json",
+    "bytes": 4288090,
+    "sha256": "890727cb8f9fcff581347c6318b1cf824ef679b1fe108b91e925295121995ffc",
+    "gzipBytes": 293408,
+    "gzipSha256": "2349cd61d7f336b84d08e71a817eeec9389258e7ee3dfa877bd52e4693a10040"
+  },
+  {
+    "path": "launch-baab/markers.json",
+    "bytes": 824,
+    "sha256": "97086ef3ecdedf7769813d780069875f417b439a682f8a18c8e00ac80fb9e6ab",
+    "gzipBytes": 269,
+    "gzipSha256": "b64e2e1acabd50d87b2bce2bb9fac571ba06f8fecbd96e8ad31bb752aae5cc60"
+  },
+  {
+    "path": "launch-baab/launch-ledger.json",
+    "bytes": 3298365,
+    "sha256": "e9b31123c2b9c4be42f97a583e122540bffe5685d426f0b816ff7e1fc8ef9f01",
+    "gzipBytes": 97055,
+    "gzipSha256": "8771b8a1dfa1a3fb550f107a92065e2dd51d89b2c0f7d39a819d2f070f3d6e43"
+  }
+]
