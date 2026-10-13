@@ -430,7 +430,7 @@ export default class ProductModuleService
   > {
     const input = Array.isArray(data) ? data : [data]
 
-    const variants = await this.createVariants_(input, sharedContext)
+    const variants = await this.createVariants_(input.map(({ inventory_items, ...variant }) => variant), sharedContext)
 
     const createdVariants = await this.baseRepository_.serialize<
       ProductTypes.ProductVariantDTO[]

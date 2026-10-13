@@ -27,7 +27,9 @@
     "@medusajs/utils": "workspace:*",
     "@medusajs/workflows-sdk": "workspace:*",
     "effect": "catalog:",
-    "flarex-protocol": "workspace:*"
+    "flarex-protocol": "workspace:*",
+    "@medusajs/inventory": "workspace:*",
+    "@medusajs/stock-location": "workspace:*"
   },
   "devDependencies": {
     "@flarex/application-schema-definition": "workspace:*",

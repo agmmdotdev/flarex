@@ -1,6 +1,6 @@
 // @ts-check
 import { describe, expect, it } from "vitest";
-import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests } from "./check-medusa-test-port.mjs";
 import { readFileSync } from "node:fs";
 
 const source = `import { runner } from "./runner";
@@ -10,6 +10,14 @@ describe("suite", () => {
 });`;
 
 describe("maintained Medusa test ports", () => {
+  it("preserves both selected native Inventory item creation bodies", () => {
+    const original = readFileSync(new URL("../third_party/medusa/upstream/packages/modules/inventory/integration-tests/__tests__/inventory-module-service.spec.ts", import.meta.url), "utf8");
+    const selected = readFileSync(new URL("../packages/medusa-adapter/test/support/inventory-native-tests.ts", import.meta.url), "utf8");
+    expect(() => verifyInventoryCreateTests(original, selected)).not.toThrow();
+    for (const changed of [selected.replace('...data[1]', '...data[0]'), selected.replace('await service.createInventoryItems(data)', 'service.createInventoryItems(data)'),
+      selected.replace('it("should create an inventory item"', 'it.skip("should create an inventory item"'),
+      selected + 'it("unselected", () => {});']) expect(() => verifyInventoryCreateTests(original, changed)).toThrow();
+  });
   it("preserves the finite native Pricing workflow selection", () => {
     const original = readFileSync(new URL("../third_party/medusa/upstream/packages/core/types/src/pricing/service.ts", import.meta.url), "utf8");
     const selected = readFileSync(new URL("../packages/medusa-adapter/src/pricing-service.ts", import.meta.url), "utf8");

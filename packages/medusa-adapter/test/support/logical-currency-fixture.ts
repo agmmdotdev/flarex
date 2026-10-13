@@ -177,7 +177,7 @@ type LogicalCurrencyFixtureOptions = Readonly<{
   postgresEndpoints?: PostgresFixtureEndpoints;
   includeUserNameIndex?: boolean; includeProductLaunch?: boolean;
   initialUserDocuments?: ApplicationNativeMutationFixtureOptions["initialUserDocuments"];
-  payloadCollections?: unknown; includeProduct?: boolean; includePricing?: boolean;
+  payloadCollections?: unknown; includeProduct?: boolean; includePricing?: boolean; includeVariantInventory?: boolean;
   extensions?: readonly LogicalSchemaExtension[]; additionalSources?: readonly LogicalSchemaSource[];
   includeVariantPricingLink?: boolean;
   includeSalesChannel?: boolean;
@@ -361,6 +361,7 @@ export async function logicalCurrencyFixture(
       authority: application.authority, applicationAnalyses: makeApplicationAnalysisRepository(target.drizzle),
       medusaModules: ["currency", ...(options?.includeProduct === true ? ["product" as const] : []),
         ...(options?.includePricing === true ? ["pricing" as const] : []),
+        ...(options?.includeVariantInventory === true ? ["inventory" as const, "stockLocation" as const, "variantLinks" as const] : []),
         ...(options?.includeVariantPricingLink === true ? ["variantPricingLink" as const] : []),
         ...(options?.includeSalesChannel === true ? ["salesChannel" as const] : []),
         ...(options?.includeProductSalesChannelLink === true ? ["productSalesChannelLink" as const] : []),

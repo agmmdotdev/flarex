@@ -4,6 +4,9 @@ import {
   prepareLogicalSchemaCandidate,
 } from "@flarex/analysis/internal/logical-schema-candidate";
 import { compilePayloadCollections } from "@flarex/payload-adapter/internal/collections";
+import { compileInventoryDefinition } from "./inventory-schema";
+import { compileStockLocationDefinition } from "./stock-location-schema";
+import { compileVariantLinksDefinition } from "./variant-links-definition";
 import { compileProductDefinition } from "./product-definition";
 import { compileCurrencyDefinition } from "./currency-schema";
 import { compilePricingDefinition } from "./pricing-schema";
@@ -26,7 +29,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
-const decodeModules = Schema.decodeUnknownResult(Schema.Array(Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "productSalesChannelLink", "shippingProfile", "productShippingProfileLink"])));
+const decodeModules = Schema.decodeUnknownResult(Schema.Array(Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "productSalesChannelLink", "shippingProfile", "productShippingProfileLink", "inventory", "stockLocation", "variantLinks"])));
 const Request = Schema.Struct({
   applicationCandidateId: Schema.NonEmptyString,
   payloadCollections: Schema.Unknown,
@@ -52,7 +55,7 @@ export function makeSchemaComposer(configuration: {
   readonly deploymentId: string;
   readonly authority: ApplicationAnalysisAuthority;
   readonly applicationAnalyses: ApplicationAnalysisRepository;
-  readonly medusaModules: readonly ("product" | "currency" | "pricing" | "variantPricingLink" | "salesChannel" | "productSalesChannelLink" | "shippingProfile" | "productShippingProfileLink")[];
+  readonly medusaModules: readonly ("product" | "currency" | "pricing" | "variantPricingLink" | "salesChannel" | "productSalesChannelLink" | "shippingProfile" | "productShippingProfileLink" | "inventory" | "stockLocation" | "variantLinks")[];
 }) {
   const authority = Object.freeze({ scopeId: configuration.authority.scopeId, epoch: configuration.authority.epoch,
     storageGeneration: configuration.authority.storageGeneration, storageGenerationFence: configuration.authority.storageGenerationFence });
@@ -66,6 +69,9 @@ export function makeSchemaComposer(configuration: {
       return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
     }
     if (modules.includes("productSalesChannelLink") && (!modules.includes("product") || !modules.includes("salesChannel"))) {
+      return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
+    }
+    if (modules.includes("variantLinks") && (!modules.includes("product") || !modules.includes("pricing") || !modules.includes("inventory") || modules.includes("variantPricingLink"))) {
       return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
     }
     const config = yield* Schema.decodeUnknownEffect(Request)(request).pipe(
@@ -175,6 +181,19 @@ export function makeSchemaComposer(configuration: {
         evidence: link.provenance, definition: { kind: "relational", schema: link.schema },
         bindings: link.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
           table: { namespace: "medusa", logicalName: `${link.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      }));
+    }
+    for (const [selected, key, compile] of [
+      ["inventory", "medusa.inventory", compileInventoryDefinition],
+      ["stockLocation", "medusa.stockLocation", compileStockLocationDefinition],
+      ["variantLinks", "medusa.variantLinks", compileVariantLinksDefinition],
+    ] as const) {
+      if (!modules.includes(selected)) continue;
+      const definition = yield* compile();
+      medusaSources.push(yield* captureLogicalSchemaSource({ key, owner: "medusa", writeProfile: key,
+        evidence: definition.provenance, definition: { kind: "relational", schema: definition.schema },
+        bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+          table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
       }));
     }
     const views: LogicalSchemaSource[] = [];

@@ -45,6 +45,9 @@ export function prepareLinkRepository(metadata: Effect.Success<ReturnType<typeof
     if (table.primaryKeys.length !== 2 || primary === undefined || foreign === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const decodeCreate = commerceDecoder(Schema.Array(Schema.Struct({
       [primary]: Id, [foreign]: Id, id: Schema.optionalKey(Id),
+      ...Object.fromEntries(metadata.columns.filter(column => column.type === "number").map(column =>
+        [column.name, Schema.optionalKey(Schema.Number.check(Schema.isInt(),
+          Schema.isBetween({ minimum: -2147483648, maximum: 2147483647 })))])),
     })).check(Schema.isMaxLength(commerceLimits.catalogRows)), "invalidInput");
     const wherePolicy = makeWherePolicy(["id", primary, foreign]);
     const decodeOptions = readOptions(primary);

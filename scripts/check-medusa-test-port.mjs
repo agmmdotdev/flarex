@@ -4,6 +4,39 @@ import ts from "@typescript/typescript6";
 const vitestBindings = new Set(["afterAll", "afterEach", "beforeAll", "beforeEach", "describe", "expect", "it", "test", "vi"]);
 const currencyImports = new Map([["../index", "@medusajs/currency/index"], ["../static-manifest", "@medusajs/currency/static-manifest"], ["../models", "@medusajs/currency/models"]]);
 
+/** Two unchanged native item creation bodies; all other Inventory methods remain deferred.
+ * @param {string} source @param {string} target */
+export function verifyInventoryCreateTests(source, target) {
+  const names = new Set(["should create an inventory item", "should create inventory items from array"]);
+  /** @param {string} text @param {boolean} onlySelected */
+  const tests = (text, onlySelected) => {
+    const file = ts.createSourceFile("inventory.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    /** @type {Map<string, string>} */
+    const bodies = new Map();
+    /** @param {ts.Node} node */
+    const visit = node => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "it") {
+        const name = node.arguments[0];
+        if (name === undefined || !ts.isStringLiteral(name)) {
+          if (onlySelected) throw new Error("Invalid Inventory test selection");
+          return;
+        }
+        if (onlySelected && !names.has(name.text)) throw new Error("Invalid Inventory test selection");
+        if (names.has(name.text)) {
+          if (bodies.has(name.text)) throw new Error("Duplicate native Inventory selection");
+          bodies.set(name.text, JSON.stringify(testPortProgram(node.getText(file) + ";")));
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(file);
+    return bodies;
+  };
+  const original = tests(source, false), selected = tests(target, true);
+  if (original.size !== names.size || selected.size !== names.size || [...names].some(name => selected.get(name) !== original.get(name)))
+    throw new Error("Changed selected native Inventory test bodies");
+}
+
 /** Preserve the admitted Pricing bodies and their complete native seed.
  * @param {string} source @param {string} target */
 export function verifyPricingCreateTests(source, target) {

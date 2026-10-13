@@ -427,6 +427,21 @@
       "types": "./dist/common/is-date.d.ts",
       "source": "./src/common/is-date.ts",
       "default": "./dist/common/is-date.js"
+    },
+    "./core-flows/events": {
+      "types": "./dist/core-flows/events.d.ts",
+      "source": "./src/core-flows/events.ts",
+      "default": "./dist/core-flows/events.js"
+    },
+    "./dml/properties/computed": {
+      "types": "./dist/dml/properties/computed.d.ts",
+      "source": "./src/dml/properties/computed.ts",
+      "default": "./dist/dml/properties/computed.js"
+    },
+    "./dml/relations/has-one": {
+      "types": "./dist/dml/relations/has-one.d.ts",
+      "source": "./src/dml/relations/has-one.ts",
+      "default": "./dist/dml/relations/has-one.js"
     }
   },
   "license": "MIT",

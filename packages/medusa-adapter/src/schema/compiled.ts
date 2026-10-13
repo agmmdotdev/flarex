@@ -48,7 +48,7 @@ const ForeignKey = Schema.Struct({
 });
 const Relationship = Schema.Struct({
   name: Schema.String,
-  type: Schema.Literals(["belongsTo", "hasMany", "manyToMany"]),
+  type: Schema.Literals(["belongsTo", "hasMany", "hasOne", "manyToMany"]),
   targetModel: Schema.String,
   targetTable: Schema.String,
   mappedBy: Schema.optionalKey(Schema.String),

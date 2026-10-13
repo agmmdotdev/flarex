@@ -5,3 +5,4 @@ export { Prettify } from "./common";
 export { QueryContextType } from "./common";
 export { RepositoryTransformOptions } from "./common";
 export { MetadataType } from "./common";
+export { StringComparisonOperator, NumericalComparisonOperator } from "./common";

@@ -72,3 +72,9 @@ export { JoinerRelationship } from "./joiner/index";
 export { LoadedModule, LinkDefinition, ModuleJoinerRelationship } from "./modules-sdk/index";
 export * as PricingTypes from "./pricing/index";
 export * from "./pricing/index";
+
+export * as InventoryTypes from "./inventory/index";
+export * from "./inventory/index";
+export * as StockLocationTypes from "./stock-location/index";
+export * from "./stock-location/index";
+export { IEventBusService } from "./event-bus/event-bus";

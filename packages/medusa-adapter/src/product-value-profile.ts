@@ -4,6 +4,7 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 import { commerceDecoder, commerceRowDecoder } from "./commerce-decoder";
 import { compileKeyedUpdates } from "./write/keyed";
 import type { ProductEntityMetadata } from "./product-runtime-metadata";
+import { SimpleVariantInput } from "./product-variant-workflow-input";
 
 export const ProductRelationshipId = Schema.String.check(Schema.isLengthBetween(1, 256));
 export const ProductRelationshipIds = Schema.Array(ProductRelationshipId).check(Schema.isMaxLength(256));
@@ -53,6 +54,10 @@ export function compileProductValueProfile(catalog: {
   const standalone = new Map(Object.values(catalog).filter(entity => entity !== catalog.product).map(entity => [entity.table.name,
     commerceRowDecoder([...commandScalars(entity), ...extra(entity)], "unsupportedProfile"),
   ]));
+  // Inventory associations are a transient native creation DTO field. They
+  // reach the Product service but never become Product persistence columns.
+  const variantCreate = commerceRowDecoder([...commandScalars(catalog.variant), ...extra(catalog.variant), "inventory_items"], "unsupportedProfile");
+  const inventoryAssociation = commerceDecoder(Schema.Struct({ inventory_items: SimpleVariantInput.fields.inventory_items }), "invalidInput");
   const updateData = new Map(Object.values(catalog).filter(entity => entity !== catalog.assignment).map(entity => [entity.table.name,
     commerceRowDecoder([...commandScalars(entity).filter(name => name !== "id"), ...(entity === catalog.option ? ["values"] : entity === catalog.variant ? ["options"] : entity === catalog.category ? ["parent_category_id"] : [])], "unsupportedProfile"),
   ]));
@@ -176,12 +181,13 @@ export function compileProductValueProfile(catalog: {
       }
     }),
     validateRelatedCreate: (table: string, input: Json) => Result.gen(function* () {
-      const decode = standalone.get(table);
+      const decode = table === catalog.variant.table.name ? variantCreate : standalone.get(table);
       if (decode === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
       const inputs = Array.isArray(input) ? input : [input];
       if (inputs.length > 256) return yield* Result.fail(commerceError("limitExceeded"));
       for (const row of inputs) {
         const value = yield* decode(row);
+        if (table === catalog.variant.table.name && value.inventory_items !== undefined) yield* inventoryAssociation({ inventory_items: value.inventory_items });
         if (table === catalog.option.table.name && value.values !== undefined) yield* decodeOptionValues(value.values);
         if (table === catalog.collection.table.name && value.product_ids !== undefined) yield* decodeIds(value.product_ids);
         yield* decodeId(value.id);

@@ -53,3 +53,8 @@ export { isDate } from "@medusajs/utils/common/is-date";
 export { MathBN } from "@medusajs/utils/totals/math";
 export { PriceListType, PriceListStatus } from "@medusajs/utils/pricing/price-list";
 export { PricingRuleOperator } from "@medusajs/utils/pricing/enums";
+
+export { BigNumber } from "@medusajs/utils/totals/big-number";
+export { ProductVariantWorkflowEvents } from "@medusajs/utils/core-flows/events";
+export { ComputedProperty } from "@medusajs/utils/dml/properties/computed";
+export { HasOne } from "@medusajs/utils/dml/relations/has-one";

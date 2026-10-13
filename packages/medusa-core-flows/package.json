@@ -18,14 +18,16 @@
     "./common/use-query-graph": "./src/common/steps/use-query-graph.ts",
     "./product/create-product-variants-step": "./src/product/steps/create-product-variants.ts",
     "./product/create-variant-pricing-link-step": "./src/product/steps/create-variant-pricing-link.ts",
-    "./pricing/create-price-sets-step": "./src/pricing/steps/create-price-sets.ts"
+    "./pricing/create-price-sets-step": "./src/pricing/steps/create-price-sets.ts",
+    "./product/create-product-variants": "./src/product/workflows/create-product-variants.ts"
   },
   "dependencies": {
     "@medusajs/modules-sdk": "workspace:*",
     "@medusajs/types": "workspace:*",
     "@medusajs/utils": "workspace:*",
     "@medusajs/workflows-sdk": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "@medusajs/framework": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

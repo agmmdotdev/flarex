@@ -2,13 +2,13 @@
 
 ## Status And Scope
 
-Status: researched proposal for the next Product workflow admission. The owner
-has resumed Product/workflow integration while performance optimization is
-paused. This record proposes the bounded connected capability for discussion;
-it does not claim Inventory support or authorize a shared-core exception.
+Status: approved and implemented bounded private admission. The owner approved
+native variant creation with managed Inventory and stored Variant–InventoryItem
+Links while performance optimization remains paused. This scope grants selected
+framework capabilities; it introduces no shared-core exception.
 
-Advance the existing Product Variant Pricing branch into native variant
-creation with managed Inventory and stored Variant–InventoryItem Links. Start
+The native variant composer advances the existing Product Variant Pricing branch
+into variant creation with managed Inventory and stored Variant–InventoryItem Links. It starts
 with an existing Product and valid options, one to four variants, existing or
 automatically created InventoryItems, and the currently admitted base Pricing
 bounds. Include unmanaged variants and empty child inputs. Nonempty location
@@ -24,7 +24,11 @@ The [accepted design](../../../design-notes/flarex-db-accepted-design.md),
 control authority and storage. The executable
 [Pricing branch](../../../packages/medusa-adapter/src/product-variant-pricing-workflow.ts)
 uses native steps but is deliberately not the complete variant composer.
-Inventory and Stock Location are not executable adapter dependencies today.
+The [complete variant facade](../../../packages/medusa-adapter/src/product-variant-inventory-workflow.ts)
+executes the pinned parent composer and Inventory children with authentic
+Inventory and Stock Location query dependencies. The Pricing-only branch remains
+for its named Product-launch consumer until that consumer migrates to the complete
+Product root; removal belongs to that cutover.
 
 Native paths below are relative to
 `third_party/medusa/upstream/packages/`, pinned by
@@ -43,35 +47,43 @@ Native paths below are relative to
 | `modules/inventory/src/models/` and `static-manifest.ts` | Three-model closure: InventoryItem, InventoryLevel and ReservationItem; preserve nullable SKU uniqueness, numeric dimensions and structural dependencies. |
 | `modules/link-modules/src/definitions/product-variant-inventory-item.ts` | Rich many-to-many Link with `pvitem` identity and integer `required_quantity` default 1. It is not the singular Variant–PriceSet Link. |
 
-## Proposed Construction And Boundaries
+## Construction And Boundaries
 
-Promote the finite native source closure through the existing source/provenance
-guards. Reuse shared logical schema compilation, commerce module construction,
-module-owned workflow registrations, graph reads and Link mechanics. Keep
-Inventory's genuine service extension explicit. The quantity repository is
-ORM-coupled; inspect the import closure and isolate its portable dependency seam
-before promotion rather than copying its SQL into the adapter.
+The finite native source closure uses the existing source/provenance guards,
+shared logical schema compilation, commerce module construction, module-owned
+workflow registrations, graph reads and Link mechanics. Inventory's genuine
+InventoryLevel service is an explicit extension. Its portable repository ABI
+retains the three quantity method names with denied implementations; ORM/SQL
+quantity logic is outside this profile.
 
-Register the actual Stock Location ID-query endpoint required by the empty
-inventory-level child. A canned empty provider or skipped child is not native
-compatibility. Bound this profile to the selected read contract; nonempty levels
+The actual Stock Location ID-query endpoint serves the empty inventory-level
+child. Its complete two-model structural source includes the inverse address
+relation, while the profile admits only Stock Location ID reads. Nonempty levels
 remain a sticky refusal at the trusted root. Retain InventoryLevel and
 ReservationItem structural definitions without granting reservation mutations.
 Unselected public methods, including quantity operations, fail closed.
 
 The native ORM hooks compute level availability and lazy hidden item aggregates.
-Do not persist computed fields or synthesize zero aggregates. Verify the actual
-selected creation/serialization contract and preserve omitted versus loaded
-values. Nonempty level/aggregate support needs its own admitted proof.
+The selected creation/serialization contract omits these computed item fields;
+it neither persists them nor synthesizes zero aggregates. Nonempty level/aggregate
+support needs its own admitted proof.
 
-Use one authentic root and settlement owner for Product, Inventory, Pricing and
-both stored Link profiles. Preserve native input/output order, defaults, errors,
-compensation data, event evidence, scope confinement, request identity and replay.
-Measure the connected call budget before selecting it; existing 128-call profiles
-do not automatically admit this larger closure. Missing shared contracts require
-a failing witness and correction at their actual owner before dependent work.
+One authentic root and settlement owner serves Product, Inventory, Pricing,
+Stock Location reads and both stored Link families. Native input/output order,
+defaults, errors, event evidence, scope confinement, request identity and replay
+remain intact. The facade admits one to four variants on one existing Product,
+up to two supplied items and two base prices per variant, one string-valued rule
+per price, and a named 256-call allowance. Existing 128-call profiles remain
+unchanged. Required quantity uses the native signed integer column and default 1.
 
-## Completion Gates
+The Product command boundary validates transient `inventory_items`, then the
+native service removes that association input before Product persistence. The
+Inventory child translates its transformed options envelope to the portable
+SDK's explicit `{ input }` call form. Transaction-covered compensation metadata
+continues to belong to the existing single settlement owner. These adaptations
+preserve native business behavior rather than replacing the composer.
+
+## Admitted Contract And Continuing Gates
 
 - Exercise actual native workflow/child calls for managed variants with default
   items, supplied existing items, unmanaged variants and empty children. Preserve

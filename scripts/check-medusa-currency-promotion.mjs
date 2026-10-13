@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests } from "./check-medusa-test-port.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -14,6 +14,8 @@ const owners = new Map([
   ["packages/medusa-sales-channel", "@medusajs/sales-channel"],
   ["packages/medusa-fulfillment", "@medusajs/fulfillment"],
   ["packages/medusa-pricing", "@medusajs/pricing"],
+  ["packages/medusa-inventory", "@medusajs/inventory"],
+  ["packages/medusa-stock-location", "@medusajs/stock-location"],
   ["packages/medusa-link-modules", "@medusajs/link-modules"],
   ["packages/medusa-core-flows", "@medusajs/core-flows"],
   ["packages/medusa-workflows-sdk", "@medusajs/workflows-sdk"],
@@ -122,6 +124,10 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   );
   const sourceHashes = new Map(readFileSync(path.join(root, "third_party/medusa/SOURCE_SHA256SUMS"), "utf8")
     .split(/\r?\n/).filter(Boolean).map((line) => ["third_party/medusa/" + line.slice(66), line.slice(0, 64)]));
+  verifyInventoryCreateTests(
+    readFileSync(path.join(root, sourcePrefix + "packages/modules/inventory/integration-tests/__tests__/inventory-module-service.spec.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-adapter/test/support/inventory-native-tests.ts"), "utf8"),
+  );
   for (const file of promotion.files) {
     if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
@@ -137,6 +143,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       "packages/medusa-link-modules/src/definitions/product-sales-channel.ts",
       "packages/medusa-link-modules/src/definitions/product-shipping-profile.ts",
       "packages/medusa-link-modules/src/definitions/product-variant-price-set.ts",
+      "packages/medusa-link-modules/src/definitions/product-variant-inventory-item.ts",
     ].includes(file.target)) throw new Error("Link adaptation outside its approved finite source closure");
     if (file.classification === "productServiceFork" && ![
       "packages/medusa-product/src/services/product-module-service.ts",

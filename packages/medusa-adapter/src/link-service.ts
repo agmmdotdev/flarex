@@ -55,7 +55,8 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
     };
     const service = new Service({
       baseRepository: bound.repository, linkService: new LinkService({ linkRepository: bound.repository }),
-      primaryKey: primary.foreignKey, foreignKey: foreign.foreignKey, extraFields: [], entityName, serviceName,
+      primaryKey: primary.foreignKey, foreignKey: foreign.foreignKey,
+      extraFields: Object.keys(joiner.databaseConfig?.extraFields ?? {}), entityName, serviceName,
       [Modules.EVENT_BUS]: eventBus,
     }, { scope: "internal" });
     // The native router consumes loaded config values and actual bound methods.

@@ -54,12 +54,16 @@ module sets remain unadmitted. Medusa services
 remain above the existing Flarex transaction and publication owners.
 
 The user-selected next integration outcome is full Product workflow execution.
-With performance optimization paused, the next proposed connected admission is
+With performance optimization paused, the approved bounded connected admission is
 [Product Variant Inventory](./preflight/95-product-variant-inventory-workflow.md):
 managed/default InventoryItems and rich Variant–InventoryItem Links, retaining
 the native empty inventory-level and Stock Location query dependencies. This
-is a researched proposal; Inventory support and the full Product composer are
-not implemented by selecting this scope.
+executes the actual native variant composer for one to four variants on an
+existing Product, including Pricing and both stored Link families under one
+root. Its named 256-call profile preserves the smaller existing profiles.
+Nonempty levels, reservations and the complete Product root remain subsequent
+admissions. The Pricing-only branch retains its named Product-launch consumer
+until that consumer migrates in the complete Product-root cutover.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a
@@ -157,8 +161,10 @@ provides explicit zero-access ownership at the shared profile/binding owner.
 The finite native closure and three unchanged test bodies retain their actual
 seed data. All three profiles and the root use the approved 128-call contract.
 The bounded private admission is complete. Price calculation,
-PriceList operations, cross-module cascades, Inventory/Stock Location and the
-complete Product composer remain subsequent admission gates.
+PriceList operations, cross-module cascades, nonempty Inventory levels, Stock
+Location writes and the complete Product composer remain subsequent admission
+gates. The later Inventory admission above adds its own selected structural and
+runtime closure without broadening this Pricing-only profile.
 
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)
 gives both commerce hosts domain-separated ordinary JSON identity and result

@@ -20,7 +20,9 @@ const Relationship = Schema.Struct({ serviceName: Name, foreignKey: Name, primar
   hasMany: Schema.optionalKey(Schema.Boolean), deleteCascade: Schema.optionalKey(Schema.Boolean) });
 const decodeDefinition = Schema.decodeUnknownEffect(Schema.Struct({
   serviceName: Name, relationships: Schema.Tuple([Relationship, Relationship]),
-  databaseConfig: Schema.Struct({ tableName: Name, idPrefix: Name }),
+  databaseConfig: Schema.Struct({ tableName: Name, idPrefix: Name,
+    extraFields: Schema.optionalKey(Schema.Record(Name, Schema.Struct({ type: Schema.Literal("integer"),
+      defaultValue: Schema.optionalKey(Schema.String) }))) }),
 }));
 const Text = Schema.Struct({ type: Schema.Literal("string"), nullable: Schema.Literal(false) });
 const Key = Schema.Struct({ ...Text.fields, primary: Schema.Literal(true) });
@@ -37,14 +39,28 @@ export const captureLinkMetadata = Effect.fn("Link.captureMetadata")(function* (
   const endpointNames = [primary.foreignKey, foreign.foreignKey];
   if (new Set(endpointNames).size !== 2 || primary.serviceName === foreign.serviceName
     || endpointNames.some(name => ["id", "created_at", "updated_at", "deleted_at"].includes(name))
-    || joiner.databaseConfig?.extraFields !== undefined || joiner.isReadOnlyLink) {
+    || joiner.isReadOnlyLink || definition.databaseConfig.extraFields !== undefined && Object.keys(definition.databaseConfig.extraFields).length === 0) {
     return yield* Effect.fail(new LinkSchemaError({ cause: "Unsupported stored Link definition" }));
+  }
+  const extraColumns: SchemaTable["columns"][number][] = [];
+  const integerProperty = (defaultValue: string | undefined) => Schema.Struct({ type: Schema.Literal("integer"), nullable: Schema.Literal(false),
+    defaultRaw: defaultValue === undefined ? Schema.Undefined : Schema.Literal(defaultValue) });
+  const extraProperties: Record<string, ReturnType<typeof integerProperty>> = {};
+  for (const [name, field] of Object.entries(definition.databaseConfig.extraFields ?? {})) {
+    if (["id", ...endpointNames, "created_at", "updated_at", "deleted_at"].includes(name))
+      return yield* Effect.fail(new LinkSchemaError({ cause: "Link extra field shadows an owned column" }));
+    const defaultValue = field.defaultValue === undefined ? undefined : yield* Schema.decodeUnknownEffect(
+      Schema.NumberFromString.check(Schema.isInt(), Schema.isBetween({ minimum: -2147483648, maximum: 2147483647 })),
+    )(field.defaultValue).pipe(Effect.mapError(cause => new LinkSchemaError({ cause })));
+    extraColumns.push({ name, type: "number", nullable: false, primaryKey: false,
+      ...(defaultValue === undefined ? {} : { defaultValue }) });
+    extraProperties[name] = integerProperty(field.defaultValue);
   }
   const generatedInput = generateEntityDefinition(joiner, primary, foreign);
   const decodeGenerated = Schema.decodeUnknownEffect(Schema.Struct({
     tableName: Schema.Literal(definition.databaseConfig.tableName),
     properties: Schema.Struct({ id: Text, [primary.foreignKey]: Key, [foreign.foreignKey]: Key,
-      created_at: Timestamp, updated_at: Timestamp, deleted_at: Deleted }),
+      created_at: Timestamp, updated_at: Timestamp, deleted_at: Deleted, ...extraProperties }),
     indexes: Schema.Array(Schema.Struct({
       properties: Schema.Union([Schema.String, Schema.Array(Schema.String)]), name: Name,
       unique: Schema.optionalKey(Schema.Literal(true)), expression: Schema.optionalKey(Schema.String),
@@ -72,10 +88,14 @@ export const captureLinkMetadata = Effect.fn("Link.captureMetadata")(function* (
   }
   const table: SchemaTable = {
     name: generated.tableName,
-    columns: Object.entries(generated.properties).map(([name, column]) => ({
-      name, type: column.type === "string" ? "text" : "dateTime", nullable: column.nullable,
-      primaryKey: "primary" in column && column.primary === true,
-    })), indexes, foreignKeys: [],
+    columns: [
+      { name: "id", type: "text", nullable: false, primaryKey: false },
+      ...endpointNames.map(name => ({ name, type: "text" as const, nullable: false, primaryKey: true })),
+      { name: "created_at", type: "dateTime", nullable: false, primaryKey: false },
+      { name: "updated_at", type: "dateTime", nullable: false, primaryKey: false },
+      { name: "deleted_at", type: "dateTime", nullable: true, primaryKey: false },
+      ...extraColumns,
+    ], indexes, foreignKeys: [],
   };
   const captured = yield* capturePrivateCanonicalValue(table, 1_048_576, {
     invalidInput: () => new LinkSchemaError({ cause: "Invalid Link metadata" }), hashFailure: cause => new LinkSchemaError({ cause }),
