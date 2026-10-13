@@ -504,6 +504,62 @@ reports identify replacement boundaries without claiming a runtime speedup.
 
 ## Running The SDK Proofs
 
+### Matched CPU attribution
+
+`compare({ mode: "cpu", ... })` profiles each genuine native and Flarex call
+with the existing root-only CPU/GC collector and independent complete-call CPU
+counters. It retains source/settings, business verification and cleanup gates.
+It evaluates no quiet performance acceptance. `cpuAnalysis.selfLocations`
+partitions conservatively admitted self samples by executing source category
+and original runner ancestry. The nearest authored stack caller is retained
+separately as provenance; sampled spacing is not CPU duration, and executing
+profile coordinates are not asserted to be authored TypeScript lines.
+
+For the existing Windows cycle reader, `compare({ mode: "root-counters",
+attribution: { readerPath, detail: "engine", order: "abba" }, ... })` observes
+the original installed Effect runner in alternating four-pair on/off blocks.
+`order: "baab"` reverses assignment in a separate process. Native calls retain
+root cycles; only selected Flarex roots enter synchronous scopes. The disjoint
+ledger reconciles to its own native cycle readings, separately from the SDK's
+millisecond CPU counters. Cycles are never converted to milliseconds. Attribution
+defaults to 32 samples and rejects counts that are not multiples of four before
+acquisition. Observed Flarex roots require a nonzero engine observation; a missed
+executing instance invalidates evidence even if the outside bucket reconciles.
+
+`detail: "generators"` additionally requires the diagnostic-only Vite config
+`attribution.vitest.config.ts`, with `FLAREX_MEASUREMENT_CYCLE_DETAIL=generators`.
+It reuses the earlier probe's AST wrapping of authored runtime generator
+expressions. Factories and `next`/`throw`/`return` forward the original receiver,
+arguments and outcome. A bounded source/hash/site manifest records transformed
+code. No source file or installed dependency is rewritten. The inner scopes
+measure synchronous advances only; no scope crosses a yield or await. Engine
+residual includes unobserved helpers, parsers and library work and must not be
+called pure interpreter overhead. Observer faults mark the diagnostic incomplete
+without replacing business failures. Original request verification and settlement
+always remain owned by the existing harness.
+
+The native reader source is `native/threadCycles.cc`, promoted unchanged from
+the existing probe. Build it as a Windows x64 Node-API DLL with MSVC (`/LD /EHsc`),
+official headers matching the running Node ABI, and a `.node` output extension;
+its exported Node-API entry points resolve against the actual Node host.
+Pass the explicit built path; there is no silent fallback to coarse counters.
+The report records binary and installed-engine hashes, native thread identity,
+empirical counter increments and balanced observer assignment. Increment
+calibration does not establish guaranteed hardware resolution. On/off roots
+still contain forwarding factories and root cycle acquisition; use a separate
+untransformed control. Instrumentation cost is disclosed and never subtracted
+to manufacture quiet owner timings.
+
+The actual mixed-workflow entry is `attribution.integration.test.ts`. Select
+`FLAREX_MEASUREMENT_ATTRIBUTION=cycles`, `cpu`, or `control`, set the existing
+PostgreSQL endpoints and `FLAREX_MEASUREMENT_REPORT_DIRECTORY`, and run Vitest
+with `attribution.vitest.config.ts`. Cycles also require
+`FLAREX_MEASUREMENT_CYCLE_READER`; optional `FLAREX_MEASUREMENT_CYCLE_ORDER` is
+`abba` or `baab`. `FLAREX_MEASUREMENT_SAMPLES` defaults to 32; cycle campaigns
+use a multiple of four. CPU and control campaigns omit generator transforms.
+All campaigns run sequentially, with profiler/observer-free controls and full
+business proofs. No production CPU improvement follows merely from this API.
+
 Typecheck the SDK against its actual promoted framework declaration owner:
 
 ```sh

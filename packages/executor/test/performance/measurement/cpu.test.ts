@@ -30,6 +30,25 @@ function evidence(): CpuEvidence {
 }
 
 describe("CPU evidence and pure analysis", () => {
+  it("partitions retained self samples and separates executing source from authored caller provenance", () => {
+    const callFrame = (url: string, functionName: string) => ({ ...frame, url, functionName });
+    const value: CpuEvidence = { ...evidence(), callWindow: { startMonotonicMs: 0, endMonotonicMs: 10 },
+      cpuStartCommand: { startMonotonicMs: 0, endMonotonicMs: 0 }, cpuStopCommand: { startMonotonicMs: 10, endMonotonicMs: 10 },
+      cpuProfile: { startTime: 0, endTime: 10_000, samples: [3, 3, 4, 5], timeDeltas: [2_000, 2_000, 2_000, 2_000], nodes: [
+        { id: 1, callFrame: callFrame("", "(root)"), children: [2, 5] },
+        { id: 2, callFrame: callFrame("./node_modules/effect/dist/internal/effect.js", "runLoop"), children: [4] },
+        { id: 4, callFrame: callFrame("./packages/persistence-postgres/src/owner.ts", "validate"), children: [3] },
+        { id: 3, callFrame: callFrame("./node_modules/effect/dist/SchemaParser.js", "parse"), children: [] },
+        { id: 5, callFrame: callFrame("", "(idle)"), children: [] },
+      ] } };
+    const result = analyzeCpuEvidence(value);
+    expect(result.selfLocations.reduce((sum, row) => sum + row.selfSamples, 0)).toBe(result.definitelyInsideSamples);
+    expect(result.selfLocations).toEqual([
+      { category: "effect-schema", executionContext: "inside-effect-runner", authoredCaller: "./packages/persistence-postgres/src/owner.ts:1 validate", selfSamples: 2 },
+      { category: "persistence", executionContext: "inside-effect-runner", authoredCaller: "./packages/persistence-postgres/src/owner.ts:1 validate", selfSamples: 1 },
+      { category: "idle", executionContext: "outside-effect-runner", authoredCaller: null, selfSamples: 1 },
+    ]);
+  });
   it("retains clock uncertainty and keeps sample weights separate from observed process CPU", () => {
     const analyzed = analyzeCpuEvidence(Result.getOrThrow(decodeCpuEvidence(evidence())), { startMonotonicMs: 13, endMonotonicMs: 19 });
     expect(analyzed.alignment).toMatchObject({ status: "bracketed-estimate", offsetLowMs: -990, offsetHighMs: -988, uncertaintyMs: 2 });

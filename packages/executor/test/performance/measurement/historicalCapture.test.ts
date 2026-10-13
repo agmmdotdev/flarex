@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import { captureHistoricalRead } from "./historicalCapture";
 import { FiniteStorageCaptureError } from "../../../../persistence-postgres/src/execution/finiteStorageCapture";
 
-vi.mock("../support/historicalCaptureFixture", () => ({ createHistoricalCaptureFixture: vi.fn() }));
+vi.mock("../support/historicalCaptureFixture", async importOriginal => ({
+  ...await importOriginal<typeof import("../support/historicalCaptureFixture")>(), createHistoricalCaptureFixture: vi.fn(),
+}));
 
 describe("historical capture Promise boundary", () => {
   it("requires initial observation and runs the original read exactly once", async () => {

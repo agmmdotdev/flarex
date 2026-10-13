@@ -1,0 +1,4357 @@
+{
+  "method": "Original SDK complete matched business graphs. Cycles are disjoint diagnostic CPU-cycle counts, not milliseconds or removable overhead. Profiles use conservatively admitted self samples, not elapsed weights. Observer assignment is balanced four-pair ABBA/BAAB. No outlier removal or observer subtraction.",
+  "runs": [
+    {
+      "directory": "engine",
+      "runId": "95c6e067-c87f-42cd-9a2d-153e88210627",
+      "mode": "root-counters",
+      "sources": {
+        "before": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+        "after": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+        "files": 6965
+      },
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "cleanup": "completed",
+      "addedCpu": {
+        "n": 32,
+        "mean": 115.625,
+        "median": 109.5,
+        "min": 31,
+        "max": 204
+      },
+      "nativeCpu": {
+        "n": 32,
+        "mean": 29.4375,
+        "median": 31,
+        "min": 0,
+        "max": 48
+      },
+      "flarexCpu": {
+        "n": 32,
+        "mean": 145.0625,
+        "median": 141,
+        "min": 78,
+        "max": 219
+      },
+      "cycles": {
+        "observedRoots": 16,
+        "totalCycles": 9042214305,
+        "categories": [
+          {
+            "name": "effect-engine-excluding-observed-bodies",
+            "value": 7157015145
+          },
+          {
+            "name": "outside-observed-execution",
+            "value": 1885199160
+          }
+        ],
+        "sites": [
+          {
+            "name": "effect-engine-excluding-observed-bodies",
+            "value": 7157015145
+          },
+          {
+            "name": "outside-observed-execution",
+            "value": 1885199160
+          }
+        ],
+        "onAddedCpu": {
+          "n": 16,
+          "mean": 118.9375,
+          "median": 109.5,
+          "min": 31,
+          "max": 204
+        },
+        "offAddedCpu": {
+          "n": 16,
+          "mean": 112.3125,
+          "median": 102,
+          "min": 62,
+          "max": 173
+        },
+        "onMinusOffAddedCpu": 6.625,
+        "metadata": {
+          "detail": "engine",
+          "order": "abba",
+          "readerHash": "87aab6b32662ee1cdb18277564f9c406f252a413bb0728cecb21d2a88f973beb",
+          "engineHash": "269e711472b84dcd04862f11e842acc1095cc5d22948af36cda76e9a9185828e",
+          "calibration": {
+            "reads": 15045,
+            "elapsedMs": 64.14840000000004,
+            "minimumPositiveCycles": 14034,
+            "minimumPositiveThreadMicroseconds": 15000,
+            "zeroThreadDeltas": 15041
+          },
+          "transformedFiles": 0,
+          "transformedSites": 0
+        }
+      },
+      "profiles": {},
+      "rows": [
+        {
+          "index": 5,
+          "added": 171,
+          "native": 48,
+          "flarex": 219,
+          "observed": true
+        },
+        {
+          "index": 6,
+          "added": 124,
+          "native": 32,
+          "flarex": 156,
+          "observed": false
+        },
+        {
+          "index": 7,
+          "added": 93,
+          "native": 31,
+          "flarex": 124,
+          "observed": false
+        },
+        {
+          "index": 8,
+          "added": 93,
+          "native": 31,
+          "flarex": 124,
+          "observed": true
+        },
+        {
+          "index": 9,
+          "added": 204,
+          "native": 0,
+          "flarex": 204,
+          "observed": true
+        },
+        {
+          "index": 10,
+          "added": 78,
+          "native": 47,
+          "flarex": 125,
+          "observed": false
+        },
+        {
+          "index": 11,
+          "added": 94,
+          "native": 47,
+          "flarex": 141,
+          "observed": false
+        },
+        {
+          "index": 12,
+          "added": 31,
+          "native": 47,
+          "flarex": 78,
+          "observed": true
+        },
+        {
+          "index": 13,
+          "added": 109,
+          "native": 31,
+          "flarex": 140,
+          "observed": true
+        },
+        {
+          "index": 14,
+          "added": 124,
+          "native": 32,
+          "flarex": 156,
+          "observed": false
+        },
+        {
+          "index": 15,
+          "added": 157,
+          "native": 31,
+          "flarex": 188,
+          "observed": false
+        },
+        {
+          "index": 16,
+          "added": 140,
+          "native": 47,
+          "flarex": 187,
+          "observed": true
+        },
+        {
+          "index": 17,
+          "added": 109,
+          "native": 32,
+          "flarex": 141,
+          "observed": true
+        },
+        {
+          "index": 18,
+          "added": 173,
+          "native": 31,
+          "flarex": 204,
+          "observed": false
+        },
+        {
+          "index": 19,
+          "added": 110,
+          "native": 47,
+          "flarex": 157,
+          "observed": false
+        },
+        {
+          "index": 20,
+          "added": 141,
+          "native": 31,
+          "flarex": 172,
+          "observed": true
+        },
+        {
+          "index": 21,
+          "added": 187,
+          "native": 16,
+          "flarex": 203,
+          "observed": true
+        },
+        {
+          "index": 22,
+          "added": 142,
+          "native": 15,
+          "flarex": 157,
+          "observed": false
+        },
+        {
+          "index": 23,
+          "added": 78,
+          "native": 16,
+          "flarex": 94,
+          "observed": false
+        },
+        {
+          "index": 24,
+          "added": 109,
+          "native": 32,
+          "flarex": 141,
+          "observed": true
+        },
+        {
+          "index": 25,
+          "added": 110,
+          "native": 31,
+          "flarex": 141,
+          "observed": true
+        },
+        {
+          "index": 26,
+          "added": 140,
+          "native": 16,
+          "flarex": 156,
+          "observed": false
+        },
+        {
+          "index": 27,
+          "added": 140,
+          "native": 31,
+          "flarex": 171,
+          "observed": false
+        },
+        {
+          "index": 28,
+          "added": 156,
+          "native": 16,
+          "flarex": 172,
+          "observed": true
+        },
+        {
+          "index": 29,
+          "added": 125,
+          "native": 16,
+          "flarex": 141,
+          "observed": true
+        },
+        {
+          "index": 30,
+          "added": 94,
+          "native": 0,
+          "flarex": 94,
+          "observed": false
+        },
+        {
+          "index": 31,
+          "added": 62,
+          "native": 31,
+          "flarex": 93,
+          "observed": false
+        },
+        {
+          "index": 32,
+          "added": 78,
+          "native": 47,
+          "flarex": 125,
+          "observed": true
+        },
+        {
+          "index": 33,
+          "added": 62,
+          "native": 16,
+          "flarex": 78,
+          "observed": true
+        },
+        {
+          "index": 34,
+          "added": 94,
+          "native": 16,
+          "flarex": 110,
+          "observed": false
+        },
+        {
+          "index": 35,
+          "added": 94,
+          "native": 31,
+          "flarex": 125,
+          "observed": false
+        },
+        {
+          "index": 36,
+          "added": 78,
+          "native": 47,
+          "flarex": 125,
+          "observed": true
+        }
+      ]
+    },
+    {
+      "directory": "generators-a",
+      "runId": "a5daedae-fef0-4c24-bb7f-864ec0ea9cb8",
+      "mode": "root-counters",
+      "sources": {
+        "before": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+        "after": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+        "files": 6965
+      },
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "cleanup": "completed",
+      "addedCpu": {
+        "n": 32,
+        "mean": 123.90625,
+        "median": 125,
+        "min": 62,
+        "max": 172
+      },
+      "nativeCpu": {
+        "n": 32,
+        "mean": 30.3125,
+        "median": 31,
+        "min": 0,
+        "max": 47
+      },
+      "flarexCpu": {
+        "n": 32,
+        "mean": 154.21875,
+        "median": 156,
+        "min": 93,
+        "max": 204
+      },
+      "cycles": {
+        "observedRoots": 16,
+        "totalCycles": 10344036449,
+        "categories": [
+          {
+            "name": "packages/persistence-postgres",
+            "value": 4206159964
+          },
+          {
+            "name": "effect-engine-excluding-observed-bodies",
+            "value": 3114355239
+          },
+          {
+            "name": "outside-observed-execution",
+            "value": 2037675089
+          },
+          {
+            "name": "packages/medusa-adapter",
+            "value": 648326449
+          },
+          {
+            "name": "packages/flarex-protocol",
+            "value": 176039577
+          },
+          {
+            "name": "packages/executor",
+            "value": 65938633
+          },
+          {
+            "name": "packages/payload-adapter",
+            "value": 48396377
+          },
+          {
+            "name": "packages/medusa-workflows-sdk",
+            "value": 45542193
+          },
+          {
+            "name": "packages/analysis",
+            "value": 1602928
+          }
+        ],
+        "sites": [
+          {
+            "name": "effect-engine-excluding-observed-bodies",
+            "value": 3114355239
+          },
+          {
+            "name": "outside-observed-execution",
+            "value": 2037675089
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:599:consumeAccessMetadataResult",
+            "value": 176222456
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/unique/appUniqueConstraintCommitV1.ts:176:lowerCanonicalAppUniqueConstraintV1Result",
+            "value": 131800298
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1610:readRelationalSelection",
+            "value": 121877106
+          },
+          {
+            "name": "packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedWorkflowAttempt.ts:229:context",
+            "value": 95335517
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:157:visit",
+            "value": 91392322
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/journal/finiteRoot.ts:899:freezeFiniteRootEffect",
+            "value": 90763452
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/materialization/materialization.ts:713:materializeAcceptedApplicationPublicationRows",
+            "value": 90114104
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1206:historicalUniqueSelection",
+            "value": 88723993
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:2085:captureRangeRowResult",
+            "value": 87885697
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/finiteStorageCapture.ts:360:run",
+            "value": 83958797
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1300:captureAppendInputResult",
+            "value": 77051439
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1477:withAccessCandidates",
+            "value": 69743457
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:117:prepareLogicalRelationalRead",
+            "value": 66230713
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:711:prepareAppIndexKeyTransitionAcceptanceInTransactionEffect",
+            "value": 61556188
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/materialization/settlementPlan.ts:81:prepareDeveloperIndexKeyPairsResult",
+            "value": 59388529
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1509:captureIndexReadDefinitionResult",
+            "value": 52118090
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1724:readRelationalSelection",
+            "value": 49414491
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1613:decodeRangeReadInputResult",
+            "value": 48784008
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:153:enter",
+            "value": 48490181
+          },
+          {
+            "name": "packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedWorkflowAttempt.ts:169:invoke",
+            "value": 48242393
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/finiteStorageCapture.ts:467:accepted",
+            "value": 46879183
+          },
+          {
+            "name": "packages/persistence-postgres/src/database/physicalSession/postgres.ts:179:runReadOperation",
+            "value": 45699570
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:771:compileRelationalRead",
+            "value": 43802694
+          },
+          {
+            "name": "packages/medusa-adapter/src/workflow-value.ts:9:captureWorkflowValue",
+            "value": 43541747
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/journal/participantOperations.ts:1548:runAdmittedOperationEffect",
+            "value": 41717682
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:850:projectedOutput",
+            "value": 39691102
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1501:projected",
+            "value": 38472004
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1023:readFiniteIndexPage",
+            "value": 37884870
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:173:operation",
+            "value": 36809150
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:769:prepareConsumedFiniteMetadataComparison",
+            "value": 36267908
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:814:decodeMembershipPositionsEffect",
+            "value": 35947024
+          },
+          {
+            "name": "packages/medusa-adapter/src/query/projection.ts:118:projectRows",
+            "value": 33061678
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2190:prepareActivity",
+            "value": 31120826
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:196:lowerLogicalCanonicalUniqueKey",
+            "value": 30300350
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:115:check",
+            "value": 30274620
+          },
+          {
+            "name": "packages/medusa-adapter/src/product-related.ts:25:findProductRelated",
+            "value": 30144145
+          },
+          {
+            "name": "packages/medusa-adapter/src/query/read.ts:35:executeRead",
+            "value": 29589567
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:334:captureLogicalRelationalCanonicalRow",
+            "value": 29514479
+          },
+          {
+            "name": "packages/medusa-adapter/src/commerce-relations.ts:84:populateRelationTree",
+            "value": 29391969
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/journal/codecs.ts:427:canonicalizeStoredRequestEffect",
+            "value": 28987992
+          },
+          {
+            "name": "packages/medusa-workflows-sdk/src/runtime.ts:24:executeFrame",
+            "value": 28393651
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2289:close",
+            "value": 28368225
+          },
+          {
+            "name": "packages/flarex-protocol/src/admitted-framework-operation-v1.ts:67:encodeAdmittedFrameworkOperationV1Result",
+            "value": 28357985
+          },
+          {
+            "name": "packages/medusa-adapter/src/product-query-profile.ts:53:decodeProductQuery",
+            "value": 27502290
+          },
+          {
+            "name": "packages/persistence-postgres/src/frameworks/atomicCommerce/events.ts:274:retain",
+            "value": 27250440
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:354:captureLogicalRelationalActivityJson",
+            "value": 26911341
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1241:prepareUniqueStorageSelection",
+            "value": 26815006
+          },
+          {
+            "name": "packages/persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue.ts:70:capturePrivateCanonicalValue",
+            "value": 26305583
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:667:matchesFiniteMetadataDependencyObservation",
+            "value": 26215329
+          },
+          {
+            "name": "packages/persistence-postgres/src/commit/point/preparation.ts:489:prepareFiniteCommitCommand",
+            "value": 26184993
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1038:readFiniteIndexRows",
+            "value": 26035538
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1258:read",
+            "value": 26029467
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/unique/appUniqueKeys.ts:1380:{ identity, scope, canonical }",
+            "value": 25739301
+          },
+          {
+            "name": "packages/persistence-postgres/src/commit/point/finitePublication.ts:339:runFinitePointCommitPublication",
+            "value": 25654341
+          },
+          {
+            "name": "packages/persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue.ts:125:verifyStoredPrivateCanonicalValue",
+            "value": 25127487
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1745:prepareAppIndexSnapshotReadResult",
+            "value": 24749309
+          },
+          {
+            "name": "packages/medusa-adapter/src/product-repository.ts:67:repository",
+            "value": 24008935
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:314:canonicalizeLogicalRelationalRow",
+            "value": 23865189
+          }
+        ],
+        "onAddedCpu": {
+          "n": 16,
+          "mean": 125.9375,
+          "median": 125,
+          "min": 78,
+          "max": 157
+        },
+        "offAddedCpu": {
+          "n": 16,
+          "mean": 121.875,
+          "median": 124.5,
+          "min": 62,
+          "max": 172
+        },
+        "onMinusOffAddedCpu": 4.0625,
+        "metadata": {
+          "detail": "generators",
+          "order": "abba",
+          "readerHash": "87aab6b32662ee1cdb18277564f9c406f252a413bb0728cecb21d2a88f973beb",
+          "engineHash": "269e711472b84dcd04862f11e842acc1095cc5d22948af36cda76e9a9185828e",
+          "calibration": {
+            "reads": 14767,
+            "elapsedMs": 64.07829999999922,
+            "minimumPositiveCycles": 14413,
+            "minimumPositiveThreadMicroseconds": 15000,
+            "zeroThreadDeltas": 14763
+          },
+          "transformedFiles": 507,
+          "transformedSites": 3214
+        }
+      },
+      "profiles": {},
+      "rows": [
+        {
+          "index": 5,
+          "added": 124,
+          "native": 47,
+          "flarex": 171,
+          "observed": true
+        },
+        {
+          "index": 6,
+          "added": 172,
+          "native": 31,
+          "flarex": 203,
+          "observed": false
+        },
+        {
+          "index": 7,
+          "added": 125,
+          "native": 0,
+          "flarex": 125,
+          "observed": false
+        },
+        {
+          "index": 8,
+          "added": 140,
+          "native": 31,
+          "flarex": 171,
+          "observed": true
+        },
+        {
+          "index": 9,
+          "added": 108,
+          "native": 47,
+          "flarex": 155,
+          "observed": true
+        },
+        {
+          "index": 10,
+          "added": 109,
+          "native": 32,
+          "flarex": 141,
+          "observed": false
+        },
+        {
+          "index": 11,
+          "added": 124,
+          "native": 32,
+          "flarex": 156,
+          "observed": false
+        },
+        {
+          "index": 12,
+          "added": 78,
+          "native": 47,
+          "flarex": 125,
+          "observed": true
+        },
+        {
+          "index": 13,
+          "added": 141,
+          "native": 31,
+          "flarex": 172,
+          "observed": true
+        },
+        {
+          "index": 14,
+          "added": 125,
+          "native": 31,
+          "flarex": 156,
+          "observed": false
+        },
+        {
+          "index": 15,
+          "added": 141,
+          "native": 31,
+          "flarex": 172,
+          "observed": false
+        },
+        {
+          "index": 16,
+          "added": 125,
+          "native": 16,
+          "flarex": 141,
+          "observed": true
+        },
+        {
+          "index": 17,
+          "added": 141,
+          "native": 31,
+          "flarex": 172,
+          "observed": true
+        },
+        {
+          "index": 18,
+          "added": 78,
+          "native": 32,
+          "flarex": 110,
+          "observed": false
+        },
+        {
+          "index": 19,
+          "added": 109,
+          "native": 47,
+          "flarex": 156,
+          "observed": false
+        },
+        {
+          "index": 20,
+          "added": 125,
+          "native": 31,
+          "flarex": 156,
+          "observed": true
+        },
+        {
+          "index": 21,
+          "added": 110,
+          "native": 31,
+          "flarex": 141,
+          "observed": true
+        },
+        {
+          "index": 22,
+          "added": 62,
+          "native": 31,
+          "flarex": 93,
+          "observed": false
+        },
+        {
+          "index": 23,
+          "added": 171,
+          "native": 16,
+          "flarex": 187,
+          "observed": false
+        },
+        {
+          "index": 24,
+          "added": 110,
+          "native": 31,
+          "flarex": 141,
+          "observed": true
+        },
+        {
+          "index": 25,
+          "added": 157,
+          "native": 31,
+          "flarex": 188,
+          "observed": true
+        },
+        {
+          "index": 26,
+          "added": 78,
+          "native": 31,
+          "flarex": 109,
+          "observed": false
+        },
+        {
+          "index": 27,
+          "added": 94,
+          "native": 31,
+          "flarex": 125,
+          "observed": false
+        },
+        {
+          "index": 28,
+          "added": 94,
+          "native": 31,
+          "flarex": 125,
+          "observed": true
+        },
+        {
+          "index": 29,
+          "added": 140,
+          "native": 32,
+          "flarex": 172,
+          "observed": true
+        },
+        {
+          "index": 30,
+          "added": 124,
+          "native": 16,
+          "flarex": 140,
+          "observed": false
+        },
+        {
+          "index": 31,
+          "added": 157,
+          "native": 31,
+          "flarex": 188,
+          "observed": false
+        },
+        {
+          "index": 32,
+          "added": 141,
+          "native": 31,
+          "flarex": 172,
+          "observed": true
+        },
+        {
+          "index": 33,
+          "added": 157,
+          "native": 47,
+          "flarex": 204,
+          "observed": true
+        },
+        {
+          "index": 34,
+          "added": 156,
+          "native": 0,
+          "flarex": 156,
+          "observed": false
+        },
+        {
+          "index": 35,
+          "added": 125,
+          "native": 31,
+          "flarex": 156,
+          "observed": false
+        },
+        {
+          "index": 36,
+          "added": 124,
+          "native": 32,
+          "flarex": 156,
+          "observed": true
+        }
+      ]
+    },
+    {
+      "directory": "generators-b",
+      "runId": "b7f5fc15-b171-417a-afef-8ba22567ed54",
+      "mode": "root-counters",
+      "sources": {
+        "before": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+        "after": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+        "files": 6965
+      },
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "cleanup": "completed",
+      "addedCpu": {
+        "n": 32,
+        "mean": 126.3125,
+        "median": 125,
+        "min": 62,
+        "max": 187
+      },
+      "nativeCpu": {
+        "n": 32,
+        "mean": 28.4375,
+        "median": 31,
+        "min": 0,
+        "max": 47
+      },
+      "flarexCpu": {
+        "n": 32,
+        "mean": 154.75,
+        "median": 156,
+        "min": 93,
+        "max": 219
+      },
+      "cycles": {
+        "observedRoots": 16,
+        "totalCycles": 9846458587,
+        "categories": [
+          {
+            "name": "packages/persistence-postgres",
+            "value": 4054623880
+          },
+          {
+            "name": "effect-engine-excluding-observed-bodies",
+            "value": 3005250273
+          },
+          {
+            "name": "outside-observed-execution",
+            "value": 1833126570
+          },
+          {
+            "name": "packages/medusa-adapter",
+            "value": 624559985
+          },
+          {
+            "name": "packages/flarex-protocol",
+            "value": 169810007
+          },
+          {
+            "name": "packages/executor",
+            "value": 63967784
+          },
+          {
+            "name": "packages/payload-adapter",
+            "value": 47023325
+          },
+          {
+            "name": "packages/medusa-workflows-sdk",
+            "value": 46680077
+          },
+          {
+            "name": "packages/analysis",
+            "value": 1416686
+          }
+        ],
+        "sites": [
+          {
+            "name": "effect-engine-excluding-observed-bodies",
+            "value": 3005250273
+          },
+          {
+            "name": "outside-observed-execution",
+            "value": 1833126570
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:599:consumeAccessMetadataResult",
+            "value": 170241213
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/unique/appUniqueConstraintCommitV1.ts:176:lowerCanonicalAppUniqueConstraintV1Result",
+            "value": 125620745
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1610:readRelationalSelection",
+            "value": 114817911
+          },
+          {
+            "name": "packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedWorkflowAttempt.ts:229:context",
+            "value": 91996167
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:157:visit",
+            "value": 89727999
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/journal/finiteRoot.ts:899:freezeFiniteRootEffect",
+            "value": 88691719
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/materialization/materialization.ts:713:materializeAcceptedApplicationPublicationRows",
+            "value": 86974624
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1206:historicalUniqueSelection",
+            "value": 86055611
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:2085:captureRangeRowResult",
+            "value": 84309664
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1300:captureAppendInputResult",
+            "value": 77256212
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/finiteStorageCapture.ts:360:run",
+            "value": 76065201
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1477:withAccessCandidates",
+            "value": 68746980
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:117:prepareLogicalRelationalRead",
+            "value": 63781960
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:711:prepareAppIndexKeyTransitionAcceptanceInTransactionEffect",
+            "value": 59532655
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/materialization/settlementPlan.ts:81:prepareDeveloperIndexKeyPairsResult",
+            "value": 57202619
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1613:decodeRangeReadInputResult",
+            "value": 49850635
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:153:enter",
+            "value": 49383318
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1509:captureIndexReadDefinitionResult",
+            "value": 48667219
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/finiteStorageCapture.ts:467:accepted",
+            "value": 46180537
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1724:readRelationalSelection",
+            "value": 45707577
+          },
+          {
+            "name": "packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedWorkflowAttempt.ts:169:invoke",
+            "value": 45447361
+          },
+          {
+            "name": "packages/persistence-postgres/src/database/physicalSession/postgres.ts:179:runReadOperation",
+            "value": 45097252
+          },
+          {
+            "name": "packages/medusa-adapter/src/workflow-value.ts:9:captureWorkflowValue",
+            "value": 43005415
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:771:compileRelationalRead",
+            "value": 42136831
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:850:projectedOutput",
+            "value": 38751950
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/journal/participantOperations.ts:1548:runAdmittedOperationEffect",
+            "value": 38215603
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1023:readFiniteIndexPage",
+            "value": 37365257
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:173:operation",
+            "value": 37213544
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1501:projected",
+            "value": 36664634
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:814:decodeMembershipPositionsEffect",
+            "value": 34895178
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:769:prepareConsumedFiniteMetadataComparison",
+            "value": 34682434
+          },
+          {
+            "name": "packages/medusa-adapter/src/query/projection.ts:118:projectRows",
+            "value": 33256632
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:115:check",
+            "value": 30396668
+          },
+          {
+            "name": "packages/medusa-workflows-sdk/src/runtime.ts:24:executeFrame",
+            "value": 29310799
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:196:lowerLogicalCanonicalUniqueKey",
+            "value": 29235320
+          },
+          {
+            "name": "packages/medusa-adapter/src/query/read.ts:35:executeRead",
+            "value": 28881789
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2190:prepareActivity",
+            "value": 28844261
+          },
+          {
+            "name": "packages/medusa-adapter/src/product-related.ts:25:findProductRelated",
+            "value": 28185419
+          },
+          {
+            "name": "packages/medusa-adapter/src/commerce-relations.ts:84:populateRelationTree",
+            "value": 27470421
+          },
+          {
+            "name": "packages/flarex-protocol/src/admitted-framework-operation-v1.ts:67:encodeAdmittedFrameworkOperationV1Result",
+            "value": 27401765
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:334:captureLogicalRelationalCanonicalRow",
+            "value": 27287984
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/journal/codecs.ts:427:canonicalizeStoredRequestEffect",
+            "value": 27254592
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1038:readFiniteIndexRows",
+            "value": 26926896
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2289:close",
+            "value": 26719424
+          },
+          {
+            "name": "packages/persistence-postgres/src/frameworks/atomicCommerce/events.ts:274:retain",
+            "value": 26515336
+          },
+          {
+            "name": "packages/persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue.ts:70:capturePrivateCanonicalValue",
+            "value": 26189908
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:354:captureLogicalRelationalActivityJson",
+            "value": 25803034
+          },
+          {
+            "name": "packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:667:matchesFiniteMetadataDependencyObservation",
+            "value": 25260990
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1241:prepareUniqueStorageSelection",
+            "value": 25247744
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1258:read",
+            "value": 25083099
+          },
+          {
+            "name": "packages/persistence-postgres/src/commit/point/preparation.ts:489:prepareFiniteCommitCommand",
+            "value": 24806598
+          },
+          {
+            "name": "packages/medusa-adapter/src/product-query-profile.ts:53:decodeProductQuery",
+            "value": 24595707
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/unique/appUniqueKeys.ts:1380:{ identity, scope, canonical }",
+            "value": 24359036
+          },
+          {
+            "name": "packages/persistence-postgres/src/commit/point/finitePublication.ts:339:runFinitePointCommitPublication",
+            "value": 24236511
+          },
+          {
+            "name": "packages/persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue.ts:125:verifyStoredPrivateCanonicalValue",
+            "value": 23807133
+          },
+          {
+            "name": "packages/medusa-adapter/src/product-repository.ts:67:repository",
+            "value": 23710802
+          },
+          {
+            "name": "packages/medusa-adapter/src/write/replace.ts:26:replaceGraphRows",
+            "value": 23670610
+          },
+          {
+            "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:52:prepareLogicalRelationalRowValues",
+            "value": 23504853
+          }
+        ],
+        "onAddedCpu": {
+          "n": 16,
+          "mean": 130.6875,
+          "median": 141,
+          "min": 63,
+          "max": 187
+        },
+        "offAddedCpu": {
+          "n": 16,
+          "mean": 121.9375,
+          "median": 117.5,
+          "min": 62,
+          "max": 172
+        },
+        "onMinusOffAddedCpu": 8.75,
+        "metadata": {
+          "detail": "generators",
+          "order": "baab",
+          "readerHash": "87aab6b32662ee1cdb18277564f9c406f252a413bb0728cecb21d2a88f973beb",
+          "engineHash": "269e711472b84dcd04862f11e842acc1095cc5d22948af36cda76e9a9185828e",
+          "calibration": {
+            "reads": 15350,
+            "elapsedMs": 64.05820000000313,
+            "minimumPositiveCycles": 14034,
+            "minimumPositiveThreadMicroseconds": 15000,
+            "zeroThreadDeltas": 15346
+          },
+          "transformedFiles": 507,
+          "transformedSites": 3214
+        }
+      },
+      "profiles": {},
+      "rows": [
+        {
+          "index": 5,
+          "added": 141,
+          "native": 47,
+          "flarex": 188,
+          "observed": false
+        },
+        {
+          "index": 6,
+          "added": 156,
+          "native": 32,
+          "flarex": 188,
+          "observed": true
+        },
+        {
+          "index": 7,
+          "added": 156,
+          "native": 16,
+          "flarex": 172,
+          "observed": true
+        },
+        {
+          "index": 8,
+          "added": 140,
+          "native": 32,
+          "flarex": 172,
+          "observed": false
+        },
+        {
+          "index": 9,
+          "added": 109,
+          "native": 47,
+          "flarex": 156,
+          "observed": false
+        },
+        {
+          "index": 10,
+          "added": 109,
+          "native": 47,
+          "flarex": 156,
+          "observed": true
+        },
+        {
+          "index": 11,
+          "added": 156,
+          "native": 16,
+          "flarex": 172,
+          "observed": true
+        },
+        {
+          "index": 12,
+          "added": 156,
+          "native": 31,
+          "flarex": 187,
+          "observed": false
+        },
+        {
+          "index": 13,
+          "added": 156,
+          "native": 16,
+          "flarex": 172,
+          "observed": false
+        },
+        {
+          "index": 14,
+          "added": 63,
+          "native": 31,
+          "flarex": 94,
+          "observed": true
+        },
+        {
+          "index": 15,
+          "added": 94,
+          "native": 31,
+          "flarex": 125,
+          "observed": true
+        },
+        {
+          "index": 16,
+          "added": 109,
+          "native": 15,
+          "flarex": 124,
+          "observed": false
+        },
+        {
+          "index": 17,
+          "added": 62,
+          "native": 31,
+          "flarex": 93,
+          "observed": false
+        },
+        {
+          "index": 18,
+          "added": 63,
+          "native": 31,
+          "flarex": 94,
+          "observed": true
+        },
+        {
+          "index": 19,
+          "added": 141,
+          "native": 31,
+          "flarex": 172,
+          "observed": true
+        },
+        {
+          "index": 20,
+          "added": 108,
+          "native": 32,
+          "flarex": 140,
+          "observed": false
+        },
+        {
+          "index": 21,
+          "added": 156,
+          "native": 31,
+          "flarex": 187,
+          "observed": false
+        },
+        {
+          "index": 22,
+          "added": 171,
+          "native": 16,
+          "flarex": 187,
+          "observed": true
+        },
+        {
+          "index": 23,
+          "added": 110,
+          "native": 31,
+          "flarex": 141,
+          "observed": true
+        },
+        {
+          "index": 24,
+          "added": 64,
+          "native": 46,
+          "flarex": 110,
+          "observed": false
+        },
+        {
+          "index": 25,
+          "added": 110,
+          "native": 31,
+          "flarex": 141,
+          "observed": false
+        },
+        {
+          "index": 26,
+          "added": 124,
+          "native": 32,
+          "flarex": 156,
+          "observed": true
+        },
+        {
+          "index": 27,
+          "added": 141,
+          "native": 31,
+          "flarex": 172,
+          "observed": true
+        },
+        {
+          "index": 28,
+          "added": 125,
+          "native": 31,
+          "flarex": 156,
+          "observed": false
+        },
+        {
+          "index": 29,
+          "added": 108,
+          "native": 16,
+          "flarex": 124,
+          "observed": false
+        },
+        {
+          "index": 30,
+          "added": 155,
+          "native": 32,
+          "flarex": 187,
+          "observed": true
+        },
+        {
+          "index": 31,
+          "added": 141,
+          "native": 16,
+          "flarex": 157,
+          "observed": true
+        },
+        {
+          "index": 32,
+          "added": 125,
+          "native": 16,
+          "flarex": 141,
+          "observed": false
+        },
+        {
+          "index": 33,
+          "added": 172,
+          "native": 0,
+          "flarex": 172,
+          "observed": false
+        },
+        {
+          "index": 34,
+          "added": 124,
+          "native": 32,
+          "flarex": 156,
+          "observed": true
+        },
+        {
+          "index": 35,
+          "added": 187,
+          "native": 32,
+          "flarex": 219,
+          "observed": true
+        },
+        {
+          "index": 36,
+          "added": 110,
+          "native": 31,
+          "flarex": 141,
+          "observed": false
+        }
+      ]
+    },
+    {
+      "directory": "profile-a",
+      "runId": "d1d05608-02a7-4233-afea-78c7f6c01ca5",
+      "mode": "cpu",
+      "sources": {
+        "before": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+        "after": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+        "files": 6965
+      },
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "cleanup": "completed",
+      "addedCpu": {
+        "n": 32,
+        "mean": 130.96875,
+        "median": 125,
+        "min": 63,
+        "max": 282
+      },
+      "nativeCpu": {
+        "n": 32,
+        "mean": 32.0625,
+        "median": 31,
+        "min": 15,
+        "max": 47
+      },
+      "flarexCpu": {
+        "n": 32,
+        "mean": 163.03125,
+        "median": 156,
+        "min": 94,
+        "max": 313
+      },
+      "profiles": {
+        "native": {
+          "profileCount": 32,
+          "inside": 89,
+          "boundary": 833,
+          "outside": 36,
+          "gcOverlapMs": 0,
+          "categories": [
+            {
+              "name": "medusa",
+              "value": 42
+            },
+            {
+              "name": "idle",
+              "value": 38
+            },
+            {
+              "name": "unknown",
+              "value": 5
+            },
+            {
+              "name": "node",
+              "value": 2
+            },
+            {
+              "name": "postgres-driver",
+              "value": 2
+            }
+          ],
+          "contexts": [
+            {
+              "name": "outside-effect-runner/medusa",
+              "value": 42
+            },
+            {
+              "name": "outside-effect-runner/idle",
+              "value": 38
+            },
+            {
+              "name": "outside-effect-runner/unknown",
+              "value": 5
+            },
+            {
+              "name": "outside-effect-runner/node",
+              "value": 2
+            },
+            {
+              "name": "outside-effect-runner/postgres-driver",
+              "value": 2
+            }
+          ],
+          "frames": [
+            {
+              "name": ":0 (idle)",
+              "value": 38
+            },
+            {
+              "name": ":5 [redacted]",
+              "value": 2
+            },
+            {
+              "name": ":0 [redacted]",
+              "value": 2
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/entity/utils.js:22 expandDotPaths",
+              "value": 2
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/AbstractSqlDriver.js:757 loadFromPivotTable",
+              "value": 2
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/EntityManager.js:1567 preparePopulate",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/ObjectCriteriaNode.js:63 ",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service.js:717 updateProducts_",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/EntityManager.js:1668 prepareOptions",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/packages/core/utils/dist/common/validate-handle.js:8 isValidHandle",
+              "value": 1
+            },
+            {
+              "name": ":0 (program)",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/knex/lib/dialects/postgres/index.js:229 ",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/knex/lib/client.js:185 customWrapIdentifier",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/AbstractSqlDriver.js:187 ",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilderHelper.js:29 mapper",
+              "value": 1
+            },
+            {
+              "name": "node:buffer:908 toString",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/CriteriaNodeFactory.js:12 createNode",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/EntityManager.js:1365 canPopulate",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/utils/QueryHelper.js:227 findProperty",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/entity/Collection.js:344 cancelOrphanRemoval",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/pg/lib/result.js:82 addFields",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/AbstractSqlDriver.js:185 mapJoinedProps",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/EntityManager.js:111 find",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilder.js:918 joinReference",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilder.js:864 getKnex",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/packages/core/utils/dist/dal/mikro-orm/mikro-orm-serializer.js:414 mikroOrmSerializer",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/packages/core/utils/dist/modules-sdk/decorators/inject-manager.js:45 set",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/utils/Utils.js:706 isPlainObject",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilderHelper.js:426 appendQuerySubCondition",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilder.js:991 prepareFields",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/ObjectCriteriaNode.js:11 process",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/EntityManager.js:335 applyFilters",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/knex/lib/ref.js:24 toSQL",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/utils/Configuration.js:185 set",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilder.js:1052 ",
+              "value": 1
+            },
+            {
+              "name": "node:events:607 addListener",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/pg-protocol/dist/parser.js:176 parseRowDescriptionMessage",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/knex/lib/formatter/wrappingFormatter.js:99 unwrapRaw",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilder.js:1196 processPopulateHint",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/knex/lib/query/querycompiler.js:277 columns",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/knex/lib/query/querycompiler.js:570 where",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/packages/core/utils/dist/dal/utils.js:5 transactionWrapper",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/AbstractSqlDriver.js:173 mapResult",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/connections/Connection.js:100 executeQuery",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/utils/QueryHelper.js:147 getActiveFilters",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/knex/lib/builder-interface-augmenter.js:8 Target.toQuery",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/knex/lib/dialects/postgres/index.js:140 positionBindings",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/entity/EntityAssigner.js:14 assign",
+              "value": 1
+            }
+          ],
+          "callers": [
+            {
+              "name": "medusa/no authored caller",
+              "value": 42
+            },
+            {
+              "name": "idle/no authored caller",
+              "value": 38
+            },
+            {
+              "name": "unknown/no authored caller",
+              "value": 5
+            },
+            {
+              "name": "node/no authored caller",
+              "value": 2
+            },
+            {
+              "name": "postgres-driver/no authored caller",
+              "value": 2
+            }
+          ]
+        },
+        "flarex": {
+          "profileCount": 32,
+          "inside": 4746,
+          "boundary": 929,
+          "outside": 34,
+          "gcOverlapMs": 209.82289999723434,
+          "categories": [
+            {
+              "name": "idle",
+              "value": 1705
+            },
+            {
+              "name": "persistence",
+              "value": 684
+            },
+            {
+              "name": "effect-engine",
+              "value": 605
+            },
+            {
+              "name": "protocol",
+              "value": 334
+            },
+            {
+              "name": "effect-other",
+              "value": 243
+            },
+            {
+              "name": "unknown",
+              "value": 215
+            },
+            {
+              "name": "node",
+              "value": 201
+            },
+            {
+              "name": "effect-schema",
+              "value": 198
+            },
+            {
+              "name": "gc",
+              "value": 131
+            },
+            {
+              "name": "drizzle",
+              "value": 126
+            },
+            {
+              "name": "medusa",
+              "value": 122
+            },
+            {
+              "name": "postgres-driver",
+              "value": 105
+            },
+            {
+              "name": "other-authored",
+              "value": 54
+            },
+            {
+              "name": "payload",
+              "value": 22
+            },
+            {
+              "name": "measurement",
+              "value": 1
+            }
+          ],
+          "contexts": [
+            {
+              "name": "outside-effect-runner/idle",
+              "value": 1705
+            },
+            {
+              "name": "inside-effect-runner/persistence",
+              "value": 659
+            },
+            {
+              "name": "inside-effect-runner/effect-engine",
+              "value": 555
+            },
+            {
+              "name": "inside-effect-runner/protocol",
+              "value": 306
+            },
+            {
+              "name": "inside-effect-runner/effect-other",
+              "value": 238
+            },
+            {
+              "name": "inside-effect-runner/effect-schema",
+              "value": 181
+            },
+            {
+              "name": "inside-effect-runner/node",
+              "value": 151
+            },
+            {
+              "name": "outside-effect-runner/gc",
+              "value": 131
+            },
+            {
+              "name": "outside-effect-runner/unknown",
+              "value": 117
+            },
+            {
+              "name": "inside-effect-runner/unknown",
+              "value": 98
+            },
+            {
+              "name": "outside-effect-runner/drizzle",
+              "value": 91
+            },
+            {
+              "name": "inside-effect-runner/medusa",
+              "value": 68
+            },
+            {
+              "name": "inside-effect-runner/postgres-driver",
+              "value": 56
+            },
+            {
+              "name": "outside-effect-runner/medusa",
+              "value": 54
+            },
+            {
+              "name": "outside-effect-runner/node",
+              "value": 50
+            },
+            {
+              "name": "outside-effect-runner/effect-engine",
+              "value": 50
+            },
+            {
+              "name": "outside-effect-runner/postgres-driver",
+              "value": 49
+            },
+            {
+              "name": "inside-effect-runner/other-authored",
+              "value": 41
+            },
+            {
+              "name": "inside-effect-runner/drizzle",
+              "value": 35
+            },
+            {
+              "name": "outside-effect-runner/protocol",
+              "value": 28
+            },
+            {
+              "name": "outside-effect-runner/persistence",
+              "value": 25
+            },
+            {
+              "name": "outside-effect-runner/payload",
+              "value": 20
+            },
+            {
+              "name": "outside-effect-runner/effect-schema",
+              "value": 17
+            },
+            {
+              "name": "outside-effect-runner/other-authored",
+              "value": 13
+            },
+            {
+              "name": "outside-effect-runner/effect-other",
+              "value": 5
+            },
+            {
+              "name": "inside-effect-runner/payload",
+              "value": 2
+            },
+            {
+              "name": "outside-effect-runner/measurement",
+              "value": 1
+            }
+          ],
+          "frames": [
+            {
+              "name": ":0 (idle)",
+              "value": 1705
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:925 makePrimitive",
+              "value": 159
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854 ",
+              "value": 143
+            },
+            {
+              "name": ":0 (garbage collector)",
+              "value": 131
+            },
+            {
+              "name": ":0 [redacted]",
+              "value": 131
+            },
+            {
+              "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit",
+              "value": 87
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Result.js:1062 gen",
+              "value": 75
+            },
+            {
+              "name": ":0 (program)",
+              "value": 70
+            },
+            {
+              "name": "./node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/entity.js:3 is",
+              "value": 57
+            },
+            {
+              "name": "node:internal/worker/js_transferable:112 structuredClone",
+              "value": 54
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:442 runLoop",
+              "value": 39
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaParser.js:900 parseLocal",
+              "value": 36
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaAST.js:1680 ",
+              "value": 35
+            },
+            {
+              "name": "./packages/flarex-protocol/src/json.ts:94 encodeCanonicalJson",
+              "value": 25
+            },
+            {
+              "name": "./packages/flarex-protocol/src/json.ts:332 checkedCanonicalByteAdd",
+              "value": 23
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/core.js:295 makeExit",
+              "value": 21
+            },
+            {
+              "name": "./packages/flarex-protocol/src/commit-protocol.ts:153 logicalMetadataDependencyIdentity",
+              "value": 20
+            },
+            {
+              "name": "./packages/flarex-protocol/src/ordered-index.ts:400 decodeOrderedIndexComponentsV1",
+              "value": 20
+            },
+            {
+              "name": "./node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/result.js:82 addFields",
+              "value": 20
+            },
+            {
+              "name": "./packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:704 ",
+              "value": 18
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:1060 effectIsExit",
+              "value": 18
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:681 makePrimitive",
+              "value": 17
+            },
+            {
+              "name": "node:internal/encoding:355 encode",
+              "value": 17
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaParser.js:799 ",
+              "value": 17
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:890 fromIteratorEagerUnsafe",
+              "value": 16
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:824 fn",
+              "value": 15
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaAST.js:1796 ",
+              "value": 14
+            },
+            {
+              "name": "./packages/utils/src/bytes.ts:58 encodeBytesToLowercaseHex",
+              "value": 14
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:487 getCont",
+              "value": 14
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/core.js:253 ",
+              "value": 13
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaAST.js:1886 onItem",
+              "value": 13
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:839 fn",
+              "value": 13
+            },
+            {
+              "name": "./node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/connection-parameters.js:9 val",
+              "value": 12
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:374 getRef",
+              "value": 12
+            },
+            {
+              "name": "./packages/flarex-protocol/src/json.ts:145 measureCanonicalJsonValue",
+              "value": 12
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:514 setContext",
+              "value": 12
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/record.js:2 assignProperty",
+              "value": 11
+            },
+            {
+              "name": "./packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js:58 AbstractService_",
+              "value": 11
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:757 ",
+              "value": 11
+            },
+            {
+              "name": "./packages/flarex-protocol/src/value.ts:324 ",
+              "value": 11
+            },
+            {
+              "name": "node:internal/per_context/domexception:72 DOMException",
+              "value": 10
+            },
+            {
+              "name": "./packages/flarex-protocol/src/ordered-index.ts:367 encodeOrderedIndexComponentsV1",
+              "value": 10
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Result.js:190 try_",
+              "value": 10
+            },
+            {
+              "name": "./packages/persistence-postgres/src/storage/indexes/appDeveloperIndexCommitV1.ts:73 lowerAppOrderedIndexPhysicalKeyV1",
+              "value": 10
+            },
+            {
+              "name": "./packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:124 ",
+              "value": 10
+            },
+            {
+              "name": "./packages/flarex-protocol/src/value.ts:687 defineFrozenProperty",
+              "value": 10
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Context.js:148 lookup",
+              "value": 10
+            },
+            {
+              "name": "./node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/sql/sql.js:362 ",
+              "value": 9
+            },
+            {
+              "name": "./node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/connection-parameters.js:53 ConnectionParameters",
+              "value": 9
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Function.js:80 ",
+              "value": 9
+            },
+            {
+              "name": "./packages/persistence-postgres/src/execution/finiteStorageCaptureProjection.ts:64 ",
+              "value": 8
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:2284 ",
+              "value": 8
+            },
+            {
+              "name": "./packages/persistence-postgres/src/database/physicalSession/postgres.ts:41 ",
+              "value": 8
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaAST.js:2591 makeFilter.expected",
+              "value": 8
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Schema.js:894 ",
+              "value": 8
+            },
+            {
+              "name": "./node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/utils.js:44 prepareValue",
+              "value": 8
+            },
+            {
+              "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1164 ",
+              "value": 8
+            },
+            {
+              "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:504 ",
+              "value": 8
+            },
+            {
+              "name": "./packages/medusa-adapter/src/write/replace.ts:53 keys",
+              "value": 7
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/core.js:356 Base",
+              "value": 7
+            },
+            {
+              "name": "./packages/flarex-protocol/src/value.ts:233 canonicalizeNormalizedValue",
+              "value": 7
+            },
+            {
+              "name": "./packages/persistence-postgres/src/execution/finiteStorageCapture.ts:500 ",
+              "value": 7
+            },
+            {
+              "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2289 ",
+              "value": 7
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:414 evaluate",
+              "value": 7
+            },
+            {
+              "name": "./packages/flarex-protocol/src/value.ts:76 retainCanonicalFlarexValueOwnershipV1",
+              "value": 7
+            },
+            {
+              "name": "./node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/utils.js:10 ",
+              "value": 7
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Predicate.js:790 ",
+              "value": 7
+            },
+            {
+              "name": "./packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1154 ",
+              "value": 7
+            },
+            {
+              "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts:354 consumeLogicalDocumentRootMetadataDependency",
+              "value": 7
+            },
+            {
+              "name": "./node_modules/.pnpm/pg-protocol@1.15.0/node_modules/pg-protocol/dist/serializer.js:63 writeValues",
+              "value": 7
+            }
+          ],
+          "callers": [
+            {
+              "name": "idle/no authored caller",
+              "value": 1705
+            },
+            {
+              "name": "effect-engine/no authored caller",
+              "value": 239
+            },
+            {
+              "name": "gc/no authored caller",
+              "value": 131
+            },
+            {
+              "name": "unknown/no authored caller",
+              "value": 114
+            },
+            {
+              "name": "drizzle/no authored caller",
+              "value": 92
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit",
+              "value": 87
+            },
+            {
+              "name": "effect-engine/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:519 finish",
+              "value": 62
+            },
+            {
+              "name": "effect-engine/./packages/medusa-adapter/src/commerce-promise-owner.ts:34 run",
+              "value": 61
+            },
+            {
+              "name": "postgres-driver/no authored caller",
+              "value": 48
+            },
+            {
+              "name": "node/no authored caller",
+              "value": 44
+            },
+            {
+              "name": "unknown/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:384 trackedQuery",
+              "value": 39
+            },
+            {
+              "name": "effect-other/no authored caller",
+              "value": 37
+            },
+            {
+              "name": "effect-schema/./packages/medusa-adapter/src/commerce-decoder.ts:14 ",
+              "value": 36
+            },
+            {
+              "name": "postgres-driver/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:887 implicitReadTransportRefusal",
+              "value": 30
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/json.ts:94 encodeCanonicalJson",
+              "value": 25
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/json.ts:332 checkedCanonicalByteAdd",
+              "value": 23
+            },
+            {
+              "name": "postgres-driver/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:384 trackedQuery",
+              "value": 22
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/commit-protocol.ts:153 logicalMetadataDependencyIdentity",
+              "value": 20
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/ordered-index.ts:400 decodeOrderedIndexComponentsV1",
+              "value": 20
+            },
+            {
+              "name": "effect-engine/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:317 finish",
+              "value": 20
+            },
+            {
+              "name": "node/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:887 implicitReadTransportRefusal",
+              "value": 19
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:704 ",
+              "value": 18
+            },
+            {
+              "name": "node/./packages/medusa-adapter/src/commerce-promise-owner.ts:25 stop",
+              "value": 17
+            },
+            {
+              "name": "payload/no authored caller",
+              "value": 16
+            },
+            {
+              "name": "drizzle/./packages/persistence-postgres/src/database/physicalSession/drizzle.ts:16 executeNativePhysicalCommand",
+              "value": 15
+            },
+            {
+              "name": "other-authored/no authored caller",
+              "value": 14
+            },
+            {
+              "name": "other-authored/./packages/utils/src/bytes.ts:58 encodeBytesToLowercaseHex",
+              "value": 14
+            },
+            {
+              "name": "effect-other/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:519 finish",
+              "value": 14
+            },
+            {
+              "name": "unknown/./packages/flarex-protocol/src/value.ts:233 canonicalizeNormalizedValue",
+              "value": 12
+            },
+            {
+              "name": "effect-engine/./packages/medusa-adapter/src/commerce-decoder.ts:14 ",
+              "value": 12
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/json.ts:145 measureCanonicalJsonValue",
+              "value": 12
+            },
+            {
+              "name": "effect-other/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:317 finish",
+              "value": 11
+            },
+            {
+              "name": "node/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:384 trackedQuery",
+              "value": 11
+            },
+            {
+              "name": "effect-schema/./packages/flarex-protocol/src/value.ts:233 canonicalizeNormalizedValue",
+              "value": 11
+            },
+            {
+              "name": "node/./packages/persistence-postgres/src/storage/documents/logicalDocuments/detachChanges.ts:7 detachLogicalDocumentRootChanges",
+              "value": 11
+            },
+            {
+              "name": "medusa/./packages/medusa-adapter/src/commerce-module.ts:28 ",
+              "value": 11
+            },
+            {
+              "name": "effect-schema/./packages/persistence-postgres/src/execution/finiteStorageCapture.ts:585 ",
+              "value": 11
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/value.ts:324 ",
+              "value": 11
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/ordered-index.ts:367 encodeOrderedIndexComponentsV1",
+              "value": 10
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/storage/indexes/appDeveloperIndexCommitV1.ts:73 lowerAppOrderedIndexPhysicalKeyV1",
+              "value": 10
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:124 ",
+              "value": 10
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/value.ts:687 defineFrozenProperty",
+              "value": 10
+            },
+            {
+              "name": "node/./packages/flarex-protocol/src/value.ts:233 canonicalizeNormalizedValue",
+              "value": 9
+            },
+            {
+              "name": "medusa/no authored caller",
+              "value": 9
+            },
+            {
+              "name": "node/./packages/flarex-protocol/src/value-runtime-core.ts:160 normalizeRuntimeNode",
+              "value": 9
+            },
+            {
+              "name": "node/./packages/medusa-adapter/src/workflow-value.ts:12 ",
+              "value": 9
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/execution/finiteStorageCaptureProjection.ts:64 ",
+              "value": 8
+            },
+            {
+              "name": "effect-schema/./packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:146 ",
+              "value": 8
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:41 ",
+              "value": 8
+            },
+            {
+              "name": "effect-engine/./packages/payload-adapter/src/adapter.ts:46 run",
+              "value": 8
+            },
+            {
+              "name": "effect-other/./packages/medusa-adapter/src/commerce-promise-owner.ts:34 run",
+              "value": 8
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1164 ",
+              "value": 8
+            },
+            {
+              "name": "effect-other/./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:504 consumeAccessMetadataResult",
+              "value": 8
+            },
+            {
+              "name": "effect-schema/./packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:744 ",
+              "value": 8
+            },
+            {
+              "name": "effect-engine/./packages/medusa-adapter/src/commerce-relations.ts:81 ",
+              "value": 8
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:504 ",
+              "value": 8
+            },
+            {
+              "name": "medusa/./packages/medusa-adapter/src/write/replace.ts:53 keys",
+              "value": 7
+            },
+            {
+              "name": "effect-engine/./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1524 ",
+              "value": 7
+            },
+            {
+              "name": "effect-other/./packages/persistence-postgres/src/frameworks/commerceTransaction/model.ts:9 CommerceTransactionError",
+              "value": 7
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/value.ts:233 canonicalizeNormalizedValue",
+              "value": 7
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/execution/finiteStorageCapture.ts:500 ",
+              "value": 7
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2289 ",
+              "value": 7
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/value.ts:76 retainCanonicalFlarexValueOwnershipV1",
+              "value": 7
+            },
+            {
+              "name": "medusa/./packages/medusa-adapter/src/query/projection.ts:125 ",
+              "value": 7
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1154 ",
+              "value": 7
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts:354 consumeLogicalDocumentRootMetadataDependency",
+              "value": 7
+            },
+            {
+              "name": "effect-schema/./packages/persistence-postgres/src/execution/journal/codecs.ts:302 ",
+              "value": 6
+            },
+            {
+              "name": "effect-schema/./packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:823 ",
+              "value": 6
+            },
+            {
+              "name": "effect-other/./packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:146 visit",
+              "value": 6
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/app-document-id.ts:42 decodeAppDocumentIdPartsV1Result",
+              "value": 6
+            }
+          ]
+        }
+      },
+      "rows": [
+        {
+          "index": 5,
+          "added": 172,
+          "native": 31,
+          "flarex": 203,
+          "observed": null
+        },
+        {
+          "index": 6,
+          "added": 126,
+          "native": 15,
+          "flarex": 141,
+          "observed": null
+        },
+        {
+          "index": 7,
+          "added": 63,
+          "native": 31,
+          "flarex": 94,
+          "observed": null
+        },
+        {
+          "index": 8,
+          "added": 125,
+          "native": 31,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 9,
+          "added": 126,
+          "native": 46,
+          "flarex": 172,
+          "observed": null
+        },
+        {
+          "index": 10,
+          "added": 140,
+          "native": 32,
+          "flarex": 172,
+          "observed": null
+        },
+        {
+          "index": 11,
+          "added": 156,
+          "native": 31,
+          "flarex": 187,
+          "observed": null
+        },
+        {
+          "index": 12,
+          "added": 125,
+          "native": 31,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 13,
+          "added": 93,
+          "native": 47,
+          "flarex": 140,
+          "observed": null
+        },
+        {
+          "index": 14,
+          "added": 78,
+          "native": 47,
+          "flarex": 125,
+          "observed": null
+        },
+        {
+          "index": 15,
+          "added": 110,
+          "native": 47,
+          "flarex": 157,
+          "observed": null
+        },
+        {
+          "index": 16,
+          "added": 188,
+          "native": 15,
+          "flarex": 203,
+          "observed": null
+        },
+        {
+          "index": 17,
+          "added": 109,
+          "native": 47,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 18,
+          "added": 173,
+          "native": 15,
+          "flarex": 188,
+          "observed": null
+        },
+        {
+          "index": 19,
+          "added": 124,
+          "native": 32,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 20,
+          "added": 282,
+          "native": 31,
+          "flarex": 313,
+          "observed": null
+        },
+        {
+          "index": 21,
+          "added": 187,
+          "native": 31,
+          "flarex": 218,
+          "observed": null
+        },
+        {
+          "index": 22,
+          "added": 141,
+          "native": 31,
+          "flarex": 172,
+          "observed": null
+        },
+        {
+          "index": 23,
+          "added": 125,
+          "native": 32,
+          "flarex": 157,
+          "observed": null
+        },
+        {
+          "index": 24,
+          "added": 125,
+          "native": 15,
+          "flarex": 140,
+          "observed": null
+        },
+        {
+          "index": 25,
+          "added": 110,
+          "native": 15,
+          "flarex": 125,
+          "observed": null
+        },
+        {
+          "index": 26,
+          "added": 109,
+          "native": 47,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 27,
+          "added": 140,
+          "native": 32,
+          "flarex": 172,
+          "observed": null
+        },
+        {
+          "index": 28,
+          "added": 156,
+          "native": 31,
+          "flarex": 187,
+          "observed": null
+        },
+        {
+          "index": 29,
+          "added": 110,
+          "native": 47,
+          "flarex": 157,
+          "observed": null
+        },
+        {
+          "index": 30,
+          "added": 109,
+          "native": 31,
+          "flarex": 140,
+          "observed": null
+        },
+        {
+          "index": 31,
+          "added": 125,
+          "native": 31,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 32,
+          "added": 79,
+          "native": 46,
+          "flarex": 125,
+          "observed": null
+        },
+        {
+          "index": 33,
+          "added": 94,
+          "native": 31,
+          "flarex": 125,
+          "observed": null
+        },
+        {
+          "index": 34,
+          "added": 141,
+          "native": 15,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 35,
+          "added": 125,
+          "native": 31,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 36,
+          "added": 125,
+          "native": 31,
+          "flarex": 156,
+          "observed": null
+        }
+      ]
+    },
+    {
+      "directory": "profile-b",
+      "runId": "10145e65-a748-49ba-bee4-f0c1ab533cf1",
+      "mode": "cpu",
+      "sources": {
+        "before": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+        "after": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+        "files": 6965
+      },
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "cleanup": "completed",
+      "addedCpu": {
+        "n": 32,
+        "mean": 112.59375,
+        "median": 109,
+        "min": 46,
+        "max": 188
+      },
+      "nativeCpu": {
+        "n": 32,
+        "mean": 30.34375,
+        "median": 31,
+        "min": 0,
+        "max": 63
+      },
+      "flarexCpu": {
+        "n": 32,
+        "mean": 142.9375,
+        "median": 141,
+        "min": 62,
+        "max": 219
+      },
+      "profiles": {
+        "native": {
+          "profileCount": 32,
+          "inside": 78,
+          "boundary": 763,
+          "outside": 33,
+          "gcOverlapMs": 2.25,
+          "categories": [
+            {
+              "name": "medusa",
+              "value": 39
+            },
+            {
+              "name": "idle",
+              "value": 36
+            },
+            {
+              "name": "node",
+              "value": 2
+            },
+            {
+              "name": "postgres-driver",
+              "value": 1
+            }
+          ],
+          "contexts": [
+            {
+              "name": "outside-effect-runner/medusa",
+              "value": 39
+            },
+            {
+              "name": "outside-effect-runner/idle",
+              "value": 36
+            },
+            {
+              "name": "outside-effect-runner/node",
+              "value": 2
+            },
+            {
+              "name": "outside-effect-runner/postgres-driver",
+              "value": 1
+            }
+          ],
+          "frames": [
+            {
+              "name": ":0 (idle)",
+              "value": 36
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/utils/QueryHelper.js:39 inlinePrimaryKeyObjects",
+              "value": 4
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/EntityManager.js:111 find",
+              "value": 2
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilderHelper.js:606 splitField",
+              "value": 2
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/lodash/isEmpty.js:53 isEmpty",
+              "value": 2
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/AbstractSqlDriver.js:888 ",
+              "value": 2
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/lodash/_apply.js:11 apply",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/knex/lib/knex-builder/make-knex.js:176 ref",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/knex/lib/query/querybuilder.js:231 columns",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/pg/lib/result.js:82 addFields",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilderHelper.js:650 prefix",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/AbstractSqlDriver.js:26 find",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/knex/lib/execution/internal/ensure-connection-callback.js:1 ensureConnectionCallback",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilder.js:999 ",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilder.js:312 where",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/knex/lib/ref.js:24 toSQL",
+              "value": 1
+            },
+            {
+              "name": "node:internal/stream_base_commons:166 onStreamRead",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/EntityManager.js:335 applyFilters",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/knex/lib/query/querycompiler.js:126 select",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilder.js:1230 processPopulateWhere",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/entity/EntityHelper.js:219 ensurePropagation",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/tarn/dist/Pool.js:110 acquire",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/events/EventManager.js:14 registerSubscriber",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/entity/EntityFactory.js:29 create",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/AbstractSqlDriver.js:908 mergeJoinedResult",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/utils/QueryHelper.js:61 ",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/utils/Utils.js:948 callCompiledFunction",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/knex/lib/execution/transaction.js:296 makeTransactor",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilder.js:584 clearRawFragmentsCache",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/knex/lib/dialects/postgres/index.js:66 wrapIdentifierImpl",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilder.js:1413 createAlias",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilder.js:918 joinReference",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/knex/query/QueryBuilder.js:678 execute",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/utils/QueryHelper.js:227 findProperty",
+              "value": 1
+            },
+            {
+              "name": "node:events:456 emit",
+              "value": 1
+            },
+            {
+              "name": "./third_party/medusa/upstream/node_modules/@mikro-orm/core/utils/QueryHelper.js:69 processWhere",
+              "value": 1
+            }
+          ],
+          "callers": [
+            {
+              "name": "medusa/no authored caller",
+              "value": 39
+            },
+            {
+              "name": "idle/no authored caller",
+              "value": 36
+            },
+            {
+              "name": "node/no authored caller",
+              "value": 2
+            },
+            {
+              "name": "postgres-driver/no authored caller",
+              "value": 1
+            }
+          ]
+        },
+        "flarex": {
+          "profileCount": 32,
+          "inside": 4397,
+          "boundary": 862,
+          "outside": 33,
+          "gcOverlapMs": 136.48079998791218,
+          "categories": [
+            {
+              "name": "idle",
+              "value": 1588
+            },
+            {
+              "name": "persistence",
+              "value": 625
+            },
+            {
+              "name": "effect-engine",
+              "value": 556
+            },
+            {
+              "name": "protocol",
+              "value": 321
+            },
+            {
+              "name": "effect-other",
+              "value": 228
+            },
+            {
+              "name": "node",
+              "value": 207
+            },
+            {
+              "name": "unknown",
+              "value": 195
+            },
+            {
+              "name": "effect-schema",
+              "value": 168
+            },
+            {
+              "name": "drizzle",
+              "value": 141
+            },
+            {
+              "name": "postgres-driver",
+              "value": 107
+            },
+            {
+              "name": "medusa",
+              "value": 106
+            },
+            {
+              "name": "gc",
+              "value": 86
+            },
+            {
+              "name": "other-authored",
+              "value": 46
+            },
+            {
+              "name": "payload",
+              "value": 19
+            },
+            {
+              "name": "measurement",
+              "value": 4
+            }
+          ],
+          "contexts": [
+            {
+              "name": "outside-effect-runner/idle",
+              "value": 1588
+            },
+            {
+              "name": "inside-effect-runner/persistence",
+              "value": 607
+            },
+            {
+              "name": "inside-effect-runner/effect-engine",
+              "value": 510
+            },
+            {
+              "name": "inside-effect-runner/protocol",
+              "value": 300
+            },
+            {
+              "name": "inside-effect-runner/effect-other",
+              "value": 222
+            },
+            {
+              "name": "inside-effect-runner/effect-schema",
+              "value": 157
+            },
+            {
+              "name": "inside-effect-runner/node",
+              "value": 153
+            },
+            {
+              "name": "outside-effect-runner/unknown",
+              "value": 103
+            },
+            {
+              "name": "outside-effect-runner/drizzle",
+              "value": 100
+            },
+            {
+              "name": "inside-effect-runner/unknown",
+              "value": 92
+            },
+            {
+              "name": "outside-effect-runner/gc",
+              "value": 86
+            },
+            {
+              "name": "outside-effect-runner/medusa",
+              "value": 59
+            },
+            {
+              "name": "inside-effect-runner/postgres-driver",
+              "value": 58
+            },
+            {
+              "name": "outside-effect-runner/node",
+              "value": 54
+            },
+            {
+              "name": "outside-effect-runner/postgres-driver",
+              "value": 49
+            },
+            {
+              "name": "inside-effect-runner/medusa",
+              "value": 47
+            },
+            {
+              "name": "outside-effect-runner/effect-engine",
+              "value": 46
+            },
+            {
+              "name": "inside-effect-runner/drizzle",
+              "value": 41
+            },
+            {
+              "name": "inside-effect-runner/other-authored",
+              "value": 38
+            },
+            {
+              "name": "outside-effect-runner/protocol",
+              "value": 21
+            },
+            {
+              "name": "outside-effect-runner/payload",
+              "value": 19
+            },
+            {
+              "name": "outside-effect-runner/persistence",
+              "value": 18
+            },
+            {
+              "name": "outside-effect-runner/effect-schema",
+              "value": 11
+            },
+            {
+              "name": "outside-effect-runner/other-authored",
+              "value": 8
+            },
+            {
+              "name": "outside-effect-runner/effect-other",
+              "value": 6
+            },
+            {
+              "name": "outside-effect-runner/measurement",
+              "value": 4
+            }
+          ],
+          "frames": [
+            {
+              "name": ":0 (idle)",
+              "value": 1588
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:925 makePrimitive",
+              "value": 135
+            },
+            {
+              "name": ":0 [redacted]",
+              "value": 130
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854 ",
+              "value": 117
+            },
+            {
+              "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit",
+              "value": 92
+            },
+            {
+              "name": ":0 (garbage collector)",
+              "value": 86
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Result.js:1062 gen",
+              "value": 68
+            },
+            {
+              "name": "node:internal/worker/js_transferable:112 structuredClone",
+              "value": 65
+            },
+            {
+              "name": "./node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/entity.js:3 is",
+              "value": 61
+            },
+            {
+              "name": ":0 (program)",
+              "value": 46
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaAST.js:1680 ",
+              "value": 32
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:442 runLoop",
+              "value": 30
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:824 fn",
+              "value": 29
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaParser.js:900 parseLocal",
+              "value": 28
+            },
+            {
+              "name": "./node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/result.js:82 addFields",
+              "value": 27
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:1060 effectIsExit",
+              "value": 24
+            },
+            {
+              "name": "./packages/flarex-protocol/src/json.ts:94 encodeCanonicalJson",
+              "value": 24
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/core.js:295 makeExit",
+              "value": 19
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/record.js:2 assignProperty",
+              "value": 19
+            },
+            {
+              "name": "./packages/flarex-protocol/src/json.ts:332 checkedCanonicalByteAdd",
+              "value": 17
+            },
+            {
+              "name": "./packages/flarex-protocol/src/json.ts:145 measureCanonicalJsonValue",
+              "value": 17
+            },
+            {
+              "name": "./node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/connection-parameters.js:9 val",
+              "value": 16
+            },
+            {
+              "name": "./packages/utils/src/bytes.ts:58 encodeBytesToLowercaseHex",
+              "value": 15
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:487 getCont",
+              "value": 15
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:839 fn",
+              "value": 15
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:890 fromIteratorEagerUnsafe",
+              "value": 15
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:514 setContext",
+              "value": 15
+            },
+            {
+              "name": "./packages/flarex-protocol/src/json.ts:342 isJson",
+              "value": 15
+            },
+            {
+              "name": "node:internal/encoding:355 encode",
+              "value": 15
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/core.js:253 ",
+              "value": 13
+            },
+            {
+              "name": "./packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:704 ",
+              "value": 13
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:681 makePrimitive",
+              "value": 13
+            },
+            {
+              "name": "./node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/utils.js:10 ",
+              "value": 12
+            },
+            {
+              "name": "./packages/persistence-postgres/src/execution/finiteStorageCapture.ts:500 ",
+              "value": 12
+            },
+            {
+              "name": "./packages/flarex-protocol/src/value.ts:324 ",
+              "value": 12
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:414 evaluate",
+              "value": 11
+            },
+            {
+              "name": "./node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/sql/sql.js:70 buildQueryFromSourceParams",
+              "value": 11
+            },
+            {
+              "name": "./node_modules/.pnpm/pg-connection-string@2.14.0/node_modules/pg-connection-string/index.js:8 parse",
+              "value": 11
+            },
+            {
+              "name": "node:internal/crypto/util:533 normalizeAlgorithm",
+              "value": 11
+            },
+            {
+              "name": "./packages/flarex-protocol/src/value-runtime-core.ts:236 ",
+              "value": 11
+            },
+            {
+              "name": "./node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/sql/sql.js:83 ",
+              "value": 10
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaParser.js:799 ",
+              "value": 10
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/core.js:356 Base",
+              "value": 10
+            },
+            {
+              "name": "./node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/connection-parameters.js:53 ConnectionParameters",
+              "value": 9
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Schema.js:894 ",
+              "value": 9
+            },
+            {
+              "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1230 ",
+              "value": 9
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Function.js:80 ",
+              "value": 9
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaAST.js:1886 onItem",
+              "value": 8
+            },
+            {
+              "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1164 ",
+              "value": 8
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Context.js:148 lookup",
+              "value": 8
+            },
+            {
+              "name": "./packages/flarex-protocol/src/admitted-framework-operation-v1.ts:67 captureBoundedInput",
+              "value": 8
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:374 getRef",
+              "value": 8
+            },
+            {
+              "name": "./packages/flarex-protocol/src/ordered-index.ts:346 orderedIndexKeyBytesHexV1ToBytes",
+              "value": 8
+            },
+            {
+              "name": "./packages/flarex-protocol/src/commit-protocol.ts:153 logicalMetadataDependencyIdentity",
+              "value": 8
+            },
+            {
+              "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2289 ",
+              "value": 8
+            },
+            {
+              "name": "./packages/flarex-protocol/src/ordered-index.ts:364 orderedIndexBoundHexV1ToBytes",
+              "value": 8
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:757 ",
+              "value": 8
+            },
+            {
+              "name": "./packages/flarex-protocol/src/ordered-index.ts:1128 validateCanonicalArrayShape",
+              "value": 8
+            },
+            {
+              "name": "node:events:456 emit",
+              "value": 7
+            },
+            {
+              "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture",
+              "value": 7
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:855 ",
+              "value": 7
+            },
+            {
+              "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1778 ",
+              "value": 7
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:825 ",
+              "value": 7
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaAST.js:1330 ",
+              "value": 7
+            },
+            {
+              "name": "./packages/flarex-protocol/src/ordered-index.ts:400 decodeOrderedIndexComponentsV1",
+              "value": 7
+            },
+            {
+              "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:119 ",
+              "value": 7
+            },
+            {
+              "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaAST.js:2591 makeFilter.expected",
+              "value": 7
+            },
+            {
+              "name": "node:internal/perf/observe:530 observerCallback",
+              "value": 7
+            },
+            {
+              "name": "./packages/flarex-protocol/src/value.ts:76 retainCanonicalFlarexValueOwnershipV1",
+              "value": 7
+            },
+            {
+              "name": "node:internal/per_context/domexception:72 DOMException",
+              "value": 6
+            }
+          ],
+          "callers": [
+            {
+              "name": "idle/no authored caller",
+              "value": 1588
+            },
+            {
+              "name": "effect-engine/no authored caller",
+              "value": 214
+            },
+            {
+              "name": "drizzle/no authored caller",
+              "value": 107
+            },
+            {
+              "name": "unknown/no authored caller",
+              "value": 99
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit",
+              "value": 92
+            },
+            {
+              "name": "gc/no authored caller",
+              "value": 86
+            },
+            {
+              "name": "effect-engine/./packages/medusa-adapter/src/commerce-promise-owner.ts:34 run",
+              "value": 57
+            },
+            {
+              "name": "effect-engine/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:519 finish",
+              "value": 55
+            },
+            {
+              "name": "postgres-driver/no authored caller",
+              "value": 49
+            },
+            {
+              "name": "node/no authored caller",
+              "value": 44
+            },
+            {
+              "name": "effect-other/no authored caller",
+              "value": 41
+            },
+            {
+              "name": "postgres-driver/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:887 implicitReadTransportRefusal",
+              "value": 37
+            },
+            {
+              "name": "effect-schema/./packages/medusa-adapter/src/commerce-decoder.ts:14 ",
+              "value": 35
+            },
+            {
+              "name": "unknown/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:384 trackedQuery",
+              "value": 25
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/json.ts:94 encodeCanonicalJson",
+              "value": 24
+            },
+            {
+              "name": "unknown/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:887 implicitReadTransportRefusal",
+              "value": 21
+            },
+            {
+              "name": "effect-engine/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:317 finish",
+              "value": 20
+            },
+            {
+              "name": "node/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:887 implicitReadTransportRefusal",
+              "value": 19
+            },
+            {
+              "name": "postgres-driver/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:384 trackedQuery",
+              "value": 19
+            },
+            {
+              "name": "node/./packages/persistence-postgres/src/storage/documents/logicalDocuments/detachChanges.ts:7 detachLogicalDocumentRootChanges",
+              "value": 19
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/json.ts:332 checkedCanonicalByteAdd",
+              "value": 17
+            },
+            {
+              "name": "node/./packages/flarex-protocol/src/value.ts:233 canonicalizeNormalizedValue",
+              "value": 17
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/json.ts:145 measureCanonicalJsonValue",
+              "value": 17
+            },
+            {
+              "name": "other-authored/./packages/utils/src/bytes.ts:58 encodeBytesToLowercaseHex",
+              "value": 15
+            },
+            {
+              "name": "payload/no authored caller",
+              "value": 15
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/json.ts:342 isJson",
+              "value": 15
+            },
+            {
+              "name": "effect-schema/./packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:146 ",
+              "value": 13
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:704 ",
+              "value": 13
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/execution/finiteStorageCapture.ts:500 ",
+              "value": 12
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/value.ts:324 ",
+              "value": 12
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/value-runtime-core.ts:236 ",
+              "value": 11
+            },
+            {
+              "name": "node/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:384 trackedQuery",
+              "value": 10
+            },
+            {
+              "name": "effect-other/./packages/persistence-postgres/src/frameworks/commerceTransaction/model.ts:9 CommerceTransactionError",
+              "value": 10
+            },
+            {
+              "name": "effect-engine/./packages/medusa-adapter/src/commerce-decoder.ts:14 ",
+              "value": 10
+            },
+            {
+              "name": "effect-other/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:519 finish",
+              "value": 10
+            },
+            {
+              "name": "effect-schema/./packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:823 ",
+              "value": 9
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1230 ",
+              "value": 9
+            },
+            {
+              "name": "effect-other/./packages/medusa-adapter/src/commerce-promise-owner.ts:34 run",
+              "value": 8
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1164 ",
+              "value": 8
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/admitted-framework-operation-v1.ts:67 captureBoundedInput",
+              "value": 8
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/ordered-index.ts:346 orderedIndexKeyBytesHexV1ToBytes",
+              "value": 8
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/commit-protocol.ts:153 logicalMetadataDependencyIdentity",
+              "value": 8
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2289 ",
+              "value": 8
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/ordered-index.ts:364 orderedIndexBoundHexV1ToBytes",
+              "value": 8
+            },
+            {
+              "name": "node/./packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1558 try",
+              "value": 8
+            },
+            {
+              "name": "effect-schema/./packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:567 retainMetadataKey",
+              "value": 8
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/ordered-index.ts:1128 validateCanonicalArrayShape",
+              "value": 8
+            },
+            {
+              "name": "unknown/./packages/flarex-protocol/src/value.ts:233 canonicalizeNormalizedValue",
+              "value": 8
+            },
+            {
+              "name": "medusa/no authored caller",
+              "value": 8
+            },
+            {
+              "name": "drizzle/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:516 ",
+              "value": 8
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture",
+              "value": 7
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1778 ",
+              "value": 7
+            },
+            {
+              "name": "node/./packages/persistence-postgres/src/execution/journal/participantOperations.ts:708 ",
+              "value": 7
+            },
+            {
+              "name": "effect-schema/./packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:700 captureFiniteMetadataDependency",
+              "value": 7
+            },
+            {
+              "name": "node/./packages/medusa-adapter/src/commerce-promise-owner.ts:25 stop",
+              "value": 7
+            },
+            {
+              "name": "other-authored/no authored caller",
+              "value": 7
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/ordered-index.ts:400 decodeOrderedIndexComponentsV1",
+              "value": 7
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:119 ",
+              "value": 7
+            },
+            {
+              "name": "effect-engine/./packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:146 ",
+              "value": 7
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/value.ts:76 retainCanonicalFlarexValueOwnershipV1",
+              "value": 7
+            },
+            {
+              "name": "effect-other/./packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:700 captureFiniteMetadataDependency",
+              "value": 6
+            },
+            {
+              "name": "effect-engine/./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1524 ",
+              "value": 6
+            },
+            {
+              "name": "node/./packages/flarex-protocol/src/ordered-index.ts:678 encodeComponent",
+              "value": 6
+            },
+            {
+              "name": "effect-other/./packages/persistence-postgres/src/execution/finiteStorageCapture.ts:500 ",
+              "value": 6
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts:337 recordDecodedMetadataDependency",
+              "value": 6
+            },
+            {
+              "name": "effect-other/./packages/persistence-postgres/src/database/physicalSession/postgres.ts:317 finish",
+              "value": 6
+            },
+            {
+              "name": "protocol/./packages/flarex-protocol/src/json.ts:141 measureCanonicalJsonUtf8Bytes",
+              "value": 6
+            },
+            {
+              "name": "node/./packages/persistence-postgres/src/execution/journal/finiteEntry.ts:101 claimConfirmedFiniteEntryAttempt",
+              "value": 6
+            },
+            {
+              "name": "persistence/./packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts:354 consumeLogicalDocumentRootMetadataDependency",
+              "value": 6
+            },
+            {
+              "name": "effect-engine/./packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:106 ",
+              "value": 6
+            }
+          ]
+        }
+      },
+      "rows": [
+        {
+          "index": 5,
+          "added": 93,
+          "native": 63,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 6,
+          "added": 109,
+          "native": 31,
+          "flarex": 140,
+          "observed": null
+        },
+        {
+          "index": 7,
+          "added": 141,
+          "native": 31,
+          "flarex": 172,
+          "observed": null
+        },
+        {
+          "index": 8,
+          "added": 63,
+          "native": 31,
+          "flarex": 94,
+          "observed": null
+        },
+        {
+          "index": 9,
+          "added": 78,
+          "native": 47,
+          "flarex": 125,
+          "observed": null
+        },
+        {
+          "index": 10,
+          "added": 125,
+          "native": 31,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 11,
+          "added": 110,
+          "native": 31,
+          "flarex": 141,
+          "observed": null
+        },
+        {
+          "index": 12,
+          "added": 79,
+          "native": 15,
+          "flarex": 94,
+          "observed": null
+        },
+        {
+          "index": 13,
+          "added": 109,
+          "native": 31,
+          "flarex": 140,
+          "observed": null
+        },
+        {
+          "index": 14,
+          "added": 124,
+          "native": 16,
+          "flarex": 140,
+          "observed": null
+        },
+        {
+          "index": 15,
+          "added": 124,
+          "native": 32,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 16,
+          "added": 78,
+          "native": 16,
+          "flarex": 94,
+          "observed": null
+        },
+        {
+          "index": 17,
+          "added": 109,
+          "native": 32,
+          "flarex": 141,
+          "observed": null
+        },
+        {
+          "index": 18,
+          "added": 108,
+          "native": 48,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 19,
+          "added": 93,
+          "native": 16,
+          "flarex": 109,
+          "observed": null
+        },
+        {
+          "index": 20,
+          "added": 141,
+          "native": 46,
+          "flarex": 187,
+          "observed": null
+        },
+        {
+          "index": 21,
+          "added": 140,
+          "native": 16,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 22,
+          "added": 156,
+          "native": 0,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 23,
+          "added": 187,
+          "native": 31,
+          "flarex": 218,
+          "observed": null
+        },
+        {
+          "index": 24,
+          "added": 93,
+          "native": 32,
+          "flarex": 125,
+          "observed": null
+        },
+        {
+          "index": 25,
+          "added": 141,
+          "native": 31,
+          "flarex": 172,
+          "observed": null
+        },
+        {
+          "index": 26,
+          "added": 94,
+          "native": 47,
+          "flarex": 141,
+          "observed": null
+        },
+        {
+          "index": 27,
+          "added": 46,
+          "native": 16,
+          "flarex": 62,
+          "observed": null
+        },
+        {
+          "index": 28,
+          "added": 171,
+          "native": 32,
+          "flarex": 203,
+          "observed": null
+        },
+        {
+          "index": 29,
+          "added": 47,
+          "native": 31,
+          "flarex": 78,
+          "observed": null
+        },
+        {
+          "index": 30,
+          "added": 110,
+          "native": 31,
+          "flarex": 141,
+          "observed": null
+        },
+        {
+          "index": 31,
+          "added": 78,
+          "native": 31,
+          "flarex": 109,
+          "observed": null
+        },
+        {
+          "index": 32,
+          "added": 188,
+          "native": 31,
+          "flarex": 219,
+          "observed": null
+        },
+        {
+          "index": 33,
+          "added": 78,
+          "native": 31,
+          "flarex": 109,
+          "observed": null
+        },
+        {
+          "index": 34,
+          "added": 156,
+          "native": 31,
+          "flarex": 187,
+          "observed": null
+        },
+        {
+          "index": 35,
+          "added": 156,
+          "native": 16,
+          "flarex": 172,
+          "observed": null
+        },
+        {
+          "index": 36,
+          "added": 78,
+          "native": 47,
+          "flarex": 125,
+          "observed": null
+        }
+      ]
+    },
+    {
+      "directory": "control",
+      "runId": "af72c8ff-0a57-4935-ba88-b54757ceedb0",
+      "mode": "root-counters",
+      "sources": {
+        "before": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+        "after": "418159f07685a2324628f68ad6458958bdae200c838931634f487f7028960bf1",
+        "files": 6965
+      },
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "cleanup": "completed",
+      "addedCpu": {
+        "n": 40,
+        "mean": 125.35,
+        "median": 124,
+        "min": 78,
+        "max": 189
+      },
+      "nativeCpu": {
+        "n": 40,
+        "mean": 28.075,
+        "median": 31,
+        "min": 15,
+        "max": 47
+      },
+      "flarexCpu": {
+        "n": 40,
+        "mean": 153.425,
+        "median": 156,
+        "min": 95,
+        "max": 204
+      },
+      "profiles": {},
+      "rows": [
+        {
+          "index": 5,
+          "added": 140,
+          "native": 47,
+          "flarex": 187,
+          "observed": null
+        },
+        {
+          "index": 6,
+          "added": 141,
+          "native": 31,
+          "flarex": 172,
+          "observed": null
+        },
+        {
+          "index": 7,
+          "added": 141,
+          "native": 31,
+          "flarex": 172,
+          "observed": null
+        },
+        {
+          "index": 8,
+          "added": 141,
+          "native": 31,
+          "flarex": 172,
+          "observed": null
+        },
+        {
+          "index": 9,
+          "added": 156,
+          "native": 32,
+          "flarex": 188,
+          "observed": null
+        },
+        {
+          "index": 10,
+          "added": 171,
+          "native": 16,
+          "flarex": 187,
+          "observed": null
+        },
+        {
+          "index": 11,
+          "added": 172,
+          "native": 15,
+          "flarex": 187,
+          "observed": null
+        },
+        {
+          "index": 12,
+          "added": 124,
+          "native": 47,
+          "flarex": 171,
+          "observed": null
+        },
+        {
+          "index": 13,
+          "added": 172,
+          "native": 16,
+          "flarex": 188,
+          "observed": null
+        },
+        {
+          "index": 14,
+          "added": 141,
+          "native": 31,
+          "flarex": 172,
+          "observed": null
+        },
+        {
+          "index": 15,
+          "added": 78,
+          "native": 47,
+          "flarex": 125,
+          "observed": null
+        },
+        {
+          "index": 16,
+          "added": 110,
+          "native": 31,
+          "flarex": 141,
+          "observed": null
+        },
+        {
+          "index": 17,
+          "added": 125,
+          "native": 16,
+          "flarex": 141,
+          "observed": null
+        },
+        {
+          "index": 18,
+          "added": 157,
+          "native": 31,
+          "flarex": 188,
+          "observed": null
+        },
+        {
+          "index": 19,
+          "added": 95,
+          "native": 30,
+          "flarex": 125,
+          "observed": null
+        },
+        {
+          "index": 20,
+          "added": 94,
+          "native": 31,
+          "flarex": 125,
+          "observed": null
+        },
+        {
+          "index": 21,
+          "added": 172,
+          "native": 15,
+          "flarex": 187,
+          "observed": null
+        },
+        {
+          "index": 22,
+          "added": 110,
+          "native": 46,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 23,
+          "added": 109,
+          "native": 47,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 24,
+          "added": 108,
+          "native": 16,
+          "flarex": 124,
+          "observed": null
+        },
+        {
+          "index": 25,
+          "added": 124,
+          "native": 16,
+          "flarex": 140,
+          "observed": null
+        },
+        {
+          "index": 26,
+          "added": 156,
+          "native": 31,
+          "flarex": 187,
+          "observed": null
+        },
+        {
+          "index": 27,
+          "added": 125,
+          "native": 31,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 28,
+          "added": 109,
+          "native": 16,
+          "flarex": 125,
+          "observed": null
+        },
+        {
+          "index": 29,
+          "added": 124,
+          "native": 16,
+          "flarex": 140,
+          "observed": null
+        },
+        {
+          "index": 30,
+          "added": 140,
+          "native": 47,
+          "flarex": 187,
+          "observed": null
+        },
+        {
+          "index": 31,
+          "added": 189,
+          "native": 15,
+          "flarex": 204,
+          "observed": null
+        },
+        {
+          "index": 32,
+          "added": 109,
+          "native": 47,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 33,
+          "added": 110,
+          "native": 31,
+          "flarex": 141,
+          "observed": null
+        },
+        {
+          "index": 34,
+          "added": 109,
+          "native": 16,
+          "flarex": 125,
+          "observed": null
+        },
+        {
+          "index": 35,
+          "added": 79,
+          "native": 16,
+          "flarex": 95,
+          "observed": null
+        },
+        {
+          "index": 36,
+          "added": 94,
+          "native": 16,
+          "flarex": 110,
+          "observed": null
+        },
+        {
+          "index": 37,
+          "added": 94,
+          "native": 31,
+          "flarex": 125,
+          "observed": null
+        },
+        {
+          "index": 38,
+          "added": 125,
+          "native": 31,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 39,
+          "added": 124,
+          "native": 31,
+          "flarex": 155,
+          "observed": null
+        },
+        {
+          "index": 40,
+          "added": 78,
+          "native": 31,
+          "flarex": 109,
+          "observed": null
+        },
+        {
+          "index": 41,
+          "added": 141,
+          "native": 15,
+          "flarex": 156,
+          "observed": null
+        },
+        {
+          "index": 42,
+          "added": 94,
+          "native": 16,
+          "flarex": 110,
+          "observed": null
+        },
+        {
+          "index": 43,
+          "added": 139,
+          "native": 32,
+          "flarex": 171,
+          "observed": null
+        },
+        {
+          "index": 44,
+          "added": 94,
+          "native": 31,
+          "flarex": 125,
+          "observed": null
+        }
+      ]
+    }
+  ]
+}

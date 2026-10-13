@@ -5,6 +5,7 @@ import type { MeasurementAnalysis } from "./analysis";
 import type { MeasurementEvidence } from "./artifact";
 import type { CpuEvidence, analyzeCpuEvidence } from "./cpu";
 import type { RootCounterEvidence, RootCounterPair } from "./rootCounters";
+import type { CycleEvidence, acquireCycleAttribution } from "./cycleAttribution";
 import type { FailureEvidence } from "./failure";
 import type { TraceInvocationRecord } from "../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import type { CorePerformanceScenario } from "../support/scenario";
@@ -36,6 +37,7 @@ export interface RequestReport {
   readonly invalidEvidence?: string;
   readonly driver?: TraceInvocationRecord;
   readonly rootCounters?: RootCounterEvidence;
+  readonly cycleEvidence?: CycleEvidence;
 }
 
 export interface RunReport {
@@ -54,6 +56,7 @@ export interface RunReport {
   readonly observerPairs?: readonly Readonly<{ index: number; quietMs: number; diagnosticMs: number; addedMs: number }>[];
   readonly cpuPairs?: readonly RootCounterPair[];
   readonly counterCalibration?: readonly RootCounterEvidence[];
+  readonly cycleAttribution?: ReturnType<Awaited<ReturnType<typeof acquireCycleAttribution>>["metadata"]>;
   readonly pairedSummary: Readonly<{ samples: number; medianAddedMs: number; p95AddedMs: number }> | null;
   readonly gates: readonly Readonly<{ name: string; passed: boolean; detail: string }>[];
   readonly setupMs: number;
@@ -82,6 +85,14 @@ function appendCpuReport(rows: string[], cpu: ReturnType<typeof analyzeCpuEviden
   rows.push("", `CPU collection: ${cpu.complete ? "complete" : "incomplete"}. Clock alignment: ${cpu.alignment.status}; offset uncertainty ${cpu.alignment.uncertaintyMs?.toFixed(3) ?? "unavailable"} ms. Root samples: ${cpu.definitelyInsideSamples} inside, ${cpu.boundaryAmbiguousSamples} boundary-ambiguous, ${cpu.outsideSamples} outside.`, "",
     "| Sampled source frame | Self samples | Inclusive samples | Sampled elapsed spacing ms |", "|---|---:|---:|---:|");
   for (const frame of cpu.sampledFrames.slice(0, 30)) rows.push(`| ${frame.callFrame.url}:${frame.callFrame.lineNumber + 1} ${frame.callFrame.functionName} | ${frame.selfSamples} | ${frame.inclusiveSamples} | ${frame.sampledElapsedWeightMs.toFixed(3)} |`);
+  rows.push("", "| Executing source category | Runner context | Self samples |", "|---|---|---:|");
+  const categories = new Map<string, number>();
+  for (const location of cpu.selfLocations) {
+    const key = `${location.category} | ${location.executionContext}`;
+    categories.set(key, (categories.get(key) ?? 0) + location.selfSamples);
+  }
+  for (const [key, count] of [...categories].sort((a, b) => b[1] - a[1])) rows.push(`| ${key} | ${count} |`);
+  rows.push("", "These categories partition retained self samples. Raw selfLocations preserve the nearest authored stack caller separately; caller provenance is not exclusive semantic ownership. Unknown, idle and GC samples remain explicit. Profile coordinates are executing-code coordinates, not verified authored lines.");
   rows.push("", `GC root overlap: ${cpu.gc.summedRootOverlapMs?.toFixed(3) ?? "unavailable"} ms in ${cpu.gc.intervals.length} observed intervals.`, "",
     cpu.allocationAvailability === "disabled"
       ? "Allocation sampling: disabled. HeapProfiler acquisition and allocation profiles are unavailable in this selection; omitted samples do not mean zero allocation."
@@ -106,7 +117,7 @@ function humanReport(report: RunReport): string {
     "Root CPU/GC capture surrounds the genuine scenario call and attempt finalizers. Effect tracing and its context hook, SQL tracing, publication observation and heap sampling are absent. Profile setup and stop occur outside the timed call; profiler start/stop command windows remain in raw CPU evidence. Other acquisition and release cost is unavailable. Fixture preparation, verification and sample/command cleanup are outside capture.");
   rows.push("", "| Request | Lane | Kind | Complete call ms | Outcome |", "|---|---|---|---:|---|");
   for (const sample of report.samples) rows.push(`| ${sample.id} | ${sample.lane} | ${sample.kind} | ${sample.requestMs?.toFixed(3) ?? "unavailable"} | ${sample.outcome} |`);
-  if (report.mode === "root-counters") {
+  if (report.cpuPairs !== undefined || report.mode === "root-counters") {
     rows.push("", "Root counters surround the actual call and its attempt finalizers. Fixture preparation, committed-result verification, sample disposal, command disposal and artifact construction/readback are outside these CPU windows. The counter window includes two resource reads; their individual wall windows and absolute readings are retained in raw evidence. Process CPU includes sibling threads/background work. Thread CPU is unavailable on hosts without threadCpuUsage. External contention is unmeasured.", "",
       "| Request | Counter complete | Call window ms | Process CPU µs | Thread CPU µs | Read windows ms |", "|---|---|---:|---:|---:|---:|");
     for (const sample of report.samples) {
@@ -127,6 +138,15 @@ function humanReport(report: RunReport): string {
       rows.push(`| ${index} | ${window === undefined ? "unavailable" : (window.endMonotonicMs - window.startMonotonicMs).toFixed(6)} | ${evidence.counters === null ? "unavailable" : evidence.counters.process.user + evidence.counters.process.system} | ${evidence.counters?.thread === null || evidence.counters === null ? "unavailable" : evidence.counters.thread.user + evidence.counters.thread.system} | ${evidence.complete} |`);
     }
     rows.push("", "Eight synchronous back-to-back pairs calibrate resource acquisition separately from business calls. They include adapter and clock overhead and possible background work. Calibration is retained without subtraction from actual CPU or elapsed observations.");
+  }
+  if (report.cycleAttribution !== undefined) {
+    const calibration = report.cycleAttribution.calibration;
+    rows.push("", `Cycle attribution: ${report.cycleAttribution.detail}; balanced ${report.cycleAttribution.order} observer assignment. ${report.cycleAttribution.sources.length} transformed source files.`,
+      `Calibration: ${calibration.reads} reads; smallest positive observed cycle increment ${calibration.minimumPositiveCycles ?? "unavailable"}; smallest positive thread-counter increment ${calibration.minimumPositiveThreadMicroseconds ?? "unavailable"} µs. These are empirical increments, not guaranteed resolution.`,
+      "Cycles are not converted to milliseconds. The disjoint ledger includes observer cost, required business work and any same-thread background work. Engine residual includes unobserved helper/library work; it is not pure interpreter overhead. Generator sites identify synchronous bodies, including their unobserved callees. Disabled roots retain forwarding factories and root cycle reads. No observer cost is subtracted.", "",
+      "| Request | Partition on | Complete | Total cycles |", "|---|---|---|---:|");
+    for (const sample of report.samples) if (sample.cycleEvidence !== undefined)
+      rows.push(`| ${sample.id} | ${sample.cycleEvidence.observed} | ${sample.cycleEvidence.complete} | ${sample.cycleEvidence.totalCycles ?? "unavailable"} |`);
   }
   if (report.observerPairs !== undefined) {
     rows.push("", `| Observer pair | Quiet Flarex ms | ${report.mode === "cpu" ? "Root CPU" : "Resource"} diagnostic ms | Observed difference ms |`,

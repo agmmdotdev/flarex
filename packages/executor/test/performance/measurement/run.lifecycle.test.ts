@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { compare, measure } from "./index";
 import { MeasurementRunFailure, type RunReport } from "./report";
@@ -173,6 +174,36 @@ beforeEach(() => {
       ...(boundary.state.cpuFailure === undefined ? {} : { complete: false, failures: ["cpuStop"] as const }) } : emptyCpu(),
     failures: () => boundary.state.cpuFailure === undefined ? [] : [{ stage: "cpuStop", cause: boundary.state.cpuFailure }],
   }));
+});
+
+it("profiles both native and Flarex complete calls with independent root counters", async () => {
+  await compare({ selection: { scenario: "mixed-workflow" }, size: "small", mode: "cpu", outputDirectory, warmups: 1, samples: 2 });
+  const report = boundary.reports[0];
+  expect(report?.execution).toBe("complete");
+  expect(report?.acceptance).toBe("notEvaluated");
+  expect(report?.cpuPairs).toHaveLength(2);
+  expect(boundary.cpu).toHaveBeenCalledTimes(4);
+  expect(boundary.effectCollector).not.toHaveBeenCalled();
+  expect(boundary.requests.every(request => !request.effect && !request.trace && !request.publication)).toBe(true);
+  expect(report?.samples.filter(sample => sample.kind === "diagnostic").every(sample =>
+    sample.rootCounters?.complete && sample.cpuAnalysis?.complete)).toBe(true);
+  expect(verify).toHaveBeenCalledTimes(3);
+  expect(cleanup).toHaveBeenCalledTimes(3);
+});
+it("excludes profiler acquisition and release from both native and Flarex elapsed pairs", async () => {
+  let clock = 0;
+  const now = vi.spyOn(performance, "now").mockImplementation(() => clock++);
+  boundary.cpu.mockImplementation(() => ({
+    capture: async <A>(invoke: () => Promise<A>): Promise<A> => {
+      clock += 100; try { return await invoke(); } finally { clock += 200; }
+    }, evidence: rootCpuEvidence, failures: () => [],
+  }));
+  try {
+    await compare({ selection: { scenario: "mixed-workflow" }, size: "small", mode: "cpu", outputDirectory, warmups: 0, samples: 1 });
+    expect(boundary.reports[0]?.samples.every(sample => sample.requestMs !== null && sample.requestMs > 0 && sample.requestMs < 100)).toBe(true);
+    expect(boundary.reports[0]?.pairs[0]?.addedMs).toBe(0);
+    expect(clock).toBeGreaterThan(600);
+  } finally { now.mockRestore(); }
 });
 
 it("selects owner resources without database or profiler acquisition and omits unavailable ledgers", async () => {

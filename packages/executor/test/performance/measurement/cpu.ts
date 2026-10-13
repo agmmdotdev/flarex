@@ -264,6 +264,33 @@ export function analyzeCpuEvidence(evidence: CpuEvidence, root: CpuWindow | null
     crossesRoot: root !== null && event.startMonotonicMs < root.endMonotonicMs &&
       event.startMonotonicMs + event.durationMs > root.startMonotonicMs &&
       (event.startMonotonicMs < root.startMonotonicMs || event.startMonotonicMs + event.durationMs > root.endMonotonicMs) }));
+  const locations = new Map<string, { category: string; executionContext: string; authoredCaller: string | null; selfSamples: number }>();
+  for (const frame of frames.values()) {
+    if (frame.selfSamples === 0) continue;
+    const chain: typeof frame[] = [];
+    for (let id: number | undefined = frame.nodeId; id !== undefined && chain.length <= CPU_LIMITS.depth; id = parents.get(id)) {
+      const parent = frames.get(id); if (parent !== undefined) chain.push(parent);
+    }
+    const { url, functionName } = frame.callFrame;
+    const category = functionName === "(idle)" ? "idle" : functionName === "(garbage collector)" ? "gc"
+      : url.includes("/effect/") ? url.endsWith("/internal/effect.js") ? "effect-engine"
+        : /Schema|schema/.test(url) ? "effect-schema" : "effect-other"
+      : url.includes("/measurement/") ? "measurement"
+      : url.includes("/packages/persistence-postgres/src/") ? "persistence"
+      : url.includes("/packages/flarex-protocol/src/") ? "protocol"
+      : /\/pg(?:-protocol|-pool)?\//.test(url) ? "postgres-driver"
+      : url.includes("/drizzle-orm/") ? "drizzle"
+      : url.includes("medusa") ? "medusa" : url.includes("payload") ? "payload"
+      : url.startsWith("node:") ? "node" : url.includes("/packages/") ? "other-authored" : "unknown";
+    const executionContext = chain.some(item => item.callFrame.functionName === "runLoop" && item.callFrame.url.includes("/internal/effect.js"))
+      ? "inside-effect-runner" : "outside-effect-runner";
+    const caller = chain.find(item => item.callFrame.url.includes("/packages/") && item.callFrame.url.includes("/src/"));
+    const authoredCaller = caller === undefined ? null : `${caller.callFrame.url}:${caller.callFrame.lineNumber + 1} ${caller.callFrame.functionName}`;
+    const key = JSON.stringify([category, executionContext, authoredCaller]);
+    const previous = locations.get(key);
+    if (previous === undefined) locations.set(key, { category, executionContext, authoredCaller, selfSamples: frame.selfSamples });
+    else previous.selfSamples += frame.selfSamples;
+  }
   const deltas = profile?.timeDeltas?.toSorted((a, b) => a - b) ?? [];
   const allocationAvailability: "available" | "disabled" | "capture-unavailable" = evidence.allocationSampling === "disabled"
     ? "disabled" : evidence.allocationProfile === null ? "capture-unavailable" : "available";
@@ -274,6 +301,9 @@ export function analyzeCpuEvidence(evidence: CpuEvidence, root: CpuWindow | null
     actualSamplingDeltasMicroseconds: deltas.length === 0 ? null : { min: deltas[0], max: deltas.at(-1),
       median: deltas[Math.floor(deltas.length / 2)], sum: deltas.reduce((a, b) => a + b, 0) },
     sampledFrames: [...frames.values()].filter(frame => frame.inclusiveSamples > 0).toSorted((a, b) => b.selfSamples - a.selfSamples),
+    // Disjoint self samples reuse the existing conservative clock-window test.
+    // Caller is stack provenance, not exclusive semantic ownership or savings.
+    selfLocations: [...locations.values()].toSorted((a, b) => b.selfSamples - a.selfSamples),
     allocationSampling: evidence.allocationSampling, allocationAvailability,
     allocations: evidence.allocationProfile === null ? null : { scope: "entire-profiler-window", window: evidence.allocationWindow,
       estimatedBytes: evidence.allocationProfile.nodes.reduce((sum, node) => sum + node.selfSize, 0),

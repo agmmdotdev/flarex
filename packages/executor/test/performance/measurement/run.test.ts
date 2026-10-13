@@ -2,6 +2,17 @@ import { describe, expect, it } from "vitest";
 import { compare, measure } from "./index";
 
 describe("measurement public configuration boundary", () => {
+  it.each([1, 3, 5, 30, 99])("rejects %i cycle samples before acquiring resources", async samples => {
+    const input = { selection: { scenario: "mixed-workflow" as const }, size: "small" as const, mode: "root-counters" as const,
+      outputDirectory: "unused", samples, attribution: { readerPath: "unused.node", detail: "engine" as const, order: "abba" as const } };
+    await expect(compare(input)).rejects.toMatchObject({ _tag: "InvalidMeasurementConfiguration" });
+    await expect(measure(input)).rejects.toMatchObject({ _tag: "InvalidMeasurementConfiguration" });
+  });
+  it("rejects cycle attribution in quiet mode before acquiring resources", async () => {
+    await expect(compare({ selection: { scenario: "mixed-workflow" }, size: "small", mode: "quiet", outputDirectory: "unused",
+      attribution: { readerPath: "unused.node", detail: "engine", order: "abba" } }))
+      .rejects.toMatchObject({ _tag: "InvalidMeasurementConfiguration" });
+  });
   it("rejects root CPU observation in other modes before acquiring resources", async () => {
     for (const mode of ["quiet", "root-counters", "timeline", "resources", "database", "server"] as const) {
       await expect(measure({ selection: { scenario: "mixed-product" }, size: "small", mode,

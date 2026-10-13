@@ -10,6 +10,7 @@ import { createEffectMeasurementCollector } from "./collectors/effect";
 import { createCpuMeasurementCollector, assertCpuMeasurementIdle } from "./collectors/cpu";
 import { readNodeResourceCounters } from "./collectors/nodeResources";
 import { calibrateRootCounters, createRootCounterCollector } from "./rootCounters";
+import { acquireCycleAttribution, assertCycleTransformSelection, CycleOptionsSchema } from "./cycleAttribution";
 import { analyzeCpuEvidence } from "./cpu";
 import { acquireServerMeasurementResource } from "./collectors/server";
 import { acquireNativeBusinessResource } from "./collectors/native";
@@ -33,12 +34,17 @@ const common = {
   outputDirectory: Schema.String.check(Schema.makeFilter(value => value.trim().length > 0 ? undefined : "Expected output directory")),
   samples: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
   warmups: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 5 }))),
+  attribution: Schema.optional(CycleOptionsSchema),
 };
 const MeasureOptionsSchema = Schema.Struct({ ...common,
   mode: Schema.Literals(["quiet", "root-counters", "timeline", "resources", "database", "cpu", "server"]),
   driver: Schema.optional(Schema.Literals(["postgres", "pglite"])),
   observation: Schema.optional(Schema.Literals(["owners", "root"])),
-}).check(Schema.makeFilter(value => value.observation === "owners" && value.mode !== "resources"
+}).check(Schema.makeFilter(value => value.attribution !== undefined && value.mode !== "root-counters"
+  ? "Cycle attribution requires root-counters mode"
+  : value.attribution !== undefined && value.samples !== undefined && value.samples % 4 !== 0
+  ? "Cycle attribution requires complete four-sample blocks"
+  : value.observation === "owners" && value.mode !== "resources"
   ? "Owner observation requires resources mode"
   : value.observation === "root" && value.mode !== "cpu"
   ? "Root observation requires CPU mode"
@@ -49,7 +55,13 @@ const MeasureOptionsSchema = Schema.Struct({ ...common,
     ? "Selected sampling exceeds the fixture's fresh-attempt capacity" : undefined));
 const CompareOptionsSchema = Schema.Struct({ ...common,
   selection: Schema.Struct({ scenario: NativeScenarioName }), size: Schema.Literal("small"),
-  mode: Schema.optional(Schema.Literals(["quiet", "root-counters"])) });
+  mode: Schema.optional(Schema.Literals(["quiet", "root-counters", "cpu"])) }).check(Schema.makeFilter(value =>
+    value.attribution !== undefined && value.mode !== "root-counters" ? "Cycle attribution requires root-counters mode"
+    : value.attribution !== undefined && value.samples !== undefined && value.samples % 4 !== 0
+      ? "Cycle attribution requires complete four-sample blocks" : undefined));
+
+type Cycles = Awaited<ReturnType<typeof acquireCycleAttribution>>;
+type CycleCapture = ReturnType<Cycles["create"]>;
 
 class InvalidMeasurementConfiguration extends Data.TaggedError("InvalidMeasurementConfiguration")<{
   readonly detail: string;
@@ -134,7 +146,7 @@ function normalize(requestId: string, collector: ReturnType<typeof createEffectM
 async function flarexRequest(scenario: CorePerformanceScenario, name: typeof ScenarioName.Type, index: number,
   kind: RequestReport["kind"], mode: RunReport["mode"], runId: string, retainFailure: (cause: unknown) => void,
   server: Awaited<ReturnType<typeof acquireServerMeasurementResource>> | undefined,
-  selectedObservation?: "owners" | "root"): Promise<RequestReport> {
+  selectedObservation?: "owners" | "root", cycles?: CycleCapture, countProfile = false): Promise<RequestReport> {
   const id = `${runId}:flarex:${index}`;
   const seedStart = performance.now();
   const sample = await scenario.prepareSample(id, index);
@@ -150,7 +162,7 @@ async function flarexRequest(scenario: CorePerformanceScenario, name: typeof Sce
   }
   const cpu = kind === "diagnostic" && mode === "cpu"
     ? rootCpu ? createCpuMeasurementCollector({ allocations: false }) : createCpuMeasurementCollector() : undefined;
-  const rootCounter = kind === "diagnostic" && mode === "root-counters" ? createRootCounterCollector() : undefined;
+  const rootCounter = kind === "diagnostic" && (mode === "root-counters" || (rootCpu && countProfile)) ? createRootCounterCollector() : undefined;
   const observation = collector?.publicationObservation();
   let requestMs: number | null = null;
   let verificationMs = 0;
@@ -171,7 +183,8 @@ async function flarexRequest(scenario: CorePerformanceScenario, name: typeof Sce
   try {
     scenario.setTrace?.(trace);
     scenario.setEffectDiagnostics?.(collector?.binding);
-    const run = () => sample.run(observation, cleanupFailures);
+    const invoke = () => sample.run(observation, cleanupFailures);
+    const run = () => cycles === undefined ? invoke() : cycles.capture(invoke);
     const observed = () => collector === undefined ? run() : collector.runRequest(name, run);
     const counted = () => rootCounter === undefined ? observed() : rootCounter.capture(observed);
     const timed = async () => {
@@ -243,6 +256,8 @@ async function flarexRequest(scenario: CorePerformanceScenario, name: typeof Sce
   const effectFailures = [...collector?.fullExits() ?? []].flatMap(([spanId, exit]) => Exit.isFailure(exit)
     ? [{ spanId, failure: describeFailure("effectSpan", exit.cause) }] : []);
   const rootCounters = rootCounter?.evidence();
+  const cycleEvidence = cycles?.evidence();
+  for (const cause of cycles?.failures() ?? []) failures.push(describeFailure("cycleAttribution", cause));
   for (const fault of rootCounter?.failures() ?? []) failures.push(describeFailure(`rootCounters.${fault.stage}`, fault.cause));
   return { id, lane: "flarex", index, kind, requestMs, seedMs, verificationMs, cleanupMs,
     outcome, failureStage, failures, ...(collector === undefined ? {} : { effectFailures }),
@@ -252,12 +267,13 @@ async function flarexRequest(scenario: CorePerformanceScenario, name: typeof Sce
     ...(cpuAnalysis === undefined || analysis?.cpu !== undefined ? {} : { cpuAnalysis }),
     ...(invalidEvidence === undefined ? {} : { invalidEvidence }),
     ...(rootCounters === undefined ? {} : { rootCounters }),
+    ...(cycleEvidence === undefined ? {} : { cycleEvidence }),
     ...(trace?.records()[0] === undefined ? {} : { driver: trace.records()[0] }) };
 }
 
 async function nativeRequest(resource: Awaited<ReturnType<typeof acquireNativeBusinessResource>>["resource"],
   name: typeof NativeScenarioName.Type, index: number, kind: "warmup" | "quiet" | "diagnostic", runId: string,
-  retainFailure: (cause: unknown) => void, mode: "quiet" | "root-counters" = "quiet"): Promise<RequestReport> {
+  retainFailure: (cause: unknown) => void, mode: "quiet" | "root-counters" | "cpu" = "quiet", cycles?: CycleCapture): Promise<RequestReport> {
   const start = performance.now();
   const sample = await resource.prepareSample(name, `${runId.slice(0, 8)}-${index}`);
   const seedMs = performance.now() - start;
@@ -265,13 +281,19 @@ async function nativeRequest(resource: Awaited<ReturnType<typeof acquireNativeBu
   let outcome: RequestReport["outcome"] = "success";
   let failureStage: string | null = null;
   const failures: FailureEvidence[] = [];
-  const rootCounter = mode === "root-counters" ? createRootCounterCollector() : undefined;
+  const rootCounter = mode !== "quiet" ? createRootCounterCollector() : undefined;
+  const cpu = mode === "cpu" ? createCpuMeasurementCollector({ allocations: false }) : undefined;
   const fail = (stage: string, cause: unknown) => { failures.push(describeFailure(stage, cause)); retainFailure(cause); };
   try {
-    const start = performance.now();
-    try { await (rootCounter === undefined ? sample.run() : rootCounter.capture(() => sample.run())); }
+    const invoke = () => sample.run();
+    const observed = () => cycles === undefined ? invoke() : cycles.capture(invoke);
+    const counted = () => rootCounter === undefined ? observed() : rootCounter.capture(observed);
+    const timed = async () => {
+      const start = performance.now();
+      try { return await counted(); } finally { requestMs = performance.now() - start; }
+    };
+    try { await (cpu === undefined ? timed() : cpu.capture(timed)); }
     catch (cause) { outcome = "failure"; failureStage = "request"; fail("request", cause); }
-    finally { requestMs = performance.now() - start; }
     if (outcome === "success") {
       const start = performance.now();
       try { await sample.verify(); }
@@ -285,10 +307,20 @@ async function nativeRequest(resource: Awaited<ReturnType<typeof acquireNativeBu
     finally { cleanupMs = performance.now() - start; }
   }
   const rootCounters = rootCounter?.evidence();
+  const cycleEvidence = cycles?.evidence();
+  let cpuEvidence: RequestReport["cpuEvidence"], cpuAnalysis: RequestReport["cpuAnalysis"], invalidEvidence: string | undefined;
+  try { cpuEvidence = cpu?.evidence(); cpuAnalysis = cpuEvidence === undefined ? undefined : analyzeCpuEvidence(cpuEvidence); }
+  catch (cause) { invalidEvidence = "CPU diagnostic analysis failed"; failures.push(describeFailure("cpuAnalysis", cause)); retainFailure(cause); }
+  for (const cause of cycles?.failures() ?? []) failures.push(describeFailure("cycleAttribution", cause));
+  for (const fault of cpu?.failures() ?? []) failures.push(describeFailure(`cpu.${fault.stage}`, fault.cause));
   for (const fault of rootCounter?.failures() ?? []) failures.push(describeFailure(`rootCounters.${fault.stage}`, fault.cause));
   return { id: `${runId}:native:${index}`, lane: "native", index, kind, requestMs,
     seedMs, verificationMs, cleanupMs, outcome, failureStage, failures,
-    ...(rootCounters === undefined ? {} : { rootCounters }) };
+    ...(rootCounters === undefined ? {} : { rootCounters }),
+    ...(cycleEvidence === undefined ? {} : { cycleEvidence }),
+    ...(invalidEvidence === undefined ? {} : { invalidEvidence }),
+    ...(cpuEvidence === undefined ? {} : { cpuEvidence }),
+    ...(cpuAnalysis === undefined ? {} : { cpuAnalysis }) };
 }
 
 let commandActive = false;
@@ -309,12 +341,12 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
   const failures: RunReport["failures"][number][] = [];
   const originalFailures: unknown[] = [];
   const retainFailure = (cause: unknown) => { originalFailures.push(cause); };
-  const requested = options.samples ?? (operation === "compare" ? 30 : 1);
+  const requested = options.samples ?? (options.attribution !== undefined ? 32 : operation === "compare" ? 30 : 1);
   const warmups = options.warmups ?? (operation === "compare" ? 5 : 1);
   const diagnostic = options.mode !== "quiet";
-  const rootCounters = options.mode === "root-counters";
+  const rootCounters = options.mode === "root-counters" || (operation === "compare" && options.mode === "cpu");
   const rootCpu = options.mode === "cpu" && options.observation === "root";
-  const pairedDiagnostic = options.mode === "resources" || rootCpu;
+  const pairedDiagnostic = operation !== "compare" && (options.mode === "resources" || rootCpu);
   let counterCalibration: RunReport["counterCalibration"];
   const driver = options.driver ?? "postgres";
   const name = options.selection.scenario;
@@ -324,6 +356,7 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
   let family: PreparedPerformanceFamily | undefined;
   let scenario: CorePerformanceScenario | undefined;
   let server: Awaited<ReturnType<typeof acquireServerMeasurementResource>> | undefined;
+  let cycles: Cycles | undefined;
   const observerPairs: NonNullable<RunReport["observerPairs"]>[number][] = [];
   let native: Awaited<ReturnType<typeof acquireNativeBusinessResource>> | undefined;
   let setupMs = 0, cleanupMs = 0;
@@ -335,6 +368,7 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
   let stage = "acquisition";
   try {
     const start = performance.now();
+    if (options.attribution !== undefined) cycles = await acquireCycleAttribution(options.attribution);
     if (options.mode === "server") server = await acquireServerMeasurementResource({
       ...(process.env.FLAREX_MEASUREMENT_SERVER_LOG === undefined ? {} : {
         planLog: { path: resolve(process.env.FLAREX_MEASUREMENT_SERVER_LOG),
@@ -346,6 +380,7 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
       ...(server === undefined ? {} : { postgresEndpoints: server.endpoints }) });
     scenario = family.scenario(name);
     cleanup = "failed";
+    assertCycleTransformSelection(options.attribution?.detail);
     // Arm only after installation and fixture preparation. Existing idle
     // sessions retire before warming so real serving sessions inherit the
     // declared isolated diagnostic profile.
@@ -390,8 +425,10 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
           continue;
         }
         const index = warmups + position + (diagnostic && !rootCounters ? 1 : 0);
+        const observeCycles = options.attribution?.order === "baab" ? position % 4 === 1 || position % 4 === 2
+          : position % 4 === 0 || position % 4 === 3;
         if (native === undefined) samples.push(await flarexRequest(scenario, name, index,
-          diagnostic ? "diagnostic" : "quiet", options.mode, runId, retainFailure, server));
+          diagnostic ? "diagnostic" : "quiet", options.mode, runId, retainFailure, server, options.observation, cycles?.create(observeCycles)));
         else {
           // Alternate pair order to disclose and reduce systematic order bias.
           const requests: RequestReport[] = [];
@@ -400,8 +437,9 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
             if (nativeName === undefined) throw new Error("Missing verified native scenario");
             const kind = rootCounters ? "diagnostic" : "quiet";
             const request = lane === "native" ? await nativeRequest(native.resource, nativeName, index, kind, runId, retainFailure,
-              rootCounters ? "root-counters" : "quiet")
-              : await flarexRequest(scenario, name, index, kind, options.mode, runId, retainFailure, server);
+              options.mode === "cpu" ? "cpu" : rootCounters ? "root-counters" : "quiet", cycles?.create(false))
+              : await flarexRequest(scenario, name, index, kind, options.mode, runId, retainFailure, server,
+                options.observation, cycles?.create(observeCycles), options.mode === "cpu");
             // Retain each completed lane before acquiring its partner. A later
             // preparation failure must not discard an earlier actual request.
             samples.push(request);
@@ -438,7 +476,7 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
   } finally {
     const start = performance.now();
     const cleanupErrors: unknown[] = [];
-    for (const close of [native?.close, family?.dispose, server?.close]) {
+    for (const close of [native?.close, family?.dispose, server?.close, cycles?.close]) {
       if (close === undefined) continue;
       try { await close(); } catch (cause) { cleanupErrors.push(cause); }
     }
@@ -456,7 +494,9 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
     (rootCounters ? sample.rootCounters?.complete !== true
       : rootCpu ? sample.invalidEvidence !== undefined || sample.cpuAnalysis?.complete !== true
       : sample.invalidEvidence !== undefined || (sample.ownerResources ?? sample.analysis)?.diagnostic !== "complete")) ||
-    (rootCounters && counterCalibration?.some(sample => !sample.complete) === true);
+    (rootCounters && counterCalibration?.some(sample => !sample.complete) === true) ||
+    samples.some(sample => sample.cycleEvidence?.complete === false ||
+      (operation === "compare" && options.mode === "cpu" && sample.kind === "diagnostic" && sample.cpuAnalysis?.complete !== true));
   const stableSources = before !== undefined && after !== undefined && before.digest === after.digest;
   const stableSettings = settingsBefore !== null && settingsAfter !== null && JSON.stringify(settingsBefore) === JSON.stringify(settingsAfter);
   gates.push({ name: "sourceStability", passed: stableSources, detail: "Authored package code, locks and loaded native sources remain stable" },
@@ -480,6 +520,7 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
     ...(scenario?.workload === undefined ? {} : { workload: scenario.workload }), samples, pairs,
     ...(pairedDiagnostic ? { observerPairs } : {}),
     ...(rootCounters ? { cpuPairs, counterCalibration: counterCalibration ?? [] } : {}),
+    ...(cycles === undefined ? {} : { cycleAttribution: cycles.metadata() }),
     pairedSummary: summary, gates, setupMs, cleanupMs, cleanup, failures,
     sources: { before: before?.digest ?? null, after: after?.digest ?? null, files: before?.files ?? 0 },
     environment: { before: settingsBefore, after: settingsAfter } };
@@ -505,5 +546,6 @@ export async function measure(options: typeof MeasureOptionsSchema.Type) {
 /** Fresh matched pairs. Counter observations never evaluate quiet latency acceptance. */
 export async function compare(options: typeof CompareOptionsSchema.Type) {
   const configured = configuration(decodeCompare(options));
-  return run({ ...configured, mode: configured.mode ?? "quiet", driver: "postgres" }, "compare");
+  return run({ ...configured, mode: configured.mode ?? "quiet", driver: "postgres",
+    ...(configured.mode === "cpu" ? { observation: "root" as const } : {}) }, "compare");
 }
