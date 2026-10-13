@@ -690,7 +690,7 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       let fullAdmissionOpen = true, fullAdmissionChecks = 0;
       const openFull = (selected: PreparedLogicalDocumentWriteMechanics,
         overrides: Partial<Pick<LogicalDocumentWorkingSetInput<Error>, "tables" | "relationalCapabilities" |
-          "searchDefinitions">> = {}, indexes = selected.indexes, unique = selected.unique) => Effect.gen(function* () {
+          "searchDefinitions" | "readTransaction">> = {}, indexes = selected.indexes, unique = selected.unique) => Effect.gen(function* () {
         const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
           { calls: 16, commandBytes: 262_144, commandMs: 60_000 }, attempt, {}, "full-prepared-mechanics", "write"),
         resource => resource.close);
@@ -715,6 +715,28 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       const fullInserted = yield* full.working.documents.insert(full.lifetime.context, full.id, "notes", { label: "full-pending" });
       expect(fullAdmissionChecks).toBeGreaterThan(checksAtConstruction);
       expect(fullInserted).toMatchObject({ label: "full-pending" });
+      // Full mutation-input validation precedes the first row's storage work.
+      // A later invalid row or duplicate key wins over a valid row's read refusal.
+      const readRefusal = failure("mutation-read-refusal");
+      let mutationStorageEntries = 0;
+      const openValidation = () => openFull(mechanics.paged, { readTransaction: () => Effect.suspend(() => {
+        mutationStorageEntries++;
+        return Effect.fail(readRefusal);
+      }) });
+      const validMutation = { label: "validation-order" };
+      for (const [input, reason] of [
+        [[validMutation, { ...validMutation, foreign: "invalid" }], "documentInvalid"],
+        [[validMutation, validMutation], "invalidInput"],
+      ] as const) {
+        const validation = yield* openValidation();
+        expect(yield* Effect.result(validation.working.relationalChange(validation.lifetime.context, validation.id,
+          "notes", "insert", input))).toMatchObject({ _tag: "Failure", failure: { message: reason } });
+        expect(mutationStorageEntries).toBe(0);
+      }
+      const validation = yield* openValidation();
+      expect(yield* Effect.result(validation.working.relationalChange(validation.lifetime.context, validation.id,
+        "notes", "insert", [validMutation]))).toMatchObject({ _tag: "Failure", failure: readRefusal });
+      expect(mutationStorageEntries).toBe(1);
       const leasedFull = yield* openFull(mechanics.small);
       const leasedInserted = yield* leasedFull.working.documents.insert(leasedFull.lifetime.context,
         leasedFull.id, "notes", { label: "leased-pending" });

@@ -1719,32 +1719,33 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       });
       yield* collectSelections(0);
     }
-    const matched: { document: JsonObject; order: Uint8Array; documentId: AppDocumentIdV1 }[] = [];
-    for (const row of selected.values()) {
-      if (row.current === null) continue;
-      const current = row.current;
-      const inspected = yield* Effect.fromResult(Result.gen(function* () {
+    // Selection has settled. Inspection, ordering and projection are bounded
+    // synchronous owner work; retain lazy row order inside one Result fold.
+    return yield* Effect.fromResult(Result.gen(function* () {
+      const matched: { document: JsonObject; order: Uint8Array; documentId: AppDocumentIdV1 }[] = [];
+      for (const row of selected.values()) {
+        if (row.current === null) continue;
+        const current = row.current;
         const document = yield* output(current, true);
-        const verdict = yield* query.inspect(document, current);
-        return { document, ...verdict };
-      }));
-      if (inspected.matches) matched.push({ document: inspected.document, order: inspected.order, documentId: row.documentId });
-    }
-    matched.sort((left, right) => {
-      const ordered = compareBytesLexicographically(left.order, right.order) * (query.direction === "asc" ? 1 : -1);
-      return ordered || left.documentId.localeCompare(right.documentId);
-    });
-    const docs: JsonObject[] = [];
-    for (const row of complete ? matched : matched.slice(query.offset, query.offset + query.limit)) {
-      const projected: Record<string, Json> = {};
-      for (const field of query.fields) {
-        const value = row.document[field];
-        if (value === undefined) return yield* Effect.fail(error("storedCorruption"));
-        projected[field] = value;
+        const inspected = yield* query.inspect(document, current);
+        if (inspected.matches) matched.push({ document, order: inspected.order, documentId: row.documentId });
       }
-      docs.push(yield* Effect.fromResult(projectedOutput(projected)));
-    }
-    return Object.freeze({ docs: Object.freeze(docs), total: matched.length });
+      matched.sort((left, right) => {
+        const ordered = compareBytesLexicographically(left.order, right.order) * (query.direction === "asc" ? 1 : -1);
+        return ordered || left.documentId.localeCompare(right.documentId);
+      });
+      const docs: JsonObject[] = [];
+      for (const row of complete ? matched : matched.slice(query.offset, query.offset + query.limit)) {
+        const projected: Record<string, Json> = {};
+        for (const field of query.fields) {
+          const value = row.document[field];
+          if (value === undefined) return yield* Result.fail(error("storedCorruption"));
+          projected[field] = value;
+        }
+        docs.push(yield* projectedOutput(projected));
+      }
+      return Object.freeze({ docs: Object.freeze(docs), total: matched.length });
+    }));
   }));
   const executeRelationalFind = (context: BoundedRequestContext,
     id: PresentedTransactionId, tableName: string, input: unknown, preparation?: ReadPreparation) => observeExecution("LogicalDocuments.relationalFind", Effect.suspend(() => runOperation(context, id, "read", readRelationalSelection(tableName, input, false, preparation))));
@@ -1909,28 +1910,31 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       const policy = yield* Effect.fromResult(bindPreparedLogicalRelationalRows(relationalMechanics, error));
       const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), error));
       yield* charge(captured.bytes);
-      if (!Array.isArray(captured.value)) return yield* Effect.fail(error("invalidInput"));
-      if (captured.value.length > callIdentityLimit) return yield* Effect.fail(error("limitExceeded"));
-      const rowsByKey = new Map<string, Readonly<{ identity: Record<string, string>; row: JsonObject }>>();
-      for (const item of captured.value) {
-        const singleKey = policy.keyColumns.length === 1 ? policy.keyColumns[0] : undefined;
-        const row = operation === "delete" || operation === "softDelete" || operation === "restore" ?
-          typeof item === "string" && singleKey !== undefined ? { [singleKey]: item } : item : item;
-        if (!isJsonObject(row)) return yield* Effect.fail(error("invalidInput"));
-        yield* Effect.fromResult(policy.validateInput(row));
-        if ((operation === "delete" || operation === "softDelete" || operation === "restore") &&
-          (Object.keys(row).length !== policy.keyColumns.length || Object.keys(row).some(name => !policy.keyColumns.some(column => column === name))))
-          return yield* Effect.fail(error("invalidInput"));
-        const identity: Record<string, string> = {};
-        for (const column of policy.keyColumns) {
-          const value = row[column];
-          if (typeof value !== "string" || value.length === 0) return yield* Effect.fail(error("invalidInput"));
-          identity[column] = value;
+      const capturedRows = yield* Effect.fromResult(Result.gen(function* () {
+        if (!Array.isArray(captured.value)) return yield* Result.fail(error("invalidInput"));
+        if (captured.value.length > callIdentityLimit) return yield* Result.fail(error("limitExceeded"));
+        const rowsByKey = new Map<string, Readonly<{ identity: Record<string, string>; row: JsonObject }>>();
+        for (const item of captured.value) {
+          const singleKey = policy.keyColumns.length === 1 ? policy.keyColumns[0] : undefined;
+          const row = operation === "delete" || operation === "softDelete" || operation === "restore" ?
+            typeof item === "string" && singleKey !== undefined ? { [singleKey]: item } : item : item;
+          if (!isJsonObject(row)) return yield* Result.fail(error("invalidInput"));
+          yield* policy.validateInput(row);
+          if ((operation === "delete" || operation === "softDelete" || operation === "restore") &&
+            (Object.keys(row).length !== policy.keyColumns.length || Object.keys(row).some(name => !policy.keyColumns.some(column => column === name))))
+            return yield* Result.fail(error("invalidInput"));
+          const identity: Record<string, string> = {};
+          for (const column of policy.keyColumns) {
+            const value = row[column];
+            if (typeof value !== "string" || value.length === 0) return yield* Result.fail(error("invalidInput"));
+            identity[column] = value;
+          }
+          const key = JSON.stringify(policy.keyColumns.map(column => identity[column]));
+          if (rowsByKey.has(key)) return yield* Result.fail(error("invalidInput"));
+          rowsByKey.set(key, { identity, row });
         }
-        const key = JSON.stringify(policy.keyColumns.map(column => identity[column]));
-        if (rowsByKey.has(key)) return yield* Effect.fail(error("invalidInput"));
-        rowsByKey.set(key, { identity, row });
-      }
+        return [...rowsByKey.values()];
+      }));
       const result: JsonObject[] = [];
       const observeLifecycle = (key: Record<string, string>, lifecycleOperation: "softDelete" | "restore", before: JsonObject, after: JsonObject, attemptOrdinal: number | null) => observeExecution("LogicalDocuments.observeLifecycle", Effect.gen(function* () {
         const deletedAt = policy.deletedAt;
@@ -1947,7 +1951,6 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         lifecycle.push(Object.freeze({ tableId: table.tableId, tableName, key: Object.freeze({ ...key }), operation: lifecycleOperation,
           beforeDeletedAt: previous, afterDeletedAt: next, attemptOrdinal, rowAtOperation }));
       }));
-      const capturedRows = [...rowsByKey.values()];
       // Every identity uses this source's same validated, non-null text key
       // columns. Retain the chosen definition; each row still encodes its own
       // values at its original ordinal, after earlier rows have settled.

@@ -1051,13 +1051,15 @@ export const consumeCurrentAppIndexPagesInTransactionEffect = Effect.fnUntraced(
           }))),
         }), cause => new AppIndexEntryReadPersistenceError("scanCurrent", cause))).pipe(Effect.mapError(error));
         const rows = yield* Effect.fromResult(captureDriverRowsResult(result)).pipe(Effect.mapError(error));
-        const grouped: unknown[][] = prepared.map(() => []);
+        const grouped: Readonly<{ present: boolean | null; raw: unknown }>[][] = prepared.map(() => []);
         for (const raw of rows) {
           const envelope = yield* decodePageBatchEnvelopeEffect(raw).pipe(Effect.mapError(cause =>
             error(corruption("invalid index batch envelope", cause))));
           const group = grouped[envelope.ordinal];
           if (group === undefined) return yield* Effect.fail(error(corruption("unrequested index batch ordinal")));
-          group.push(raw);
+          // Own only the decoded scalar envelope. Bodies remain undecoded until
+          // their demand is consumed; a consumer never receives driver rows.
+          group.push(Object.freeze({ present: envelope.present, raw }));
         }
         for (let ordinal = 0; ordinal < prepared.length; ordinal++) {
           const input = prepared[ordinal];
@@ -1065,12 +1067,10 @@ export const consumeCurrentAppIndexPagesInTransactionEffect = Effect.fnUntraced(
           if (input === undefined || group === undefined || group.length === 0)
             return yield* Effect.fail(error(corruption("missing index batch ordinal")));
           const entries: AppIndexRangeEntryV1[] = [];
-          for (const raw of group) {
-            const envelope = yield* decodePageBatchEnvelopeEffect(raw).pipe(Effect.mapError(cause =>
-              error(corruption("invalid index batch envelope", cause))));
-            if (envelope.present === null) {
+          for (const { present, raw } of group) {
+            if (present === null) {
               if (group.length !== 1) return yield* Effect.fail(error(corruption("duplicate empty index batch ordinal")));
-            } else if (envelope.present === true) entries.push(yield* decodeRangeRowEffect(input, raw).pipe(Effect.mapError(error)));
+            } else if (present === true) entries.push(yield* decodeRangeRowEffect(input, raw).pipe(Effect.mapError(error)));
             else return yield* Effect.fail(error(corruption("invalid index batch presence")));
           }
           if (entries.length > input.limit + 1) return yield* Effect.fail(error(corruption("index batch exceeded ordinal bound")));

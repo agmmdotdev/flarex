@@ -173,6 +173,7 @@ export async function verifyLogicalDependencyValidation(db: FlarexMetadataDataba
  * connection/lock concurrency witnesses in the owner suite. */
 export async function verifyDemandVectorFreshness(db: FlarexMetadataDatabase, scopeId: ScopeId,
   epoch: ScopeEpoch, definition: LocatedAppIndexDefinitionV1) {
+  await verifyDemandVectorEnvelopeCapture(db, scopeId, definition);
   const tableId = definition.access.tableId;
   const rowId = decodeAppRowIdHexV1("000000000000000000000000000000ef");
   const creationTime = decodeAppCreationTimeV1(45);
@@ -229,4 +230,63 @@ export async function verifyDemandVectorFreshness(db: FlarexMetadataDatabase, sc
   expect((await read())[0]?.commitSeq).toBe(3n);
   expect(await validate(second)).toMatchObject({ reason: "writeConflict" });
   expect(await validate(first)).toMatchObject({ reason: "writeConflict" });
+}
+
+/** Script only the driver response, while retaining real transaction and
+ * definition preparation. Shared by both driver suites. */
+async function verifyDemandVectorEnvelopeCapture(db: FlarexMetadataDatabase, scopeId: ScopeId,
+  definition: LocatedAppIndexDefinitionV1) {
+  await db.transaction(async tx => {
+    const prepare = tx._.session.prepareQuery.bind(tx._.session);
+    let returned: unknown[] = [];
+    const spy = vi.spyOn(tx._.session, "prepareQuery").mockImplementation((...args) => {
+      const query = prepare(...args);
+      if (args[0].sql.includes('select (d.ordinal - 1)::integer as "ordinal"'))
+        vi.spyOn(query, "execute").mockImplementation(() => Promise.resolve({ rows: returned }));
+      return query;
+    });
+    const demand = { scopeId, definition, bounds: {}, limit: 1 };
+    const refusal = new Error("first consumer refusal");
+    try {
+      const later: { ordinal: number; present: boolean | null } = { ordinal: 1, present: null };
+      returned = [{ ordinal: 0, present: null }, later];
+      const consumed: number[] = [];
+      await runEffect(consumeCurrentAppIndexPagesInTransactionEffect(tx, [demand, demand], cause => cause,
+        (ordinal, page) => Effect.sync(() => {
+          consumed.push(ordinal);
+          expect(page).toEqual({ entries: [], isDone: true, continueCursor: null });
+          expect(Object.isFrozen(page)).toBe(true);
+          if (ordinal === 0) { later.ordinal = 0; later.present = false; }
+        })));
+      expect(consumed).toEqual([0, 1]); // privately captured scalars cannot alias driver rows
+      let bodyReads = 0;
+      const bodyDefect = new Error("later body getter");
+      const laterBody = { ordinal: 1, present: true,
+        get tableIdText() { bodyReads++; throw bodyDefect; } };
+      returned = [{ ordinal: 0, present: null }, laterBody];
+      expect(await runEffectFailure(consumeCurrentAppIndexPagesInTransactionEffect(tx, [demand, demand], cause => cause,
+        () => Effect.fail(refusal)))).toBe(refusal);
+      expect(bodyReads).toBe(0);
+      expect(await runEffect(Effect.exit(consumeCurrentAppIndexPagesInTransactionEffect(tx, [demand, demand], cause => cause,
+        () => Effect.void)))).toMatchObject({ _tag: "Failure", cause: { reasons: [{ _tag: "Die", defect: bodyDefect }] } });
+      expect(bodyReads).toBe(1);
+      for (const [rows, message, ordinals] of [
+        [[{ ordinal: 0, present: null }, { ordinal: 1, present: "invalid" }], "invalid index batch envelope", []],
+        [[{ ordinal: 0, present: null }, { ordinal: 2, present: null }], "unrequested index batch ordinal", []],
+        [[{ ordinal: 0, present: null }], "missing index batch ordinal", [0]],
+        [[{ ordinal: 0, present: null }, { ordinal: 0, present: null }], "duplicate empty index batch ordinal", []],
+        [[{ ordinal: 0, present: null }, { ordinal: 1, present: false }], "invalid index batch presence", [0]],
+      ] as const) {
+        returned = [...rows];
+        const visited: number[] = [];
+        expect(await runEffectFailure(consumeCurrentAppIndexPagesInTransactionEffect(tx, [demand, demand], cause => cause,
+          ordinal => Effect.sync(() => { visited.push(ordinal); })))).toMatchObject({ reason: message });
+        expect(visited).toEqual(ordinals);
+      }
+      // Invalid envelopes across the complete batch still precede any consumer.
+      returned = [{ ordinal: 0, present: null }, { ordinal: 1, present: "invalid" }];
+      expect(await runEffectFailure(consumeCurrentAppIndexPagesInTransactionEffect(tx, [demand, demand], cause => cause,
+        () => Effect.fail(refusal)))).toMatchObject({ reason: "invalid index batch envelope" });
+    } finally { spy.mockRestore(); }
+  });
 }
