@@ -95,6 +95,13 @@ Inventory owner and remain excluded. Reservation updates keep the same item,
 location and backorder flag; zero quantities and native backorder creation are
 included. This is bounded private support, not general Locking/Cart/Order or
 hosted compatibility.
+The next proposed [Sales Channel and Stock Location Link admission](./preflight/99-sales-channel-stock-location-links.md)
+traces the actual native add-then-remove workflow, the named many-to-many Link
+and its attached/detached event families. It proposes one location and up to four
+additions and four removals under existing default atomic limits, with a separate
+logical source and Link-root reads. Implementation, cross-module hydration,
+endpoint liveness enforcement and hosted activation are not established by that
+preflight.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a
