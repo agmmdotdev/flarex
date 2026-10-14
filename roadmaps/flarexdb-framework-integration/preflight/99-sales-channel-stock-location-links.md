@@ -1,14 +1,14 @@
 # Sales Channel And Stock Location Links
 
-## Status And Proposed Outcome
+## Status And Scope
 
-Status: source preflight complete; implementation proposed, not yet approved.
-The requested next slice executes the pinned native
+Status: implemented bounded private native admission.
+The named facade executes the pinned native
 `linkSalesChannelsToStockLocationWorkflow` against the named stored
 `SalesChannelLocation` Link through the existing finite atomic workflow host.
 Performance optimization remains paused.
 
-Proposed input is one Stock Location ID, with independently optional `add` and
+Input is one Stock Location ID, with independently optional `add` and
 `remove` Sales Channel ID arrays of zero to four entries each. Preserve input
 order, omissions, empty arrays, duplicate delegation and overlap between arrays.
 The native workflow adds first and removes second. Its completed void result
@@ -43,9 +43,8 @@ retain authority. The preceding
 | `modules/link-modules/src/loaders/container.ts` | Native service and event entity naming; bootstrap mechanics are not runtime dependencies of this private admission. |
 
 The promoted `medusa-modules-sdk` Link router, Link services, structural generator
-and shared Link adapter already execute. The new definition, two steps and
-composer are not promoted or exported yet. `LinkWorkflowInput` is already
-promoted; no new workflow DTO family is needed.
+and shared Link adapter execute with the newly promoted definition, two steps
+and composer. The existing `LinkWorkflowInput` supplies the DTO contract.
 
 The native admin route runs this workflow and then refetches the Stock Location
 through its HTTP/query infrastructure. That refetch is outside the workflow.
@@ -90,43 +89,48 @@ shape validation establishes a live endpoint. Stronger reference integrity and
 endpoint cleanup require their own explicit semantic admission and shared-owner
 proofs. Link storage and reads remain confined to the authenticated shop scope.
 
-## Proposed Implementation Sequence
+## Implementation And Ownership
 
-1. Promote the exact named definition, two steps and composer with narrow
-   imports/exports and provenance. Follow existing definition adaptations to
-   reuse `composeLinkName` instead of promoting the broad `LINKS` registry.
-   Retain native callbacks and compensators; mark the steps transaction-covered.
-   The native composer returns void, whereas the finite SDK requires
-   `WorkflowResponse`: replace its void return annotation and append
-   `new WorkflowResponse(void 0)` after both steps,
-   preserving their order and using existing void-to-null completion.
-2. Add named metadata capture and logical definition under `src/links/`, reusing
+1. The definition, two steps and composer use narrow imports/exports and pinned
+   provenance. The definition reuses `composeLinkName` instead of the broad
+   `LINKS` registry. Native callbacks and compensators remain declared; the
+   steps are transaction-covered. The composer returns
+   `new WorkflowResponse(void 0)` after both steps, preserving their order and
+   existing void-to-null completion. Its transforms construct complete step
+   inputs, and the step types admit the omitted links already handled by their
+   early-return branches. This is a finite-SDK type seam, not normalization of
+   omitted arrays into empty native calls.
+2. Named metadata capture and logical definition under `src/links/` reuse
    `captureLinkMetadata`, `linkSchemaOrigins`, DML lowering and normalization.
-   Add a separate source/profile, proposed `medusa.link.salesChannelLocation`,
-   with lineage `commerce.link.sales-channel-location`. Do not enlarge the
-   existing Product/Variant Link sources or change their identities.
-   Schema composition must require the Sales Channel and Stock Location sources
+   The separate source/profile is `medusa.link.salesChannelLocation`, with lineage
+   `commerce.link.sales-channel-location`. Existing Product/Variant Link sources
+   retain their identities. Schema composition requires both endpoint sources
    when this Link is selected. This adds one logical table over the existing
    physical families, not per-shop DDL or a new migration engine.
-3. Add one named Link preparation entry using `prepareLinkService`, native
+3. One named Link preparation entry uses `prepareLinkService`, native
    `Link.create`/`dismiss`, shared service commands, repository and event policy.
-   Expose authentic workflow methods `create` and `dismiss` only. Link-root
-   list/count reads by either endpoint belong to a separate read selection;
-   preserve native aliases, complete composite ordering and soft-delete filters.
+   Its authentic workflow methods are `create` and `dismiss`. Link-root
+   list/count reads by either endpoint belong to a separate read selection.
+   Queries retain both composite keys even when only ID is selected. Ordering
+   uses the native leading Sales Channel field with the shared complete-identity
+   tie-break; no lexical Stock Location tie order is promised. Paging and counts
+   retain their shared owner, native aliases and soft-delete filters.
    The Product-only composed native router remains unchanged.
-4. Add the narrow facade under `src/workflows/stock-location/`. Select only the
+4. The facade under `src/workflows/stock-location/` selects only the
    new Link module's two methods and internal module events. Sales Channel and
    Stock Location grant no endpoint mutation methods to this root. Neither step
    requires Inventory, Pricing, query, hook, child workflow or Locking resources.
-   Reuse default atomic admission, one settlement owner and 64-call/64-event
-   limits. No core correction or scope-exclusive selection is currently needed;
-   measure the maximum graph against the existing limits before accepting it.
-5. Extend source selection and fixtures so this connected proof can select Sales
+   It retains default atomic admission, one settlement owner and 64-call/64-event
+   limits. No core correction or scope-exclusive selection is included. Array
+   checks follow the pinned Effect `Schema.mutable` conversion, which rebuilds
+   the array AST without earlier checks; both root arrays and method tuples retain
+   their four-row bounds. The maximum graph is an explicit acceptance witness.
+5. Source selection and fixtures let the connected proof select Sales
    Channel, Stock Location and this Link independently of Product/Inventory/
-   Pricing. Preserve the existing variant fixture's implicit Stock Location
-   selection. Use fresh private candidates; no populated-source upgrade, durable
-   data reset, source ownership transfer or existing consumer retirement is proposed.
-6. Validate both drivers, affected consumers, builds/typechecks and source/browser
+   Pricing. The existing variant fixture retains its implicit Stock Location
+   selection and source order. This is fresh private candidate admission, with
+   no populated-source upgrade, durable reset, ownership transfer or consumer retirement.
+6. Acceptance requires both drivers, affected consumers, builds/typechecks and source/browser
    guards. Run heavy database and compiler checks separately; constrain compiler
    concurrency as needed without changing resource budgets or test assertions.
    Complete both required read-only project reviews and exact staged lint before
@@ -134,11 +138,11 @@ proofs. Link storage and reads remain confined to the authenticated shop scope.
 
 ## Acceptance And Failure Gates
 
-Preserve native omission/empty behavior, maximum four-add/four-remove graphs,
-many-to-many reuse in both directions, input order, add/remove overlap, repeated
-attachment, reattachment after dismissal, duplicate delegation/refusal and
-unmatched/repeated dismissal. Prove Link-root filtering by either endpoint and
-complete-key ordering; distinguish those reads from cross-module hydration.
+Behavioral gates cover native omission/empty behavior, maximum four-add/four-remove
+graphs, many-to-many reuse in both directions, input order, add/remove overlap,
+repeated attachment, reattachment after dismissal, duplicate delegation/refusal
+and unmatched/repeated dismissal. Link-root filtering in both directions and
+stable paging with complete identities remain distinct from cross-module hydration.
 
 Seed real endpoints through their existing native services for the connected
 proof, and separately characterize unknown endpoint IDs to make the native

@@ -144,6 +144,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       "packages/medusa-link-modules/src/definitions/product-shipping-profile.ts",
       "packages/medusa-link-modules/src/definitions/product-variant-price-set.ts",
       "packages/medusa-link-modules/src/definitions/product-variant-inventory-item.ts",
+      "packages/medusa-link-modules/src/definitions/sales-channel-location.ts",
     ].includes(file.target)) throw new Error("Link adaptation outside its approved finite source closure");
     if (file.classification === "productServiceFork" && ![
       "packages/medusa-product/src/services/product-module-service.ts",

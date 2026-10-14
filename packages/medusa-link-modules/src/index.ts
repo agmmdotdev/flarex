@@ -5,3 +5,4 @@ export { default as LinkService } from "./services/link";
 export { getModuleService } from "./services/dynamic-service-class";
 export { generateEntityDefinition } from "./utils/generate-entity";
 export { ProductVariantInventoryItem } from "./definitions/product-variant-inventory-item";
+export { SalesChannelLocation } from "./definitions/sales-channel-location";

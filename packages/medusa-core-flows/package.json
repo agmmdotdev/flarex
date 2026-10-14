@@ -26,7 +26,8 @@
     "./inventory/adjust-inventory-levels-step": "./src/inventory/steps/adjust-inventory-levels.ts",
     "./reservation/create-reservations": "./src/reservation/workflows/create-reservations.ts",
     "./reservation/update-reservations": "./src/reservation/workflows/update-reservations.ts",
-    "./reservation/delete-reservations": "./src/reservation/workflows/delete-reservations.ts"
+    "./reservation/delete-reservations": "./src/reservation/workflows/delete-reservations.ts",
+    "./stock-location/link-sales-channels": "./src/stock-location/workflows/link-sales-channels-to-stock-location.ts"
   },
   "dependencies": {
     "@medusajs/modules-sdk": "workspace:*",

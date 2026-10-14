@@ -138,6 +138,8 @@ import { compilePricingDefinition } from "../../src/modules/pricing/schema";
 import { compileVariantPricingLinkDefinition } from "../../src/composition/product-variant-pricing-schema";
 import { compileSalesChannelDefinition } from "../../src/modules/sales-channel/schema";
 import { compileProductLinksDefinition } from "../../src/links/product-definition";
+import { compileStockLocationDefinition } from "../../src/modules/stock-location/schema";
+import { compileSalesChannelLocationLinkDefinition } from "../../src/links/sales-channel-location-schema";
 import { compileShippingProfileDefinition } from "../../src/modules/fulfillment/shipping-profile-schema";
 import {
   currencyAnnouncementWrite,
@@ -181,6 +183,8 @@ type LogicalCurrencyFixtureOptions = Readonly<{
   extensions?: readonly LogicalSchemaExtension[]; additionalSources?: readonly LogicalSchemaSource[];
   includeVariantPricingLink?: boolean;
   includeSalesChannel?: boolean;
+  includeStockLocation?: boolean;
+  includeSalesChannelLocationLink?: boolean;
   includeProductSalesChannelLink?: boolean;
   includeShippingProfile?: boolean;
   includeProductShippingProfileLink?: boolean;
@@ -227,6 +231,8 @@ export interface LogicalCurrencyFixture {
   readonly pricingDefinition: Effect.Success<ReturnType<typeof compilePricingDefinition>> | undefined;
   readonly variantPricingLinkDefinition: Effect.Success<ReturnType<typeof compileVariantPricingLinkDefinition>> | undefined;
   readonly salesChannelDefinition: Effect.Success<ReturnType<typeof compileSalesChannelDefinition>> | undefined;
+  readonly stockLocationDefinition: Effect.Success<ReturnType<typeof compileStockLocationDefinition>> | undefined;
+  readonly salesChannelLocationLinkDefinition: Effect.Success<ReturnType<typeof compileSalesChannelLocationLinkDefinition>> | undefined;
   readonly productLinksDefinition: Effect.Success<ReturnType<typeof compileProductLinksDefinition>> | undefined;
   readonly shippingProfileDefinition: Effect.Success<ReturnType<typeof compileShippingProfileDefinition>> | undefined;
   readonly physicalTablesBeforeCandidate: readonly Readonly<{ name: string }>[];
@@ -362,8 +368,10 @@ export async function logicalCurrencyFixture(
       medusaModules: ["currency", ...(options?.includeProduct === true ? ["product" as const] : []),
         ...(options?.includePricing === true ? ["pricing" as const] : []),
         ...(options?.includeVariantInventory === true ? ["inventory" as const, "stockLocation" as const, "variantLinks" as const] : []),
+        ...(options?.includeStockLocation === true && options?.includeVariantInventory !== true ? ["stockLocation" as const] : []),
         ...(options?.includeVariantPricingLink === true ? ["variantPricingLink" as const] : []),
         ...(options?.includeSalesChannel === true ? ["salesChannel" as const] : []),
+        ...(options?.includeSalesChannelLocationLink === true ? ["salesChannelLocationLink" as const] : []),
         ...(options?.includeProductSalesChannelLink === true ? ["productSalesChannelLink" as const] : []),
         ...(options?.includeShippingProfile === true ? ["shippingProfile" as const] : []),
         ...(options?.includeProductShippingProfileLink === true ? ["productShippingProfileLink" as const] : [])] })({ applicationCandidateId: application.active.basis.candidateId,
@@ -392,6 +400,10 @@ export async function logicalCurrencyFixture(
     const pricingDefinition = options?.includePricing === true ? yield* compilePricingDefinition() : undefined;
     const variantPricingLinkDefinition = options?.includeVariantPricingLink === true ? yield* compileVariantPricingLinkDefinition() : undefined;
     const salesChannelDefinition = options?.includeSalesChannel === true ? yield* compileSalesChannelDefinition() : undefined;
+    const stockLocationDefinition = options?.includeVariantInventory === true || options?.includeStockLocation === true
+      ? yield* compileStockLocationDefinition() : undefined;
+    const salesChannelLocationLinkDefinition = options?.includeSalesChannelLocationLink === true
+      ? yield* compileSalesChannelLocationLinkDefinition() : undefined;
     const productLinksDefinition = options?.includeProductSalesChannelLink === true || options?.includeProductShippingProfileLink === true
       ? yield* compileProductLinksDefinition({ salesChannel: options?.includeProductSalesChannelLink === true,
         shippingProfile: options?.includeProductShippingProfileLink === true }) : undefined;
@@ -516,7 +528,7 @@ export async function logicalCurrencyFixture(
       metadataCounts: logicalReadMetadataCounts(candidate.sources),
       metadataScaling: metadataScaling === undefined ? undefined : {
         scale: metadataScaling.scale, counts: metadataScaling.counts, added: metadataScaling.added },
-      pricingDefinition, variantPricingLinkDefinition, salesChannelDefinition, productLinksDefinition,
+      pricingDefinition, variantPricingLinkDefinition, salesChannelDefinition, stockLocationDefinition, salesChannelLocationLinkDefinition, productLinksDefinition,
       shippingProfileDefinition, physicalTablesBeforeCandidate,
       ...(pair.kind === "pglite" ? { observeSql: pair.observeSql } : {}) };
   })());

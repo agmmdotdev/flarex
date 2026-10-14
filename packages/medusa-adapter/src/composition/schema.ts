@@ -14,6 +14,7 @@ import { compileVariantPricingLinkDefinition } from "./product-variant-pricing-s
 import { compileSalesChannelDefinition } from "../modules/sales-channel/schema";
 import { compileProductLinksDefinition } from "../links/product-definition";
 import { compileShippingProfileDefinition } from "../modules/fulfillment/shipping-profile-schema";
+import { compileSalesChannelLocationLinkDefinition } from "../links/sales-channel-location-schema";
 import type {
   ApplicationAnalysisAuthority,
   ApplicationAnalysisRepository,
@@ -29,7 +30,8 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
-const decodeModules = Schema.decodeUnknownResult(Schema.Array(Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "productSalesChannelLink", "shippingProfile", "productShippingProfileLink", "inventory", "stockLocation", "variantLinks"])));
+const MedusaModule = Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "productSalesChannelLink", "shippingProfile", "productShippingProfileLink", "inventory", "stockLocation", "variantLinks", "salesChannelLocationLink"]);
+const decodeModules = Schema.decodeUnknownResult(Schema.Array(MedusaModule));
 const Request = Schema.Struct({
   applicationCandidateId: Schema.NonEmptyString,
   payloadCollections: Schema.Unknown,
@@ -55,7 +57,7 @@ export function makeSchemaComposer(configuration: {
   readonly deploymentId: string;
   readonly authority: ApplicationAnalysisAuthority;
   readonly applicationAnalyses: ApplicationAnalysisRepository;
-  readonly medusaModules: readonly ("product" | "currency" | "pricing" | "variantPricingLink" | "salesChannel" | "productSalesChannelLink" | "shippingProfile" | "productShippingProfileLink" | "inventory" | "stockLocation" | "variantLinks")[];
+  readonly medusaModules: readonly (typeof MedusaModule.Type)[];
 }) {
   const authority = Object.freeze({ scopeId: configuration.authority.scopeId, epoch: configuration.authority.epoch,
     storageGeneration: configuration.authority.storageGeneration, storageGenerationFence: configuration.authority.storageGenerationFence });
@@ -72,6 +74,9 @@ export function makeSchemaComposer(configuration: {
       return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
     }
     if (modules.includes("productShippingProfileLink") && (!modules.includes("product") || !modules.includes("shippingProfile"))) {
+      return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
+    }
+    if (modules.includes("salesChannelLocationLink") && (!modules.includes("salesChannel") || !modules.includes("stockLocation"))) {
       return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
     }
     if (modules.includes("variantLinks") && (!modules.includes("product") || !modules.includes("pricing") || !modules.includes("inventory") || modules.includes("variantPricingLink"))) {
@@ -190,6 +195,7 @@ export function makeSchemaComposer(configuration: {
       ["inventory", "medusa.inventory", compileInventoryDefinition],
       ["stockLocation", "medusa.stockLocation", compileStockLocationDefinition],
       ["variantLinks", "medusa.variantLinks", compileVariantLinksDefinition],
+      ["salesChannelLocationLink", "medusa.link.salesChannelLocation", compileSalesChannelLocationLinkDefinition],
     ] as const) {
       if (!modules.includes(selected)) continue;
       const definition = yield* compile();

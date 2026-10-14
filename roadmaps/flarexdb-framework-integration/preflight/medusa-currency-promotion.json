@@ -260,7 +260,7 @@
     {
       "target": "packages/medusa-link-modules/src/index.ts",
       "classification": "selectedExportFacade",
-      "targetSha256": "7a25db09e5570d6af04421d030a762ffc993927eaf39b3fac3e523704100c507",
+      "targetSha256": "a74ae31c763fee5a128be50690edd1426d36a05e0bcbf5464cc2decd1648af19",
       "source": "third_party/medusa/upstream/packages/modules/link-modules/src/index.ts",
       "sourceSha256": "a52496c5759868f27841b9ef5c14e1baf4574892a460bbd71959614394784eac"
     },
@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "47cf615dbff3b9c487edbcd0ff10d79457930f96383dc79d6a8d81d45330b707"
+      "targetSha256": "cbdc90416d36c2a315b6b537ceb7462110897eb4bb3cf1b553f45df85977aeaf"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -4446,7 +4446,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
       "classification": "authored",
-      "targetSha256": "e72ce669602dc34435e3e56daf6466b9f4bd45f42e2b11e37ae09e51e09ad051"
+      "targetSha256": "dfc7af6069f1e893e5a592efcaba8821bfa5cbd48519d0357f275a81b0e3c0c7"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-inventory.ts",
@@ -4481,7 +4481,7 @@
     {
       "target": "packages/medusa-adapter/src/composition/schema.ts",
       "classification": "authored",
-      "targetSha256": "12f257b60225d3e26bf422733a6df9135434c99308573a734b540f5cf0e9a78c"
+      "targetSha256": "e5c85c037e5abc2ca253234df55ae33fdd7fb65d8be945091baf69b4a8ef6c40"
     },
     {
       "target": "packages/medusa-adapter/test/schemaComposition.test.ts",
@@ -6222,6 +6222,59 @@
       "source": "third_party/medusa/upstream/packages/core/utils/src/common/convert-item-response-to-update-request.ts",
       "sourceSha256": "576c2d0fce55b71484f6bc657e6d3b782cdb429b3e409502807c18bb8395a91d",
       "targetSha256": "576c2d0fce55b71484f6bc657e6d3b782cdb429b3e409502807c18bb8395a91d"
+    },
+    {
+      "target": "packages/medusa-link-modules/src/definitions/sales-channel-location.ts",
+      "classification": "linkFork",
+      "source": "third_party/medusa/upstream/packages/modules/link-modules/src/definitions/sales-channel-location.ts",
+      "sourceSha256": "38f44cebf55934d39d2c423ec0e7e1fea75246d4e05616ce0cecd443c3300179",
+      "targetSha256": "844a4ca4f3307d9b7e8f422f36413a276ca2ce5283ebb88e2700ecdeacc0dfec"
+    },
+    {
+      "target": "packages/medusa-adapter/src/links/sales-channel-location-schema.ts",
+      "classification": "authored",
+      "targetSha256": "22a742156c937018fbc61a107020996f982e90538e22ff80eae0b22900bdf570"
+    },
+    {
+      "target": "packages/medusa-adapter/src/links/sales-channel-location-service.ts",
+      "classification": "authored",
+      "targetSha256": "f0b38fe6d7f2da90ea93fb7b34b99c8eee3816d634bd931bdf540930fb7904a9"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/stock-location/sales-channels.ts",
+      "classification": "authored",
+      "targetSha256": "ac1207e26f880fd7941401d5a82c0f4fcc30a0f3405527a3f4508c70f91b0a0b"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-sales-channel-location-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "8cbf31cd604c3dad524aee5253f00d2e526786123437de2b23c3d2e6d8f48b6c"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-sales-channel-location-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "110674304176ac09e9b72bc7d4315159e56cb786f31ebe1c2f753a8bfb8053a5"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/sales-channel/steps/associate-locations-with-channels.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/sales-channel/steps/associate-locations-with-channels.ts",
+      "sourceSha256": "6ac025455dc521d2457e74c4b3b4c50d67e1d4820c4e8ae9556a0d5c29ff0903",
+      "targetSha256": "19773a675653685df0dc55e4b2f3efeb549adf5280f3385aa53e8bbcfc7dda50"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/sales-channel/steps/detach-locations-from-channels.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/sales-channel/steps/detach-locations-from-channels.ts",
+      "sourceSha256": "0358046140fee717c18eb27e166fa002afce444eec5a7939ddd30d849451f470",
+      "targetSha256": "720966b6929e6b9c5c0d07e0f62e2fd037dd7e6a53b72abb32d660afe4b3fb71"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/stock-location/workflows/link-sales-channels-to-stock-location.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/stock-location/workflows/link-sales-channels-to-stock-location.ts",
+      "sourceSha256": "8f01d9f223c11cb26aaf38ab3a58c4c953da34d9afea87ace969fec3b77958fe",
+      "targetSha256": "183a49a8a866da03a0341dcd6c526f7cb6430f2d98debc05f0da2b9d19d19628"
     }
   ],
   "dependencies": {
@@ -6614,7 +6667,8 @@
         "./inventory/adjust-inventory-levels-step",
         "./reservation/create-reservations",
         "./reservation/update-reservations",
-        "./reservation/delete-reservations"
+        "./reservation/delete-reservations",
+        "./stock-location/link-sales-channels"
       ]
     },
     {
@@ -6848,22 +6902,22 @@
     },
     {
       "target": "packages/medusa-link-modules/dist/index.d.ts",
-      "targetSha256": "64a77155b5d667254fde530a8762f8dc1cab9a8ec1752e873e4024e78baaacdb",
+      "targetSha256": "1167ff17cf5d22b091d49be73d623b58935ff348d817436829b04a382e74feda",
       "input": "packages/medusa-link-modules/src/index.ts"
     },
     {
       "target": "packages/medusa-link-modules/dist/index.d.ts.map",
-      "targetSha256": "7183b1796fef078745feba37eca03936d2f002ddd7374fea0eb860ba6e79aa6d",
+      "targetSha256": "af053e3a222c867c83935dcdc33a576b9eac41052c809ded36844715aa4747fb",
       "input": "packages/medusa-link-modules/src/index.ts"
     },
     {
       "target": "packages/medusa-link-modules/dist/index.js",
-      "targetSha256": "faf483c67374d80c6193572b020e5052ea50f61388d197373d7e93b82c92d5f4",
+      "targetSha256": "f1bf5ed2137b8ff81d4af4b1a358c10aef03a79b976ffc2cfa0b3978247b65dd",
       "input": "packages/medusa-link-modules/src/index.ts"
     },
     {
       "target": "packages/medusa-link-modules/dist/index.js.map",
-      "targetSha256": "ec5a05ca42388b69b8698ef14129dec72c26321dd3bbbbc503c5b2ff16d181d0",
+      "targetSha256": "2ca3acf24c6dd158901593b8a45feaf4d8ff8a4eec688d83308a4129b0529082",
       "input": "packages/medusa-link-modules/src/index.ts"
     },
     {
@@ -14445,6 +14499,26 @@
       "target": "packages/medusa-utils/dist/common/convert-item-response-to-update-request.js.map",
       "input": "packages/medusa-utils/src/common/convert-item-response-to-update-request.ts",
       "targetSha256": "c4013fb2eff7ea07b6142eb396559e8cf97e9a68c585874846697f8d672465bd"
+    },
+    {
+      "target": "packages/medusa-link-modules/dist/definitions/sales-channel-location.d.ts",
+      "input": "packages/medusa-link-modules/src/definitions/sales-channel-location.ts",
+      "targetSha256": "764f2a2ccc272c6708095ff69b385dd6bfac5a3e8240cfa959d9376ebfaaf8fa"
+    },
+    {
+      "target": "packages/medusa-link-modules/dist/definitions/sales-channel-location.d.ts.map",
+      "input": "packages/medusa-link-modules/src/definitions/sales-channel-location.ts",
+      "targetSha256": "7292a0ef5f2eb4076d53aca0ba6dd0d901729e7c5761f983131e3030b197bcbf"
+    },
+    {
+      "target": "packages/medusa-link-modules/dist/definitions/sales-channel-location.js",
+      "input": "packages/medusa-link-modules/src/definitions/sales-channel-location.ts",
+      "targetSha256": "4d208ca63221b109c59dd637f531708c72c4762e30d4c5815d53671ed35555bc"
+    },
+    {
+      "target": "packages/medusa-link-modules/dist/definitions/sales-channel-location.js.map",
+      "input": "packages/medusa-link-modules/src/definitions/sales-channel-location.ts",
+      "targetSha256": "2a46845f8c387aabe7b55c3bba1272b7a60dd1770ee2e83eeb7430c0fae2957d"
     }
   ],
   "testAliases": [
