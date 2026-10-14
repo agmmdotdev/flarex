@@ -27,8 +27,10 @@ uses native steps but is deliberately not the complete variant composer.
 The [complete variant facade](../../../packages/medusa-adapter/src/product-variant-inventory-workflow.ts)
 executes the pinned parent composer and Inventory children with authentic
 Inventory and Stock Location query dependencies. The Pricing-only branch remains
-for its named Product-launch consumer until that consumer migrates to the complete
-Product root; removal belongs to that cutover.
+for its named Product-launch consumer. That existing-Product/Tag operation needs
+an explicit consumer cutover; the new-Product root alone does not replace it.
+The [Product-root preflight](./96-native-create-products-workflow.md) inventories
+the actual retained consumers and cleanup gate.
 
 Native paths below are relative to
 `third_party/medusa/upstream/packages/`, pinned by

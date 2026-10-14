@@ -63,7 +63,15 @@ existing Product, including Pricing and both stored Link families under one
 root. Its named 256-call profile preserves the smaller existing profiles.
 Nonempty levels, reservations and the complete Product root remain subsequent
 admissions. The Pricing-only branch retains its named Product-launch consumer
-until that consumer migrates in the complete Product-root cutover.
+until that existing-Product/Tag operation has an explicitly selected replacement.
+The next [native Product-root preflight](./preflight/96-native-create-products-workflow.md)
+proposes the actual `createProductsWorkflow` with the complete variant child.
+Its key construction gate is one native Link resource over the two existing
+logical Link sources, preserving their identities and command/receipt owners.
+This is a discussion proposal, not full Product-root admission. The Pricing-only
+launch graph retains its distinct existing-Product/Tag and measurement consumers
+until those consumers migrate explicitly; new-Product creation alone does not
+displace that behavior.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a
