@@ -9,7 +9,7 @@ import { captureCommerceInput } from "../../value/input";
 import type { ProductWorkflowModule } from "../../modules/product/workflow";
 import type { makeLocalPricingCommands } from "../../modules/pricing/service";
 import type { makeLocalInventoryCommands } from "../../modules/inventory/service";
-import type { makeStockLocationReads } from "../../modules/stock-location/service";
+import type { makeStockLocationCommands } from "../../modules/stock-location/service";
 import type { prepareLocalVariantLinks } from "../../links/variant-service";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { prepareWorkflowResources, type NativeWorkflowContext, type NativeWorkflowResources } from "../../workflow/resources";
@@ -36,7 +36,7 @@ const decodeReturnedIds = commerceDecoder(Schema.Array(Schema.StructWithRest(
 )), "receiptMismatch");
 type PricingModule = Effect.Success<ReturnType<typeof makeLocalPricingCommands>>["workflow"];
 type InventoryModule = Effect.Success<ReturnType<typeof makeLocalInventoryCommands>>["workflow"];
-type StockModule = Effect.Success<ReturnType<typeof makeStockLocationReads>>["workflow"];
+type StockModule = Effect.Success<ReturnType<typeof makeStockLocationCommands>>["workflow"];
 type LinkModule = Effect.Success<ReturnType<typeof prepareLocalVariantLinks>>["workflow"];
 type Selections = {
   readonly product: { readonly module: ProductWorkflowModule; readonly methods: readonly ["createProductVariants"]; readonly graph: true };

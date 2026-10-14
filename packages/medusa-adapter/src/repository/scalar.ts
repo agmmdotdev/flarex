@@ -81,6 +81,22 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
           yield* events.dispatch(event, args, shared, subscriber);
         }))),
       };
+      const createRows = Effect.fn("ScalarRepository.create")(function* (
+        ctx: CommerceCommandContext, input: unknown, shared: Parameters<DAL.RepositoryService["create"]>[1],
+      ) {
+        const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
+        const rows: JsonObject[] = [];
+        for (const item of yield* Effect.fromResult(decodeRows(captured))) {
+          const row = yield* Effect.fromResult(decodeCreate(item));
+          const id = row.id === undefined ? undefined : yield* Effect.fromResult(decodeId(row.id));
+          rows.push({ ...row, id: generateEntityId(id, prefix) });
+        }
+        const store = yield* ctx.table(table.name);
+        const inserted = yield* store.write(ctx.manager, "insert", rows);
+        if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+        yield* events.created(inserted.map(entity => ({ modelName, entity: { ...entity } })), shared);
+        return [...inserted];
+      });
       const repository: DAL.RepositoryService = {
         getFreshManager: bridge.getFreshManager, getActiveManager: bridge.getActiveManager, transaction: bridge.transaction,
         serialize: <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> => owner.run(bridge.checked(root, Effect.gen(function* () {
@@ -100,24 +116,11 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
           if (value.count === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));
           return [structuredClone(value.rows), value.count] satisfies [JsonObject[], number];
         }))),
-        create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-          const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
-          const rows: JsonObject[] = [];
-          for (const item of yield* Effect.fromResult(decodeRows(captured))) {
-            const row = yield* Effect.fromResult(decodeCreate(item));
-            const id = row.id === undefined ? undefined : yield* Effect.fromResult(decodeId(row.id));
-            rows.push({ ...row, id: generateEntityId(id, prefix) });
-          }
-          const store = yield* ctx.table(table.name);
-          const inserted = yield* store.write(ctx.manager, "insert", rows);
-          if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
-          yield* events.created(inserted.map(entity => ({ modelName, entity: { ...entity } })), shared);
-          return [...inserted];
-        }))),
+        create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createRows(ctx, input, shared))),
         update: refuse, delete: refuse,
         upsert: refuse, upsertWithReplace: refuse, softDelete: refuse, restore: refuse,
       };
-      return { repository, mutationEvents, bridge, refuse, find, events };
+      return { repository, mutationEvents, bridge, refuse, find, createRows, events };
     };
     return { table: yield* catalog.table(table.name), bind };
   });

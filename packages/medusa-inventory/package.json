@@ -14,6 +14,11 @@
       "source": "./src/services/index.ts",
       "default": "./dist/services/index.js"
     },
+    "./inventory-level-quantity": {
+      "types": "./dist/utils/inventory-level-quantity.d.ts",
+      "source": "./src/utils/inventory-level-quantity.ts",
+      "default": "./dist/utils/inventory-level-quantity.js"
+    },
     "./static-manifest": {
       "types": "./dist/static-manifest.d.ts",
       "source": "./src/static-manifest.ts",

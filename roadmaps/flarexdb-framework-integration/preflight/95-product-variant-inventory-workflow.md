@@ -107,3 +107,6 @@ The complete native `createProductsWorkflow` composition against Sales Channel,
 ShippingProfile and the full variant child has its separate owning record.
 Stock Location writes and inventory levels are separate useful capabilities,
 not assumed prerequisites for the default-item branch.
+The separate [stocking root](97-stock-location-inventory-levels.md) now admits
+native Location creation and levels against existing Inventory items. This
+Variant child keeps its original item-only admission and empty-level behavior.

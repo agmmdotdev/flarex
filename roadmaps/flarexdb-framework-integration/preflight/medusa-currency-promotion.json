@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "71aaf994e37f1cba73f38353d63d919f1eacaf72e0b52fadea8bf11d54572c83"
+      "targetSha256": "8173319e71bbf4a9ec8382d9c4043d39d888cf66d49e7c0f9aaa4d8df0dbf821"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -3373,7 +3373,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/policy.ts",
       "classification": "authored",
-      "targetSha256": "bdf115b79835d06cc327989f419d536690404ac781b13a7ef663c1d28d4ef989"
+      "targetSha256": "12eedeb1266a3a9e3a6478415051573c007026fecd605ca2e15ab3ec862db742"
     },
     {
       "target": "packages/medusa-adapter/src/links/product-shipping-profile-schema.ts",
@@ -3393,7 +3393,7 @@
     {
       "target": "packages/medusa-adapter/src/repository/scalar.ts",
       "classification": "authored",
-      "targetSha256": "d6c1f0882791c60027ec864be463d946c1e144efeef7e06a88e65409d78a8ff1"
+      "targetSha256": "6ec5aa56647c28e53df754f4dff67e748e9536535cf211e2749a6cf5dc6bb1ce"
     },
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-profile-events.ts",
@@ -5533,7 +5533,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/inventory/events.ts",
       "classification": "authored",
-      "targetSha256": "77d7387a2b2aec462ee98268420423cad09349a4538daf301ea34bf235a47ebb"
+      "targetSha256": "6b7b8d5892e4ea0a089c335e7039a4637b0e9e3ff6ce2181ead114042605373f"
     },
     {
       "target": "packages/medusa-adapter/src/modules/inventory/schema.ts",
@@ -5543,7 +5543,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/inventory/service.ts",
       "classification": "authored",
-      "targetSha256": "0e5ec29fe0340d35e3a52400024f85355c0a51a98bd9160b3179e289d039b30e"
+      "targetSha256": "12f359252bf0b4951c31bcffcc95f5699dd80b16319c31af4580369e46242942"
     },
     {
       "target": "packages/medusa-adapter/src/composition/product-variant-inventory-schema.ts",
@@ -5553,7 +5553,7 @@
     {
       "target": "packages/medusa-adapter/src/workflows/product/variant-inventory.ts",
       "classification": "authored",
-      "targetSha256": "4d77b41c781e921b425442c75038fd25b4a8be257fbec4367b7943d731453a7b"
+      "targetSha256": "c131be94169a47656f9a6d6124c5b91f401f7ece250e9202cc7e40592c552128"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/product/events.ts",
@@ -5573,7 +5573,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/stock-location/service.ts",
       "classification": "authored",
-      "targetSha256": "264bf2a39416b2e2eaf5b6a9c77f99b90f78309d4710b90894c4ed0676c15ba4"
+      "targetSha256": "f89d4c8b2777aff3026a213bfa54cf3086585927032e93683d89bb6f5055efc6"
     },
     {
       "target": "packages/medusa-adapter/src/links/variant-definition.ts",
@@ -5608,7 +5608,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-inventory-fixture.ts",
       "classification": "authored",
-      "targetSha256": "698965ac5b72897d9872f6cbc3a0e7f54776e49210dfbf9492c836895496069d"
+      "targetSha256": "52cd9ec5336a48a7f5ad85a18cdfe1daa29292a598f6fa46658a14967e2103aa"
     },
     {
       "target": "packages/medusa-core-flows/src/common/workflows/create-links.ts",
@@ -5676,7 +5676,7 @@
     {
       "target": "packages/medusa-inventory/package.json",
       "classification": "authored",
-      "targetSha256": "991fbaa9f07d53388f09d0cd7ce41979746e709934aa087d07b75422075bc9cd"
+      "targetSha256": "cfab918efa1149831ee2b0a9324746b8ab1617876e733544a4a37823c0c72eee"
     },
     {
       "target": "packages/medusa-inventory/src/joiner-config.ts",
@@ -5956,7 +5956,7 @@
     {
       "target": "packages/medusa-adapter/src/workflows/product/creation.ts",
       "classification": "authored",
-      "targetSha256": "8c846ca31b2c5fda944aca4168d82cc9377216412a04f2a2172dece15830600d"
+      "targetSha256": "987c49143e99ba1bcf24a96a5d8796a8d69ccddf493e744f13066ca5b72b2ec8"
     },
     {
       "target": "packages/medusa-adapter/src/links/product-resource.ts",
@@ -6054,6 +6054,67 @@
       "target": "packages/medusa-adapter/test/module-events.test.ts",
       "classification": "authored",
       "targetSha256": "33ddfd63e3cf339ebef1ed3ce6097edb90c099785eba3b80d813e86c34046ad4"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/inventory/level-input.ts",
+      "classification": "authored",
+      "targetSha256": "61cbdb5255a26bb71e90abb016936fe0a4a42dbcc1208ff0027c0d71c4863c6b"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/inventory/level-repository.ts",
+      "classification": "authored",
+      "targetSha256": "80e8fb60aa3e073c716e6b756f9e9686c5cf36ce2295496984b6a424185fcc99"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/stock-location/events.ts",
+      "classification": "authored",
+      "targetSha256": "d8e0dbf62ccc47080578fac0c0dbeb1d9c164b7e4409ff2ef93a542ebe3fa675"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/stock-location/input.ts",
+      "classification": "authored",
+      "targetSha256": "ad5e349823527366d80e972775bb0421df79ed688a6cedf44445ffdff32eb8ef"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/stock-location/repository.ts",
+      "classification": "authored",
+      "targetSha256": "f1661c1890f01bf01168ad5db54e8c6e3d081dbaf8e27cdb1e76985879e69f81"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/inventory/stock.ts",
+      "classification": "authored",
+      "targetSha256": "7c56e803419e6196adba9a49c049bf914afc51ccaad856d070ac9dac86ff657c"
+    },
+    {
+      "target": "packages/medusa-adapter/test/inventory-level-quantity.test.ts",
+      "classification": "authored",
+      "targetSha256": "11a47f6c9884bb05cdb55c19281db4466863d879eb9a580c43ac6d37da9f8af6"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-inventory-stocking-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "8deaab449c4026f53440c3bc22c3b7a4ef11b88f7fa94d3f1dad684fdee7b0cd"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/stock-location/steps/create-stock-locations.ts",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/stock-location/steps/create-stock-locations.ts",
+      "sourceSha256": "23b7d0119358c7d81c0ea9136db6b1e982e80015c28570341326a943445c1987",
+      "classification": "workflowFork",
+      "targetSha256": "b1cdfcf113ec51b1e1f3f195c57bb392dc666ac8d6e0bbad031ed904234ddefe"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/stock-location/workflows/create-stock-locations.ts",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/stock-location/workflows/create-stock-locations.ts",
+      "sourceSha256": "080d060e1c5fa4d526cbf53f3ed885877e09fe29b8a4405da221e9e133de2db8",
+      "classification": "workflowFork",
+      "targetSha256": "f7518e63ab10a454b145ed51f25c56bee0488b5f1760051351242db10fba324b"
+    },
+    {
+      "target": "packages/medusa-inventory/src/utils/inventory-level-quantity.ts",
+      "source": "third_party/medusa/upstream/packages/modules/inventory/src/utils/apply-mikro-orm-decorators.ts",
+      "sourceSha256": "ac1da4372a2da2dd7873ca95a85672bb6f2d28f7acb74100d989ef7755845e32",
+      "classification": "authored",
+      "targetSha256": "4df6e98c0c84cece30d15d76696b255712fa494e9ded19ecbd1c3eddd19f51f6"
     }
   ],
   "dependencies": {
@@ -6439,7 +6500,9 @@
         "./product/create-variant-pricing-link-step",
         "./pricing/create-price-sets-step",
         "./product/create-product-variants",
-        "./product/create-products"
+        "./product/create-products",
+        "./inventory/create-inventory-levels",
+        "./stock-location/create-stock-locations"
       ]
     },
     {
@@ -6470,6 +6533,7 @@
       "exports": [
         "./models",
         "./services",
+        "./inventory-level-quantity",
         "./static-manifest"
       ]
     },
@@ -14169,6 +14233,26 @@
       "target": "packages/medusa-types/dist/workflows/products/mutations.js.map",
       "targetSha256": "c2dea46a5c88625fc074885048cce5cac30a6ef06f938bcf033cbca5eb403eff",
       "input": "packages/medusa-types/src/workflows/products/mutations.ts"
+    },
+    {
+      "target": "packages/medusa-inventory/dist/utils/inventory-level-quantity.d.ts",
+      "targetSha256": "021c605d0e8fb25c3bf4d01a0141095f19d832e3e2b9fc17b8c26ece2b85da4c",
+      "input": "packages/medusa-inventory/src/utils/inventory-level-quantity.ts"
+    },
+    {
+      "target": "packages/medusa-inventory/dist/utils/inventory-level-quantity.d.ts.map",
+      "targetSha256": "5b927a4f8c9139fb27d82e6639f1ab5d78b96161d5b68a56e0c81d639a72b2f0",
+      "input": "packages/medusa-inventory/src/utils/inventory-level-quantity.ts"
+    },
+    {
+      "target": "packages/medusa-inventory/dist/utils/inventory-level-quantity.js",
+      "targetSha256": "ff2169a93c194486c7004ffdb42f55597cb7cc54992885c8f769c8602b43ef60",
+      "input": "packages/medusa-inventory/src/utils/inventory-level-quantity.ts"
+    },
+    {
+      "target": "packages/medusa-inventory/dist/utils/inventory-level-quantity.js.map",
+      "targetSha256": "66d0d40bca76580f208803d61dac7a694dcbccc48b84b275b30ed9f8c64a414a",
+      "input": "packages/medusa-inventory/src/utils/inventory-level-quantity.ts"
     }
   ],
   "testAliases": [

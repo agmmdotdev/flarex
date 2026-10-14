@@ -209,6 +209,11 @@ No workflow retry wrapper or relaxed deadline is introduced.
 
 ## Cutover And Retained Consumers
 
+The separate [stocking root](97-stock-location-inventory-levels.md) admits native
+Location creation and nonempty levels against existing Inventory items. This
+Product root keeps its original item-only profile: the native parent does not
+provide location-level input, and stocking is a distinct workflow operation.
+
 The direct Product creation facade admits module-only input, including Products
 without options and inline variants. Its existing consumers retain a distinct
 contract from the native root. Direct Product-module

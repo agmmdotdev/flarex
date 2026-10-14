@@ -20,7 +20,9 @@
     "./product/create-variant-pricing-link-step": "./src/product/steps/create-variant-pricing-link.ts",
     "./pricing/create-price-sets-step": "./src/pricing/steps/create-price-sets.ts",
     "./product/create-product-variants": "./src/product/workflows/create-product-variants.ts",
-    "./product/create-products": "./src/product/workflows/create-products.ts"
+    "./product/create-products": "./src/product/workflows/create-products.ts",
+    "./inventory/create-inventory-levels": "./src/inventory/workflows/create-inventory-levels.ts",
+    "./stock-location/create-stock-locations": "./src/stock-location/workflows/create-stock-locations.ts"
   },
   "dependencies": {
     "@medusajs/modules-sdk": "workspace:*",

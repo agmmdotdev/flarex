@@ -74,6 +74,16 @@ use previously created endpoints. This is bounded private admission. The Pricing
 launch graph retains its distinct existing-Product/Tag and measurement consumers
 until those consumers migrate explicitly; new-Product creation alone does not
 displace that behavior.
+The [Stock Location and Inventory-level admission](./preflight/97-stock-location-inventory-levels.md)
+stocks existing Inventory items through the actual native Location and level
+workflows. Its separate root admits up to four locations with optional inline
+addresses and eight levels, resolves new location ordinals from authentic native
+results, and retains the default 64-call/64-event envelope. Native location
+validation, exact quantities, computed availability and module events retain
+their owners. Existing Product/Variant item-only profiles and Stock Location
+read profiles keep their refusals; nonempty levels are not invented as inputs
+to the Product composer. Reservations, stock adjustments and Sales Channel/location
+links remain subsequent admissions.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a

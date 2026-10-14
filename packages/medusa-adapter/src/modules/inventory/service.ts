@@ -20,6 +20,8 @@ import { moduleAliases, scalarGraphDefinition } from "../../local-graph/module";
 
 import { inventoryCreateEventPolicy } from "./events";
 import { ScalarId, ScalarIdRead, scalarIdWhere } from "../../repository/scalar-id-read";
+import { InventoryLevelsInput, InventoryLevelsOutput } from "./level-input";
+import { prepareInventoryLevelRepository } from "./level-repository";
 
 export const InventoryId = ScalarId;
 const Text = Schema.optionalKey(Schema.NullOr(Schema.String));
@@ -32,18 +34,20 @@ export const InventoryItemInput = Schema.Struct({ id: Schema.optionalKey(Invento
 const Items = Schema.Array(InventoryItemInput).check(Schema.isMaxLength(4));
 const EmptyLevels = Schema.Array(Schema.Never).pipe(Schema.mutable);
 const decodeCreate = commerceDecoder(Schema.Union([InventoryItemInput, Items]), "invalidInput");
-const decodeLevels = commerceDecoder(EmptyLevels, "unsupportedProfile");
 const decodeRead = commerceDecoder(ScalarIdRead, "invalidInput");
 export const InventoryItemsOutput = Schema.Array(Schema.StructWithRest(Schema.Struct({ id: InventoryId }), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(4));
 
-export const makeLocalInventoryCommands = Effect.fn("InventoryAdapter.commands")(function* () {
+export const makeLocalInventoryCommands = Effect.fn("InventoryAdapter.commands")(function* (admission: "items" | "levels" = "items") {
   const metadata = yield* captureInventoryMetadata();
+  const levelInput = admission === "levels" ? InventoryLevelsInput : EmptyLevels;
+  const decodeLevels = commerceDecoder(levelInput, "unsupportedProfile");
+  const policy = () => inventoryCreateEventPolicy(admission === "levels");
   return yield* Effect.fromResult(Result.gen(function* () {
     const item = metadata.frame.tables.find(table => table.name === "inventory_item");
     const level = metadata.frame.tables.find(table => table.name === "inventory_level");
     if (!item || !level) return yield* Result.fail(commerceError("unsupportedProfile"));
     const prepared = yield* prepareScalarRepository(item, "InventoryItem", scalarIdWhere);
-    const levels = yield* prepareScalarRepository(level, "InventoryLevel", scalarIdWhere);
+    const levels = yield* prepareInventoryLevelRepository(level);
     const bind = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const bound = prepared.bind(ctx, owner);
       const levelBound = levels.bind(ctx, owner, bound.events);
@@ -61,7 +65,7 @@ export const makeLocalInventoryCommands = Effect.fn("InventoryAdapter.commands")
         events: bound.mutationEvents, eventBus, levelRepository };
     };
     const module = yield* defineCommerceModule({ name: "flarex-inventory-local", models: [InventoryItem, InventoryLevel, ReservationItem],
-      profile: { name: "inventory-variant-items", capabilities: [], bind },
+      profile: { name: admission === "levels" ? "inventory-stock-levels" : "inventory-variant-items", capabilities: [], bind },
       extensions: { inventoryLevelService: { mode: "replace", create: ({ binding, persistence }) => {
         const container = { inventoryLevelRepository: binding.levelRepository, modulePersistenceAdapter: persistence };
         return new InventoryLevelService(container);
@@ -84,14 +88,15 @@ export const makeLocalInventoryCommands = Effect.fn("InventoryAdapter.commands")
     if (!joiner) return yield* Result.fail(commerceError("unsupportedProfile"));
     const graph = yield* scalarGraphDefinition(yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : []).filter(alias => alias.entity === "InventoryItem") }), "InventoryItem", count, prepared.table);
     const decodeItemArguments = commerceDecoder(Schema.Tuple([Items]), "invalidInput");
-    const decodeLevelArguments = commerceDecoder(Schema.Tuple([EmptyLevels]), "unsupportedProfile");
+    const decodeLevelArguments = commerceDecoder(Schema.Tuple([levelInput]), "unsupportedProfile");
     const createInventoryItems = yield* defineWorkflowMethod({ command: create, arguments: decodeItemArguments, encode: ([items]) => [...items],
       output: commerceDecoder(InventoryItemsOutput, "storedCorruption"), moduleEvents: [buildModuleResourceEventName({ prefix: Modules.INVENTORY, objectName: "inventory_item", action: "created" })] });
     const createInventoryLevels = yield* defineWorkflowMethod({ command: createLevels, arguments: decodeLevelArguments, encode: ([levels]) => [...levels],
-      output: commerceDecoder(EmptyLevels, "storedCorruption") });
+      output: commerceDecoder(admission === "levels" ? InventoryLevelsOutput : EmptyLevels, "storedCorruption"),
+      moduleEvents: admission === "levels" ? [buildModuleResourceEventName({ prefix: Modules.INVENTORY, objectName: "inventory_level", action: "created" })] : [] });
     const workflow = yield* defineWorkflowModule({ name: Modules.INVENTORY, source: module.description, methods: { createInventoryItems, createInventoryLevels }, graph,
-      logical: { ...inventoryCreateEventPolicy(), commands: [create, createLevels, count] } });
+      logical: { ...policy(), commands: [create, createLevels, count] } });
     return { create, createLevels, count, commands: [create, createLevels, count], workflow, graph, withService: module.use,
-      logicalEventPolicy: inventoryCreateEventPolicy };
+      logicalEventPolicy: policy };
   }));
 });

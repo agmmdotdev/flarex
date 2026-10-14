@@ -13,7 +13,7 @@ import { orderedProductWorkflowEvents } from "./events";
 import type { ProductWorkflowModule } from "../../modules/product/workflow";
 import type { makeLocalPricingCommands } from "../../modules/pricing/service";
 import type { makeLocalInventoryCommands } from "../../modules/inventory/service";
-import type { makeStockLocationReads } from "../../modules/stock-location/service";
+import type { makeStockLocationCommands } from "../../modules/stock-location/service";
 import type { makeLocalSalesChannelCommands } from "../../modules/sales-channel/service";
 import type { makeLocalShippingProfileCommands } from "../../modules/fulfillment/shipping-profile-service";
 import type { prepareLocalProductLinks } from "../../links/product-service";
@@ -43,7 +43,7 @@ type Selections = {
   readonly product: { readonly module: ProductWorkflowModule; readonly methods: readonly ["createProducts", "createProductVariants"]; readonly graph: true };
   readonly pricing: { readonly module: Runtime<typeof makeLocalPricingCommands>["workflow"]; readonly methods: readonly ["createPriceSets"]; readonly graph: true };
   readonly inventory: { readonly module: Runtime<typeof makeLocalInventoryCommands>["workflow"]; readonly methods: readonly ["createInventoryItems", "createInventoryLevels"]; readonly graph: true };
-  readonly stock_location: { readonly module: Runtime<typeof makeStockLocationReads>["workflow"]; readonly methods: readonly []; readonly graph: true };
+  readonly stock_location: { readonly module: Runtime<typeof makeStockLocationCommands>["workflow"]; readonly methods: readonly []; readonly graph: true };
   readonly sales_channel: { readonly module: Runtime<typeof makeLocalSalesChannelCommands>["workflow"]; readonly methods: readonly []; readonly graph: true };
   readonly fulfillment: { readonly module: Runtime<typeof makeLocalShippingProfileCommands>["workflow"]; readonly methods: readonly []; readonly graph: true };
   readonly product_links: { readonly module: ProductLinks; readonly methods: readonly ["salesNativeCreate", "salesNativeList", "shippingNativeCreate", "shippingNativeList"]; readonly graph: true; readonly expose: false };

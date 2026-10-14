@@ -5,7 +5,7 @@ import { compileInventoryDefinition } from "../../src/modules/inventory/schema";
 import { compileStockLocationDefinition } from "../../src/modules/stock-location/schema";
 import { compileVariantLinksDefinition } from "../../src/links/variant-definition";
 import { makeLocalInventoryCommands } from "../../src/modules/inventory/service";
-import { makeStockLocationReads } from "../../src/modules/stock-location/service";
+import { makeStockLocationCommands } from "../../src/modules/stock-location/service";
 import { prepareLocalVariantLinks } from "../../src/links/variant-service";
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
@@ -34,14 +34,15 @@ export async function prepareInventoryCreateHost(fixture: LogicalCurrencyFixture
 /** Test composition reuses production source compilers and command owners. */
 export interface LogicalInventoryHosts {
   readonly inventory: { readonly runtime: Effect.Success<ReturnType<typeof makeLocalInventoryCommands>>; readonly hostInput: LogicalCommerceHostInput<unknown> };
-  readonly stockLocation: { readonly runtime: Effect.Success<ReturnType<typeof makeStockLocationReads>>; readonly hostInput: LogicalCommerceHostInput<unknown> };
+  readonly stockLocation: { readonly runtime: Effect.Success<ReturnType<typeof makeStockLocationCommands>>; readonly hostInput: LogicalCommerceHostInput<unknown> };
   readonly link: { readonly runtime: Effect.Success<ReturnType<typeof prepareLocalVariantLinks>>; readonly hostInput: LogicalCommerceHostInput<unknown> };
 }
-export async function prepareLogicalInventoryHosts(fixture: LogicalCurrencyFixture): Promise<LogicalInventoryHosts> {
+export async function prepareLogicalInventoryHosts(fixture: LogicalCurrencyFixture,
+  admission: { readonly levels?: boolean; readonly stockLocations?: boolean } = {}): Promise<LogicalInventoryHosts> {
   const empty = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: [] }, 1_048_576,
     { invalidInput: () => new Error("Invalid Inventory seed"), hashFailure: cause => new Error("Inventory seed hash", { cause }) }));
-  const inventory = await Effect.runPromise(makeLocalInventoryCommands());
-  const stockLocation = await Effect.runPromise(makeStockLocationReads());
+  const inventory = await Effect.runPromise(makeLocalInventoryCommands(admission.levels === true ? "levels" : "items"));
+  const stockLocation = await Effect.runPromise(makeStockLocationCommands(admission.stockLocations === true ? "create" : "read"));
   const link = await Effect.runPromise(prepareLocalVariantLinks());
   const inventoryDefinition = await Effect.runPromise(compileInventoryDefinition());
   const stockDefinition = await Effect.runPromise(compileStockLocationDefinition());
