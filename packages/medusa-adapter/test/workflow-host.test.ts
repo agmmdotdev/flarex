@@ -5,15 +5,15 @@ import type { AtomicCommerceContext } from "@flarex/persistence-postgres/interna
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineGraphReadCommand } from "../src/local-graph/commands";
 import type { GraphModuleDefinition } from "../src/local-graph/model";
-import { commerceDecoder } from "../src/commerce-decoder";
+import { commerceDecoder } from "../src/value/decoder";
 import { defineWorkflowMethod, defineWorkflowModule, workflowModuleDefinition, workflowMethodDefinition } from "../src/workflow/module";
 import { prepareWorkflowResources, workflowResourceSelections } from "../src/workflow/resources";
 import { bindWorkflowResources } from "../src/workflow/binding";
-import { checkedCommerceValue } from "../src/commerce-checked-value";
-import { prepareAtomicWorkflowHost } from "../src/workflow/host";
-import { runNativeMedusaWorkflow } from "../src/workflow-runtime";
-import type { CommercePromiseOwner } from "../src/commerce-promise-owner";
-import { captureWorkflowValue } from "../src/workflow-value";
+import { checkedCommerceValue } from "../src/value/checked";
+import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type InstalledWorkflowModule } from "../src/workflow/host";
+import { runNativeMedusaWorkflow } from "../src/workflow/runtime";
+import type { CommercePromiseOwner } from "../src/module/promise-owner";
+import { captureWorkflowValue } from "../src/workflow/value";
 
 const source = { name: "sample-module", profile: "sample", models: [], extensions: [], capabilities: [] };
 const command = defineGraphReadCommand("sampleRead", () => Effect.succeed([[], 0]));
@@ -37,6 +37,34 @@ const context = (): AtomicCommerceContext => ({ eventGroupId: "unit", checkpoint
 });
 
 describe("workflow registration and scoped resource composition", () => {
+  it("captures selected installed bindings without invoking registration or nested getters", () => {
+    const getter = vi.fn(() => module);
+    const registrations: Record<string, InstalledWorkflowModule> = {};
+    Object.defineProperty(registrations, "sample", { get: getter, enumerable: true });
+    expect(captureInstalledWorkflowModules(registrations, ["sample"]).pipe(Result.match({
+      onFailure: error => error.reason, onSuccess: () => "accepted",
+    }))).toBe("unsupportedProfile");
+    Object.defineProperty(registrations, "nested", { value: Object.defineProperty({}, "module", { get: getter, enumerable: true }), enumerable: true });
+    expect(captureInstalledWorkflowModules(registrations, ["nested"]).pipe(Result.match({
+      onFailure: error => error.reason, onSuccess: () => "accepted",
+    }))).toBe("unsupportedProfile");
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it("preserves selected-binding first-failure order before later registrations", () => {
+    const inspected: string[] = [];
+    const registrations: Record<string, InstalledWorkflowModule> = {};
+    const oversized = Object.fromEntries(Array.from({ length: 4097 }, (_, index) => ["field" + index, index]));
+    Object.defineProperty(registrations, "first", { value: oversized, enumerable: true });
+    const proxy = new Proxy(registrations, { getOwnPropertyDescriptor: (target, name) => {
+      inspected.push(String(name)); return Object.getOwnPropertyDescriptor(target, name);
+    } });
+    expect(captureInstalledWorkflowModules(proxy, ["first", "missing"]).pipe(Result.match({
+      onFailure: error => error.reason, onSuccess: () => "accepted",
+    }))).toBe("limitExceeded");
+    expect(inspected).toEqual(["first"]);
+  });
+
   it("enters the existing capture operation before inspecting foreign workflow proxies or accessors", async () => {
     const ctx = context();
     const inspect = vi.fn();

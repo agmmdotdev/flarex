@@ -5,8 +5,8 @@ import { createWorkflow, WorkflowResponse } from "@medusajs/workflows-sdk";
 
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
@@ -488,15 +488,17 @@ describe("native Product Type on shared logical Product storage", () => {
               .toMatchObject(rows);
           }
           const before = await logicalCurrencyInventory(localFixture);
-          let stagedFactPages = 0;
+          // Reference traversal refuses after earlier materialization pages.
+          // Ordered commit facts begin only after all materialization finishes.
+          let stagedMaterializationPages = 0;
           localFixture.observeSql?.(text => {
-            if (/\bfx_write_scope_publication_rows\b/i.test(text)) stagedFactPages++;
+            if (/\bfx_apply_app_publication\b/i.test(text)) stagedMaterializationPages++;
           });
           try {
             await expect(Effect.runPromise(deleted.host.run(deleted.host.newRequestKey(), deleted.root, [typeId])))
               .rejects.toMatchObject({ reason: "limitExceeded" });
           } finally { localFixture.observeSql?.(undefined); }
-          if (localFixture.observeSql !== undefined) expect(stagedFactPages).toBeGreaterThan(1);
+          if (localFixture.observeSql !== undefined) expect(stagedMaterializationPages).toBeGreaterThan(1);
           expect(await logicalCurrencyInventory(localFixture)).toEqual(before);
           expect(await Effect.runPromise(localProduct.host.read(localProduct.runtime.commands.internalProductRetrieve,
             { id: "prod_large_reference_0" }))).toMatchObject({ type_id: typeId });

@@ -11,7 +11,7 @@ import { Modules } from "@medusajs/framework/utils/portable";
 import type { IPricingModuleService } from "@medusajs/framework/types";
 import { createPriceSetsStep } from "@medusajs/core-flows/pricing/create-price-sets-step";
 import { useQueryGraphStep } from "@medusajs/core-flows/common/use-query-graph";
-import { PriceSetsInput, PriceListsInput, PricePreferencesInput } from "../src/pricing-input";
+import { PriceSetsInput, PriceListsInput, PricePreferencesInput } from "../src/modules/pricing/input";
 import { decodeCompiledDml } from "../src/schema/compiled";
 import { lowerDmlSchema } from "../src/schema/lower";
 
@@ -29,7 +29,7 @@ import { lowerAppDeveloperIndexKeyV1 } from "../../persistence-postgres/src/stor
 import { selectLogicalIndex } from "../../persistence-postgres/src/storage/documents/logicalDocuments/query";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalPricingHost } from "./support/logical-pricing-fixture";
-import { pricingLogicalCreateEventPolicy } from "../src/pricing-events";
+import { pricingLogicalCreateEventPolicy } from "../src/modules/pricing/events";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Pricing test driver");

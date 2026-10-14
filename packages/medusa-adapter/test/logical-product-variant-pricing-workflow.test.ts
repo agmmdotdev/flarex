@@ -11,13 +11,13 @@ import { makeCommitEventPump } from "../../persistence-postgres/src/commit/event
 import { CommitEventSubscriberFailure } from "../../persistence-postgres/src/commit/events/model";
 import { fxAppRowCurrent, fxSystemCommitAppRowChanges, fxSystemCommits, fxSystemIdempotency } from "../../persistence-postgres/src/database/schema";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productCallReceipts } from "../src/product-local-events";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
+import { productCallReceipts } from "../src/modules/product/events/call-receipts";
 
-import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
+import { prepareProductCreateWorkflow } from "../src/workflows/product/create";
 import { prepareProductVariantPricingWorkflow, productVariantPricingWorkflow,
-  ProductVariantPricingInput, ProductVariantPricingOutput } from "../src/product-variant-pricing-workflow";
+  ProductVariantPricingInput, ProductVariantPricingOutput } from "../src/workflows/product/variant-pricing";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type AtomicWorkflowHostComposition } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../src/workflow/events";

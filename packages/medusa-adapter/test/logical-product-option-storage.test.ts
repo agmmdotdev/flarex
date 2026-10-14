@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";

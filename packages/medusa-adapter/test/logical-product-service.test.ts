@@ -11,9 +11,9 @@ import { lockScopeClockForSnapshotReadInTransactionEffect } from "../../persiste
 import { prepareLogicalSearchBuild } from "../../persistence-postgres/src/storage/search/logicalSearchBuild";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { findProducts } from "../src/product-query";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
+import { findProducts } from "../src/modules/product/query";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Product test driver");

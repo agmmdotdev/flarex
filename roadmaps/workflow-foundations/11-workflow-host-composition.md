@@ -48,14 +48,14 @@ This capability changes their assembly and adapter validation boundaries.
 
 | Owner | Current responsibility |
 | --- | --- |
-| [Module definition](../../packages/medusa-adapter/src/module-definition.ts) | Repository/internal-service construction and fresh scoped services; independent of workflow orchestration. |
-| [Product commands](../../packages/medusa-adapter/src/product-service.ts) and [Currency commands](../../packages/medusa-adapter/src/currency-service.ts) | Existing command tokens, service translation, graph metadata and module-owned workflow registration. |
+| [Module definition](../../packages/medusa-adapter/src/module/definition.ts) | Repository/internal-service construction and fresh scoped services; independent of workflow orchestration. |
+| [Product commands](../../packages/medusa-adapter/src/modules/product/service.ts) and [Currency commands](../../packages/medusa-adapter/src/modules/currency/service.ts) | Existing command tokens, service translation, graph metadata and module-owned workflow registration. |
 | [Workflow module registration](../../packages/medusa-adapter/src/workflow/module.ts) | Authentic typed method adapters and captured module/graph metadata; no command execution or installation authority. |
 | [Resource selections](../../packages/medusa-adapter/src/workflow/resources.ts) | Select methods/graph/events and infer the native callback view from that exact selection. |
 | [Shared host](../../packages/medusa-adapter/src/workflow/host.ts) | Derive participants, allowlists, graph bindings, event contracts and replay policy; delegate preparation to the trusted atomic host factory. |
 | [Shared binding](../../packages/medusa-adapter/src/workflow/binding.ts) | Create the native and Medusa compatibility views over the same scoped functions. |
-| [Product-tag adapter](../../packages/medusa-adapter/src/product-tag-workflow.ts) | Business input, actual core-flow sequence, hook adaptation and event correlation. |
-| [Native runner](../../packages/medusa-adapter/src/workflow-runtime.ts) | Foreign callbacks, borrowed runners, cancellation, pending-work detection and closure, including resource-construction failure. |
+| [Product-tag adapter](../../packages/medusa-adapter/src/workflows/product/tag.ts) | Business input, actual core-flow sequence, hook adaptation and event correlation. |
+| [Native runner](../../packages/medusa-adapter/src/workflow/runtime.ts) | Foreign callbacks, borrowed runners, cancellation, pending-work detection and closure, including resource-construction failure. |
 | [Atomic host](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) | Authentic command/installations/scope admission, root accounting, settlement and recovery. |
 
 The Medusa reference remains the exact revision in

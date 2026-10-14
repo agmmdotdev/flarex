@@ -23,7 +23,7 @@ import { CommerceTransactionError, commerceError, isJsonObject, type Json } from
 
 import { productShippingProfileResources } from "../src/workflow/policy";
 import { prepareProductShippingProfileWorkflow, productShippingProfileWorkflow,
-  ProductShippingProfileInput, ProductShippingProfileOutput } from "../src/product-shipping-profile-workflow";
+  ProductShippingProfileInput, ProductShippingProfileOutput } from "../src/workflows/product/shipping-profile";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type AtomicWorkflowHostComposition } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../src/workflow/events";

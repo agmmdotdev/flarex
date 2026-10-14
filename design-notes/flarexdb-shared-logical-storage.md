@@ -256,7 +256,7 @@ schema dependency resolution with the existence of each referenced record.
 | Native stored Module Link | Preserve native pair/endpoint cardinality, record identity, custom data, soft deletion and restoration; do not infer endpoint-existence checks merely from the presence of endpoint IDs. |
 | Strong local cross-framework reference | Enforce admitted target existence, ownership, cardinality and deletion/restore rules atomically within the supported placement. |
 
-The current [Link compiler](../packages/medusa-adapter/src/link-schema.ts) emits
+The current [Link compiler](../packages/medusa-adapter/src/links/schema.ts) emits
 no endpoint foreign keys. [Native Link conformance](../packages/medusa-adapter/test/logical-variant-pricing-link-lifecycle.test.ts)
 includes cardinality/restore scenarios without created endpoint records.
 Stronger target-existence enforcement for a native Link must therefore be named

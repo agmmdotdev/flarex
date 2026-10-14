@@ -6,7 +6,7 @@ import { logicalCommerceBatchResources } from "../../persistence-postgres/src/fr
 import { isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { sumLogicalRows } from "../../persistence-postgres/src/storage/documents/logicalDocuments/aggregate";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { currencyCommands } from "../src/currency-service";
+import { currencyCommands } from "../src/modules/currency/service";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid query driver");

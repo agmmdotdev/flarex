@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { makeCategoryCurrencyAtomicCommand } from "../../src/category-currency-atomic-command";
+import { makeCategoryCurrencyAtomicCommand } from "../../src/composition/category-currency-command";
 
 
 
@@ -11,7 +11,7 @@ import { prepareLogicalProductHost } from "./logical-product-fixture";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
 import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import type { CommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
-import { decodeCategoryProjection } from "../../src/product-category-projection";
+import { decodeCategoryProjection } from "../../src/modules/product/category-projection";
 
 interface LogicalCategoryCurrencyFixture {
   readonly currency: LogicalCurrencyFixture;

@@ -7,7 +7,7 @@ import {
 } from "flarex-protocol/internal/relational-schema";
 import { decodeCompiledDml } from "../src/schema/compiled";
 import { lowerDmlSchema } from "../src/schema/lower";
-import { decodeExactNumeric, encodeExactNumeric } from "../src/exact-numeric";
+import { decodeExactNumeric, encodeExactNumeric } from "../src/value/exact-numeric";
 
 const Ledger = model.define("NumericLedger", {
   id: model.id().primaryKey(), amount: model.bigNumber(), quantity: model.bigNumber().nullable(),

@@ -7,7 +7,7 @@ import { commerceError } from "../../persistence-postgres/src/frameworks/commerc
 import { defaultCommerceResources } from "../../persistence-postgres/src/frameworks/commerceTransaction/resources";
 import { fxAppJsonEntryCurrent, fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
 import { selectLogicalJsonSearchDefinition } from "../../persistence-postgres/src/storage/documents/logicalDocuments/searchEntries";
-import { compilePricingDefinition } from "../src/pricing-schema";
+import { compilePricingDefinition } from "../src/modules/pricing/schema";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";

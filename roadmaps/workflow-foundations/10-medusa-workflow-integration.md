@@ -48,9 +48,9 @@ flowchart TD
 | --- | --- |
 | [medusa-core-flows](../../packages/medusa-core-flows/src/product/workflows/create-product-tags.ts) | Original business sequence: create tags, invoke the named hook, transform IDs, emit workflow events and return tags. |
 | [medusa-workflows-sdk](../../packages/medusa-workflows-sdk/src/definition.ts) | Staged definitions, ordered builder, references, transforms, responses, immutable prepared hook registrations and selected execution through caller-owned ports. |
-| [Product-tag adapter](../../packages/medusa-adapter/src/product-tag-workflow.ts) | Select module resources, validate native input/hook views and correlate workflow event IDs with successful creation output. |
+| [Product-tag adapter](../../packages/medusa-adapter/src/workflows/product/tag.ts) | Select module resources, validate native input/hook views and correlate workflow event IDs with successful creation output. |
 | [Shared workflow host](../../packages/medusa-adapter/src/workflow/host.ts) | Derive participants, command allowlists, graph/event bindings and scoped resources from module-owned registrations. |
-| [Native runner](../../packages/medusa-adapter/src/workflow-runtime.ts) | Own foreign callbacks and scoped service runners, charge root budgets and preserve sticky refusal/cancellation. |
+| [Native runner](../../packages/medusa-adapter/src/workflow/runtime.ts) | Own foreign callbacks and scoped service runners, charge root budgets and preserve sticky refusal/cancellation. |
 | [Atomic commerce](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) | Authenticate installations, share one lifetime and transaction, validate participant facts, seal the result and event contribution, and use existing root recovery. |
 | [Committed events](../../packages/persistence-postgres/src/commit/events/store.ts) | Durable intent, completeness verification, fresh scope authority, fenced delivery claims and retained subscriber outcomes. |
 

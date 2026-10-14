@@ -1,12 +1,12 @@
 import { Effect } from "effect";
 import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
-import { compileInventoryDefinition } from "../../src/inventory-schema";
-import { compileStockLocationDefinition } from "../../src/stock-location-schema";
-import { compileVariantLinksDefinition } from "../../src/variant-links-definition";
-import { makeLocalInventoryCommands } from "../../src/inventory-service";
-import { makeStockLocationReads } from "../../src/stock-location-service";
-import { prepareLocalVariantLinks } from "../../src/variant-links-service";
+import { compileInventoryDefinition } from "../../src/modules/inventory/schema";
+import { compileStockLocationDefinition } from "../../src/modules/stock-location/schema";
+import { compileVariantLinksDefinition } from "../../src/links/variant-definition";
+import { makeLocalInventoryCommands } from "../../src/modules/inventory/service";
+import { makeStockLocationReads } from "../../src/modules/stock-location/service";
+import { prepareLocalVariantLinks } from "../../src/links/variant-service";
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";

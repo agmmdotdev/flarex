@@ -3,7 +3,7 @@ import type { Invoke, StepExecutionContext, WorkflowContainer } from "@medusajs/
 import { defineAtomicCommerceParticipant, type AtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LocalGraphResult } from "../local-graph/model";
-import { captureCommerceInput } from "../commerce-input";
+import { captureCommerceInput } from "../value/input";
 import { captureWorkflowRecord, isWorkflowResourceName } from "./configuration";
 import { workflowMethodDefinition, workflowModuleDefinition, type BoundWorkflowMethod, type WorkflowModule, type WorkflowModuleMethods } from "./module";
 import { composedWorkflowResourceDefinition, type ComposedWorkflowResource, type ComposedWorkflowServices } from "./composed-resource";

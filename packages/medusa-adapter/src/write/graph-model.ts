@@ -1,6 +1,6 @@
 import type { Effect, Result } from "effect";
 import type { CommerceTransactionError, Json, JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { CommerceRelations } from "../commerce-relations";
+import type { CommerceRelations } from "../query/relations";
 import type { SchemaTable } from "../schema/model";
 
 export type GraphTable = Pick<SchemaTable, "name" | "columns" | "foreignKeys">;

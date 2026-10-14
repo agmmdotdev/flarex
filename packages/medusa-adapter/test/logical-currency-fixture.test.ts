@@ -29,8 +29,8 @@ import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryRevisions } from "..
 import { closeInstallationAdmission, lockInstallationForCurrentTransaction, requireAdmittedTargetInstallationSchema } from "../../persistence-postgres/src/installation/installationLifecycle";
 import { runDrizzleStatementEffect } from "../../persistence-postgres/src/database/drizzleStatementEffect";
 import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
-import { currencyAnnouncementWrite, currencyCommands } from "../src/currency-service";
-import { withCurrencyService } from "../src/currency-service";
+import { currencyAnnouncementWrite, currencyCommands } from "../src/modules/currency/service";
+import { withCurrencyService } from "../src/modules/currency/service";
 import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";

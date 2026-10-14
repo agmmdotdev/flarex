@@ -51,7 +51,7 @@ import { defineCommerceEventContract } from "../../../src/frameworks/atomicComme
 import {
   makeLogicalDocumentRootEvaluator,
 } from "../../../src/storage/documents/logicalDocuments/rootEvaluator";
-import { captureWorkflowValue } from "../../../../medusa-adapter/src/workflow-value";
+import { captureWorkflowValue } from "../../../../medusa-adapter/src/workflow/value";
 
 beforeEach(() => { construction.admissions = []; construction.state = undefined; });
 

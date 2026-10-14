@@ -115,7 +115,7 @@ The source island remains reference-only until promotion gates pass.
 | [Composite host](../../packages/persistence-postgres/src/frameworks/crossDomainCommand/host.ts) and [actual assertions](../../packages/medusa-adapter/test/currency-announcement.test.ts) | A fixed Currency/CMS/Application command has one physical owner, pending reads, combined facts, retained replay, late-failure rollback and physical-failure assertions. This does not establish a generic two-commerce-module host or application API. |
 | [Binding model](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/model.ts) and [atomic admission](../../packages/persistence-postgres/src/frameworks/atomicCommerce/admission.ts) | The current unversioned binding model admits bounded installation coverage and direct profile membership. The atomic host selects at most eight logical participants, sharing physical admission only for exact installation references and disjoint profiles. Standalone hosts retain their own profile selection. |
 | [Relational fact reader](../../packages/persistence-postgres/src/commit/publication/relationalFacts.ts) | Validates every fact against a caller-supplied directory of original captured installation layouts before returning a participant projection. Active bindings do not reinterpret old commits. |
-| [Module definition](../../packages/medusa-adapter/src/module-definition.ts) | Checked definitions and fresh scoped services already exist. Preparation stays separate from request authority. |
+| [Module definition](../../packages/medusa-adapter/src/module/definition.ts) | Checked definitions and fresh scoped services already exist. Preparation stays separate from request authority. |
 | [Read execution](../../packages/medusa-adapter/src/query/read.ts) and [catalog](../../packages/medusa-adapter/src/query/catalog.ts) | Relation filtering, root selection, population, count and projection are reusable semantics; they do not produce native relational OCC dependencies. |
 | [Native journal](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts) and [internal calls](../45-private-internal-user-code-calls.md) | Native calls share an attempt and overlay. These admitted native operations do not establish arbitrary relational query support. |
 | [Application command invocation](../shared-transaction-core/06-application-command-invocation-preflight.md) | The Action-to-trusted-command boundary is proposed, not implemented. The private host is not an ordinary application API. |
@@ -155,7 +155,7 @@ The smaller [create-product-tags workflow](../../third_party/medusa/upstream/pac
 is a useful later target, but includes a hook and workflow event.
 [Workflow export](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/helper/workflow-export.ts)
 releases/clears event groups, while the
-[current Product module](../../packages/medusa-adapter/src/product-module.ts)
+[current Product module](../../packages/medusa-adapter/src/modules/product/module.ts)
 refuses those operations. Local event buffering and the commit wake outbox do
 not establish durable grouped business events. Do not drop the event step to
 claim original workflow compatibility.
@@ -227,7 +227,7 @@ The source-private multi-installation atomic commerce command uses Product and
 Currency with relation reads in the same transaction. It closes a shared
 prerequisite while retaining the physical owner, lock order and retry policy.
 
-The [proof command](../../packages/medusa-adapter/src/category-currency-atomic-command.ts)
+The [proof command](../../packages/medusa-adapter/src/composition/category-currency-command.ts)
 uses real private internal services to create a Category parent, upsert/read a
 Currency, create a Category child, then read the relation, count and Currency
 before commit. Late failure after both participants write rolls back both.
@@ -236,7 +236,7 @@ not a fabricated Medusa core workflow or cross-module foreign-key contract.
 
 The event-free selection is grounded in
 [logical internal Category assertions](../../packages/medusa-adapter/test/logical-internal-category-boundaries.test.ts)
-and [Currency's private participant](../../packages/medusa-adapter/src/currency-service.ts).
+and [Currency's private participant](../../packages/medusa-adapter/src/modules/currency/service.ts).
 Internal Category calls deliberately omit the module event aggregator while
 retaining authenticated ordered attempts and final shared row changes. Public Product operations still require their event
 contract. Do not suppress public events or generalize the internal proof to

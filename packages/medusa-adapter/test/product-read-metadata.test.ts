@@ -2,7 +2,7 @@ import { Effect, Result } from "effect";
 import { expect, it } from "vitest";
 import { decodeRelationalSchemaMetadata, normalizeRelationalSchema, relationalSchemaSourceFromDefinition } from "flarex-protocol/internal/relational-schema";
 import { encodeCanonicalJson } from "flarex-protocol/json";
-import { compileProductDefinition } from "../src/product-definition";
+import { compileProductDefinition } from "../src/modules/product/definition";
 import { prepareLogicalRelationalRowValues } from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalRows";
 
 it("decodes an authenticated Product row projection while retaining derived columns and exact row contracts", async () => {

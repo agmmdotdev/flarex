@@ -16,8 +16,8 @@ import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalSalesChannelHost } from "./support/logical-sales-channel-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
 
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";

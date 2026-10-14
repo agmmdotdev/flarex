@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { commerceCommandIdentity } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { makeLocalProductCommands } from "../src/product-service";
+import { makeLocalProductCommands } from "../src/modules/product/service";
 import { isGraphReadCommand } from "../src/local-graph/commands";
 import { workflowMethodDefinition, workflowModuleDefinition } from "../src/workflow/module";
 

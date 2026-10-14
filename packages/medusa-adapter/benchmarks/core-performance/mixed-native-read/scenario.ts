@@ -10,7 +10,7 @@ import type {
   CommerceTransactionError,
 } from "../../../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { PrivateProductAttemptExecution } from "../../../src/product-attempt";
+import type { PrivateProductAttemptExecution } from "../../../src/modules/product/attempt";
 import { productAttemptSeed } from "../../../test/support/product-attempt-seed";
 import {
   createMixedMutationPerformanceTrace,
@@ -316,7 +316,7 @@ const sources = [
   "packages/persistence-postgres/src/execution/preparation/preparedMetadataEpoch.ts",
   "packages/persistence-postgres/src/installation/installationLifecycle.ts",
   "packages/persistence-postgres/src/database/postgresInstallationMaintenance.ts",
-  "packages/medusa-adapter/src/product-attempt.ts",
+  "packages/medusa-adapter/src/modules/product/attempt.ts",
 ] as const;
 const sourceHashes = async () => Object.fromEntries(await Promise.all(sources.map(async path =>
   [path, createHash("sha256").update(await readFile(join(root, path))).digest("hex")] as const)));

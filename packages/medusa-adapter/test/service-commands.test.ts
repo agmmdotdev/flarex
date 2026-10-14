@@ -6,15 +6,15 @@ import type { CommerceCommandContext } from "@flarex/persistence-postgres/intern
 import { getCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { makeCommerceCommandContext } from "../../persistence-postgres/src/frameworks/commerceTransaction/context";
-import { commerceServiceCommands } from "../src/service-commands";
-import { withCommerceService } from "../src/commerce-service-bridge";
-import { commerceDecoder } from "../src/commerce-decoder";
+import { commerceServiceCommands, commerceCommandPreparation } from "../src/module/commands";
+import { withCommerceService } from "../src/module/service-bridge";
+import { commerceDecoder } from "../src/value/decoder";
 import { isGraphReadCommand } from "../src/local-graph/commands";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productRepository } from "../src/product-repository";
-import { capturePricingMetadata } from "../src/pricing-schema";
-import { preparePricingRepository } from "../src/pricing-repository";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
+import { productRepository } from "../src/modules/product/repository";
+import { capturePricingMetadata } from "../src/modules/pricing/schema";
+import { preparePricingRepository } from "../src/modules/pricing/repository";
 import { projectRows } from "../src/query/projection";
 
 const fixture = Effect.gen(function* () {
@@ -28,11 +28,8 @@ const fixture = Effect.gen(function* () {
   }, "command-bindings", lifetime.context, unused, unused);
   return { ctx, lifetime };
 });
-const decode = commerceDecoder(Schema.Struct({ code: Schema.String, values: Schema.Array(Schema.String) }), "invalidInput");
-const prepare = Effect.fn("ServiceCommandsTest.prepare")(function* (ctx: CommerceCommandContext, input: Json) {
-  const decoded = yield* Effect.fromResult(decode(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-  return { code: decoded.code, values: [...decoded.values] };
-});
+const decode = commerceDecoder(Schema.Struct({ code: Schema.String, values: Schema.Array(Schema.String).pipe(Schema.mutable) }), "invalidInput");
+const prepare = commerceCommandPreparation("ServiceCommandsTest.prepare")(decode);
 type Input = Effect.Success<ReturnType<typeof prepare>>;
 
 function bindings(label: string) {

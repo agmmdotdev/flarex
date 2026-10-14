@@ -26,7 +26,7 @@ import {
 import { fxSystemSnapshotLeases, fxSystemTransactionSessions, fxSystemScopeExecutionAuthorities } from "../../persistence-postgres/src/database/schema";
 import { selectApplicationMutationAdmission } from "../../persistence-postgres/src/application/applicationMutationAdmission";
 import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { currencyCommands } from "../../medusa-adapter/src/currency-service";
+import { currencyCommands } from "../../medusa-adapter/src/modules/currency/service";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined

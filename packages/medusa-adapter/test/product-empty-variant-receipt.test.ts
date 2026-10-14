@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productCallReceipts } from "../src/product-local-events";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
+import { productCallReceipts } from "../src/modules/product/events/call-receipts";
 
 describe("native empty Variant creation receipt", () => {
   it("admits authentic empty input/results with reads, while refusing hidden effects and forged emptiness", async () => {

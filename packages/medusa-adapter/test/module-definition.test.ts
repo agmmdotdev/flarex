@@ -7,13 +7,13 @@ import type { CommerceCommandContext } from "@flarex/persistence-postgres/intern
 import { commerceError, commerceLimits, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { makeCommerceCommandContext } from "../../persistence-postgres/src/frameworks/commerceTransaction/context";
-import { defineCommerceModule, type CommerceModuleExtension } from "../src/module-definition";
-import { commerceRepositoryContext } from "../src/commerce-repository-context";
-import { makeCommercePromiseOwner, type CommercePromiseOwner } from "../src/commerce-promise-owner";
-import type { CommerceInternalService } from "../src/commerce-module";
-import { productImageAliasRepository } from "../src/product-module";
+import { defineCommerceModule, type CommerceModuleExtension } from "../src/module/definition";
+import { commerceRepositoryContext } from "../src/repository/context";
+import { makeCommercePromiseOwner, type CommercePromiseOwner } from "../src/module/promise-owner";
+import type { CommerceInternalService } from "../src/module/persistence";
+import { productImageAliasRepository } from "../src/modules/product/module";
 import { MedusaService } from "@medusajs/utils/modules-sdk/medusa-service";
-import { commerceMutationEvents } from "../src/commerce-mutation-events";
+import { commerceMutationEvents } from "../src/repository/mutation-events";
 
 const Volume = model.define("Volume", { isbn: model.text().primaryKey(), title: model.text() });
 const Edition = model.define("Edition", { serial: model.text().primaryKey() });

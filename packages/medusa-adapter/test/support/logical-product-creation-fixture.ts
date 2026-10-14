@@ -11,10 +11,10 @@ import { prepareLogicalSalesChannelHost } from "./logical-sales-channel-fixture"
 import { prepareLogicalShippingProfileHost } from "./logical-shipping-profile-fixture";
 import { prepareLogicalProductLinksHost } from "./logical-product-links-fixture";
 import { prepareLogicalInventoryHosts } from "./logical-inventory-fixture";
-import { prepareProductShippingProfileWorkflow } from "../../src/product-shipping-profile-workflow";
-import { prepareProductNativeLinkResource } from "../../src/product-native-link-resource";
+import { prepareProductShippingProfileWorkflow } from "../../src/workflows/product/shipping-profile";
+import { prepareProductNativeLinkResource } from "../../src/links/product-resource";
 import type { AtomicWorkflowHostComposition, AtomicWorkflowExecution } from "../../src/workflow/host";
-import type { prepareProductCreationWorkflow } from "../../src/product-creation-workflow";
+import type { prepareProductCreationWorkflow } from "../../src/workflows/product/creation";
 
 export const creationRevision = (name: string) => createHash("sha256").update(name).digest("hex");
 export interface ProductCreationFixture {

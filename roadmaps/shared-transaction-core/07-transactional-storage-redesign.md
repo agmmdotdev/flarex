@@ -504,8 +504,8 @@ The adapter calls real Local API operations through
 Medusa uses promoted workspace packages from the fork provenance in
 [SOURCE.json](../../third_party/medusa/SOURCE.json), not an independently chosen
 upstream release. The
-[Currency service](../../packages/medusa-adapter/src/currency-service.ts) and
-[repository](../../packages/medusa-adapter/src/currency-repository.ts) demonstrate
+[Currency service](../../packages/medusa-adapter/src/modules/currency/service.ts) and
+[repository](../../packages/medusa-adapter/src/modules/currency/repository.ts) demonstrate
 the actual service -> borrowed command context -> commerce-store path. Product
 has explicit model/service exports in
 [its manifest](../../packages/medusa-product/package.json).

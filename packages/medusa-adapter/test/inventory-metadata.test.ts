@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { captureInventoryMetadata, compileInventoryDefinition } from "../src/inventory-schema";
-import { captureStockLocationMetadata, compileStockLocationDefinition } from "../src/stock-location-schema";
-import { captureVariantInventoryLinkMetadata } from "../src/product-variant-inventory-schema";
+import { captureInventoryMetadata, compileInventoryDefinition } from "../src/modules/inventory/schema";
+import { captureStockLocationMetadata, compileStockLocationDefinition } from "../src/modules/stock-location/schema";
+import { captureVariantInventoryLinkMetadata } from "../src/composition/product-variant-inventory-schema";
 
 describe("pinned Inventory structural source closure", () => {
   it("retains all models and quantity storage while omitting computed item columns", async () => {

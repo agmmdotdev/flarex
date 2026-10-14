@@ -147,7 +147,7 @@ import { executePrivateProductAttemptOperation,
   preparePrivateProductAttempt, preparePrivateProductAttemptEventPolicy } from
   "@flarex/medusa-adapter/internal/product-attempt";
 import { preparePrivateProductLaunchAttempt } from
-  "../../../../medusa-adapter/src/product-launch-workflow";
+  "../../../../medusa-adapter/src/workflows/product/launch";
 import {
   admittedCommerceEventGroup,
   captureAtomicCommerceParticipants,

@@ -12,7 +12,7 @@ import { issueRelationalSession, makePostgresRelationalSession, runRelationalSes
   "../../persistence-postgres/src/database/relationalTransaction/session";
 import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 import { compositeError } from "../../persistence-postgres/src/frameworks/crossDomainCommand/model";
-import { currencyAnnouncementWrite } from "../src/currency-service";
+import { currencyAnnouncementWrite } from "../src/modules/currency/service";
 import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";

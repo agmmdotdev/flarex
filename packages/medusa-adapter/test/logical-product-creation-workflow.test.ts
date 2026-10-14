@@ -10,7 +10,7 @@ import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/even
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
 import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
-import { prepareProductCreationWorkflow, type ProductCreationHooks } from "../src/product-creation-workflow";
+import { prepareProductCreationWorkflow, type ProductCreationHooks } from "../src/workflows/product/creation";
 import { productCreationResources } from "../src/workflow/policy";
 import { makeProductCreationFixture, productCreationOptions, productCreationExecution,
   seedCreationEndpoints, seedCreationReferences, type ProductCreationFixture } from "./support/logical-product-creation-fixture";

@@ -8,9 +8,9 @@ import { tupleKey } from "@medusajs/drizzle/relation-query";
 import { hasChangedFields, relationshipNotFoundMessage } from "@medusajs/drizzle/mutation-plan";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { commerceDecoder } from "../commerce-decoder";
-import { captureCommerceInput } from "../commerce-input";
-import { assembleCommerceRelations } from "../commerce-relations";
+import { commerceDecoder } from "../value/decoder";
+import { captureCommerceInput } from "../value/input";
+import { assembleCommerceRelations } from "../query/relations";
 import type { GraphEntity, GraphTable, ReplacementProfile, ReplacedGraph } from "./graph-model";
 // The authoritative native capture already established the complete JSON tree.
 // Relation shape remains checked here; operation-specific decoders stay below.

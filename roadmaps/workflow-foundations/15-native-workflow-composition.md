@@ -46,12 +46,12 @@ source governs executable comparison; this capability upgrades no dependency.
 | [Pinned composer tests](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/__tests__/index.spec.ts) | Cover returned child data, parent failure, true/false branches, compensation and context propagation. Preserve applicable assertions; classify distributed/async and compensation behavior as explicit native differences. |
 | [Pinned batch variants](../../third_party/medusa/upstream/packages/core/core-flows/src/product/workflows/batch-product-variants.ts) | Calls create/update/delete workflows through `runAsStep` and `parallelize`. This establishes a real composition need; its further module dependencies and parallel scheduling remain outside this capability. |
 | [SDK definition](../../packages/medusa-workflows-sdk/src/definition.ts), [model](../../packages/medusa-workflows-sdk/src/model.ts) and [runtime](../../packages/medusa-workflows-sdk/src/runtime.ts) | Authenticated prepared child nodes use separate evaluation frames in the one runner. Each call captures its input and completed output through the root port. |
-| [Native runner](../../packages/medusa-adapter/src/workflow-runtime.ts) and [Promise owner](../../packages/medusa-adapter/src/commerce-promise-owner.ts) | One outer boundary owns callback cancellation, pending work, closure and root void-to-null completion. A child must borrow this boundary. |
+| [Native runner](../../packages/medusa-adapter/src/workflow/runtime.ts) and [Promise owner](../../packages/medusa-adapter/src/module/promise-owner.ts) | One outer boundary owns callback cancellation, pending work, closure and root void-to-null completion. A child must borrow this boundary. |
 | [Resource selections](../../packages/medusa-adapter/src/workflow/resources.ts) | Hook wrappers authenticate the exact prepared resource selection. A hook already bound to a separately prepared child host cannot silently borrow a different parent's selection. |
 | [Workflow host](../../packages/medusa-adapter/src/workflow/host.ts) | Derives actual internal event contracts from selected method metadata and supplies an explicit name-to-token selector. External workflow contracts retain their existing selection. |
 | [Atomic participants](../../packages/persistence-postgres/src/frameworks/atomicCommerce/participants.ts) and [atomic host](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) | Capture a finite participant event policy, require local fact validation and bind authenticated participant/installation/contract associations into identity. Duplicate installations remain refused. |
 | [Atomic event capture](../../packages/persistence-postgres/src/frameworks/atomicCommerce/events.ts) and [stored envelope](../../packages/persistence-postgres/src/commit/events/model.ts) | Capture message data before selection, authenticate the selected internal token against participant and root admission, then use the same envelope validation, accounting and buffer. Storage and settlement are unchanged. |
-| [Product event policy](../../packages/medusa-adapter/src/product-local-events.ts) and [tag correlation](../../packages/medusa-adapter/src/product-tag-workflow-events.ts) | Module messages correlate with actual per-command facts/lifecycle. Workflow messages correlate with ordered successful command results, or requested IDs for deletion. These are reusable, distinct policies. |
+| [Product event policy](../../packages/medusa-adapter/src/modules/product/events/call-receipts.ts) and [tag correlation](../../packages/medusa-adapter/src/workflows/product/tag-events.ts) | Module messages correlate with actual per-command facts/lifecycle. Workflow messages correlate with ordered successful command results, or requested IDs for deletion. These are reusable, distinct policies. |
 
 ## Accepted Implementation
 
@@ -244,10 +244,10 @@ workflow tree likewise remains distinct from this one-commit private profile.
 
 ## Implementation And Validation Owners
 
-[Product tag composition](../../packages/medusa-adapter/src/product-tag-composition.ts)
+[Product tag composition](../../packages/medusa-adapter/src/workflows/product/tag-composition.ts)
 is the private one-tag create/update consumer. It composes the promoted child
 workflows and reuses their native hook decoders. The general host and SDK do not
-contain Product logic. [Product event correlation](../../packages/medusa-adapter/src/product-tag-workflow-events.ts)
+contain Product logic. [Product event correlation](../../packages/medusa-adapter/src/workflows/product/tag-events.ts)
 combines the existing operation policies against the one ordered transcript.
 Repeated creation and create/delete are explicit test scenarios, not a general
 batch API or alternate CRUD implementation.

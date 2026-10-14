@@ -7,7 +7,7 @@ import { defineCmsCommand } from "../../persistence-postgres/src/frameworks/cmsT
 import { makeCmsHost } from "../../persistence-postgres/src/frameworks/cmsTransaction/host";
 import { makeCurrencyAnnouncementHost } from "../../persistence-postgres/src/frameworks/crossDomainCommand/host";
 import { preparedHostTestRuntime } from "../../persistence-postgres/test/execution/preparation/preparedHostRuntimeTestSupport";
-import { currencyAnnouncementWrite } from "../src/currency-service";
+import { currencyAnnouncementWrite } from "../src/modules/currency/service";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";

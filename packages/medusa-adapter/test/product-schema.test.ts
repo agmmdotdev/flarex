@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { Effect, Result } from "effect";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
-import { captureProductSchema } from "../src/product-schema";
-import { compileProductDefinition, productSchemaInput, productModels } from "../src/product-definition";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { compileProductDefinition, productSchemaInput, productModels } from "../src/modules/product/definition";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
 import { compileLogicalSourceIndexes, compileLogicalSourceUniqueConstraints } from
   "flarex-protocol/internal/logical-storage-requirements";

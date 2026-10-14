@@ -7,7 +7,7 @@ import { postgresUrl } from "../../persistence-postgres/test/support/postgresHel
 import {
   readLogicalStorageRequirements,
 } from "../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
-import { currencyCommands } from "../src/currency-service";
+import { currencyCommands } from "../src/modules/currency/service";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { observeRetrievalPgClients, type RetrievalObservation } from
   "../benchmarks/core-performance/native-retrieval/observation";

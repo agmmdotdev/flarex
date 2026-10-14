@@ -1,19 +1,19 @@
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { isPreparedWorkflow, type PreparedWorkflow } from "@medusajs/workflows-sdk";
 import { commerceCommandIdentity, defineAtomicCommerceCommand, defineCommerceEventContract, defineCommerceDerivedIdEventContract, type AtomicCommerceContext, type AtomicCommerceHost, type AtomicCommerceHostInput,
   type AtomicCommerceParticipantInput, type AtomicCommerceEvents, type AtomicCommerceCallObservation, type CommerceCommand, type CommerceEventContract,
   } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareLocalGraph } from "../local-graph/query";
-import { runNativeMedusaWorkflow } from "../workflow-runtime";
-import { captureCommerceInput } from "../commerce-input";
+import { runNativeMedusaWorkflow } from "./runtime";
+import { captureCommerceInput } from "../value/input";
 import { captureWorkflowArray, captureWorkflowRecord } from "./configuration";
 import { workflowMethodDefinition, workflowModuleDefinition, type WorkflowMethod, type WorkflowModule } from "./module";
 import { workflowResourceSelections, workflowComposedResources, type PreparedWorkflowResources } from "./resources";
 import { composedWorkflowResourceDefinition } from "./composed-resource";
 import { bindWorkflowResources, type BoundWorkflowEvent, type WorkflowEventDefinition } from "./binding";
-import { checkedCommerceValue } from "../commerce-checked-value";
-import { commerceDecoder } from "../commerce-decoder";
+import { checkedCommerceValue } from "../value/checked";
+import { commerceDecoder } from "../value/decoder";
 
 export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestCallLimit" | "requestEventLimit">;
 /** The trusted database host closes its own database/session/authority inputs.
@@ -26,6 +26,31 @@ export type InstalledWorkflowModule<Module extends WorkflowModule = WorkflowModu
   readonly module: Module;
   readonly logicalStorage: Extract<AtomicCommerceParticipantInput, { readonly logicalStorage: unknown }>["logicalStorage"];
 };
+
+/** Capture selected installed bindings in declared order without invoking
+ * getters. The facade keeps its own record-size/hook checks in their original
+ * position; the host still authenticates every nested resource and capability. */
+export function captureInstalledWorkflowModules<Modules extends Readonly<Record<string, InstalledWorkflowModule>>,
+  const Keys extends readonly (keyof Modules & string)[]>(registrations: Modules, keys: Keys) {
+  return Result.gen(function* () {
+    const names = yield* captureWorkflowArray(keys);
+    const entries: [string, object][] = [];
+    for (const name of names) {
+      const property = yield* Result.try({
+        try: () => Object.getOwnPropertyDescriptor(registrations, name),
+        catch: cause => commerceError("unsupportedProfile", cause),
+      });
+      if (property === undefined || !Object.hasOwn(property, "value") || !property.enumerable)
+        return yield* Result.fail(commerceError("unsupportedProfile"));
+      const binding: unknown = property.value;
+      if (binding === null || typeof binding !== "object") return yield* Result.fail(commerceError("unsupportedProfile"));
+      entries.push([name, yield* captureWorkflowRecord(binding)]);
+    }
+    // SAFETY: each selected own data binding is captured under its exact key.
+    // This retains the typed configuration, not authority over nested tokens.
+    return Object.freeze(Object.fromEntries(entries)) as Readonly<Pick<Modules, Keys[number]>>;
+  });
+}
 export interface WorkflowCallResults {
   /** Native encoded inputs and outputs of successful, validated outer calls. */
   readonly calls: (method: WorkflowMethod) => readonly Pick<AtomicCommerceCallObservation, "input" | "result">[];

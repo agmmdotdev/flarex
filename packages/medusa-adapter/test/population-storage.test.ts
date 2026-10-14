@@ -7,8 +7,8 @@ import { fxControlTables } from "../../persistence-postgres/src/database/schema"
 import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { commerceDecoder } from "../src/commerce-decoder";
-import type { CommerceRelation } from "../src/commerce-relations";
+import { commerceDecoder } from "../src/value/decoder";
+import type { CommerceRelation } from "../src/query/relations";
 import { makeReadCatalog } from "../src/query/catalog";
 import { compilePopulationWhere } from "../src/query/population";
 import { compileProjection, type ProjectionPolicy } from "../src/query/projection";

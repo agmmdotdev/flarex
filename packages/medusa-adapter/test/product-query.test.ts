@@ -1,18 +1,18 @@
 import { compileProjection, projectRows, retainReadProjection, type ReadProjection } from "../src/query/projection";
-import { findCollectionMembershipProducts } from "../src/product-collection-membership";
+import { findCollectionMembershipProducts } from "../src/modules/product/collection-membership";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { beforeAll, describe, expect, it } from "vitest";
 import { mockRelationalRead } from "./mock-relational-read";
 import { Effect, Result } from "effect";
 import { groupHasManyRows, groupManyToManyRows, projectRowFields, toPopulateTree, tupleKey } from "@medusajs/drizzle/relation-query";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata, type ProductRuntimeMetadata } from "../src/product-runtime-metadata";
-import { decodeProductQuery } from "../src/product-query-profile";
-import { findProductRelated } from "../src/product-related";
-import { assembleCommerceRelations, populateCommerceRelations, readCommerceRelationRows } from "../src/commerce-relations";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata, type ProductRuntimeMetadata } from "../src/modules/product/runtime-metadata";
+import { decodeProductQuery } from "../src/modules/product/query-profile";
+import { findProductRelated } from "../src/modules/product/related";
+import { assembleCommerceRelations, populateCommerceRelations, readCommerceRelationRows } from "../src/query/relations";
 import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
-import { prepareProductReadInput, productReadFilters } from "../src/product-service-input";
+import { prepareProductReadInput, productReadFilters } from "../src/modules/product/service-input";
 
 
 const relatedProjection = Effect.fn("Test.relatedProjection")(function* (

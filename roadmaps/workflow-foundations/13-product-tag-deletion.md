@@ -7,7 +7,7 @@ below remain the validation contract for this behavior. Topics
 [10](./10-medusa-workflow-integration.md), [11](./11-workflow-host-composition.md)
 and [12](./12-product-tag-updates.md) retain their connected regression coverage.
 
-The [deletion facade](../../packages/medusa-adapter/src/product-tag-delete-workflow.ts)
+The [deletion facade](../../packages/medusa-adapter/src/workflows/product/tag-delete.ts)
 executes the pinned Product-tag deletion workflow through
 the shared native host, with soft deletion, its checked hook, pending graph
 visibility, both event families, a retained null result and existing recovery.
@@ -43,9 +43,9 @@ from the word "delete" or from current upstream documentation.
 | [Generated Medusa service](../../packages/medusa-utils/src/modules-sdk/medusa-service.ts) | Soft-delete methods call the existing internal service/repository and return a linkable-key map or void. The workflow step deliberately discards that value. |
 | [Pinned Drizzle repository](../../third_party/medusa/upstream/packages/database/drizzle/src/medusa.ts) | Soft deletion changes matching active rows, follows declared cascade metadata, and dispatches lifecycle events from actual changes. Missing and already-deleted rows produce no new row mutation. |
 | [Product tag model](../../packages/medusa-product/src/models/product-tag.ts) | Tag values are unique among active rows. The inverse Product relation declares no soft-delete cascade. |
-| Historical Product profile (retired), [repository](../../packages/medusa-adapter/src/product-repository.ts), [lifecycle planner](../../packages/medusa-adapter/src/product-lifecycle.ts) | This row records the former physical Tag soft-deletion path. The current logical Tag behavior and its removal gates are tracked in [Product-module closeout](../shared-logical-storage/44-product-module-closeout.md). |
-| [Product module events](../../packages/medusa-adapter/src/product-local-events.ts) | Associates the new tag soft-delete command with managed lifecycle observations from the Tag table. |
-| [Native runner](../../packages/medusa-adapter/src/workflow-runtime.ts) | Normalizes top-level void completion to null before strict JSON capture; intermediate omissions retain their existing contract. |
+| Historical Product profile (retired), [repository](../../packages/medusa-adapter/src/modules/product/repository.ts), [lifecycle planner](../../packages/medusa-adapter/src/modules/product/lifecycle.ts) | This row records the former physical Tag soft-deletion path. The current logical Tag behavior and its removal gates are tracked in [Product-module closeout](../shared-logical-storage/44-product-module-closeout.md). |
+| [Product module events](../../packages/medusa-adapter/src/modules/product/events/call-receipts.ts) | Associates the new tag soft-delete command with managed lifecycle observations from the Tag table. |
+| [Native runner](../../packages/medusa-adapter/src/workflow/runtime.ts) | Normalizes top-level void completion to null before strict JSON capture; intermediate omissions retain their existing contract. |
 | [Atomic observations](../../packages/persistence-postgres/src/frameworks/atomicCommerce/events.ts) and [producer](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) | Successful validated outer calls retain their captured input and result with authentic participant and command tokens. |
 | [Shared host](../../packages/medusa-adapter/src/workflow/host.ts) | Projects call inputs/results by authentic selected method token and retains result-only access from those same observations. |
 

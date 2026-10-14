@@ -52,7 +52,7 @@ import { LogicalParticipantAdmissionError } from "../../persistence-postgres/src
 import { FiniteStorageCaptureError } from "../../persistence-postgres/src/execution/finiteStorageCapture";
 import { defineCommerceCommand } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
-import { executePrivateProductAttemptOperation } from "../../medusa-adapter/src/product-attempt";
+import { executePrivateProductAttemptOperation } from "../../medusa-adapter/src/modules/product/attempt";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined

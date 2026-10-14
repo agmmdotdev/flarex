@@ -1,10 +1,10 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
-import { decodeCurrencyQuery } from "../src/currency-query";
-import { currencyColumns } from "../src/currency-query-model";
-import { decodeProductQuery } from "../src/product-query-profile";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata, type ProductRuntimeMetadata } from "../src/product-runtime-metadata";
+import { decodeCurrencyQuery } from "../src/modules/currency/query";
+import { currencyColumns } from "../src/modules/currency/query-model";
+import { decodeProductQuery } from "../src/modules/product/query-profile";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata, type ProductRuntimeMetadata } from "../src/modules/product/runtime-metadata";
 import type { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 
 const outcome = <Value>(result: Result.Result<Value, CommerceTransactionError>) => Result.match(result, {

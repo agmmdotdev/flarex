@@ -2,8 +2,8 @@ import { it, expect } from "vitest";
 import { Effect, Exit, Result } from "effect";
 import { defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceLimits } from "@flarex/persistence-postgres/internal/commerce-values";
-import { withCurrencyService } from "../../src/currency-service";
-import { captureCurrencyInput } from "../../src/currency-values";
+import { withCurrencyService } from "../../src/modules/currency/service";
+import { captureCurrencyInput } from "../../src/modules/currency/values";
 import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { runEffect } from "../../../persistence-postgres/test/support/effectTestRuntime";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
@@ -62,7 +62,7 @@ export function registerLiveBoundaryChecks(get: () => LogicalCurrencyFixture) {
     const statements: string[] = [];
     fixture.observeSql(async text => {
       statements.push(text);
-      if (text.startsWith('insert into "fx_system_commit_app_row_change"')) { reached.resolve(); await released.promise; }
+      if (/\bfx_write_scope_publication_rows\b/i.test(text)) { reached.resolve(); await released.promise; }
     });
     const command = defineCommerceCommand("publicationInterruptProof", "write", ctx => withCurrencyService(ctx, ({ repository, context }) =>
       repository.upsert([{ code: "zzz", name: "Interrupted", symbol: "T", symbol_native: "T", decimal_digits: 2, rounding: 0 }], context)));
@@ -71,7 +71,10 @@ export function registerLiveBoundaryChecks(get: () => LogicalCurrencyFixture) {
     let settled = false;
     const pending = Effect.runPromiseExit(host.run(host.newRequestKey(), command, null), { signal: controller.signal }).then(exit => { settled = true; return exit; });
     try {
-      await waitWithin(Promise.race([reached.promise, pending.then(exit => { if (Exit.isFailure(exit)) throw exit.cause; })]), "Interrupted publication entry");
+      await waitWithin(Promise.race([reached.promise, pending.then(exit => {
+        if (Exit.isFailure(exit)) throw exit.cause;
+        throw new Error("Publication completed before the blocked atom");
+      })]), "Interrupted publication entry");
       controller.abort();
       await new Promise(resolve => setTimeout(resolve, 20));
       expect(settled).toBe(false);
@@ -79,7 +82,7 @@ export function registerLiveBoundaryChecks(get: () => LogicalCurrencyFixture) {
       released.resolve();
       expect(Exit.isFailure(await waitWithin(pending, "Interrupted publication rollback"))).toBe(true);
       expect(statements).toContain("rollback");
-      expect(statements.some(text => text.startsWith('insert into "fx_system_idempotency"'))).toBe(false);
+      expect(statements.some(text => /\b(?:fx_finish_scope_publication_prefix|fx_write_scope_publication_outcome)\b/i.test(text))).toBe(false);
       expect(statements.at(-1)).toBe("rollback");
     } finally {
       released.resolve();

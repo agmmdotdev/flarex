@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, Option, Result } from "effect";
-import { captureWorkflowValue } from "../../../../medusa-adapter/src/workflow-value";
+import { captureWorkflowValue } from "../../../../medusa-adapter/src/workflow/value";
 import { eq } from "drizzle-orm";
 import { commerceHostFixture, type CommerceHostTestFixture } from "../commerceTransaction/commerceHostFixture";
 import { prepareNeutralCommerceProfile } from "../commerceTransaction/neutralCommerceProfile";

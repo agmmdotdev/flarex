@@ -1,8 +1,20 @@
 import { Option, Result } from "effect";
 import type { ModuleJoinerConfig } from "@medusajs/framework/types";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { ReadCatalog } from "../query/catalog";
+import type { ReadCatalog, ReadTable } from "../query/catalog";
 import type { GraphModuleDefinition, GraphRelationPath } from "./model";
+import type { GraphReadCommand } from "./commands";
+import { decodeGraphCount } from "./query";
+
+/** Scalar profiles admit one unique primary key; aliases remain native policy.
+ * Related paths and composite ordering keep their explicit graph definitions. */
+export function scalarGraphDefinition(aliases: GraphModuleDefinition["aliases"], model: string,
+  command: GraphReadCommand, table: ReadTable): Result.Result<GraphModuleDefinition, ReturnType<typeof commerceError>> {
+  if (table.primaryKeys.length !== 1) return Result.fail(commerceError("unsupportedProfile"));
+  return Result.succeed({ aliases, reads: [{ model, command, table, paths: [],
+    orderable: table.primaryKeys, uniqueOrder: table.primaryKeys, multipleOrder: false, decode: decodeGraphCount,
+  }] });
+}
 
 /** Use the pinned module's declared alias and entity. No naming guesses,
  * global container or request services are involved in alias preparation. */

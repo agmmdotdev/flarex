@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { Result, Schema } from "effect";
 import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { commerceDecoder, commerceRowDecoder } from "../src/commerce-decoder";
+import { commerceDecoder, commerceRowDecoder } from "../src/value/decoder";
 import { compileKeyedUpdates } from "../src/write/keyed";
-import { currencyUpdateRows } from "../src/currency-input";
+import { currencyUpdateRows } from "../src/modules/currency/input";
 
 const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({
   entity: Schema.Struct({ sku: Schema.String }),

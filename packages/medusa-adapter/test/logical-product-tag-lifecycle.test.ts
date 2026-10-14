@@ -3,11 +3,11 @@ import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Effect, Exit, Result } from "effect";
 import { isJsonObject } from "flarex-protocol/json";
-import { currencyWorkflowModule } from "../src/currency-service";
+import { currencyWorkflowModule } from "../src/modules/currency/service";
 
-import { prepareProductTagWorkflow } from "../src/product-tag-workflow";
-import { prepareProductTagUpdateWorkflow } from "../src/product-tag-update-workflow";
-import { prepareProductTagDeleteWorkflow } from "../src/product-tag-delete-workflow";
+import { prepareProductTagWorkflow } from "../src/workflows/product/tag";
+import { prepareProductTagUpdateWorkflow } from "../src/workflows/product/tag-update";
+import { prepareProductTagDeleteWorkflow } from "../src/workflows/product/tag-delete";
 
 
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";

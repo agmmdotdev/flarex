@@ -9,7 +9,7 @@ them against the active commerce binding, and registers selector-based tag updat
 The validation contract below remains required for future changes; runtime
 receipts belong in Git.
 
-The [update facade](../../packages/medusa-adapter/src/product-tag-update-workflow.ts)
+The [update facade](../../packages/medusa-adapter/src/workflows/product/tag-update.ts)
 runs the pinned Product-tag update workflow with Product as
 its only selected participant, both in a Product-only deployment and in a
 deployment that also has Currency installed. Preserve one existing transaction,
@@ -38,8 +38,8 @@ not a diagnosed shared-core defect or permission inferred from a failing test.
 | [Per-installation admission](../../packages/persistence-postgres/src/frameworks/commerceTransaction/admission.ts) | Already authenticates one selected installation within the active binding, including scope, placement, profile and current evidence. Reuse this owner for each selected member. |
 | [Binding model](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/model.ts) and [decoder](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/canonical.ts) | Format 2 permits up to eight installations, including a one-installation array. No new persisted binding format is needed for this cardinality. |
 | [Atomic execution](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) and [publication](../../packages/persistence-postgres/src/frameworks/commerceTransaction/publication.ts) | Already finalize a first admitted contribution plus additional contributions. One member leaves the additional list empty; retain this settlement owner and prove that path. |
-| [Product service adapter](../../packages/medusa-adapter/src/product-service.ts) and [selector decoder](../../packages/medusa-adapter/src/product-tag-update-input.ts) | `updateTagsBySelector` invokes the selector overload once; existing `updateTags` retains its ID overload and `{ id, data }` contract. |
-| [Named read inputs](../../packages/medusa-adapter/src/product-service-input.ts) | Existing `listTags` admits ID or ID-array and exact value filters through checked module reads. Reuse these semantics for the step's pre-read. |
+| [Product service adapter](../../packages/medusa-adapter/src/modules/product/service.ts) and [selector decoder](../../packages/medusa-adapter/src/modules/product/tag-update-input.ts) | `updateTagsBySelector` invokes the selector overload once; existing `updateTags` retains its ID overload and `{ id, data }` contract. |
+| [Named read inputs](../../packages/medusa-adapter/src/modules/product/service-input.ts) | Existing `listTags` admits ID or ID-array and exact value filters through checked module reads. Reuse these semantics for the step's pre-read. |
 | [Product tag model](../../packages/medusa-product/src/models/product-tag.ts) | Live tag values have a unique index. Assigning one value to several matching tags can fail; selector support does not promise a successful bulk rename. |
 
 Medusa semantics follow the exact fork in
@@ -127,7 +127,7 @@ matching multiple live tags can violate the unique value constraint; prove whole
 root rollback. The 256-member input ceiling is not a guarantee that a workload
 fits the smaller statement, byte or time limits.
 
-The [Product workflow registration](../../packages/medusa-adapter/src/product-workflow-module.ts)
+The [Product workflow registration](../../packages/medusa-adapter/src/modules/product/workflow.ts)
 provides `listProductTags` over the existing read token and selector-based
 `updateProductTags` over the new token. Tuple decoders, command inputs and checked
 results remain Product-owned. A projected list result must not promise full DTO

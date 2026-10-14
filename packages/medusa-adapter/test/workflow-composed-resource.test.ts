@@ -3,13 +3,13 @@ import { Effect, Option, Result, Schema } from "effect";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, commerceLimits } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineGraphReadCommand } from "../src/local-graph/commands";
-import { commerceDecoder } from "../src/commerce-decoder";
+import { commerceDecoder } from "../src/value/decoder";
 import { defineWorkflowMethod, defineWorkflowModule } from "../src/workflow/module";
 import { defineComposedWorkflowResource } from "../src/workflow/composed-resource";
 import { prepareWorkflowResources, workflowResourceSelections } from "../src/workflow/resources";
 import { bindWorkflowResources } from "../src/workflow/binding";
-import { makeCommercePromiseOwner } from "../src/commerce-promise-owner";
-import { captureCommerceInput } from "../src/commerce-input";
+import { makeCommercePromiseOwner } from "../src/module/promise-owner";
+import { captureCommerceInput } from "../src/value/input";
 
 function member(name: string) {
   const command = defineGraphReadCommand(name, () => Effect.succeed(0));

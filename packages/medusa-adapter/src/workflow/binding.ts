@@ -2,13 +2,13 @@ import { Effect, Result } from "effect";
 import type { WorkflowContainer } from "@medusajs/workflows-sdk";
 import type { AtomicCommerceContext, CommerceEventContract } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, CommerceTransactionError, commerceLimits, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { CommercePromiseOwner } from "../commerce-promise-owner";
-import { captureCommerceInput } from "../commerce-input";
+import type { CommercePromiseOwner } from "../module/promise-owner";
+import { captureCommerceInput } from "../value/input";
 import type { PreparedLocalGraph } from "../local-graph/model";
 import { registerWorkflowResourceContext, workflowComposedResources, type PreparedWorkflowResources, type PreparedWorkflowSelection } from "./resources";
 import { workflowMethodDefinition, workflowModuleDefinition, type WorkflowMethod } from "./module";
 import { composedWorkflowResourceDefinition, type InvokeWorkflowMethod } from "./composed-resource";
-import { checkedCommerceValue } from "../commerce-checked-value";
+import { checkedCommerceValue } from "../value/checked";
 
 export interface WorkflowEventDefinition {
   readonly name: string;

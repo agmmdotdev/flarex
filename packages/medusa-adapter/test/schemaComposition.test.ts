@@ -7,7 +7,7 @@ import { captureLogicalSchemaSource, prepareLogicalSchemaCandidate, readPrepared
 import { decodeLogicalSchemaCandidate } from "flarex-protocol/internal/logical-schema-candidate";
 import { canonicalizeSchemaManifestV1, decodeCatalogSchemaVersion, decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { ScopeIdSchema, ScopeEpochSchema, StorageGenerationFenceSchema, FlarexDbV1StorageGenerationSchema } from "flarex-protocol/storage-authority";
-import { makeSchemaComposer } from "../src/schemaComposition";
+import { makeSchemaComposer } from "../src/composition/schema";
 import { makeApplicationAnalysisRepository } from "../../persistence-postgres/src/application/applicationAnalysisRegistration";
 import { makeLogicalSchemaAdmission } from "../../persistence-postgres/src/storage/catalog/logicalSchemaAdmission";
 import { createMigratedPGlitePersistence } from "../../persistence-postgres/test/support/pgliteTestFixture";
@@ -35,7 +35,7 @@ import { policyManifestFixture } from "../../persistence-postgres/test/applicati
 import { currencyCatalogWitness } from "../../persistence-postgres/test/frameworks/commerceTransaction/currencyCatalogPreparationScenario";
 import { readSchemaVersionTableBindings } from "../../persistence-postgres/src/storage/catalog/schemaVersionTableBindings";
 import { relationalPartialIndexScenario } from "../../persistence-postgres/test/storage/relationalSchema/relationalPartialIndexScenario";
-import { currencyInitialization } from "../../medusa-adapter/src/currency-contract";
+import { currencyInitialization } from "../src/modules/currency/contract";
 import { relationalValueAdmissionScenario } from "../../persistence-postgres/test/storage/relationalSchema/relationalValueAdmissionScenario";
 import { backfillLogicalReadProjections, ensureLogicalStorageDefinitions } from "../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
 import { productForeignKeyScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/productForeignKeyScenario";

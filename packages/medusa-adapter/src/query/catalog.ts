@@ -1,6 +1,6 @@
 import { Option, Result } from "effect";
 import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { CommerceRelation, CommerceRelations, CommerceRelationLookup } from "../commerce-relations";
+import type { CommerceRelation, CommerceRelations, CommerceRelationLookup } from "./relations";
 
 /** A checked model projection, never a table capability or a schema artifact. */
 export interface ReadTable {

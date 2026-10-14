@@ -5,10 +5,10 @@ import type { CommerceCommandContext } from "@flarex/persistence-postgres/intern
 import { commerceError, commerceLimits, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { makeCommerceCommandContext } from "../../persistence-postgres/src/frameworks/commerceTransaction/context";
-import { makeCommercePromiseOwner } from "../src/commerce-promise-owner";
+import { makeCommercePromiseOwner } from "../src/module/promise-owner";
 import { ExecutionDiagnostics, observeExecution, withExecutionDiagnosticDefaults, type ExecutionDiagnosticPolicy } from "@flarex/persistence-postgres/internal/execution-diagnostics";
-import { withCommerceService } from "../src/commerce-service-bridge";
-import { currencyRepository } from "../src/currency-repository";
+import { withCommerceService } from "../src/module/service-bridge";
+import { currencyRepository } from "../src/modules/currency/repository";
 
 const Unrelated = Context.Service<{ readonly request: string }>("CommercePromiseOwnerTest/Unrelated");
 const diagnosticPolicy: ExecutionDiagnosticPolicy = {

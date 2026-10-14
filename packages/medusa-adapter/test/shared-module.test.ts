@@ -4,10 +4,10 @@ import { Effect, Option, Result } from "effect";
 import type { DAL } from "@medusajs/framework/types";
 import { model } from "@medusajs/utils/dml/model";
 import { commerceError, commerceLimits, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
-import { prepareCommerceModule, prepareCommerceInternalService } from "../src/commerce-module";
-import { makeCommercePromiseOwner } from "../src/commerce-promise-owner";
-import { commerceRepositoryContext } from "../src/commerce-repository-context";
-import { withCommerceService } from "../src/commerce-service-bridge";
+import { prepareCommerceModule, prepareCommerceInternalService } from "../src/module/persistence";
+import { makeCommercePromiseOwner } from "../src/module/promise-owner";
+import { commerceRepositoryContext } from "../src/repository/context";
+import { withCommerceService } from "../src/module/service-bridge";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { makeCommerceCommandContext } from "../../persistence-postgres/src/frameworks/commerceTransaction/context";
 

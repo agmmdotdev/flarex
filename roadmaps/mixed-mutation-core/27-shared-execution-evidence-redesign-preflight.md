@@ -1391,7 +1391,7 @@ The concrete CPU replacements belong inside the connected packages:
   removed final recanonicalization is not a new optimization opportunity.
 - The [atomic commerce result](../../packages/persistence-postgres/src/frameworks/atomicCommerce/execution.ts),
   [outcome encoder](../../packages/persistence-postgres/src/values/jsonOutcome.ts) and
-  [workflow value owner](../../packages/medusa-adapter/src/workflow-value.ts)
+  [workflow value owner](../../packages/medusa-adapter/src/workflow/value.ts)
   consume genuine captured-value evidence instead of reflectively walking the
   same unchanged trusted tree again. Every existing ordered accounting boundary
   still charges its required bytes/nodes/depth. Preserve remaining lifetime,

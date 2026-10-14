@@ -2,8 +2,8 @@ import { Effect, Schema } from "effect";
 import { generateEntityId } from "@medusajs/framework/utils/portable";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, defaultCommerceResources, type CommerceResources, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { captureCommerceInput } from "../commerce-input";
-import { commerceDecoder } from "../commerce-decoder";
+import { captureCommerceInput } from "../value/input";
+import { commerceDecoder } from "../value/decoder";
 import type { CreatedGraph, CreationNode, CreationProfile, GraphCatalog, GraphRows } from "./graph-model";
 
 const decodeGraphArray = commerceDecoder(Schema.Array(Schema.Json), "invalidInput");

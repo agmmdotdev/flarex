@@ -6,8 +6,8 @@ import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/c
 import { defineAtomicCommerceCommand } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { fxControlTables } from "../../../persistence-postgres/src/database/schema";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { captureProductSchema } from "../../src/product-schema";
-import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
+import { captureProductSchema } from "../../src/modules/product/schema";
+import { productRuntimeMetadata } from "../../src/modules/product/runtime-metadata";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
 import { getLogicalProductRunnerFixture, productIntegrationTestRunner } from "./logical-product-runner";
 

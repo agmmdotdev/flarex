@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
-import { makeLocalSalesChannelCommands } from "../../src/sales-channel-service";
+import { makeLocalSalesChannelCommands } from "../../src/modules/sales-channel/service";
 import type { CommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
 

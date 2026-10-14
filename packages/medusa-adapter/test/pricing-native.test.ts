@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe } from "vitest";
 import { Result, Schema } from "effect";
-import { captureCommerceInput } from "../src/commerce-input";
+import { captureCommerceInput } from "../src/value/input";
 import { registerNativePricingTests, seedPriceSetData, type NativePricingTestService } from "./support/pricing-native-tests";
 import { logicalPricingTestHost } from "./support/logical-pricing-test-host";
 import { runEffect } from "../../persistence-postgres/test/support/effectTestRuntime";

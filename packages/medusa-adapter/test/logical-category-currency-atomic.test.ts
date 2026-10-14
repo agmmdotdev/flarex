@@ -2,8 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, Tracer } from "effect";
 import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "../../persistence-postgres/src/execution/diagnostics/operation";
 import { isJsonObject } from "flarex-protocol/json";
-import { decodeCategoryProjection } from "../src/product-category-projection";
-import { currencyAnnouncementWrite, currencyCommands } from "../src/currency-service";
+import { decodeCategoryProjection } from "../src/modules/product/category-projection";
+import { currencyAnnouncementWrite, currencyCommands } from "../src/modules/currency/service";
 import { defineAtomicCommerceCommand, getAtomicCommerceCommand } from
   "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";

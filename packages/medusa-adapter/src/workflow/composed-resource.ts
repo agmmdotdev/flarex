@@ -1,6 +1,6 @@
 import { Result } from "effect";
 import { commerceError, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { captureCommerceInput } from "../commerce-input";
+import { captureCommerceInput } from "../value/input";
 import { captureWorkflowArray, captureWorkflowRecord, isWorkflowResourceName } from "./configuration";
 import { workflowMethodDefinition, type WorkflowMethod } from "./module";
 

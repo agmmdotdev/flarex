@@ -4,11 +4,11 @@ import { Deferred, Effect, Result } from "effect";
 import type { Context, IMessageAggregator, ModulePersistenceMutationEventArgs, ModulePersistenceMutationService } from "@medusajs/types";
 import { dispatchPerformedActions, suppressMutationEventDispatch } from "@medusajs/drizzle/mutation-events";
 import { commerceError, commerceLimits, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
-import { commerceMutationEvents } from "../src/commerce-mutation-events";
-import { makeCommercePromiseOwner } from "../src/commerce-promise-owner";
-import { productRepository } from "../src/product-repository";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
+import { commerceMutationEvents } from "../src/repository/mutation-events";
+import { makeCommercePromiseOwner } from "../src/module/promise-owner";
+import { productRepository } from "../src/modules/product/repository";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { makeCommerceCommandContext } from "../../persistence-postgres/src/frameworks/commerceTransaction/context";
 

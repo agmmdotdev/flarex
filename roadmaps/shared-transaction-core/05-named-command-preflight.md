@@ -43,7 +43,7 @@ runtime and process-local recovery do not establish an Action/Task API.
 | [Application insert participant](../../packages/persistence-postgres/src/storage/materialization/insertParticipant.ts) | One schema-validated Application-owned insert, pending read and authenticated once-only closure. |
 | [CMS publication](../../packages/persistence-postgres/src/frameworks/cmsTransaction/publication.ts), [commerce publication](../../packages/persistence-postgres/src/frameworks/commerceTransaction/publication.ts) | Existing standalone roots reuse participant preparation or contribution consumption while retaining their own finalization contracts. |
 | [Publication](../../packages/persistence-postgres/src/commit/publication/publication.ts), [request recovery](../../packages/persistence-postgres/src/database/relationalTransaction/requestRecovery.ts) | One sequence/header, all Application and Currency facts, one retained result/wake/clock advance, and recovery-only re-entry. |
-| [Currency service](../../packages/medusa-adapter/src/currency-service.ts) | Private write command uses the existing internal upsert and module retrieve with the same manager. |
+| [Currency service](../../packages/medusa-adapter/src/modules/currency/service.ts) | Private write command uses the existing internal upsert and module retrieve with the same manager. |
 
 The [combined scenario](../../packages/medusa-adapter/test/currency-announcement.test.ts)
 exercises real Currency and Payload operations, rollback inventories, retained

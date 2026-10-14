@@ -3,7 +3,7 @@ import { Effect, Schema } from "effect";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalInventoryHosts, prepareInventoryCreateHost } from "./support/logical-inventory-fixture";
 import { registerNativeInventoryTests, type NativeInventoryInput, type NativeInventoryRow } from "./support/inventory-native-tests";
-import { captureCommerceInput } from "../src/commerce-input";
+import { captureCommerceInput } from "../src/value/input";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid native Inventory driver");

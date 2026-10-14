@@ -25,7 +25,7 @@ import { lockScopeClockForSnapshotReadInTransactionEffect,
   lockScopeClockForOrdinaryWriteInTransactionEffect } from "../../persistence-postgres/src/scope/scopeClock";
 import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
 import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
-import { currencyAnnouncementWrite } from "../src/currency-service";
+import { currencyAnnouncementWrite } from "../src/modules/currency/service";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
 

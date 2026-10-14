@@ -4,8 +4,8 @@ import { FulfillmentModuleService, FulfillmentProviderService } from "@medusajs/
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import type { CreateShippingProfileDTO, IEventBusModuleService } from "@medusajs/framework/types";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { captureCommerceInput } from "../src/commerce-input";
-import { captureShippingProfileMetadata } from "../src/shipping-profile-schema";
+import { captureCommerceInput } from "../src/value/input";
+import { captureShippingProfileMetadata } from "../src/modules/fulfillment/shipping-profile-schema";
 import { registerNativeShippingProfileTests, type NativeShippingProfileRow } from "./support/shipping-profile-native-tests";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalShippingProfileHost } from "./support/logical-shipping-profile-fixture";

@@ -1,360 +1,124 @@
-# Private Medusa compatibility
+# Medusa Adapter
 
-This private adapter translates the pinned fork's actual Currency DML and runs
-its unchanged service through Flarex-owned installation, initialization,
-transactions and shared relational publication. Core metadata is reusable;
-Currency fields, query grammar and the 123-row default dataset belong here.
+This private package binds the admitted native Medusa services and workflows to
+existing Flarex storage and execution owners. The
+[adoption roadmap](../../roadmaps/flarexdb-framework-integration/06-medusa-adoption.md)
+owns capability status; the [organization plan](../../roadmaps/medusa-design-quality/02-organization-and-reuse.md)
+owns the source and reuse boundaries. A shared helper does not admit another
+native operation or module.
+
+## Entry Points And Reading Order
+
+| Operation | Start here | Continue through |
+| --- | --- | --- |
+| Product native module calls | [modules/product/service.ts](src/modules/product/service.ts) | [command profiles](src/modules/product/commands/services.ts), [native binding](src/modules/product/module.ts), [repository](src/modules/product/repository.ts) |
+| Currency native reads | [modules/currency/service.ts](src/modules/currency/service.ts) | [repository](src/modules/currency/repository.ts), [query profile](src/modules/currency/read-profile.ts) |
+| Ordinary scalar module | [modules/sales-channel/service.ts](src/modules/sales-channel/service.ts) | [named repository extension](src/modules/sales-channel/repository.ts), [shared scalar repository](src/repository/scalar.ts) |
+| ShippingProfile capability | [modules/fulfillment/shipping-profile-service.ts](src/modules/fulfillment/shipping-profile-service.ts) | [selected repository](src/modules/fulfillment/shipping-profile-repository.ts); other Fulfillment operations remain refused |
+| Pricing and Inventory | [modules/pricing/service.ts](src/modules/pricing/service.ts), [modules/inventory/service.ts](src/modules/inventory/service.ts) | Their checked schema, input and event owners; exact-number and empty-level rules remain explicit |
+| Complete native Product creation | [workflows/product/creation.ts](src/workflows/product/creation.ts) | Native parent and child workflows, [composed Link resource](src/links/product-resource.ts), [workflow host](src/workflow/host.ts) |
+| Existing-Product launch and relationships | [workflows/product/launch.ts](src/workflows/product/launch.ts), [workflows/product/relationships.ts](src/workflows/product/relationships.ts) | Selected native child calls and the same host; launch has distinct borrowed and direct outer entry points |
+| Native stored Links | [links/product-service.ts](src/links/product-service.ts), [links/variant-service.ts](src/links/variant-service.ts) | [native service/router binding](src/links/service.ts), [repository](src/links/repository.ts), [call receipts](src/links/events.ts) |
+| Trusted schema composition | [composition/schema.ts](src/composition/schema.ts) | Checked module/link definitions and the existing analysis/installation owners |
+
+The module-only [Product create facade](src/workflows/product/create.ts) remains
+distinct from the complete native parent: their input grammar, option/variant
+behavior and consumers differ. Launch, relationship and standalone variant
+facades also retain their named existing-Product obligations.
+
+## Shared Owners
+
+- [module/definition.ts](src/module/definition.ts) prepares immutable model,
+  native service and extension definitions. [module/persistence.ts](src/module/persistence.ts)
+  binds their repositories and generated native internal services.
+- [module/commands.ts](src/module/commands.ts) owns ordinary decode/copy/refusal
+  preparation and direct native command invocation. The native decoder and
+  operation name stay at the module. Full results are captured before projection.
+- [module/service-bridge.ts](src/module/service-bridge.ts) and
+  [module/promise-owner.ts](src/module/promise-owner.ts) own the foreign Promise
+  edge, pending continuations and cleanup for one command.
+- [module/events.ts](src/module/events.ts) shares strict bounded event decoding
+  and internal bus plumbing. Module policies still select event grammar, native
+  naming, row correlation and the exact refusal context. The `check` callback
+  preserves invocation-time snapshots and deferred current-context checks.
+- [repository/context.ts](src/repository/context.ts) authenticates opaque native
+  manager tokens and borrows nested contexts. [repository/denied.ts](src/repository/denied.ts)
+  enumerates refused DAL methods while retaining bound manager/transaction methods.
+- Scalar and Product DAL reads give native services detached mutable entities
+  after complete projection validation. Core evidence stays immutable, and
+  serialization captures the final native result.
+- [schema/](src/schema), [query/](src/query) and [write/](src/write) own checked
+  lowering, catalog/predicate/projection/read mechanics and keyed/graph writes.
+  Module profiles retain admitted grammar, relations and lifecycle policy.
+- [local-graph/module.ts](src/local-graph/module.ts) binds scalar graph reads
+  from checked single-key metadata. Alias selection stays native/module-owned;
+  Pricing relations and Link tuple ordering have explicit graph definitions.
+- [workflow/host.ts](src/workflow/host.ts), [resources.ts](src/workflow/resources.ts)
+  and [binding.ts](src/workflow/binding.ts) derive authenticated participants and
+  finite resource bindings. Named workflow facades provide business composition,
+  input/output contracts, events and limits rather than another policy registry.
+
+## Product Receipts
+
+[events/call-receipts.ts](src/modules/product/events/call-receipts.ts) validates
+the call-local envelope and dispatches selected commands to their policy owners:
+capture, result matching, memberships, related entities, Category, Collection,
+Product, Variant, lifecycle and Tag. Native command provenance is authenticated
+by the module owner before these receipts run.
+
+Shared event decoding does not make mutation policy interchangeable. Product
+soft deletion differs from scalar hard deletion; Link evidence retains repeated
+IDs for distinct endpoint tuples. Category business rules remain native, and
+Collection terminal replacement remains with the shared settlement owner.
+
+## Adding An Admitted Module Or Workflow
+
+Trace the native operation first, including empty branches, internal services,
+queries, Links and events. Supply checked metadata and supported repository
+policy to existing schema/query/write owners. Construct the native module through
+`defineCommerceModule`; bind actual methods using `commerceServiceCommands` and
+choose `commerceCommandPreparation(name)` with its existing decoder.
+
+Use `commerceModuleEventBus` with explicit capture and check callbacks where
+the native internal bus contract matches. Product Category, Pricing, Inventory,
+read-only Stock Location and Link lifecycle keep their genuine extensions. Do
+not add another general CRUD factory or recreate native algorithms.
+
+A workflow snapshots its registration record, uses
+`captureInstalledWorkflowModules` for selected bindings in declared order, and
+retains size/hook checks at their native preparation boundary. It selects exact
+methods through `prepareWorkflowResources`, prepares the native workflow and
+passes its contract to the existing host. Installation and settlement remain
+separate trusted owners; no raw database or finalizer enters native resources.
+
+Prove the real native branch and its failure/lifetime behavior. Reuse claims need
+another actual consumer or a neutral metadata witness, alongside module parity.
+The executing source and provenance guards govern promotion; broader support,
+remote effects and durable workflow suspension need their own admission.
+
+## Validation
 
 The promoted private `@medusajs/*` packages preserve selected fork semantics at
-version 2.13.4. Their `source` export condition supports the portable graph;
-default exports select local checked Node builds for the comparison lane. Broad
-root framework/utils imports and runtime source-island aliases are absent.
+version 2.13.4. Their `source` export condition selects the portable graph;
+default exports select checked local Node builds for comparison. Broad root
+framework/utils imports and runtime source-island aliases remain refused.
 
-Private workflow composition also supports named conditions, stable renamed
-step instances and a shared checked graph step. The
-[Variant Image workflow](../../roadmaps/workflow-foundations/14-conditional-variant-image-workflow.md)
-executes add, remove and any thumbnail update in one existing transaction.
-Association results describe requested IDs; only an actual thumbnail update
-emits its internal module event. Durable suspension and parallel execution
-retain separate preflights.
+The promotion manifest records exact source hashes, reviewed transformations,
+licenses, dependencies, exports, native-test aliases and generated output hashes.
+Native test ports preserve executable assertions and fixtures after type erasure.
+Available builds use deterministic LF output and are verified; their absence is
+allowed for source-only admission. Review transformations and refresh exact
+authored/build hashes after changes. New paths require explicit manifest entries,
+and the pinned source island remains unchanged.
 
-From the workspace root:
+The package scripts include affected main, compatibility, composed and native
+integration typechecks. Module/shared owner tests, logical consumer tests and
+native original suites have distinct configurations. Keep original assertions,
+source guards and profile budgets intact.
 
-```sh
-pnpm medusa:currency:build
-pnpm medusa:currency:typecheck
-pnpm medusa:currency:test:guards
-pnpm medusa:currency:verify
-pnpm medusa:currency:test:pglite
-pnpm medusa:currency:test:postgres
-pnpm medusa:currency:test:live:pglite
-pnpm medusa:currency:test:live:postgres
-```
-
-The PostgreSQL command requires `FLAREX_POSTGRES_DATABASE_URL` for a database
-where the test role can create its own schema. Tests use generated schema names
-and remove their resources through Effect Scope. PGlite uses one in-memory
-connection per fixture. The commands without `live` use the original comparison
-repositories. Live commands run all thirteen unchanged service assertions and
-private write, replay, failure, cancellation and retention scenarios through
-Flarex. They share one seeded target per suite; PGlite keeps a separate control
-instance because control and target transactions require independent leases.
-
-The promotion manifest in `roadmaps/flarexdb-framework-integration/preflight/`
-enumerates source hashes, reviewed transformations, licenses, dependencies,
-exports, explicit native-test harness aliases, and generated JavaScript/declaration/map
-hashes. A build uses deterministic LF output. Available outputs are verified;
-their absence is permitted for source-only admission. After changing an admitted
-input, review its transformation and update its exact target/build hashes. New
-paths or exports require explicit manifest admission; do not expand a wildcard
-or copy a new framework barrel to make a missing dependency resolve.
-
-The promoted native test files import Vitest explicitly.
-Their package-local test configurations enable strict checking, checked indexing
-and exact optional properties, and include all six Product fixture files. The
-adapter compiler also includes the Product wrapper files. `build` and `typecheck`
-run the adapter, Currency compatibility, composite, Product and Sales Channel test projects.
-The Currency/CMS/Application composite fixture retains its existing persistence
-test compiler settings in `tsconfig.composite.json`.
-
-The pinned source island remains unchanged. Runnable copies are maintained test
-ports: the promotion guard compares their executable structure after type
-erasure, preserving fixture calls, assertions, case names and skips. It permits
-explicit Vitest imports, exact Currency/Sales Channel timeout relocations to configuration,
-the exact Currency static-export import relocations, and local unused-result
-markers. The Jest runtime shim and legacy ambient declarations are removed.
-[Record 48](../../roadmaps/flarexdb-framework-integration/preflight/48-medusa-test-promotion-cleanup.md)
-owns the complete file inventory and validation receipts. Historical records of
-byte-identical runnable copies describe their earlier checkpoints.
-
-The live profile is deliberately bounded: one table, one text primary key,
-256 catalog rows, selected Currency queries and no domain-event family. Native
-contention uses distinct connections; the PGlite publication barrier is a
-separate cancellation proof. Product has its own profile below; stored Module
-Links, arbitrary module queries and public/production adapters remain gated.
-
-## Private Sales Channel foundation
-
-`makeLocalSalesChannelCommands()` owns checked native metadata, repository and
-service construction, six direct method bindings, registration and local event
-policy. Callers do not assemble internal services or repositories. The returned
-commands support create, ID-selected update, delete, retrieve, list and
-list-and-count. Native code owns normalization, scalar/array results, metadata
-merging and error messages; the adapter admits bounded inputs and authenticates
-native events against complete command row facts before local delivery.
-
-The selected Sales Channel definition compiles from its native model into a
-scoped logical source. Product and Sales Channel share the generic storage
-families while retaining separate source admission. The promoted native service
-suite uses this source and the shared atomic event owner. The shared compiler
-decoder lives in `src/schema/compiled.ts`.
-
-Run `pnpm --filter @flarex/medusa-adapter test:sales-channel:upstream` for all
-fourteen preserved native integration cases, with their original thirty-second
-case deadline. `test:sales-channel` covers logical schema admission, confined
-bindings, defaults/metadata, replay, input refusal, event rollback, service
-lifetime and the two preserved static-manifest cases. Set
-`FLAREX_TEST_DRIVER=postgres` and `FLAREX_POSTGRES_DATABASE_URL` for the same
-ordinary-role PostgreSQL boundary suite and native service cases.
-
-This is private Gate A in
-[preflight 50](../../roadmaps/flarexdb-framework-integration/preflight/50-product-workflow-sales-channel-foundation.md).
-Upsert, selector updates, soft-delete/restore, stored ProductSalesChannel Links,
-same-installation atomic participants, association workflows, public serving and
-production activation remain unadmitted. There is no durable event destination.
-
-## Private Product compatibility
-
-Product now uses its complete ten-model/thirteen-table DML installation and a
-bounded local create/read, related-entity and graph-mutation profile. The
-unchanged service supports standalone options/values/variants, images, root
-categories, existing associations and checked relation filters/population
-through shared Flarex transactions. Keyed updates, upserts and graph replacement
-preserve retained identities, metadata merging and operation-authenticated events.
-
-Record 34 adds physical root deletion, Product soft deletion/restoration and
-deleted-row visibility. Managed lifecycle requires explicit core admission;
-the adapter selects cascades from actual DML while core owns timestamps and
-complete row facts. Shared references survive. Deleting a referenced type or
-collection clears the Product reference; root category deletion reranks siblings.
-An explicit variant-image assignment retains its physical FK refusal during
-Product deletion. The bounded Category tree profile is admitted by Record 42.
-Business events use the authenticated in-memory test buffer after
-acknowledged commit; no durable provider or query sync is activated.
-
-Run `pnpm --filter @flarex/medusa-adapter test:product:upstream` from the workspace
-root. It uses the explicit private Product scale profile and runs 205 original
-cases from ten pinned integration files, including the 1000-image ordering case.
-Only the original upstream performance skip remains. Set `FLAREX_TEST_DRIVER=postgres` and
-`FLAREX_POSTGRES_DATABASE_URL` for the same ordinary-role PostgreSQL proof.
-All ten files share one installed fixture per driver and clear business rows
-between cases. The case inventory and records 29-46 in the framework-integration
-roadmap distinguish current coverage from the remaining module capabilities.
-
-Record 35 keeps the original profile and its hashes unchanged. Its explicit scale
-contract admits 2048 catalog/query rows and transaction facts, 256 rows per
-insert/update statement, 1024 local messages, 2048 calls, 4 MiB retained bytes
-and 32768 foreign-value nodes. The original 64 SQL statement ceiling, row size,
-filter complexity, and command/statement deadlines remain unchanged. Delete and
-lifecycle operation inputs and predicate operand sets remain bounded at 256;
-this does not admit arbitrary operations over every graph that fits the catalog.
-
-The focused `vitest.product-scale.config.ts` lane combines the unchanged scale
-case with complete facts/events/replay, write-boundary, late-failure,
-cancellation, and oversized-value checks using one installed fixture. Its
-telemetry observes the real request owner and awaited Drizzle queries.
-
-Record 37 adds complete Product Types compatibility: authenticated list, count
-and retrieve commands, scalar value filtering, and Type primary-key retention
-when projecting selected fields. The unchanged 13-case file covers reads,
-pagination/count, not-found errors, creation, updates and deletion.
-Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-types.config.ts`
-for those 13 originals plus two focused scope-isolation and input-refusal checks.
-The same driver environment selects PostgreSQL.
-
-Record 38 adds complete Product Tags compatibility. It admits bounded Tag ID
-references on Product creation, Tag list/count/retrieve and scalar value queries,
-and inverse Products reads with optional Collection population. Selected fields,
-primary keys, Collection foreign keys and null/empty relations follow the pinned
-service. Other relation paths remain unadmitted.
-The 15 unchanged originals run in the canonical `vitest.product-upstream.config.ts`
-suite. Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-tags.config.ts`
-for three logical-storage scope, input and rollback checks.
-Tag upserts may echo a complete created_at/updated_at/deleted_at trio only when
-it exactly matches the existing scoped row; the adapter removes those echoes
-before the service call. Stale/forged/new-row echoes are refused and managed
-columns remain non-writable. This is a bounded compatibility policy, not general
-Tag DTO or query parity. Record 39 continues with Collections.
-
-Record 39 adds the complete 18-case Product Collections suite. Collection reads
-admit ID, title and handle equality filters and a bounded Products projection.
-Creation attaches existing scoped Products; updates retain Medusa's own
-association/dissociation sequence. The private Collection composition reads the
-complete resource-bounded Product catalog for internal membership selectors.
-Omitting product_ids preserves membership; an empty array clears it. A Product
-can move between Collections without deleting its row. Missing creation
-references fail; update selectors preserve Medusa's behavior of ignoring absent
-IDs. Repeated Product references in one create batch and overlapping Product
-update pairs in one upsert batch remain outside this bounded profile.
-
-Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-collections.config.ts`
-for all 18 original cases plus four scope, rollback, membership and publication
-checks. At that checkpoint, original files stayed byte-identical under the then-current compiler
-policy. The Collections checkpoint brought the combined gate to 102 original
-passes plus one retained upstream skip. The following Options slice is recorded
-below. See
-[Record 39](../../roadmaps/flarexdb-framework-integration/preflight/39-medusa-product-collections.md).
-
-Record 40 adds the complete 13-case Product Options suite: list/count/retrieve,
-bounded ID/title/product_id filters, selected Product projections and standalone
-Option deletion. Checked DML supplies parent keys and deletion dependencies.
-Products and Variants survive Option deletion; dependent Values and pivots have
-complete deletion facts, while Medusa emits only the root Option deletion event.
-Creation, value normalization and updates continue through the existing service.
-
-The 13 unchanged originals run in the canonical `vitest.product-upstream.config.ts`
-suite. Logical Option/Value scope, cascade, rollback, replay and input-refusal
-checks run in `test/logical-product-option-storage.test.ts`. The earlier
-physical-only Option wrapper and its stale four-case coverage list are retired.
-At the Options checkpoint, the combined gate covered 115 originals plus its
-retained upstream skip. Record 41 continues with Variants.
-[Record 40](../../roadmaps/flarexdb-framework-integration/preflight/40-medusa-product-options.md)
-owns the exact scope and final receipts. Record 48 supersedes that checkpoint's
-runtime/source-hash compiler policy with strict maintained test ports.
-
-Record 41 adds the complete 15-case Product Variants suite, including scoped
-parent projection and title filtering, Medusa-owned image selection, exact
-image-assignment removal and Variant soft deletion. Assignment removal preserves
-images and emits relational facts without business events. Soft deletion preserves
-shared Option Values and pivots and emits the authenticated Variant event.
-The original physical checkpoint included four additional boundary checks for
-scope, rollback, replay, dependency survival and refusal without publication.
-
-The 15 unchanged originals now run in the canonical
-`vitest.product-upstream.config.ts` suite. Run
-`pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-variants.config.ts`
-for three logical-storage pair-removal, soft-delete and refusal checks; the
-two-shop Variant/Image projection witness lives in
-`test/logical-product-lifecycle-storage.test.ts`. Final physical-checkpoint
-receipts are tracked in Record 41. At that checkpoint, 75
-unregistered declarations remained across three files; the following public Categories slice is recorded below. Workflow, Module Link, durable events, public serving, broader Payload
-integration and production activation retain their separate gates.
-
-Record 42 adds the complete 21-case public Product Categories file. The promoted
-portable Category service owns tree hydration, ranks, parent moves, descendant
-paths and leaf deletion. Its adapter provides scoped repository operations and
-reference-only Product membership. Category commands reject forged paths, cycles,
-ambiguous dotted IDs and the source service's reserved `__root__` rank key.
-Category soft deletion and restore remain unadmitted.
-
-Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-categories.config.ts`.
-The focused lane adds scope, late rollback, membership survival, batch maintenance,
-replay and input-refusal checks. Category read DTOs use a private representation
-codec to preserve recorded own undefined properties across the JSON host boundary.
-The codec does not infer tree values. Shared core transaction/publication owners
-are unchanged. Its boundary checks now run against the shared logical Product
-source, with colliding shop identities and rollback after the second generic
-row materialization. Logical publication records final Category rank changes,
-while native batch events and replay retain their admitted behavior. See
-[Record 42](../../roadmaps/flarexdb-framework-integration/preflight/42-medusa-product-categories.md)
-for validation and source provenance. The two internal Product/Category files
-are also complete; [Record 46](../../roadmaps/flarexdb-framework-integration/preflight/46-commerce-command-registration-bound.md)
-owns the complete compatibility baseline. Workflow, Module Link, durable events,
-public serving, broader Payload and production retain their independent gates.
-
-The [shared persistence adapter preflight](../../roadmaps/flarexdb-framework-integration/preflight/47-medusa-shared-persistence-adapter.md)
-now supplies shared read capability across Currency and Product. The internal
-`src/query/` owner captures immutable checked metadata, compiles predicates and
-projections, and executes reads on the existing scoped manager. Module read
-profiles retain admission, projection and ordering differences; Category and
-Collection membership use pure domain selection over complete bounded catalogs.
-The old Product parent/inverse planners are removed. Both modules also consume
-the pure `src/schema/` compiler for checked DML columns/defaults, keys, indexes,
-foreign keys and persistence capabilities. Closed module admission and source
-provenance remain explicit; canonical schema artifacts are unchanged. Exact
-numeric companions carry explicit field and capability identities. This internal
-compiler does not admit another module or install a schema. The shared
-`src/write/keyed.ts` compiler now assembles admitted single-text-key update
-pairs for both modules. Profiles retain decoding order, key and duplicate
-policy, field admission and later scalar conversion. It does not acquire a
-store or settle a transaction. Metadata-field JSON decoders share
-`commerceRowDecoder`. Product creation and replacement now use the internal
-`src/write/create.ts` and `src/write/replace.ts` graph owners, with checked key
-metadata and explicit `product-graph-profile.ts` traversal, ownership,
-membership and projection policies. Shared plans retain the existing scoped
-manager and produce results/actions from actual storage receipts. Renamed
-Volume/Edition/Label fixtures exercise reuse without admitting another module.
-`commerce-mutation-events.ts` now owns request-local subscriber tracking and
-the Effect boundary around pinned Medusa dispatch. Product retains event
-admission, lifecycle payloads and authenticated local-event policy; Currency
-keeps its existing event-free service path. Numeric representation, stored
-metadata merging retain their respective owners. `commerce-module.ts` now binds
-both modules to the pinned model-preparation and repository-constructor contract.
-The private registration admits exact model identities and preserves DML objects;
-constructors borrow existing request-owned repositories. Product retains its
-specialized Category service and restricted image-product alias. Connection
-loaders and custom-repository discovery refuse; Flarex still owns installation.
-This is per-module request composition, not a combined module-set bootstrap.
-
-## Native workflow composition
-
-The private SDK supports `child.runAsStep({ input, hooks }).config({ name })`.
-Children return staged output references and have separate evaluation caches.
-They share the parent's selected resources, cancellation, limits, event group
-and one atomic transaction. Per-call hooks use the root resource selection.
-Only the root normalizes a void result to null; intermediate absence is retained.
-
-`src/product-tag-composition.ts` composes the promoted tag create/update workflows
-for one tag. The host admits each actual module event through a finite core
-participant policy and reuses Product's event/fact correlation. Captured child
-arrangements and participant/event associations affect replay; trusted revision
-still covers callback code and captured behavior. See
-[native workflow composition](../../roadmaps/workflow-foundations/15-native-workflow-composition.md)
-for the contract and limits. Durable suspension, parallel execution and public
-workflow APIs remain separate capabilities.
-
-## Prepared module composition
-
-`src/module-definition.ts` provides the private `defineCommerceModule` factory.
-It returns an Effect `Result` containing a prepared definition or a
-`CommerceModuleDefinitionError` with the module, reason and diagnostic detail.
-Preparation captures the model set, profile name/capabilities, extension
-declarations and factory callback selection. Method callbacks retain their
-original receivers; arbitrary receiver or closure state is not snapshotted.
-Preparation constructs no repository or live service.
-
-The integration supplies one profile that binds its existing admitted repository
-implementation to a command. Default internal services are derived from the DML
-model names using the pinned Medusa naming convention. The main service factory
-receives one typed `dependencies` object containing those services, the base
-repository and the same request-owned `modulePersistenceAdapter`. Pass that
-object to the native constructor so Medusa connects its mutation subscribers;
-add only genuine module dependencies such as an event bus.
-Applications do not assemble repositories or select internal profiles from input.
-Literal model tuples infer required service keys. Dynamic arrays and
-union-selected entries expose potentially absent services as optional.
-
-```ts
-const prepared = defineCommerceModule({
-  name: "library",
-  models: [Volume],
-  profile: libraryProfile,
-  extensions: {},
-  service: ({ dependencies, context }) => ({
-    service: new LibraryService(dependencies),
-    context,
-  }),
-});
-// At setup: enter the Effect error channel with Effect.fromResult(prepared).
-// Inside an already-authorized command:
-// module.use(ctx, ({ service, context }) => service.listVolumes({}, {}, context));
-```
-
-Named extensions explicitly `add` a service or `replace` one generated service.
-Their record accepts only own enumerable string data properties; symbol,
-non-enumerable, accessor and inherited declarations refuse during preparation.
-The `baseRepository` and `modulePersistenceAdapter` dependency names are reserved;
-extensions cannot add or replace either construction owner.
-Preparation rejects accidental collisions, missing replacement targets, duplicate
-models/naming collisions, and missing declared profile capabilities. Extensions
-are independent constructors: they receive the command's binding, persistence
-adapter and Promise owner, not other extensions or a general service locator.
-Their declared order is construction order. They cannot silently override one
-another. Capability declarations describe implemented adapter features; they do
-not grant schema, table, transaction or publication authority.
-
-`description` is an immutable diagnostic snapshot of models, generated names,
-profile capabilities and extension choices. `use` delegates to the existing
-service bridge, creates fresh command-owned services, and closes them on exit.
-Escaped DAL calls still fail through the Promise owner. Medusa's native context
-argument remains explicit in this private callback; the existing public Currency
-facade retains its own context-free host boundary.
-
-`src/product-module.ts` owns Product's Category mutation-interceptor cycle, local
-event adapter and explicit image-service alias. Ordinary Product services and
-repositories need no repeated registration list. Read profiles, codecs, commands,
-schema admission and business behavior retain their existing owners. Inference
-preserves declared model names and native service/extension types; this factory
-does not infer finer query projections from runtime string catalogs or create a
-new public module API. The alias lists every allowed DAL method explicitly, so
-additional repository methods cannot acquire permission through object spreading.
+Set `FLAREX_TEST_DRIVER` explicitly to `pglite` or `postgres` for logical and
+native runner tests. PostgreSQL also requires the ordinary
+`FLAREX_POSTGRES_DATABASE_URL` and, for protected-runtime fixtures, the separate
+`FLAREX_POSTGRES_PROVISIONING_DATABASE_URL`. The Postgres Vitest configuration's
+`MEDUSA_COMPARISON_DRIVER` alone does not switch every logical test to PostgreSQL.
+Follow AGENTS.md for affected checks, both reviews and resource cleanup.

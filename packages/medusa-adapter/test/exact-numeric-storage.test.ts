@@ -10,7 +10,7 @@ import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/ins
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeCompiledDml } from "../src/schema/compiled";
 import { lowerDmlSchema } from "../src/schema/lower";
-import { encodeExactNumeric, decodeExactNumeric } from "../src/exact-numeric";
+import { encodeExactNumeric, decodeExactNumeric } from "../src/value/exact-numeric";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 
 const Ledger = model.define("NumericLedger", {

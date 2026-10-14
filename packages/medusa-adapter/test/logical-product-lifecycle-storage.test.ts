@@ -7,16 +7,16 @@ import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { createStep, createWorkflow, WorkflowResponse } from "@medusajs/workflows-sdk";
 import { batchVariantImagesWorkflow } from "@medusajs/core-flows/product/batch-variant-images";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
-import { productCallReceipts } from "../src/product-local-events";
-import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
-import { prepareProductTagWorkflow } from "../src/product-tag-workflow";
-import { prepareVariantImagesWorkflow, variantImagesWorkflowEvents } from "../src/product-variant-images-workflow";
-import { VariantImagesWorkflowInput } from "../src/product-variant-workflow-input";
+import { productCallReceipts } from "../src/modules/product/events/call-receipts";
+import { prepareProductCreateWorkflow } from "../src/workflows/product/create";
+import { prepareProductTagWorkflow } from "../src/workflows/product/tag";
+import { prepareVariantImagesWorkflow, variantImagesWorkflowEvents } from "../src/workflows/product/variant-images";
+import { VariantImagesWorkflowInput } from "../src/modules/product/variant-workflow-input";
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
-import { currencyWorkflowModule } from "../src/currency-service";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
+import { currencyWorkflowModule } from "../src/modules/currency/service";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
@@ -255,7 +255,8 @@ describe("native Product lifecycle on shared logical storage", () => {
         return yield* store.find(ctx.manager, { take: 20, order: { column: "id", direction: "asc" } });
       }));
     const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
-      commands: [assignments, product.runtime.commands.listVariants],
+      commands: [assignments, product.runtime.commands.listVariants,
+        product.runtime.commands.countVariants, product.runtime.commands.retrieveVariant],
     }));
     const selected = (value: Json) => {
       if (!Array.isArray(value) || !value.every(isJsonObject)) throw new Error("Invalid assignment rows");
@@ -289,6 +290,16 @@ describe("native Product lifecycle on shared logical storage", () => {
         expect.objectContaining({ id: "img_logical_images_new" }),
         expect.objectContaining({ id: "img_logical_images_general" }),
       ]) }]);
+      expect(await Effect.runPromise(read.read(product.runtime.commands.countVariants, {
+        filters: { id: "pvar_logical_images" }, config: { relations: ["images"] },
+      }))).toMatchObject([[{ id: "pvar_logical_images", images: expect.arrayContaining([
+        expect.objectContaining({ id: "img_logical_images_new" }),
+      ]) }], 1]);
+      expect(await Effect.runPromise(read.read(product.runtime.commands.retrieveVariant, {
+        id: "pvar_logical_images", config: { relations: ["images"] },
+      }))).toMatchObject({ id: "pvar_logical_images", images: expect.arrayContaining([
+        expect.objectContaining({ id: "img_logical_images_new" }),
+      ]) });
       const afterEvents = await committedEvents();
       expect(afterEvents.slice(beforeEvents.length).map(event => event.envelope)).toMatchObject([{
         contract: catalog.variant.updatedEvent, internal: true, group: key,

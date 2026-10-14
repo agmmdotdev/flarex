@@ -15,7 +15,7 @@ import { postgresUrl, withTemporaryPostgresPersistencePair } from "../support/po
 import { createApplicationNativeMutationPGliteFixtureWithPersistence, createApplicationNativeMutationPostgresFixture,
   type ApplicationNativeMutationFixture, type ApplicationNativeMutationPersistence } from "../application/applicationNativeMutationTestFixture";
 import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
-import { makeSchemaComposer } from "../../../medusa-adapter/src/schemaComposition";
+import { makeSchemaComposer } from "../../../medusa-adapter/src/composition/schema";
 import { readPreparedLogicalSchemaCandidate } from "../../../analysis/src/logicalSchemaCandidate";
 import { decodeCatalogSchemaVersion, decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { makeLogicalSchemaAdmission } from "../../src/storage/catalog/logicalSchemaAdmission";

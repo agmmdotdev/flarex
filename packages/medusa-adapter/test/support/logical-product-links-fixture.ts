@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
 import type { CommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
-import { prepareLocalProductLinks } from "../../src/product-link-service";
+import { prepareLocalProductLinks } from "../../src/links/product-service";
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
 
 interface LogicalProductLinksHostFixture {

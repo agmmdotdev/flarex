@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import { isJsonObject, type Json } from "flarex-protocol/json";
-import { currencyCommands } from "../src/currency-service";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
+import { currencyCommands } from "../src/modules/currency/service";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
 
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, getAtomicCommerceCommand,
   type AtomicCommerceContext } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";

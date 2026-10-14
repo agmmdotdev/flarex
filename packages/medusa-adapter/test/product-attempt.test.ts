@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { commerceCommandIdentity } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { bindPrivateProductAttempt, preparePrivateProductAttempt } from "../src/product-attempt";
-import { makeLocalProductCommands } from "../src/product-service";
+import { bindPrivateProductAttempt, preparePrivateProductAttempt } from "../src/modules/product/attempt";
+import { makeLocalProductCommands } from "../src/modules/product/service";
 
 describe("private Product attempt admission", () => {
   it("selects only the real native Product service commands and their receipt policy", async () => {

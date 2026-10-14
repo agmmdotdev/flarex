@@ -7,10 +7,10 @@ import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { decodeCategoryProjection } from "../../src/product-category-projection";
-import { productCallReceipts } from "../../src/product-local-events";
-import { captureProductSchema } from "../../src/product-schema";
-import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
+import { decodeCategoryProjection } from "../../src/modules/product/category-projection";
+import { productCallReceipts } from "../../src/modules/product/events/call-receipts";
+import { captureProductSchema } from "../../src/modules/product/schema";
+import { productRuntimeMetadata } from "../../src/modules/product/runtime-metadata";
 import { logicalCurrencyFixture } from "./logical-currency-fixture";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
 import { prepareLogicalProductHost } from "./logical-product-fixture";

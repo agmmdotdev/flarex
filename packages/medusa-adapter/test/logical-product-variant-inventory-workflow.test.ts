@@ -14,12 +14,12 @@ import { prepareLogicalPricingHost } from "./support/logical-pricing-fixture";
 import { prepareLogicalInventoryHosts, prepareInventoryCreateHost } from "./support/logical-inventory-fixture";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { productVariantInventoryResources } from "../src/workflow/policy";
-import { InventoryItemsOutput } from "../src/inventory-service";
-import { commerceDecoder } from "../src/commerce-decoder";
+import { InventoryItemsOutput } from "../src/modules/inventory/service";
+import { commerceDecoder } from "../src/value/decoder";
 import { InventoryModuleService } from "@medusajs/inventory/services";
 import { StockLocationModuleService } from "@medusajs/stock-location/services";
-import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
-import { prepareProductVariantInventoryWorkflow, type ProductVariantInventoryHooks } from "../src/product-variant-inventory-workflow";
+import { prepareProductCreateWorkflow } from "../src/workflows/product/create";
+import { prepareProductVariantInventoryWorkflow, type ProductVariantInventoryHooks } from "../src/workflows/product/variant-inventory";
 import type { AtomicWorkflowExecution, AtomicWorkflowHostComposition } from "../src/workflow/host";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";

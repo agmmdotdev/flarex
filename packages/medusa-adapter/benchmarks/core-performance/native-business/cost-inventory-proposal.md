@@ -567,5 +567,5 @@ latency <=5/10 ms; a favorable internal count is not completion.
 - `packages/persistence-postgres/src/execution/finiteStorageCapture.ts`:
   retained query shapes and per-command fresh acceptance.
 - `packages/persistence-postgres/src/values/privateJsonData.ts`,
-  `packages/medusa-adapter/src/commerce-input.ts`, `commerce-promise-owner.ts`
-  and `workflow-value.ts`: genuine capture, runtime and escaping-copy boundaries.
+  `packages/medusa-adapter/src/value/input.ts`, `module/promise-owner.ts`
+  and `workflow/value.ts`: genuine capture, runtime and escaping-copy boundaries.

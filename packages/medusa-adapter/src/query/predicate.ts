@@ -1,6 +1,6 @@
 import { Result, Schema } from "effect";
 import { commerceError, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { commerceDecoder } from "../commerce-decoder";
+import { commerceDecoder } from "../value/decoder";
 
 export type Predicate =
   | { readonly kind: "in"; readonly column: string; readonly values: readonly Json[] }

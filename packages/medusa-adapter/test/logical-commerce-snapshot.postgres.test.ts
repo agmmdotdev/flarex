@@ -20,7 +20,7 @@ import { makeDataBindingHost, dataBindingActivationRequest } from "../../persist
 import { readAdmittedDataBinding } from "../../persistence-postgres/src/installation/frameworkSchema/binding/selection";
 import { fxSystemDataBindingHeads } from "../../persistence-postgres/src/installation/frameworkSchema/binding/schema";
 import type { Json, JsonObject } from "flarex-protocol/json";
-import { currencyAnnouncementWrite, currencyCommands } from "../src/currency-service";
+import { currencyAnnouncementWrite, currencyCommands } from "../src/modules/currency/service";
 
 describe.skipIf(postgresUrl === null)("logical commerce snapshots and publication", () => {
   const cleanup: Array<() => Promise<void>> = [];

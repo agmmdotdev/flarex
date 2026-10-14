@@ -10,8 +10,8 @@ import { defineCommerceEventContract } from "../../../persistence-postgres/src/f
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { captureProductSchema } from "../../src/product-schema";
-import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
+import { captureProductSchema } from "../../src/modules/product/schema";
+import { productRuntimeMetadata } from "../../src/modules/product/runtime-metadata";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
 import { getLogicalProductRunnerFixture, productIntegrationTestRunner, runLogicalProductCommand } from
   "./logical-product-runner";

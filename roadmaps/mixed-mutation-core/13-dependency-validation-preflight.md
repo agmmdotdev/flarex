@@ -67,10 +67,10 @@ framework callbacks, sandbox execution, foreign capture or remote effects.
 
 The executing consumer chain is the private Worker/executor participant bridge
 into journal admission, then `prepareLogicalSourceEvidence` through the three
-source admission owners. Native [Product](../../packages/medusa-adapter/src/product-attempt.ts)
+source admission owners. Native [Product](../../packages/medusa-adapter/src/modules/product/attempt.ts)
 uses the borrowed relational facade; selected Payload Local API access,
 validation and hooks use document admission; finite
-[workflow runtime](../../packages/medusa-adapter/src/workflow-runtime.ts) composes
+[workflow runtime](../../packages/medusa-adapter/src/workflow/runtime.ts) composes
 Product, Pricing and Link sources through the same borrowed root. Per-read
 verification precedes working-set database reads; aggregate seal reauthenticates
 admitted child capabilities, and publication verifies source contributions in

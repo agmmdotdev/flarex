@@ -15,7 +15,7 @@ import { RelationalSessionError } from "../../persistence-postgres/src/database/
 
 
 import { prepareProductSalesChannelWorkflow, productSalesChannelWorkflow, ProductSalesChannelInput,
-  ProductSalesChannelOutput } from "../src/product-sales-channel-workflow";
+  ProductSalesChannelOutput } from "../src/workflows/product/sales-channel";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type AtomicWorkflowHostComposition } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../src/workflow/events";

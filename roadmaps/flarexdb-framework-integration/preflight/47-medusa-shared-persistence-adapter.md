@@ -155,25 +155,25 @@ What remains incomplete is the reusable persistence implementation beneath them.
 
 Source examples:
 
-- [Related queries](../../../packages/medusa-adapter/src/product-related.ts)
+- [Related queries](../../../packages/medusa-adapter/src/modules/product/related.ts)
   branch on Type/Tag `value`, Collection `title`/`handle`, and Option/Variant
   `title` for the same scalar equality lowering. The allowed fields belong in
   module capability data; the lowering algorithm should not name these models.
-- [Product root queries](../../../packages/medusa-adapter/src/product-query-profile.ts)
+- [Product root queries](../../../packages/medusa-adapter/src/modules/product/query-profile.ts)
   contain real boundary policy as well as mechanics: public/internal defaults,
   free-text source validation, admitted relationship filters, and prerequisites
   for service-owned Variant image assembly. Preserve these policies explicitly.
-- [Currency queries](../../../packages/medusa-adapter/src/currency-query.ts)
+- [Currency queries](../../../packages/medusa-adapter/src/modules/currency/query.ts)
   use `code`, recursive conjunction/disjunction, cumulative filter budgets, and
   `rounding`/`raw_rounding` projection. A generic engine hardcoded to `id` would
   already fail the second existing consumer.
-- [Category reads](../../../packages/medusa-adapter/src/product-category-repository.ts)
+- [Category reads](../../../packages/medusa-adapter/src/modules/product/category-repository.ts)
   read a complete bounded catalog, sort locally, and then page; [Collection
-  membership](../../../packages/medusa-adapter/src/product-collection-membership.ts)
+  membership](../../../packages/medusa-adapter/src/modules/product/collection-membership.ts)
   applies an admitted exclusion selector over complete scoped rows. Neither can
   be replaced by filtering a partial database page. Local Category string
   comparison also must not silently become a different SQL collation.
-- [Product call receipts](../../../packages/medusa-adapter/src/product-local-events.ts)
+- [Product call receipts](../../../packages/medusa-adapter/src/modules/product/events/call-receipts.ts)
   distinguish module-service and direct internal calls on logical storage.
   Deleting that distinction as duplication would change behavior and weaken
   authentication.

@@ -2,7 +2,7 @@
 
 Status: Q1/Q2/Q3 is complete for its approved refactor and bounded acceptance
 gates. The separate [organization and reuse follow-on](02-organization-and-reuse.md)
-is prepared; implementation waits for the completed Product workflow integration.
+is complete after the Product workflow integration.
 
 ## Scope And Continuation
 
@@ -23,9 +23,8 @@ The owner requested the [follow-on cleanup plan](02-organization-and-reuse.md)
 for simpler organization and reusable logic across existing and future modules
 and workflows. It reuses the completed construction and receipt owners, groups
 module-local responsibilities, reduces repeated adapter wiring and closes caller
-migration/removal as one connected outcome. Its first gate is the other session's
-completed, validated Product workflow handoff; no implementation starts from
-partially integrated working-tree code. It does not reopen Q1/Q2/Q3 or the
+migration/removal as one connected outcome. The completed native Product creation
+workflow supplied its baseline. It does not reopen Q1/Q2/Q3 or the
 separately scoped storage/performance work.
 
 ## Authority And Invariants

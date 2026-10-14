@@ -6,7 +6,7 @@ It does not complete shared commerce storage, serving activation or migrations.
 
 ## Owners And Authentication
 
-[The private Medusa integration composer](../../packages/medusa-adapter/src/schemaComposition.ts)
+[The private Medusa integration composer](../../packages/medusa-adapter/src/composition/schema.ts)
 loads the Application candidate through the authenticated analysis repository.
 The repository checks scope authority and the immutable analysis/source binding.
 The composer invokes Payload's native collection compiler and the complete

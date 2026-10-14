@@ -3,7 +3,7 @@ import { Effect, Result } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { defineCommerceCommand, type CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { withCurrencyService, currencyCommands, makeCurrencyService } from "../../src/currency-service";
+import { withCurrencyService, currencyCommands, makeCurrencyService } from "../../src/modules/currency/service";
 import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { issueRelationalSession, runRelationalSession } from "../../../persistence-postgres/src/database/relationalTransaction/session";
 import { RelationalSessionError } from "../../../persistence-postgres/src/database/relationalTransaction/model";
@@ -114,11 +114,14 @@ export function registerLiveCurrencyChecks(get: () => LogicalCurrencyFixture): v
 
   it("rolls back every generic publication stage and recovers a lost COMMIT reply", async () => {
     const fixture = get();
+    // Earlier tests retain zzz's current-row tombstone. This proof needs a fresh
+    // identity so the committed insert must add one physical current row.
+    const publicationCode = "zzp";
     let calls = 0;
     const command = defineCommerceCommand("currencyPublicationProof", "write", ctx => withCurrencyService(ctx, async ({ internal, service, context }) => {
       calls += 1;
-      await internal.upsert([{ code: "zzz", name: "Publication proof", symbol: "T", symbol_native: "T", decimal_digits: 2, rounding: 0 }], context);
-      return service.retrieveCurrency("zzz", {}, context);
+      await internal.upsert([{ code: publicationCode, name: "Publication proof", symbol: "T", symbol_native: "T", decimal_digits: 2, rounding: 0 }], context);
+      return service.retrieveCurrency(publicationCode, {}, context);
     }));
     const hostInput = { ...fixture.hostInput, commands: [...fixture.hostInput.commands, command] };
     const host = await runEffect(makeCommerceHost(hostInput));
@@ -152,7 +155,7 @@ export function registerLiveCurrencyChecks(get: () => LogicalCurrencyFixture): v
       try {
         const key = recovering.newRequestKey();
         const result = await runEffect(recovering.run(key, command, null));
-        expect(result).toMatchObject({ code: "zzz" });
+        expect(result).toMatchObject({ code: publicationCode });
         expect(calls).toBe(7);
         const committed = await logicalCurrencyInventory(fixture);
         expect(committed.rows).toHaveLength(before.rows.length + 1);
@@ -200,7 +203,7 @@ export function registerLiveCurrencyChecks(get: () => LogicalCurrencyFixture): v
         expect(compacted.indexEntries).toEqual(committed.indexEntries);
         expect(compacted.uniqueKeys).toEqual(committed.uniqueKeys);
         expect(compacted.initialization).toEqual(committed.initialization);
-        expect(await fixture.service.retrieveCurrency("zzz")).toMatchObject({ code: "zzz" });
+        expect(await fixture.service.retrieveCurrency(publicationCode)).toMatchObject({ code: publicationCode });
         expect(await runEffect(host.initialize(fixture.initialization.rows))).toEqual({ rowCount: 123 });
         expect(await logicalCurrencyInventory(fixture)).toEqual(compacted);
       } finally { await runEffect(recovering.close); }

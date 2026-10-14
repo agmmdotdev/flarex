@@ -11,12 +11,12 @@ import { defineCommerceEventContract } from "../../persistence-postgres/src/fram
 import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { captureLinkMetadata } from "../src/link-schema";
-import { captureProductSalesChannelLinkMetadata } from "../src/product-sales-channel-link-schema";
-import { prepareLinkService } from "../src/link-service";
-import { linkLogicalEventPolicy } from "../src/link-events";
-import { commerceServiceCommands } from "../src/service-commands";
-import { commerceDecoder } from "../src/commerce-decoder";
+import { captureLinkMetadata } from "../src/links/schema";
+import { captureProductSalesChannelLinkMetadata } from "../src/links/product-sales-channel-schema";
+import { prepareLinkService } from "../src/links/service";
+import { linkLogicalEventPolicy } from "../src/links/events";
+import { commerceServiceCommands } from "../src/module/commands";
+import { commerceDecoder } from "../src/value/decoder";
 import { lowerDmlSchema } from "../src/schema/lower";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";

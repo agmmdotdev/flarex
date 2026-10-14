@@ -23,9 +23,9 @@ The [accepted design](../../../design-notes/flarex-db-accepted-design.md),
 [Medusa adoption](../06-medusa-adoption.md), and
 [shared logical workflow cutover](../../shared-logical-storage/16-product-variant-pricing-workflow-cutover.md)
 control authority and storage. The executable
-[Pricing branch](../../../packages/medusa-adapter/src/product-variant-pricing-workflow.ts)
+[Pricing branch](../../../packages/medusa-adapter/src/workflows/product/variant-pricing.ts)
 uses native steps but is deliberately not the complete variant composer.
-The [complete variant facade](../../../packages/medusa-adapter/src/product-variant-inventory-workflow.ts)
+The [complete variant facade](../../../packages/medusa-adapter/src/workflows/product/variant-inventory.ts)
 executes the pinned parent composer and Inventory children with authentic
 Inventory and Stock Location query dependencies. The Pricing-only branch remains
 for its named Product-launch consumer. That existing-Product/Tag operation needs

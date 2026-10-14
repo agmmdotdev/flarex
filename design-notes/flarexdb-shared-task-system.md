@@ -82,11 +82,11 @@ percentage, effort estimate, performance result or production-readiness claim.
 
 ## The Medusa Pattern To Follow
 
-Our [Currency adapter](../packages/medusa-adapter/src/currency-service.ts)
+Our [Currency adapter](../packages/medusa-adapter/src/modules/currency/service.ts)
 constructs the real `CurrencyModuleService`. Native service methods execute,
-while the [repository adapter](../packages/medusa-adapter/src/currency-repository.ts)
+while the [repository adapter](../packages/medusa-adapter/src/modules/currency/repository.ts)
 translates their persistence operations. The
-[repository context](../packages/medusa-adapter/src/commerce-repository-context.ts)
+[repository context](../packages/medusa-adapter/src/repository/context.ts)
 borrows a core-owned transaction context and cannot independently settle it.
 
 Apply the same principle to Trigger:
@@ -309,7 +309,7 @@ identities. Keep backend analysis and immutable runtime authority intact.
 
 [Payload configuration](../packages/payload-adapter/src/configuration.ts) currently
 has no admitted job tasks/workflows. The
-[Medusa workflow runtime](../packages/medusa-adapter/src/workflow-runtime.ts)
+[Medusa workflow runtime](../packages/medusa-adapter/src/workflow/runtime.ts)
 executes an admitted atomic workflow profile. A durable task may invoke that
 profile as one committed operation. Do not silently reinterpret it as a workflow
 with durable suspension or rollback across earlier commits. Assign task-attempt

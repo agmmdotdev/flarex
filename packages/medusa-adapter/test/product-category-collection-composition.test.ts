@@ -9,9 +9,9 @@ import { defineCommerceDerivedIdEventContract, defineCommerceEventContract } fro
   "../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { decodeCategoryProjection } from "../src/product-category-projection";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
+import { decodeCategoryProjection } from "../src/modules/product/category-projection";
 
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";

@@ -1,12 +1,12 @@
 import { Effect, Result, Schema } from "effect";
 import { commerceCommandIdentity, type CommerceCommand, type LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { CommerceModuleDescription } from "../module-definition";
+import type { CommerceModuleDescription } from "../module/definition";
 import type { GraphModuleDefinition } from "../local-graph/model";
 import { prepareLocalGraph } from "../local-graph/query";
 import { defineAtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { captureCommerceInput } from "../commerce-input";
-import { commerceDecoder } from "../commerce-decoder";
+import { captureCommerceInput } from "../value/input";
+import { commerceDecoder } from "../value/decoder";
 import { captureWorkflowArray, captureWorkflowRecord, isWorkflowResourceName } from "./configuration";
 
 declare const methodType: unique symbol;

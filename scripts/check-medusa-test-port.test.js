@@ -20,7 +20,7 @@ describe("maintained Medusa test ports", () => {
   });
   it("preserves the finite native Pricing workflow selection", () => {
     const original = readFileSync(new URL("../third_party/medusa/upstream/packages/core/types/src/pricing/service.ts", import.meta.url), "utf8");
-    const selected = readFileSync(new URL("../packages/medusa-adapter/src/pricing-service.ts", import.meta.url), "utf8");
+    const selected = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/service.ts", import.meta.url), "utf8");
     expect(() => verifyPricingWorkflowSelection(original, selected)).not.toThrow();
     const methods = 'methods: { createPriceSets, createPriceLists, createPricePreferences }';
     expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: {}'))).toThrow();

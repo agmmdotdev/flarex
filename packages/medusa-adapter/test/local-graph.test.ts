@@ -2,10 +2,11 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { defineAtomicCommerceParticipant, defineCommerceCommand, type AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeLocalProductCommands } from "../src/product-service";
-import { currencyGraph } from "../src/currency-service";
+import { makeLocalProductCommands } from "../src/modules/product/service";
+import { currencyGraph } from "../src/modules/currency/service";
 import { defineGraphReadCommand } from "../src/local-graph/commands";
 import { prepareLocalGraph, decodeGraphCount } from "../src/local-graph/query";
+import { scalarGraphDefinition } from "../src/local-graph/module";
 import type { GraphModuleDefinition, PreparedLocalGraph } from "../src/local-graph/model";
 import { runEffect, runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
 
@@ -29,6 +30,19 @@ beforeAll(async () => {
 });
 
 describe("native local Graph Query contract", () => {
+  it("derives scalar ordering from a checked natural key and refuses composite scalar admission", () => {
+    const aliases = [{ name: "measurements", model: "Measurement" }];
+    const command = defineGraphReadCommand("measurementCount", () => Effect.succeed([[], 0]));
+    const table = { name: "measurement", columns: ["code", "value"], primaryKeys: ["code"], foreignKeys: [], companions: {} };
+    const graph = Result.getOrThrow(scalarGraphDefinition(aliases, "Measurement", command, table));
+    expect(graph.aliases).toBe(aliases);
+    expect(graph.reads[0]).toMatchObject({ model: "Measurement", command, table,
+      paths: [], orderable: ["code"], uniqueOrder: ["code"], multipleOrder: false,
+    });
+    expect(scalarGraphDefinition(aliases, "Measurement", command, { ...table, primaryKeys: ["code", "value"] })
+      .pipe(Result.match({ onFailure: error => error.reason, onSuccess: () => "accepted" }))).toBe("unsupportedProfile");
+  });
+
   it("derives admitted root aliases, including the pinned variant aliases", () => {
     expect(prepared.entities).toEqual(expect.arrayContaining([
       "product", "products", "product_category", "product_categories", "product_collection", "product_type", "product_tag",

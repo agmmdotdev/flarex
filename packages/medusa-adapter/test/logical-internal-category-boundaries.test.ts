@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { CommonEvents, Modules } from "@medusajs/framework/utils/portable";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productCallReceipts } from "../src/product-local-events";
-import { decodeCategoryProjection } from "../src/product-category-projection";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
+import { productCallReceipts } from "../src/modules/product/events/call-receipts";
+import { decodeCategoryProjection } from "../src/modules/product/category-projection";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from
   "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";

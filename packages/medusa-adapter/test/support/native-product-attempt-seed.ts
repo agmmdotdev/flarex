@@ -9,8 +9,8 @@ import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/framew
 import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import type { RelationalSession } from "../../../persistence-postgres/src/database/relationalTransaction/session";
 import type { CommerceResources } from "../../../persistence-postgres/src/frameworks/commerceTransaction/resources";
-import { captureProductSchema } from "../../src/product-schema";
-import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
+import { captureProductSchema } from "../../src/modules/product/schema";
+import { productRuntimeMetadata } from "../../src/modules/product/runtime-metadata";
 import type { logicalCurrencyFixture } from "./logical-currency-fixture";
 import type { prepareLogicalProductHost } from "./logical-product-fixture";
 import type { prepareLogicalVariantPricingLinkHost } from "./logical-variant-pricing-link-fixture";

@@ -1,8 +1,8 @@
 import { Deferred, Effect, Fiber, Result } from "effect";
 import { describe, expect, it } from "vitest";
-import { makeSchemaComposer } from "../src/schemaComposition";
-import { compileProductDefinition } from "../src/product-definition";
-import { makeCategoryCurrencyAtomicCommand } from "../src/category-currency-atomic-command";
+import { makeSchemaComposer } from "../src/composition/schema";
+import { compileProductDefinition } from "../src/modules/product/definition";
+import { makeCategoryCurrencyAtomicCommand } from "../src/composition/category-currency-command";
 import { createMigratedPGlitePersistence } from "../../persistence-postgres/test/support/pgliteTestFixture";
 import { postgresUrl, withTemporaryPostgresPersistencePair } from "../../persistence-postgres/test/support/postgresHelpers";
 import { createApplicationNativeMutationPGliteFixtureWithPersistence, createApplicationNativeMutationPostgresFixture,
@@ -15,11 +15,11 @@ import { makeCatalogControlSessionStarter, type CatalogControlSessionStarter } f
 import { makePostgresCatalogControlSessionDriver } from "../../persistence-postgres/src/database/postgresCatalogControlSession";
 import { makeApplicationAnalysisRepository } from "../../persistence-postgres/src/application/applicationAnalysisRegistration";
 import { logicalSchemaBindingScenario } from "../../persistence-postgres/test/storage/catalog/logicalSchemaBindingScenario";
-import { compileCurrencyDefinition } from "../../medusa-adapter/src/currency-schema";
-import { currencyInitialization } from "../../medusa-adapter/src/currency-contract";
-import { currencyReadPlan } from "../../medusa-adapter/src/currency-repository";
-import { withCurrencyService } from "../../medusa-adapter/src/currency-service";
-import { currencyCommands, currencyAnnouncementWrite, makeCurrencyService } from "../../medusa-adapter/src/currency-service";
+import { compileCurrencyDefinition } from "../src/modules/currency/schema";
+import { currencyInitialization } from "../src/modules/currency/contract";
+import { currencyReadPlan } from "../src/modules/currency/repository";
+import { withCurrencyService } from "../src/modules/currency/service";
+import { currencyCommands, currencyAnnouncementWrite, makeCurrencyService } from "../src/modules/currency/service";
 import { defineCommerceCommand, makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, getAtomicCommerceCommand } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";

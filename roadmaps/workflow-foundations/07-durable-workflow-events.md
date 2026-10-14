@@ -22,7 +22,7 @@ commit/feed authority.
 
 | Existing owner | Reuse and limit |
 | --- | --- |
-| [Product local policy](../../packages/medusa-adapter/src/product-local-events.ts) | Reuse payload capture and row/lifecycle correlation. It validates module events and invokes a supplied local destination; it has no durable event record. |
+| [Product local policy](../../packages/medusa-adapter/src/modules/product/events/call-receipts.ts) | Reuse payload capture and row/lifecycle correlation. It validates module events and invokes a supplied local destination; it has no durable event record. |
 | [Commerce host](../../packages/persistence-postgres/src/frameworks/commerceTransaction/host.ts) | Its local buffer is delivered after acknowledged completion and discarded during uncertain-result recovery. Preserve that supported profile; select durable mode explicitly. |
 | [Atomic host](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) | Admits selected participant/event definitions explicitly; the event-free profile still refuses capture. |
 | [Shared publication](../../packages/persistence-postgres/src/commit/publication/publication.ts) | Reuse one sequence, header, retained result, common wake and physical commit. Consumes the authenticated single-use event contribution in that same publication. |

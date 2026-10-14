@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { captureLogicalSchemaSource, prepareLogicalSchemaCandidate, readPreparedLogicalSchemaCandidate } from
   "@flarex/analysis/internal/logical-schema-candidate";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
-import { makeSchemaComposer } from "../src/schemaComposition";
+import { makeSchemaComposer } from "../src/composition/schema";
 import { makeApplicationAnalysisRepository } from "../../persistence-postgres/src/application/applicationAnalysisRegistration";
 import { createMigratedPGlitePersistence } from "../../persistence-postgres/test/support/pgliteTestFixture";
 import { postgresUrl, withTemporaryPostgresPersistencePair } from "../../persistence-postgres/test/support/postgresHelpers";
@@ -16,7 +16,7 @@ import { logicalSchemaBindingScenario } from "../../persistence-postgres/test/st
 import type { CatalogControlSessionStarter } from "../../persistence-postgres/src/database/catalogControlSession";
 import { makeCatalogControlSessionStarter } from "../../persistence-postgres/src/database/catalogControlSession";
 import { makePostgresCatalogControlSessionDriver } from "../../persistence-postgres/src/database/postgresCatalogControlSession";
-import { compileCurrencyDefinition } from "../src/currency-schema";
+import { compileCurrencyDefinition } from "../src/modules/currency/schema";
 import { defineCommerceCommand, makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { preparedHostTestRuntime, openPreparedHostTestRuntime, closePreparedHostTestRuntime } from

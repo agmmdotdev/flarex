@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { ProductImage, ProductVariant, ProductOption } from "@medusajs/product/models";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
 
 describe("Product runtime derives its schema facts from Medusa", () => {
   it("uses imported model identities, compiler prefixes, declared foreign keys and event conventions", async () => {

@@ -59,9 +59,9 @@ const mixedProductTestImports = new Map([
   ["../../../../medusa-adapter/test/support/native-product-attempt-seed",
     "packages/medusa-adapter/test/support/native-product-attempt-seed.ts"],
   ["@flarex/medusa-adapter/internal/product-attempt",
-    "packages/medusa-adapter/src/product-attempt.ts"],
-  ["../../../../medusa-adapter/src/product-launch-workflow",
-    "packages/medusa-adapter/src/product-launch-workflow.ts"],
+    "packages/medusa-adapter/src/modules/product/attempt.ts"],
+  ["../../../../medusa-adapter/src/workflows/product/launch",
+    "packages/medusa-adapter/src/workflows/product/launch.ts"],
 ]);
 const mixedPerformanceTestImports = new Map([
   ["../../medusa-adapter/test/support/product-launch-performance-fixture",
@@ -69,7 +69,7 @@ const mixedPerformanceTestImports = new Map([
 ]);
 const mixedProductWorkerdTest = "packages/flarex-backend/test/mixedMutationProduct.workerd.test.ts";
 const mixedProductWorkerdTestImports = new Map([
-  ["../../medusa-adapter/src/product-attempt", "packages/medusa-adapter/src/product-attempt.ts"],
+  ["../../medusa-adapter/src/modules/product/attempt", "packages/medusa-adapter/src/modules/product/attempt.ts"],
 ]);
 const preparedTargetMetadataTest = "packages/flarex-backend/test/preparedTargetMetadata.postgres.test.ts";
 const preparedTargetMetadataTestImports = new Map([
@@ -83,16 +83,16 @@ const finiteContractTestImports = new Map([
     specifier: "../../../medusa-adapter/test/support/native-product-attempt-seed", target: "packages/medusa-adapter/test/support/native-product-attempt-seed.ts",
   }],
   ["packages/persistence-postgres/test/execution/finitePreparedSourceComposition.test.ts", {
-    specifier: "../../../medusa-adapter/src/schemaComposition", target: "packages/medusa-adapter/src/schemaComposition.ts",
+    specifier: "../../../medusa-adapter/src/composition/schema", target: "packages/medusa-adapter/src/composition/schema.ts",
   }],
   ["packages/persistence-postgres/test/frameworks/atomicCommerce/atomicCommerceSharedInstallation.test.ts", {
-    specifier: "../../../../medusa-adapter/src/workflow-value", target: "packages/medusa-adapter/src/workflow-value.ts",
+    specifier: "../../../../medusa-adapter/src/workflow/value", target: "packages/medusa-adapter/src/workflow/value.ts",
   }],
   ["packages/persistence-postgres/test/frameworks/atomicCommerce/borrowedWorkflowCapture.test.ts", {
-    specifier: "../../../../medusa-adapter/src/workflow-value", target: "packages/medusa-adapter/src/workflow-value.ts",
+    specifier: "../../../../medusa-adapter/src/workflow/value", target: "packages/medusa-adapter/src/workflow/value.ts",
   }],
   ["packages/flarex-backend/test/mixedMutationFiniteRetirement.workerd.test.ts", {
-    specifier: "../../medusa-adapter/src/currency-service", target: "packages/medusa-adapter/src/currency-service.ts",
+    specifier: "../../medusa-adapter/src/modules/currency/service", target: "packages/medusa-adapter/src/modules/currency/service.ts",
   }],
   ["packages/persistence-postgres/test/application/applicationFiniteBindingCorrelation.test.ts", {
     specifier: "../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
@@ -404,7 +404,7 @@ function admitsSelectedMedusaTestTypeImport(promotion, relativePath, specifier, 
     && promotion?.packages.some(pkg => pkg.path === "packages/medusa-adapter" && pkg.name === "@flarex/medusa-adapter"
       && (timing || pkg.exports.includes("./internal/product-attempt"))) === true
     && promotion.files.some(file => file.target === (timing
-      ? "packages/medusa-adapter/test/support/logical-currency-fixture.ts" : "packages/medusa-adapter/src/product-attempt.ts")
+      ? "packages/medusa-adapter/test/support/logical-currency-fixture.ts" : "packages/medusa-adapter/src/modules/product/attempt.ts")
       && file.classification === "authored");
 }
 
@@ -417,14 +417,14 @@ function admitsHistoricalCaptureImport(promotion, relativePath, specifier, node)
   if (relativePath !== "packages/executor/test/performance/support/historicalCaptureFixture.ts"
     || node === undefined || !ts.isImportDeclaration(node) || node.importClause === undefined
     || node.importClause.name !== undefined) return false;
-  const typeOnly = specifier === "../../../../medusa-adapter/src/product-runtime-metadata";
-  const value = specifier === "../../../../medusa-adapter/src/product-query";
+  const typeOnly = specifier === "../../../../medusa-adapter/src/modules/product/runtime-metadata";
+  const value = specifier === "../../../../medusa-adapter/src/modules/product/query";
   if ((!typeOnly && !value) || node.importClause.isTypeOnly !== typeOnly) return false;
   const bindings = node.importClause.namedBindings;
   if (bindings === undefined || !ts.isNamedImports(bindings) || bindings.elements.length !== 1) return false;
   const imported = bindings.elements[0];
-  const target = typeOnly ? "packages/medusa-adapter/src/product-runtime-metadata.ts"
-    : "packages/medusa-adapter/src/product-query.ts";
+  const target = typeOnly ? "packages/medusa-adapter/src/modules/product/runtime-metadata.ts"
+    : "packages/medusa-adapter/src/modules/product/query.ts";
   return imported?.name.text === (typeOnly ? "ProductRuntimeMetadata" : "findProducts")
     && imported.propertyName === undefined && imported.isTypeOnly === false
     && promotion?.files.some(file => file.target === target && file.classification === "authored") === true;

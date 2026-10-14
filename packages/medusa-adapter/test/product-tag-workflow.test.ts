@@ -6,10 +6,10 @@ import { Cause, Deferred, Effect, Exit, Fiber, Option, Result, Schema } from "ef
 import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import type { Json } from "flarex-protocol/json";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
-import { prepareProductTagWorkflow, type ProductTagWorkflowHooks } from "../src/product-tag-workflow";
-import { currencyCommands, currencyWorkflowModule } from "../src/currency-service";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
+import { prepareProductTagWorkflow, type ProductTagWorkflowHooks } from "../src/workflows/product/tag";
+import { currencyCommands, currencyWorkflowModule } from "../src/modules/currency/service";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
 
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { expireCommerceResult, compactRetainedCommitHistory } from "../../persistence-postgres/test/frameworks/commerceTransaction/commerceInventory";
@@ -23,7 +23,7 @@ import { CommitEventSubscriberFailure, type CommitEventMessage } from "../../per
 import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commit/events/schema";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
-import { commerceDecoder } from "../src/commerce-decoder";
+import { commerceDecoder } from "../src/value/decoder";
 import { defineWorkflowMethod, defineWorkflowModule, workflowModuleDefinition } from "../src/workflow/module";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
@@ -71,9 +71,10 @@ describe("native Medusa Product-tag workflow and committed events", () => {
   beforeAll(async () => {
     // A trusted test bundle hashes its actual authoring and execution sources,
     // including this file's hook bodies; names and Function.toString are not revisions.
-    const paths = ["product-tag-workflow.ts", "product-tag-workflow-events.ts", "workflow-runtime.ts", "workflow-value.ts", "product-workflow-module.ts", "product-service.ts", "service-commands.ts", "currency-service.ts", "product-local-events.ts", "commerce-checked-value.ts", "local-graph/query.ts"];
+    const paths = ["workflows/product/tag.ts", "workflows/product/tag-events.ts", "workflow/runtime.ts", "workflow/value.ts", "modules/product/workflow.ts", "modules/product/service.ts", "module/commands.ts", "module/events.ts", "modules/currency/service.ts", "modules/product/events/call-receipts.ts", "value/checked.ts", "local-graph/query.ts"];
     for (const name of (await readdir(new URL("../src/workflow/", import.meta.url))).sort()) if (name.endsWith(".ts")) paths.push("workflow/" + name);
-    for (const name of (await readdir(new URL("../src/product-commands/", import.meta.url))).sort()) if (name.endsWith(".ts")) paths.push("product-commands/" + name);
+    for (const name of (await readdir(new URL("../src/modules/product/commands/", import.meta.url))).sort()) if (name.endsWith(".ts")) paths.push("modules/product/commands/" + name);
+    for (const name of (await readdir(new URL("../src/modules/product/events/", import.meta.url))).sort()) if (name.endsWith(".ts") && name !== "call-receipts.ts") paths.push("modules/product/events/" + name);
     const sources = await Promise.all(paths.map(path => readFile(new URL(`../src/${path}`, import.meta.url))));
     for (const path of ["definition", "references", "responses", "model", "runtime", "orchestrator-builder"]) sources.push(await readFile(new URL(`../../medusa-workflows-sdk/src/${path}.ts`, import.meta.url)));
     for (const path of ["product/workflows/create-product-tags", "product/steps/create-product-tags", "common/steps/emit-event", "events"]) sources.push(await readFile(new URL(`../../medusa-core-flows/src/${path}.ts`, import.meta.url)));

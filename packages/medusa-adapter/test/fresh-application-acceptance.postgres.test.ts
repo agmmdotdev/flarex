@@ -41,7 +41,7 @@ import type {
 import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
-import { currencyCommands } from "../src/currency-service";
+import { currencyCommands } from "../src/modules/currency/service";
 import { assertProtectedGuardFailure } from "./support/protected-acceptance-observation";
 
 describe.skipIf(postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(

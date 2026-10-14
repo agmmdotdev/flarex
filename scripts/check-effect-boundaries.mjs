@@ -100,7 +100,7 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/flarex-dev/src/runtimeMaterializer.ts", "LocalMiniflareMaterializedExecutionArtifact.executeQuerySession"), 1],
   [siteKey("packages/flarex-dev/src/runtimeMaterializer.ts", "LocalMiniflareMaterializedExecutionArtifact.invoke"), 1],
   [siteKey("packages/flarex-protocol/src/auth.ts", "decodeAuthConfigPromise"), 1],
-  [siteKey("packages/medusa-adapter/src/currency-service.ts", "promise"), 1],
+  [siteKey("packages/medusa-adapter/src/modules/currency/service.ts", "promise"), 1],
   [siteKey("packages/persistence-postgres/src/storage/catalog/appSchemaPublication.ts", "runPreparedAppSchemaPublicationTransactionEffect"), 1],
   [siteKey("packages/persistence-postgres/src/storage/catalog/appSchemaCandidateValidation.ts", "startLocatedEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/storage/catalog/appTableDefinitionsArtifacts.ts", "runPreparedAppTableDefinitionsArtifactTransactionEffect"), 1],
@@ -187,7 +187,7 @@ const allowedRunPromiseExitWithSites = new Map([
 /** @type {Map<string, number>} */
 const allowedRunPromiseWithSites = new Map([
   // The native framework Promise owner preserves captured tracing and cancellation.
-  [siteKey("packages/medusa-adapter/src/commerce-promise-owner.ts", "run"), 1],
+  [siteKey("packages/medusa-adapter/src/module/promise-owner.ts", "run"), 1],
   // These existing Payload DAL/rollback edges preserve actual invocation
   // diagnostics and cancellation instead of starting a default runtime.
   [siteKey("packages/payload-adapter/src/adapter.ts", "run"), 1],

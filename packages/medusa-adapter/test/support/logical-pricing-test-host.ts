@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
-import { pricingLogicalCreateEventPolicy } from "../../src/pricing-events";
+import { pricingLogicalCreateEventPolicy } from "../../src/modules/pricing/events";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from
   "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";

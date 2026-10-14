@@ -5,7 +5,7 @@ import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema"
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
-import { prepareProductLaunchWorkflow, preparePrivateProductLaunchAttempt } from "../src/product-launch-workflow";
+import { prepareProductLaunchWorkflow, preparePrivateProductLaunchAttempt } from "../src/workflows/product/launch";
 import { captureAtomicCommerceParticipants, prepareAtomicCommerceParticipants,
   type AtomicCommerceParticipantInput, type PreparedAtomicCommerceLogicalParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/participants";
 import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";

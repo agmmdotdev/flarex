@@ -17,7 +17,7 @@ import { fxControlIndexDefinitions, fxSystemApplicationReadinessV1 } from "../..
 import { composeRelationReadinessFixtureRuntime } from "../../persistence-postgres/test/application/relations/applicationRelationReadinessFixture";
 import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
 import { preparedHostTestRuntime } from "../../persistence-postgres/test/execution/preparation/preparedHostRuntimeTestSupport";
-import { currencyCommands, withCurrencyService } from "../src/currency-service";
+import { currencyCommands, withCurrencyService } from "../src/modules/currency/service";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
 

@@ -8,9 +8,9 @@ import {
   normalizeRelationalSchema,
   validateRelationalRowValues,
 } from "flarex-protocol/internal/relational-schema";
-import { compileCurrencyDefinition, currencySourceProvenance, translateCurrencySchema } from "../src/currency-schema";
+import { compileCurrencyDefinition, currencySourceProvenance, translateCurrencySchema } from "../src/modules/currency/schema";
 import expectedInput from "./currency-input.json";
-import { currencyInitialization } from "../src/currency-contract";
+import { currencyInitialization } from "../src/modules/currency/contract";
 import type { Json, JsonObject } from "flarex-protocol/json";
 
 describe("actual Currency DML compatibility", () => {

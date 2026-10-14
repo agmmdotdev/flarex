@@ -112,7 +112,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   );
   verifyPricingWorkflowSelection(
     readFileSync(path.join(root, sourcePrefix + "packages/core/types/src/pricing/service.ts"), "utf8"),
-    readFileSync(path.join(root, "packages/medusa-adapter/src/pricing-service.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-adapter/src/modules/pricing/service.ts"), "utf8"),
   );
   verifyShippingProfileCreateTests(
     readFileSync(path.join(root, sourcePrefix + "packages/modules/fulfillment/integration-tests/__tests__/fulfillment-module-service/shipping-profile.spec.ts"), "utf8"),

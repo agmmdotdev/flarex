@@ -11,7 +11,7 @@ import { makeDataBindingHost, dataBindingActivationRequest } from "../../persist
 import { readAdmittedDataBinding } from "../../persistence-postgres/src/installation/frameworkSchema/binding/selection";
 import { bindingError } from "../../persistence-postgres/src/installation/frameworkSchema/binding/errors";
 import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
-import { currencyAnnouncementWrite, currencyCommands } from "../src/currency-service";
+import { currencyAnnouncementWrite, currencyCommands } from "../src/modules/currency/service";
 import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { appendPreparedAppRowRevisionsInTransactionEffect } from "../../persistence-postgres/src/storage/documents/appRows";
 import { lockInstallationForCurrentTransaction } from "../../persistence-postgres/src/installation/installationLifecycle";

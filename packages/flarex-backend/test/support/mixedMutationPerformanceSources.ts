@@ -9,7 +9,7 @@ export const measuredSourcePaths = [
   "packages/flarex-backend/test/support/mixedMutationWorkerdAdapter.ts",
   "packages/flarex-backend/test/support/mixedMutationCpuProfile.ts",
   "packages/flarex-backend/test/support/mixedMutationPerformanceReport.ts",
-  "packages/medusa-adapter/src/product-attempt.ts",
+  "packages/medusa-adapter/src/modules/product/attempt.ts",
   "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts",
   "packages/executor/src/mutation/journal/pointMutationJournal.ts",
   "packages/executor/src/mutation/authentication/storedAttemptAuthentication.ts",
@@ -272,7 +272,7 @@ export const measuredSourcePaths = [
   "packages/persistence-postgres/src/storage/catalog/logicalStorageDefinitions.ts",
   "packages/persistence-postgres/src/storage/documents/logicalDocuments/referencePages.ts",
   "packages/analysis/src/applicationPublicationFramesV1.ts",
-  "packages/medusa-adapter/src/product-launch-workflow.ts",
+  "packages/medusa-adapter/src/workflows/product/launch.ts",
   "packages/flarex-protocol/src/decoded-protocol-snapshot.ts",
   "packages/flarex-protocol/package.json",
 ] as const;

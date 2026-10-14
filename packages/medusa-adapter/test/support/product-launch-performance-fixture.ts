@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import type { PostgresFixtureEndpoints } from "../../../persistence-postgres/test/support/postgresHelpers";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { prepareProductLaunchWorkflow } from "../../src/product-launch-workflow";
+import { prepareProductLaunchWorkflow } from "../../src/workflows/product/launch";
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { productVariantPricingResources } from "../../src/workflow/policy";
 import { logicalCurrencyFixture } from "./logical-currency-fixture";

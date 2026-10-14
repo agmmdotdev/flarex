@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { populateCommerceRelations, readCommerceRelationRows } from "../commerce-relations";
-import { resolveCommerceRelationFilter } from "../commerce-relation-filter";
+import { populateCommerceRelations, readCommerceRelationRows } from "./relations";
+import { resolveCommerceRelationFilter } from "./relation-filter";
 import type { ReadCatalog } from "./catalog";
 import { projectRows, type ReadProjection } from "./projection";
 import type { PopulationFilter } from "./population";

@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
-import { makeLocalProductCommands } from "../../src/product-service";
+import { makeLocalProductCommands } from "../../src/modules/product/service";
 import type { LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import type { CommerceReadHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/read/configuration";
 import { getCommerceCommand, type CommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";

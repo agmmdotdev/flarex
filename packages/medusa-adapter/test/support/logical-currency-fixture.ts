@@ -21,7 +21,7 @@ import {
   type LogicalReadMetadataScale,
 } from
   "../../../persistence-postgres/test/storage/documents/logicalReadMetadataScalingTestSupport";
-import { makeSchemaComposer } from "../../src/schemaComposition";
+import { makeSchemaComposer } from "../../src/composition/schema";
 import { createApplicationNativeMutationPGliteFixtureWithPersistence,
   createApplicationNativeMutationPostgresFixture, type ApplicationNativeMutationPGliteFixture,
   type ApplicationNativeMutationPostgresFixture, type ApplicationNativeMutationFixtureOptions } from
@@ -131,19 +131,19 @@ import type {
   LogicalSchemaSource,
 } from "flarex-protocol/internal/logical-schema-candidate";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { compileCurrencyDefinition } from "../../src/currency-schema";
-import { currencyInitialization } from "../../src/currency-contract";
-import { compileProductDefinition } from "../../src/product-definition";
-import { compilePricingDefinition } from "../../src/pricing-schema";
-import { compileVariantPricingLinkDefinition } from "../../src/product-variant-pricing-schema";
-import { compileSalesChannelDefinition } from "../../src/sales-channel-schema";
-import { compileProductLinksDefinition } from "../../src/product-links-definition";
-import { compileShippingProfileDefinition } from "../../src/shipping-profile-schema";
+import { compileCurrencyDefinition } from "../../src/modules/currency/schema";
+import { currencyInitialization } from "../../src/modules/currency/contract";
+import { compileProductDefinition } from "../../src/modules/product/definition";
+import { compilePricingDefinition } from "../../src/modules/pricing/schema";
+import { compileVariantPricingLinkDefinition } from "../../src/composition/product-variant-pricing-schema";
+import { compileSalesChannelDefinition } from "../../src/modules/sales-channel/schema";
+import { compileProductLinksDefinition } from "../../src/links/product-definition";
+import { compileShippingProfileDefinition } from "../../src/modules/fulfillment/shipping-profile-schema";
 import {
   currencyAnnouncementWrite,
   currencyCommands,
   makeCurrencyService,
-} from "../../src/currency-service";
+} from "../../src/modules/currency/service";
 
 type LogicalInstallationTiming = Readonly<{ migrationMs: number; managedSetupMs: number;
   coLocatedSetupMs: number; totalInstallationMs: number }>;

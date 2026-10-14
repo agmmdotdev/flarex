@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
-import { productCallReceipts } from "../src/product-local-events";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
+import { productCallReceipts } from "../src/modules/product/events/call-receipts";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceDerivedIdEventContract, defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
@@ -475,8 +475,8 @@ describe("native Collection service on shared logical Product storage", () => {
       if (fixture.observeSql !== undefined) {
         let stagedFactPages = 0;
         fixture.observeSql(text => {
-          if (/insert into "fx_system_commit_app_row_change"/i.test(text) && ++stagedFactPages === 3)
-            throw new Error("Injected Collection replacement failure after three fact pages");
+          if (/\bfx_write_scope_publication_rows\b/i.test(text) && ++stagedFactPages === 2)
+            throw new Error("Injected Collection replacement failure on the second fact page");
         });
         try {
           await expect(Effect.runPromise(updated.host.run(key, updated.root,
@@ -484,7 +484,7 @@ describe("native Collection service on shared logical Product storage", () => {
         } finally {
           fixture.observeSql(undefined);
         }
-        expect(stagedFactPages).toBe(3);
+        expect(stagedFactPages).toBe(2);
         expect(await logicalCurrencyInventory(fixture)).toEqual(before);
       } else if (driver === "postgres") {
         // A statement trigger counts fact-page inserts inside the ordinary-role
@@ -494,7 +494,7 @@ describe("native Collection service on shared logical Product storage", () => {
           declare seen integer;
           begin
             seen := coalesce(nullif(current_setting('flarex.test_collection_fact_pages', true), '')::integer, 0) + 1;
-            if seen = 3 then raise exception 'injected third Collection fact page'; end if;
+            if seen = 2 then raise exception 'injected second Collection fact page'; end if;
             perform set_config('flarex.test_collection_fact_pages', seen::text, true);
             return null;
           end $$`);
@@ -513,7 +513,7 @@ describe("native Collection service on shared logical Product storage", () => {
             if ("message" in cause && typeof cause.message === "string") messages.push(cause.message);
             cause = "cause" in cause ? cause.cause : null;
           }
-          expect(messages.join(" | ")).toContain("injected third Collection fact page");
+          expect(messages.join(" | ")).toContain("injected second Collection fact page");
         } finally {
           await fixture.persistence.query("drop trigger flarex_test_fail_collection_fact_page on fx_system_commit_app_row_change");
           await fixture.persistence.query("drop function flarex_test_fail_collection_fact_page()");

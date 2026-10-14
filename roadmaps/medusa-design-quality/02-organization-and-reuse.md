@@ -2,10 +2,9 @@
 
 ## Status And Scope
 
-Status: owner-requested follow-on plan prepared; implementation is deferred until
-the other session finishes the Product workflow integration and hands off its
-completed, validated checkpoint. Preparing this plan does not authorize edits
-to that session's integration work or establish that its new capabilities pass.
+Status: complete after the native Product creation workflow handoff. Cohesive
+owners, shared adapter mechanics, caller migration and displaced-code removal
+retain the existing native capability and outer transaction owner.
 
 This plan owns a connected cleanup of the existing Medusa adapter: cohesive
 source organization, simpler module construction, reusable repository and event
@@ -53,19 +52,71 @@ remote effects and durable workflow suspension retain their separate gates.
 
 ## Current Architecture And Concrete Opportunities
 
-These are source-backed planning observations. Reconcile them against the final
-Product workflow checkpoint before selecting changes; do not recreate work that
-the integration session has already completed.
+The completed Product creation workflow established the integration baseline.
+The placement map below now points to the implementing owners.
+
+## Implemented Ownership And Extension Cost
+
+- Module construction and command lifetimes live in `module/`; scoped DAL
+  mechanics live in `repository/`. Module-local contracts live in `modules/`,
+  stored Link contracts in `links/`, named facades in `workflows/product/`, and
+  cross-module schema construction in `composition/`. Medusa value capture and
+  decoding remain in `value/`; existing query, write and host owners remain.
+- Currency, Sales Channel, ShippingProfile, Inventory and Stock Location reuse
+  one scalar graph definition with explicit aliases. Pricing and stored Links
+  retain their distinct ordering and relationship contracts.
+- Sales Channel, ShippingProfile, Inventory, Stock Location and Pricing supply
+  their decoder to one ordered decode/copy/refusal preparer. Module event buses
+  share envelope capture and sequential delivery; each module still supplies
+  its grammar, capture policy and exact refusal context. Restricted repositories
+  share explicit DAL denials while preserving their manager methods.
+- Product receipts are separated into capture, result, membership, entity,
+  Category, Collection, Product, Variant, lifecycle, Tag and call dispatch owners.
+  One direct command-to-policy map replaces the overlapping dispatch chains.
+  Native business semantics and call-local evidence rules retain their owners.
+- Workflow facades reuse installed-binding capture in declared order. Their
+  root contracts, selected resources, hooks, workload limits and native business
+  composition remain explicit. Module-only creation, full native creation,
+  launch of existing Products, relationships and standalone Variant workflows
+  serve distinct contracts and remain separate entry points.
+- Callers, private export targets, source guards and live source maps migrate
+  directly. Root forwarding modules and the displaced receipt monolith are
+  removed; preserved upstream tests and historical benchmark records keep their
+  provenance.
+
+An ordinary future module supplies checked models, native methods, its input and
+event grammar, aliases and genuine repository extensions. It reuses the current
+construction, command preparation, scalar DAL/graph and event envelope owners.
+A future workflow supplies its native graph, installed bindings, selected methods
+and finite contract to the existing host. Neither adds a universal CRUD engine,
+registry, transaction layer or another workflow lifetime.
+
+Validation exposed an existing Medusa DAL representation mismatch: native
+Product image assembly and native scalar metadata updates mutate entity reads.
+Repository reads now hand off detached mutable copies after full projection
+validation. Core rows and call evidence stay immutable; serialization and the
+outer service boundary still capture the final native result. No native business
+algorithm or shared persistence contract changes.
+
+Two rollback fixtures targeted obsolete publication choreography. Collection
+replacement injects on the second fact page of its 131 facts, after the first
+page and business materialization have staged. Type byte-overflow observes
+earlier materialization pages before reference traversal refuses. Both retain
+complete rollback checks, and Collection retains same-key retry and replay.
+Currency's interruption proof observes the installed fact-page atom and requires
+it to be reached before aborting. Its lost-COMMIT recovery proof uses a fresh key
+rather than an earlier test's retained tombstone; drain, rollback, new-row, fact,
+replay and recovery checks remain explicit.
 
 | Current owner | Existing useful boundary | Proposed improvement |
 | --- | --- | --- |
-| [module-definition.ts](../../packages/medusa-adapter/src/module-definition.ts), [commerce-module.ts](../../packages/medusa-adapter/src/commerce-module.ts) | Checked model layout, generated internal services and named extensions; request-owned repositories and native module construction | Retain these owners and make their native binding flow easy to follow. Reduce repeated surrounding assembly without adding another module factory stack. |
-| [service-commands.ts](../../packages/medusa-adapter/src/service-commands.ts) | Command preparation, invocation and result projection over one module-owned service lifetime | Centralize equivalent decode/copy/refusal preparation currently repeated in Sales Channel, ShippingProfile, Inventory and Stock Location. Preserve distinct profiles and evaluation order. |
-| [scalar-repository.ts](../../packages/medusa-adapter/src/scalar-repository.ts), [sales-channel-repository.ts](../../packages/medusa-adapter/src/sales-channel-repository.ts) | Shared scalar creation/reads with explicit module update/delete extensions | Reuse the existing base and keyed-write owners; remove duplicate mechanics only after matching their operation and event contracts. |
-| [sales-channel-service.ts](../../packages/medusa-adapter/src/sales-channel-service.ts), [shipping-profile-service.ts](../../packages/medusa-adapter/src/shipping-profile-service.ts), [inventory-service.ts](../../packages/medusa-adapter/src/inventory-service.ts) | Native services, scoped event capture and explicit supported methods | Share equivalent internal event-bus plumbing. Keep module capture/receipt policy and current nested context selection explicit. |
-| [product-local-events.ts](../../packages/medusa-adapter/src/product-local-events.ts) | Call-local Product footprint, result and event correlation | Separate common evidence traversal from Category, Collection, Product, Variant and related-entity policies. Remove duplicated business reconstruction only when the native owner and regression witness are identified. |
+| [module-definition.ts](../../packages/medusa-adapter/src/module/definition.ts), [commerce-module.ts](../../packages/medusa-adapter/src/module/persistence.ts) | Checked model layout, generated internal services and named extensions; request-owned repositories and native module construction | Retain these owners and make their native binding flow easy to follow. Reduce repeated surrounding assembly without adding another module factory stack. |
+| [service-commands.ts](../../packages/medusa-adapter/src/module/commands.ts) | Command preparation, invocation and result projection over one module-owned service lifetime | Centralize equivalent decode/copy/refusal preparation currently repeated in Sales Channel, ShippingProfile, Inventory and Stock Location. Preserve distinct profiles and evaluation order. |
+| [scalar-repository.ts](../../packages/medusa-adapter/src/repository/scalar.ts), [sales-channel-repository.ts](../../packages/medusa-adapter/src/modules/sales-channel/repository.ts) | Shared scalar creation/reads with explicit module update/delete extensions | Reuse the existing base and keyed-write owners; remove duplicate mechanics only after matching their operation and event contracts. |
+| [sales-channel-service.ts](../../packages/medusa-adapter/src/modules/sales-channel/service.ts), [shipping-profile-service.ts](../../packages/medusa-adapter/src/modules/fulfillment/shipping-profile-service.ts), [inventory-service.ts](../../packages/medusa-adapter/src/modules/inventory/service.ts) | Native services, scoped event capture and explicit supported methods | Share equivalent internal event-bus plumbing. Keep module capture/receipt policy and current nested context selection explicit. |
+| [product-local-events.ts](../../packages/medusa-adapter/src/modules/product/events/call-receipts.ts) | Call-local Product footprint, result and event correlation | Separate common evidence traversal from Category, Collection, Product, Variant and related-entity policies. Remove duplicated business reconstruction only when the native owner and regression witness are identified. |
 | [workflow/host.ts](../../packages/medusa-adapter/src/workflow/host.ts), [workflow/resources.ts](../../packages/medusa-adapter/src/workflow/resources.ts) | Authenticated method selections and installed sources; one existing outer execution owner | Simplify repeated preparation around these owners. Keep business composition and named workload limits with their workflow. |
-| [product-service.ts](../../packages/medusa-adapter/src/product-service.ts), [product-commands/services.ts](../../packages/medusa-adapter/src/product-commands/services.ts) | One Product command entry point with distinct repository profiles and read/write/internal branches | Preserve the entry point while placing its implementation together and clarifying the exceptional profiles. Fewer files or imports alone is not acceptance. |
+| [product-service.ts](../../packages/medusa-adapter/src/modules/product/service.ts), [product-commands/services.ts](../../packages/medusa-adapter/src/modules/product/commands/services.ts) | One Product command entry point with distinct repository profiles and read/write/internal branches | Preserve the entry point while placing its implementation together and clarifying the exceptional profiles. Fewer files or imports alone is not acceptance. |
 
 ## Invariants And Trust Boundaries
 
@@ -344,8 +395,13 @@ The selected change is internal Medusa organization; no new Convex API divergenc
 is proposed. Any discovered Application/shared-execution correction follows its
 own current-source preflight and authorization boundary.
 
-The exact move map, remaining duplicated mechanics and retained workflow
-disposition depend on the completed Product integration. Resolve those at Gate 0
-using real consumers. Successful reuse means smaller module-specific obligations
+The completed Product integration supplied the move map and retained workflow
+disposition recorded above. Successful reuse means smaller module-specific obligations
 and clearer execution flow, not fewer source files, a common CRUD engine or a
 claim that every future Medusa module is already supported.
+
+Ordinary PostgreSQL validation remains bounded local evidence. Intermittent
+one-second publication-statement timeouts remain unexplained; successful quiet
+execution does not establish their cause or behavior under checkpoint pressure.
+Runtime performance, scale and hosted activation retain their separate owners
+and gates.

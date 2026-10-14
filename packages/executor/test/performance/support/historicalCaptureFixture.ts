@@ -28,8 +28,8 @@ import { inspectLogicalParticipantAttemptAdmission,
 import {
   projectCommerceRequestFailure,
 } from "../../../../persistence-postgres/src/frameworks/commerceTransaction/request";
-import { findProducts } from "../../../../medusa-adapter/src/product-query";
-import type { ProductRuntimeMetadata } from "../../../../medusa-adapter/src/product-runtime-metadata";
+import { findProducts } from "../../../../medusa-adapter/src/modules/product/query";
+import type { ProductRuntimeMetadata } from "../../../../medusa-adapter/src/modules/product/runtime-metadata";
 import { createMixedMutationProductFixture } from "./mixedMutationProductFixture";
 
 type HistoricalOperation = Extract<FiniteStorageCaptureOperation, { kind: "indexPage" | "rows" }>;

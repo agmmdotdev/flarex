@@ -3,7 +3,7 @@ import { Cause, Effect, Option } from "effect";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import type { ISalesChannelModuleService } from "@medusajs/framework/types";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { captureCommerceInput } from "../../src/commerce-input";
+import { captureCommerceInput } from "../../src/value/input";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";

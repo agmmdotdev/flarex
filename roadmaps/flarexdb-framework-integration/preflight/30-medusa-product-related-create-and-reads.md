@@ -59,7 +59,7 @@ the filter into a collection lookup would not prove compatibility.
 
 ### Model metadata and command admission
 
-[`product-schema.ts`](../../../packages/medusa-adapter/src/product-schema.ts)
+[`product-schema.ts`](../../../packages/medusa-adapter/src/modules/product/schema.ts)
 already imports all ten actual Product models and compiles thirteen business
 tables. The runtime now selects eight writable entities, two writable pivots,
 and category/category-pivot reads from that compiler metadata. Keep IDs, prefixes, columns,
@@ -71,7 +71,7 @@ Add private commands and table-bound repositories for `createProductTags`,
 Retain the existing Product create/retrieve/list/list-and-count commands.
 Related repositories need the narrowly decoded reads used internally by those
 services, including the tag lookup during Product creation. The baseline
-[`product-service.ts`](../../../packages/medusa-adapter/src/product-service.ts)
+[`product-service.ts`](../../../packages/medusa-adapter/src/modules/product/service.ts)
 supplied blocked repositories to those internal services; the implementation
 now supplies their table-bound repositories sharing the same request bridge. The
 Product graph repository cannot simply be reused as their implementation: its

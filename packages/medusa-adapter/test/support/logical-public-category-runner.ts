@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe } from "vitest";
 import { Cause, Effect, Option } from "effect";
-import { captureProductSchema } from "../../src/product-schema";
-import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
+import { captureProductSchema } from "../../src/modules/product/schema";
+import { productRuntimeMetadata } from "../../src/modules/product/runtime-metadata";
 
-import { captureCommerceInput } from "../../src/commerce-input";
-import { decodeCategoryProjection } from "../../src/product-category-projection";
+import { captureCommerceInput } from "../../src/value/input";
+import { decodeCategoryProjection } from "../../src/modules/product/category-projection";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from
   "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
