@@ -83,7 +83,13 @@ validation, exact quantities, computed availability and module events retain
 their owners. Existing Product/Variant item-only profiles and Stock Location
 read profiles keep their refusals; nonempty levels are not invented as inputs
 to the Product composer. Reservations, stock adjustments and Sales Channel/location
-links remain subsequent admissions.
+links remain subsequent admissions. The
+[stock-adjustment and reservation preflight](./preflight/98-stock-adjustments-and-reservations.md)
+selects the native delta step and create/update/release reservation workflows as
+the next proposed branch. Runtime admission awaits the logical-profile locking
+proof, repository/lifecycle/event coverage and both database lanes. Native batch
+availability and relocation gaps retain their Inventory owner; the initial
+proposal uses individual reservations and quantity updates at the same location.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a
