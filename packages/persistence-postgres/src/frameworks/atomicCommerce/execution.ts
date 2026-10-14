@@ -1,4 +1,5 @@
 import { observeExecution } from "../../execution/diagnostics/operation";
+import { readExactScopeWriteClockObservation } from "../../scope/scopeClock";
 // Quiet calls retain lazy operation bodies; actual caller/SDK policy owns diagnostic spans.
 import { Cause, Effect, Exit } from "effect";
 import type { Json } from "flarex-protocol/json";
@@ -43,8 +44,13 @@ import {
 
 type ExecutionConfiguration = Pick<
   PreparedAtomicCommerceConfiguration<never>,
-  "members" | "eventPolicy" | "limits" | "eventLimit" | "factLimit" | "owner"
+  "members" | "eventPolicy" | "limits" | "eventLimit" | "factLimit" | "owner" | "executionIsolation" | "scopeId"
 >;
+
+const scopeExclusions = new WeakMap<AtomicCommerceContext, Effect.Effect<void, CommerceTransactionError>>();
+/** Authenticate live outer exclusion without lending a clock or transaction. */
+export const requireAtomicCommerceScopeExclusion = (context: AtomicCommerceContext): Effect.Effect<void, CommerceTransactionError> =>
+  Effect.suspend(() => scopeExclusions.get(context) ?? Effect.fail(commerceError("invalidAuthority")));
 type CommerceContribution = Readonly<{ kind: "physical"; admission: CommerceAdmission; closure: CommerceRowClosure }> |
   Readonly<{ kind: "logical"; closure: LogicalCommerceClosure }>;
 type PhysicalWorking = Effect.Success<ReturnType<typeof makeCommerceStore>>;
@@ -258,6 +264,9 @@ function makeAtomicCommerceExecution(
     refuse: (error) => lifetime.operation(lifetime.context, id, "write", Effect.fail(error)),
     call: callParticipant,
   });
+  scopeExclusions.set(context, lifetime.operation(lifetime.context, id, "read", Effect.suspend(() =>
+    configuration.executionIsolation === "scopeExclusive" && readExactScopeWriteClockObservation(tx, configuration.scopeId) !== undefined
+      ? Effect.void : Effect.fail(commerceError("unsupportedProfile")))));
   const openMissingContributions = Effect.fnUntraced(function* () {
     // Opening a logical table is a bounded request operation, so admitted but
     // unused participants must be constructed while the lifetime is still open.

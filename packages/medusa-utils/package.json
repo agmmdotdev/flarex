@@ -442,6 +442,11 @@
       "types": "./dist/dml/relations/has-one.d.ts",
       "source": "./src/dml/relations/has-one.ts",
       "default": "./dist/dml/relations/has-one.js"
+    },
+    "./common/convert-item-response-to-update-request": {
+      "types": "./dist/common/convert-item-response-to-update-request.d.ts",
+      "source": "./src/common/convert-item-response-to-update-request.ts",
+      "default": "./dist/common/convert-item-response-to-update-request.js"
     }
   },
   "license": "MIT",

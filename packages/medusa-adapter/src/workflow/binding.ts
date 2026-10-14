@@ -1,6 +1,7 @@
 import { Effect, Result } from "effect";
 import type { WorkflowContainer } from "@medusajs/workflows-sdk";
 import type { AtomicCommerceContext, CommerceEventContract } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { requireAtomicCommerceScopeExclusion } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, CommerceTransactionError, commerceLimits, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommercePromiseOwner } from "../module/promise-owner";
 import { captureCommerceInput } from "../value/input";
@@ -70,6 +71,7 @@ export function bindWorkflowResources(selection: PreparedWorkflowResources, memb
       const handler = Object.getOwnPropertyDescriptor(service, name)?.value;
       if (typeof handler !== "function") return owner.reject(commerceError("unsupportedProfile"));
       methods.push([name, (...args) => owner.run(Effect.gen(function* () {
+        if (definition.scopeExclusive) yield* requireAtomicCommerceScopeExclusion(ctx);
         const input = yield* checkedCommerceValue(ctx, () => contract.arguments(args));
         const value: unknown = yield* Effect.tryPromise({
           try: signal => owner.callback(() => Promise.resolve(handler(...input)), signal),

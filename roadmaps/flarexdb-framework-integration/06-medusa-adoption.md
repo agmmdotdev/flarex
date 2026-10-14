@@ -82,14 +82,19 @@ results, and retains the default 64-call/64-event envelope. Native location
 validation, exact quantities, computed availability and module events retain
 their owners. Existing Product/Variant item-only profiles and Stock Location
 read profiles keep their refusals; nonempty levels are not invented as inputs
-to the Product composer. Reservations, stock adjustments and Sales Channel/location
-links remain subsequent admissions. The
+to the Product composer. Sales Channel/location links remain subsequent
+admissions. The
 [stock-adjustment and reservation preflight](./preflight/98-stock-adjustments-and-reservations.md)
-selects the native delta step and create/update/release reservation workflows as
-the next proposed branch. Runtime admission awaits the logical-profile locking
-proof, repository/lifecycle/event coverage and both database lanes. Native batch
-availability and relocation gaps retain their Inventory owner; the initial
-proposal uses individual reservations and quantity updates at the same location.
+admits up to four native sequential stock deltas and individual reservation
+create/update/release workflows. Its explicit identity-bound scope-exclusive
+atomic profile reuses the existing writer clock before native callbacks; other
+profiles and limits retain their behavior. Inventory owns exact arithmetic,
+numeric DTO serialization and native events/lifecycle, with one shared outer
+publication. Native batch availability and relocation gaps retain their
+Inventory owner and remain excluded. Reservation updates keep the same item,
+location and backorder flag; zero quantities and native backorder creation are
+included. This is bounded private support, not general Locking/Cart/Order or
+hosted compatibility.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a

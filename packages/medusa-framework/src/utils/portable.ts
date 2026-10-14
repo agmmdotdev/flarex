@@ -59,3 +59,6 @@ export { ProductVariantWorkflowEvents } from "@medusajs/utils/core-flows/events"
 export { ProductWorkflowEvents } from "@medusajs/utils/core-flows/events";
 export { ComputedProperty } from "@medusajs/utils/dml/properties/computed";
 export { HasOne } from "@medusajs/utils/dml/relations/has-one";
+
+export { convertItemResponseToUpdateRequest } from "@medusajs/utils/common/convert-item-response-to-update-request";
+export { getSelectsAndRelationsFromObjectArray } from "@medusajs/utils/common/get-selects-and-relations-from-object-array";

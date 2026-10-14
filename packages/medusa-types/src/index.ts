@@ -78,3 +78,5 @@ export * from "./inventory/index";
 export * as StockLocationTypes from "./stock-location/index";
 export * from "./stock-location/index";
 export { IEventBusService } from "./event-bus/event-bus";
+
+export * as ReservationWorkflow from "./workflow/reservation";

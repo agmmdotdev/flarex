@@ -13,9 +13,10 @@ import { workflowResourceSelections, workflowComposedResources, type PreparedWor
 import { composedWorkflowResourceDefinition } from "./composed-resource";
 import { bindWorkflowResources, type BoundWorkflowEvent, type WorkflowEventDefinition } from "./binding";
 import { checkedCommerceValue } from "../value/checked";
+import { requireAtomicCommerceScopeExclusion } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceDecoder } from "../value/decoder";
 
-export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestCallLimit" | "requestEventLimit">;
+export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestCallLimit" | "requestEventLimit" | "executionIsolation">;
 /** The trusted database host closes its own database/session/authority inputs.
  * Only preparation data crosses this portable adapter boundary. */
 export interface AtomicWorkflowExecution {
@@ -197,13 +198,16 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
       if (!method || !member) return yield* Effect.fail(commerceError("invalidAuthority"));
       dependencies.push({ participant: member.name, command: commerceCommandIdentity(method.command) });
     }
-    composedIdentities.push({ name: selected.name, identity: definition.identity, methods: Object.keys(definition.methods), dependencies });
+    composedIdentities.push({ name: selected.name, identity: definition.identity, methods: Object.keys(definition.methods), dependencies,
+      ...(definition.scopeExclusive ? { scopeExclusive: true } : {}) });
   }
   const graph = graphMembers.length === 0 ? undefined : yield* Effect.fromResult(prepareLocalGraph(graphMembers));
   const decodeInput = commerceDecoder(workflow.input, "invalidInput");
   const decodeOutput = commerceDecoder(workflow.output, "storedCorruption");
   const decodeStoredOutput = commerceDecoder(Schema.toType(workflow.output), "storedCorruption");
+  const scopeExclusive = (workflowComposedResources(workflow.resources) ?? []).some(member => composedWorkflowResourceDefinition(member.resource)?.scopeExclusive);
   const execute = Effect.fn("Workflow.runAtomic")(function* (ctx: AtomicCommerceContext, value: Json) {
+    if (scopeExclusive) yield* requireAtomicCommerceScopeExclusion(ctx);
     const args = yield* checkedCommerceValue(ctx, () => decodeInput(value));
     const result = yield* runNativeMedusaWorkflow(workflow.prepared, ctx, args, owner => bindWorkflowResources(workflow.resources, members, graph, emitted, ctx, owner));
     return yield* checkedCommerceValue(ctx, () => decodeOutput(result));
@@ -228,6 +232,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
     ...(composedIdentities.length ? { composedResources: composedIdentities } : {}),
   } }));
   const composition = { participants, commands: [command], identityAndAccessPolicy: identity,
+    ...(scopeExclusive ? { executionIsolation: "scopeExclusive" as const } : {}),
     ...(requestEventLimit === undefined ? {} : { requestEventLimit }),
     ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }), ...(events === undefined ? {} : { events }) };
   return Object.freeze({ composition, command, decodeStoredOutput,

@@ -115,8 +115,7 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
                   return yield* executeAtomicCommerceRequest(configuration, request, evidence, admissions, tx);
                 }), checked,
             );
-          }),
-        )),
+          })), configuration.executionIsolation === "scopeExclusive" ? "ordinaryWrite" : undefined),
       }, deadline));
     }, work => observeExecution("AtomicCommerce.attempt", work, "caller"));
     return yield* boundRelationalRequestDeadline(deadline, runWithRequestRecovery(attempt, {

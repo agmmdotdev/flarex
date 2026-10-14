@@ -25,6 +25,7 @@ interface Definition {
   readonly dependencies: readonly WorkflowMethod[];
   readonly methods: Readonly<Record<string, ComposedResourceMethod>>;
   readonly bind: (invoke: InvokeWorkflowMethod) => object;
+  readonly scopeExclusive: boolean;
 }
 const definitions = new WeakMap<object, Definition>();
 
@@ -33,9 +34,11 @@ const definitions = new WeakMap<object, Definition>();
 export function defineComposedWorkflowResource<const Methods extends Readonly<Record<string, ComposedResourceMethod>>>(input: {
   readonly identity: unknown; readonly dependencies: readonly WorkflowMethod[]; readonly methods: Methods;
   readonly bind: (invoke: InvokeWorkflowMethod) => ResourceFactory<Methods>;
+  readonly scopeExclusive?: true;
 }): Result.Result<ComposedWorkflowResource<ResourceService<Methods>>, CommerceTransactionError> {
   return Result.gen(function* () {
     const captured = yield* captureWorkflowRecord(input);
+    if (captured.scopeExclusive !== undefined && captured.scopeExclusive !== true) return yield* Result.fail(commerceError("unsupportedProfile"));
     const methods = yield* captureWorkflowRecord(captured.methods);
     const dependencies = yield* captureWorkflowArray(captured.dependencies);
     if (typeof captured.bind !== "function" || !dependencies.length ||
@@ -54,7 +57,7 @@ export function defineComposedWorkflowResource<const Methods extends Readonly<Re
     // argument/output decoders and finite authentic dependency tokens.
     const token = Object.freeze({}) as ComposedWorkflowResource<ResourceService<Methods>>;
     definitions.set(token, Object.freeze({ resource: token, identity, dependencies,
-      methods: Object.freeze(Object.fromEntries(admitted)), bind: captured.bind }));
+      methods: Object.freeze(Object.fromEntries(admitted)), bind: captured.bind, scopeExclusive: captured.scopeExclusive === true }));
     return token;
   });
 }

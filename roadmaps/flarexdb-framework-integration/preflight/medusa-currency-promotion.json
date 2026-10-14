@@ -897,7 +897,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/binding.ts",
       "classification": "authored",
-      "targetSha256": "5830d73db25a787fa243497396308d06ef6b4f7a8d044cd3d1ac04552a6a3abc"
+      "targetSha256": "c2c58855f5f9f1e42a4fd367fcc38404fc92279b54ce349bf2877f4759592864"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/configuration.ts",
@@ -912,7 +912,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/host.ts",
       "classification": "authored",
-      "targetSha256": "94706cb3d120a84077798eb032bccca2b13da3cbae60dd463bc6d399c4622c9a"
+      "targetSha256": "545d695630ae68e6f34c9b7c89b07f2d2af505c3505892b558caebf8d74433e8"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/module.ts",
@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "8173319e71bbf4a9ec8382d9c4043d39d888cf66d49e7c0f9aaa4d8df0dbf821"
+      "targetSha256": "47cf615dbff3b9c487edbcd0ff10d79457930f96383dc79d6a8d81d45330b707"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -1707,7 +1707,7 @@
       "target": "packages/medusa-framework/src/types/index.ts",
       "sourceSha256": "aebbcbfa32002b1f5862fd1bad5f7d3622629c333a655a69e72e63752f19b2cd",
       "classification": "selectedExportFacade",
-      "targetSha256": "c4ab84e08acfa664ed722978cb28d7c0e62f7b28061a97dafac8ff192b521d35"
+      "targetSha256": "4c14e05b1108fd3339c849add54ce8377e1e737ae8a268da00414a6f90d8c98f"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/framework/src/utils/index.ts",
@@ -1721,7 +1721,7 @@
       "source": "third_party/medusa/upstream/packages/core/framework/src/utils/portable.ts",
       "sourceSha256": "1a954761dfacae14b333977eca1eb16d919c4a71c2b520d3bb954867354e2cd8",
       "classification": "selectedExportFacade",
-      "targetSha256": "337872e17f778df40307e4c61feaf8f0d7fe871ddb0e55ac41c2d661ba9ff433"
+      "targetSha256": "55954839be42203b5ef58c571464f6e306801ccdbb19e49f566b51f7adf5c46a"
     },
     {
       "target": "packages/medusa-framework/tsconfig.json",
@@ -2273,7 +2273,7 @@
       "target": "packages/medusa-types/src/index.ts",
       "sourceSha256": "26f85c343ed0b2d96e58b95caff0b0dc84e5a2b4826ee12eea4a6148450a5a12",
       "classification": "selectedExportFacade",
-      "targetSha256": "45d85411273d18c71eb5a1cf3032308d879ba8dfcef0c45f45e5665f96a1dd1c"
+      "targetSha256": "4911402cebfd5c0d9eba09991f61b05abd81457a9f997b837b0169101c4e3ee1"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/types/src/joiner/index.ts",
@@ -2458,7 +2458,7 @@
     {
       "target": "packages/medusa-utils/package.json",
       "classification": "authored",
-      "targetSha256": "590f5b7857d1a76df73dbe497afdb70335c6e573cb81228f7877e85bac747362"
+      "targetSha256": "adda44a1f3eac5a7d7bb9f201613720d73713871526bdb292900e7377db78811"
     },
     {
       "target": "packages/medusa-utils/src/common/__tests__/get-selects-and-relations-from-object-array.spec.ts",
@@ -3393,7 +3393,7 @@
     {
       "target": "packages/medusa-adapter/src/repository/scalar.ts",
       "classification": "authored",
-      "targetSha256": "6ec5aa56647c28e53df754f4dff67e748e9536535cf211e2749a6cf5dc6bb1ce"
+      "targetSha256": "058ed2541b0d825deee9b0bd9d328ff059c01b0b25269b233283e0f178519737"
     },
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-profile-events.ts",
@@ -3999,12 +3999,12 @@
     {
       "target": "packages/medusa-adapter/src/value/exact-numeric.ts",
       "classification": "authored",
-      "targetSha256": "518049dc51184f7e41c17c43f0720d79f3836bafe818632174231a9508f6e6de"
+      "targetSha256": "f70827d135f2592b7bfe537bb65775a5dc5612ea56263b314fe3d753654156a5"
     },
     {
       "target": "packages/medusa-adapter/test/exact-numeric.test.ts",
       "classification": "authored",
-      "targetSha256": "70b497ec3052939635dbbf9b6dd9545d874ab4bbba24c10615b1931eaeb30972"
+      "targetSha256": "81253088c76a735cd2a6431ce7962c19d49d64ac2783a81b82c36b2e0927d064"
     },
     {
       "target": "packages/medusa-adapter/test/exact-numeric-storage.test.ts",
@@ -5543,7 +5543,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/inventory/service.ts",
       "classification": "authored",
-      "targetSha256": "12f359252bf0b4951c31bcffcc95f5699dd80b16319c31af4580369e46242942"
+      "targetSha256": "bffa8acaa9987b60161c8057adc4d8dda916e876dafd372cdfa2ce1dd2580274"
     },
     {
       "target": "packages/medusa-adapter/src/composition/product-variant-inventory-schema.ts",
@@ -5608,7 +5608,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-inventory-fixture.ts",
       "classification": "authored",
-      "targetSha256": "52cd9ec5336a48a7f5ad85a18cdfe1daa29292a598f6fa46658a14967e2103aa"
+      "targetSha256": "0d2f2a3e3f2ee19b3d4060c96b977fed51a00687345e466e3d784c4cdf496dbd"
     },
     {
       "target": "packages/medusa-core-flows/src/common/workflows/create-links.ts",
@@ -5966,7 +5966,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/composed-resource.ts",
       "classification": "authored",
-      "targetSha256": "b57e839b2ad36dd9d81bdf712b707e7ec2119e50fd00155ee3a2c121b21919d4"
+      "targetSha256": "b3f47b25248feef3780e253e84fbc3b57e4bf5901a55132fc2b3355a044fdede"
     },
     {
       "target": "packages/medusa-adapter/test/logical-product-creation-workflow.test.ts",
@@ -6061,11 +6061,6 @@
       "targetSha256": "61cbdb5255a26bb71e90abb016936fe0a4a42dbcc1208ff0027c0d71c4863c6b"
     },
     {
-      "target": "packages/medusa-adapter/src/modules/inventory/level-repository.ts",
-      "classification": "authored",
-      "targetSha256": "80e8fb60aa3e073c716e6b756f9e9686c5cf36ce2295496984b6a424185fcc99"
-    },
-    {
       "target": "packages/medusa-adapter/src/modules/stock-location/events.ts",
       "classification": "authored",
       "targetSha256": "d8e0dbf62ccc47080578fac0c0dbeb1d9c164b7e4409ff2ef93a542ebe3fa675"
@@ -6115,6 +6110,118 @@
       "sourceSha256": "ac1da4372a2da2dd7873ca95a85672bb6f2d28f7acb74100d989ef7755845e32",
       "classification": "authored",
       "targetSha256": "4df6e98c0c84cece30d15d76696b255712fa494e9ded19ecbd1c3eddd19f51f6"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/inventory/quantity-repository.ts",
+      "classification": "authored",
+      "targetSha256": "2cc770d94767bb81d1eee55c64465cbcfd40c30c4fe568db6b6b94a883795917"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/inventory/reservation-input.ts",
+      "classification": "authored",
+      "targetSha256": "0d07cbfc4d2b280c4f9d263ca6531964727463731a298e69dfc2681edabff8a8"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/inventory/stock-events.ts",
+      "classification": "authored",
+      "targetSha256": "e3f73e254774b7d45d5ac9e3c7775ad3877b70e6184f35811c274d0ff838606c"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflow/locking.ts",
+      "classification": "authored",
+      "targetSha256": "800ede014038a95ac184f13d8b3702e1ac8a2c124867f5ccbc4f67a4db7dc425"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/inventory/adjust-and-reserve.ts",
+      "classification": "authored",
+      "targetSha256": "fb1aa6d2cda3577817103425a98890eecd10afb4dd889d2fa2f15f3e5f3a2cf3"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-inventory-reservation-workflows.test.ts",
+      "classification": "authored",
+      "targetSha256": "df5b2d8199eaf8a3ada8fec5e2efe4bc8f79709b272ab888a6aab8783eacad6e"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-workflow-locking.postgres.test.ts",
+      "classification": "authored",
+      "targetSha256": "84931a84e8ddfd72dfc8b256363ecdfdde53506f61f466b53568acfa65bb2932"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/inventory/steps/adjust-inventory-levels.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/inventory/steps/adjust-inventory-levels.ts",
+      "sourceSha256": "a594a091d6d825ce02415429765dda59dca5dfb814c62202aad65ff0f0757acb",
+      "targetSha256": "96ccbd69c86ae8567686b9f23e7f82787c0151849521901c5f6b29334046432e"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/reservation/steps/create-reservations.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/reservation/steps/create-reservations.ts",
+      "sourceSha256": "8318f769d34f14eb6ad428aa8a555dc8d866b0591dca402ec8538e8ad2fdd8a1",
+      "targetSha256": "e9eaf1db3f4e367abc6eaab6e975bdb1dd3ad312399bcddc211fd6be0c784c54"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/reservation/steps/delete-reservations.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/reservation/steps/delete-reservations.ts",
+      "sourceSha256": "f7bea13e9150bfae92a6491961ed99faf519d95923320b0b31ce8c0b2ad63115",
+      "targetSha256": "c5d01a2e0c26caf5c11eee76acc0d9c34ae99c529ee29fcb08b50797cd012f65"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/reservation/steps/update-reservations.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/reservation/steps/update-reservations.ts",
+      "sourceSha256": "78d86f87c0f38f52a2899329728914861aa0bfde108898ee0e6a6ecaba0c8df2",
+      "targetSha256": "b7e194ed0ce323a7a17130ce3db460137c873c636ebae2e8e49ea482b68f6e5a"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/reservation/workflows/create-reservations.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/reservation/workflows/create-reservations.ts",
+      "sourceSha256": "9a31e3d66a5fd05926bd8413c69404dfc1a7f3aab9b28a89674be9b1e098e06b",
+      "targetSha256": "1599044dfff6341060dc22fae8dd8dac4acd6cb7eb01758607aed39249d060ae"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/reservation/workflows/delete-reservations.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/reservation/workflows/delete-reservations.ts",
+      "sourceSha256": "be606e803e5eb7b91b1e57ed269e9a9e2fe86c37c3d8b9a557a27adc133abb09",
+      "targetSha256": "9ecaba6fe2316c8baef830ab539a7e4410adb4f26300bf9f0c19015a774a0aef"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/reservation/workflows/update-reservations.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/reservation/workflows/update-reservations.ts",
+      "sourceSha256": "f9b6eb0c1a2a0f6824f846a31f44c6282cf69731f2f514cd80b4c5760483c397",
+      "targetSha256": "00c614b63e46686edb739cd3a3cb7ff39c6d1a50ce4dcc070f6a79f6852896d3"
+    },
+    {
+      "target": "packages/medusa-types/src/workflow/reservation/create-reservations.ts",
+      "classification": "unchanged",
+      "source": "third_party/medusa/upstream/packages/core/types/src/workflow/reservation/create-reservations.ts",
+      "sourceSha256": "92e519e0194b5d2e3e886d73cf11f4f5f4f482149f7fb19ec1be21f39f685837",
+      "targetSha256": "92e519e0194b5d2e3e886d73cf11f4f5f4f482149f7fb19ec1be21f39f685837"
+    },
+    {
+      "target": "packages/medusa-types/src/workflow/reservation/index.ts",
+      "classification": "unchanged",
+      "source": "third_party/medusa/upstream/packages/core/types/src/workflow/reservation/index.ts",
+      "sourceSha256": "50d44d7a02c7d3ffc88cc7990136aef64e87e91a58c2c9cb58f205beef2f7154",
+      "targetSha256": "50d44d7a02c7d3ffc88cc7990136aef64e87e91a58c2c9cb58f205beef2f7154"
+    },
+    {
+      "target": "packages/medusa-types/src/workflow/reservation/update-reservations.ts",
+      "classification": "unchanged",
+      "source": "third_party/medusa/upstream/packages/core/types/src/workflow/reservation/update-reservations.ts",
+      "sourceSha256": "0d68d3b87648783b9c1be0b73379019ac57de892aa9362e86ff8072f4ab6ef3b",
+      "targetSha256": "0d68d3b87648783b9c1be0b73379019ac57de892aa9362e86ff8072f4ab6ef3b"
+    },
+    {
+      "target": "packages/medusa-utils/src/common/convert-item-response-to-update-request.ts",
+      "classification": "unchanged",
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/convert-item-response-to-update-request.ts",
+      "sourceSha256": "576c2d0fce55b71484f6bc657e6d3b782cdb429b3e409502807c18bb8395a91d",
+      "targetSha256": "576c2d0fce55b71484f6bc657e6d3b782cdb429b3e409502807c18bb8395a91d"
     }
   ],
   "dependencies": {
@@ -6388,7 +6495,8 @@
         "./common/is-date",
         "./core-flows/events",
         "./dml/properties/computed",
-        "./dml/relations/has-one"
+        "./dml/relations/has-one",
+        "./common/convert-item-response-to-update-request"
       ]
     },
     {
@@ -6502,7 +6610,11 @@
         "./product/create-product-variants",
         "./product/create-products",
         "./inventory/create-inventory-levels",
-        "./stock-location/create-stock-locations"
+        "./stock-location/create-stock-locations",
+        "./inventory/adjust-inventory-levels-step",
+        "./reservation/create-reservations",
+        "./reservation/update-reservations",
+        "./reservation/delete-reservations"
       ]
     },
     {
@@ -7516,22 +7628,22 @@
     },
     {
       "target": "packages/medusa-framework/dist/types/index.d.ts",
-      "targetSha256": "a4b76ac26ce2c053d63ebc7b1af91d67cf6115b523a45d9f68bd4ce3dbd6a8f5",
+      "targetSha256": "36bf5acb9c13c3fce18dee7be06355418cf6c5564d8c980ff6a719f3dafd8a39",
       "input": "packages/medusa-framework/src/types/index.ts"
     },
     {
       "target": "packages/medusa-framework/dist/types/index.d.ts.map",
-      "targetSha256": "2348d272644645c7733ca52cb9e0145ccd5c98794c34979c0c054be15e1e892a",
+      "targetSha256": "e857ba6ae00d5be71ae65cd0b0c1126c6a15995c1776dd8dfbd6bbade5970a29",
       "input": "packages/medusa-framework/src/types/index.ts"
     },
     {
       "target": "packages/medusa-framework/dist/types/index.js",
-      "targetSha256": "934e836332184879f343f3061e2e7db9989c25a46d888fc626a9c079e13fc6d0",
+      "targetSha256": "5a54e55f8f33bf0f3be097d7c51966b41c4e6de4a2b9845f5bb6ce2968d5bb51",
       "input": "packages/medusa-framework/src/types/index.ts"
     },
     {
       "target": "packages/medusa-framework/dist/types/index.js.map",
-      "targetSha256": "4ebf661077bf9ce831ef008958904575e84cebdc60549370cc59ff0f90c6f8e8",
+      "targetSha256": "5d0156ec1b7b893a4ae1ea348c3f25b1e2099c799784c54463fb771064287934",
       "input": "packages/medusa-framework/src/types/index.ts"
     },
     {
@@ -7556,22 +7668,22 @@
     },
     {
       "target": "packages/medusa-framework/dist/utils/portable.d.ts",
-      "targetSha256": "50fbd86544b9b69b700f17201344b4d14578e2b27fd97a8dea46029c8717fc21",
+      "targetSha256": "a80b203eaf00a166befd75f469143f2d5cfa927177a49c1cd90252a47e53691e",
       "input": "packages/medusa-framework/src/utils/portable.ts"
     },
     {
       "target": "packages/medusa-framework/dist/utils/portable.d.ts.map",
-      "targetSha256": "1042006edc68e91c9f6eaa35738900f913c4049fa49ea56a301ab3fa1554030a",
+      "targetSha256": "1f8d9be9d8f9fc48197e0728897e19c70c07660c6359a8dd70bf7ec597eba027",
       "input": "packages/medusa-framework/src/utils/portable.ts"
     },
     {
       "target": "packages/medusa-framework/dist/utils/portable.js",
-      "targetSha256": "78844a016f38471825bdd61417125314e407d23ffd896d95d4d9e4231d7c4008",
+      "targetSha256": "cf77a0abf2e7e84197a6149bee620444eef6a37b549fa95d0016a801b991c144",
       "input": "packages/medusa-framework/src/utils/portable.ts"
     },
     {
       "target": "packages/medusa-framework/dist/utils/portable.js.map",
-      "targetSha256": "4b5d7a2af30f706da30d36ee7e9d924340f228ad275551d732bd404d3751ea5a",
+      "targetSha256": "b501dc4e775cbc11c91e8923dff9f5021b5e01ed12886278a87356a374d7121a",
       "input": "packages/medusa-framework/src/utils/portable.ts"
     },
     {
@@ -8616,22 +8728,22 @@
     },
     {
       "target": "packages/medusa-types/dist/index.d.ts",
-      "targetSha256": "2f87204ce69ac61425d2e1dcf75823b2c224bc04211883eda03829e0ee85a1b5",
+      "targetSha256": "b916863cf8f59536c8cc7ba35893032244dca3ca5ab44427be68b12a379e30e1",
       "input": "packages/medusa-types/src/index.ts"
     },
     {
       "target": "packages/medusa-types/dist/index.d.ts.map",
-      "targetSha256": "451e06c27f0766c89e2ce9048bcdfbed0c78d5c0179e72dcddfc9d15bca1c95c",
+      "targetSha256": "d35aefd41bda21ebc99a55c639c5878dcbd9bb0e842c7f8bf5ba7f6c30765dcd",
       "input": "packages/medusa-types/src/index.ts"
     },
     {
       "target": "packages/medusa-types/dist/index.js",
-      "targetSha256": "24abac1156bf321a2c8c97ff0b5f01fc1e35b8f8b431cc62413b7bdf2b58b660",
+      "targetSha256": "3f4d947dd026e33257b05a6cfb1bf7e233a19a19dded7ea1d7c2177399c72488",
       "input": "packages/medusa-types/src/index.ts"
     },
     {
       "target": "packages/medusa-types/dist/index.js.map",
-      "targetSha256": "dfe8b1dcc44e603d00d1c1b416d1e035ee9f554de7d105a8eb6fa84bbfcd099f",
+      "targetSha256": "287bb8e3028a27427eccf86e91506a51436eff3a29a2c8f1352707ba9bcede10",
       "input": "packages/medusa-types/src/index.ts"
     },
     {
@@ -14253,6 +14365,86 @@
       "target": "packages/medusa-inventory/dist/utils/inventory-level-quantity.js.map",
       "targetSha256": "66d0d40bca76580f208803d61dac7a694dcbccc48b84b275b30ed9f8c64a414a",
       "input": "packages/medusa-inventory/src/utils/inventory-level-quantity.ts"
+    },
+    {
+      "target": "packages/medusa-types/dist/workflow/reservation/create-reservations.d.ts",
+      "input": "packages/medusa-types/src/workflow/reservation/create-reservations.ts",
+      "targetSha256": "97ed14f18f244a17e3da7b3395455e7650d0a9e28adc15779ef932e8c357c23e"
+    },
+    {
+      "target": "packages/medusa-types/dist/workflow/reservation/create-reservations.d.ts.map",
+      "input": "packages/medusa-types/src/workflow/reservation/create-reservations.ts",
+      "targetSha256": "cf2271e9f34aef9c98d31bc99df73625b33b28ff9d37fcb6eb9ae056a1109486"
+    },
+    {
+      "target": "packages/medusa-types/dist/workflow/reservation/create-reservations.js",
+      "input": "packages/medusa-types/src/workflow/reservation/create-reservations.ts",
+      "targetSha256": "ca30440a564fa438fdaadc0ef6113998aaecef85865d1633ef40a37725f4a197"
+    },
+    {
+      "target": "packages/medusa-types/dist/workflow/reservation/create-reservations.js.map",
+      "input": "packages/medusa-types/src/workflow/reservation/create-reservations.ts",
+      "targetSha256": "3a6374f904626e273040aed43d1f70284619c115684628e5e1d693d5d9bfadd2"
+    },
+    {
+      "target": "packages/medusa-types/dist/workflow/reservation/index.d.ts",
+      "input": "packages/medusa-types/src/workflow/reservation/index.ts",
+      "targetSha256": "bd52d5180c5ebf7606a98c36bd8f2335ef83bec2488f6dcabe082d8f8b4db967"
+    },
+    {
+      "target": "packages/medusa-types/dist/workflow/reservation/index.d.ts.map",
+      "input": "packages/medusa-types/src/workflow/reservation/index.ts",
+      "targetSha256": "d0a7901c7a44550bcfc48ee958fa87d0a188163ba317f9e4a4f124b3229013eb"
+    },
+    {
+      "target": "packages/medusa-types/dist/workflow/reservation/index.js",
+      "input": "packages/medusa-types/src/workflow/reservation/index.ts",
+      "targetSha256": "70fc5bff75c9c63dd6941b3e2f13cadcebda814fe06205b036f65e5fb560529a"
+    },
+    {
+      "target": "packages/medusa-types/dist/workflow/reservation/index.js.map",
+      "input": "packages/medusa-types/src/workflow/reservation/index.ts",
+      "targetSha256": "d7414cf37cd45a231a46eeb4b1fc0ec49e66f208bf7be75e26dbbcd8dd5a3214"
+    },
+    {
+      "target": "packages/medusa-types/dist/workflow/reservation/update-reservations.d.ts",
+      "input": "packages/medusa-types/src/workflow/reservation/update-reservations.ts",
+      "targetSha256": "8157fbae289563ffafa1e3b33ae8e006c239298e78ebacd72c4a04adfcd9eccc"
+    },
+    {
+      "target": "packages/medusa-types/dist/workflow/reservation/update-reservations.d.ts.map",
+      "input": "packages/medusa-types/src/workflow/reservation/update-reservations.ts",
+      "targetSha256": "c9a897499b6e0b5bce2d0826179737c783bec68914a436963e136a90c1c885fa"
+    },
+    {
+      "target": "packages/medusa-types/dist/workflow/reservation/update-reservations.js",
+      "input": "packages/medusa-types/src/workflow/reservation/update-reservations.ts",
+      "targetSha256": "420413d81a29dd09a7a491632587fb80479df751540d5a54128837b916fb9903"
+    },
+    {
+      "target": "packages/medusa-types/dist/workflow/reservation/update-reservations.js.map",
+      "input": "packages/medusa-types/src/workflow/reservation/update-reservations.ts",
+      "targetSha256": "b1de0a58bd857235455683e1e2e0f864db6f71435b576c5929067d69d36bbe74"
+    },
+    {
+      "target": "packages/medusa-utils/dist/common/convert-item-response-to-update-request.d.ts",
+      "input": "packages/medusa-utils/src/common/convert-item-response-to-update-request.ts",
+      "targetSha256": "48f908d7900b277a231895b65857c8a3864e4145b05acb9bd34eea9367257654"
+    },
+    {
+      "target": "packages/medusa-utils/dist/common/convert-item-response-to-update-request.d.ts.map",
+      "input": "packages/medusa-utils/src/common/convert-item-response-to-update-request.ts",
+      "targetSha256": "5f36a585d94a9feca1a86f5ec7216f885b0114195b5c3a7a8f98b7f3514e8cea"
+    },
+    {
+      "target": "packages/medusa-utils/dist/common/convert-item-response-to-update-request.js",
+      "input": "packages/medusa-utils/src/common/convert-item-response-to-update-request.ts",
+      "targetSha256": "acff675751e6a9e039d18f5a410ce17470051265a3afd53292cdf82ec5933544"
+    },
+    {
+      "target": "packages/medusa-utils/dist/common/convert-item-response-to-update-request.js.map",
+      "input": "packages/medusa-utils/src/common/convert-item-response-to-update-request.ts",
+      "targetSha256": "c4013fb2eff7ea07b6142eb396559e8cf97e9a68c585874846697f8d672465bd"
     }
   ],
   "testAliases": [

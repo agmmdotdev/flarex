@@ -22,7 +22,11 @@
     "./product/create-product-variants": "./src/product/workflows/create-product-variants.ts",
     "./product/create-products": "./src/product/workflows/create-products.ts",
     "./inventory/create-inventory-levels": "./src/inventory/workflows/create-inventory-levels.ts",
-    "./stock-location/create-stock-locations": "./src/stock-location/workflows/create-stock-locations.ts"
+    "./stock-location/create-stock-locations": "./src/stock-location/workflows/create-stock-locations.ts",
+    "./inventory/adjust-inventory-levels-step": "./src/inventory/steps/adjust-inventory-levels.ts",
+    "./reservation/create-reservations": "./src/reservation/workflows/create-reservations.ts",
+    "./reservation/update-reservations": "./src/reservation/workflows/update-reservations.ts",
+    "./reservation/delete-reservations": "./src/reservation/workflows/delete-reservations.ts"
   },
   "dependencies": {
     "@medusajs/modules-sdk": "workspace:*",

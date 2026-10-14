@@ -7,7 +7,8 @@ import {
 } from "flarex-protocol/internal/relational-schema";
 import { decodeCompiledDml } from "../src/schema/compiled";
 import { lowerDmlSchema } from "../src/schema/lower";
-import { decodeExactNumeric, encodeExactNumeric } from "../src/value/exact-numeric";
+import { captureExactNumericUpdatePair, decodeExactNumeric, encodeExactNumeric } from "../src/value/exact-numeric";
+import { MathBN } from "@medusajs/framework/utils/portable";
 
 const Ledger = model.define("NumericLedger", {
   id: model.id().primaryKey(), amount: model.bigNumber(), quantity: model.bigNumber().nullable(),
@@ -15,6 +16,16 @@ const Ledger = model.define("NumericLedger", {
 const compiled = () => JSON.parse(JSON.stringify(compileDmlSchema([Ledger]))) as unknown;
 
 describe("exact numeric companion admission", () => {
+  it("encodes native MathBN results without a number round trip", async () => {
+    expect(await Effect.runPromise(encodeExactNumeric(MathBN.add("9007199254740993", "0.125"))))
+      .toMatchObject({ value: "9007199254740993.1250", raw: { value: "9007199254740993.1250", precision: 20 } });
+  });
+  it("captures native numeric update pairs without executing accessors", async () => {
+    let executed = false;
+    const pair = { entity: { id: "row" }, get update() { executed = true; return { quantity: 1 }; } };
+    await expect(Effect.runPromise(captureExactNumericUpdatePair(pair, [{ name: "quantity" }]))).rejects.toMatchObject({ reason: "invalidInput" });
+    expect(executed).toBe(false);
+  });
   it("derives required and optional companions from actual native compiler metadata without defaults", async () => {
     const checked = await Effect.runPromise(decodeCompiledDml(compiled()));
     const lowered = lowerDmlSchema(checked.tables, "numeric-ledger");

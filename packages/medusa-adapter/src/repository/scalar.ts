@@ -2,7 +2,7 @@ import { Effect, Result, Schema } from "effect";
 import type { DAL } from "@medusajs/framework/types";
 import { generateEntityId } from "@medusajs/framework/utils/portable";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, type Json, type JsonObject, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder, commerceRowDecoder } from "../value/decoder";
 import { captureCommerceInput } from "../value/input";
 import { commerceRepositoryContext } from "./context";
@@ -31,7 +31,8 @@ const decodeOptions = commerceDecoder(Schema.Struct({
 }), "unsupportedProfile");
 /** Shared scalar create/read mechanics. Module owners select checked metadata,
  * filters and explicit extensions; this factory grants no table or settlement. */
-export function prepareScalarRepository(table: SchemaTable, modelName: string, wherePolicy: WherePolicy) {
+export function prepareScalarRepository(table: SchemaTable, modelName: string, wherePolicy: WherePolicy,
+  normalizeProjection?: (value: Json) => Effect.Effect<Json, CommerceTransactionError>) {
   return Result.gen(function* () {
     const primary = table.columns.filter(column => column.primaryKey);
     if (primary.length !== 1 || primary[0]?.name !== "id" || primary[0].type !== "id") {
@@ -41,7 +42,9 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
     const columns = table.columns.map(column => column.name);
     const scalarNames = columns.filter(name => !["created_at", "updated_at", "deleted_at"].includes(name));
     const decodeCreate = commerceRowDecoder(scalarNames, "unsupportedProfile");
-    const catalog = yield* makeReadCatalog([{ name: table.name, columns, primaryKeys: ["id"], foreignKeys: [], companions: {} }], new Map());
+    const companions = Object.fromEntries(table.columns.filter(column => column.type === "bigNumber")
+      .map(column => [column.name, "raw_" + column.name]));
+    const catalog = yield* makeReadCatalog([{ name: table.name, columns, primaryKeys: ["id"], foreignKeys: [], companions }], new Map());
     const query = (input: unknown) => Result.gen(function* () {
       const envelope = yield* decodeEnvelope(input);
       const where = yield* decodeWhere(envelope.where ?? {});
@@ -105,7 +108,7 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
           const decoded = yield* Effect.fromResult(decodeProjection(value));
           // SAFETY: core-decoded rows and selected scalar projections. The native
           // DAL promises a complete DTO even when the caller selects fewer fields.
-          return decoded as Output;
+          return (normalizeProjection === undefined ? decoded : yield* normalizeProjection(decoded)) as Output;
         }))),
         // Native internal services mutate entity metadata before writing. Keep
         // captured storage/projection evidence private and give DAL callers
