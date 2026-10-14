@@ -41,6 +41,22 @@ unadmitted intents. No durable data format or public Medusa API changes.
 
 ## Validation and completion gate
 
+The shared `referencePages.ts` coverage gate accepts index maintenance from the
+current logical binding through the existing index-coverage owner. That owner
+authenticates scope/generation/epoch, table, physical definition and the exact
+active binding head/candidate. Application maintenance still belongs to another
+writer and remains refused; unmaintained source indexes retain their existing
+frontier proof. No adapter SQL, new transaction or second maintenance writer is
+introduced.
+
+The preserved Collection-membership witness in
+`logical-product-create-storage.test.ts` exposed the former unconditional
+non-null-maintenance refusal: a valid same-binding index returned
+`invalidAuthority` before its coverage proof ran. The failure also reproduced
+with pre-Product-root adapter sources. The approved correction is at this shared
+owner; native membership, replacement and nullable-reference regressions keep
+their original expectations.
+
 The selected existing native Collection service exercises one logical host
 with 160 referencing Products. Its witness proves exact null detachment,
 complete same-sequence row facts and revision/index changes, root-only event,

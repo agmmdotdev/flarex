@@ -61,14 +61,16 @@ the native empty inventory-level and Stock Location query dependencies. This
 executes the actual native variant composer for one to four variants on an
 existing Product, including Pricing and both stored Link families under one
 root. Its named 256-call profile preserves the smaller existing profiles.
-Nonempty levels, reservations and the complete Product root remain subsequent
-admissions. The Pricing-only branch retains its named Product-launch consumer
+Nonempty levels and reservations remain subsequent admissions. The Pricing-only branch retains its named Product-launch consumer
 until that existing-Product/Tag operation has an explicitly selected replacement.
-The next [native Product-root preflight](./preflight/96-native-create-products-workflow.md)
-proposes the actual `createProductsWorkflow` with the complete variant child.
-Its key construction gate is one native Link resource over the two existing
-logical Link sources, preserving their identities and command/receipt owners.
-This is a discussion proposal, not full Product-root admission. The Pricing-only
+The approved [native Product root](./preflight/96-native-create-products-workflow.md)
+executes the actual `createProductsWorkflow` for one to four new Products and
+zero to four variants across the batch, including the complete variant child.
+One native Link resource delegates to the two existing logical Link sources,
+preserving their identities and command/receipt owners. The named root selects
+512 calls and the separately approved 128-event allowance; other profiles and
+resource limits remain unchanged. Sales Channel and ShippingProfile references
+use previously created endpoints. This is bounded private admission. The Pricing-only
 launch graph retains its distinct existing-Product/Tag and measurement consumers
 until those consumers migrate explicitly; new-Product creation alone does not
 displace that behavior.
@@ -99,7 +101,8 @@ associates returned IDs, and reads pending Product, Sales Channel and Link roots
 through the existing atomic workflow host. Module-owned registrations hide
 method/repository assembly; root rollback restores pre-existing Link state rather
 than executing inverse callbacks. This gate adds no core/schema/engine changes.
-Cross-module graph hydration and full `createProductsWorkflow` remain unadmitted.
+Cross-module graph hydration remains unadmitted; the bounded native Product root
+is admitted separately by the record above.
 The [shipping-profile foundation](./preflight/59-product-shipping-profile-foundation.md)
 implements its shared text-inequality prerequisite and native cardinality
 characterization, not Fulfillment/ProductShippingProfile activation. Inequality

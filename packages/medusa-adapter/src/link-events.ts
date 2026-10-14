@@ -8,7 +8,7 @@ import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres
 /** The selected Link receipt binds native events to attempted rows or an
  * authenticated unchanged-restore observation, never a final-row reread. */
 export function linkLogicalEventPolicy(tableName: string, serviceName: string, entityName: string,
-  endpoints: readonly [string, string]) {
+  endpoints: readonly [string, string], createCommands: readonly string[] = []) {
   const [primary, foreign] = endpoints;
   const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
   const decode = Schema.decodeUnknownEffect(Schema.Struct({ name: Schema.String,
@@ -32,10 +32,10 @@ export function linkLogicalEventPolicy(tableName: string, serviceName: string, e
         if (mutations.length || lifecycle.length || call.events.length) return yield* Effect.fail(commerceError("receiptMismatch"));
         return;
       }
-        if (call.commandName !== "linkCreate" && call.commandName !== "linkDismiss"
+        if (call.commandName !== "linkCreate" && !createCommands.includes(call.commandName) && call.commandName !== "linkDismiss"
           && call.commandName !== "linkDelete" && call.commandName !== "linkRestore")
           return yield* Effect.fail(commerceError("receiptMismatch"));
-        const command = call.commandName;
+        const command = createCommands.includes(call.commandName) ? "linkCreate" : call.commandName;
         const expected: string[] = [];
         const expectedAction = command === "linkDismiss" || command === "linkDelete" ? "detached" : "attached";
         for (const mutation of mutations) {
@@ -101,10 +101,11 @@ export function linkLogicalEventPolicy(tableName: string, serviceName: string, e
 export function selectedLinkLogicalEventPolicy(definitions: readonly {
   readonly tableName: string; readonly serviceName: string; readonly entityName: string;
   readonly endpoints: readonly [string, string];
+  readonly createCommands?: readonly string[];
 }[]) {
   const selected = definitions.map(definition => ({ ...definition,
     policy: linkLogicalEventPolicy(definition.tableName, definition.serviceName,
-      definition.entityName, definition.endpoints) }));
+      definition.entityName, definition.endpoints, definition.createCommands) }));
   const valid = selected.length > 0 && new Set(selected.map(item => item.tableName)).size === selected.length
     && new Set(selected.map(item => item.serviceName)).size === selected.length
     && new Set(selected.map(item => item.entityName)).size === selected.length;

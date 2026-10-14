@@ -315,6 +315,14 @@ Cloudflare deployment or public API compatibility.
 
 ## Approval Boundary
 
+The native Product parent exposed a type-owner mismatch in SDK `Resolved<T>`:
+recursive object mapping converted DTO `Date` and callable leaves into objects
+of mapped members, making native child results incompatible with their DTOs.
+The SDK now retains these native leaf types before array/object recursion. A
+compile-time native DTO witness covers both leaves; runtime boundary capture
+still refuses Date objects and functions. This is a type-owner correction, not
+new runtime value admission.
+
 Approval of this capability includes the named private participant-event
 contract change and its core capture checks. It does not include unrelated core
 corrections exposed by future system tests. Such findings retain the repository's

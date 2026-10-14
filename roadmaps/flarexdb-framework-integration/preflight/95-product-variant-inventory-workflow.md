@@ -12,8 +12,9 @@ into variant creation with managed Inventory and stored Variant–InventoryItem 
 with an existing Product and valid options, one to four variants, existing or
 automatically created InventoryItems, and the currently admitted base Pricing
 bounds. Include unmanaged variants and empty child inputs. Nonempty location
-levels, reservation/stock adjustment, arbitrary Inventory operations and the
-full Product root composer remain later admissions.
+levels, reservation/stock adjustment and arbitrary Inventory operations remain
+later admissions. The complete bounded Product root is separately admitted by
+[its owning record](./96-native-create-products-workflow.md).
 
 ## Current Sources Of Truth
 
@@ -102,7 +103,7 @@ preserve native business behavior rather than replacing the composer.
   read-only reviews. Remove displaced assembly in the admitted closure. Report
   bounded compatibility separately from performance and production activation.
 
-After this capability, preflight the complete native `createProductsWorkflow`
-composition against Sales Channel, ShippingProfile and the full variant child.
+The complete native `createProductsWorkflow` composition against Sales Channel,
+ShippingProfile and the full variant child has its separate owning record.
 Stock Location writes and inventory levels are separate useful capabilities,
 not assumed prerequisites for the default-item branch.

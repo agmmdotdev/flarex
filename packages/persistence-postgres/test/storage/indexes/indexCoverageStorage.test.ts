@@ -200,8 +200,17 @@ async function proveCoverageStorage(
   );
   const beforeRefusals = (await persistence.query("select * from fx_system_index_build_state")).rows;
   await expect(persistence.query("update fx_system_index_build_state set maintenance_activation_sequence=1"))
-    .rejects.toMatchObject({ code: "23503", message: expect.stringContaining('"fx_index_build_maintenance_opening_fk"') });
+    .rejects.toMatchObject({ code: "23514", message: expect.stringContaining('"fx_system_index_build_maintenance_check"') });
   expect((await persistence.query("select * from fx_system_index_build_state")).rows).toEqual(beforeRefusals);
+  // The current schema requires both discriminants before the opening FK can
+  // establish whether an immutable Application or binding obligation exists.
+  for (const authorityKind of ["application", "binding"]) {
+    await expect(persistence.query(
+      "update fx_system_index_build_state set maintenance_activation_sequence=1,maintenance_authority_kind=$1",
+      [authorityKind],
+    )).rejects.toMatchObject({ code: "23503", message: expect.stringContaining('"fx_index_build_maintenance_opening_fk"') });
+    expect((await persistence.query("select * from fx_system_index_build_state")).rows).toEqual(beforeRefusals);
+  }
   for (const change of [
     "covered_through_commit_seq=-1",
     "first_readable_commit_seq=1001",

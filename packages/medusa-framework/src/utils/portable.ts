@@ -56,5 +56,6 @@ export { PricingRuleOperator } from "@medusajs/utils/pricing/enums";
 
 export { BigNumber } from "@medusajs/utils/totals/big-number";
 export { ProductVariantWorkflowEvents } from "@medusajs/utils/core-flows/events";
+export { ProductWorkflowEvents } from "@medusajs/utils/core-flows/events";
 export { ComputedProperty } from "@medusajs/utils/dml/properties/computed";
 export { HasOne } from "@medusajs/utils/dml/relations/has-one";

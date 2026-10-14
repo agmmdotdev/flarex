@@ -9,6 +9,8 @@ export const productShippingProfileResources = Object.freeze({ ...defaultCommerc
 export const productVariantPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Complete finite Variant graph, including Inventory children and both Link families. */
 export const productVariantInventoryResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
+/** Complete finite Product root; its maximum envelope has a distinct allowance. */
+export const productCreationResources = Object.freeze({ ...defaultCommerceResources, calls: 512, eventMessages: 128 });
 /** One parent launch graph owns Pricing, Link, Product Tag and pending graph reads. */
 export const productLaunchResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
 /** The finite launch workflow shares one bounded logical lifetime across both native children. */

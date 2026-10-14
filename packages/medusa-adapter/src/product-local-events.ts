@@ -1236,6 +1236,7 @@ function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata) {
  * values; bind those observations to each new Variant's Product. */
 function productLogicalVariantCreateEventPolicy(catalog: ProductRuntimeMetadata) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
+  const decodeEmpty = Schema.decodeUnknownEffect(Schema.Array(Schema.Never));
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalVariantCreate")(
     function* (call, activity) {
       const { mutations, lifecycle, observedRows } = activity;
@@ -1257,7 +1258,16 @@ function productLogicalVariantCreateEventPolicy(catalog: ProductRuntimeMetadata)
         } else if (mutation.table === catalog.pivot.table.name) pivots.push(row);
         else return yield* Effect.fail(commerceError("receiptMismatch"));
       }
-      if (variants.size === 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (variants.size === 0) {
+        yield* decodeEmpty(call.input).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        yield* decodeEmpty(call.result).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        // Native creation still performs option/variant reads. Logical row
+        // observations may include scanned rows even when the selector is [].
+        if (mutations.length !== 0 || emitted.length !== 0 ||
+          activity.setNull.length !== 0 || activity.referenceReplacements.length !== 0)
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        return;
+      }
       const options = new Map<string, JsonObject>();
       const values = new Map<string, JsonObject>();
       for (const observation of observedRows) {

@@ -71,6 +71,9 @@ export function makeSchemaComposer(configuration: {
     if (modules.includes("productSalesChannelLink") && (!modules.includes("product") || !modules.includes("salesChannel"))) {
       return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
     }
+    if (modules.includes("productShippingProfileLink") && (!modules.includes("product") || !modules.includes("shippingProfile"))) {
+      return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
+    }
     if (modules.includes("variantLinks") && (!modules.includes("product") || !modules.includes("pricing") || !modules.includes("inventory") || modules.includes("variantPricingLink"))) {
       return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
     }

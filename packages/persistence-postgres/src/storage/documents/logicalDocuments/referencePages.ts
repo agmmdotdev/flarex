@@ -129,7 +129,11 @@ const requireSourceBoundIndexCoverage = Effect.fn("LogicalReferences.requireInde
   if (row === undefined) return yield* Effect.fail(error("storedCorruption"));
   const state = yield* Effect.fromResult(decodeIndexBuildStateRowResult(row, clock.scopeId,
     definition.indexDefinitionId, row.maintenanceObligation)).pipe(Effect.mapError(cause => error("storedCorruption", cause)));
-  if (state.maintenance !== null) return yield* Effect.fail(error("invalidAuthority"));
+  // Logical binding maintenance belongs to the same source publisher. The
+  // coverage owner below authenticates its current head, table and physical
+  // definition. Application maintenance belongs to a different writer.
+  if (state.maintenance !== null && state.maintenance.authorityKind !== "binding")
+    return yield* Effect.fail(error("invalidAuthority"));
   const context = yield* readIndexCoverageContextInTransactionEffect(tx, clock).pipe(
     Effect.mapError(cause => error(cause.reason === "resourceFailure" ? "statementFailure" : "storedCorruption", cause)));
   const covered = yield* isIndexBuildSnapshotCoveredInTransactionEffect(tx, state,

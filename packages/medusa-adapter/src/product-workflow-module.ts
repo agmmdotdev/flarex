@@ -1,8 +1,11 @@
+import { productCreationInput } from "./product-create-input";
+export { SimpleProductInput, ProductCreateGraphInput } from "./product-create-input";
 import { productRelationshipWorkflowMethods } from "./product-relationship-workflow-input";
 import { Result, Schema } from "effect";
 import type { CommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { CommerceModuleDescription } from "./module-definition";
 import type { GraphModuleDefinition } from "./local-graph/model";
+import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "./commerce-decoder";
 import { defineWorkflowMethod, defineWorkflowModule, type WorkflowLogicalPolicy } from "./workflow/module";
 import { ProductNamedFilters } from "./product-service-input";
@@ -17,32 +20,6 @@ export const ProductTagWorkflowResult = Schema.Array(Schema.StructWithRest(
   Schema.Struct({ id: Schema.String, value: Schema.String }), [Schema.Record(Schema.String, Schema.Json)],
 )).check(Schema.isMaxLength(256));
 export const decodeProductTagWorkflowResult = commerceDecoder(ProductTagWorkflowResult, "storedCorruption");
-/** Selected simple creation contract, not the complete native Product DTO. */
-export const SimpleProductInput = Schema.Struct({
-  id: Schema.optionalKey(Schema.String.check(Schema.isLengthBetween(1, 256))), title: Schema.String,
-});
-/** The admitted native create shape includes owned rows and existing
- * module-local tag/category memberships, not every Medusa Product DTO field. */
-export const ProductCreateGraphInput = Schema.Struct({
-  ...SimpleProductInput.fields,
-  collection_id: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isLengthBetween(1, 256)))),
-  tag_ids: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256))),
-  category_ids: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256))),
-  images: Schema.optionalKey(Schema.Array(Schema.Struct({
-    id: Schema.optionalKey(Schema.String), url: Schema.String,
-  })).check(Schema.isMaxLength(256))),
-  options: Schema.optionalKey(Schema.Array(Schema.Struct({
-    title: Schema.String, values: Schema.Array(Schema.String).check(Schema.isMaxLength(256)),
-  })).check(Schema.isMaxLength(256))),
-  variants: Schema.optionalKey(Schema.Array(Schema.Struct({
-    id: Schema.optionalKey(Schema.String), title: Schema.String,
-    sku: Schema.optionalKey(Schema.String), thumbnail: Schema.optionalKey(Schema.NullOr(Schema.String)),
-    options: Schema.Record(Schema.String, Schema.String),
-  })).check(Schema.isMaxLength(256))),
-});
-const decodeCreateProductsArguments = commerceDecoder(Schema.Tuple([
-  Schema.Array(ProductCreateGraphInput).check(Schema.isMaxLength(256)),
-]), "invalidInput");
 const decodeCreatedProducts = commerceDecoder(Schema.Array(Schema.StructWithRest(
   Schema.Struct({ id: Schema.String, title: Schema.String }), [Schema.Record(Schema.String, Schema.Json)],
 )).check(Schema.isMaxLength(256)), "storedCorruption");
@@ -70,6 +47,9 @@ export function productWorkflowModule(source: CommerceModuleDescription,
     readonly optionCreated: string; readonly valueCreated: string; readonly imageCreated: string },
   logical: WorkflowLogicalPolicy) {
   return Result.gen(function* () {
+    const table = graph.reads.find(read => read.model === "Product")?.table;
+    if (!table) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const decodeCreateProductsArguments = commerceDecoder(Schema.Tuple([Schema.Array(productCreationInput(table.columns)).check(Schema.isMaxLength(256))]), "invalidInput");
     const createProducts = yield* defineWorkflowMethod({ command: commands.create, arguments: decodeCreateProductsArguments,
       encode: ([products]) => products, output: decodeCreatedProducts,
       moduleEvents: [events.productCreated, events.optionCreated, events.valueCreated, events.variantCreated, events.imageCreated] });

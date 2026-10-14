@@ -3,7 +3,7 @@ import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal
 import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "./commerce-decoder";
 import type { WorkflowCallResults } from "./workflow/host";
-export function orderedProductWorkflowEvents(name: "product-tag.created" | "product-tag.updated" | "product-tag.deleted" | "product-variant.created",
+export function orderedProductWorkflowEvents(name: "product-tag.created" | "product-tag.updated" | "product-tag.deleted" | "product-variant.created" | "product.created",
   expectedIds: (calls: WorkflowCallResults) => Effect.Effect<readonly string[], CommerceTransactionError>) {
   const decode = commerceDecoder(Schema.Struct({ name: Schema.Literal(name),
     data: Schema.Struct({ id: Schema.String.check(Schema.isLengthBetween(1, 256)) }),

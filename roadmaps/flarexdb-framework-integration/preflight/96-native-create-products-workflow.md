@@ -1,9 +1,10 @@
 # Native Product Creation Workflow Preflight
 
-## Status And Proposed Outcome
+## Status And Admitted Outcome
 
-Status: researched proposal for discussion; implementation is not approved by
-this record. The next outcome is execution of the pinned native
+Status: approved and implemented bounded private admission. The user approved
+the complete root and separately approved its 128-event allowance after the
+maximum graph exceeded 64 events. The admitted outcome executes the pinned native
 `createProductsWorkflow`, including its complete variant child, through one
 existing trusted settlement owner. Performance optimization remains paused.
 
@@ -19,7 +20,8 @@ The source is the fork pinned in
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, baseline `2.13.4`.
 The native parent is
 [`create-products.ts`](../../../third_party/medusa/upstream/packages/core/core-flows/src/product/workflows/create-products.ts).
-It is not currently promoted/exported by the executing core-flows package.
+Its parent and workflow DTO closure are promoted/exported by the executing
+core-flows, framework and types packages through the existing provenance guards.
 
 ## Native Execution Trace
 
@@ -52,7 +54,7 @@ Important source details:
   pre-created scoped endpoints for positive witnesses and characterize unknown
   IDs against the pin before claiming any stronger rejection behavior.
 
-## Existing Executable Owners And Gaps
+## Executable Owners And Construction
 
 Product creation/options and Sales Channel/ShippingProfile associations already
 have shared-logical witnesses. The
@@ -60,7 +62,7 @@ have shared-logical witnesses. The
 actual variant child with Inventory, Stock Location reads and Pricing. No new
 commerce module, provider or database engine is required by this root.
 
-The remaining connected gaps are:
+The connected construction responsibilities are:
 
 1. Promote the native parent, its actual workflow DTO closure and selected
    Product event export through the existing provenance/portability guards.
@@ -80,13 +82,15 @@ The remaining connected gaps are:
    standalone facade's unrelated constraint. Admit already-supported Product
    scalar fields through their current metadata/value owner: the workflow method's
    smaller argument schema must not arbitrarily reduce them to ID/title or become
-   a permissive parallel JSON contract.
+   a permissive parallel JSON contract. The facade derives admitted scalar names
+   from compiled Product metadata; the existing Product value/DAL owner validates
+   native normalized values and refuses managed fields.
 4. Correlate both external workflow event families against authentic Product
    and variant command results. Reuse the ordered Product event owner and retain
    each participant's internal module/Link receipt policy. Module-only event
    validation cannot admit this parent.
 
-## Recommended Construction
+## Implemented Construction
 
 Keep the two existing Link schema sources, lineage/table identities and their
 independent command/receipt owners. At the existing adapter workflow resource
@@ -96,7 +100,7 @@ grouping and service behavior; loaded service operations delegate through the
 authentic command belonging to their source. Commands borrow the same outer
 root; no command gains another source's raw DAL/context.
 
-This needs a deliberate adapter contract change in the existing workflow
+This uses a deliberate adapter contract change in the existing workflow
 module/resource/host/binding owners, rather than a manual family switch in the
 Product workflow, nested Link routers or a second transaction. Prove the
 multi-source resource binding with a neutral two-source example as well as the
@@ -118,10 +122,26 @@ owner, matching the existing Sales Channel dependency check.
 The existing atomic host owns request identity, rollback-only refusal, fencing,
 publication, cancellation and uncertain settlement. The portable workflow SDK
 owns child frames and transaction-covered compensation. No shared persistence
-correction is known from this static preflight. An executing shared-owner failure
+correction was identified by the static preflight. Native `createProductVariants([])` exposed
+an adapter receipt mismatch: native creation succeeds, but the Product receipt
+required an inserted Variant. Its Product owner now admits authentic empty
+input/results with zero mutations, lifecycle changes, events, set-null or
+reference-replacement effects. Required native reads and their scanned-row
+observations remain intact; forged emptiness and hidden writes are refused. The
+SDK type-owner correction for native Date and callable DTO leaves is recorded in
+the workflow composition owner.
+
+Regression execution also exposed a pre-existing shared reference-index gate
+that rejected current binding maintenance before its coverage proof. The
+separately approved correction and expected/actual witness belong to the
+[Collection reference owner](../../shared-logical-storage/30-product-collection-reference-cutover.md).
+The shared owner now validates binding maintenance through its existing exact
+scope/head/table/physical-definition coverage proof and still refuses
+Application maintenance. No Product-specific core branch, adapter workaround
+or second writer is added. An executing shared-owner failure
 requires its own witness/disposition before dependent work continues.
 
-## Proposed Finite Input And Resource Contract
+## Finite Input And Resource Contract
 
 - One to four new Products; zero to four variants across the entire batch.
   This is a batch-wide bound, not four variants per Product.
@@ -141,13 +161,21 @@ requires its own witness/disposition before dependent work continues.
   Validate the full native result before any public projection; preserve Product
   order, empty variant arrays and returned variant prices/defaults.
 
-Measure the whole maximum graph, empty paths and required hook reads before
-selecting its named call allowance. The earlier ShippingProfile 128-call and
-Variant Inventory 256-call profiles do not establish this root's allowance.
-Use the current identity-bound trusted root/profile APIs and keep existing
-profiles and other byte/row/fact/event/time limits intact. Preserve an insufficient
-allowance as a rollback witness; present the measured resource decision if a
-new ceiling is necessary. This is capacity admission, not performance tuning.
+The complete default-Inventory maximum graph, including four pending Link-family
+hook reads, consumes 282 bounded calls. Its named `productCreationResources`
+selects 512 calls and the separately approved 128 events through the existing
+trusted identity-bound APIs. Smaller 256-call and 64-event allowances retain
+whole-root rollback witnesses. Existing profiles and all other byte/row/fact/time
+limits remain intact. This is capacity admission, not performance tuning.
+
+The existing shared publisher uses three bounded acceptance/materialization
+packet pairs for this 116-row graph, under one settlement, commit and durable
+result. One commit does not imply a single SQL packet.
+
+Duplicate delivery retains the existing bounded PostgreSQL lock deadline. A
+contending call can receive SQL `55P03`; replaying the same request key after the
+successful owner settles returns its durable result without repeating the hook.
+No workflow retry wrapper or relaxed deadline is introduced.
 
 ## Implementation Sequence And Completion Gates
 
@@ -181,8 +209,9 @@ new ceiling is necessary. This is capacity admission, not performance tuning.
 
 ## Cutover And Retained Consumers
 
-Replace old simple Product-root milestone usage where its input/result contract
-is equivalent, migrating its tests to the native root. Direct Product-module
+The direct Product creation facade admits module-only input, including Products
+without options and inline variants. Its existing consumers retain a distinct
+contract from the native root. Direct Product-module
 creation remains a valid distinct operation and must not acquire native workflow
 option requirements accidentally. The standalone variant facade also remains a
 distinct existing-Product operation.

@@ -42,6 +42,10 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
   const entityName = "Link" + toPascalCase(metadata.frame.name);
   if (serviceName === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const Service = getModuleService(joiner);
+  const routing = { __joinerConfig: Service.prototype.__joinerConfig(), __definition: {
+    key: serviceName, defaultPackage: "@medusajs/link-modules", label: entityName, isQueryable: true,
+    defaultModuleDeclaration: { scope: "internal" as const },
+  } };
   const bind = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
     const bound = prepared.bind(ctx, owner);
     const eventBus: IEventBusModuleService = {
@@ -61,10 +65,7 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
     }, { scope: "internal" });
     // The native router consumes loaded config values and actual bound methods.
     // Do not overwrite the service's __joinerConfig method with a data property.
-    const loaded = { __joinerConfig: service.__joinerConfig(), __definition: {
-      key: serviceName, defaultPackage: "@medusajs/link-modules", label: entityName, isQueryable: true,
-      defaultModuleDeclaration: { scope: "internal" as const },
-    }, create: service.create.bind(service), dismiss: service.dismiss.bind(service), list: service.list.bind(service),
+    const loaded = { ...routing, create: service.create.bind(service), dismiss: service.dismiss.bind(service), list: service.list.bind(service),
       softDelete: service.softDelete.bind(service), restore: service.restore.bind(service),
     } satisfies LoadedModule & Pick<ILinkModule, "create" | "dismiss" | "list" | "softDelete" | "restore">;
     return { bound, service: {
@@ -96,5 +97,8 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
       }))),
     };
   }, work);
-  return { use, bind, prepared, joiner, serviceName, entityName };
+  const useService = (ctx: CommerceCommandContext, work: (service: Pick<BoundLink, "service" | "context">) => Promise<unknown>) =>
+    withCommerceService(ctx, owner => ({ service: bind(ctx, owner).service,
+      context: { manager: ctx.manager, transactionManager: ctx.manager } }), work);
+  return { use, useService, bind, prepared, joiner, serviceName, entityName, routing };
 });

@@ -87,6 +87,11 @@
       "types": "./dist/pricing/index.d.ts",
       "source": "./src/pricing/index.ts",
       "default": "./dist/pricing/index.js"
+    },
+    "./workflows/products/mutations": {
+      "types": "./dist/workflows/products/mutations.d.ts",
+      "source": "./src/workflows/products/mutations.ts",
+      "default": "./dist/workflows/products/mutations.js"
     }
   },
   "license": "MIT",

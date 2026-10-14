@@ -9,7 +9,8 @@ import { runNativeMedusaWorkflow } from "../workflow-runtime";
 import { captureCommerceInput } from "../commerce-input";
 import { captureWorkflowArray, captureWorkflowRecord } from "./configuration";
 import { workflowMethodDefinition, workflowModuleDefinition, type WorkflowMethod, type WorkflowModule } from "./module";
-import { workflowResourceSelections, type PreparedWorkflowResources } from "./resources";
+import { workflowResourceSelections, workflowComposedResources, type PreparedWorkflowResources } from "./resources";
+import { composedWorkflowResourceDefinition } from "./composed-resource";
 import { bindWorkflowResources, type BoundWorkflowEvent, type WorkflowEventDefinition } from "./binding";
 import { checkedCommerceValue } from "../commerce-checked-value";
 import { commerceDecoder } from "../commerce-decoder";
@@ -52,6 +53,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
   readonly subscribers?: AtomicCommerceEvents["subscribers"];
   /** Trusted composition only; the atomic owner validates the request budget. */
   readonly requestCallLimit?: number;
+  readonly requestEventLimit?: number;
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   const policy = yield* Effect.fromResult(captureCommerceInput(options.identityAndAccessPolicy));
@@ -81,7 +83,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
   const identities = [];
   const observed = new Map<WorkflowMethod, { participant: AtomicCommerceParticipantInput["participant"]; command: CommerceCommand }>();
   let derivedEvents = false;
-  let requestEventLimit: number | undefined;
+  let requestEventLimit = options.requestEventLimit;
   for (const member of members) {
     const raw = installed[member.name];
     if (raw === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -155,8 +157,22 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
     };
     participants.push({ ...selected, logicalStorage: binding.logicalStorage });
     identities.push({ name: member.name, module: member.module.name, profile: definition.source.profile, methods: methodIdentities,
+      ...(member.expose === false ? { expose: false } : {}),
       graph: member.graph ? { aliases: definition.graph.aliases, reads: graphIdentities } : null,
     });
+  }
+  const composedIdentities = [];
+  for (const selected of workflowComposedResources(workflow.resources) ?? []) {
+    const definition = composedWorkflowResourceDefinition(selected.resource);
+    if (!definition) return yield* Effect.fail(commerceError("invalidAuthority"));
+    const dependencies = [];
+    for (const token of definition.dependencies) {
+      const method = observed.get(token);
+      const member = members.find(member => member.participant === method?.participant);
+      if (!method || !member) return yield* Effect.fail(commerceError("invalidAuthority"));
+      dependencies.push({ participant: member.name, command: commerceCommandIdentity(method.command) });
+    }
+    composedIdentities.push({ name: selected.name, identity: definition.identity, methods: Object.keys(definition.methods), dependencies });
   }
   const graph = graphMembers.length === 0 ? undefined : yield* Effect.fromResult(prepareLocalGraph(graphMembers));
   const decodeInput = commerceDecoder(workflow.input, "invalidInput");
@@ -184,6 +200,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
   };
   const identity = yield* Effect.fromResult(captureCommerceInput({ policy, workflow: {
     revision: options.revision, definition: workflow.prepared.identity, resources: identities, events: [...names],
+    ...(composedIdentities.length ? { composedResources: composedIdentities } : {}),
   } }));
   const composition = { participants, commands: [command], identityAndAccessPolicy: identity,
     ...(requestEventLimit === undefined ? {} : { requestEventLimit }),
@@ -202,6 +219,7 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
   readonly revision: string;
   readonly subscribers?: AtomicCommerceEvents["subscribers"];
   readonly requestCallLimit?: number;
+  readonly requestEventLimit?: number;
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   const execution = yield* Effect.fromResult(captureWorkflowRecord(options.execution));
@@ -210,6 +228,7 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
     modules: options.modules, workflow: options.workflow, revision: options.revision,
     ...(options.subscribers === undefined ? {} : { subscribers: options.subscribers }),
     ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }),
+    ...(options.requestEventLimit === undefined ? {} : { requestEventLimit: options.requestEventLimit }),
   });
   const host = yield* execution.prepare(prepared.composition);
   return Object.freeze({ newRequestKey: host.newRequestKey, close: host.close,
