@@ -102,6 +102,12 @@ and up to four additions and four removals under existing default atomic limits,
 with a separate logical source and Link-root reads. Its connected admission is
 complete within those bounds; cross-module hydration, stronger endpoint liveness
 enforcement and hosted activation remain separate admissions.
+The authorized next connected milestone is the
+[native Product Variant update preflight](./preflight/100-native-product-variant-update-workflow.md):
+existing-variant edits, native base-price replacement, Inventory-Link dismissal,
+and ordered workflow events/hooks. Pricing DAL mutations and selected Link
+lookup/dismissal are its adapter/fork prerequisites. The larger native Product
+update composer follows with whole-Product and relationship reconciliation.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a
