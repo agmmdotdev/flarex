@@ -1,6 +1,8 @@
 # Medusa Design Quality Refactor
 
-Status: complete for the approved Q1/Q2/Q3 refactor and its bounded acceptance gates.
+Status: Q1/Q2/Q3 is complete for its approved refactor and bounded acceptance
+gates. The separate [organization and reuse follow-on](02-organization-and-reuse.md)
+is prepared; implementation waits for the completed Product workflow integration.
 
 ## Scope And Continuation
 
@@ -16,6 +18,15 @@ and cleanup, coordinated GPT-6 Sol reviewers at high reasoning, and completion
 through validation, review and one scoped commit. The main thread owns edits and
 Git; reviewers remain read-only. The [focused preflight](01-construction-semantics-and-queries.md)
 records contract breaks, challenged alternatives and settlement corrections.
+
+The owner requested the [follow-on cleanup plan](02-organization-and-reuse.md)
+for simpler organization and reusable logic across existing and future modules
+and workflows. It reuses the completed construction and receipt owners, groups
+module-local responsibilities, reduces repeated adapter wiring and closes caller
+migration/removal as one connected outcome. Its first gate is the other session's
+completed, validated Product workflow handoff; no implementation starts from
+partially integrated working-tree code. It does not reopen Q1/Q2/Q3 or the
+separately scoped storage/performance work.
 
 ## Authority And Invariants
 
