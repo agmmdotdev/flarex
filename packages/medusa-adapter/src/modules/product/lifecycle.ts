@@ -17,14 +17,18 @@ const decodeDelete = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.St
 export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(function* (
   ctx: CommerceCommandContext, catalog: ProductRuntimeMetadata, entity: ProductEntityMetadata,
   operation: "delete" | "softDelete" | "restore", input: unknown,
-  admission: "standard" | "product-deletions" = "standard",
+  admission: "standard" | "product-deletions" | "type-workflows" = "standard",
 ) {
-  if (operation !== "delete" && entity !== catalog.product && !(operation === "softDelete" && [catalog.variant, catalog.tag].includes(entity))) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  if (operation !== "delete" && entity !== catalog.product && !(operation === "softDelete" &&
+    ([catalog.variant, catalog.tag].includes(entity) || admission === "type-workflows" && entity === catalog.type)))
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
   if (operation === "delete" && ![catalog.product, catalog.tag, catalog.type, catalog.collection, catalog.category, catalog.option, catalog.assignment].includes(entity)) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
   const selected = operation === "delete" ? (yield* Effect.fromResult(decodeDelete(captured))).$or.map(row => row.id)
     : yield* Effect.fromResult(decodeProductLifecycleIds(captured));
   const ids = typeof selected === "string" ? [selected] : selected;
+  if (admission === "type-workflows" && (operation !== "softDelete" || entity !== catalog.type || ids.length > 4))
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
   const { roots: loadRoots, plan, getStore, loadReferencing } = medusaLifecycle(ctx, catalog, operation);
   const roots = yield* loadRoots(entity.table, ids);
   if (entity === catalog.category) {
@@ -34,6 +38,9 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
       return yield* Effect.fail(commerceError("unsupportedProfile"));
   }
   const planned = yield* plan(entity.table, roots);
+  if (admission === "type-workflows" && (roots.length > 4 || catalog.tables.some(table =>
+    table !== catalog.type.table && planned.rows(table).length !== 0)))
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
   if (admission === "product-deletions") {
     if (operation !== "softDelete" || ![catalog.product, catalog.variant].includes(entity) || ids.length > 4 || roots.length > 4)
       return yield* Effect.fail(commerceError("unsupportedProfile"));

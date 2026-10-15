@@ -9,7 +9,7 @@ import { captureLogicalCommerceSelection, prepareLogicalCommerceContract } from
   "../../../persistence-postgres/src/frameworks/commerceTransaction/logicalSelection";
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
 
-interface LogicalProductHostFixture {
+export interface LogicalProductHostFixture {
   readonly definition: NonNullable<LogicalCurrencyFixture["productDefinition"]>;
   readonly runtime: Effect.Success<ReturnType<typeof makeLocalProductCommands>>;
   readonly hostInput: LogicalCommerceHostInput<unknown>;

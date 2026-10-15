@@ -20,7 +20,7 @@ import { captureCategoryProjection } from "./category-projection";
 import { findCategoryRows, insertCategoryRows, updateCategoryRows } from "./category-repository";
 import { changeProductLifecycle } from "./lifecycle";
 
-export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct" | "deletion";
+export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct" | "deletion" | "typeWorkflow";
 const decodeCollectionReplacement = commerceDecoder(Schema.Array(Schema.Struct({
   id: ProductRelationshipId, productIds: ProductRelationshipIds,
 })).check(Schema.isLengthBetween(1, 1)), "invalidInput");
@@ -51,7 +51,8 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       return ids;
     })))));
   const lifecycle = (entity: ProductEntityMetadata, operation: "softDelete" | "restore"): DAL.RepositoryService["softDelete"] => (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-    const result = yield* changeProductLifecycle(ctx, metadata, entity, operation, input, profile === "deletion" ? "product-deletions" : "standard");
+    const result = yield* changeProductLifecycle(ctx, metadata, entity, operation, input,
+      profile === "deletion" ? "product-deletions" : profile === "typeWorkflow" ? "type-workflows" : "standard");
     if (shared === undefined || (operation === "softDelete" && !events.isSubscribed(shared))) return yield* ctx.refuse(commerceError("unadmittedEvent"));
     // Preserve the pinned Drizzle subscriber's lifecycle callback convention,
     // including restored events for selected already-active rows. Core records
@@ -104,9 +105,19 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     upsertWithReplace: (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, replaceProductRows(ctx, metadata, metadata.product, input, config))),
   };
   /** Table-bound repositories share this request's bridge and subscriber set. */
+  const findRelated = Effect.fn("ProductAdapter.findRelatedForProfile")((ctx: CommerceCommandContext, entity: ProductEntityMetadata, input: unknown, withCount: boolean) =>
+    findProductRelated(ctx, metadata, entity, input, withCount).pipe(Effect.flatMap(result => {
+      // Native Type selector update performs its own full list before keyed
+      // writes. Refuse a fifth selected root instead of updating a page prefix.
+      if (profile === "typeWorkflow" && entity === metadata.type &&
+        (result.rows.length > 4 || result.count !== undefined && result.count > 4))
+        return ctx.refuse(commerceError("unsupportedProfile"));
+      return Effect.succeed(result);
+    })));
   const relatedRepository = (entity: ProductEntityMetadata): DAL.RepositoryService => ({
     ...repository,
-    delete: deleteRows(entity), softDelete: [metadata.variant, metadata.tag].includes(entity) ? lifecycle(entity, "softDelete") : refuse, restore: refuse,
+    delete: deleteRows(entity), softDelete: [metadata.variant, metadata.tag].includes(entity) || profile === "typeWorkflow" && entity === metadata.type
+      ? lifecycle(entity, "softDelete") : refuse, restore: refuse,
     update: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       if (![metadata.tag, metadata.type, metadata.collection, metadata.category, metadata.value].includes(entity)) return yield* ctx.refuse(commerceError("unsupportedProfile"));
       const rows = yield* updateProductRelated(ctx, metadata, entity, input);
@@ -117,8 +128,8 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     // Native Product read overrides attach images to entity graphs. Copy the
     // complete validated graph at this DAL handoff, retaining immutable core
     // rows and call evidence; serialize captures the final native DTO.
-    find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProductRelated(ctx, metadata, entity, input, false)).pipe(Effect.map(value => structuredClone([...value.rows])))),
-    findAndCount: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProductRelated(ctx, metadata, entity, input, true)).pipe(Effect.flatMap(value =>
+    find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findRelated(ctx, entity, input, false)).pipe(Effect.map(value => structuredClone([...value.rows])))),
+    findAndCount: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findRelated(ctx, entity, input, true)).pipe(Effect.flatMap(value =>
       bridge.checked(ctx, Effect.fromResult(decodeProductCount(value))).pipe(Effect.map(decoded =>
         [structuredClone([...decoded.rows]), decoded.count] satisfies [Array<typeof decoded.rows[number]>, number]))))),
     create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {

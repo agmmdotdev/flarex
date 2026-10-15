@@ -7,6 +7,8 @@ import { productUpdateGraphReceipt } from "./product-update-receipt";
 import { productDeletionCommands } from "./commands/deletion";
 import { productDeletionWorkflowModule } from "./product-deletion-workflow";
 import { productBatchWorkflowModule } from "./product-batch-workflow";
+import { productTypeWorkflowModule } from "./product-type-workflow";
+import { productTypeCommands } from "./commands/type";
 import { prepareProductCommandServices } from "./commands/services";
 import { productReadCommands } from "./commands/reads";
 import { productInternalCommands } from "./commands/internal";
@@ -26,6 +28,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
   const reads = productReadCommands(services);
   const writes = productMutationCommands(services);
   const deletion = productDeletionCommands(services);
+  const type = productTypeCommands(services);
   const commands = Object.freeze({
     internalProductList: internalProductRead("list"), internalProductRetrieve: internalProductRead("retrieve"),
     internalProductCreate: internalProductChange("create"), internalProductUpdate: internalProductChange("update"),
@@ -53,6 +56,8 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     updateProductsForWorkflow: writes.updateProductsForWorkflow,
     softDeleteProductsForWorkflow: deletion.softDeleteProducts, softDeleteVariantsForWorkflow: deletion.softDeleteVariants,
     countVariantsForDeletion: deletion.countVariants,
+    createTypesForWorkflow: type.createTypes, listTypesForWorkflow: type.listTypes,
+    updateTypesBySelector: type.updateTypesBySelector, softDeleteTypesForWorkflow: type.softDeleteTypes,
     countImages: reads.countImages, updateValues: writes.updateValues, updateCollections: writes.updateCollections,
     updateCategories: writes.updateCategories, upsertOptions: writes.upsertOptions, upsertVariants: writes.upsertVariants,
     upsertCollections: writes.upsertCollections, upsertCategories: writes.upsertCategories });
@@ -91,5 +96,8 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
   const productBatchWorkflow = yield* Effect.fromResult(productBatchWorkflowModule(description, metadata,
     { creation: workflow, update: productUpdateWorkflow, variantUpdate: variantUpdateWorkflow, deletion: productDeletionWorkflow },
     { ...logicalPolicy, commands: Object.values(commands) }));
-  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, productUpdateWorkflow, productDeletionWorkflow, productBatchWorkflow, logicalPolicy };
+  const productTypeWorkflow = yield* Effect.fromResult(productTypeWorkflowModule(description, type, graph,
+    { created: metadata.type.createdEvent, updated: metadata.type.updatedEvent, deleted: metadata.type.deletedEvent },
+    { ...logicalPolicy, commands: Object.values(commands) }));
+  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, productUpdateWorkflow, productDeletionWorkflow, productBatchWorkflow, productTypeWorkflow, logicalPolicy };
 });

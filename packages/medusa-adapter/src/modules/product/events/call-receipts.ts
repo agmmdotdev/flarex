@@ -11,6 +11,7 @@ import { productLogicalVariantImagesEventPolicy, productLogicalVariantCreateEven
 import { productLogicalCreateEventPolicy, productLogicalUpdateEventPolicy, productLogicalUpsertEventPolicy, productLogicalSelectorUpdateEventPolicy, productLogicalInternalProductWriteEventPolicy, productLogicalDeleteEventPolicy } from "./product";
 import { productRelationshipCallReceipt } from "./memberships";
 import { productLogicalInternalProductLifecycleEventPolicy, productLogicalLifecycleEventPolicy } from "./lifecycle";
+import { productLogicalTypeWorkflowCreatePolicy, productLogicalTypeSelectorUpdatePolicy } from "./type";
 
 /** Selected Product commands validate at the same native call boundary. Selection
  * of callable methods stays with the host; unsupported writes fail closed here. */
@@ -65,6 +66,9 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
     ["productupdatetype", productLogicalTypeEventPolicy(catalog, "update").validateLogicalCall],
     ["productupserttype", productLogicalTypeUpsertEventPolicy(catalog)],
     ["productDeletetype", productLogicalTypeEventPolicy(catalog, "delete").validateLogicalCall],
+    ["productCreateTypesForWorkflow", productLogicalTypeWorkflowCreatePolicy(catalog)],
+    ["productUpdateTypesBySelector", productLogicalTypeSelectorUpdatePolicy(catalog)],
+    ["productSoftDeleteTypesForWorkflow", productLogicalLifecycleEventPolicy(catalog, "softDelete", "type").validateLogicalCall],
     ["productDeletetag", productLogicalTagHardDeleteEventPolicy(catalog)],
     ["productCreateimage", productLogicalImageCreateEventPolicy(catalog)],
     ["productCreateoption", productLogicalOptionEventPolicy(catalog, "create").validateLogicalCall],
@@ -93,6 +97,7 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
         !["productupdatecollection", "productupsertcollection"].includes(call.commandName) ||
         activity.setNull.length !== 0 && !["productDeletetype", "productDeletecollection"].includes(call.commandName) ||
         activity.lifecycle.length !== 0 && !["productSoftDelete", "productRestore", "productSoftDeleteTag", "productSoftDeleteVariant",
+          "productSoftDeleteTypesForWorkflow",
           "productSoftDeleteProductsForWorkflow", "productSoftDeleteVariantsForWorkflow",
           "productInternalProductsoftDelete", "productInternalProductrestore"].includes(call.commandName))
         return yield* Effect.fail(commerceError("receiptMismatch", { commandName: call.commandName,

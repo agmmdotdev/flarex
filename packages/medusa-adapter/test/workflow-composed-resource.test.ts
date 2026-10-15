@@ -28,6 +28,42 @@ function member(name: string) {
 }
 
 describe("finite composed resources over authentic source methods", () => {
+  it.each(["local-result", "caught-undeclared-invoke"])("confines an empty dependency resource: %s", async mode => {
+    const selected = member("selected");
+    const resource = Result.getOrThrow(defineComposedWorkflowResource({ identity: { format: "neutral-empty", mode },
+      dependencies: [], methods: { read: {
+        arguments: commerceDecoder(Schema.Tuple([Schema.Number]), "invalidInput"), output: commerceDecoder(Schema.Number, "storedCorruption"),
+      } }, bind: invoke => ({ read: async (value: number) => {
+        if (mode === "caught-undeclared-invoke") {
+          try { return await invoke(selected.method, value); } catch { return 0; }
+        }
+        return value;
+      } }),
+    }));
+    const resources = Result.getOrThrow(prepareWorkflowResources({
+      selected: { module: selected.module, methods: ["read"], graph: false, expose: false },
+    }, false, { local: resource }));
+    const decodeJson = commerceDecoder(Schema.Json, "invalidInput");
+    const call = vi.fn<AtomicCommerceContext["call"]>((_participant, _command, input) => Effect.succeed(input));
+    const ctx: AtomicCommerceContext = { eventGroupId: "neutral-empty", checkpoint: Effect.void,
+      capture: (input, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decodeJson)(input))),
+      call, refuse: error => Effect.fail(error), emit: () => Effect.fail(commerceError("unadmittedEvent")),
+    };
+    const owner = await Effect.runPromise(makeCommercePromiseOwner());
+    try {
+      const selections = workflowResourceSelections(resources); if (!selections) throw new Error("Missing selection");
+      const local = bindWorkflowResources(resources, selections, undefined, [], ctx, owner)
+        .resolve<{ read(value: number): Promise<unknown> }>("local");
+      expect(await local.read(7)).toBe(mode === "local-result" ? 7 : 0);
+      expect(owner.refusal()).toMatchObject(mode === "local-result" ? { _tag: "None" }
+        : { _tag: "Some", value: { reason: "invalidAuthority" } });
+      expect(call).not.toHaveBeenCalled();
+      await Effect.runPromise(owner.close);
+      await expect(local.read(8)).rejects.toMatchObject({ reason: "closed" });
+      expect(call).not.toHaveBeenCalled();
+    } finally { await Effect.runPromise(owner.close); }
+  });
+
   it("combines two private sources and revokes the entire facade with its owner", async () => {
     const first = member("first"), second = member("second");
     const composite = Result.getOrThrow(defineComposedWorkflowResource({ identity: { format: "neutral-pair" },

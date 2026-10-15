@@ -30,7 +30,8 @@ interface Definition {
 const definitions = new WeakMap<object, Definition>();
 
 /** A trusted native resource may combine authenticated commands from several
- * sources. Its factory receives callable methods, never storage or settlement. */
+ * sources, or declare no dependencies for genuinely empty native routing.
+ * Its factory receives callable methods, never storage or settlement. */
 export function defineComposedWorkflowResource<const Methods extends Readonly<Record<string, ComposedResourceMethod>>>(input: {
   readonly identity: unknown; readonly dependencies: readonly WorkflowMethod[]; readonly methods: Methods;
   readonly bind: (invoke: InvokeWorkflowMethod) => ResourceFactory<Methods>;
@@ -41,7 +42,7 @@ export function defineComposedWorkflowResource<const Methods extends Readonly<Re
     if (captured.scopeExclusive !== undefined && captured.scopeExclusive !== true) return yield* Result.fail(commerceError("unsupportedProfile"));
     const methods = yield* captureWorkflowRecord(captured.methods);
     const dependencies = yield* captureWorkflowArray(captured.dependencies);
-    if (typeof captured.bind !== "function" || !dependencies.length ||
+    if (typeof captured.bind !== "function" ||
       new Set(dependencies).size !== dependencies.length || dependencies.some(method => !workflowMethodDefinition(method)))
       return yield* Result.fail(commerceError("unsupportedProfile"));
     const admitted: Array<[string, ComposedResourceMethod]> = [];

@@ -3,6 +3,11 @@
   "version": "2.13.4",
   "private": true,
   "exports": {
+    "./common/merge-metadata": {
+      "types": "./dist/common/merge-metadata.d.ts",
+      "source": "./src/common/merge-metadata.ts",
+      "default": "./dist/common/merge-metadata.js"
+    },
     "./modules-sdk/definition": {
       "types": "./dist/modules-sdk/definition.d.ts",
       "source": "./src/modules-sdk/definition.ts",

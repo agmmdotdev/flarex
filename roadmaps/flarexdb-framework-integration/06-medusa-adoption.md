@@ -130,6 +130,13 @@ four-entry profile admits 1,024 calls, 256 events and 2 MiB, with Product's
 request-initial and incoming Variants separately and refuses Item attachment
 and deletion intersections. General batch size and hosted activation remain
 unadmitted.
+The [native Product Type slice](./preflight/104-native-product-type-workflows.md)
+implements creation, complete selector updates and soft deletion through the
+real native composers. Its four-Type profile admits 64 calls and 64 events
+with ordinary 128-identity working sets and one authentic native write per
+root. Type soft deletion preserves Product references and uses the genuine
+empty native Link route. General restoration, custom Type Links and hosted
+activation remain unadmitted.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a

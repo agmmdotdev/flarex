@@ -5,6 +5,8 @@ import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/
  * even when today's allowances are equal. */
 export const productRelationshipsPolicy = Object.freeze({ calls: 128, queryRows: 256 });
 export const productReferenceReplacementEventLimit = 256;
+/** Four native Product Type roots, including hooks and empty native Link routing. */
+export const productTypeResources = Object.freeze({ ...defaultCommerceResources, calls: 64, eventMessages: 64 });
 export const productShippingProfileResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 export const productVariantPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Complete finite Variant graph, including Inventory children and both Link families. */
