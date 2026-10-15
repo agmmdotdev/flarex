@@ -27,7 +27,9 @@
     "./reservation/create-reservations": "./src/reservation/workflows/create-reservations.ts",
     "./reservation/update-reservations": "./src/reservation/workflows/update-reservations.ts",
     "./reservation/delete-reservations": "./src/reservation/workflows/delete-reservations.ts",
-    "./stock-location/link-sales-channels": "./src/stock-location/workflows/link-sales-channels-to-stock-location.ts"
+    "./stock-location/link-sales-channels": "./src/stock-location/workflows/link-sales-channels-to-stock-location.ts",
+    "./product/update-product-variants": "./src/product/workflows/update-product-variants.ts",
+    "./pricing/update-price-sets-step": "./src/pricing/steps/update-price-sets.ts"
   },
   "dependencies": {
     "@medusajs/modules-sdk": "workspace:*",

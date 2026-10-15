@@ -5,6 +5,7 @@ import type { AtomicCommerceContext } from "@flarex/persistence-postgres/interna
 import { commerceError, CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeCommercePromiseOwner, type CommercePromiseOwner } from "../module/promise-owner";
 import { captureWorkflowValue } from "./value";
+import { captureCommerceInput } from "../value/input";
 
 /** One native root owns the foreign step/hook callbacks and their service runners. */
 export const runNativeMedusaWorkflow = Effect.fn("MedusaWorkflow.runNative")(function* (
@@ -27,7 +28,8 @@ export const runNativeMedusaWorkflow = Effect.fn("MedusaWorkflow.runNative")(fun
       if (Option.isSome(refusal)) return ctx.refuse(refusal.value);
       // Like Convex's return boundary, a completed void workflow stores null.
       // Intermediate omissions and nested JSON validation keep their owners.
-      return owner.hasPending() ? ctx.refuse(commerceError("overlappingOperation")) : ctx.capture(value === undefined ? null : value);
+      return owner.hasPending() ? ctx.refuse(commerceError("overlappingOperation"))
+        : ctx.capture(value === undefined ? null : value, captureCommerceInput);
     }),
     Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)),
     Effect.ensuring(owner.close),

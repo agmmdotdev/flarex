@@ -2,14 +2,14 @@ import { Effect, Result, Schema } from "effect";
 import type { DAL } from "@medusajs/framework/types";
 import { describeToManyRelation } from "@medusajs/drizzle/relation-query";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, isJsonObject, useCapturedPrivateJsonData, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, isJsonObject, useCapturedPrivateJsonData, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
 import type { CommerceModuleEvents } from "../../module/persistence";
 import { commerceRepositoryContext } from "../../repository/context";
 import { commerceMutationEvents } from "../../repository/mutation-events";
 import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
-import { encodeExactNumeric, decodeExactNumeric } from "../../value/exact-numeric";
+import { encodeExactNumeric, decodeExactNumeric, projectExactNumericColumns } from "../../value/exact-numeric";
 import { captureGraph, insertGraphRows } from "../../write/create";
 import type { GraphCatalog, GraphEntity, CreationProfile } from "../../write/graph-model";
 import { makeReadCatalog } from "../../query/catalog";
@@ -22,8 +22,9 @@ import { PricingId } from "./input";
 import type { capturePricingMetadata } from "./schema";
 import { relationPaths } from "../../local-graph/module";
 import { calculateLogicalPrices } from "./calculation";
-import { readCommerceRelationRows } from "../../query/relations";
+import { readCommerceRelationRows, assembleCommerceRelations } from "../../query/relations";
 import { prepareScalarRepository } from "../../repository/scalar";
+import { preparePricingMutations } from "./mutation-repository";
 
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
 const Rule = Schema.Struct({ id: Schema.optionalKey(PricingId), attribute: Schema.String, value: Schema.String,
@@ -96,7 +97,7 @@ const projectionPolicy: ProjectionPolicy = { ...scalarProjection, allowedPaths: 
 
 /** Pricing owns the finite nested creation policy; shared graph/read owners
  * retain traversal, scoped persistence and native mutation dispatch. */
-export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"]) {
+export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], mutable = false) {
   return Result.gen(function* () {
     const entities: GraphEntity[] = [];
     for (const [name, model] of [["price_set", "PriceSet"], ["price", "Price"], ["price_rule", "PriceRule"],
@@ -146,6 +147,24 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         { kind: "children", name: "price_rules", foreignKey: ruleForeignKey, node: { entity: rule, omitRelations: [], steps: [] } },
       ] } },
     ] }, rowLimitDetail: (maximum, attempted, tables) => ({ maximum, attempted, tables }) };
+    const mutations = mutable ? yield* preparePricingMutations(catalog, price, rule,
+      priceTable.relationships.some(relation => relation.name === "price_rules" && relation.cascadeDelete)) : undefined;
+    const numeric = price.table.columns.filter(column => column.type === "bigNumber");
+    const serializeGraph = Effect.fn("PricingRepository.serializeGraph")(function* (value: Json) {
+      const output: JsonObject[] = [];
+      for (const input of Array.isArray(value) ? value : [value]) {
+        if (!isJsonObject(input)) return yield* Effect.fail(commerceError("storedCorruption"));
+        const projected = yield* projectExactNumericColumns(input, numeric, "reserialize");
+        if (!isJsonObject(projected)) return yield* Effect.fail(commerceError("storedCorruption"));
+        const row = { ...projected };
+        if (input.prices !== undefined) {
+          yield* Effect.fromResult(decodeStoredRows(input.prices));
+          row.prices = yield* projectExactNumericColumns(input.prices, numeric, "reserialize");
+        }
+        output.push(row);
+      }
+      return Array.isArray(value) ? output : output[0]!;
+    });
     const listCatalog: GraphCatalog = { entities: [list, price, listRule],
       tables: [list.table, price.table, listRule.table], writablePivots: [], queryRelations: relations,
       decodeRow: (entity, input) => Result.gen(function* () {
@@ -190,15 +209,15 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       const refuse = () => owner.run(root.refuse(commerceError("unsupportedProfile")));
       const mutationEvents: CommerceModuleEvents = { createEventSubscriber: events.createSubscriber, registerEventSubscriber: events.registerSubscriber,
         dispatchMutationEvent: (event, args, shared, subscriber) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-          if ((!events.isSubscribed(shared) && (subscriber === undefined || !events.ownsSubscriber(subscriber))) || event !== "afterDelete") return yield* ctx.refuse(commerceError("unadmittedEvent"));
+          if ((!events.isSubscribed(shared) && (subscriber === undefined || !events.ownsSubscriber(subscriber))) ||
+            !(mutable ? ["afterDelete", "afterUpdate"] : ["afterDelete"]).includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
           yield* events.dispatch(event, args, shared, subscriber);
         }))),
       };
       const find = Effect.fn("PricingRepository.find")(function* (ctx: CommerceCommandContext, input: unknown, count: boolean) {
         const plan = yield* Effect.fromResult(query(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));
         const result = yield* executeRead(ctx, readCatalog, plan, count);
-        // Convert selected exact pairs once, before native serialization can
-        // reread the same detached rows. Raw companions retain native metadata.
+        // Validate exact entities here; public DTO conversion belongs to serialize.
         const output: JsonObject[] = [];
         for (const row of result.rows) {
           const children = row.prices;
@@ -209,8 +228,9 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
           for (const stored of children) {
             if (!isJsonObject(stored)) return yield* Effect.fail(commerceError("storedCorruption"));
             const child = { ...stored };
+            if (child.price_list_id === null) child.price_list = null;
             for (const column of price.table.columns) if (column.type === "bigNumber" && Object.hasOwn(child, column.name)) {
-              child[column.name] = yield* decodeExactNumeric(child[column.name], child["raw_" + column.name], column.nullable);
+              yield* decodeExactNumeric(child[column.name], child["raw_" + column.name], column.nullable);
             }
             const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(child, Number.MAX_SAFE_INTEGER, commerceError));
             if (!isJsonObject(captured.value)) return yield* Effect.fail(commerceError("storedCorruption"));
@@ -220,7 +240,9 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
           if (!isJsonObject(captured.value)) return yield* Effect.fail(commerceError("storedCorruption"));
           output.push(captured.value);
         }
-        return { ...result, rows: output };
+        // Native updates replace child arrays on returned entities. Core read
+        // evidence stays immutable; hand detached mutable graphs to the DAL.
+        return { ...result, rows: structuredClone(output) };
       });
       const createGraph = Effect.fn("PricingRepository.createGraph")(function* (
         ctx: CommerceCommandContext, profile: CreationProfile,
@@ -244,6 +266,8 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
         yield* events.created(profile.catalog.entities.flatMap(entity => (inserted.get(entity.table.name) ?? [])
           .map(row => ({ modelName: entity.model, entity: { ...row } }))), shared);
+        if (profile.root.entity === price) return assembleCommerceRelations(price.table.name, inserted, ["price_rules"],
+          catalog.queryRelations).map(row => ({ ...row, ...(row.price_list_id === null ? { price_list: null } : {}) }));
         return [...inserted.get(profile.root.entity.table.name) ?? []];
       });
       const repository: DAL.RepositoryService = {
@@ -254,9 +278,8 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
           yield* Effect.fromResult(decodeSerialized(value));
           // SAFETY: the native DAL generic also covers partial projections;
           // graph rows and selected scalar values were validated above.
-          // JSON membership has no normalization or field transform. Preserve
-          // the capture owner's exact native serialization value.
-          return value as Output;
+          // Native entities keep exact decimal pairs until this public DTO edge.
+          return (yield* serializeGraph(value)) as Output;
         }))),
         find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, find(ctx, input, false)).pipe(Effect.map(value => value.rows))),
         findAndCount: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
@@ -271,8 +294,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       const listRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
         create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
       };
-      const ruleRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
-        find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+      const findTaxRules = Effect.fn("PricingRepository.findTaxRules")(function* (ctx: CommerceCommandContext, input: unknown) {
           const query = yield* Effect.fromResult(decodeRuleFind(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));
           const ids = [...new Set(query.where.price_id)];
           const rows: JsonObject[] = [];
@@ -283,8 +305,11 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
             ] }));
           }
           return [...yield* Effect.fromResult(decodeTaxRules(rows))];
-        }))),
+      });
+      const ruleRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
+        find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findTaxRules(ctx, input))),
       };
+      const mutationRepositories = mutations?.bind(bridge, events, { ...denied, serialize: repository.serialize }, createGraph, findTaxRules);
       const preferenceRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
         create: preferenceCreate,
         find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
@@ -303,7 +328,8 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         pricingContext: Parameters<import("@medusajs/framework/types").PricingRepositoryService["calculatePrices"]>[1],
         shared: Parameters<import("@medusajs/framework/types").PricingRepositoryService["calculatePrices"]>[2]) =>
         bridge.execute(shared, ctx => bridge.checked(ctx, calculateLogicalPrices(ctx, { filters, pricingContext })));
-      return { repository, denied, listRepository, ruleRepository, preferenceRepository, mutationEvents, bridge, refuse, calculatePrices };
+      return { repository, denied, listRepository, ruleRepository: mutationRepositories?.ruleRepository ?? ruleRepository,
+        priceRepository: mutationRepositories?.priceRepository ?? denied, preferenceRepository, mutationEvents, bridge, refuse, calculatePrices };
     };
     return { bind, table: yield* readCatalog.table(set.table.name), paths: yield* relationPaths(readCatalog, set.table.name, paths) };
   });

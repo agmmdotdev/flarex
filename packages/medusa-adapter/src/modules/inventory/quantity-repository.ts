@@ -6,7 +6,7 @@ import { scalarIdWhere, ScalarId } from "../../repository/scalar-id-read";
 import { compileKeyedUpdates } from "../../write/keyed";
 import { commerceDecoder, commerceRowDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
-import { captureExactNumericRow, captureExactNumericUpdatePair, decodeExactNumeric, ExactNumericRaw } from "../../value/exact-numeric";
+import { captureExactNumericRow, captureExactNumericUpdatePair, projectExactNumericColumns, ExactNumericRaw } from "../../value/exact-numeric";
 import type { SchemaTable } from "../../schema/model";
 import type { WherePolicy } from "../../query/predicate";
 import { commerceError, isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -31,13 +31,10 @@ export function inventoryQuantityProjection(columns: readonly SchemaTable["colum
   const numeric = columns.filter(column => column.type === "bigNumber");
   return Effect.fn("InventoryQuantity.project")(function* (value: Json) {
     const output: JsonObject[] = [];
-    for (const stored of Array.isArray(value) ? value : [value]) {
-      if (!isJsonObject(stored)) return yield* Effect.fail(commerceError("storedCorruption"));
-      const row = { ...stored };
-      for (const column of numeric) if (Object.hasOwn(stored, column.name)) {
-        const decoded = yield* decodeExactNumeric(stored[column.name], stored["raw_" + column.name]);
-        row[column.name] = exact ? stored[column.name]! : decoded;
-      }
+    const projected = yield* projectExactNumericColumns(value, numeric, exact ? "exact" : "dto");
+    for (const entry of Array.isArray(projected) ? projected : [projected]) {
+      const row = { ...entry };
+      const stored = row;
       if (Object.hasOwn(stored, "available_quantity") || Object.hasOwn(stored, "stocked_quantity") && Object.hasOwn(stored, "reserved_quantity")) {
         const stocked = yield* Effect.fromResult(raw(stored.raw_stocked_quantity));
         const reserved = yield* Effect.fromResult(raw(stored.raw_reserved_quantity));

@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { productGraphDefinition } from "./graph-query";
 import { productWorkflowModule } from "./workflow";
+import { productVariantUpdateWorkflowModule } from "./variant-update-workflow";
 import { prepareProductCommandServices } from "./commands/services";
 import { productReadCommands } from "./commands/reads";
 import { productInternalCommands } from "./commands/internal";
@@ -42,6 +43,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     update: writes.update, upsert: writes.upsert, upsertRelationships: writes.upsertRelationships, createOptions: writes.createOptions,
     createVariants: writes.createVariants, createCategories: writes.createCategories, addImageToVariant: writes.addImageToVariant,
     updateOptions: writes.updateOptions, updateVariants: writes.updateVariants, updateVariantsBySelector: writes.updateVariantsBySelector,
+    updateVariantsForWorkflow: writes.updateVariantsForWorkflow,
     countImages: reads.countImages, updateValues: writes.updateValues, updateCollections: writes.updateCollections,
     updateCategories: writes.updateCategories, upsertOptions: writes.upsertOptions, upsertVariants: writes.upsertVariants,
     upsertCollections: writes.upsertCollections, upsertCategories: writes.upsertCategories });
@@ -67,5 +69,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
           eventName: metadata.product.updatedEvent,
           metadata: { source: Modules.PRODUCT, object: metadata.product.eventObject, action: CommonEvents.UPDATED }, eventLimit: productReferenceReplacementEventLimit },
       }));
-  return { metadata, commands, withService, graph, workflow, logicalPolicy };
+  const variantUpdateWorkflow = yield* Effect.fromResult(productVariantUpdateWorkflowModule(description, commands, graph,
+    metadata.variant.updatedEvent, { ...logicalPolicy, commands: Object.values(commands) }));
+  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, logicalPolicy };
 });

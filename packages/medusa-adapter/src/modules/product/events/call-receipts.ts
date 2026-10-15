@@ -53,6 +53,7 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
     ["productCreatevariant", productLogicalVariantCreateEventPolicy(catalog).validateLogicalCall],
     ["productupdatevariant", productLogicalVariantChangeEventPolicy(catalog, "update")],
     ["productupsertvariant", productLogicalVariantChangeEventPolicy(catalog, "upsert")],
+    ["productUpdateVariantsForWorkflow", productLogicalVariantChangeEventPolicy(catalog, "selector")],
     ["productDeleteproduct", productLogicalDeleteEventPolicy(catalog).validateLogicalCall],
     ["productSoftDelete", productLogicalLifecycleEventPolicy(catalog, "softDelete").validateLogicalCall],
     ["productSoftDeleteVariant", productLogicalLifecycleEventPolicy(catalog, "softDelete", "variant").validateLogicalCall],

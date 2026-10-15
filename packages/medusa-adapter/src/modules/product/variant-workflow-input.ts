@@ -21,6 +21,22 @@ export const SimpleVariantInput = Schema.Struct({
   })).check(Schema.isMaxLength(2))),
 });
 export const VariantSelector = Schema.Struct({ id: Id });
+export const VariantUpdateSelector = Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(4))]) });
+export const VariantSelectorUpdate = Schema.Struct({ selector: VariantUpdateSelector, update: Schema.JsonObject });
+export const decodeVariantSelectorUpdate = commerceDecoder(VariantSelectorUpdate, "invalidInput");
+/** Checked DML owns the scalar allowlist; the value/DAL owner validates values. */
+export function variantUpdateData<const Extra extends Schema.Struct.Fields>(columns: readonly string[], extra: Extra) {
+  const scalarNames = columns.filter(name => !["id", "product_id", "created_at", "updated_at", "deleted_at"].includes(name));
+  const allowed = new Set(scalarNames);
+  const extras = new Set([...Object.keys(extra), "options"]);
+  return Schema.StructWithRest(Schema.Struct({ ...extra,
+    options: Schema.optionalKey(Schema.Record(Schema.String, Schema.String).check(Schema.makeFilter(value => Object.keys(value).length <= 1))),
+  }), [Schema.Record(Schema.String, Schema.Json)]).check(Schema.makeFilter(value =>
+    Object.keys(value).every(name => allowed.has(name) || extras.has(name))));
+}
+export function variantUpdateInput(columns: readonly string[]) {
+  return variantUpdateData(columns, { id: Id });
+}
 export const VariantThumbnailUpdate = Schema.Struct({ thumbnail: Schema.Null });
 export const decodeVariantThumbnailUpdate = commerceDecoder(Schema.Struct({
   selector: VariantSelector, update: VariantThumbnailUpdate,

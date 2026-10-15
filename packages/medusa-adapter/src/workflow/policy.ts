@@ -9,6 +9,8 @@ export const productShippingProfileResources = Object.freeze({ ...defaultCommerc
 export const productVariantPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Complete finite Variant graph, including Inventory children and both Link families. */
 export const productVariantInventoryResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
+/** Existing-variant edits with native base-price replacement and Link dismissal. */
+export const productVariantUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
 /** Complete finite Product root; its maximum envelope has a distinct allowance. */
 export const productCreationResources = Object.freeze({ ...defaultCommerceResources, calls: 512, eventMessages: 128 });
 /** Four locations/addresses and eight native Inventory levels, one settlement. */

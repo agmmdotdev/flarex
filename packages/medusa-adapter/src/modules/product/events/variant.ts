@@ -5,7 +5,7 @@ import { commerceError, isJsonObject, type JsonObject } from "@flarex/persistenc
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductRuntimeMetadata } from "../runtime-metadata";
-import { VariantImagePairs, decodeVariantThumbnailUpdate } from "../variant-workflow-input";
+import { VariantImagePairs, decodeVariantThumbnailUpdate, decodeVariantSelectorUpdate } from "../variant-workflow-input";
 import { productModuleEventCapture, EventId } from "./capture";
 import { productResultGraphMatcher } from "./result";
 
@@ -85,19 +85,29 @@ export function productLogicalVariantCreateEventPolicy(catalog: ProductRuntimeMe
 /** Standalone Variant changes own the selected Variant rows and their silent
  * OptionValue pivots. The native event family identifies every changed root. */
 export function productLogicalVariantChangeEventPolicy(catalog: ProductRuntimeMetadata,
-  operation: "update" | "upsert"): LogicalCallReceiptValidation {
+  operation: "update" | "upsert" | "selector"): LogicalCallReceiptValidation {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const commandName = operation === "update" ? "productupdatevariant" : "productupsertvariant";
+  const commandName = operation === "update" ? "productupdatevariant" : operation === "selector" ? "productUpdateVariantsForWorkflow" : "productupsertvariant";
   const mismatch = () => commerceError("receiptMismatch");
   return Effect.fn("ProductEvents.validateLogicalVariantChange")(function* (call, activity) {
     if (call.commandName !== commandName || activity.lifecycle.length !== 0 ||
       activity.setNull.length !== 0 || activity.referenceReplacements.length !== 0)
       return yield* Effect.fail(mismatch());
-    const requested = operation === "update" && isJsonObject(call.input) &&
+    const selection = operation === "selector" ? yield* Effect.fromResult(decodeVariantSelectorUpdate(call.input))
+      .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause))) : undefined;
+    const selectedIds = selection === undefined ? [] : typeof selection.selector.id === "string" ? [selection.selector.id] : selection.selector.id;
+    const results = (operation === "upsert" || operation === "selector") && Array.isArray(call.result) ? call.result : [call.result];
+    if (selection !== undefined && (results.some(row => !isJsonObject(row) || typeof row.id !== "string" || !selectedIds.includes(row.id))))
+      return yield* Effect.fail(mismatch());
+    if (selection !== undefined && results.length === 0) {
+      if (activity.mutations.length || call.events.length) return yield* Effect.fail(mismatch());
+      return;
+    }
+    const requested = selection !== undefined ? results.map(row => isJsonObject(row) ? { ...selection.update, id: row.id } : row)
+      : operation === "update" && isJsonObject(call.input) &&
       typeof call.input.id === "string" && call.input.data !== undefined && isJsonObject(call.input.data)
       ? [{ ...call.input.data, id: call.input.id }]
       : operation === "upsert" ? Array.isArray(call.input) ? call.input : [call.input] : [];
-    const results = operation === "upsert" && Array.isArray(call.result) ? call.result : [call.result];
     if (requested.length === 0 || requested.length !== results.length ||
       requested.some(row => !isJsonObject(row)) || results.some(row => !isJsonObject(row)))
       return yield* Effect.fail(mismatch());
@@ -120,7 +130,7 @@ export function productLogicalVariantChangeEventPolicy(catalog: ProductRuntimeMe
         after.deleted_at === null && before.product_id === after.product_id;
       if (mutation.table !== catalog.variant.table.name || typeof id !== "string" ||
         typeof after?.product_id !== "string" || !(created || updated) ||
-        (operation === "update" && !updated) || variants.has(id))
+        (operation !== "upsert" && !updated) || variants.has(id))
         return yield* Effect.fail(mismatch());
       variants.set(id, mutation);
       expected.add((created ? catalog.variant.createdEvent : catalog.variant.updatedEvent) + ":" + id);

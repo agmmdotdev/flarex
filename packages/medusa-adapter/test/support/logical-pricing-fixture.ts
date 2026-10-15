@@ -14,10 +14,11 @@ export interface LogicalPricingHostFixture {
 
 /** Select the complete Pricing source beside an initialized Currency
  * source. The caller owns Pricing initialization and host release. */
-export async function prepareLogicalPricingHost(currency: LogicalCurrencyFixture): Promise<LogicalPricingHostFixture> {
+export async function prepareLogicalPricingHost(currency: LogicalCurrencyFixture,
+  admission: "create" | "variant-updates" = "create"): Promise<LogicalPricingHostFixture> {
   const definition = currency.pricingDefinition;
   if (definition === undefined) throw new Error("Missing Pricing source");
-  const runtime = await Effect.runPromise(makeLocalPricingCommands());
+  const runtime = await Effect.runPromise(makeLocalPricingCommands(admission));
   const seed = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset",
     version: 1, rows: [] }, 1_048_576, { invalidInput: () => new Error("Invalid Pricing seed"),
       hashFailure: cause => new Error("Pricing seed hash", { cause }) }));

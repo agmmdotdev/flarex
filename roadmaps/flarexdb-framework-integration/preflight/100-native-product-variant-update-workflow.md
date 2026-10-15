@@ -2,7 +2,7 @@
 
 ## Status And Outcome
 
-Status: authorized source-backed preflight; implementation pending.
+Status: implemented bounded profile.
 
 The next connected Product milestone is the actual
 `updateProductVariantsWorkflow`, including existing-variant edits, replacement
@@ -36,14 +36,20 @@ under `third_party/medusa/upstream/` are:
 - `integration-tests/modules/__tests__/product/workflows/update-product-variants.spec.ts`
 - `packages/modules/pricing/integration-tests/__tests__/services/pricing-module/price-set.spec.ts`
 
-The executing packages already promote the variant update step, Product variant
-update/upsert commands, Pricing service algorithms and both Variant Link
-definitions. The parent composer, Pricing update step and two Link lookup/
-dismissal steps remain unpromoted. Product's existing workflow selector update
-method admits only thumbnail clearing; it does not admit this complete composer.
-Pricing exposes creation/read/calculation methods while its DAL refuses update,
-delete and upsert. Variant Link workflow methods currently admit creation and
-native list operations, but no dismissal operation.
+The executing packages promote the actual parent composer, variant update step,
+Pricing update step and Link lookup/dismissal steps. The named Product variant
+update view uses existing command owners; the image workflow retains its
+thumbnail-only selector contract. Pricing's explicit `variant-updates` profile
+admits the native Price/PriceRule mutation closure, while its default creation
+profile retains its existing method selection. Variant Link preparation admits
+Inventory dismissal only in the explicit update profile.
+
+Native preimage selections contain DTO-only fields. The named workflow list
+methods follow the pinned Drizzle projection behavior: retain primary keys and
+select actual stored columns. Ordinary reads retain strict projection admission.
+The workflow outcome boundary captures native optional `undefined` members as
+omitted JSON properties before core settlement. Neither seam changes the native
+business algorithm or introduces another settlement owner.
 
 ## Native Trace And Compatibility
 
@@ -74,6 +80,13 @@ native list operations, but no dismissal operation.
    includes `price_list_id: null`; associated PriceList prices must survive.
    Exact numeric/raw pairs, generated identities, relation rereads, native event
    capture and result assembly remain with their existing owners.
+   The native rule-update path creates new rules before deleting old rules. A
+   retained Price with replacement rules using the same attribute/operator can
+   collide with PriceRule's active unique index. Preserve a failing witness and
+   characterize both database lanes; do not reorder the native algorithm in the
+   adapter or weaken uniqueness. Rule omission, clearing and replacement using
+   different keys retain their independent admission. A native behavior
+   correction needs its own explicit disposition after native constraint proof.
 6. Output variants receive `price_set` from the sets updated by this execution.
    Omitted price work does not trigger an extra hydration read. The composer
    emits ordered `product-variant.updated` workflow messages and runs
@@ -92,15 +105,19 @@ shape. This trace is static evidence, not an executing compatibility claim.
 - Derive admitted variant scalar edits from checked Product metadata and reuse
   existing option-value update behavior. Parent identity changes, new variants,
   inline Inventory association edits and arbitrary module-local creation remain
-  outside this root. Preserve native metadata merging and nullable fields.
+  outside this root. Preserve nullable fields and native Variant metadata
+  replacement: `updateVariants_` calls internal-service `upsertWithReplace`,
+  bypassing the separate scalar `update` metadata-merge path. Pinned Drizzle
+  replaces the supplied JSON column rather than merging its previous keys.
 - Each selected set has at most two existing base prices and at most two incoming
-  prices, each with at most one admitted string-valued rule. Retain native
+  prices, each with at most one admitted string-valued rule or a null-valued
+  rule removal. Retain native
   create-versus-partial-update field requirements; do not reuse a create-only DTO
   as the partial-update decoder. Oversized persisted closure must fail through
   the appropriate owner before publication, rather than truncate old rows.
 - Each variant has at most two existing Inventory links. This root dismisses
   those links only when the native composer selects them.
-- Propose a named 256-call/64-event root using the existing typed budget issuer.
+- Admit a named 256-call/64-event root using the existing typed budget issuer.
   Existing profiles and byte, row, fact, deadline and isolation limits retain
   their contracts. Prove the maximum mixed graph first. If it cannot fit, revise
   the named admission explicitly; never silently raise a shared default.

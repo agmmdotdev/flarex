@@ -23,12 +23,13 @@ export interface WorkflowGraphResource {
 }
 const decode = Schema.decodeUnknownResult(Input, { onExcessProperty: "error" });
 const refusal = (detail: string) => new WorkflowDefinitionError({ reason: "unsupportedProfile", detail });
-const step = createStep("use-query-graph-step", async (input: QueryGraphInput, { container }) => {
+/** The portable Query ABI requires explicit pagination and complete-set proof
+ * when a native caller omits it. Reuse this seam in direct native graph calls. */
+export async function queryWorkflowGraph(input: QueryGraphInput, query: WorkflowGraphResource) {
   // Deliberate Promise/throw compatibility edge for the Medusa step signature.
   const { options, pagination, ...queryInput } = Result.getOrThrow(decode(input).pipe(
     Result.mapError(() => refusal("Unsupported native graph step options")),
   ));
-  const query = container.resolve<WorkflowGraphResource>("query");
   const single = options?.isList === false;
   if (single && (pagination?.skip ?? 0) !== 0) throw refusal("A single graph result cannot skip rows");
   const result = await query.graph({ ...queryInput, pagination: pagination ?? { take: query.maxPageSize } });
@@ -36,7 +37,10 @@ const step = createStep("use-query-graph-step", async (input: QueryGraphInput, {
     throw refusal("The graph step requires a complete bounded result");
   }
   if (single && result.data.length > 1) throw refusal("The graph step expected zero or one record");
-  return new StepResponse({ data: single ? result.data.at(0) : result.data, metadata: { ...result.metadata } });
+  return { data: single ? result.data.at(0) : result.data, metadata: { ...result.metadata } };
+}
+const step = createStep("use-query-graph-step", async (input: QueryGraphInput, { container }) => {
+  return new StepResponse(await queryWorkflowGraph(input, container.resolve<WorkflowGraphResource>("query")));
 });
 
 // isList controls the runtime shape. Dynamic field selection deliberately exposes

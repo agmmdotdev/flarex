@@ -313,19 +313,29 @@ describe("workflow registration and scoped resource composition", () => {
     await expect(escaped?.run(Effect.succeed("late"))).rejects.toMatchObject({ reason: "closed" });
   });
 
-  it("normalizes only a completed top-level void result to native null", async () => {
+  it("normalizes a completed top-level void result to native null", async () => {
     for (const value of [undefined, null, false, 0, "", [], {}]) {
       const flow = createWorkflow("completion-value", () => new WorkflowResponse(value));
       expect(await Effect.runPromise(runNativeMedusaWorkflow(Result.getOrThrow(flow.prepare()), context(), null,
         owner => bindWorkflowResources(resources, members, undefined, [], context(), owner))))
         .toEqual(value === undefined ? null : value);
     }
-    for (const value of [{ missing: undefined }, [undefined]]) {
+  });
+
+  it("omits native optional object members while rejecting undefined array entries", async () => {
+    const value = { missing: undefined, kept: 0, nested: { omitted: undefined, kept: false } };
+    const flow = createWorkflow("optional-completion-value", () => new WorkflowResponse(value));
+    expect(await Effect.runPromise(runNativeMedusaWorkflow(Result.getOrThrow(flow.prepare()), context(), null,
+      owner => bindWorkflowResources(resources, members, undefined, [], context(), owner))))
+      .toEqual({ kept: 0, nested: { kept: false } });
+    for (const value of [[undefined], { nested: [undefined] }]) {
       const flow = createWorkflow("invalid-completion-value", () => new WorkflowResponse(value));
       const exit = await Effect.runPromise(Effect.exit(runNativeMedusaWorkflow(Result.getOrThrow(flow.prepare()), context(), null,
         owner => bindWorkflowResources(resources, members, undefined, [], context(), owner))));
       expect(Exit.isFailure(exit)).toBe(true);
     }
+    expect(() => createWorkflow("invalid-symbol-result", () => new WorkflowResponse(Symbol("invalid-result"))))
+      .toThrow("Unsupported or cyclic definition literal");
   });
 
   it("refuses the root on a decoder defect while preserving the defect channel", async () => {

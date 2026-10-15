@@ -16,6 +16,19 @@ export const PriceSetInput = Schema.Struct({ id: Schema.optionalKey(PricingId),
 });
 export const PriceSetsInput = Schema.Array(PriceSetInput).check(Schema.isMaxLength(4));
 export const decodePriceSetCreate = commerceDecoder(Schema.Union([PriceSetInput, PriceSetsInput]), "invalidInput");
+const UpdateRules = Schema.optionalKey(Schema.Record(Text, Schema.NullOr(Text)).check(Schema.makeFilter(value => Object.keys(value).length <= 1)));
+export const BasePriceUpdateInput = Schema.Struct({
+  id: PricingId, title: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  currency_code: Schema.optionalKey(Text), amount: Schema.optionalKey(Numeric),
+  min_quantity: Schema.optionalKey(Schema.NullOr(Numeric)), max_quantity: Schema.optionalKey(Schema.NullOr(Numeric)),
+  rules: UpdateRules,
+});
+export const BasePricesUpdate = Schema.Array(Schema.Union([BasePriceUpdateInput, Schema.Struct({ ...BasePriceInput.fields, rules: UpdateRules })])).check(Schema.isMaxLength(2));
+export const PriceSetsUpsertInput = Schema.Array(Schema.Struct({ id: PricingId, prices: BasePricesUpdate })).check(Schema.isMaxLength(4));
+export const PriceSetsUpdateInput = Schema.Struct({ selector: Schema.Struct({ id: Schema.Union([PricingId,
+  Schema.Array(PricingId).check(Schema.isMaxLength(4))]) }), update: Schema.Struct({ prices: BasePricesUpdate }) });
+export const decodePriceSetUpsert = commerceDecoder(PriceSetsUpsertInput, "invalidInput");
+export const decodePriceSetUpdate = commerceDecoder(PriceSetsUpdateInput, "invalidInput");
 const ListPriceInput = Schema.Struct({ id: Schema.optionalKey(PricingId), price_set_id: PricingId,
   currency_code: Text, amount: Numeric, title: Schema.optionalKey(Schema.NullOr(Schema.String)),
   min_quantity: Schema.optionalKey(Schema.NullOr(Numeric)), max_quantity: Schema.optionalKey(Schema.NullOr(Numeric)),

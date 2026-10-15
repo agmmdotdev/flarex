@@ -7,7 +7,7 @@ import { commerceError, isJsonObject, type Json } from "@flarex/persistence-post
 import { decodeVariantImageInput, decodeProductCreateInput } from "../service-input";
 import { captureProductTagUpsert } from "../tag-input";
 import { decodeProductTagUpdateInput } from "../tag-update-input";
-import { decodeVariantThumbnailUpdate } from "../variant-workflow-input";
+import { decodeVariantThumbnailUpdate, decodeVariantSelectorUpdate } from "../variant-workflow-input";
 import { validateProductCreate } from "../graph";
 import { decodeRelatedUpdate, decodeProductRelationshipUpsert } from "../value-profile";
 import { decodeProductLifecycleIds } from "../lifecycle";
@@ -125,6 +125,15 @@ export function productMutationCommands({ metadata, withService, withCollectionS
       .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     return yield* withService(ctx, ({ service, context }) => service.updateProductVariants({ ...decoded.selector }, { ...decoded.update }, context));
   }));
+  const updateVariantsForWorkflow = defineCommerceCommand("productUpdateVariantsForWorkflow", "write", Effect.fn("ProductAdapter.updateVariantsForWorkflow")(function* (ctx, input) {
+    const decoded = yield* Effect.fromResult(decodeVariantSelectorUpdate(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    yield* Effect.fromResult(metadata.valueProfile.validateRelatedUpdateData(metadata.variant.table.name, decoded.update))
+      .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    const selector = { id: typeof decoded.selector.id === "string" ? decoded.selector.id : [...decoded.selector.id] };
+    // Product metadata checks the partial DTO before native normalization.
+    return yield* withService(ctx, ({ service, context }) => service.updateProductVariants(selector,
+      structuredClone(decoded.update) as ProductTypes.UpdateProductVariantDTO, context));
+  }));
   // SAFETY: DML-derived admission restricts fields before these framework DTO
   // assertions. The selected DAL/core still validate normalized rows and authority.
   return {
@@ -135,7 +144,7 @@ export function productMutationCommands({ metadata, withService, withCollectionS
       if (new Set(rows.map(row => row.id)).size !== rows.length) return yield* ctx.refuse(commerceError("invalidInput"));
       return yield* withService(ctx, ({ service, context }) => service.upsertProducts(structuredClone(rows), context));
     })),
-    removeImageFromVariant, softDeleteTags, updateTagsBySelector, updateVariantsBySelector,
+    removeImageFromVariant, softDeleteTags, updateTagsBySelector, updateVariantsBySelector, updateVariantsForWorkflow,
     createTags: commands.write("productCreatetag", createInput(metadata.tag.table.name), ({ service, context }, args) => service.createProductTags(args.rows as ProductTypes.CreateProductTagDTO[], context), relatedResult),
     createTypes: commands.write("productCreatetype", createInput(metadata.type.table.name), ({ service, context }, args) => service.createProductTypes(args.rows as ProductTypes.CreateProductTypeDTO[], context), relatedResult),
     createCollections: collections.write("productCreatecollection", createInput(metadata.collection.table.name), ({ service, context }, args) => service.createProductCollections(args.rows as ProductTypes.CreateProductCollectionDTO[], context), relatedResult),

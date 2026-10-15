@@ -1,10 +1,9 @@
 import { Effect, Schema } from "effect";
 import { BigNumber } from "@medusajs/utils/totals/big-number";
 import { MathBN } from "@medusajs/framework/utils/portable";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "./decoder";
 import { captureCommerceInput } from "./input";
-import { isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
 const Raw = Schema.Struct({
@@ -36,12 +35,15 @@ export const encodeExactNumeric = Effect.fn("MedusaAdapter.encodeExactNumeric")(
 /** The native DAL may supply genuine BigNumber objects. Descriptor capture
  * keeps accessors/prototypes inert before converting only declared quantities. */
 export const captureExactNumericRow = Effect.fn("MedusaAdapter.captureExactNumericRow")(function* (
-  input: unknown, columns: readonly { readonly name: string; readonly defaultValue?: unknown }[], defaults = false,
+  input: unknown, columns: readonly { readonly name: string; readonly defaultValue?: unknown; readonly nullable?: boolean }[], defaults = false,
 ) {
   const row = yield* captureNumericRecord(input);
   for (const column of columns) {
     if (Object.hasOwn(row, "raw_" + column.name)) return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (row[column.name] === undefined && !defaults) continue;
+    if (column.nullable && (row[column.name] === null || row[column.name] === undefined && column.defaultValue == null)) {
+      row[column.name] = null; row["raw_" + column.name] = null; continue;
+    }
     const encoded = yield* encodeExactNumeric(row[column.name] ?? column.defaultValue);
     row[column.name] = encoded.value; row["raw_" + column.name] = encoded.raw;
   }
@@ -67,7 +69,7 @@ const captureNumericRecord = Effect.fn("MedusaAdapter.captureNumericRecord")(fun
 
 const decodeNativePair = Schema.decodeUnknownEffect(Schema.Struct({ entity: Schema.Unknown, update: Schema.Unknown }), { onExcessProperty: "error" });
 export const captureExactNumericUpdatePair = Effect.fn("MedusaAdapter.captureExactNumericUpdatePair")(function* (
-  input: unknown, columns: readonly { readonly name: string; readonly defaultValue?: unknown }[],
+  input: unknown, columns: readonly { readonly name: string; readonly defaultValue?: unknown; readonly nullable?: boolean }[],
 ) {
   const pair = yield* decodeNativePair(yield* captureNumericRecord(input)).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   return { entity: yield* Effect.fromResult(captureCommerceInput(pair.entity)), update: yield* captureExactNumericRow(pair.update, columns) };
@@ -87,4 +89,34 @@ export const decodeExactNumeric = Effect.fn("MedusaAdapter.decodeExactNumeric")(
     return yield* Effect.fail(commerceError("storedCorruption"));
   }
   return numeric.numeric;
+});
+
+/** Metadata-selected numeric projection. Native entities can retain exact
+ * decimals; public DTOs convert only after every stored companion is checked. */
+export const projectExactNumericColumns = Effect.fn("MedusaAdapter.projectExactNumericColumns")(function* (
+  value: Json,
+  columns: readonly { readonly name: string; readonly nullable?: boolean }[], mode: "exact" | "dto" | "reserialize" = "dto",
+) {
+  const output: JsonObject[] = [];
+  for (const stored of Array.isArray(value) ? value : [value]) {
+    if (!isJsonObject(stored)) return yield* Effect.fail(commerceError("storedCorruption"));
+    const row = { ...stored };
+    for (const column of columns) if (Object.hasOwn(stored, column.name)) {
+      const value = stored[column.name], raw = stored["raw_" + column.name];
+      const decoded = yield* Effect.gen(function* () {
+        // Native Pricing serializes public numeric DTOs more than once. Validate
+        // their raw exact value independently and require the same DTO number.
+        if (mode === "reserialize" && typeof value === "number") {
+          const companion = yield* Effect.fromResult(decodeRaw(raw));
+          const numeric = yield* decodeExactNumeric(companion.value, companion);
+          if (numeric !== value) return yield* Effect.fail(commerceError("storedCorruption"));
+          return numeric;
+        }
+        return yield* decodeExactNumeric(value, raw, column.nullable);
+      });
+      row[column.name] = mode === "exact" ? value! : decoded;
+    }
+    output.push(row);
+  }
+  return Array.isArray(value) ? output : output[0]!;
 });

@@ -49,10 +49,12 @@ const decodePricingRead = commerceDecoder(Schema.Struct({ filters: Schema.option
 })), config: Schema.optionalKey(Config) }), "invalidInput");
 /** One native Link router and borrowed owner for the two named Product links.
  * Native routing owns associations; callers never register tables or services. */
-export const prepareLocalVariantLinks = Effect.fn("VariantLinks.prepare")(function* () {
+export const prepareLocalVariantLinks = Effect.fn("VariantLinks.prepare")(function* (admission: "create" | "variant-updates" = "create") {
+  if (admission !== "create" && admission !== "variant-updates") return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const mutable = admission === "variant-updates";
   const inventory = yield* prepareLinkService(yield* captureVariantInventoryLinkMetadata());
   const pricing = yield* prepareLinkService(yield* captureVariantPricingLinkMetadata());
-  const inventoryNative = yield* Effect.fromResult(prepareLinkWorkflowService(inventory, "inventoryLink"));
+  const inventoryNative = yield* Effect.fromResult(prepareLinkWorkflowService(inventory, "inventoryLink", mutable));
   const pricingNative = yield* Effect.fromResult(prepareLinkWorkflowService(pricing, "pricingLink"));
   const compose = (ctx: CommerceCommandContext, owner: Parameters<typeof inventory.bind>[1]) => {
     const inventoryBinding = inventory.bind(ctx, owner), pricingBinding = pricing.bind(ctx, owner);
@@ -86,7 +88,8 @@ export const prepareLocalVariantLinks = Effect.fn("VariantLinks.prepare")(functi
   };
   const logicalEventPolicy = () => selectedLinkLogicalEventPolicy([
     { tableName: "product_variant_inventory_item", serviceName: inventory.serviceName, entityName: inventory.entityName,
-      endpoints: ["variant_id", "inventory_item_id"], createCommands: [inventoryNative.createName] },
+      endpoints: ["variant_id", "inventory_item_id"], createCommands: [inventoryNative.createName],
+      dismissCommands: inventoryNative.dismissName === undefined ? [] : [inventoryNative.dismissName] },
     { tableName: "product_variant_price_set", serviceName: pricing.serviceName, entityName: pricing.entityName,
       endpoints: ["variant_id", "price_set_id"], createCommands: [pricingNative.createName] },
   ]);
@@ -94,10 +97,13 @@ export const prepareLocalVariantLinks = Effect.fn("VariantLinks.prepare")(functi
     output: decodeCreated, moduleEvents: [inventory.entityName + ".attached", pricing.entityName + ".attached"] }));
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: "flarex-variant-links", profile: "medusa.variant.links" },
     methods: { create: method, inventoryNativeCreate: inventoryNative.createMethod, inventoryNativeList: inventoryNative.listMethod,
-      pricingNativeCreate: pricingNative.createMethod, pricingNativeList: pricingNative.listMethod }, graph,
-    logical: { ...logicalEventPolicy(), commands: [create, countInventory, countPricing, inventoryNative.create, inventoryNative.list, pricingNative.create, pricingNative.list] } }));
+      pricingNativeCreate: pricingNative.createMethod, pricingNativeList: pricingNative.listMethod,
+      ...(inventoryNative.dismissMethod === undefined ? {} : { inventoryNativeDismiss: inventoryNative.dismissMethod }) }, graph,
+    logical: { ...logicalEventPolicy(), commands: [create, countInventory, countPricing, inventoryNative.create, inventoryNative.list, pricingNative.create, pricingNative.list,
+      ...(inventoryNative.dismiss === undefined ? [] : [inventoryNative.dismiss])] } }));
   return { create, countInventory, countPricing,
-    commands: [create, countInventory, countPricing, inventoryNative.create, inventoryNative.list, pricingNative.create, pricingNative.list],
+    commands: [create, countInventory, countPricing, inventoryNative.create, inventoryNative.list, pricingNative.create, pricingNative.list,
+      ...(inventoryNative.dismiss === undefined ? [] : [inventoryNative.dismiss])],
     nativeServices: { inventory: inventoryNative, pricing: pricingNative },
     workflow, graph, logicalEventPolicy, withService: use };
 });

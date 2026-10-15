@@ -38,12 +38,12 @@ export interface LogicalInventoryHosts {
   readonly link: { readonly runtime: Effect.Success<ReturnType<typeof prepareLocalVariantLinks>>; readonly hostInput: LogicalCommerceHostInput<unknown> };
 }
 export async function prepareLogicalInventoryHosts(fixture: LogicalCurrencyFixture,
-  admission: { readonly levels?: boolean; readonly stockLocations?: boolean; readonly stock?: boolean } = {}): Promise<LogicalInventoryHosts> {
+  admission: { readonly levels?: boolean; readonly stockLocations?: boolean; readonly stock?: boolean; readonly variantLinks?: "variant-updates" } = {}): Promise<LogicalInventoryHosts> {
   const empty = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: [] }, 1_048_576,
     { invalidInput: () => new Error("Invalid Inventory seed"), hashFailure: cause => new Error("Inventory seed hash", { cause }) }));
   const inventory = await Effect.runPromise(makeLocalInventoryCommands(admission.stock === true ? "stock" : admission.levels === true ? "levels" : "items"));
   const stockLocation = await Effect.runPromise(makeStockLocationCommands(admission.stockLocations === true ? "create" : "read"));
-  const link = await Effect.runPromise(prepareLocalVariantLinks());
+  const link = await Effect.runPromise(prepareLocalVariantLinks(admission.variantLinks ?? "create"));
   const inventoryDefinition = await Effect.runPromise(compileInventoryDefinition());
   const stockDefinition = await Effect.runPromise(compileStockLocationDefinition());
   const linkDefinition = await Effect.runPromise(compileVariantLinksDefinition());
