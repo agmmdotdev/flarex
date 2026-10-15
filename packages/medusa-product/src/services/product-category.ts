@@ -50,6 +50,69 @@ type CategoryTransformOptions = {
   includeAncestorsTree?: boolean
 }
 
+type CategoryRankRow = { readonly id: string; readonly rank?: number }
+
+/** Category paths use dots as ancestry separators and reserve the root marker. */
+export function isValidCategoryIdentity(id: unknown): id is string {
+  return typeof id === "string" && id.length > 0 && !id.includes(".") && id !== "__root__"
+}
+
+/** Native creation prepares every root before insertion. Existing sibling
+ * counts stay initial; only earlier prepared roots contribute the batch offset. */
+export function categoryCreationFields(
+  id: string,
+  parentMpath: string | undefined,
+  requestedRank: number | undefined,
+  initialSiblingCount: number,
+  batchOffset: number
+): { rank: number; mpath: string } {
+  const maximumRank = initialSiblingCount + batchOffset
+  let rank = requestedRank ?? maximumRank
+  if (rank > maximumRank) rank = maximumRank
+  return { rank, mpath: parentMpath === undefined ? id : `${parentMpath}.${id}` }
+}
+
+/** The native rank-maintenance effects, independent of repository access.
+ * Preserve insertion order so the service and its receipt agree on the exact
+ * sibling cohorts, intervals and updates. */
+export function categoryRankUpdates(
+  existing: CategoryRankRow,
+  targetSiblings: readonly CategoryRankRow[],
+  nextRank: number,
+  parentChanged: boolean,
+  oldSiblings: readonly CategoryRankRow[] = []
+): Map<string, { rank: number }> {
+  const currentRank = existing.rank ?? 0
+  const updates = new Map<string, { rank: number }>()
+  if (parentChanged) {
+    for (const sibling of oldSiblings) {
+      if (sibling.id !== existing.id && (sibling.rank ?? 0) > currentRank) {
+        updates.set(sibling.id, { rank: (sibling.rank ?? 0) - 1 })
+      }
+    }
+    for (const sibling of targetSiblings) {
+      if ((sibling.rank ?? 0) >= nextRank) {
+        updates.set(sibling.id, { rank: (sibling.rank ?? 0) + 1 })
+      }
+    }
+  } else if (currentRank < nextRank) {
+    for (const sibling of targetSiblings) {
+      const siblingRank = sibling.rank ?? 0
+      if (sibling.id !== existing.id && siblingRank > currentRank && siblingRank <= nextRank) {
+        updates.set(sibling.id, { rank: siblingRank - 1 })
+      }
+    }
+  } else if (currentRank > nextRank) {
+    for (const sibling of targetSiblings) {
+      const siblingRank = sibling.rank ?? 0
+      if (sibling.id !== existing.id && siblingRank >= nextRank && siblingRank < currentRank) {
+        updates.set(sibling.id, { rank: siblingRank + 1 })
+      }
+    }
+  }
+  return updates
+}
+
 export default class ProductCategoryService extends MedusaInternalService<
   InjectedDependencies,
   typeof ProductCategory
@@ -414,16 +477,10 @@ export default class ProductCategoryService extends MedusaInternalService<
         parentCategoryId,
         sharedContext
       )
-      const maxRank = siblingsCount + batchOffset
-
       category.parent_category_id = parentCategoryId
-      category.rank ??= maxRank
-      if (category.rank > maxRank) {
-        category.rank = maxRank
-      }
-      category.mpath = parentCategory
-        ? `${parentCategory.mpath}.${categoryId}`
-        : categoryId
+      const fields = categoryCreationFields(categoryId, parentCategory?.mpath, category.rank, siblingsCount, batchOffset)
+      category.rank = fields.rank
+      category.mpath = fields.mpath
 
       prepared.push(category)
       preparedById.set(categoryId, category)
@@ -502,7 +559,6 @@ export default class ProductCategoryService extends MedusaInternalService<
   ): Promise<void> {
     const invalid = () => new MedusaError(MedusaError.Types.INVALID_ARGUMENT,
       "Category identities, ranks and parent relationships must form a valid tree")
-    const validId = (id: unknown) => typeof id === "string" && id.length > 0 && !id.includes(".") && id !== "__root__"
     const proposed = new Map<string, string | null>()
     const observed = new Map<string, string | null | undefined>()
     const parentOf = async (id: string): Promise<string | null | undefined> => {
@@ -523,7 +579,7 @@ export default class ProductCategoryService extends MedusaInternalService<
     }
     for (const change of changes) {
       const { id, parent_category_id: parent, rank } = change
-      if (id !== undefined && !validId(id) || parent != null && !validId(parent) ||
+      if (id !== undefined && !isValidCategoryIdentity(id) || parent != null && !isValidCategoryIdentity(parent) ||
         rank !== undefined && (!Number.isSafeInteger(rank) || rank < 0)) throw invalid()
       if (id === undefined || parent === undefined) continue
       proposed.set(id, parent)
@@ -625,7 +681,6 @@ export default class ProductCategoryService extends MedusaInternalService<
   ): Promise<number> {
     const repository = this.getMutationRepository()
     const currentParentCategoryId = existing.parent_category_id ?? null
-    const currentRank = existing.rank ?? 0
     const targetSiblings = await this.listSiblingCategories(
       nextParentCategoryId,
       sharedContext
@@ -634,47 +689,10 @@ export default class ProductCategoryService extends MedusaInternalService<
       ? targetSiblings.length
       : Math.max(targetSiblings.length - 1, 0)
     const nextRank = Math.min(requestedRank ?? maxRank, maxRank)
-    const updates = new Map<string, { rank: number }>()
-
-    if (parentChanged) {
-      const oldSiblings = await this.listSiblingCategories(
-        currentParentCategoryId,
-        sharedContext
-      )
-      for (const sibling of oldSiblings) {
-        if (sibling.id !== existing.id && (sibling.rank ?? 0) > currentRank) {
-          updates.set(sibling.id, { rank: (sibling.rank ?? 0) - 1 })
-        }
-      }
-
-      for (const sibling of targetSiblings) {
-        if ((sibling.rank ?? 0) >= nextRank) {
-          updates.set(sibling.id, { rank: (sibling.rank ?? 0) + 1 })
-        }
-      }
-    } else if (currentRank < nextRank) {
-      for (const sibling of targetSiblings) {
-        const siblingRank = sibling.rank ?? 0
-        if (
-          sibling.id !== existing.id &&
-          siblingRank > currentRank &&
-          siblingRank <= nextRank
-        ) {
-          updates.set(sibling.id, { rank: siblingRank - 1 })
-        }
-      }
-    } else if (currentRank > nextRank) {
-      for (const sibling of targetSiblings) {
-        const siblingRank = sibling.rank ?? 0
-        if (
-          sibling.id !== existing.id &&
-          siblingRank >= nextRank &&
-          siblingRank < currentRank
-        ) {
-          updates.set(sibling.id, { rank: siblingRank + 1 })
-        }
-      }
-    }
+    const oldSiblings = parentChanged
+      ? await this.listSiblingCategories(currentParentCategoryId, sharedContext)
+      : []
+    const updates = categoryRankUpdates(existing, targetSiblings, nextRank, parentChanged, oldSiblings)
 
     if (updates.size) {
       await repository.update(
@@ -713,11 +731,16 @@ export default class ProductCategoryService extends MedusaInternalService<
     }
   }
 
-  private async deleteWithPortableRepository(
+  /** The native repository selects every deletion cohort before assigning any
+   * ranks. Preserve those initial identities while decrementing pending ranks
+   * for each requested entry, including duplicate IDs and overlapping cohorts. */
+  private async prepareDeletionWithPortableRepository(
     ids: string[],
     sharedContext: Context
-  ): Promise<string[]> {
+  ): Promise<void> {
     const repository = this.getMutationRepository()
+    const cohorts: string[][] = []
+    const pendingRanks = new Map<string, number>()
 
     for (const id of ids) {
       const category = await this.retrieveCategoryForMutation(
@@ -737,21 +760,42 @@ export default class ProductCategoryService extends MedusaInternalService<
         category.parent_category_id ?? null,
         sharedContext
       )
-      const siblingUpdates = siblings
+      const affectedSiblings = siblings
         .filter(
           (sibling) =>
             sibling.id !== category.id &&
             (sibling.rank ?? 0) > (category.rank ?? 0)
         )
-        .map((sibling) => ({
-          entity: { id: sibling.id },
-          update: { rank: (sibling.rank ?? 0) - 1 },
-        }))
+      cohorts.push(affectedSiblings.map((sibling) => sibling.id))
+      for (const sibling of affectedSiblings) {
+        if (!pendingRanks.has(sibling.id)) {
+          pendingRanks.set(sibling.id, sibling.rank ?? 0)
+        }
+      }
+    }
+
+    for (const cohort of cohorts) {
+      const siblingUpdates = cohort.map((id) => {
+        const previousRank = pendingRanks.get(id)
+        if (previousRank === undefined) {
+          throw new Error("Missing Category deletion cohort rank")
+        }
+        const rank = previousRank - 1
+        pendingRanks.set(id, rank)
+        return { entity: { id }, update: { rank } }
+      })
 
       if (siblingUpdates.length) {
         await repository.update(siblingUpdates, sharedContext)
       }
     }
+  }
+
+  private async deleteWithPortableRepository(
+    ids: string[],
+    sharedContext: Context
+  ): Promise<string[]> {
+    await this.prepareDeletionWithPortableRepository(ids, sharedContext)
 
     const deletedIds = await this.productCategoryRepository_.delete(
       ids,
@@ -788,6 +832,17 @@ export default class ProductCategoryService extends MedusaInternalService<
     )
 
     return deletedIds
+  }
+
+  @InjectTransactionManager("productCategoryRepository_")
+  async softDelete(
+    ids: string[],
+    @MedusaContext() sharedContext: Context = {}
+  ): Promise<
+    [InferEntityType<typeof ProductCategory>[], Record<string, unknown[]>]
+  > {
+    await this.prepareDeletionWithPortableRepository(ids, sharedContext)
+    return await this.getMutationRepository().softDelete(ids, sharedContext)
   }
 
   private async retrieveCategoryForMutation(

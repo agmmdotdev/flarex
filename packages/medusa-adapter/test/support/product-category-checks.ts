@@ -134,9 +134,11 @@ productIntegrationTestRunner({ moduleName: "product", testSuite: () => describe(
     if (schema === undefined) throw new Error("Missing Category test schema");
     const functionName = quote(schema) + "." + quote("fx_category_move_fail");
     const tableName = quote(schema) + "." + quote("fx_app_row_current");
-    await currency.persistence.exec("create sequence fx_category_move_attempts");
+    const sequenceName = quote(schema) + "." + quote("fx_category_move_attempts");
+    const sequenceLiteral = sequenceName.replaceAll("'", "''");
+    await currency.persistence.exec(`create sequence ${sequenceName}`);
     await currency.persistence.exec(`create function ${functionName}() returns trigger language plpgsql as $$
-      begin if nextval('fx_category_move_attempts') >= 2 then
+      begin if nextval('${sequenceLiteral}') >= 2 then
         raise exception 'injected Category materialization failure';
       end if; return new; end $$`);
     let triggerCreated = false;
@@ -147,13 +149,13 @@ productIntegrationTestRunner({ moduleName: "product", testSuite: () => describe(
       await expect(run(runLogicalProductCommand(runtime.commands.updateCategories, input)))
         .rejects.toMatchObject({ reason: "statementFailure" });
       expect((await currency.persistence.query<{ last_value: number; is_called: boolean }>(
-        "select last_value::integer as last_value, is_called from fx_category_move_attempts")).rows)
+        `select last_value::integer as last_value, is_called from ${sequenceName}`)).rows)
         .toEqual([{ last_value: 2, is_called: true }]);
       expect(await logicalCurrencyInventory(currency)).toEqual(before);
     } finally {
       if (triggerCreated) await currency.persistence.exec(`drop trigger fx_category_move_fail on ${tableName}`);
       await currency.persistence.exec(`drop function ${functionName}()`);
-      await currency.persistence.exec("drop sequence fx_category_move_attempts");
+      await currency.persistence.exec(`drop sequence ${sequenceName}`);
     }
     const key = writer.newRequestKey();
     const result = await run(runLogicalProductCommand(runtime.commands.updateCategories, input, key));

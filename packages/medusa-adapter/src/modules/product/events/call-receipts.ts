@@ -13,6 +13,7 @@ import { productRelationshipCallReceipt } from "./memberships";
 import { productLogicalInternalProductLifecycleEventPolicy, productLogicalLifecycleEventPolicy } from "./lifecycle";
 import { productLogicalTypeWorkflowCreatePolicy, productLogicalTypeSelectorUpdatePolicy } from "./type";
 import { collectionWorkflowSelectorUpdatePolicy } from "./collection-workflow";
+import { categoryWorkflowCreatePolicy, categoryWorkflowSelectorUpdatePolicy, categoryWorkflowSoftDeletePolicy } from "./category-workflow";
 
 /** Selected Product commands validate at the same native call boundary. Selection
  * of callable methods stays with the host; unsupported writes fail closed here. */
@@ -31,6 +32,9 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
   const tags = tagCallEventPolicy(catalog);
   const variantImages = productLogicalVariantImagesEventPolicy(catalog);
   const policies = new Map<string, LogicalCallReceiptValidation>([
+    ["productCreateCategoriesForWorkflow", categoryWorkflowCreatePolicy(catalog)],
+    ["productUpdateCategoriesBySelector", categoryWorkflowSelectorUpdatePolicy(catalog)],
+    ["productSoftDeleteCategoriesForWorkflow", categoryWorkflowSoftDeletePolicy(catalog)],
     ["productCreatecategory", categoryCreate.validateLogicalCall],
     ["productupdatecategory", categoryUpdate.validateLogicalCall],
     ["productupsertcategory", categoryUpsert.validateLogicalCall],
@@ -103,6 +107,7 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
         activity.lifecycle.length !== 0 && !["productSoftDelete", "productRestore", "productSoftDeleteTag", "productSoftDeleteVariant",
           "productSoftDeleteTypesForWorkflow",
           "productSoftDeleteCollectionsForWorkflow",
+          "productSoftDeleteCategoriesForWorkflow",
           "productSoftDeleteProductsForWorkflow", "productSoftDeleteVariantsForWorkflow",
           "productInternalProductsoftDelete", "productInternalProductrestore"].includes(call.commandName))
         return yield* Effect.fail(commerceError("receiptMismatch", { commandName: call.commandName,

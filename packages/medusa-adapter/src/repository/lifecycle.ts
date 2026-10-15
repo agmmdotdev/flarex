@@ -55,6 +55,7 @@ export function medusaLifecycle(ctx: CommerceCommandContext, catalog: Catalog, o
       .filter(row => typeof row.id === "string" && ids.includes(row.id) && (operation !== "softDelete" || row.deleted_at === null));
   });
   const plan = Effect.fn("MedusaLifecycle.plan")(function* (rootTable: Table, roots: readonly JsonObject[]) {
+    const rootIdentities = new Set(roots.map(row => tupleKey(row, keys(rootTable))));
     const planned = new Map<string, Map<string, JsonObject>>();
     const visit = Effect.fn("MedusaLifecycle.visit")(function* (table: Table, row: JsonObject): Effect.fn.Return<void, CommerceTransactionError> {
       const identity = tupleKey(row, keys(table));
@@ -95,7 +96,8 @@ export function medusaLifecycle(ctx: CommerceCommandContext, catalog: Catalog, o
         const changed = operation === "delete" ? yield* store.delete(ctx.manager, inputKeys) : yield* store.lifecycle(ctx.manager, operation, inputKeys);
         const model = catalog.entities.find(entity => entity.table === table);
         if (model !== undefined) cascades[model.model] = changed.map(row => ({ ...row }));
-        if (table === rootTable) changedRoots = changed.map(row => ({ ...row }));
+        if (table === rootTable) changedRoots = changed.filter(row => rootIdentities.has(tupleKey(row, keys(rootTable))))
+          .map(row => ({ ...row }));
       }
       return { roots: changedRoots, cascades };
     });

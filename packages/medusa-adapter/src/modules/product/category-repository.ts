@@ -10,6 +10,9 @@ import { compileProjection } from "../../query/projection";
 import { categoryReadProjection } from "./read-profile";
 import { executeRead, type CatalogSelection } from "../../query/read";
 import { valuePredicate } from "../../query/predicate";
+import { compareBytesLexicographically } from "@flarex/utils/bytes";
+import type { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { decodeProductCategoryIds } from "./category-input";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
@@ -30,10 +33,15 @@ const decodePrepared = commerceDecoder(Schema.Array(Schema.JsonObject).check(Sch
 const decodeRefs = commerceDecoder(Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(256)), "invalidInput");
 const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.Struct({ id: Id }), update: Schema.JsonObject })).check(Schema.isMaxLength(256)), "invalidInput");
 const decodeRank = commerceDecoder(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)), "invalidInput");
+const decodeManagedRank = commerceDecoder(Schema.Number.check(Schema.isInt(),
+  Schema.isBetween({ minimum: Number.MIN_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER })), "invalidInput");
+const encoder = new TextEncoder();
 
 /** The original service owns tree hydration. Its repository reads a complete,
  * scoped and bounded catalog before applying pagination and field projection. */
-export const findCategoryRows = Effect.fn("ProductCategory.find")(function* (ctx: CommerceCommandContext, metadata: ProductRuntimeMetadata, input: unknown) {
+export const findCategoryRows = Effect.fn("ProductCategory.find")(function* (ctx: CommerceCommandContext, metadata: ProductRuntimeMetadata, input: unknown,
+  observe?: (rows: readonly JsonObject[]) => Effect.Effect<void, CommerceTransactionError>,
+) {
   const captured = yield* Effect.fromResult(captureCommerceInput(input));
   const envelope = yield* Effect.fromResult(decodeEnvelope(captured));
   const where = yield* Effect.fromResult(decodeWhere(envelope.where ?? {}));
@@ -44,12 +52,15 @@ export const findCategoryRows = Effect.fn("ProductCategory.find")(function* (ctx
   const projection = yield* Effect.fromResult(compileProjection(metadata.readCatalog, metadata.category.table.name, options.fields, relations, categoryReadProjection));
   const children: Json[] = [{ kind: "isNull", column: "deleted_at" }];
   for (const [column, value] of Object.entries(where)) children.push(valuePredicate(column, value));
+  let complete: readonly JsonObject[] = [];
   const select = (all: readonly JsonObject[]): CatalogSelection => {
+    complete = all;
     const order = Object.entries(options.orderBy ?? { id: "ASC", rank: "ASC" });
     const sorted = [...all].sort((a, b) => {
       for (const [column, direction] of order) {
         const left = a[column], right = b[column];
-        const compared = typeof left === "number" && typeof right === "number" ? left - right : String(left).localeCompare(String(right));
+        const compared = typeof left === "number" && typeof right === "number" ? left - right
+          : compareBytesLexicographically(encoder.encode(String(left)), encoder.encode(String(right)));
         if (compared) return direction === "DESC" ? -compared : compared;
       }
       return 0;
@@ -62,6 +73,7 @@ export const findCategoryRows = Effect.fn("ProductCategory.find")(function* (ctx
     projection, paths: relations, withDeleted: false, relationFilters: [], ordering: new Map(),
     window: { kind: "catalog", order: "id", select },
   }, true);
+  if (observe !== undefined) yield* observe(complete);
   if (result.count === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
   return { rows: result.rows, count: result.count };
 });
@@ -108,8 +120,34 @@ export const updateCategoryRows = Effect.fn("ProductCategory.update")(function* 
     const { mpath, ...external } = pair.update;
     yield* Effect.fromResult(metadata.valueProfile.validateRelatedUpdateData(metadata.category.table.name, external));
     if (mpath !== undefined && typeof mpath !== "string") return yield* Effect.fail(commerceError("invalidInput"));
-    if (pair.update.rank !== undefined) yield* Effect.fromResult(decodeRank(pair.update.rank));
+    // External ranks are validated by the native service. Its deletion
+    // preparation can produce negative managed ranks for duplicate requests.
+    if (pair.update.rank !== undefined) yield* Effect.fromResult(decodeManagedRank(pair.update.rank));
     rows.push({ ...pair.update, id: pair.entity.id });
   }
   return yield* (yield* ctx.table(metadata.category.table.name)).write(ctx.manager, "update", rows);
+});
+
+/** Category's specialized native service already prepared leaf validation and
+ * sibling ranks. Its DAL transition changes only requested roots, with no DML
+ * child traversal or Product/pivot mutation. Preserve duplicate tuple entries. */
+export const softDeleteCategoryRows = Effect.fn("ProductCategory.softDelete")(function* (
+  ctx: CommerceCommandContext, metadata: ProductRuntimeMetadata, input: unknown,
+) {
+  const ids = yield* Effect.fromResult(captureCommerceInput(input))
+    .pipe(Effect.flatMap(value => Effect.fromResult(decodeProductCategoryIds(value))));
+  if (ids.length === 0) return [];
+  const unique = [...new Set(ids)];
+  const store = yield* ctx.table(metadata.category.table.name);
+  const rows = yield* store.lifecycle(ctx.manager, "softDelete", unique.map(id => ({ id })));
+  const changed = new Map(rows.map(row => [row.id, row]));
+  if (changed.size !== unique.length || unique.some(id => !changed.has(id)))
+    return yield* ctx.refuse(commerceError("invalidInput"));
+  const requested: JsonObject[] = [];
+  for (const id of ids) {
+    const row = changed.get(id);
+    if (row === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));
+    requested.push(row);
+  }
+  return requested;
 });

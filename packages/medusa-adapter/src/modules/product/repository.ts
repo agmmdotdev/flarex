@@ -4,7 +4,7 @@ import type { Context, DAL } from "@medusajs/framework/types";
 import type { CommerceModuleEvents } from "../../module/persistence";
 import { commerceMutationEvents } from "../../repository/mutation-events";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeProductProjection, decodeProductCount, ProductRelationshipId, ProductRelationshipIds } from "./value-profile";
 import { commerceRepositoryContext } from "../../repository/context";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
@@ -16,11 +16,11 @@ import { findProductRelated, insertProductRelated, updateProductRelated } from "
 import { findCollectionMembershipProducts, updateCollectionMembershipProducts } from "./collection-membership";
 import { commerceDecoder } from "../../value/decoder";
 import { replaceProductRows } from "./mutation";
-import { captureCategoryProjection } from "./category-projection";
-import { findCategoryRows, insertCategoryRows, updateCategoryRows } from "./category-repository";
+import { captureCategoryProjection, decodeCategoryProjection } from "./category-projection";
+import { findCategoryRows, insertCategoryRows, updateCategoryRows, softDeleteCategoryRows } from "./category-repository";
 import { changeProductLifecycle } from "./lifecycle";
 
-export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct" | "deletion" | "typeWorkflow" | "collectionWorkflow";
+export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct" | "deletion" | "typeWorkflow" | "collectionWorkflow" | "categoryWorkflow";
 const decodeCollectionReplacement = commerceDecoder(Schema.Array(Schema.Struct({
   id: ProductRelationshipId, productIds: ProductRelationshipIds,
 })).check(Schema.isLengthBetween(1, 1)), "invalidInput");
@@ -32,6 +32,19 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
   const internalProduct = profile === "internalProduct";
   const bridge = commerceRepositoryContext(root, owner);
   const events = commerceMutationEvents(owner);
+  const categoryIdentities = new Set<string>();
+  const createdCategoryIdentities = new Set<string>();
+  const observeCategoryRows = Effect.fn("ProductCategory.admitTreeClosure")(function* (rows: readonly JsonObject[]) {
+    if (profile !== "categoryWorkflow") return;
+    for (const row of rows) {
+      if (typeof row.id !== "string") return yield* root.refuse(commerceError("storedCorruption"));
+      categoryIdentities.add(row.id);
+      if (typeof row.mpath === "string" && row.mpath.split(".").length > 4)
+        return yield* root.refuse(commerceError("unsupportedProfile"));
+    }
+    if (categoryIdentities.size > 16 + createdCategoryIdentities.size)
+      return yield* root.refuse(commerceError("unsupportedProfile"));
+  });
   const mutationPersistence: CommerceModuleEvents = {
     createEventSubscriber: events.createSubscriber,
     registerEventSubscriber: events.registerSubscriber,
@@ -68,8 +81,15 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     getFreshManager: bridge.getFreshManager, getActiveManager: bridge.getActiveManager, transaction: bridge.transaction,
     serialize: <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> => owner.run(Effect.gen(function* () {
       if (options !== undefined) return yield* root.refuse(commerceError("unsupportedProfile"));
-      const value = yield* bridge.checked(root, Effect.fromResult(categoryProjection ? captureCategoryProjection(input, root.resources) : captureCommerceInput(input, root.resources)));
+      const value = yield* bridge.checked(root, Effect.fromResult(categoryProjection || profile === "categoryWorkflow"
+        ? captureCategoryProjection(input, root.resources) : captureCommerceInput(input, root.resources)));
       yield* bridge.checked(root, Effect.fromResult(decodeProductProjection(value)));
+      if (profile === "categoryWorkflow") {
+        // The native public Category methods consume serialized arrays before
+        // building their events. Restore the checked native representation here;
+        // only the outer command carries the private JSON projection envelope.
+        return (yield* bridge.checked(root, Effect.fromResult(decodeCategoryProjection(value)))) as Output;
+      }
       // SAFETY: repository results are core-decoded scalar rows and the bounded
       // acyclic projection. Medusa also promises complete DTOs for partial selects.
       // This decoder checks JSON membership only: no stripping, defaults or
@@ -155,32 +175,50 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       return yield* replaceProductRows(ctx, metadata, entity, input, config, true);
     }))),
   });
-  const categoryRepository: DAL.TreeRepositoryService & Pick<DAL.RepositoryService, "update"> = {
+  const categoryRepository: DAL.TreeRepositoryService & Pick<DAL.RepositoryService, "update" | "softDelete"> = {
     ...repository,
     find: (input, transform, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       if (transform !== undefined && Object.keys(transform).length) return yield* ctx.refuse(commerceError("unsupportedProfile"));
-      return structuredClone((yield* findCategoryRows(ctx, metadata, input)).rows);
+      return structuredClone((yield* findCategoryRows(ctx, metadata, input, observeCategoryRows)).rows);
     }))),
     findAndCount: (input, transform, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       if (transform !== undefined && Object.keys(transform).length) return yield* ctx.refuse(commerceError("unsupportedProfile"));
-      const result = yield* findCategoryRows(ctx, metadata, input);
+      const result = yield* findCategoryRows(ctx, metadata, input, observeCategoryRows);
       return [structuredClone(result.rows), result.count] satisfies [typeof result.rows, number];
     }))),
     create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       const result = yield* insertCategoryRows(ctx, metadata, input);
+      for (const row of result.rows) {
+        if (typeof row.id !== "string") return yield* ctx.refuse(commerceError("storedCorruption"));
+        createdCategoryIdentities.add(row.id);
+      }
+      yield* observeCategoryRows([...result.rows, ...result.reranked]);
       if (shared === undefined) return yield* ctx.refuse(commerceError("invalidAuthority"));
       if (result.reranked.length) yield* events.rows("afterUpdate", metadata.category.model, result.reranked.map(row => ({ ...row })), shared);
       return result.rows;
     }))),
     update: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       const rows = yield* updateCategoryRows(ctx, metadata, input);
+      yield* observeCategoryRows(rows);
       if (shared === undefined) return yield* ctx.refuse(commerceError("invalidAuthority"));
       yield* events.rows("afterUpdate", metadata.category.model, rows.map(row => ({ ...row })), shared);
       return [...rows];
     }))),
+    softDelete: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+      if (profile !== "categoryWorkflow" || shared === undefined) return yield* ctx.refuse(commerceError("unsupportedProfile"));
+      const rows = yield* softDeleteCategoryRows(ctx, metadata, input);
+      yield* observeCategoryRows(rows);
+      const unique = [...new Map(rows.map(row => [row.id, row])).values()];
+      yield* events.rows("afterUpdate", metadata.category.model, unique.map(row => ({ ...row })), shared,
+        row => ({ entity: row, payload: { deleted_at: row.deleted_at }, originalEntity: { deleted_at: null } }));
+      return [rows, {}] satisfies [JsonObject[], Record<string, unknown[]>];
+    }))),
     delete: (ids, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       const result = yield* changeProductLifecycle(ctx, metadata, metadata.category, "delete", { $or: ids.map(id => ({ id })) });
-      return result.roots.flatMap(row => typeof row.id === "string" ? [row.id] : []);
+      const removed = new Set(result.roots.map(row => row.id));
+      if (removed.size !== new Set(ids).size || ids.some(id => !removed.has(id)))
+        return yield* ctx.refuse(commerceError("storedCorruption"));
+      return [...ids];
     }))),
   };
   return { repository, mutationPersistence, refuse, relatedRepository, categoryRepository,

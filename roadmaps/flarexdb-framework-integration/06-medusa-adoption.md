@@ -150,6 +150,19 @@ first-touch events. Creation/deletion retain 64 calls; updates select a named
 sets under default OCC. Soft deletion preserves Product references and uses
 the genuine empty native Link route. General restoration, larger membership
 graphs, custom Collection Links and hosted activation remain unadmitted.
+The [native Product Category slice](./preflight/106-native-product-category-workflows.md)
+implements creation, complete selector updates and leaf soft deletion through
+the real native composers. It admits four requested entries, four total Product
+references on creation, sixteen existing Categories touched by native tree
+preparation and depth four. Only actual new Categories expand the identity bound
+to twenty. Each operation selects a named 128-call/64-event allowance with
+ordinary 128-identity working sets and default OCC. Native rank/path maintenance,
+duplicate deletion requests, metadata replacement, event/hook order and the
+genuine empty Link route remain intact. Shared creation receipts authenticate
+native identity, rank, path and ordered sibling shifts. Physical deletion retains
+complete soft-deleted descendant and pivot cleanup while returning and emitting
+callbacks for requested roots only. General restoration, custom Category Links,
+larger trees and hosted activation remain unadmitted.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a

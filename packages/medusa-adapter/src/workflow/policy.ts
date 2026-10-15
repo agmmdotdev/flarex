@@ -11,6 +11,12 @@ export const productTypeResources = Object.freeze({ ...defaultCommerceResources,
 export const productCollectionResources = Object.freeze({ ...defaultCommerceResources, calls: 64, eventMessages: 64 });
 /** Native four-target membership updates retain repeated ordered Product writes. */
 export const productCollectionUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 128, eventMessages: 64 });
+/** Four rank-zero Category inserts can shift sixteen existing siblings. */
+export const productCategoryCreationResources = Object.freeze({ ...defaultCommerceResources, calls: 128, eventMessages: 64 });
+/** Four repeated native leaf requests can decrement fifteen siblings each. */
+export const productCategoryDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 128, eventMessages: 64 });
+/** Four selected Category subtrees across a sixteen-Category native graph. */
+export const productCategoryUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 128, eventMessages: 64 });
 export const productShippingProfileResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 export const productVariantPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Complete finite Variant graph, including Inventory children and both Link families. */

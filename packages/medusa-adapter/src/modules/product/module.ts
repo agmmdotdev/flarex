@@ -9,6 +9,7 @@ import { prepareCommerceInternalService } from "../../module/persistence";
 import { defineCommerceModule, CommerceModuleDefinitionError, type CommerceModuleExtension } from "../../module/definition";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
 import { captureCommerceInput } from "../../value/input";
+import { captureCategoryProjection } from "./category-projection";
 import { commerceModuleEventBus } from "../../module/events";
 import { productModels } from "./definition";
 import type { ProductRuntimeMetadata, ProductEntityMetadata } from "./runtime-metadata";
@@ -67,6 +68,7 @@ function bindProduct(ctx: CommerceCommandContext, owner: CommercePromiseOwner, m
       mutationService = { interceptEntityMutationEvents: (event, args, context) => intercept(event, args, context) };
     },
     capture: (value: unknown) => owner.run(Effect.fromResult(captureCommerceInput(value, ctx.resources))),
+    captureCategory: (value: unknown) => owner.run(Effect.fromResult(captureCategoryProjection(value, ctx.resources))),
     collectionMembershipReplacement: profile === "collectionMembership" && ctx.planReferenceReplacement !== undefined
       ? { replace: replaceCollectionMembership } : undefined,
   };
@@ -109,7 +111,8 @@ export function defineProductModule(metadata: ProductRuntimeMetadata, profile: P
         }, { scope: "internal" });
         binding.connect(service);
         return { service, productService: dependencies.productService, categoryService: dependencies.productCategoryService,
-          repository: binding.baseRepository, eventBus: binding.eventBus, context, capture: binding.capture };
+          repository: binding.baseRepository, eventBus: binding.eventBus, context, capture: binding.capture,
+          captureCategory: binding.captureCategory };
       },
     });
   });
