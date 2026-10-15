@@ -43,10 +43,10 @@ const decodeCreate = commerceDecoder(Schema.Union([InventoryItemInput, Items]), 
 const decodeRead = commerceDecoder(ScalarIdRead, "invalidInput");
 export const InventoryItemsOutput = Schema.Array(Schema.StructWithRest(Schema.Struct({ id: InventoryId }), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(4));
 
-export const makeLocalInventoryCommands = Effect.fn("InventoryAdapter.commands")(function* (admission: "items" | "levels" | "stock" | "product-deletions" = "items") {
-  if (!["items", "levels", "stock", "product-deletions"].includes(admission)) return yield* Effect.fail(commerceError("unsupportedProfile"));
+export const makeLocalInventoryCommands = Effect.fn("InventoryAdapter.commands")(function* (admission: "items" | "levels" | "stock" | "product-deletions" | "product-batches" = "items") {
+  if (!["items", "levels", "stock", "product-deletions", "product-batches"].includes(admission)) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const metadata = yield* captureInventoryMetadata();
-  const stock = admission === "stock", deletion = admission === "product-deletions";
+  const stock = admission === "stock", deletion = admission === "product-deletions" || admission === "product-batches";
   const admitsLevels = admission === "levels" || stock;
   const levelInput = admitsLevels ? InventoryLevelsInput : EmptyLevels;
   const decodeLevels = commerceDecoder(levelInput, "unsupportedProfile");
@@ -99,7 +99,7 @@ export const makeLocalInventoryCommands = Effect.fn("InventoryAdapter.commands")
         events: bound.mutationEvents, eventBus, levelRepository, refuse: bound.refuse };
     };
     const module = yield* defineCommerceModule({ name: "flarex-inventory-local", models: [InventoryItem, InventoryLevel, ReservationItem],
-      profile: { name: deletion ? "inventory-product-deletions" : stock ? "inventory-stock-mutations" : admission === "levels" ? "inventory-stock-levels" : "inventory-variant-items", capabilities: [], bind },
+      profile: { name: admission === "product-batches" ? "inventory-product-batches" : deletion ? "inventory-product-deletions" : stock ? "inventory-stock-mutations" : admission === "levels" ? "inventory-stock-levels" : "inventory-variant-items", capabilities: [], bind },
       extensions: { inventoryLevelService: { mode: "replace", create: ({ binding, persistence }) => {
         const container = { inventoryLevelRepository: binding.levelRepository, modulePersistenceAdapter: persistence };
         return new InventoryLevelService(container);

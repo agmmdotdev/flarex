@@ -63,7 +63,11 @@ interface AtomicCommerceParticipantBase {
   readonly commands: readonly CommerceCommand[];
   /** Required for local profiles; all captured messages must match real facts. */
   readonly validate?: LocalCommerceEventPolicy["validate"];
+  /** Validates the complete closed participant after all successful calls. If
+   * per-call validation is also selected, both policies must accept. */
   readonly validateLogical?: LogicalCommerceEventValidation;
+  /** Validates each successful outer call before it becomes aggregate evidence.
+   * A refusal prevents aggregate validation and publication. */
   readonly validateLogicalCall?: LogicalCommerceCallValidation;
   readonly allowSetNull?: true;
   readonly allowReferenceReplacement?: true;
@@ -153,7 +157,6 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     if (member.kind === "logical") {
       const validated = member.validateLogical !== undefined || member.validateLogicalCall !== undefined;
       if (location === undefined || member.validate !== undefined ||
-        (member.validateLogical !== undefined && member.validateLogicalCall !== undefined) ||
         (events !== undefined && !validated)
         || (member.allowSetNull === true && !validated)
         || (member.allowReferenceReplacement === true && (!validated ||

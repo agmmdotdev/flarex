@@ -1696,10 +1696,12 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       }
     }
     if (!usedSearchCandidates) {
+      // Retain the declared anchor: a membership-null field must not win a
+      // physical-index tie against the scalar selection it qualifies.
       const selections = query.selections === null ? [{ values: logicalWhereValues(completeSelection) }] :
         query.selections.map(selection => ({ values: logicalRelationalSelectionValues(selection),
-          ...(selection.kind === "point" ? { exactPoint: { columns: selection.columns,
-            ...(selection.nullColumn === undefined ? {} : { nullColumn: selection.nullColumn }) } } : {}) }));
+          exactPoint: { columns: selection.kind === "point" ? selection.columns : [selection.column],
+            ...(selection.nullColumn === undefined ? {} : { nullColumn: selection.nullColumn }) } }));
       // Keep recursive selection consumption inside the borrowed frontier. A
       // caller stack/span for every selection repeats relational read ownership.
       const collectSelections = Effect.fnUntraced(function* (position: number): Effect.fn.Return<void, Failure> {

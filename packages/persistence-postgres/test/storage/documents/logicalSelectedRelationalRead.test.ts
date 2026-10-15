@@ -8,6 +8,46 @@ import { syntheticSchemaInput } from "../../installation/frameworkSchema/framewo
 const failure = (reason: string) => new Error(reason);
 
 describe("selected relational read access", () => {
+  it("keeps both native uniqueness OR branches indexed beneath an inherited active-row predicate", () => {
+    const origin = { kind: "authored", sourceId: "fixture.link-uniqueness" };
+    const schema = Result.getOrThrow(normalizeRelationalSchema({ owner: "medusa", lineageId: "link-uniqueness", capabilities: [], tables: [{
+      tableId: "links", origin, columns: ["id", "variant_id", "price_set_id", "deleted_at"].map(columnId => ({
+        columnId, type: "text", nullable: columnId === "deleted_at", default: { kind: "none" }, origin,
+      })), keys: [{ keyId: "endpoints", kind: "primary", columns: ["variant_id", "price_set_id"], origin }],
+      indexes: [
+        { indexId: "id", kind: "btree", columns: ["id"], predicate: null, origin },
+        ...["variant_id", "price_set_id"].map(columnId => ({ indexId: columnId, kind: "uniqueBtree", columns: [columnId],
+          predicate: { kind: "isNull", columnId: "deleted_at" }, origin })),
+        { indexId: "deleted", kind: "btree", columns: ["deleted_at"], predicate: null, origin },
+        { indexId: "active", kind: "btree", columns: ["deleted_at"], predicate: { kind: "isNull", columnId: "deleted_at" }, origin },
+      ], constraints: [], relationships: [],
+    }] }));
+    const original = schema.tables[0];
+    if (original === undefined) throw new Error("Missing Link uniqueness fixture");
+    const branch = (column: string, value: string) => ({ kind: "and", children: [{ kind: "in", column, values: [value] }] });
+    // Native Link.create probes {$or:[{$or:[{variant_id},{price_set_id}]}]}.
+    // The read owner adds its active-row predicate outside those nested groups.
+    const input = { order: { column: "variant_id", direction: "asc" }, take: 1, predicate: { kind: "and", children: [
+      { kind: "and", children: [{ kind: "or", children: [{ kind: "and", children: [{ kind: "or", children: [
+        branch("variant_id", "new-variant"), branch("price_set_id", "new-set"),
+      ] }] }] }] }, { kind: "isNull", column: "deleted_at" },
+    ] } };
+    const compact = { ...original, indexes: [] }, mechanics = prepareLogicalRelationalTableMechanics(compact, []);
+    const selected = Result.getOrThrow(compileLogicalRelationalRead(compact, [], input, 128, failure, mechanics,
+      { indexes: original.indexes, keys: original.keys, scalarColumns: [] }));
+    const full = Result.getOrThrow(compileLogicalRelationalRead(original, [], input, 128, failure));
+    for (const plan of [selected, full]) {
+      expect(plan.selections).not.toBeNull();
+      expect(plan.selections).toHaveLength(2);
+      expect(plan.selections?.map(selection => selection.kind === "point" ? selection.columns : selection.column))
+        .toEqual(["variant_id", "price_set_id"]);
+      expect(plan.requiredNulls).toEqual(["deleted_at"]);
+      expect(Result.getOrThrow(plan.inspect({ id: "old", variant_id: "unrelated", price_set_id: "unrelated", deleted_at: null })).matches).toBe(false);
+      expect(Result.getOrThrow(plan.inspect({ id: "match", variant_id: "new-variant", price_set_id: "another", deleted_at: null })).matches).toBe(true);
+      expect(Result.getOrThrow(plan.inspect({ id: "deleted", variant_id: "another", price_set_id: "new-set", deleted_at: "deleted" })).matches).toBe(false);
+    }
+  });
+
   it("rejects malformed queries and preserves existing complexity and first-failure order before access facts", () => {
     const schema = Result.getOrThrow(normalizeRelationalSchema(syntheticSchemaInput()));
     const table = schema.tables[0];

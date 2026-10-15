@@ -32,8 +32,11 @@ const Batch = Schema.Union([VariantInventoryLinkBatch, VariantPricingLinkBatch])
 export const VariantLinkBatch = Batch;
 const decodeLinks = commerceDecoder(Schema.Union([InventoryPair, PricingPair, Batch]), "invalidInput");
 const decodeArguments = commerceDecoder(Schema.Tuple([Batch]), "invalidInput");
-const decodeCreated = commerceDecoder(Schema.Array(Schema.Union([
+export const VariantInventoryLinkRows = Schema.Array(
   Schema.StructWithRest(Schema.Struct({ id: Id, variant_id: Id, inventory_item_id: Id }), [Schema.Record(Schema.String, Schema.Json)]),
+).check(Schema.isMaxLength(8));
+const decodeCreated = commerceDecoder(Schema.Array(Schema.Union([
+  VariantInventoryLinkRows.value,
   Schema.StructWithRest(Schema.Struct({ id: Id, variant_id: Id, price_set_id: Id }), [Schema.Record(Schema.String, Schema.Json)]),
 ])).check(Schema.isMaxLength(8)), "storedCorruption");
 const Config = Schema.Struct({

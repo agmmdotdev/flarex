@@ -1,5 +1,5 @@
 import { Effect, Result, Schema } from "effect";
-import { commerceCommandIdentity, type CommerceCommand, type LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { commerceCommandIdentity, type CommerceCommand, type LogicalCommerceCallValidation, type LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceModuleDescription } from "../module/definition";
 import type { GraphModuleDefinition } from "../local-graph/model";
@@ -55,6 +55,8 @@ export interface WorkflowLogicalPolicy {
   readonly commands: readonly CommerceCommand[];
   readonly capture: (event: unknown) => Effect.Effect<Json, CommerceTransactionError>;
   readonly validateLogicalCall: LogicalCommerceCallValidation;
+  /** Module-owned conjunction over the closed activity of the same participant. */
+  readonly validateLogical?: LogicalCommerceEventValidation;
   readonly allowSetNull?: true;
   readonly referenceReplacement?: Readonly<{
     commands: readonly CommerceCommand[];
@@ -100,6 +102,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
     const graph = yield* captureGraphDefinition(definition.graph);
     const supplied = definition.logical === undefined ? undefined : yield* captureWorkflowRecord(definition.logical);
     if (supplied !== undefined && (typeof supplied.capture !== "function" || typeof supplied.validateLogicalCall !== "function" ||
+      supplied.validateLogical !== undefined && typeof supplied.validateLogical !== "function" ||
       supplied.allowSetNull !== undefined && supplied.allowSetNull !== true)) return yield* Result.fail(commerceError("unsupportedProfile"));
     const replacement = supplied?.referenceReplacement === undefined ? undefined : yield* captureWorkflowRecord(supplied.referenceReplacement);
     const commands = supplied === undefined ? [] : yield* captureWorkflowArray(supplied.commands);
@@ -112,6 +115,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
       return yield* Result.fail(commerceError("unsupportedProfile"));
     const logical = supplied === undefined ? undefined : Object.freeze({
       capture: supplied.capture,
+      ...(supplied.validateLogical === undefined ? {} : { validateLogical: supplied.validateLogical }),
       validateLogicalCall: Effect.fn("Workflow.validateModuleCall")(function* (call: Parameters<LogicalCommerceCallValidation>[0],
         activity: Parameters<LogicalCommerceCallValidation>[1], command: CommerceCommand) {
         const identity = commerceCommandIdentity(command);

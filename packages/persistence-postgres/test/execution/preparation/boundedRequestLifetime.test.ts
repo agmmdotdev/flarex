@@ -1,4 +1,4 @@
-import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Result } from "effect";
 import { TestClock } from "effect/testing";
 import { expect, it } from "vitest";
 import { makeBoundedRequestLifetime } from "../../../src/execution/preparation/boundedRequestLifetime";
@@ -48,6 +48,24 @@ it("retains the first statement cause through repeated rollback-only refusals", 
   if (!Exit.isFailure(sealed)) throw new Error("Expected rollback-only seal");
   expect(sealed.cause.reasons.some(reason => Cause.isFailReason(reason) && reason.error === statement)).toBe(true);
   yield* lifetime.close;
+})));
+
+it("retains the complete first cause when byte capture resumes after the lifetime becomes rollback-only", () => runEffect(Effect.gen(function* () {
+  const lifetime = yield* make();
+  const statement = commerceError("unsupportedProfile"), defect = new Error("native defect");
+  const first = yield* Effect.exit(lifetime.operation(lifetime.context, "request", "write",
+    Effect.failCause(Cause.combine(Cause.fail(statement), Cause.die(defect)))));
+  if (Exit.isSuccess(first)) throw new Error("Expected the initiating failure");
+  const captured = lifetime.charge(1);
+  if (Result.isSuccess(captured)) throw new Error("A poisoned lifetime cannot charge another value");
+  expect(captured.failure.reason).toBe("rollbackOnly");
+  expect(captured.failure.cause).toEqual(first.cause);
+  expect(lifetime.remainingBytes()).toBe(100);
+  yield* lifetime.close;
+  const closed = lifetime.charge(1);
+  if (Result.isSuccess(closed)) throw new Error("A closed lifetime cannot charge another value");
+  expect(closed.failure.reason).toBe("closed");
+  expect(closed.failure.cause).toBeUndefined();
 })));
 
 it("retains complete defect causes without reclassifying them as typed failures", () => runEffect(Effect.gen(function* () {

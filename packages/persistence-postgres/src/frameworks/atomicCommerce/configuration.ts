@@ -241,6 +241,11 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     ...(members.some(member => member.validateLogicalCall !== undefined) ? {
       logicalCallValidation: members.filter(member => member.validateLogicalCall !== undefined).map(member => member.name),
     } : {}),
+    // Conjunction is a newly admitted policy shape. Preserve existing single-
+    // validator identities while preventing replay from skipping an added guard.
+    ...(members.some(member => member.validateLogicalCall !== undefined && member.validateLogical !== undefined) ? {
+      logicalAggregateValidation: members.filter(member => member.validateLogicalCall !== undefined && member.validateLogical !== undefined).map(member => member.name),
+    } : {}),
     ...(selectedEventLimit === undefined ? {} : { requestEventLimit: eventLimit }),
     ...(selectedCommandMs === undefined ? {} : { requestCommandMs: commandMs }),
     ...(executionIsolation === undefined ? {} : { executionIsolation }),

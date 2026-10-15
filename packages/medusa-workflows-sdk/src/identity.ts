@@ -1,5 +1,5 @@
 import type { Schema } from "effect";
-import { definitionError, type Reference, type WorkflowNode } from "./model";
+import { definitionError, type ParallelGroup, type Reference, type WorkflowNode } from "./model";
 import { referenceOf } from "./references";
 
 export type WorkflowIdentity = {
@@ -7,11 +7,12 @@ export type WorkflowIdentity = {
   readonly nodes: readonly Schema.Json[];
   readonly references: readonly Schema.Json[];
   readonly result: Schema.Json;
+  readonly parallel?: readonly Schema.Json[];
 };
 
 /** Deterministic preparation data, not code identity. The trusted bundle
  * revision still covers callback implementations and their captured behavior. */
-export function workflowIdentity(name: string, nodes: readonly WorkflowNode[], result: unknown): WorkflowIdentity {
+export function workflowIdentity(name: string, nodes: readonly WorkflowNode[], result: unknown, parallel?: readonly ParallelGroup[]): WorkflowIdentity {
   const positions = new Map(nodes.map((node, index) => [node.id, index]));
   const references: Schema.Json[] = [];
   const seen = new Map<Reference, number>();
@@ -48,5 +49,9 @@ export function workflowIdentity(name: string, nodes: readonly WorkflowNode[], r
     ...(node.kind === "workflow" ? { workflow: node.workflow.identity } : { hook: node.hook, bound: node.boundHook === true }),
   }));
   const output = encode(result);
-  return Object.freeze({ name, nodes: Object.freeze(entries), references: Object.freeze(references), result: output });
+  return Object.freeze({ name, nodes: Object.freeze(entries), references: Object.freeze(references), result: output,
+    ...(parallel === undefined ? {} : { parallel: Object.freeze(parallel.map(group => Object.freeze({
+      branches: Object.freeze(group.branches.map(branch => Object.freeze([branch.start, branch.end]))),
+    }))) }),
+  });
 }

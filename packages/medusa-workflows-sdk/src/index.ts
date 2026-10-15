@@ -1,4 +1,4 @@
-export { createStep, createWorkflow, createHook, transform, when } from "./definition";
+export { createStep, createWorkflow, createHook, transform, when, parallelize } from "./definition";
 export { StepResponse, WorkflowResponse } from "./responses";
 export type { WorkflowData, StepExecutionContext, HookHandlers } from "./model";
 export { WorkflowDefinitionError } from "./model";

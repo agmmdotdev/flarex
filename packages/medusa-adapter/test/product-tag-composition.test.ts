@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
-import { createStep, createWorkflow, transform, when, WorkflowResponse, type PreparedWorkflow, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, parallelize, transform, when, WorkflowResponse, type PreparedWorkflow, type WorkflowData } from "@medusajs/workflows-sdk";
 import { createProductTagsWorkflow } from "@medusajs/core-flows/product/create-product-tags";
 import { deleteProductTagsWorkflow } from "@medusajs/core-flows/product/delete-product-tags";
 import { prepareProductTagComposition, type ProductTagCompositionHooks } from "../src/workflows/product/tag-composition";
@@ -57,9 +57,9 @@ const resources = () => Result.getOrThrow(prepareWorkflowResources({
 }, true));
 const Input = Schema.Struct({ value: Schema.String, enabled: Schema.Boolean });
 const raw = async (build: (selection: ReturnType<typeof resources>) => PreparedWorkflow,
-  output: Schema.ConstraintDecoder<Schema.Json> = Schema.Json) => {
+  output: Schema.ConstraintDecoder<Schema.Json> = Schema.Json, operationScheduling?: "queued") => {
   const selection = resources();
-  return runEffect(prepareAtomicWorkflowHost({ ...options(), workflow: {
+  return runEffect(prepareAtomicWorkflowHost({ ...options(), ...(operationScheduling === undefined ? {} : { operationScheduling }), workflow: {
     name: "composeTagScenario", resources: selection, prepared: build(selection), input: Input, output,
     events: composedProductTagEvents({ create: fixture.product.runtime.workflow.methods.createProductTags,
       update: fixture.product.runtime.workflow.methods.updateProductTags, delete: fixture.product.runtime.workflow.methods.softDeleteProductTags }),
@@ -145,6 +145,45 @@ describe("native composed Product workflows", () => {
     expect(hooks).toEqual(["created", "updated"]); expect(await inventory()).toEqual(after);
     const changed = await runEffect(prepareProductTagComposition(options()));
     expect(await runEffectFailure(changed.run(key, args("composed")))).toMatchObject({ reason: "requestConflict" });
+  }, 30_000);
+
+  it("runs a native Product child alongside a Currency graph read under one settlement", async () => {
+    const reached = await runEffect(Deferred.make<void>());
+    let entered = 0;
+    const rendezvous = async () => {
+      if (++entered === 2) await runEffect(Deferred.succeed(reached, undefined));
+      await runEffect(Deferred.await(reached).pipe(Effect.timeout(5_000)));
+    };
+    const host = await raw(selection => {
+      const currencyRead = createStep("parallel-currency-read", selection.callback(async (_: undefined, { resources }) => {
+        const result = await resources.query.graph({ entity: "currency", fields: ["code"], filters: { code: "usd" }, pagination: { take: 1 } });
+        await rendezvous();
+        return result.data;
+      }));
+      return Result.getOrThrow(createWorkflow("parallel-product-currency", (input: WorkflowData<typeof Input.Type>) => {
+        const product = createProductTagsWorkflow.runAsStep({ input: { product_tags: [{ value: input.value }] },
+          hooks: { productTagsCreated: selection.callback(async (value, { resources }) => {
+            expect(await resources.query.graph({ entity: "product_tag", fields: ["value"], filters: { id: value.product_tags.map(tag => tag.id) }, pagination: { take: 1 } }))
+              .toMatchObject({ data: [{ value: "parallel-product" }] });
+            await rendezvous();
+          }) },
+        });
+        return new WorkflowResponse(parallelize(product, currencyRead(undefined)));
+      }).prepare());
+    }, Schema.Json, "queued");
+    const before = await inventory(), key = host.newRequestKey();
+    const input = { value: "parallel-product", enabled: true };
+    const result = await runEffect(host.run(key, input));
+    expect(result).toMatchObject([[{ value: "parallel-product" }], [{ code: "usd" }]]);
+    expect(entered).toBe(2);
+    const after = await inventory();
+    expect(after.logical.commits).toHaveLength(before.logical.commits.length + 1);
+    expect(after.logical.outcomes).toHaveLength(before.logical.outcomes.length + 1);
+    expect(after.events.slice(before.events.length).map(row => row.envelope.contract))
+      .toEqual(["product.product-tag.created", "product-tag.created"]);
+    expect(await runEffect(host.run(key, input))).toEqual(result);
+    expect(entered).toBe(2);
+    expect(await inventory()).toEqual(after);
   }, 30_000);
 
   it("isolates renamed repeated children and completely skips conditional children", async () => {

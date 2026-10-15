@@ -1,16 +1,16 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { createHook, createStep, createWorkflow, isPreparedWorkflow, StepResponse, transform, when, WorkflowResponse } from "@medusajs/workflows-sdk";
-import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import type { AtomicCommerceContext, LogicalCommerceCallValidation, LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineGraphReadCommand } from "../src/local-graph/commands";
 import type { GraphModuleDefinition } from "../src/local-graph/model";
 import { commerceDecoder } from "../src/value/decoder";
-import { defineWorkflowMethod, defineWorkflowModule, workflowModuleDefinition, workflowMethodDefinition } from "../src/workflow/module";
+import { defineWorkflowMethod, defineWorkflowModule, workflowModuleDefinition, workflowMethodDefinition, type WorkflowLogicalPolicy } from "../src/workflow/module";
 import { prepareWorkflowResources, workflowResourceSelections } from "../src/workflow/resources";
 import { bindWorkflowResources } from "../src/workflow/binding";
 import { checkedCommerceValue } from "../src/value/checked";
-import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type InstalledWorkflowModule } from "../src/workflow/host";
+import { prepareAtomicWorkflowHost, prepareWorkflowComposition, captureInstalledWorkflowModules, type InstalledWorkflowModule } from "../src/workflow/host";
 import { runNativeMedusaWorkflow } from "../src/workflow/runtime";
 import type { CommercePromiseOwner } from "../src/module/promise-owner";
 import { captureWorkflowValue } from "../src/workflow/value";
@@ -36,7 +36,76 @@ const context = (): AtomicCommerceContext => ({ eventGroupId: "unit", checkpoint
   emit: () => Effect.fail(commerceError("unadmittedEvent")), refuse: error => Effect.fail(error),
 });
 
+function logicalComposition(logical: WorkflowLogicalPolicy) {
+  const selected = Result.getOrThrow(defineWorkflowModule({ name: "sample", source,
+    methods: { echo: method }, graph: graphDefinition(), logical }));
+  const selectedResources = Result.getOrThrow(prepareWorkflowResources({ sample: { module: selected, methods: ["echo"], graph: false } }, false));
+  const flow = createWorkflow("logical-policy-unit", () => new WorkflowResponse(null));
+  const modules: Record<string, InstalledWorkflowModule> = {};
+  // This pure composition port does not authenticate storage or execute database
+  // operations. The core host separately owns that authority boundary.
+  Object.defineProperty(modules, "sample", { enumerable: true, value: { module: selected, logicalStorage: {} } });
+  return { selected, options: { identityAndAccessPolicy: {}, modules, revision: "a".repeat(64), workflow: {
+    name: "logical-policy-unit", resources: selectedResources, prepared: Result.getOrThrow(flow.prepare()), input: Schema.Json, output: Schema.Json,
+  } } };
+}
+
 describe("workflow registration and scoped resource composition", () => {
+  it("captures and forwards aggregate and per-call logical validation together", async () => {
+    const refusal = commerceError("unsupportedProfile");
+    const aggregate = vi.fn<LogicalCommerceEventValidation>(() => Effect.fail(refusal));
+    const perCall = vi.fn<LogicalCommerceCallValidation>(() => Effect.void);
+    const policy = { commands: [command], capture: (value: unknown) => Effect.fromResult(decodeJson(value)),
+      validateLogicalCall: perCall, validateLogical: aggregate };
+    const { selected, options } = logicalComposition(policy);
+    const replacement = vi.fn<LogicalCommerceEventValidation>(() => Effect.void);
+    policy.validateLogical = replacement;
+    policy.validateLogicalCall = vi.fn<LogicalCommerceCallValidation>(() => Effect.fail(commerceError("invalidAuthority")));
+    expect(workflowModuleDefinition(selected)?.logical?.validateLogical).toBe(aggregate);
+    const { composition } = await Effect.runPromise(prepareWorkflowComposition(options));
+    const participant = composition.participants[0];
+    if (participant?.validateLogical === undefined || participant.validateLogicalCall === undefined)
+      throw new Error("Expected both captured logical validation callbacks");
+    expect(participant.validateLogical).toBe(aggregate);
+    const call = { commandName: "sampleRead", mode: "read" as const, input: "input", result: "result", events: [],
+      fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 0 };
+    const activity = { mutations: [], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] };
+    await Effect.runPromise(participant.validateLogicalCall(call, activity, command));
+    expect(perCall).toHaveBeenCalledExactlyOnceWith(call, activity, command);
+    expect(await Effect.runPromise(Effect.result(participant.validateLogical([call], [], [], [], [], []))))
+      .toEqual(Result.fail(refusal));
+    expect(aggregate).toHaveBeenCalledExactlyOnceWith([call], [], [], [], [], []);
+    expect(replacement).not.toHaveBeenCalled();
+    expect(policy.validateLogicalCall).not.toHaveBeenCalled();
+  });
+
+  it("keeps omitted and own-undefined aggregate validation absent from the participant", async () => {
+    const policy = { commands: [command], capture: (value: unknown) => Effect.fromResult(decodeJson(value)),
+      validateLogicalCall: vi.fn<LogicalCommerceCallValidation>(() => Effect.void) };
+    for (const logical of [policy, Object.defineProperty({ ...policy }, "validateLogical", { value: undefined, enumerable: true })]) {
+      const { selected, options } = logicalComposition(logical);
+      expect(workflowModuleDefinition(selected)?.logical).not.toHaveProperty("validateLogical");
+      const { composition } = await Effect.runPromise(prepareWorkflowComposition(options));
+      expect(composition.participants[0]).not.toHaveProperty("validateLogical");
+      expect(composition.participants[0]?.validateLogicalCall).toBeTypeOf("function");
+    }
+  });
+
+  it("rejects noncallable and accessor aggregate validation during module capture", () => {
+    const policy = { commands: [command], capture: (value: unknown) => Effect.fromResult(decodeJson(value)),
+      validateLogicalCall: vi.fn<LogicalCommerceCallValidation>(() => Effect.void) };
+    for (const value of [null, false, "validate", {}, []]) {
+      expect(defineWorkflowModule({ name: "sample", source, methods: { echo: method }, graph: graphDefinition(),
+        logical: Object.defineProperty({ ...policy }, "validateLogical", { value, enumerable: true }) }))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    }
+    const getter = vi.fn(() => () => Effect.void);
+    expect(defineWorkflowModule({ name: "sample", source, methods: { echo: method }, graph: graphDefinition(),
+      logical: Object.defineProperty({ ...policy }, "validateLogical", { get: getter, enumerable: true }) }))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(getter).not.toHaveBeenCalled();
+  });
+
   it("snapshots an explicit logical publication profile and omits an undefined selection", () => {
     const selected = { module, logicalPublication: "mixed" };
     const registrations: Record<string, InstalledWorkflowModule> = {};

@@ -1,6 +1,6 @@
 import { Result } from "effect";
 import { WorkflowResponse } from "./responses";
-import { definitionError, WorkflowDefinitionError, type Compensate, type Hook, type HookHandlers, type Invoke, type Resolved, type StepExecutionContext, type StepOptions, type WorkflowData, type WorkflowNode } from "./model";
+import { definitionError, WorkflowDefinitionError, type Compensate, type Hook, type HookHandlers, type Invoke, type ParallelBranch, type ParallelGroup, type Resolved, type StepExecutionContext, type StepOptions, type WorkflowData, type WorkflowNode } from "./model";
 import { proxify, transformer, referenceOf } from "./references";
 import type { StepFunction, StepOutput } from "./model";
 import { OrchestratorBuilder } from "./orchestrator-builder";
@@ -12,6 +12,8 @@ interface Composer {
   readonly nodes: WorkflowNode[];
   readonly hooks: Set<string>;
   readonly pending: Set<object>;
+  readonly parallel: ParallelGroup[];
+  anonymousConditions: number;
   guards: readonly object[];
 }
 // Construction-only ambient state, restored even if a nested composer throws.
@@ -94,10 +96,51 @@ export function createHook<const Name extends string, Input, Output = unknown>(n
   const result = proxify<Output | undefined>({ kind: "step", owner: context.owner, step: id });
   return Object.freeze({ name, getResult: () => result });
 }
+/** Mark actual staged sibling regions. The positional results retain their
+ * references; preparation and execution own the new parallel arrangement. */
+export function parallelize<const Values extends readonly (WorkflowData<unknown> | undefined)[]>(...steps: Values): Values {
+  const context = composer();
+  if (steps.length < 2) throw definitionError("unsupportedProfile", "Parallel composition requires at least two sibling regions");
+  const sameGuards = (left: readonly object[], right: readonly object[]) => left.length === right.length && left.every((guard, index) => guard === right[index]);
+  const branches: ParallelBranch[] = steps.map(step => {
+    const reference = referenceOf(step);
+    if (reference?.kind !== "step" || reference.owner !== context.owner) throw definitionError("invalidReference", "Parallel results must be this composer's staged steps");
+    const index = context.nodes.findIndex(node => node.id === reference.step), node = context.nodes[index];
+    if (node === undefined) throw definitionError("invalidReference", "Unknown parallel step");
+    let start = index;
+    if (node.kind === "branchResult") {
+      const condition = node.guards.at(-1);
+      start = context.nodes.findIndex(candidate => candidate.id === condition && candidate.kind === "condition");
+    }
+    const first = context.nodes[start];
+    if (first === undefined || !sameGuards(first.guards, context.guards)) throw definitionError("invalidDefinition", "Parallel regions require the same enclosing conditions");
+    return Object.freeze({ start, end: index + 1 });
+  }).sort((left, right) => left.start - right.start);
+  for (let index = 1; index < branches.length; index++)
+    if (branches[index - 1]!.end !== branches[index]!.start) throw definitionError("invalidDefinition", "Parallel regions must be consecutive and non-overlapping");
+  const start = branches[0]!.start, end = branches.at(-1)!.end;
+  for (const existing of context.parallel) {
+    const first = existing.branches[0]!.start, last = existing.branches.at(-1)!.end;
+    if (first >= end || last <= start) continue;
+    if (!branches.some(branch => branch.start <= first && branch.end >= last && (branch.start !== first || branch.end !== last)))
+      throw definitionError("invalidDefinition", "Parallel groups cannot overlap or regroup an existing region");
+  }
+  context.parallel.push(Object.freeze({ branches: Object.freeze(branches) }));
+  return steps;
+}
 /** A finite construction-time region. Its predicate belongs to each invocation,
  * while both its steps and deferred transforms inherit the enclosing guards. */
-export function when<Input>(name: string, input: Input, predicate: (input: Resolved<Input>) => boolean) {
+interface ConditionalRegion {
+  readonly then: <Output>(build: () => Output & ([Extract<Output, PromiseLike<unknown>>] extends [never] ? unknown : never)) => WorkflowData<Resolved<Output> | undefined>;
+}
+export function when<Input>(input: Input, predicate: (input: Resolved<Input>) => boolean): ConditionalRegion;
+export function when<Input>(name: string, input: Input, predicate: (input: Resolved<Input>) => boolean): ConditionalRegion;
+export function when<Input>(nameOrInput: string | Input, inputOrPredicate: Input | ((input: Resolved<Input>) => boolean), predicate_?: (input: Resolved<Input>) => boolean): ConditionalRegion {
   const context = composer();
+  const anonymous = arguments.length === 2;
+  const name = anonymous ? `when-${context.anonymousConditions++}` : nameOrInput;
+  const input = anonymous ? nameOrInput : inputOrPredicate;
+  const predicate = anonymous ? inputOrPredicate : predicate_;
   if (typeof name !== "string") throw definitionError("unsupportedProfile", "A condition requires a string name");
   options(name);
   if (typeof predicate !== "function") throw definitionError("invalidDefinition", "A condition requires a synchronous Boolean predicate");
@@ -132,6 +175,7 @@ export interface PreparedWorkflow {
   readonly nodeCount: number;
   readonly identity: WorkflowIdentity;
   readonly resolution: ReturnType<typeof prepareWorkflowResolution>;
+  readonly parallel?: readonly ParallelGroup[];
 }
 const preparedWorkflows = new WeakSet<object>();
 /** Only SDK preparation establishes the frozen graph and reference ownership. */
@@ -149,7 +193,7 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
 ): WorkflowDefinition<Resolved<Input>, Output, Hooks> {
   if (typeof name !== "string") throw definitionError("unsupportedProfile", "Workflow configuration is not admitted in this atomic profile");
   options(name);
-  const context: Composer = { owner: Object.freeze({}), nodes: [], hooks: new Set(), pending: new Set(), guards: Object.freeze([]) };
+  const context: Composer = { owner: Object.freeze({}), nodes: [], hooks: new Set(), pending: new Set(), parallel: [], anonymousConditions: 0, guards: Object.freeze([]) };
   const previous = current;
   let response: WorkflowResponse<Output, Hooks>;
   try {
@@ -178,10 +222,21 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
   for (let step = flow.build(); step !== undefined; step = step.next) {
     const node = byName.get(step.action);
     if (node === undefined) throw definitionError("invalidDefinition", "Missing step handler");
-    ordered.push(Object.freeze({ ...node, input: captureDefinition(node.input, context.owner, available) }));
+    const index = ordered.length;
+    let permitted: ReadonlySet<object> = available;
+    for (const group of context.parallel) {
+      const branch = group.branches.find(branch => index >= branch.start && index < branch.end);
+      if (branch === undefined) continue;
+      const own = new Set(permitted);
+      for (const sibling of group.branches) if (sibling !== branch)
+        for (let position = sibling.start; position < sibling.end; position++) own.delete(context.nodes[position]!.id);
+      permitted = own;
+    }
+    ordered.push(Object.freeze({ ...node, input: captureDefinition(node.input, context.owner, permitted) }));
     available.add(node.id);
   }
   const nodes = Object.freeze(ordered);
+  const parallel = context.parallel.length === 0 ? undefined : Object.freeze([...context.parallel]);
   const result = captureDefinition(response.$result, context.owner, available);
   const resolution = prepareWorkflowResolution(nodes.map(node => node.input), result);
   const exposed = new Set((response.options?.hooks ?? []).map(hook => {
@@ -208,7 +263,7 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
         return Object.freeze({ ...node, invoke: handler as Invoke<unknown, unknown>, boundHook: true });
       });
       const prepared = Object.freeze({ name, owner: context.owner, nodes: Object.freeze(bound), result, nodeCount,
-        identity: workflowIdentity(name, bound, result), resolution });
+        identity: workflowIdentity(name, bound, result, parallel), resolution, ...(parallel === undefined ? {} : { parallel }) });
       preparedWorkflows.add(prepared);
       return prepared;
     },

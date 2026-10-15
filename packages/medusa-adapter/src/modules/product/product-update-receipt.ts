@@ -4,6 +4,40 @@ import { commerceError, type JsonObject } from "@flarex/persistence-postgres/int
 import type { ProductRuntimeMetadata } from "./runtime-metadata";
 import { productMembershipPivots } from "./events/memberships";
 
+/** Reconstruct the two owned graphs from authenticated activity only. Product
+ * rows establish whether selected roots existed before this request. */
+export const projectProductOwnedGraphs: (
+  catalog: ProductRuntimeMetadata, activity: Pick<Parameters<LogicalCommerceCallValidation>[1], "mutations" | "observedRows">,
+) => Effect.Effect<{
+  readonly previous: ReadonlyMap<string, ReadonlyMap<string, JsonObject>>;
+  readonly final: ReadonlyMap<string, ReadonlyMap<string, JsonObject>>;
+  readonly memberships: Effect.Success<ReturnType<typeof productMembershipPivots>>;
+}, ReturnType<typeof commerceError>> = Effect.fn("ProductUpdate.projectOwnedGraphs")(function* (
+  catalog: ProductRuntimeMetadata, activity: Pick<Parameters<LogicalCommerceCallValidation>[1], "mutations" | "observedRows">,
+) {
+  const memberships = yield* productMembershipPivots(catalog);
+  const specifications = [catalog.product, catalog.image, catalog.option, catalog.value, catalog.variant]
+    .map(entity => ({ table: entity.table.name, keys: ["id"] }));
+  specifications.push(...memberships.map(pivot => ({ table: pivot.table, keys: [pivot.productColumn, pivot.targetColumn] })));
+  const keys = new Map(specifications.map(specification => [specification.table, specification.keys]));
+  const key = (table: string, row: JsonObject) => JSON.stringify((keys.get(table) ?? []).map(column => row[column]));
+  const final = new Map(specifications.map(specification => [specification.table, new Map<string, JsonObject>()]));
+  for (const observation of activity.observedRows)
+    final.get(observation.table)?.set(key(observation.table, observation.row), observation.row);
+  for (const mutation of activity.mutations) {
+    const selected = final.get(mutation.table);
+    if (mutation.before !== null) selected?.delete(key(mutation.table, mutation.before));
+    if (mutation.after !== null) selected?.set(key(mutation.table, mutation.after), mutation.after);
+  }
+  const previous = new Map([...final].map(([table, rows]) => [table, new Map(rows)]));
+  for (const mutation of [...activity.mutations].reverse()) {
+    const selected = previous.get(mutation.table);
+    if (mutation.after !== null) selected?.delete(key(mutation.table, mutation.after));
+    if (mutation.before !== null) selected?.set(key(mutation.table, mutation.before), mutation.before);
+  }
+  return { previous, final, memberships };
+});
+
 /** The named parent admits both sides of replacement. Native final observations
  * plus the authenticated mutation preimages retain the old graph even when the
  * native service has already deleted its children. No storage read is added. */
@@ -15,26 +49,7 @@ export function productUpdateGraphReceipt(catalog: ProductRuntimeMetadata,
     const roots = new Set(activity.mutations.flatMap(mutation => mutation.table === catalog.product.table.name &&
       typeof mutation.before?.id === "string" ? [mutation.before.id] : []));
     if (roots.size > 4) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    const memberships = yield* productMembershipPivots(catalog);
-    const specifications = [catalog.image, catalog.option, catalog.value, catalog.variant]
-      .map(entity => ({ table: entity.table.name, keys: ["id"] }));
-    specifications.push(...memberships.map(pivot => ({ table: pivot.table, keys: [pivot.productColumn, pivot.targetColumn] })));
-    const keys = new Map(specifications.map(specification => [specification.table, specification.keys]));
-    const key = (table: string, row: JsonObject) => JSON.stringify((keys.get(table) ?? []).map(column => row[column]));
-    const final = new Map(specifications.map(specification => [specification.table, new Map<string, JsonObject>()]));
-    for (const observation of activity.observedRows)
-      final.get(observation.table)?.set(key(observation.table, observation.row), observation.row);
-    for (const mutation of activity.mutations) {
-      const selected = final.get(mutation.table);
-      if (mutation.before !== null) selected?.delete(key(mutation.table, mutation.before));
-      if (mutation.after !== null) selected?.set(key(mutation.table, mutation.after), mutation.after);
-    }
-    const previous = new Map([...final].map(([table, rows]) => [table, new Map(rows)]));
-    for (const mutation of [...activity.mutations].reverse()) {
-      const selected = previous.get(mutation.table);
-      if (mutation.after !== null) selected?.delete(key(mutation.table, mutation.after));
-      if (mutation.before !== null) selected?.set(key(mutation.table, mutation.before), mutation.before);
-    }
+    const { previous, final, memberships } = yield* projectProductOwnedGraphs(catalog, activity);
     for (const graph of [previous, final]) {
       let variants = 0;
       for (const root of roots) {

@@ -9,7 +9,7 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 import { defineComposedWorkflowResource } from "../workflow/composed-resource";
 
 const Batch = Schema.Union([ProductLinkBatch, VariantLinkBatch]).check(Schema.isMaxLength(8));
-const decodeArguments = commerceDecoder(Schema.Tuple([Batch]), "invalidInput");
+export const decodeProductNativeLinkArguments = commerceDecoder(Schema.Tuple([Batch]), "invalidInput");
 const decodeResult = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(8)), "storedCorruption");
 type NativeService = Result.Result.Success<ReturnType<typeof prepareLinkWorkflowService>>;
 
@@ -24,7 +24,7 @@ export function prepareProductNativeLinkResource(services: readonly NativeServic
   }
   return defineComposedWorkflowResource({ identity: { format: "medusa.product.native-links", services: selected.map(service => service.routing) },
     dependencies: selected.flatMap(service => [service.createMethod, service.listMethod]),
-    methods: { create: { arguments: decodeArguments, output: decodeResult } },
+    methods: { create: { arguments: decodeProductNativeLinkArguments, output: decodeResult } },
     bind: invoke => {
       const loaded = selected.map(service => ({ ...structuredClone(service.routing),
         list: async (filters: unknown = {}, config: unknown = {}) => [...await invoke(service.listMethod, filters, config)],

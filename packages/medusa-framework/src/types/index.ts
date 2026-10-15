@@ -47,6 +47,7 @@ export { MedusaContainer } from "@medusajs/types";
 
 export { InventoryTypes, IInventoryService, InventoryLevelDTO, ReservationItemDTO, StockLocationTypes, IStockLocationService, IEventBusService, CreateStockLocationInput, UpdateStockLocationInput, UpsertStockLocationInput, StockLocationAddressInput, UpdateStockLocationAddressInput, UpsertStockLocationAddressInput, FilterableStockLocationProps } from "@medusajs/types";
 export { AdditionalData, LinkDefinition } from "@medusajs/types";
-export { CreateProductWorkflowInputDTO } from "@medusajs/types/workflows/products/mutations";
+export { CreateProductWorkflowInputDTO, CreateProductVariantWorkflowInputDTO, UpdateProductVariantWorkflowInputDTO, UpdateProductWorkflowInputDTO } from "@medusajs/types/workflows/products/mutations";
+export { BatchWorkflowInput, BatchWorkflowOutput } from "@medusajs/types";
 
 export { ReservationWorkflow } from "@medusajs/types";

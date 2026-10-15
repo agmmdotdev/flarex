@@ -1,5 +1,6 @@
 /** Value-only adapter boundary; grants no installation, SQL or transaction authority. */
-export { capturePrivateJsonData, capturePrivateJsonDataOmittingUndefined, useCapturedPrivateJsonData, inspectCapturedPrivateJsonData } from "../../values/privateJsonData";
+export { capturePrivateJsonData, capturePrivateJsonDataOmittingUndefined, capturePrivateIntermediateJsonData, useCapturedPrivateJsonData, inspectCapturedPrivateJsonData } from "../../values/privateJsonData";
+export type { PrivateIntermediateJsonPath } from "../../values/privateJsonData";
 export { capturePrivateCanonicalValue } from "../../installation/frameworkSchema/privateCanonicalValue";
 export type { PrivateCanonicalValueSnapshot } from "../../installation/frameworkSchema/privateCanonicalValue";
 export type { FrameworkSchemaArtifact } from "../../installation/frameworkSchema/artifact/model";

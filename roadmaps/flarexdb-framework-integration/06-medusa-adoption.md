@@ -121,6 +121,15 @@ Inventory ownership reads, the native reservation guard and Link/Pricing
 cascades. Its named four-target/four-Variant profile retains 512 calls,
 128 events, 2 MiB and ordinary participant working sets under default OCC.
 General deletion, restoration and hosted activation remain unadmitted.
+The [native Product batch slice](./preflight/103-native-product-batch-workflows.md)
+joins the actual create/update/delete children through native Product and
+Variant composers. Explicit SDK sibling regions share one queued atomic root
+over authentic Product, Pricing, Inventory and Link capabilities. Its named
+four-entry profile admits 1,024 calls, 256 events and 2 MiB, with Product's
+256-identity working set and ordinary 128-identity sets elsewhere. It bounds
+request-initial and incoming Variants separately and refuses Item attachment
+and deletion intersections. General batch size and hosted activation remain
+unadmitted.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a

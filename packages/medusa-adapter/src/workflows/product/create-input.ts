@@ -1,4 +1,6 @@
 import { Schema } from "effect";
+import { SimpleVariantInput } from "../../modules/product/variant-workflow-input";
+import { BasePriceInput } from "../../modules/pricing/input";
 
 /** Selected simple creation contract, not the complete native Product DTO. */
 export const SimpleProductInput = Schema.Struct({
@@ -33,4 +35,25 @@ export function productCreationInput(columns: readonly string[]) {
   ...ProductCreateGraphInput.fields,
   type_id: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isLengthBetween(1,256)))),
  });
+}
+
+/** The finite native entry is shared by standalone and batch roots. Scalar
+ * names and normalization retain the checked Product DML/value owners. */
+export function productCreationWorkflowEntry(columns: readonly string[]) {
+  const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+  const { product_id: _parent, ...variantFields } = SimpleVariantInput.fields;
+  const variants = Schema.Array(Schema.Struct({ ...variantFields,
+    prices: Schema.optionalKey(Schema.Array(BasePriceInput).check(Schema.isMaxLength(2))),
+  })).check(Schema.isMaxLength(4));
+  return Schema.Struct({ ...productCreationInput(columns).fields,
+    tag_ids: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(4))),
+    category_ids: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(4))),
+    images: Schema.optionalKey(Schema.Array(ProductImageCreateInput).check(Schema.isMaxLength(2))),
+    options: Schema.optionalKey(Schema.Array(Schema.Struct({ title: Schema.String,
+      values: Schema.Array(Schema.String).check(Schema.isLengthBetween(1, 4)),
+    })).check(Schema.isMaxLength(1))),
+    variants: Schema.optionalKey(variants),
+    sales_channels: Schema.optionalKey(Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(2))),
+    shipping_profile_id: Schema.optionalKey(Id),
+  });
 }

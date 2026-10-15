@@ -8,7 +8,8 @@ import type {
   BorrowedWorkflowAttemptInput,
 } from "../../../src/frameworks/commerceTransaction/borrowedWorkflowAttempt";
 
-const construction = vi.hoisted(() => ({ admissions: [] as unknown[], state: undefined as unknown }));
+const construction = vi.hoisted(() => ({ admissions: [] as unknown[], state: undefined as unknown,
+  admissionEntries: 0, storageReads: 0, workingConstructions: 0 }));
 
 // Only admitted source construction is stubbed. The borrowed factory, bounded
 // lifetime, capture operation, finite root issuer/gate, and workflow decoder run
@@ -19,14 +20,14 @@ vi.mock("../../../src/storage/documents/logicalDocuments/participantAdmission", 
     _bundle: unknown, _attempt: unknown, _participant: unknown, _method: unknown, _revision: unknown,
     work: (input: unknown) => Effect.Effect<unknown, unknown>,
   ) => work({ admissions: construction.admissions,
-    readTransaction: () => Effect.die(new Error("Unexpected finite capture storage read")) }) };
+    readTransaction: () => { construction.storageReads++; return Effect.die(new Error("Unexpected finite capture storage read")); } }) };
 });
 vi.mock("../../../src/storage/documents/logicalDocuments/relationalAdmission", async importOriginal => {
   const original = await importOriginal<typeof import("../../../src/storage/documents/logicalDocuments/relationalAdmission")>();
   return { ...original, withLogicalRelationalAttemptAdmissionEffect: (
     _admission: unknown, _attempt: unknown, _method: unknown,
     _prepare: unknown, work: (state: unknown) => Effect.Effect<unknown, unknown>,
-  ) => work(construction.state) };
+  ) => { construction.admissionEntries++; return work(construction.state); } };
 });
 vi.mock("../../../src/frameworks/atomicCommerce/participants", async importOriginal => {
   const original = await importOriginal<typeof import("../../../src/frameworks/atomicCommerce/participants")>();
@@ -36,7 +37,7 @@ vi.mock("../../../src/storage/documents/logicalDocuments/workingSet", async impo
   const original = await importOriginal<typeof import("../../../src/storage/documents/logicalDocuments/workingSet")>();
   return { ...original,
     combineLogicalWriteMechanics: () => Effect.succeed({ tables: [], unique: [], indexes: [], searchDefinitions: [], tableName: () => undefined }),
-    makeLogicalDocumentWorkingSet: () => Effect.succeed(Object.freeze({})),
+    makeLogicalDocumentWorkingSet: () => { construction.workingConstructions++; return Effect.succeed(Object.freeze({})); },
   };
 });
 
@@ -53,7 +54,8 @@ import {
 } from "../../../src/storage/documents/logicalDocuments/rootEvaluator";
 import { captureWorkflowValue } from "../../../../medusa-adapter/src/workflow/value";
 
-beforeEach(() => { construction.admissions = []; construction.state = undefined; });
+beforeEach(() => { construction.admissions = []; construction.state = undefined;
+  construction.admissionEntries = 0; construction.storageReads = 0; construction.workingConstructions = 0; });
 
 const fixture = (calls = 20, commandBytes = defaultCommerceResources.commandBytes) => {
   // SAFETY: the real local evaluator authenticates this opaque journal handle
@@ -89,6 +91,32 @@ const fixture = (calls = 20, commandBytes = defaultCommerceResources.commandByte
   });
   return { input, evaluator, inspect, getter, foreign };
 };
+
+it.each(["aggregate-only", "conjunction"] as const)("refuses borrowed %s validation before source admission or working construction", async shape => {
+  const { input, evaluator } = fixture(), member = input.members[0];
+  if (member === undefined) throw new Error("Missing capture fixture member");
+  const aggregate = vi.fn(() => Effect.void), perCall = vi.fn(() => Effect.void);
+  try {
+    const result = await Effect.runPromise(Effect.result(makeBorrowedWorkflowAttempt({ ...input,
+      members: [{ ...member, validateLogical: aggregate, ...(shape === "conjunction" ? { validateLogicalCall: perCall } : {}) }],
+    })));
+    expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(construction.admissionEntries).toBe(0); expect(construction.storageReads).toBe(0); expect(construction.workingConstructions).toBe(0);
+    expect(aggregate).not.toHaveBeenCalled(); expect(perCall).not.toHaveBeenCalled();
+  } finally { evaluator.close(); }
+});
+
+it("retains borrowed per-call-only admission and the existing local lifetime", async () => {
+  const { input, evaluator } = fixture(), member = input.members[0];
+  if (member === undefined) throw new Error("Missing capture fixture member");
+  const perCall = vi.fn(() => Effect.void);
+  const borrowed = await Effect.runPromise(makeBorrowedWorkflowAttempt({ ...input, members: [{ ...member, validateLogicalCall: perCall }] }));
+  try {
+    expect(await Effect.runPromise(captureWorkflowValue(borrowed.context, { admitted: true }))).toEqual({ admitted: true });
+    expect(construction.admissionEntries).toBe(1); expect(construction.workingConstructions).toBe(1); expect(construction.storageReads).toBe(0);
+    expect(perCall).not.toHaveBeenCalled();
+  } finally { await Effect.runPromise(borrowed.abort); evaluator.close(); }
+});
 
 it.each(["finiteRoot", "abortedLifetime", "exhaustedCalls"] as const)(
   "refuses foreign workflow reflection after actual borrowed %s closure", async reason => {
@@ -145,7 +173,7 @@ it("charges the complete normalized omission envelope once through the borrowed 
     expect(owned).toEqual(foreign);
     expect(owned).not.toBe(foreign);
     const envelope = { payload: { value: { nested: { count: 1 } } },
-      omitted: [["value", "missing"], ["value", "nested", "missing"]] };
+      undefinedPaths: [["value", "missing"], ["value", "nested", "missing"]] };
     expect(borrowed.currentUsage()).toEqual({
       workCalls: before.workCalls + 1,
       workBytes: before.workBytes + new TextEncoder().encode(JSON.stringify(envelope)).byteLength,

@@ -72,6 +72,23 @@ export function capturePrivateJsonDataOmittingUndefined<Failure>(
   return capture(input, bounds.bytes, failure, true, false, false, { bounds, onOmitted });
 }
 
+/** Explicit private intermediate representation. Strings identify object keys;
+ * numbers identify dense own array indices. Null placeholders retain positions
+ * without broadening ordinary/final JSON or accepting sparse array holes.
+ * Source and sidecar each obey the supplied node/byte bounds independently;
+ * the receiving owner must charge their complete envelope to its root budget. */
+export type PrivateIntermediateJsonPath = readonly (string | number)[];
+export function capturePrivateIntermediateJsonData<Failure>(
+  input: unknown,
+  bounds: Readonly<{ bytes: number; nodes: number; depth: number }>,
+  failure: (reason: "limitExceeded" | "invalidInput", cause?: unknown) => Failure,
+): Result.Result<Readonly<{ value: Json; bytes: number; undefinedPaths: readonly PrivateIntermediateJsonPath[] }>, Failure> {
+  const undefinedPaths: PrivateIntermediateJsonPath[] = [];
+  return capture(input, bounds.bytes, failure, true, false, false, { bounds, onOmitted: undefined,
+    onUndefinedSlot: path => undefinedPaths.push(Object.freeze([...path])),
+  }).pipe(Result.map(captured => Object.freeze({ ...captured, undefinedPaths: Object.freeze(undefinedPaths) })));
+}
+
 interface CaptureRefusal {
   readonly reason: "limitExceeded" | "invalidInput";
   readonly cause?: unknown;
@@ -79,6 +96,7 @@ interface CaptureRefusal {
 interface OmissionCapture {
   readonly bounds: Readonly<{ bytes: number; nodes: number; depth: number }>;
   readonly onOmitted: ((path: readonly string[]) => void) | undefined;
+  readonly onUndefinedSlot?: (path: PrivateIntermediateJsonPath) => void;
 }
 
 /** This bounded inspection owns descriptor safety, first refusal and issuance.
@@ -95,6 +113,7 @@ function capture<Failure>(
 ): Result.Result<Readonly<{ value: Json; bytes: number }>, Failure> {
   let remaining = maximum;
   let visitedNodes = 0;
+  let undefinedPathNodes = 1, undefinedPathBytes = 2, undefinedPathCount = 0;
   let strictRefusal: CaptureRefusal | undefined;
   let nativeRefusal: CaptureRefusal | undefined;
   const active = new Set<object>();
@@ -106,7 +125,7 @@ function capture<Failure>(
     remaining -= bytes;
     if (remaining < 0) refuseStrict("limitExceeded");
   };
-  const visit = (valueInput: unknown, depth: number, path: readonly string[]): Json => {
+  const visit = (valueInput: unknown, depth: number, path: PrivateIntermediateJsonPath): Json => {
     if (nativeRefusal !== undefined || (omission === undefined && strictRefusal !== undefined)) return null;
     const issued = inspectCapturedPrivateJsonData(valueInput);
     if (omission !== undefined) {
@@ -189,8 +208,26 @@ function capture<Failure>(
         else nativeRefusal = { reason: "invalidInput" };
         return null;
       }
+      const childPath = omission?.onOmitted === undefined && omission?.onUndefinedSlot === undefined ? [] : [...path, isArray ? Number(key) : key];
+      const undefinedSlot = omission?.onUndefinedSlot !== undefined && descriptor.value === undefined;
+      if (undefinedSlot) {
+        // Sidecar paths are retained data too. Bound their accumulation before
+        // the caller charges the complete private envelope to its root budget.
+        undefinedPathNodes += childPath.length + 1;
+        const metadataRemaining = omission.bounds.bytes - undefinedPathBytes - (undefinedPathCount === 0 ? 0 : 1);
+        if (undefinedPathNodes > omission.bounds.nodes || metadataRemaining < 0) {
+          nativeRefusal = { reason: "limitExceeded" }; return null;
+        }
+        const measured = measureCanonicalJsonUtf8Bytes(childPath, metadataRemaining);
+        if (measured.kind !== "success") {
+          nativeRefusal = { reason: measured.kind === "invalid" ? "invalidInput" : "limitExceeded" };
+          return null;
+        }
+        undefinedPathBytes += measured.bytes + (undefinedPathCount++ === 0 ? 0 : 1);
+        omission.onUndefinedSlot?.(childPath);
+      }
       if (omission !== undefined && descriptor.value === undefined && !isArray) {
-        omission.onOmitted?.([...path, key]);
+        omission.onOmitted?.(childPath.map(String));
         continue;
       }
       if (index > 0) spend(1);
@@ -200,7 +237,7 @@ function capture<Failure>(
         else spend(keySize.bytes + 1);
         wellFormedUnicode = unicodePattern.test(key) && wellFormedUnicode;
       }
-      const value = visit(descriptor.value, depth + 1, omission?.onOmitted === undefined ? [] : [...path, key]);
+      const value = visit(undefinedSlot ? null : descriptor.value, depth + 1, childPath);
       if (nativeRefusal !== undefined || (omission === undefined && strictRefusal !== undefined)) return null;
       const child = inspectCapturedPrivateJsonData(value);
       nodes += child?.nodes ?? 1;

@@ -21,6 +21,9 @@ export const productUpdateParticipantResources = Object.freeze({ ...defaultComme
 /** Native Product/Variant deletion, Inventory ownership reads and Link cascades. */
 export const productDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 512, eventMessages: 128, commandBytes: 2_097_152 });
 export const productDeletionParticipantResources = Object.freeze({ ...defaultCommerceResources, commandBytes: 2_097_152 });
+/** Combined native create/update/delete branches share one finite root. */
+export const productBatchResources = Object.freeze({ ...defaultCommerceResources, catalogRows: 256, calls: 1024, eventMessages: 256, commandBytes: 2_097_152 });
+export const productBatchParticipantResources = Object.freeze({ ...defaultCommerceResources, catalogRows: 128, commandBytes: 2_097_152 });
 /** Four locations/addresses and eight native Inventory levels, one settlement. */
 export const inventoryStockingResources = Object.freeze({ ...defaultCommerceResources });
 /** One parent launch graph owns Pricing, Link, Product Tag and pending graph reads. */

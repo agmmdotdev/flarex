@@ -107,6 +107,8 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
     return Result.fail(error);
   };
   const charge = (bytes: number): Result.Result<void, Failure> => {
+    if (request.phase === "rollbackOnly")
+      return Result.fail(failure("rollbackOnly", Option.getOrUndefined(request.failure)));
     if (request.phase !== "open" && request.phase !== "closing") return fail("closed");
     if (!Number.isSafeInteger(bytes) || bytes < 0 || request.bytes + bytes > limits.commandBytes) return fail("limitExceeded");
     request.bytes += bytes;

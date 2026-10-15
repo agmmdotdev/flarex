@@ -30,6 +30,8 @@ interface WorkflowNodeBase {
   readonly name: string;
   readonly input: unknown;
 }
+export interface ParallelBranch { readonly start: number; readonly end: number }
+export interface ParallelGroup { readonly branches: readonly ParallelBranch[] }
 export type WorkflowNode = WorkflowNodeBase & ({
   readonly kind: "workflow";
   readonly workflow: PreparedWorkflow;

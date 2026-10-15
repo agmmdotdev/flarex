@@ -6,6 +6,7 @@ import { productUpdateWorkflowModule } from "./product-update-workflow";
 import { productUpdateGraphReceipt } from "./product-update-receipt";
 import { productDeletionCommands } from "./commands/deletion";
 import { productDeletionWorkflowModule } from "./product-deletion-workflow";
+import { productBatchWorkflowModule } from "./product-batch-workflow";
 import { prepareProductCommandServices } from "./commands/services";
 import { productReadCommands } from "./commands/reads";
 import { productInternalCommands } from "./commands/internal";
@@ -87,5 +88,8 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     { list: commands.list, softDeleteProducts: deletion.softDeleteProducts, softDeleteVariants: deletion.softDeleteVariants, countVariants: deletion.countVariants }, graph,
     { product: [metadata.product, metadata.image, metadata.option, metadata.value, metadata.variant].map(entity => entity.deletedEvent), variant: metadata.variant.deletedEvent },
     { ...logicalPolicy, commands: Object.values(commands) }));
-  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, productUpdateWorkflow, productDeletionWorkflow, logicalPolicy };
+  const productBatchWorkflow = yield* Effect.fromResult(productBatchWorkflowModule(description, metadata,
+    { creation: workflow, update: productUpdateWorkflow, variantUpdate: variantUpdateWorkflow, deletion: productDeletionWorkflow },
+    { ...logicalPolicy, commands: Object.values(commands) }));
+  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, productUpdateWorkflow, productDeletionWorkflow, productBatchWorkflow, logicalPolicy };
 });

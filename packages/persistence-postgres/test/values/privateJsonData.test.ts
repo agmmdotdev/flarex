@@ -1,7 +1,7 @@
 import { Result } from "effect";
 import { isJsonObject } from "flarex-protocol/json";
 import { expect, it } from "vitest";
-import { capturePrivateJsonData, capturePrivateJsonDataOmittingUndefined, inspectCapturedPrivateJsonData, useCapturedPrivateJsonData } from "../../src/values/privateJsonData";
+import { capturePrivateJsonData, capturePrivateJsonDataOmittingUndefined, capturePrivateIntermediateJsonData, inspectCapturedPrivateJsonData, useCapturedPrivateJsonData } from "../../src/values/privateJsonData";
 
 const failure = (reason: "invalidInput" | "limitExceeded", cause?: unknown) => ({ reason, cause });
 const success = <Value, Failure>(result: Result.Result<Value, Failure>): Value => {
@@ -124,4 +124,60 @@ it("preserves normalized container key-count precedence and omitted key accounti
     { ...bounds, bytes: 2 }, failure));
   expect(omittedOnly).toEqual({ value: {}, bytes: 2 });
   expect(inspectCapturedPrivateJsonData(omittedOnly.value)).toMatchObject({ nodes: 1, depth: 0 });
+});
+
+it("captures only genuine own undefined slots under the explicit intermediate representation", () => {
+  const source = { "0": undefined, nested: [undefined, null, { missing: undefined, kept: true }], text: "雪" };
+  const captured = success(capturePrivateIntermediateJsonData(source, { bytes: 1024, nodes: 20, depth: 16 }, failure));
+  expect(captured.value).toEqual({ nested: [null, null, { kept: true }], text: "雪" });
+  expect(captured.undefinedPaths).toEqual([["0"], ["nested", 0], ["nested", 2, "missing"]]);
+  expect(Object.isFrozen(captured.undefinedPaths)).toBe(true);
+  expect(captured.undefinedPaths.every(Object.isFrozen)).toBe(true);
+  expect(inspectCapturedPrivateJsonData(captured.value)).toMatchObject({ bytes: captured.bytes, nodes: 7, depth: 3 });
+  source.nested[0] = { missing: undefined, kept: false };
+  expect(captured.value).toEqual({ nested: [null, null, { kept: true }], text: "雪" });
+  // Ordinary JSON and native object-omission callers keep their prior refusal.
+  for (const capture of [capturePrivateJsonData([undefined], 1024, failure),
+    capturePrivateJsonDataOmittingUndefined([undefined], { bytes: 1024, nodes: 20, depth: 16 }, failure)])
+    expect(capture).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+  expect(capturePrivateIntermediateJsonData(undefined, { bytes: 1024, nodes: 20, depth: 16 }, failure))
+    .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+  const counterfeit = { payload: [null], undefinedPaths: [[0]] };
+  const ordinary = success(capturePrivateIntermediateJsonData(counterfeit, { bytes: 1024, nodes: 20, depth: 16 }, failure));
+  expect(ordinary.value).toEqual(counterfeit); expect(ordinary.undefinedPaths).toEqual([]);
+});
+
+it("keeps intermediate array descriptor capture singular and all invalid structures refused", () => {
+  const inspected: string[] = [];
+  const source = new Proxy([undefined], { ownKeys(target) { inspected.push("keys"); return Reflect.ownKeys(target); },
+    getOwnPropertyDescriptor(target, key) { inspected.push(String(key)); return Reflect.getOwnPropertyDescriptor(target, key); } });
+  expect(success(capturePrivateIntermediateJsonData(source, { bytes: 1024, nodes: 20, depth: 16 }, failure)).undefinedPaths).toEqual([[0]]);
+  expect(inspected).toEqual(["keys", "0", "length"]);
+  let calls = 0;
+  const getter = Object.defineProperty([0], "0", { enumerable: true, get() { calls++; return undefined; } });
+  const hidden = Object.defineProperty({}, "absent", { enumerable: false, value: undefined });
+  const custom = Object.setPrototypeOf([undefined], {}), cycle: unknown[] = [];
+  cycle.push(cycle);
+  for (const input of [Array(1), Object.assign(Array(3), { 0: undefined, 2: undefined }), getter, hidden, custom, { [Symbol("absent")]: undefined }, cycle])
+    expect(capturePrivateIntermediateJsonData(input, { bytes: 1024, nodes: 20, depth: 16 }, failure))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+  expect(calls).toBe(0);
+});
+
+it("retains byte, node and depth bounds and accounts undefined-path metadata as ordinary JSON", () => {
+  const source = { value: [undefined] }, bounds = { bytes: 1024, nodes: 4, depth: 2 };
+  const captured = success(capturePrivateIntermediateJsonData(source, bounds, failure));
+  expect(captured.bytes).toBe(new TextEncoder().encode(JSON.stringify(captured.value)).length);
+  expect(success(capturePrivateIntermediateJsonData(source, { ...bounds, bytes: captured.bytes }, failure)).value).toEqual(captured.value);
+  for (const limited of [{ ...bounds, bytes: captured.bytes - 1 }, { ...bounds, nodes: 3 }, { ...bounds, depth: 1 }])
+    expect(capturePrivateIntermediateJsonData(source, limited, failure))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+  const envelope = { payload: captured.value, undefinedPaths: captured.undefinedPaths };
+  const budgeted = success(useCapturedPrivateJsonData(envelope, 1024, failure));
+  expect(budgeted.bytes).toBe(new TextEncoder().encode(JSON.stringify(envelope)).length);
+  expect(budgeted.bytes).toBeGreaterThan(captured.bytes);
+  expect(useCapturedPrivateJsonData(envelope, captured.bytes, failure))
+    .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+  expect(capturePrivateIntermediateJsonData({ ["key".repeat(100)]: undefined }, { ...bounds, bytes: 30 }, failure))
+    .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
 });

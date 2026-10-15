@@ -3,10 +3,8 @@ import { createProductsWorkflow } from "@medusajs/core-flows/product/create-prod
 import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { compileProductDefinition } from "../../modules/product/definition";
-import { productCreationInput, ProductImageCreateInput } from "./create-input";
-import { SimpleVariantInput } from "../../modules/product/variant-workflow-input";
+import { productCreationWorkflowEntry } from "./create-input";
 import { ProductVariantInventoryOutput } from "./variant-inventory";
-import { BasePriceInput } from "../../modules/pricing/input";
 import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
 import { orderedProductWorkflowEvents } from "./events";
@@ -26,10 +24,6 @@ import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type Installed
 import { productCreationResources } from "../../workflow/policy";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
-const { product_id: _parent, ...variantFields } = SimpleVariantInput.fields;
-const Variants = Schema.Array(Schema.Struct({ ...variantFields,
-  prices: Schema.optionalKey(Schema.Array(BasePriceInput).check(Schema.isMaxLength(2))),
-})).check(Schema.isMaxLength(4));
 export const ProductCreationOutput = Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Id, title: Schema.String,
   variants: Schema.Array(ProductVariantInventoryOutput.value).check(Schema.isMaxLength(4)),
 }), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isLengthBetween(1, 4));
@@ -81,18 +75,7 @@ export const prepareProductCreationWorkflow = Effect.fn("MedusaWorkflow.prepareP
   const metadata = yield* compileProductDefinition();
   const product = metadata.metadata.tables.find(table => table.name === "product");
   if (!product) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const base = productCreationInput(product.columns.map(column => column.name));
-  const Product = Schema.Struct({ ...base.fields,
-    tag_ids: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(4))),
-    category_ids: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(4))),
-    images: Schema.optionalKey(Schema.Array(ProductImageCreateInput).check(Schema.isMaxLength(2))),
-    options: Schema.optionalKey(Schema.Array(Schema.Struct({ title: Schema.String,
-      values: Schema.Array(Schema.String).check(Schema.isLengthBetween(1, 4)),
-    })).check(Schema.isMaxLength(1))),
-    variants: Schema.optionalKey(Variants),
-    sales_channels: Schema.optionalKey(Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(2))),
-    shipping_profile_id: Schema.optionalKey(Id),
-  });
+  const Product = productCreationWorkflowEntry(product.columns.map(column => column.name));
   const contract = Schema.Struct({ products: Schema.Array(Product).check(Schema.isLengthBetween(1, 4),
     Schema.makeFilter(products => products.reduce((total, product) => total + (product.variants?.length ?? 0), 0) <= 4)),
     additional_data: Schema.optionalKey(Schema.JsonObject),

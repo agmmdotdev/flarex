@@ -28,11 +28,11 @@ type Selections = {
   readonly variant_links: { readonly module: LinkPreparation["workflow"]; readonly methods: readonly ["inventoryNativeList", "pricingNativeList", "inventoryNativeDismiss"]; readonly graph: true; readonly expose: false };
 };
 type Resources = NativeWorkflowResources<Selections, true> & ComposedWorkflowServices<{ readonly link: LinkResource }>;
-const Output = Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Schema.String,
+export const ProductVariantUpdateOutput = Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Schema.String,
   price_set: Schema.optionalKey(Schema.StructWithRest(Schema.Struct({ id: Schema.String,
     prices: Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(2)) }), [Schema.Record(Schema.String, Schema.Json)])),
 }), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(4));
-const decodeHook = commerceDecoder(Schema.Struct({ product_variants: Output, additional_data: Schema.optionalKey(Schema.JsonObject) }), "invalidInput");
+const decodeHook = commerceDecoder(Schema.Struct({ product_variants: ProductVariantUpdateOutput, additional_data: Schema.optionalKey(Schema.JsonObject) }), "invalidInput");
 const decodeIds = commerceDecoder(Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Schema.String }),
   [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(4)), "receiptMismatch");
 
@@ -84,5 +84,5 @@ export const prepareProductVariantUpdateWorkflow = Effect.fn("MedusaWorkflow.pre
     return ids;
   }));
   return yield* prepareAtomicWorkflowHost({ ...options, modules, requestCallLimit: productVariantUpdateResources.calls,
-    workflow: { name: "updateProductVariantsWorkflow", resources, prepared, input: boundary, output: Output, events } });
+    workflow: { name: "updateProductVariantsWorkflow", resources, prepared, input: boundary, output: ProductVariantUpdateOutput, events } });
 });

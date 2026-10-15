@@ -7,6 +7,7 @@ import { makeCommerceReadHost, type CommerceReadHost } from "../../persistence-p
 import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
 import { runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
 import { commerceError, CommerceTransactionError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
+import { defaultCommerceResources } from "../../persistence-postgres/src/frameworks/commerceTransaction/resources";
 import { prepareLogicalReadIndexReadinessWitness, prepareLogicalReadDemandReadinessWitness } from "../../persistence-postgres/test/storage/documents/logicalReadIndexReadinessTestSupport";
 import { makeManagedReadMetadataMutationWitness } from "../../persistence-postgres/test/storage/documents/managedReadMetadataMutationTestSupport";
 import { logicalManagedReadDemandScenario } from "../../persistence-postgres/test/storage/documents/logicalManagedReadDemandScenario";
@@ -115,6 +116,40 @@ describe.skipIf(process.env.FLAREX_TEST_DRIVER !== "postgres" || postgresUrl ===
         expect(await readinessFailure(host.read(command, malformed).pipe(Effect.withTracer(tracer)),
           "warm malformed relational predicate")).toMatchObject({ reason: "invalidInput" });
         expect(spans.filter(span => span.name === "LogicalReadMetadata.queryAccess")).toEqual([]);
+      } finally { await Effect.runPromise(host.close); }
+    }, 120_000);
+
+    it("retains a conditional scalar anchor through compact managed metadata under a single-identity read profile", async () => {
+      const { product } = getLogicalProductRunnerFixture();
+      const input = product.managedReadHostInput;
+      if (input === undefined) throw new Error("Missing managed Product input");
+      const chosen = await service.createProducts({ id: "managed_anchor_selected", title: "Selected Anchor",
+        handle: "managed-anchor-selected" });
+      await service.createProducts({ id: "managed_anchor_background", title: "Background Anchor",
+        handle: "managed-anchor-background" });
+      const command = defineCommerceCommand("managedConditionalScalarAnchor", "read", (ctx, value) => Effect.gen(function* () {
+        const store = yield* ctx.table("product");
+        return yield* store.prepareRead(value).find(ctx.manager);
+      }));
+      // This trusted reader grants one identity. The declared handle anchor
+      // must survive compact metadata selection instead of reading all active
+      // Products and applying take after their identities have been hydrated.
+      const host = await Effect.runPromise(makeCommerceReadHost({ ...input, commands: [command],
+        logicalResources: { ...defaultCommerceResources, catalogRows: 1, queryRows: 1,
+          writeBatchRows: 1, facts: 1, eventIds: 1 },
+      }));
+      const spans: string[] = [];
+      const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+      try {
+        expect(await Effect.runPromise(host.read(command, { fields: ["id", "handle"],
+          order: { column: "id", direction: "asc" }, take: 1,
+          predicate: { kind: "and", children: [
+            { kind: "in", column: "handle", values: [chosen.handle] },
+            { kind: "isNull", column: "deleted_at" },
+          ] },
+        }).pipe(Effect.withTracer(tracer)))).toEqual([{ id: chosen.id, handle: chosen.handle }]);
+        expect(spans).toContain("LogicalReadMetadata.queryAccess");
+        expect(spans).toContain("LogicalReadMetadata.selectIndex");
       } finally { await Effect.runPromise(host.close); }
     }, 120_000);
 
