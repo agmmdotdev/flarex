@@ -26,13 +26,6 @@ describe("SAP05 Standard point query - PGlite", () => {
           persistence,
           FSV05_SUPPORTED_LOCATOR,
         ),
-      makeDecisionUncertainTarget: () => Object.freeze({
-        target: createPGliteLocatedApplicationRevisionActivationTargetV1(
-          persistence,
-          FSV05_SUPPORTED_LOCATOR,
-        ),
-        wasInjected: () => false,
-      }),
     });
     expect(proof).toMatchObject({
       lane: "pglite",

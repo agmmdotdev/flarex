@@ -114,10 +114,6 @@ describe("Legacy SAP07 Standard public edge action", () => {
           AAV_A1_LOCATOR,
         ),
       makeActivationTarget: () => activationTarget,
-      makeDecisionUncertainTarget: () => Object.freeze({
-        target: activationTarget,
-        wasInjected: () => false,
-      }),
     }, artifacts, "aav-a1-composition", true);
     await Effect.runPromise(Effect.scoped(activateApplicationRevisionV1(
       ready.revisionId,

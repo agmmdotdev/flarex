@@ -43,13 +43,6 @@ describePostgres("PQV-A1 target-native query snapshot - PostgreSQL", () => {
             persistence,
             FSV05_SUPPORTED_LOCATOR,
           ),
-        makeDecisionUncertainTarget: () => Object.freeze({
-          target: createPostgresLocatedApplicationRevisionActivationTargetV1(
-            persistence,
-            FSV05_SUPPORTED_LOCATOR,
-          ),
-          wasInjected: () => false,
-        }),
       })).resolves.toMatchObject({
         lane: "postgres",
         snapshotCommitSeq: 2n,
@@ -75,13 +68,6 @@ describePostgres("PQV-A1 target-native query snapshot - PostgreSQL", () => {
             persistence,
             FSV05_SUPPORTED_LOCATOR,
           ),
-        makeDecisionUncertainTarget: () => Object.freeze({
-          target: createPostgresLocatedApplicationRevisionActivationTargetV1(
-            persistence,
-            FSV05_SUPPORTED_LOCATOR,
-          ),
-          wasInjected: () => false,
-        }),
       });
       expect(proof).toMatchObject({
         lane: "postgres",

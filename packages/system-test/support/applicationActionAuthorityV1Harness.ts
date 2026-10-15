@@ -102,10 +102,6 @@ export async function proveApplicationActionAuthorityV1(
     persistence: lane.persistence,
     registrationTarget: lane.registrationTarget,
     makeActivationTarget: () => lane.activationTarget,
-    makeDecisionUncertainTarget: () => Object.freeze({
-      target: lane.activationTarget,
-      wasInjected: () => false,
-    }),
   }, artifacts, `aav-a1-${lane.name}`, true);
   await run(Effect.scoped(activateApplicationRevisionV1(
     ready.revisionId,

@@ -42,9 +42,6 @@ describePostgres("SAP06-A3 mutation internal calls - PostgreSQL", () => {
             persistence,
             FSV05_SUPPORTED_LOCATOR,
           ),
-        makeDecisionUncertainTarget: () => {
-          throw new Error("SAP06-A3 does not alter activation uncertainty.");
-        },
         makeSessionTarget: () =>
           createPostgresLocatedPointMutationSessionActivationTargetV1(
             persistence,

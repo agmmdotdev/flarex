@@ -44,9 +44,6 @@ describePostgres("FSV06 Standard point mutation - PostgreSQL", () => {
             persistence,
             FSV05_SUPPORTED_LOCATOR,
           ),
-        makeDecisionUncertainTarget: () => {
-          throw new Error("FSV06 does not alter activation uncertainty.");
-        },
         makeSessionTarget: () =>
           createPostgresLocatedPointMutationSessionActivationTargetV1(
             persistence,

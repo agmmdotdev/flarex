@@ -36,13 +36,6 @@ describePostgres("SAP05 Standard point query - PostgreSQL", () => {
             persistence,
             FSV05_SUPPORTED_LOCATOR,
           ),
-        makeDecisionUncertainTarget: () => Object.freeze({
-          target: createPostgresLocatedApplicationRevisionActivationTargetV1(
-            persistence,
-            FSV05_SUPPORTED_LOCATOR,
-          ),
-          wasInjected: () => false,
-        }),
       });
       expect(proof).toMatchObject({
         lane: "postgres",

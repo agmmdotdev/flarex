@@ -30,9 +30,6 @@ describe("FSV06 Standard point mutation - PGlite", () => {
           persistence,
           FSV05_SUPPORTED_LOCATOR,
         ),
-      makeDecisionUncertainTarget: () => {
-        throw new Error("FSV06 does not alter activation uncertainty.");
-      },
       makeSessionTarget: () =>
         createPGliteLocatedPointMutationSessionActivationTargetV1(
           persistence,

@@ -52,9 +52,16 @@ owns the detailed activation, readiness, binding and lifetime regressions.
 
 ## Historical Proofs
 
-FSV04/FSV05 use journals capped before analysis retirement and retain historical
-protocol assertions. Their shared current runtime has a documented schema gap;
-they do not establish current Application acceptance. Keep their tests and named
-helper consumers separate from the current lifecycle proof. The
+The obsolete FSV04/FSV05 runtime entry suites and proof-only coordinators are
+retired. The current lifecycle entries above and persistence readiness/activation
+tests own their live behavioral coverage. The two migration-0043 ownership
+regressions live with persistence's historical migration tests, share assertions
+across drivers, and stop at 0043 rather than replaying unrelated later migrations.
+
+The FSV04/FSV05 preparation helpers still serve FSV06, PQV, SAP and action
+fixtures. Those consumers retain a schema/runtime gap and do not establish
+current Application acceptance. Their removal gate is migration of those named
+consumers to current owners. Do not add current installation/authority tables to
+their historical schema or bypass admission. The
 [analysis retirement owner](../../roadmaps/49-application-analysis-migration.md)
-governs repair or replacement of that historical obligation.
+owns that remaining disposition.

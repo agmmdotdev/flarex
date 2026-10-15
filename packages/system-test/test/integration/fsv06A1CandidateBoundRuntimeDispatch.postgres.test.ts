@@ -41,9 +41,6 @@ describePostgres("FSV06-A1 candidate-bound runtime dispatch - PostgreSQL", () =>
             persistence,
             FSV05_SUPPORTED_LOCATOR,
           ),
-        makeDecisionUncertainTarget: () => {
-          throw new Error("FSV06-A1 does not mint activation uncertainty.");
-        },
       });
       expect(proof).toMatchObject({
         lane: "postgres",

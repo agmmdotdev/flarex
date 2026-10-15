@@ -1130,6 +1130,7 @@
             "test/execution/recovery/pointMutationRedeliverySchedulerCheckpoint.postgres.test.ts",
             "test/legacy/declarativeV2InertRepository.postgres.test.ts",
             "test/legacy/declarativeV2VerifierProgressV1Retirement.postgres.test.ts",
+            "test/legacy/declarativeV2VerdictOwnershipMigration.postgres.test.ts",
             "test/application/revision/applicationRevisionRegistrationV1.postgres.test.ts",
             "test/application/applicationAnalysisRegistration.postgres.test.ts",
             "test/application/relations/applicationRelationBinding.postgres.test.ts",

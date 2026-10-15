@@ -30,9 +30,6 @@ describe("SAP06-A3 mutation internal calls - PGlite", () => {
           persistence,
           FSV05_SUPPORTED_LOCATOR,
         ),
-      makeDecisionUncertainTarget: () => {
-        throw new Error("SAP06-A3 does not alter activation uncertainty.");
-      },
       makeSessionTarget: () =>
         createPGliteLocatedPointMutationSessionActivationTargetV1(
           persistence,

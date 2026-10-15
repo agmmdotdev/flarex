@@ -38,13 +38,6 @@ describePostgres("SAP06-A1 inline internal point query - PostgreSQL", () => {
             persistence,
             FSV05_SUPPORTED_LOCATOR,
           ),
-        makeDecisionUncertainTarget: () => Object.freeze({
-          target: createPostgresLocatedApplicationRevisionActivationTargetV1(
-            persistence,
-            FSV05_SUPPORTED_LOCATOR,
-          ),
-          wasInjected: () => false,
-        }),
       });
       expect(proof).toMatchObject({
         lane: "postgres",

@@ -31,13 +31,6 @@ describe("PQV-A1 target-native query snapshot - PGlite", () => {
           persistence,
           FSV05_SUPPORTED_LOCATOR,
         ),
-      makeDecisionUncertainTarget: () => Object.freeze({
-        target: createPGliteLocatedApplicationRevisionActivationTargetV1(
-          persistence,
-          FSV05_SUPPORTED_LOCATOR,
-        ),
-        wasInjected: () => false,
-      }),
     })).resolves.toMatchObject({
       lane: "pglite",
       snapshotCommitSeq: 2n,
@@ -69,13 +62,6 @@ describe("PQV-A1 target-native query snapshot - PGlite", () => {
           persistence,
           FSV05_SUPPORTED_LOCATOR,
         ),
-      makeDecisionUncertainTarget: () => Object.freeze({
-        target: createPGliteLocatedApplicationRevisionActivationTargetV1(
-          persistence,
-          FSV05_SUPPORTED_LOCATOR,
-        ),
-        wasInjected: () => false,
-      }),
     });
     expect(proof).toMatchObject({
       lane: "pglite",

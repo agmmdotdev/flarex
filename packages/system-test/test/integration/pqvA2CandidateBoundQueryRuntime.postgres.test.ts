@@ -38,13 +38,6 @@ describePostgres("PQV-A2 candidate-bound exact point-query runtime - PostgreSQL"
             persistence,
             FSV05_SUPPORTED_LOCATOR,
           ),
-        makeDecisionUncertainTarget: () => Object.freeze({
-          target: createPostgresLocatedApplicationRevisionActivationTargetV1(
-            persistence,
-            FSV05_SUPPORTED_LOCATOR,
-          ),
-          wasInjected: () => false,
-        }),
       });
       expect(proof).toMatchObject({
         lane: "postgres",

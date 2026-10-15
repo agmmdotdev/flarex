@@ -3780,9 +3780,9 @@ Migration `0064_application_analysis_retirement.sql` is the new journal head.
 The live Drizzle schema excludes all 14 displaced analyzer, revision, verdict,
 projection and activation tables. The migration takes exclusive locks, refuses
 when any retired table is nonempty, drops the two remaining external foreign
-keys explicitly, and drops the graph without `CASCADE`. Historical FSV04/FSV05
-proofs use copied migration journals capped before 0064; current Application
-query, mutation, action and Task proofs use the latest retired schema.
+keys explicitly, and drops the graph without `CASCADE`. Retained historical
+repository and migration proofs use explicitly bounded journals; current
+Application query, mutation, action and Task proofs use the latest retired schema.
 
 The connected composition proof uses the real post-retirement repository,
 replays retained terminal evidence without a second host call, and publishes
@@ -3791,15 +3791,24 @@ consumer proofs run on the retired schema. Historical compatibility proofs use
 an explicit copied migration journal capped before retirement and reach the
 displaced targets only through `internal/system-test` package subpaths.
 
-The retained FSV04/FSV05 runtime harnesses currently have a schema/runtime gap:
-their pre-0064 journals omit the installation and split scope-authority state
-required by the shared current runtime. They fail in historical fixture setup
-and do not provide current Application readiness/activation acceptance. Keep
-their historical assertions, migration witnesses and helper consumers until a
-matched historical-runtime or explicit consumer-migration disposition replaces
-them. Current Application proofs use the installed current schema and genuine
-unversioned owners; do not create a hybrid historical schema to make those
-older runtime harnesses pass.
+The obsolete FSV04/FSV05 runtime entry suites, report-only frame/hash assertions
+and proof-only backend coordinators are retired. Current Application lifecycle,
+readiness and activation suites own nonactivating readiness, cold evidence,
+physical coverage, capability confinement, atomic publication, CAS, uncertainty
+and durable recovery. The shared finite document-validation scenario uses the
+current scoped, session-pinned validator and retains document rejection, copied
+or forged capability refusal, foreign pins and scope revocation. Superseding an
+active head does not invalidate an already admitted immutable session schema.
+The two genuine 0043 ownership migration regressions remain with persistence,
+share assertions across PGlite and PostgreSQL, and stop at the 0043 boundary.
+
+The historical FSV04/FSV05 preparation helper chain remains an executing
+dependency of FSV06, PQV, SAP and action-authority fixtures. Its pre-0064 journals
+omit installation and split scope-authority state required by the shared current
+runtime. Those consumers still have a schema/runtime gap; their removal gate is
+migration to current consumer owners. They do not establish current Application
+acceptance. Do not create a hybrid historical schema or bypass admission to make
+them pass.
 
 The retained granular verifier repository proofs use the pre-0064 journal and
 historical scope seed with the shared READ COMMITTED transaction/settlement
@@ -3810,7 +3819,7 @@ backend lineage composition case is removed in favor of current Application
 Analysis composition proofs. The unused connected-Client verifier adapter and
 its package route are retired; its real Client transaction-serialization witness
 remains with the current connected-Client persistence tests. This repository-only
-fixture disposition does not resolve the historical runtime harness gap above.
+fixture disposition does not resolve the remaining historical consumer gap above.
 The earlier verifier V1-retirement proof is bounded at migration 0044, where V2
 progress remains present; migration 0064 owns its subsequent retirement.
 

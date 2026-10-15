@@ -42,9 +42,6 @@ describePostgres("SAP06-A2 mutation internal query - PostgreSQL", () => {
             persistence,
             FSV05_SUPPORTED_LOCATOR,
           ),
-        makeDecisionUncertainTarget: () => {
-          throw new Error("SAP06-A2 does not alter activation uncertainty.");
-        },
         makeSessionTarget: () =>
           createPostgresLocatedPointMutationSessionActivationTargetV1(
             persistence,

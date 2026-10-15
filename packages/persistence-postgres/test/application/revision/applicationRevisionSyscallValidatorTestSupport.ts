@@ -15,7 +15,8 @@ import {
 
 /**
  * Setup-seeded C04B1 proof adapter used only by persistence/executor tests.
- * Delete it once every prepared-start test enters through FSV05 + C03-V.
+ * Remove it as remaining prepared-start tests adopt the current scoped,
+ * session-pinned issuer through their genuine admission owners.
  */
 export function issueSetupSeededSyscallValidatorProofV1(input: Readonly<{
   readonly scopeId?: ScopeId;
