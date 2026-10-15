@@ -1,4 +1,7 @@
 import { Effect } from "effect";
+import { compareBytesLexicographically } from "@flarex/utils/bytes";
+import { preservePrimaryKeyOrFilterOrder } from "@medusajs/drizzle/relation-query";
+import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
 import { jsonEqual } from "flarex-protocol/json";
 import { mergeMetadata } from "@medusajs/utils/common/merge-metadata";
 import { isPresent } from "@medusajs/framework/utils/portable";
@@ -40,6 +43,12 @@ export function productLogicalTypeWorkflowCreatePolicy(catalog: ProductRuntimeMe
  * merging mutates the DAL's framework-owned entity objects. */
 export function productLogicalTypeSelectorUpdatePolicy(catalog: ProductRuntimeMetadata): LogicalCallReceiptValidation {
   const entity = productLogicalEntityEventPolicy(catalog, catalog.type, "productUpdateTypesBySelector", "updated");
+  // The logical relational reader orders text by complete UTF-8 bytes. The
+  // native buildQuery first deduplicates service ID arrays; the pinned
+  // repository preserves the normalized filter order for keyed updates.
+  const encoder = new TextEncoder();
+  const compareIds = ([left]: readonly [string, JsonObject], [right]: readonly [string, JsonObject]) =>
+    compareBytesLexicographically(encoder.encode(left), encoder.encode(right));
   return Effect.fn("ProductEvents.validateLogicalTypeSelectorUpdate")(function* (call, activity) {
     yield* entity.validateLogicalCall(call, activity);
     const input = yield* Effect.fromResult(decodeProductTypeUpdateInput(call.input))
@@ -63,9 +72,12 @@ export function productLogicalTypeSelectorUpdatePolicy(catalog: ProductRuntimeMe
       (ids === undefined || ids.has(id)) && (input.selector.value === undefined || row.value === input.selector.value)));
     if (selected.size > 4 || selected.size !== results.length || activity.mutations.length !== selected.size)
       return yield* Effect.fail(mismatch());
+    const nativeWhere = buildQuery(input.selector, { order: { id: "ASC" } }).where;
+    const orderedRoots = preservePrimaryKeyOrFilterOrder([...selected].toSorted(compareIds).map(([, row]) => row),
+      nativeWhere, ["id"], [["id", "ASC"]]);
     for (const [index, result] of results.entries()) {
       const mutation = activity.mutations[index], before = mutation?.before, after = mutation?.after;
-      if (!isJsonObject(result) || typeof result.id !== "string" || before == null || after == null ||
+      if (!isJsonObject(result) || typeof result.id !== "string" || result.id !== orderedRoots[index]?.id || before == null || after == null ||
         before.id !== result.id || !selected.delete(result.id) || !matchesPublicRow(after, result)) return yield* Effect.fail(mismatch());
       for (const [field, value] of Object.entries(before)) {
         if (field === "updated_at") continue;
@@ -82,5 +94,12 @@ export function productLogicalTypeSelectorUpdatePolicy(catalog: ProductRuntimeMe
       }
     }
     if (selected.size !== 0) return yield* Effect.fail(mismatch());
+    let eventOrdinal = 0;
+    for (const event of call.events) {
+      const message = yield* entity.capture(event);
+      for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id])
+        if (id !== orderedRoots[eventOrdinal++]?.id) return yield* Effect.fail(mismatch());
+    }
+    if (eventOrdinal !== orderedRoots.length) return yield* Effect.fail(mismatch());
   });
 }

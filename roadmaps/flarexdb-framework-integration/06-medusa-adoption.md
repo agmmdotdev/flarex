@@ -135,7 +135,9 @@ implements creation, complete selector updates and soft deletion through the
 real native composers. Its four-Type profile admits 64 calls and 64 events
 with ordinary 128-identity working sets and one authentic native write per
 root. Type soft deletion preserves Product references and uses the genuine
-empty native Link route. General restoration, custom Type Links and hosted
+empty native Link route. Selector updates preserve native ID-array order,
+including native first-occurrence deduplication, with independently ordered receipts.
+General restoration, custom Type Links and hosted
 activation remain unadmitted.
 The [native Product Collection slice](./preflight/105-native-product-collection-workflows.md)
 implements creation, complete selector updates and soft deletion through the

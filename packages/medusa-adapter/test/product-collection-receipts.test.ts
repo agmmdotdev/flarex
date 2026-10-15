@@ -127,12 +127,19 @@ describe("native Collection workflow receipts", () => {
     await refused(call, activity);
   });
 
-  it("binds selector-only changes and preserves the native last-duplicate ID rank", async () => {
+  it("binds selector-only changes", async () => {
     const changedSelector = membershipReceipt(["c", "a"], ["a", "c"]);
     await refused(changedSelector.call, changedSelector.activity);
-    const duplicateRank = membershipReceipt(["a", "c"], ["c", "a", "c"]);
+  });
+
+  it("retains native service first-occurrence ID order before membership's last target wins", async () => {
+    // buildQuery deduplicates the service selector before the repository's
+    // preservePrimaryKeyOrFilterOrder sees it. Raw DAL duplicate rank differs.
+    const duplicateRank = membershipReceipt(["c", "a"], ["c", "a", "c"]);
     await Effect.runPromise(validate(duplicateRank.call, duplicateRank.activity));
-    const wrongDuplicateRank = membershipReceipt(["c", "a"], ["c", "a", "c"]);
+    expect(duplicateRank.activity.observedRows.find(observed => observed.table === catalog.product.table.name && observed.row.id === "new")?.row.collection_id)
+      .toBe("a");
+    const wrongDuplicateRank = membershipReceipt(["a", "c"], ["c", "a", "c"]);
     await refused(wrongDuplicateRank.call, wrongDuplicateRank.activity);
   });
 

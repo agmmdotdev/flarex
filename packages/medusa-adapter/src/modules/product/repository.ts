@@ -107,7 +107,8 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
   };
   /** Table-bound repositories share this request's bridge and subscriber set. */
   const findRelated = Effect.fn("ProductAdapter.findRelatedForProfile")((ctx: CommerceCommandContext, entity: ProductEntityMetadata, input: unknown, withCount: boolean) =>
-    findProductRelated(ctx, metadata, entity, input, withCount, profile === "collectionWorkflow" && entity === metadata.collection).pipe(Effect.flatMap(result => {
+    findProductRelated(ctx, metadata, entity, input, withCount,
+      profile === "collectionWorkflow" && entity === metadata.collection || profile === "typeWorkflow" && entity === metadata.type).pipe(Effect.flatMap(result => {
       // Native selector update performs its own full list before keyed
       // writes. Refuse a fifth selected root instead of updating a page prefix.
       if ((profile === "typeWorkflow" && entity === metadata.type || profile === "collectionWorkflow" && entity === metadata.collection) &&

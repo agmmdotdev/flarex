@@ -72,6 +72,17 @@ matching Types, maps them to keyed internal updates, and returns a DTO array.
 The workflow uses the object-selector overload. Missing selection returns an
 empty array; a keyed update's missing-ID behavior is not interchangeable.
 
+The named Type workflow repository retains native selector ordering across both
+the initial list and the internal keyed-update `$or` list. Native `buildQuery`
+deduplicates direct ID arrays in first-occurrence order before the pinned
+primary-key/filter-order helper runs. Scalar, value and empty selectors retain
+binary UTF-8 ID ascending order.
+Native preimages, returned DTOs, mutations, module events, hooks and workflow
+events preserve that order. Receipt validation independently derives it from
+the initial selected roots and original selector, so a consistently reordered
+result/mutation/event transcript is insufficient. Older Type profiles retain
+their existing contracts.
+
 The internal service performs native metadata merging before the repository
 write when incoming metadata is present and nonempty. That merge preserves
 absent top-level keys, removes keys whose incoming value is the empty string,
@@ -110,8 +121,8 @@ Relevant current owners are under
 mechanics, not a second cascade algorithm. Derive Type update admission from
 its own DML fields; Tag-only input validation is not a Type contract.
 
-Selector receipts must bind the complete native selection, returned rows,
-mutations and events at the authentic command boundary. Soft-delete receipts
+Selector receipts must bind the complete native selection and its order,
+returned rows, mutations and events at the authentic command boundary. Soft-delete receipts
 must require exact coverage of eligible active requested Type roots using
 observed rows and mutation preimages, coalesce duplicate and missing requests,
 and reject unrelated mutations, lifecycle entries, reference replacements or
@@ -129,13 +140,10 @@ needed. Genuine `executeCascade` returns the full `[null, {}]` tuple when no
 registered routing matches. Do not replace it with a fabricated no-op callback
 or claim support for custom Type Links.
 
-The composed-resource issuer currently rejects an empty dependency array,
-preventing that genuine empty router from being issued. Its owner must admit
-an empty authenticated dependency set while retaining descriptor capture,
+The composed-resource issuer admits an empty authenticated dependency set
+for that genuine empty router while retaining descriptor capture,
 method and identity validation, resource authenticity and callback lifetime
 confinement. No fabricated dependency or additional source is appropriate.
-The continuing goal authorizes this connected correction; neutral resource
-coverage and native Type deletion must establish the resulting scope.
 
 Promote the three native composers and three Type steps with established
 portable imports and transaction-covered compensation declarations. Creation's
@@ -186,6 +194,8 @@ full rollback proof.
 ## Completion Gates
 
 Prove empty and maximum creation; selector ID/value/empty/missing behavior;
+reversed ID arrays and first-occurrence duplicate ordering across native calls, mutations,
+events, hooks and replay; independent receipt refusal of reordered transcripts;
 complete-selection refusal beyond four roots; native metadata merge and key
 removal; and unique-value conflict with full rollback. Updating several Types
 to one unique value must retain native conflict behavior, rather than being

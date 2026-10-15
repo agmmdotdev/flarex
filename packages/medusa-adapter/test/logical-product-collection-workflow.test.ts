@@ -138,6 +138,61 @@ describe("native Product Collection workflows on shared logical storage", () => 
     } finally { native.mockRestore(); }
   }, 120_000);
 
+  it("preserves native Collection selector order after first-occurrence ID deduplication", async () => {
+    const ids = ["pcol-order-a", "pcol-order-b"] as const;
+    const readIds = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.String })));
+    const create = await connected.prepareCreate();
+    const collections = ids.map((id, index) => ({ id, title: "Collection ordering " + index }));
+    await Effect.runPromise(create.run(create.newRequestKey(), { collections }));
+    const preimages: string[][] = [], nativeResults: string[][] = [], hooks: string[][] = [];
+    const update = await connected.prepareUpdate({ collectionsUpdated: input => {
+      hooks.push(input.collections.map(collection => collection.id));
+    } });
+    const originalList = ProductModuleService.prototype.listProductCollections;
+    const originalUpdate = ProductModuleService.prototype.updateProductCollections;
+    const list = vi.spyOn(ProductModuleService.prototype, "listProductCollections").mockImplementation(async function (this: ProductModuleService, ...args) {
+      const result = await Reflect.apply(originalList, this, args);
+      preimages.push(readIds(result).map(row => row.id)); return result;
+    });
+    const nativeUpdate = vi.spyOn(ProductModuleService.prototype, "updateProductCollections").mockImplementation(async function (this: ProductModuleService, ...args) {
+      const result = await Reflect.apply(originalUpdate, this, args);
+      nativeResults.push(readIds(result).map(row => row.id)); return result;
+    });
+    try {
+      for (const requested of [[ids[1], ids[0]], [ids[0], ids[1], ids[0]]]) {
+        preimages.length = 0; nativeResults.length = 0; hooks.length = 0;
+        // Native buildQuery removes repeated direct ID-array entries before
+        // the DAL preserves selector order, keeping their first occurrence.
+        const expected = requested.length === 2 ? [ids[1], ids[0]] : [...ids];
+        const input = { selector: { id: requested }, update: {
+          metadata: { witness: requested.length === 2 ? "reversed" : "first-duplicate-occurrence" },
+        } };
+        const key = update.newRequestKey(), before = await snapshot();
+        const result = await Effect.runPromise(update.run(key, input));
+        expect(preimages).toEqual([expected]); expect(nativeResults).toEqual([expected]); expect(hooks).toEqual([expected]);
+        expect(result.map(collection => collection.id)).toEqual(expected);
+        const emitted = (await events()).slice(before.events.length);
+        const moduleName = connected.product.runtime.metadata.collection.updatedEvent;
+        expect(emitted.map(event => event.envelope.contract))
+          .toEqual([moduleName, moduleName, "product-collection.updated", "product-collection.updated"]);
+        for (const name of [moduleName, "product-collection.updated"])
+          expect(emitted.filter(event => event.envelope.contract === name).map(event => event.envelope.message))
+            .toEqual(expected.map(id => expect.objectContaining({ data: { id } })));
+        expect((await commits()).length - before.commits.length).toBe(1);
+        const committed = await snapshot();
+        expect(await Effect.runPromise(update.run(key, input))).toEqual(result);
+        expect(preimages).toEqual([expected]); expect(nativeResults).toEqual([expected]); expect(hooks).toEqual([expected]);
+        expect(await snapshot()).toEqual(committed);
+        const stored = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject))(
+          await Effect.runPromise(connected.listCollections(ids)));
+        // Ordinary list DTOs omit unloaded relations; native Collection update
+        // returns its loaded, empty membership for these unassociated roots.
+        expect(stored).toHaveLength(result.length);
+        for (const collection of stored) expect(result).toContainEqual({ ...collection, products: [] });
+      }
+    } finally { list.mockRestore(); nativeUpdate.mockRestore(); await remove(ids); }
+  }, 120_000);
+
   it("uses ID, title, handle, empty and missing selectors with native metadata and stable handles", async () => {
     const create = await connected.prepareCreate(), trace: string[] = [];
     const collections = await Effect.runPromise(create.run(create.newRequestKey(), { collections: [

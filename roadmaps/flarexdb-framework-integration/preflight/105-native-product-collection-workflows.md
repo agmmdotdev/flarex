@@ -116,7 +116,8 @@ Pinned internal-service selectors all read the initial membership snapshot befor
 one ordered repository update. Last selected Collection wins overlapping desired
 Products; per-target outside members clear. Module messages deduplicate identical
 Product updates in first-touch order. Preserve caller ID-array Collection order
-through the pinned Drizzle filter-order helper. Existing refusals for
+after native `buildQuery` first-occurrence deduplication, then use the pinned
+Drizzle filter-order helper. Existing refusals for
 repeated Product references in Collection creation remain intact.
 
 ProductCollection has an active-row unique index on `handle`. Its `products`
@@ -170,7 +171,9 @@ normalization.
 Selector receipts bind the complete selected active preimages, requested
 fields, native returned rows, actual mutations and events. Root ordering is
 independently derived from initial rows using native binary text order and the
-pinned direct-ID-array filter-order helper, including last-duplicate ranking.
+pinned direct-ID-array filter-order helper after native `buildQuery`
+first-occurrence deduplication. Applying the DAL helper directly to the raw
+service selector would incorrectly rank repeated IDs by their last occurrence.
 Product cohorts retain exact native binary ID order before pending-preimage
 and first-touch event checks. Coordinated result/mutation/event permutations
 cannot redefine the final membership owner. Preserve scalar and

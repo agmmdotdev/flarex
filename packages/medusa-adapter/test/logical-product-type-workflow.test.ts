@@ -8,6 +8,7 @@ import { productTypeResources } from "../src/workflow/policy";
 import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
 import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commit/events/schema";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
 import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
@@ -49,6 +50,58 @@ async function remove(ids: readonly string[]) {
 describe("native Product Type workflows on shared logical storage", () => {
   beforeAll(async () => { connected = await prepareLogicalProductType(driver, close => cleanup.push(close)); }, 180_000);
   afterAll(async () => { vi.restoreAllMocks(); for (const close of cleanup.reverse()) await close(); }, 120_000);
+
+  it("preserves native Type ID selector order and the first occurrence of duplicate IDs through the complete workflow", async () => {
+    const ids = ["ptype-order-a", "ptype-order-b"] as const, readIds = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.String })));
+    const create = await connected.prepareCreate();
+    await Effect.runPromise(create.run(create.newRequestKey(), { product_types: ids.map((id, index) => ({ id, value: "Type ordering " + index })) }));
+    const preimages: string[][] = [], nativeResults: string[][] = [], mutations: unknown[][] = [], hooks: string[][] = [];
+    const execution: typeof connected.execution = { ...connected.execution, prepare: composition => connected.execution.prepare({ ...composition,
+      participants: composition.participants.map(member => {
+        const validate = member.validateLogicalCall;
+        return validate === undefined ? member : { ...member,
+          validateLogicalCall: (...args: Parameters<LogicalCommerceCallValidation>) => validate(...args).pipe(Effect.tap(() => Effect.sync(() => {
+            const [call, activity] = args;
+            if (call.commandName === "productUpdateTypesBySelector") mutations.push(activity.mutations.map(mutation => mutation.after?.id));
+          }))),
+        };
+      }),
+    }) };
+    const update = await connected.prepareUpdate({ productTypesUpdated: input => { hooks.push(input.product_types.map(type => type.id)); } }, execution);
+    const originalList = ProductModuleService.prototype.listProductTypes, originalUpdate = ProductModuleService.prototype.updateProductTypes;
+    const list = vi.spyOn(ProductModuleService.prototype, "listProductTypes").mockImplementation(async function (this: ProductModuleService, ...args) {
+      const result = await Reflect.apply(originalList, this, args); preimages.push(readIds(result).map(row => row.id)); return result;
+    });
+    const nativeUpdate = vi.spyOn(ProductModuleService.prototype, "updateProductTypes").mockImplementation(async function (this: ProductModuleService, ...args) {
+      const result = await Reflect.apply(originalUpdate, this, args); nativeResults.push(readIds(result).map(row => row.id)); return result;
+    });
+    try {
+      for (const requested of [[ids[1], ids[0]], [ids[0], ids[1], ids[0]]]) {
+        preimages.length = 0; nativeResults.length = 0; mutations.length = 0; hooks.length = 0;
+        const expected = requested.length === 2 ? [ids[1], ids[0]] : [...ids], key = update.newRequestKey();
+        const input = { selector: { id: requested }, update: { metadata: { witness: requested.length === 2 ? "reversed" : "first-duplicate-occurrence" } } };
+        const before = await snapshot();
+        const result = await Effect.runPromise(update.run(key, input));
+        // Each observation comes from genuine native calls or the successful
+        // unchanged receipt validator, rather than a storage or sorting model.
+        expect(preimages).toEqual([expected]); expect(nativeResults).toEqual([expected]);
+        expect(mutations).toEqual([expected]); expect(hooks).toEqual([expected]);
+        expect(result.map(type => type.id)).toEqual(expected);
+        const emitted = (await events()).slice(before.events.length), moduleName = connected.product.runtime.metadata.type.updatedEvent;
+        expect(emitted.map(event => event.envelope.contract)).toEqual([moduleName, moduleName, "product-type.updated", "product-type.updated"]);
+        expect(emitted.filter(event => event.envelope.contract === moduleName).map(event => event.envelope.message))
+          .toEqual(expected.map(id => expect.objectContaining({ data: { id } })));
+        expect(emitted.filter(event => event.envelope.contract === "product-type.updated").map(event => event.envelope.message))
+          .toEqual(expected.map(id => expect.objectContaining({ data: { id } })));
+        expect((await commits()).length - before.commits.length).toBe(1);
+        const committed = await snapshot();
+        expect(await Effect.runPromise(update.run(key, input))).toEqual(result);
+        expect(preimages).toEqual([expected]); expect(nativeResults).toEqual([expected]);
+        expect(mutations).toEqual([expected]); expect(hooks).toEqual([expected]); expect(await snapshot()).toEqual(committed);
+        expect(await Effect.runPromise(connected.listTypes(ids))).toEqual(expect.arrayContaining([...result]));
+      }
+    } finally { list.mockRestore(); nativeUpdate.mockRestore(); await remove(ids); }
+  }, 120_000);
 
   it("executes native empty and four-Type creation, all admitted selectors and missing object selection", async () => {
     const seen: string[][] = [], native = vi.spyOn(ProductModuleService.prototype, "createProductTypes");

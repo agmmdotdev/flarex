@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { compareBytesLexicographically } from "@flarex/utils/bytes";
 import { preservePrimaryKeyOrFilterOrder } from "@medusajs/drizzle/relation-query";
+import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
 import { jsonEqual } from "flarex-protocol/json";
 import { commerceError, defaultCommerceResources, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCallReceiptValidation } from "../../../repository/call-receipt";
@@ -21,7 +22,8 @@ const unchangedOutside = (before: JsonObject, after: JsonObject, allowed: Readon
 export function collectionWorkflowSelectorUpdatePolicy(catalog: ProductRuntimeMetadata): LogicalCallReceiptValidation {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   // Match the logical relational reader's native binary text ordering before
-  // applying the pinned repository's direct primary-key filter ordering.
+  // applying native buildQuery normalization and the pinned repository's
+  // primary-key filter ordering. Service arrays are deduplicated first.
   const encoder = new TextEncoder();
   const compareIds = ([left]: readonly [string, JsonObject], [right]: readonly [string, JsonObject]) =>
     compareBytesLexicographically(encoder.encode(left), encoder.encode(right));
@@ -57,8 +59,9 @@ export function collectionWorkflowSelectorUpdatePolicy(catalog: ProductRuntimeMe
       (input.selector.handle === undefined || row.handle === input.selector.handle)));
     if (selected.size > 4 || selected.size !== results.length)
       return yield* Effect.fail(mismatch());
+    const nativeWhere = buildQuery(input.selector, { order: { id: "ASC" } }).where;
     const orderedRoots = preservePrimaryKeyOrFilterOrder([...selected].toSorted(compareIds).map(([, row]) => row),
-      input.selector, ["id"], [["id", "ASC"]]);
+      nativeWhere, ["id"], [["id", "ASC"]]);
     const desired = input.update.product_ids === undefined ? undefined : new Set(input.update.product_ids);
     const expectedEvents: string[] = [];
     const roots: string[] = [];
