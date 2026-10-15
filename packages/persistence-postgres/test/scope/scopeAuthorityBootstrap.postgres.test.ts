@@ -10,10 +10,12 @@ import {
 } from "../../src/database/postgres";
 import {
   postgresUrl,
+  useFileScopedPostgresPersistence,
   withTemporaryPostgresPersistence,
 } from "../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 
 const sharedLocator = {
   kind: "shared_database",
@@ -32,7 +34,7 @@ const uuids = {
 
 describePostgres("real Postgres shared scope authority bootstrap", () => {
   it("reports multi-scope deployments as blocked rather than repairable", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_pg_multiple_scopes";
       await persistence.insertDeploymentMetadata({ deploymentId, projectId: "project_pg_multiple_scopes" });
       for (const id of ["scope_pg_multi_a", "scope_pg_multi_b"]) {
@@ -201,7 +203,7 @@ describePostgres("real Postgres shared scope authority bootstrap", () => {
   });
 
   it("detects a late commit behind an advanced lexical cursor", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await persistence.insertDeploymentMetadata({
         deploymentId: "deployment_pg_frontier_b",
         projectId: "project_pg_frontier_b",
@@ -240,7 +242,7 @@ describePostgres("real Postgres shared scope authority bootstrap", () => {
   });
 
   it("rolls back only the current deployment when clock initialization fails", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await persistence.insertDeploymentMetadata({
         deploymentId: "deployment_pg_bootstrap_rollback",
         projectId: "project_pg_bootstrap_rollback",

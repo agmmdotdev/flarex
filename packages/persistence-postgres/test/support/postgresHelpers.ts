@@ -6,7 +6,7 @@ import { Client, Pool, type PoolClient, type PoolConfig } from "pg";
 import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { trimToNonBlankOrNull } from "@flarex/utils/strings";
-import { afterAll, beforeAll } from "vitest";
+import { afterAll, afterEach, beforeAll } from "vitest";
 import { registerFrameworkMaintenanceFixture } from "../installation/frameworkSchema/frameworkMigrationPostgresFixture";
 
 import {
@@ -288,24 +288,28 @@ export async function withTemporaryPostgresPersistence(
  * Reuses one migrated schema for the tests in a Vitest file. Successful tests
  * reset all application tables with TRUNCATE; a failed test marks the fixture
  * for a full schema rebuild before the next test so failures cannot poison the
- * rest of the file.
+ * rest of the file. Callback settlement and reset finish before another
+ * callback or test can borrow the fixture, even if its caller timed out.
  */
 export function useFileScopedPostgresPersistence(): WithFileScopedPostgresPersistence {
   let fixture: FileScopedPostgresFixture | undefined;
   let rebuildRequired = false;
+  let settled = Promise.resolve();
 
   beforeAll(async () => {
     if (postgresUrl === null) return;
     fixture = await createFileScopedPostgresFixture();
   }, 120_000);
 
+  afterEach(async () => { await settled; }, 120_000);
   afterAll(async () => {
+    await settled;
     const fixtureToDispose = fixture;
     fixture = undefined;
     if (fixtureToDispose !== undefined) await fixtureToDispose.dispose();
   }, 120_000);
 
-  return async (fn) => {
+  const run: WithFileScopedPostgresPersistence = async fn => {
     if (fixture === undefined || rebuildRequired) {
       const staleFixture = fixture;
       fixture = undefined;
@@ -328,6 +332,15 @@ export function useFileScopedPostgresPersistence(): WithFileScopedPostgresPersis
       rebuildRequired = true;
       throw error;
     }
+  };
+
+  return fn => {
+    const operation = settled.then(() => run(fn));
+    // This tail owns drainage only. The returned operation preserves the exact
+    // callback/reset rejection for its caller without poisoning later borrows.
+    settled = operation.then(() => undefined, () => undefined);
+    // Keep caller rejection observation separate from the handled drain tail.
+    return operation.then(() => undefined);
   };
 }
 

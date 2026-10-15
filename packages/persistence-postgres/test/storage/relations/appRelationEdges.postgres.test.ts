@@ -55,10 +55,12 @@ import {
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
+  useFileScopedPostgresPersistence,
   withTemporaryPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 const scopeId = ScopeIdSchema.make(
   "scope_5b000000-0000-0000-0000-000000000001",
 );
@@ -91,7 +93,7 @@ const hotTarget = decodeAppRowIdHexV1(
 
 describePostgres("real PostgreSQL S12 relation-edge storage", () => {
   it("reads 128 incoming adjacency versions through one indexed query", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertClocks(persistence);
       const endpoints = Object.freeze(Array.from({ length: 128 }, (_, index) =>
         Object.freeze({
@@ -153,7 +155,7 @@ describePostgres("real PostgreSQL S12 relation-edge storage", () => {
   }, 120_000);
 
   it("proves production constraints, write path, and populated access plans", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertClocks(persistence);
       await seedSkewedEdges(persistence);
 
@@ -285,7 +287,7 @@ describePostgres("real PostgreSQL S12 relation-edge storage", () => {
   }, 120_000);
 
   it("applies the frozen 4,096-occurrence ceiling with bounded batches", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertClocks(persistence);
       const target = decodeAppRowIdHexV1(
         "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
@@ -419,7 +421,7 @@ describePostgres("real PostgreSQL S12 relation-edge storage", () => {
   }, 120_000);
 
   it("serializes one scope through the shared clock without blocking another", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertClocks(persistence);
       const blocker = await persistence.pool.connect();
       let blockerReleased = false;

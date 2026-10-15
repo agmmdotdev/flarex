@@ -183,13 +183,18 @@ Historical/upgrade migration tests still create their own fresh databases.
 Migration-copy fixtures retain SQL and the journal, omitting generator snapshots.
 
 Ordinary PostgreSQL suites reuse `useFileScopedPostgresPersistence` where row
-reset preserves the required baseline. Keep separate fixtures for migrations,
+reset preserves the required baseline. It drains an outstanding callback and
+its reset before another borrow or test, including after caller timeout. Keep
+separate fixtures for migrations,
 persistent DDL, session settings, or migration-seeded singleton dependencies.
+Plan probes use `withPostgresSequentialScansDisabled` to bind `SET LOCAL` and
+EXPLAIN to one client and roll back the setting before reuse.
 Validate converted suites as whole files, including failure-triggered rebuilds.
 `database/postgresRuntime.postgres.test.ts` keeps real installation admission
 on its test-owned connection while injecting only transaction-command failures.
 
-API export exclusions belong in `api/publicApi.test.ts`. Prefer assertions in
+API export exclusions and constructor surface guards belong in
+`api/publicApi.test.ts`. Prefer assertions in
 existing consumer scenarios over separate tests of fixed fixture contents or
 helper allocation details. Preserve behavioral, durable-data, rollback and
 compatibility witnesses; an old checkpoint label alone does not make one obsolete.

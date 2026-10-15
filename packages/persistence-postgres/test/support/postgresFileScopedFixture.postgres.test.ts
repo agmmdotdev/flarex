@@ -10,24 +10,32 @@ const describePostgres = postgresUrl === null ? describe.skip : describe;
 const withPostgresPersistence = useFileScopedPostgresPersistence();
 
 describePostgres("file-scoped Postgres test fixture", () => {
-  it("reuses one migrated persistence while truncating rows between callbacks", async () => {
+  it("waits for an outstanding callback and reset before reusing its persistence", async () => {
     let firstPersistence: PostgresFlarexPersistence | undefined;
+    let releaseFirst: (() => void) | undefined;
+    const held = new Promise<void>(resolve => { releaseFirst = resolve; });
+    let firstFinished = false;
 
-    await withPostgresPersistence(async (persistence) => {
+    const first = withPostgresPersistence(async (persistence) => {
       firstPersistence = persistence;
       await persistence.insertDeploymentMetadata({
         deploymentId: "fixture_truncate",
         projectId: "project_fixture_truncate",
       });
+      await held;
+      firstFinished = true;
     });
 
-    await withPostgresPersistence(async (persistence) => {
+    const second = withPostgresPersistence(async (persistence) => {
+      expect(firstFinished).toBe(true);
       expect(persistence).toBe(firstPersistence);
       await expect(
         persistence.getDeploymentMetadata("fixture_truncate"),
       ).resolves.toBeNull();
     });
-  }, 5_000);
+    releaseFirst?.();
+    await Promise.all([first, second]);
+  }, 30_000);
 
   it("rebuilds the schemas after a callback failure", async () => {
     const callbackFailure = new Error("injected fixture callback failure");
@@ -50,5 +58,5 @@ describePostgres("file-scoped Postgres test fixture", () => {
         persistence.getDeploymentMetadata("fixture_rebuild"),
       ).resolves.toBeNull();
     });
-  }, 5_000);
+  }, 30_000);
 });

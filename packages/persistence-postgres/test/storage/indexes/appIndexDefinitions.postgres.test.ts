@@ -42,11 +42,13 @@ import {
   acquirePostgresDeploymentLock,
   postgresUrl,
   waitForBlockedPostgresDeploymentLocks,
+  useFileScopedPostgresPersistence,
   withTemporaryPostgresPersistence,
   type HeldPostgresDeploymentLock,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 
 const prepareAppSchemaPublicationV1 = (
   ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
@@ -74,7 +76,7 @@ const ensureSchemaVersionArtifactInTransaction = (
 
 describePostgres("real Postgres immutable app index definitions", () => {
   it("converges concurrent exact definition and binding replay", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_definition_pg_replay";
       const registered = await registerAppSchemaVersion(
         persistence,
@@ -112,7 +114,7 @@ describePostgres("real Postgres immutable app index definitions", () => {
   }, 30_000);
 
   it("converges concurrent exact table-owned creation-time replay", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_creation_time_pg_replay";
       await registerAppSchemaVersion(
         persistence,
@@ -165,7 +167,7 @@ describePostgres("real Postgres immutable app index definitions", () => {
   }, 30_000);
 
   it("gives competing schema bindings one winner without an orphan definition", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_definition_pg_competing";
       const registered = await registerAppSchemaVersion(
         persistence,
@@ -216,7 +218,7 @@ describePostgres("real Postgres immutable app index definitions", () => {
   }, 30_000);
 
   it("rolls definition identity and binding back with the caller transaction", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_definition_pg_rollback";
       const registered = await registerAppSchemaVersion(
         persistence,

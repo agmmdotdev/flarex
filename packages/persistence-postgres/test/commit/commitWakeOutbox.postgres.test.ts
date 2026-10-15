@@ -33,11 +33,14 @@ import { verifyCommitWakeMigration } from "./commitWakeMigrationScenario";
 import { makeDrizzleCopyFixture } from "../support/migrationFixtureSupport";
 import {
   postgresUrl,
+  useFileScopedPostgresPersistence,
+  withPostgresSequentialScansDisabled,
   withTemporaryPostgresPersistence,
   withTemporaryPostgresSchema,
 } from "../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 type SqlPersistence = Pick<FlarexPersistence, "query">;
 
 describePostgres("real Postgres S09-B commit-wake outbox", () => {
@@ -63,7 +66,7 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
   });
 
   it("gives concurrent claimers disjoint rows and one exact-commit winner", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await seedWakeRange(persistence, 3);
       const repository = createCommitWakeOutboxRepositoryV1(
         persistence.drizzle,
@@ -161,7 +164,7 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
   });
 
   it("redelivers after send-before-ack and rejects the stale pre-crash fence", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await seedWakeRange(persistence, 1);
       const repository = createCommitWakeOutboxRepositoryV1(
         persistence.drizzle,
@@ -220,7 +223,7 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
   });
 
   it("keeps compaction correlation atomic and old-epoch wakes claimable", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertWakeScope(persistence, {
         scopeUuid: WAKE_SCOPE_A,
         epochUuid: WAKE_EPOCH_B,
@@ -331,7 +334,7 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
   });
 
   it("rolls back the whole selected batch when a later claim fence is exhausted", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await seedWakeRange(persistence, 2);
       await persistence.query(`
         update fx_system_commit_wake
@@ -360,56 +363,57 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
   });
 
   it("uses only the due-time index and commit primary key for bounded claims", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await seedWakeRange(persistence, 25);
       await persistence.query("analyze fx_system_commit_wake");
-      await persistence.query("set enable_seqscan = off");
-      const claimPlan = await persistence.query<{
-        plan: unknown;
-      }>(`
-        explain (format json, costs off)
-        select commit_seq
-        from fx_system_commit_wake
-        where scope_uuid = '${WAKE_SCOPE_A}'::uuid
-          and delivery_state in ('pending', 'claimed')
-          and case
+      await withPostgresSequentialScansDisabled(persistence, async client => {
+        const claimPlan = await client.query<{
+          plan: unknown;
+        }>(`
+          explain (format json, costs off)
+          select commit_seq
+          from fx_system_commit_wake
+          where scope_uuid = '${WAKE_SCOPE_A}'::uuid
+            and delivery_state in ('pending', 'claimed')
+            and case
+              when delivery_state = 'pending' then next_attempt_at
+              when delivery_state = 'claimed' then claim_expires_at
+              else null
+            end <= clock_timestamp()
+          order by case
             when delivery_state = 'pending' then next_attempt_at
             when delivery_state = 'claimed' then claim_expires_at
             else null
-          end <= clock_timestamp()
-        order by case
-          when delivery_state = 'pending' then next_attempt_at
-          when delivery_state = 'claimed' then claim_expires_at
-          else null
-        end, commit_seq
-        limit 10
-        for update skip locked
-      `);
-      const claimPlanText = JSON.stringify(claimPlan.rows);
-      expect(claimPlanText).toContain(
-        "fx_system_commit_wake_claimable_idx",
-      );
-      expect(claimPlanText).toContain("Index Cond");
-      expect(claimPlanText).toContain("next_attempt_at");
-      expect(claimPlanText).toContain("claim_expires_at");
-      const tokenPlan = await persistence.query<{ plan: unknown }>(`
-        explain (format json, costs off)
-        select commit_seq
-        from fx_system_commit_wake
-        where scope_uuid = '${WAKE_SCOPE_A}'::uuid
-          and commit_seq = 17
-      `);
-      expect(JSON.stringify(tokenPlan.rows)).toContain(
-        "fx_system_commit_wake_scope_uuid_commit_seq_pk",
-      );
-      expect((await persistence.query(`
-        select indexname from pg_indexes
-        where schemaname = current_schema() and tablename = 'fx_system_commit_wake'
-        order by indexname
-      `)).rows).toEqual([
-        { indexname: "fx_system_commit_wake_claimable_idx" },
-        { indexname: "fx_system_commit_wake_scope_uuid_commit_seq_pk" },
-      ]);
+          end, commit_seq
+          limit 10
+          for update skip locked
+        `);
+        const claimPlanText = JSON.stringify(claimPlan.rows);
+        expect(claimPlanText).toContain(
+          "fx_system_commit_wake_claimable_idx",
+        );
+        expect(claimPlanText).toContain("Index Cond");
+        expect(claimPlanText).toContain("next_attempt_at");
+        expect(claimPlanText).toContain("claim_expires_at");
+        const tokenPlan = await client.query<{ plan: unknown }>(`
+          explain (format json, costs off)
+          select commit_seq
+          from fx_system_commit_wake
+          where scope_uuid = '${WAKE_SCOPE_A}'::uuid
+            and commit_seq = 17
+        `);
+        expect(JSON.stringify(tokenPlan.rows)).toContain(
+          "fx_system_commit_wake_scope_uuid_commit_seq_pk",
+        );
+        expect((await client.query(`
+          select indexname from pg_indexes
+          where schemaname = current_schema() and tablename = 'fx_system_commit_wake'
+          order by indexname
+        `)).rows).toEqual([
+          { indexname: "fx_system_commit_wake_claimable_idx" },
+          { indexname: "fx_system_commit_wake_scope_uuid_commit_seq_pk" },
+        ]);
+      });
     });
   });
 });

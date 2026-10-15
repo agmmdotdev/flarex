@@ -66,7 +66,8 @@ import { pointCommitFinishingCommandFromStoredAttemptV1 } from
   "./support/commandEvidence";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
+  withPostgresSequentialScansDisabled,
 } from "../../support/postgresHelpers";
 import { runEffect, runEffectFailure as runFailure } from
   "../../support/effectTestRuntime";
@@ -85,6 +86,7 @@ import {
 } from "../../execution/session/support/authorityClock";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 
 interface ScopeScenario {
   readonly deploymentId: ReturnType<
@@ -105,7 +107,7 @@ interface AttemptScenario {
 
 describePostgres("real Postgres C05-A finishing transition", () => {
   it("enters finishing for a pinned shop after a peer joins its deployment", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const randomUuid = uuidFactory("9c000000");
       const scope = await createScope(persistence, randomUuid, "shared_deployment_exact_scope");
       const metadata = await persistence.getScopeMetadata(scope.scopeId);
@@ -130,7 +132,7 @@ describePostgres("real Postgres C05-A finishing transition", () => {
     });
   });
   it("uses the canonical lock order, bounded projections, and index-backed plans", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const randomUuid = uuidFactory("9b000000");
       const scope = await createScope(persistence, randomUuid, "lock_order");
       const attempt = await createAttempt(
@@ -217,7 +219,7 @@ describePostgres("real Postgres C05-A finishing transition", () => {
   }, 120_000);
 
   it("serializes renewal behind C05-A claim consumption", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const randomUuid = uuidFactory("9f000000");
       const scope = await createScope(
         persistence,
@@ -279,7 +281,7 @@ describePostgres("real Postgres C05-A finishing transition", () => {
   }, 120_000);
 
   it("converges duplicate transitions and serializes one scope without blocking another", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const randomUuid = uuidFactory("9c000000");
       const firstScope = await createScope(
         persistence,
@@ -403,7 +405,7 @@ describePostgres("real Postgres C05-A finishing transition", () => {
   }, 120_000);
 
   it("serializes abort and expiry outcomes without partial transition state", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const randomUuid = uuidFactory("9d000000");
       const scope = await createScope(persistence, randomUuid, "terminal");
       const abortFirst = await createAttempt(
@@ -578,7 +580,7 @@ describePostgres("real Postgres C05-A finishing transition", () => {
   }, 120_000);
 
   it("holds interruption through settlement and rolls back post-update failures", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const randomUuid = uuidFactory("9e000000");
       const scope = await createScope(persistence, randomUuid, "settlement");
       const interrupted = await createAttempt(
@@ -896,17 +898,13 @@ async function explainObserved(
     readonly params: ReadonlyArray<unknown>;
   }>,
 ): Promise<string> {
-  const client = await persistence.pool.connect();
-  try {
-    await client.query("set enable_seqscan = off");
+  return withPostgresSequentialScansDisabled(persistence, async client => {
     const result = await client.query(
       `explain (format json) ${query.sql}`,
       [...query.params],
     );
     return JSON.stringify(result.rows);
-  } finally {
-    client.release();
-  }
+  });
 }
 
 function appTable(

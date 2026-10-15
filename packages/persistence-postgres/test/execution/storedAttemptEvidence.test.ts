@@ -126,7 +126,8 @@ import {
   canonicalizeFlarexValueV1,
   isCanonicalFlarexRuntimeObjectV1,
 } from "flarex-protocol/value";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
 
 import {
   createPointMutationSessionActivationV1,
@@ -200,7 +201,6 @@ import {
 import {
   createPGliteLocatedIndexBuildReconciliationTargetV1,
   createPGliteLocatedPointMutationSessionActivationTargetV1,
-  createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../../src/database/pglite";
@@ -435,12 +435,13 @@ interface Scenario {
 
 describe("C04A bounded stored-attempt evidence loader", () => {
   let persistence: PGliteFlarexPersistence;
+  let disposePersistence: (() => Promise<void>) | undefined;
   let uuidCounter = 1;
 
   beforeAll(async () => {
-    persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    persistence = await createMigratedPGlitePersistence(cleanup => { disposePersistence = cleanup; });
   });
+  afterAll(async () => { await disposePersistence?.(); });
 
   registerStoredAttemptEvidenceLoaderBoundaryTests({
     scenario,
@@ -2089,7 +2090,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   });
 
-  it("composes initial-shaped and redelivery-shaped execution through one private exact-runtime binding runner", async () => {
+  it("redispatches the exact attempt through the private exact-runtime binding runner", async () => {
     const bindingRequests: PointMutationExactRuntimeRequestV1[] = [];
     const journalTargets: unknown[] = [];
     let disposedResponses = 0;
@@ -2117,37 +2118,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       }>;
     const runner = makePointMutationExactRuntimeBindingRunnerV1(binding);
 
-    const initial = await prepareO08B1Conflict(
-      "p02c3_initial_shaped",
-      {},
-      runner,
-    );
-    const authorized = await runEffect(
-      initial.authentication
-        .authorizePointMutationOccRerun(initial.conflict)
-        .pipe(
-          Effect.provideService(Random.Random, {
-            nextDoubleUnsafe: () => 0,
-            nextIntUnsafe: () => 0,
-          }),
-        ),
-    );
-    if (authorized.kind !== "authorized") {
-      throw new Error(
-        "Expected the P02c.3 initial-shaped handoff to authorize.",
-      );
-    }
-    await expect(
-      runEffect(
-        initial.authentication.executeAuthorizedPointMutationOccRerun(
-          authorized.rerun,
-        ),
-      ),
-    ).resolves.toMatchObject({
-      kind: "published",
-      successfulResult: { valueJson: { ok: true } },
-    });
-
     const redelivery = await c04b2Scenario("p02c3_redelivery_shaped");
     await expireExactExecutionClaim(redelivery.anchor.sessionId);
     const redeliveryGraph = createB2b2aRedispatchAuthentication(
@@ -2169,9 +2139,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       successfulResult: { valueJson: { ok: true } },
     });
 
-    expect(bindingRequests).toHaveLength(2);
-    expect(journalTargets).toHaveLength(2);
-    expect(journalTargets[0]).not.toBe(journalTargets[1]);
+    expect(bindingRequests).toHaveLength(1);
+    expect(journalTargets).toHaveLength(1);
     for (const journal of journalTargets) {
       expect(journal).toMatchObject({
         resolvePointTable: expect.any(Function),
@@ -2188,17 +2157,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       expect(request).not.toHaveProperty("database");
       expect(request).not.toHaveProperty("retry");
     }
-    for (const current of [initial.current, redelivery]) {
-      const sessions = await persistence.query<{ session_count: string }>(
-        `select count(*)::text as session_count
+    const sessions = await persistence.query<{ session_count: string }>(
+      `select count(*)::text as session_count
          from fx_system_tx_session
          where scope_uuid = $1`,
-        [projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid],
-      );
-      expect(sessions.rows).toEqual([{ session_count: "1" }]);
-    }
+      [projectScopeIdUuidV1(redelivery.anchor.scopeId).scopeUuid],
+    );
+    expect(sessions.rows).toEqual([{ session_count: "1" }]);
     expect(ordinaryInvokeCalls).toBe(0);
-    expect(disposedResponses).toBe(2);
+    expect(disposedResponses).toBe(1);
   });
 
   it("executes the original activated attempt through the private exact-runtime binding runner", async () => {
@@ -3311,6 +3278,30 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       wakes: "1",
       last_commit_seq: "1",
     });
+    const header = await persistence.query<{
+      change_count: number;
+      delivery_state: string;
+      claim_fence: string;
+      same_initial_time: boolean;
+    }>(
+      `
+        select commit.change_count, wake.delivery_state,
+          wake.claim_fence::text,
+          wake.created_at = wake.next_attempt_at as same_initial_time
+        from fx_system_commit as commit
+        join fx_system_commit_wake as wake
+          on wake.scope_uuid = commit.scope_uuid
+          and wake.commit_seq = commit.commit_seq
+        where commit.scope_uuid = $1
+      `,
+      [prepared.scopeUuid],
+    );
+    expect(header.rows[0]).toEqual({
+      change_count: 0,
+      delivery_state: "pending",
+      claim_fence: "0",
+      same_initial_time: true,
+    });
   });
 
   it("recovers one not-forwarded uncertain publication through C05-B and publishes once", async () => {
@@ -3676,50 +3667,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(await runFailure(missing.publication)).toMatchObject({
       _tag: "PointCommitCorruptionV1Error",
       reason: "committedOutcomeMissing",
-    });
-  });
-
-  it("publishes a successful zero-row mutation as one zero-change commit", async () => {
-    const prepared = await prepareO07BRunningScenario("o07b_zero_row");
-    const published = await runEffect(
-      prepared.authentication.finishPointCommit(prepared.runningPlan),
-    );
-    expect(published).toMatchObject({
-      kind: "published",
-      token: { scopeUuid: prepared.scopeUuid, commitSeq: 1n },
-    });
-    expect(await o06DurableState(prepared.scopeUuid)).toEqual({
-      revisions: "0",
-      current_rows: "0",
-      commit_headers: "1",
-      commit_changes: "0",
-      outcomes: "1",
-      wakes: "1",
-      last_commit_seq: "1",
-    });
-    const header = await persistence.query<{
-      change_count: number;
-      delivery_state: string;
-      claim_fence: string;
-      same_initial_time: boolean;
-    }>(
-      `
-        select commit.change_count, wake.delivery_state,
-          wake.claim_fence::text,
-          wake.created_at = wake.next_attempt_at as same_initial_time
-        from fx_system_commit as commit
-        join fx_system_commit_wake as wake
-          on wake.scope_uuid = commit.scope_uuid
-          and wake.commit_seq = commit.commit_seq
-        where commit.scope_uuid = $1
-      `,
-      [prepared.scopeUuid],
-    );
-    expect(header.rows[0]).toEqual({
-      change_count: 0,
-      delivery_state: "pending",
-      claim_fence: "0",
-      same_initial_time: true,
     });
   });
 

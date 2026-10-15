@@ -20,7 +20,8 @@ import {
 import type { PostgresFlarexPersistence } from "../../src/database/postgres";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
+  withPostgresSequentialScansDisabled,
 } from "../support/postgresHelpers";
 import { runEffect } from "../support/effectTestRuntime";
 
@@ -37,11 +38,12 @@ const EPOCH_A = "a2000000-0000-0000-0000-000000000001";
 const EPOCH_B = "a2000000-0000-0000-0000-000000000002";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 type SqlPersistence = Pick<FlarexPersistence, "query">;
 
 describePostgres("real Postgres S08 commit feed reader", () => {
   it("captures clock and headers in one repeatable-read snapshot and closes SQL before materialization", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertScope(persistence, SCOPE_SNAPSHOT, EPOCH_A, 1n);
       await insertHeader(persistence, {
         scopeUuid: SCOPE_SNAPSHOT,
@@ -143,7 +145,7 @@ describePostgres("real Postgres S08 commit feed reader", () => {
   }, 30_000);
 
   it("does not observe interruption until a blocked transaction Promise has settled", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertScope(persistence, SCOPE_SNAPSHOT, EPOCH_A, 1n);
       await insertHeader(persistence, {
         scopeUuid: SCOPE_SNAPSHOT,
@@ -210,7 +212,7 @@ describePostgres("real Postgres S08 commit feed reader", () => {
   }, 30_000);
 
   it("resumes exactly at the retained floor and fails closed on malformed retained evidence", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertScope(persistence, SCOPE_FLOOR, EPOCH_A, 3n);
       for (const commitSeq of [1n, 2n, 3n]) {
         await insertHeader(persistence, {
@@ -341,7 +343,7 @@ describePostgres("real Postgres S08 commit feed reader", () => {
   }, 30_000);
 
   it("orders by commit sequence, isolates scopes, and continues after 100 whole headers", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertScope(persistence, SCOPE_HEADERS, EPOCH_A, 101n);
       await persistence.query(
         `
@@ -391,7 +393,7 @@ describePostgres("real Postgres S08 commit feed reader", () => {
   }, 30_000);
 
   it("keeps the combined child maximum whole with bounded index-backed query plans", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertScope(persistence, SCOPE_CHILDREN, EPOCH_A, 3n);
       await insertCommitGroup(persistence, {
         scopeUuid: SCOPE_CHILDREN,
@@ -717,9 +719,7 @@ async function explainPlans(
   persistence: PostgresFlarexPersistence,
   queries: ReadonlyMap<CommitFeedQueryV1["name"], CommitFeedQueryV1>,
 ): Promise<Readonly<Record<CommitFeedQueryV1["name"], string>>> {
-  const client = await persistence.pool.connect();
-  try {
-    await client.query("set enable_seqscan = off");
+  return withPostgresSequentialScansDisabled(persistence, async client => {
     return Object.freeze({
       clock: await explainObserved(client, requireQuery(queries, "clock")),
       headers: await explainObserved(
@@ -735,9 +735,7 @@ async function explainPlans(
         requireQuery(queries, "relationAdjacencyChanges"),
       ),
     });
-  } finally {
-    client.release();
-  }
+  });
 }
 
 async function explainObserved(

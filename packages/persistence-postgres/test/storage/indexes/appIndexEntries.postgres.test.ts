@@ -61,10 +61,11 @@ import { withPostgresExecutionObservation } from "../../performance/postgresExec
 import {
   postgresUrl,
   withPostgresSequentialScansDisabled,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 const scopeId = ScopeIdSchema.make(
   "scope_53000000-0000-0000-0000-000000000001",
 );
@@ -88,7 +89,7 @@ let locatedDefinition: LocatedAppIndexDefinitionV1;
 
 describePostgres("real PostgreSQL S10 app-index storage", () => {
   it("retains genuine frozen catalog specifications and authenticates raw publication digests", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       await insertClock(persistence);
       const definition = locatedDefinition;
       expect(Object.isFrozen(definition)).toBe(true);
@@ -127,21 +128,21 @@ return await runEffectFailure(
   });
 
   it("prepares mixed membership definitions with one fresh scope check per operation", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       await insertClock(persistence);
       await verifyMembershipReadPreparation(persistence.drizzle, scopeId, epoch, locatedDefinition);
     });
   });
 
   it("retains rollback and fresh OCC across interleaved predicate writers", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       await insertClock(persistence);
       await verifyDemandVectorFreshness(persistence.drizzle, scopeId, epoch, locatedDefinition);
     });
   });
 
   it("applies bounded index batches with exact returned keys and atomic rollback", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       await insertClock(persistence);
       await verifyIndexBatches(persistence, persistence.drizzle, scopeId, epoch, locatedDefinition, async run => {
         const measured = await withPostgresExecutionObservation(persistence.pool, run, { returnedCommands: true });
@@ -155,7 +156,7 @@ return await runEffectFailure(
   }, 120_000);
 
   it.each(["commit", "rollback", "acquisitionFailure"] as const)("keeps nonempty demand validation fresh across an overlapping writer %s", async disposition => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       await insertClock(persistence);
       const write = async (tx: Parameters<typeof appendRow>[0], sequence: bigint) => {
         await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
@@ -230,7 +231,7 @@ return await runEffectFailure(
   }, 120_000);
 
   it("proves exact snapshot/current reads, concurrent replay, and intended plans", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertClock(persistence);
       await persistence.drizzle.transaction(async (tx) => {
         await runEffect(lockInstallationForCurrentTransaction(tx));
