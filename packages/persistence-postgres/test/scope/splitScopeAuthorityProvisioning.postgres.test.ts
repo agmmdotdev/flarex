@@ -30,7 +30,7 @@ import type {
 import { fxSystemScopeClocks } from "../../src/database/schema";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistencePair,
+  useFileScopedPostgresPersistence,
 } from "../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
@@ -42,8 +42,11 @@ const databaseLocator = Object.freeze({
 }) satisfies SplitScopePhysicalLocator;
 
 describePostgres("real Postgres split scope authority provisioning", () => {
+  const withControl = useFileScopedPostgresPersistence();
+  const withTarget = useFileScopedPostgresPersistence();
+
   it("publishes, replays, and preserves conflicting target authority", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const created = await provisionerFor(
         control,
         target,
@@ -115,11 +118,11 @@ describePostgres("real Postgres split scope authority provisioning", () => {
         state: "reserved",
         initialEpoch: `epoch_${testUuid(4)}`,
       });
-    });
+    }));
   }, 60_000);
 
   it("resumes a committed reservation and serializes concurrent reconcilers", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const input = {
         deploymentId: "deployment_split_pg_concurrent",
         projectId: "project_split_pg_concurrent",
@@ -166,9 +169,10 @@ describePostgres("real Postgres split scope authority provisioning", () => {
           },
         });
       const advisoryKey = 73_602;
-      await installTargetInsertGate(target, advisoryKey);
       const gateClient = await target.pool.connect();
       let gateHeld = false;
+      let removeInsertGate: (() => Promise<void>) | undefined;
+      const primaryFailures: unknown[] = [];
       let firstPromise:
         | ReturnType<SplitScopeAuthorityProvisioner["ensure"]>
         | undefined;
@@ -177,9 +181,10 @@ describePostgres("real Postgres split scope authority provisioning", () => {
         | undefined;
 
       try {
+        removeInsertGate = await installTargetInsertGate(target, advisoryKey);
         const gatePid = await backendPid(gateClient);
-        await gateClient.query("select pg_advisory_lock($1)", [advisoryKey]);
         gateHeld = true;
+        await gateClient.query("select pg_advisory_lock($1)", [advisoryKey]);
         const firstEnsure = createReconciler().ensure(input);
         firstPromise = firstEnsure;
         await waitForBlockedSessionCount(target, gatePid, 1);
@@ -208,19 +213,28 @@ describePostgres("real Postgres split scope authority provisioning", () => {
         await expect(
           getScopeAuthorityProvisioningReceipt(control.drizzle, scopeId),
         ).resolves.toMatchObject({ state: "ready" });
+      } catch (error: unknown) {
+        primaryFailures.push(error);
+        throw error;
       } finally {
-        if (gateHeld) {
-          await gateClient.query("select pg_advisory_unlock($1)", [advisoryKey]);
-        }
+        // Destroy a still-locked session before draining its blocked work.
+        gateClient.release(gateHeld);
         await Promise.allSettled(
           [firstPromise, secondPromise].filter(
             (promise): promise is NonNullable<typeof promise> =>
               promise !== undefined,
           ),
         );
-        gateClient.release();
+        try {
+          await removeInsertGate?.();
+        } catch (error: unknown) {
+          if (primaryFailures.length > 0) {
+            throw new AggregateError([...primaryFailures, error], "Split provisioning work and insert gate cleanup failed.");
+          }
+          throw error;
+        }
       }
-    });
+    }));
   }, 60_000);
 });
 
@@ -263,7 +277,7 @@ function testUuid(index: number): string {
 async function installTargetInsertGate(
   target: PostgresFlarexPersistence,
   advisoryKey: number,
-): Promise<void> {
+): Promise<() => Promise<void>> {
   await target.query(`
     create function fx_test_split_scope_insert_gate()
     returns trigger
@@ -279,6 +293,12 @@ async function installTargetInsertGate(
     before insert on fx_system_scope_clock
     for each row execute function fx_test_split_scope_insert_gate()
   `);
+  return async () => {
+    await target.query(`
+      drop trigger fx_test_split_scope_insert_gate on fx_system_scope_clock;
+      drop function fx_test_split_scope_insert_gate();
+    `);
+  };
 }
 
 async function backendPid(client: PoolClient): Promise<number> {

@@ -12,7 +12,7 @@ import {
   type ScopeEpoch,
   type ScopeId,
 } from "flarex-protocol/storage-authority";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { beforeAll, describe, expect, expectTypeOf, it } from "vitest";
 
 import type {
   FlarexPersistence,
@@ -20,7 +20,6 @@ import type {
 } from "../../src";
 import {
   createPGliteLocatedSplitScopeClockTarget,
-  createPGlitePersistence,
   createPGliteSplitScopeAuthorityProvisioner,
   ScopeAuthorityIdGenerationExhaustedError,
   SplitScopeAuthorityPlacementPlanningError,
@@ -43,6 +42,10 @@ import {
   fxControlScopes,
   fxSystemScopeClocks,
 } from "../../src/database/schema";
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../support/pgliteTestFixture";
 
 const schemaLocator = Object.freeze({
   kind: "schema_per_scope",
@@ -78,6 +81,8 @@ type ForbiddenRootProvisioningMethod = Extract<
 >;
 
 describe("split scope authority provisioning", { timeout: 20_000 }, () => {
+  beforeAll(async () => { await migratedPGliteDataDir(); });
+
   it("keeps split placement and authority mutation behind server composition", () => {
     expectTypeOf<ForbiddenEnsureInputField>().toEqualTypeOf<never>();
     expectTypeOf<ForbiddenRootProvisioningMethod>().toEqualTypeOf<never>();
@@ -467,7 +472,7 @@ describe("split scope authority provisioning", { timeout: 20_000 }, () => {
   });
 
   it("rejects an inexact located-target result before publishing ready", async () => {
-    const { control } = await migratedPair();
+    const control = await createMigratedPGlitePersistence();
     const inexactTarget: LocatedSplitScopeClockTarget = {
       physicalLocator: schemaLocator,
       async ensureInitialClock(input) {
@@ -800,42 +805,46 @@ describe("split scope authority provisioning", { timeout: 20_000 }, () => {
       randomUuid: throwingUuid("reserved replay keeps authority"),
     });
     const delayedResult = delayed.ensure(input);
-    await entered.promise;
+    try {
+      await entered.promise;
 
-    const winner = createPGliteSplitScopeAuthorityProvisioner(control, {
-      placementPlanner: throwingPlanner("winner replay skips planning"),
-      targetResolver: fixedResolver(realTarget),
-      randomUuid: throwingUuid("winner replay keeps authority"),
-    });
-    const winnerResult = await winner.ensure(input);
-    await target.drizzle.transaction(async authorityTx => {
-      await authorityTx.select({ scopeId: fxSystemScopeExecutionAuthorities.scopeId }).from(fxSystemScopeExecutionAuthorities)
-        .where(eq(fxSystemScopeExecutionAuthorities.scopeId, winnerResult.scope.scopeId)).for("update");
-      await authorityTx.update(fxSystemScopeExecutionAuthorities).set({storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),storageGenerationFence: StorageGenerationFenceSchema.make(2n),epoch: ScopeEpochSchema.make("epoch_after_ready_race")}).where(eq(fxSystemScopeExecutionAuthorities.scopeId, winnerResult.scope.scopeId));
-      return authorityTx.update(fxSystemScopeClocks).set({lastCommitSeq: CommitSeqSchema.make(1n)}).where(eq(fxSystemScopeClocks.scopeId, winnerResult.scope.scopeId));
-    });
-    release.resolve(undefined);
+      const winner = createPGliteSplitScopeAuthorityProvisioner(control, {
+        placementPlanner: throwingPlanner("winner replay skips planning"),
+        targetResolver: fixedResolver(realTarget),
+        randomUuid: throwingUuid("winner replay keeps authority"),
+      });
+      const winnerResult = await winner.ensure(input);
+      await target.drizzle.transaction(async authorityTx => {
+        await authorityTx.select({ scopeId: fxSystemScopeExecutionAuthorities.scopeId }).from(fxSystemScopeExecutionAuthorities)
+          .where(eq(fxSystemScopeExecutionAuthorities.scopeId, winnerResult.scope.scopeId)).for("update");
+        await authorityTx.update(fxSystemScopeExecutionAuthorities).set({storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),storageGenerationFence: StorageGenerationFenceSchema.make(2n),epoch: ScopeEpochSchema.make("epoch_after_ready_race")}).where(eq(fxSystemScopeExecutionAuthorities.scopeId, winnerResult.scope.scopeId));
+        return authorityTx.update(fxSystemScopeClocks).set({lastCommitSeq: CommitSeqSchema.make(1n)}).where(eq(fxSystemScopeClocks.scopeId, winnerResult.scope.scopeId));
+      });
+      release.resolve(undefined);
 
-    await expect(delayedResult).resolves.toMatchObject({
-      status: "already_ready",
-      receipt: { initialEpoch: winnerResult.receipt.initialEpoch },
-    });
-    await expect(target.getScopeClock(winnerResult.scope.scopeId)).resolves.toMatchObject({
-      storageGeneration: "flarexdb_v1",
-      epoch: "epoch_after_ready_race",
-    });
+      await expect(delayedResult).resolves.toMatchObject({
+        status: "already_ready",
+        receipt: { initialEpoch: winnerResult.receipt.initialEpoch },
+      });
+      await expect(target.getScopeClock(winnerResult.scope.scopeId)).resolves.toMatchObject({
+        storageGeneration: "flarexdb_v1",
+        epoch: "epoch_after_ready_race",
+      });
+    } finally {
+      release.resolve(undefined);
+      await Promise.allSettled([delayedResult]);
+    }
   });
 });
 
-type TestPersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
+type TestPersistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
 async function migratedPair(): Promise<{
   readonly control: TestPersistence;
   readonly target: TestPersistence;
 }> {
-  const control = await createPGlitePersistence();
-  const target = await createPGlitePersistence();
-  await Promise.all([control.migrate(), target.migrate()]);
+  const control = await createMigratedPGlitePersistence();
+  const target = await createMigratedPGlitePersistence();
   return { control, target };
 }
 
