@@ -206,7 +206,7 @@ class CandidateStatementFailureV1 {
 }
 
 export function makeDeclarativeV2InertRepositoryV1(
-  target: LocatedReadCommittedAttemptTargetV1,
+  target: Pick<LocatedReadCommittedAttemptTargetV1, typeof RUN_LOCATED_READ_COMMITTED_V1>,
   sha256: DeclarativeV2Sha256V1 = makeLiveDeclarativeV2Sha256V1(),
 ): DeclarativeV2InertRepositoryV1 {
   const insertCandidate = Effect.fn("DeclarativeV2.inertRepository.insertCandidate")(
@@ -837,7 +837,7 @@ function metadataMatchesExpected(
 }
 
 function runTransaction<ResultValue>(
-  target: LocatedReadCommittedAttemptTargetV1,
+  target: Pick<LocatedReadCommittedAttemptTargetV1, typeof RUN_LOCATED_READ_COMMITTED_V1>,
   operation: RepositoryOperationV1,
   observation: Readonly<{
     readonly scopeId: string;

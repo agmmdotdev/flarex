@@ -78,7 +78,6 @@
     "./internal/intrinsic-creation-time-index-build-v1": "./src/storage/indexes/intrinsicCreationTimeIndexBuildV1.ts",
     "./internal/app-developer-ordered-index-build-v1": "./src/storage/indexes/intrinsicCreationTimeIndexBuildV1.ts",
     "./legacy-v1-app-data-engine": "./src/legacy/legacyV1AppDataEngine.ts",
-    "./internal/system-test/postgres-client-declarative-v2-verifier-progress-v2": "./src/database/postgresClientDeclarativeV2VerifierProgressV2.ts",
     "./postgres-client": "./src/database/postgresClient.ts",
     "./postgres": "./src/database/postgres.ts",
     "./pglite": "./src/database/pglite.ts",

@@ -53,9 +53,11 @@ describePostgres("Application Analysis retirement - PostgreSQL", () => {
           migrationsFolder: fixture.migrationsFolder,
         });
         try {
-          await expect(current.migrate()).rejects.toThrow(
-            /AA-R8 retirement refused: displaced analyzer state is not empty/,
-          );
+          await expect(current.migrate()).rejects.toMatchObject({
+            _tag: "InstallationLifecycleError", reason: "resourceFailure",
+            cause: { cause: { code: "P0001", message:
+              "AA-R8 retirement refused: displaced analyzer state is not empty" } },
+          });
           await expect(
             loadPresentRetiredApplicationAnalysisTables(current),
           ).resolves.toEqual([...retiredApplicationAnalysisTables].sort());

@@ -931,7 +931,7 @@ const OPERATION_MAXIMUM = Object.freeze({
 } as const);
 
 export function makeDeclarativeV2VerifierProgressRepositoryV2(
-  target: LocatedReadCommittedAttemptTargetV1,
+  target: Pick<LocatedReadCommittedAttemptTargetV1, typeof RUN_LOCATED_READ_COMMITTED_V1>,
   options: DeclarativeV2VerifierProgressRepositoryOptionsV2,
   sha256: DeclarativeV2Sha256V1 = makeLiveDeclarativeV2Sha256V1(),
 ): DeclarativeV2VerifierProgressRepositoryV2 {
@@ -4564,7 +4564,7 @@ function requireCommandAllowed(
 }
 
 function loadAttempt(
-  target: LocatedReadCommittedAttemptTargetV1,
+  target: Pick<LocatedReadCommittedAttemptTargetV1, typeof RUN_LOCATED_READ_COMMITTED_V1>,
   operation: DeclarativeV2VerifierProgressRepositoryOperationV2,
   scopeId: ScopeId,
   attemptSha256: Uint8Array,
@@ -4670,7 +4670,7 @@ function loadAttempt(
 const loadCommandDecisionRows = Effect.fn(
   "DeclarativeV2.verifierProgressV2.loadCommandDecisionRows",
 )(function (
-  target: LocatedReadCommittedAttemptTargetV1,
+  target: Pick<LocatedReadCommittedAttemptTargetV1, typeof RUN_LOCATED_READ_COMMITTED_V1>,
   input: DeclarativeV2VerifierProgressObserveCommandDecisionInputV2 & {
     readonly scopeId: ScopeId;
     readonly terminalProofSha256?: Uint8Array;
@@ -5777,7 +5777,7 @@ function historicalPageSelector(
 const loadHistoricalSettledEvidencePageBatch = Effect.fn(
   "DeclarativeV2.verifierProgressV2.loadHistoricalSettledEvidencePageBatch",
 )(function (
-  target: LocatedReadCommittedAttemptTargetV1,
+  target: Pick<LocatedReadCommittedAttemptTargetV1, typeof RUN_LOCATED_READ_COMMITTED_V1>,
   input: CapturedSettledEvidencePageBatchInputV2,
   budget: DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2,
   usage: MutablePageOperationUsageV2,
@@ -6406,7 +6406,7 @@ const decodeHistoricalSettledEvidencePageBatch = Effect.fn(
 const loadFinalPageProofForSettlement = Effect.fn(
   "DeclarativeV2.verifierProgressV2.loadFinalPageProofForSettlement",
 )(function (
-  target: LocatedReadCommittedAttemptTargetV1,
+  target: Pick<LocatedReadCommittedAttemptTargetV1, typeof RUN_LOCATED_READ_COMMITTED_V1>,
   state: MutableRunStateV2,
   work: MutableWorkStateV2,
   outputManifest: DeclarativeV2VerifierCommandOutputManifestFrameV2,
@@ -8395,7 +8395,7 @@ function copyDate(value: Date): Date {
 }
 
 function runTransactionWithConfirmedRollbackRetry<Value>(
-  target: LocatedReadCommittedAttemptTargetV1,
+  target: Pick<LocatedReadCommittedAttemptTargetV1, typeof RUN_LOCATED_READ_COMMITTED_V1>,
   operation: DeclarativeV2VerifierProgressRepositoryOperationV2,
   scopeId: string,
   attemptSha256: Uint8Array,

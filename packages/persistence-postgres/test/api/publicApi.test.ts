@@ -1,6 +1,4 @@
-import { Client } from "pg";
-import { createPostgresClientDeclarativeV2VerifierProgressRepositoryV2 } from "@flarex/persistence-postgres/internal/system-test/postgres-client-declarative-v2-verifier-progress-v2";
-import type { DeclarativeV2VerifierProgressRepositoryV2 } from "../../src/legacy/declarativeV2VerifierProgressRepositoryV2";
+
 import type { PersistenceJson } from "@flarex/persistence-postgres";
 import type { WritableJson } from "flarex-protocol/json";
 import { describe, expect, expectTypeOf, it } from "vitest";
@@ -78,65 +76,8 @@ describe("@flarex/persistence-postgres public API", () => {
       expect(source).not.toMatch(/^\.\/src\/installation\/frameworkSchema\/(installation\/|privateMetadataSchemaSupport\.ts|target\.ts)/);
       expect(source).not.toMatch(/^\.\/src\/installation\/frameworkSchema\/artifact\//);
       expect(source).not.toBe("./src/database/catalogControlSession.ts");
+      expect(source).not.toBe("./src/database/readCommittedTransactionRunner.ts");
       expect(source).not.toBe("./test/installation/frameworkSchema/frameworkMigrationPGliteTarget.ts");
     }
-  });
-
-  it("keeps the legacy verifier client adapter on its existing repository contract", () => {
-    expectTypeOf<
-      ReturnType<
-        typeof createPostgresClientDeclarativeV2VerifierProgressRepositoryV2
-      >
-    >().toEqualTypeOf<DeclarativeV2VerifierProgressRepositoryV2>();
-
-    const repository =
-      createPostgresClientDeclarativeV2VerifierProgressRepositoryV2(
-        new Client(),
-        {
-          kind: "shared_database",
-          databaseKey: "primary",
-          schemaName: "public",
-        },
-        {
-          repository: {
-            claimDurationMilliseconds: 60_000,
-          },
-          quarantine: () => undefined,
-        },
-      );
-
-    expect(repository.configuration._tag).toBe("Success");
-    expect(Object.keys(repository).sort()).toEqual([
-      "abandon",
-      "acquire",
-      "appendEvidencePage",
-      "configuration",
-      "createAttempt",
-      "observeAttempt",
-      "observeCommandDecision",
-      "readEvidencePageBatch",
-      "readSettledEvidencePageBatch",
-      "release",
-      "renew",
-      "reserveCommand",
-      "resumePending",
-      "settleCommand",
-    ]);
-    for (const forbidden of [
-      "client",
-      "connect",
-      "database",
-      "drizzle",
-      "end",
-      "physicalLocator",
-      "runTransaction",
-      "transaction",
-    ]) {
-      expect(forbidden in repository).toBe(false);
-    }
-    expect(
-      "createPostgresClientDeclarativeV2VerifierProgressRepositoryV2" in
-        persistenceApi,
-    ).toBe(false);
   });
 });

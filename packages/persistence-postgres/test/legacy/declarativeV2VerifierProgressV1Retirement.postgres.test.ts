@@ -30,23 +30,31 @@ describe("Declarative V2 verifier-progress V1 retirement PostgreSQL environment"
 
 describePostgres("Declarative V2 verifier-progress V1 retirement - PostgreSQL", () => {
   it("fresh-migrates without V1 storage and retains V2 progress", async () => {
-    await withTemporaryPostgresSchema(async databaseOptions => {
-      const persistence = await createPostgresPersistence(databaseOptions);
-      try {
-        await expect(persistence.migrate()).resolves.toBeUndefined();
-        await expect(persistence.migrate()).resolves.toBeUndefined();
-        await expect(loadPresentRetiredTables(persistence)).resolves.toEqual([]);
-        await expect(loadPresentV2ProgressTables(persistence)).resolves.toEqual(
-          [...declarativeV2VerifierProgressV2Tables].sort(),
-        );
-        const version = await persistence.query<{ version: string }>(
-          `select version()`,
-        );
-        expect(version.rows[0]?.version).toMatch(/^PostgreSQL /);
-      } finally {
-        await persistence.close();
-      }
-    });
+    const fixture = await makeMigration0044Fixture("postgres-fresh");
+    try {
+      await writeFile(fixture.journalPath, fixture.currentJournal, "utf8");
+      await withTemporaryPostgresSchema(async databaseOptions => {
+        const persistence = await createPostgresPersistence({
+          ...databaseOptions, migrationsFolder: fixture.migrationsFolder,
+        });
+        try {
+          await expect(persistence.migrate()).resolves.toBeUndefined();
+          await expect(persistence.migrate()).resolves.toBeUndefined();
+          await expect(loadPresentRetiredTables(persistence)).resolves.toEqual([]);
+          await expect(loadPresentV2ProgressTables(persistence)).resolves.toEqual(
+            [...declarativeV2VerifierProgressV2Tables].sort(),
+          );
+          const version = await persistence.query<{ version: string }>(
+            `select version()`,
+          );
+          expect(version.rows[0]?.version).toMatch(/^PostgreSQL /);
+        } finally {
+          await persistence.close();
+        }
+      });
+    } finally {
+      await fixture.dispose();
+    }
   }, 120_000);
 
   it("rejects every populated V1 table atomically, then upgrades", async () => {
@@ -73,9 +81,11 @@ describePostgres("Declarative V2 verifier-progress V1 retirement - PostgreSQL", 
               retiredDeclarativeV2VerifierProgressV1Tables.entries()
           ) {
             const scopeId = await seedRetiredTableRow(current, table, ordinal);
-            await expect(current.migrate()).rejects.toThrow(
-              new RegExp(`migration 0044 cannot retire non-empty ${table}`),
-            );
+            await expect(current.migrate()).rejects.toMatchObject({
+              _tag: "InstallationLifecycleError", reason: "resourceFailure",
+              cause: { cause: { code: "P0001", message:
+                `migration 0044 cannot retire non-empty ${table}` } },
+            });
             await expect(loadPresentRetiredTables(current)).resolves.toEqual(
               [...retiredDeclarativeV2VerifierProgressV1Tables].sort(),
             );
@@ -97,7 +107,7 @@ describePostgres("Declarative V2 verifier-progress V1 retirement - PostgreSQL", 
             select count(*)::text as count
             from ${quoteIdentifier(databaseOptions.migrationsSchema)}.__drizzle_migrations
           `);
-          expect(receipts.rows).toEqual([{ count: "47" }]);
+          expect(receipts.rows).toEqual([{ count: "45" }]);
           const version = await current.query<{ version: string }>(
             `select version()`,
           );

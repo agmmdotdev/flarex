@@ -1,4 +1,7 @@
 import type { Client } from "pg";
+import { deployments } from "../../src/database/schema";
+import { createPostgresClientLocatedReadCommittedTransactionRunnerV1 } from "../../src/database/postgresLocatedReadCommitted";
+import { LocatedReadCommittedTransactionFailureV1 } from "../../src/execution/readCommittedTransactionFailure";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
@@ -144,6 +147,57 @@ describePostgres("real Postgres request-scoped Client persistence", () => {
         persistence.getDeploymentMetadata("deployment_client_rolled_back"),
       ).resolves.toBeNull();
 
+      const quarantine: Error[] = [];
+      const run = createPostgresClientLocatedReadCommittedTransactionRunnerV1(client, {
+        quarantine: cause => { quarantine.push(cause); },
+      });
+      const marker = new Error("serialized Client rollback");
+      const observed = await observeTransactionDepth(client, async () => {
+        let enterFirst: (() => void) | undefined;
+        const entered = new Promise<void>(resolve => { enterFirst = resolve; });
+        let releaseFirst: (() => void) | undefined;
+        const released = new Promise<void>(resolve => { releaseFirst = resolve; });
+        const first = run(async tx => {
+          await tx.insert(deployments).values({
+            deploymentId: "deployment_client_concurrent_rollback", projectId: "project",
+          });
+          enterFirst?.();
+          await released;
+          throw marker;
+        });
+        const firstSettlement = Promise.allSettled([first]);
+        let second: Promise<void> | undefined;
+        try {
+          await Promise.race([entered, first]);
+          second = run(async tx => {
+            await tx.insert(deployments).values({
+              deploymentId: "deployment_client_concurrent_commit", projectId: "project",
+            });
+          });
+          const settlements = Promise.allSettled([first, second]);
+          releaseFirst?.();
+          return await settlements;
+        } finally {
+          releaseFirst?.();
+          await firstSettlement;
+          if (second !== undefined) await Promise.allSettled([second]);
+        }
+      });
+      expect(observed.maximumDepth).toBe(1);
+      const [rolledBack, committed] = observed.value;
+      expect(rolledBack?.status).toBe("rejected");
+      if (rolledBack?.status !== "rejected") throw new Error("Expected rollback");
+      expect(rolledBack.reason).toBeInstanceOf(LocatedReadCommittedTransactionFailureV1);
+      if (!(rolledBack.reason instanceof LocatedReadCommittedTransactionFailureV1)) throw new Error("Expected transaction failure");
+      expect(rolledBack.reason.issue).toEqual({ kind: "callbackRolledBack", callbackCause: marker });
+      expect(rolledBack.reason.issue.kind === "callbackRolledBack" && rolledBack.reason.issue.callbackCause).toBe(marker);
+      expect(committed?.status).toBe("fulfilled");
+      await expect(persistence.getDeploymentMetadata("deployment_client_concurrent_rollback")).resolves.toBeNull();
+      await expect(persistence.getDeploymentMetadata("deployment_client_concurrent_commit")).resolves.toMatchObject({
+        deploymentId: "deployment_client_concurrent_commit",
+      });
+      expect(quarantine).toEqual([]);
+
       const clientPid = onlyRow(
         await client.query<{ pid: number }>(
           "select pg_backend_pid()::integer as pid",
@@ -177,4 +231,52 @@ function uuidSequence(...values: readonly string[]): () => string {
     index += 1;
     return value;
   };
+}
+
+async function observeTransactionDepth<Value>(
+  client: import("pg").Client,
+  run: () => Promise<Value>,
+): Promise<Readonly<{ readonly maximumDepth: number; readonly value: Value }>> {
+  const originalQuery = client.query;
+  let depth = 0;
+  let maximumDepth = 0;
+  Object.defineProperty(client, "query", {
+    configurable: true,
+    value: async function (this: unknown, ...args: readonly unknown[]) {
+      expect(this).toBe(client);
+      const text = queryText(args[0]);
+      if (text === "begin") {
+        depth += 1;
+        maximumDepth = Math.max(maximumDepth, depth);
+      }
+      try {
+        return await Reflect.apply(originalQuery, client, args);
+      } finally {
+        if (text === "commit" || text === "rollback") depth -= 1;
+      }
+    },
+  });
+  try {
+    const value = await run();
+    return Object.freeze({ maximumDepth, value });
+  } finally {
+    Object.defineProperty(client, "query", {
+      configurable: true,
+      value: originalQuery,
+    });
+  }
+}
+
+function queryText(query: unknown): string {
+  if (typeof query === "string") return normalizeSql(query);
+  if (typeof query !== "object" || query === null) return "";
+  const descriptor = Object.getOwnPropertyDescriptor(query, "text");
+  return descriptor !== undefined && "value" in descriptor &&
+      typeof descriptor.value === "string"
+    ? normalizeSql(descriptor.value)
+    : "";
+}
+
+function normalizeSql(sql: string): string {
+  return sql.trim().replaceAll(/\s+/g, " ").toLowerCase();
 }

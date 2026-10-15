@@ -1,12 +1,5 @@
 import { webcrypto } from "node:crypto";
-import {
-  prepareStandardApplicationDefinitionV1,
-  type StandardApplicationDefinitionInputV1,
-} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
-import {
-  withAuthenticatedApplicationRevisionEvidenceTestDriverV1,
-} from
-  "../../../flarex-backend/test/authenticatedApplicationRevisionEvidenceFixture";
+import { historicalVerifierTarget, useHistoricalVerifierPGlite } from "./historicalVerifierFixture";
 import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -41,10 +34,7 @@ import {
   type DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
   type DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2,
 } from "../../src/legacy/declarativeV2VerifierProgressRepositoryV2";
-import { createPGliteLocatedPointMutationSessionActivationTargetV1,
-  createPGlitePersistence } from "../../src/database/pglite";
 import {
-  isLocatedReadCommittedAttemptTargetV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
 } from "../../src/database/locatedTransactionIdentity";
@@ -55,7 +45,7 @@ import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import {
   SESSION_TEST_EPOCH_UUID,
   SESSION_TEST_SCOPE_UUID,
-  insertSessionTestScope,
+  insertLegacySessionTestScope,
 } from "../execution/session/support/sessionStorage";
 
 const scopeId = `scope_${SESSION_TEST_SCOPE_UUID}`;
@@ -75,313 +65,9 @@ const pageOperationBudget = Object.freeze({
   maximumPayloadBytes: 2_000_000,
 }) satisfies DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2;
 
-describe("Declarative V2 progress repository V2 attempt/lease/reservation", () => {
-  it("carries real backend per-command lineage through parse, link, and registration", async () => {
-    const current = await fixture({ semanticCeiling: 100_000n });
-    await moveAttemptToParse(current.persistence, current.attemptSha256);
-    const definition = Result.getOrThrow(
-      prepareStandardApplicationDefinitionV1(
-        authenticatedProducerDefinitionInput(),
-      ),
-    );
+const createPersistence = useHistoricalVerifierPGlite();
 
-    await runEffect(Effect.scoped(
-      withAuthenticatedApplicationRevisionEvidenceTestDriverV1(
-        definition,
-        {
-          projectId: "project",
-          deploymentId: "deployment",
-          deploymentCreatedAt: "2026-07-31T00:00:00.000Z",
-        },
-        driver => Effect.gen(function* () {
-          const bridge = makeAuthenticatedDeclarativeV2CommandBridgeV1(
-            current.repository,
-            { preparedReservations: driver.preparedReservations },
-          );
-          const acquired = yield* bridge.acquire(
-            scopeId,
-            current.attemptSha256,
-            operationBudget,
-          );
-          const parseCommand = yield* driver.prepareCommand(Object.freeze({
-            kind: "parse_module" as const,
-            moduleOrdinal: 0n,
-          }));
-          const parseProposal = yield* bridge.proposeReservation(
-            acquired.session,
-            "parse_module",
-          );
-          const parseAuthority = yield* parseCommand.bindReservation(
-            parseProposal.lineage,
-          );
-          const parseReady = yield* bridge.prepareReservation(
-            acquired.session,
-            parseProposal.proposal,
-            parseAuthority,
-          );
-          const parseReserved = yield* bridge.reservePrepared(
-            parseReady.ready,
-            null,
-            operationBudget,
-          );
-          const parseProduced = yield* parseCommand.produce(
-            parseReserved.reservation,
-          );
-          const parsePageInput = yield* Effect.promise(() =>
-            evidencePageInput(
-              parseReserved.reservation,
-              0n,
-              null,
-              0n,
-              1n,
-              0n,
-              0n,
-              new Uint8Array([1]),
-              0x71,
-            )
-          );
-          const parsePage = yield* bridge.appendEvidencePage(
-            parseReserved.work,
-            parsePageInput,
-            pageOperationBudget,
-          );
-          const parseSettlement = yield* Effect.promise(() =>
-            settlementInput(
-              parseReserved.reservation,
-              parsePage.pageSha256,
-              1n,
-              digest(0x71),
-              1n,
-              "link",
-              10_000n,
-            )
-          );
-          const parseProof = yield* Effect.promise(() =>
-            terminalAuthorityProof(
-              parseReserved.reservation,
-              parseSettlement,
-              null,
-              digest(0x72),
-              "capacity",
-              0n,
-              parseProduced.receipt.requestSha256,
-            )
-          );
-          yield* bridge.settle(
-            parseReserved.work,
-            { ...parseSettlement, terminalProofBytes: parseProof },
-            operationBudget,
-          );
-
-          const registrationCommand = yield* driver.prepareCommand(
-            Object.freeze({ kind: "registration_page" as const }),
-          );
-          const linkCommand = yield* driver.prepareCommand(
-            Object.freeze({ kind: "link_page" as const }),
-          );
-          const linkProposal = yield* bridge.proposeReservation(
-            acquired.session,
-            "link_page",
-          );
-          const linkAuthority = yield* linkCommand.bindReservation(
-            linkProposal.lineage,
-          );
-          const linkReady = yield* bridge.prepareReservation(
-            acquired.session,
-            linkProposal.proposal,
-            linkAuthority,
-          );
-          const linkSettlement = yield* Effect.promise(() =>
-            settlementInput(
-              linkReady.reservation,
-              digest(0x74),
-              1n,
-              digest(0x75),
-              1n,
-              "registration",
-              20_000n,
-            )
-          );
-          const intent = Result.getOrThrow(
-            encodeDeclarativeV2FutureRegistrationIntentV1({
-              attemptSha256: current.attemptSha256,
-              candidateSha256: current.candidateSha256,
-              linkReservationSha256: linkReady.reservationSha256,
-              linkSequence: 2n,
-              registrationSequence: 3n,
-              registrationCurrentProgressSha256:
-                yield* Effect.promise(() =>
-                  frameSha256Any(linkSettlement.nextProgress)
-                ),
-              registrationCommandBudgetSha256:
-                registrationCommand.commitments.commandBudgetSha256,
-              registrationCommandInputSha256:
-                registrationCommand.commitments.commandInputSha256,
-              freshAuthenticatedInputSha256:
-                registrationCommand.commitments.freshAuthenticatedInputSha256,
-              parsePagesRootSha256: digest(0x73),
-              analyzerReleaseSha256: digest(0x72),
-              analyzerIdentitySha256:
-                registrationCommand.commitments.analyzerIdentitySha256,
-              verifierIdentitySha256:
-                registrationCommand.commitments.verifierIdentitySha256,
-            }),
-          );
-          const linkReserved = yield* bridge.reservePrepared(
-            linkReady.ready,
-            intent.canonicalBytes,
-            operationBudget,
-          );
-          const linkProduced = yield* linkCommand.produce(
-            linkReserved.reservation,
-          );
-          const linkPageInput = yield* Effect.promise(() =>
-            evidencePageInput(
-              linkReserved.reservation,
-              0n,
-              null,
-              0n,
-              1n,
-              0n,
-              0n,
-              new Uint8Array([2]),
-              0x75,
-            )
-          );
-          const linkPage = yield* bridge.appendEvidencePage(
-            linkReserved.work,
-            linkPageInput,
-            pageOperationBudget,
-          );
-          const settledLinkInput = Object.freeze({
-            ...linkSettlement,
-            outputManifest: Object.freeze({
-              ...linkSettlement.outputManifest,
-              evidenceRootSha256: linkPage.pageSha256,
-            }),
-          });
-          const settledLinkReceipt = Object.freeze({
-            ...settledLinkInput.receipt,
-            outputManifestSha256:
-              yield* Effect.promise(() =>
-                frameSha256Any(settledLinkInput.outputManifest)
-              ),
-          });
-          const intentSha256 = yield* Effect.promise(() =>
-            sha256(intent.canonicalBytes)
-          );
-          const linkProof = yield* Effect.promise(() =>
-            terminalAuthorityProof(
-              linkReserved.reservation,
-              {
-                ...settledLinkInput,
-                receipt: settledLinkReceipt,
-              },
-              intentSha256,
-              intent.intent.analyzerReleaseSha256,
-              "capacity",
-              0n,
-              linkProduced.receipt.requestSha256,
-            )
-          );
-          const linked = yield* bridge.settle(
-            linkReserved.work,
-            {
-              ...settledLinkInput,
-              receipt: settledLinkReceipt,
-              terminalProofBytes: linkProof,
-            },
-            operationBudget,
-          );
-
-          const realRegistrationProposal =
-            yield* bridge.proposeReservation(
-              acquired.session,
-              "registration_page",
-            );
-          expect(realRegistrationProposal.lineage).toEqual({
-            attemptSha256: current.attemptSha256,
-            candidateSha256: current.candidateSha256,
-            commandKind: "registration_page",
-            sequence: 3n,
-            currentProgressSha256:
-              yield* Effect.promise(() =>
-                frameSha256Any(linkSettlement.nextProgress)
-              ),
-            predecessorReceiptSha256: linked.settlement.receiptSha256,
-          });
-          const realRegistrationAuthority =
-            yield* registrationCommand.bindReservation(
-              realRegistrationProposal.lineage,
-            );
-          const registrationReady = yield* bridge.prepareReservation(
-            acquired.session,
-            realRegistrationProposal.proposal,
-            realRegistrationAuthority,
-          );
-          const registrationReserved = yield* bridge.reservePrepared(
-            registrationReady.ready,
-            intent.canonicalBytes,
-            operationBudget,
-          );
-          const registrationProduced = yield* registrationCommand.produce(
-            registrationReserved.reservation,
-          );
-          const registrationSettlement = yield* Effect.promise(() =>
-            settlementInput(
-              registrationReserved.reservation,
-              digest(0x76),
-              0n,
-              digest(0x77),
-              10_000n,
-              "verdict",
-              30_000n,
-            )
-          );
-          const registrationProof = yield* Effect.promise(() =>
-            terminalAuthorityProof(
-              registrationReserved.reservation,
-              registrationSettlement,
-              intentSha256,
-              intent.intent.analyzerReleaseSha256,
-              "capacity",
-              0n,
-              registrationProduced.receipt.requestSha256,
-            )
-          );
-          const registered = yield* bridge.settle(
-            registrationReserved.work,
-            {
-              ...registrationSettlement,
-              terminalProofBytes: registrationProof,
-            },
-            operationBudget,
-          );
-
-          expect(
-            parseReserved.reservation.rangeAndPredecessorTailsSha256,
-          ).not.toEqual(
-            linkReserved.reservation.rangeAndPredecessorTailsSha256,
-          );
-          expect(
-            linkReserved.reservation.rangeAndPredecessorTailsSha256,
-          ).not.toEqual(
-            registrationReserved.reservation
-              .rangeAndPredecessorTailsSha256,
-          );
-          expect(registrationReserved.reservation.predecessorReceiptSha256)
-            .toEqual(linked.settlement.receiptSha256);
-          expect(registrationProduced.receipt.reservationSha256).toEqual(
-            registrationReady.reservationSha256,
-          );
-          expect(registered.settlement.commandKind).toBe(
-            "registration_page",
-          );
-          expect(registered.settlement.nextProgress.phase).toBe("verdict");
-        }),
-      ),
-    ));
-  });
+describe("historical Declarative V2 progress repository V2 attempt/lease/reservation", () => {
 
   it("abandons authenticated pending work after a failed analysis scope", async () => {
     let failAbandon = false;
@@ -886,10 +572,7 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
     const current = await fixture();
     await moveAttemptToParse(current.persistence, current.attemptSha256);
     let transactionsUntilLoss: number | null = null;
-    const faultTarget: LocatedReadCommittedAttemptTargetV1 = {
-      physicalLocator: current.target.physicalLocator,
-      getCurrentClock: requestedScope =>
-        current.target.getCurrentClock(requestedScope),
+    const faultTarget: Pick<LocatedReadCommittedAttemptTargetV1, typeof RUN_LOCATED_READ_COMMITTED_V1> = {
       [RUN_LOCATED_READ_COMMITTED_V1]: async work => {
         const result = await current.target[RUN_LOCATED_READ_COMMITTED_V1](
           work,
@@ -1280,7 +963,8 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
   });
 
   it("creates and observes an inert attempt, acquires with same-owner replay, renews, and releases", async () => {
-    const current = await fixture();
+    const queries: Array<Readonly<{ readonly name: string; readonly sql: string }>> = [];
+    const current = await fixture({ observeQuery: observation => queries.push(observation) });
     const replayedCreate = await runEffect(current.repository.createAttempt({
       scopeId,
       candidateSha256: current.candidateSha256,
@@ -1288,11 +972,21 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
     }, operationBudget));
     expect(replayedCreate.kind).toBe("replayed");
     expect(replayedCreate.attemptSha256).toEqual(current.attemptSha256);
+    queries.length = 0;
     const observed = await runEffect(current.repository.observeAttempt(
       scopeId,
       current.attemptSha256,
       operationBudget,
     ));
+    const names = queries.map(query => query.name);
+    expect(names).toContain("attemptMetadata");
+    expect(names).toContain("attemptFrames");
+    expect(names.indexOf("attemptMetadata")).toBeLessThan(
+      names.indexOf("attemptFrames"),
+    );
+    expect(
+      queries.find(query => query.name === "attemptMetadata")?.sql.toLowerCase(),
+    ).toContain("for share");
     expect(observed.kind).toBe("present");
     if (observed.kind !== "present") throw new Error("Expected attempt.");
     expect(observed.attempt).toMatchObject({
@@ -1309,6 +1003,22 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
       operationBudget,
     ));
     expect(acquired.kind).toBe("acquired");
+    const contender = makeDeclarativeV2VerifierProgressRepositoryV2(
+      current.target,
+      {
+        claimDurationMilliseconds: 60_000,
+        randomUuid: () => "22222222-2222-4222-8222-222222222222",
+      },
+    );
+    const busy = await runEffectFailure(contender.acquire(
+      scopeId,
+      current.attemptSha256,
+      operationBudget,
+    ));
+    expect(busy).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryBusyV2Error",
+      operation: "acquire",
+    });
     const replay = await runEffect(current.repository.acquire(
       scopeId,
       current.attemptSha256,
@@ -1339,32 +1049,6 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
       operationBudget,
     ));
     expect(reacquired.attempt.writerFence).toBe(2n);
-  });
-
-  it("admits exactly one factory while a foreign live lease is held", async () => {
-    const current = await fixture();
-    const acquired = await runEffect(current.repository.acquire(
-      scopeId,
-      current.attemptSha256,
-      operationBudget,
-    ));
-    const contender = makeDeclarativeV2VerifierProgressRepositoryV2(
-      current.target,
-      {
-        claimDurationMilliseconds: 60_000,
-        randomUuid: () => "22222222-2222-4222-8222-222222222222",
-      },
-    );
-    const busy = await runEffectFailure(contender.acquire(
-      scopeId,
-      current.attemptSha256,
-      operationBudget,
-    ));
-    expect(busy).toMatchObject({
-      _tag: "DeclarativeV2VerifierProgressRepositoryBusyV2Error",
-      operation: "acquire",
-    });
-    await runEffect(current.repository.release(acquired.run, operationBudget));
   });
 
   it("reserves once, replays byte-identically without durable recharge, resumes, and refuses release", async () => {
@@ -2460,10 +2144,7 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
       reason: "predecessorMismatch",
     });
 
-    const uncertainTarget: LocatedReadCommittedAttemptTargetV1 = {
-      physicalLocator: current.target.physicalLocator,
-      getCurrentClock: requestedScope =>
-        current.target.getCurrentClock(requestedScope),
+    const uncertainTarget: Pick<LocatedReadCommittedAttemptTargetV1, typeof RUN_LOCATED_READ_COMMITTED_V1> = {
       [RUN_LOCATED_READ_COMMITTED_V1]: async work => {
         await current.target[RUN_LOCATED_READ_COMMITTED_V1](work);
         throw new LocatedReadCommittedTransactionFailureV1({
@@ -2872,9 +2553,7 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
     const current = await fixture();
     await moveAttemptToParse(current.persistence, current.attemptSha256);
     let transactionsUntilLoss: number | null = null;
-    const faultTarget: LocatedReadCommittedAttemptTargetV1 = {
-      physicalLocator: current.target.physicalLocator,
-      getCurrentClock: scope => current.target.getCurrentClock(scope),
+    const faultTarget: Pick<LocatedReadCommittedAttemptTargetV1, typeof RUN_LOCATED_READ_COMMITTED_V1> = {
       [RUN_LOCATED_READ_COMMITTED_V1]: async work => {
         const result =
           await current.target[RUN_LOCATED_READ_COMMITTED_V1](work);
@@ -2966,28 +2645,6 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
     );
     expect(observed.decision.kind).toBe("settled");
   });
-
-  it("keeps query observation ordered and does not compile when absent", async () => {
-    const queries: Array<Readonly<{ readonly name: string; readonly sql: string }>> =
-      [];
-    const current = await fixture({
-      observeQuery: observation => queries.push(observation),
-    });
-    await runEffect(current.repository.observeAttempt(
-      scopeId,
-      current.attemptSha256,
-      operationBudget,
-    ));
-    const names = queries.map(query => query.name);
-    expect(names).toContain("attemptMetadata");
-    expect(names).toContain("attemptFrames");
-    expect(names.indexOf("attemptMetadata")).toBeLessThan(
-      names.indexOf("attemptFrames"),
-    );
-    expect(
-      queries.find(query => query.name === "attemptMetadata")?.sql.toLowerCase(),
-    ).toContain("for share");
-  });
 });
 
 async function pendingParseFixture(
@@ -3021,7 +2678,7 @@ async function pendingParseFixture(
 }
 
 async function moveAttemptToParse(
-  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  persistence: Awaited<ReturnType<typeof createPersistence>>,
   attemptSha256: Uint8Array,
 ) {
   const progress = {
@@ -3059,7 +2716,7 @@ async function moveAttemptToParse(
 }
 
 async function moveAttemptToLink(
-  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  persistence: Awaited<ReturnType<typeof createPersistence>>,
   attemptSha256: Uint8Array,
 ) {
   const progress = {
@@ -3165,21 +2822,9 @@ async function fixture(
       value: webcrypto,
     });
   }
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  await insertSessionTestScope(persistence);
-  const target = createPGliteLocatedPointMutationSessionActivationTargetV1(
-    persistence,
-    {
-      kind: "shared_database",
-      databaseKey: "primary",
-      schemaName: "public",
-    },
-  );
-  if (!isLocatedReadCommittedAttemptTargetV1(target)) {
-    throw new Error("Expected READ COMMITTED target.");
-  }
-  const locatedTarget: LocatedReadCommittedAttemptTargetV1 = target;
+  const persistence = await createPersistence();
+  await insertLegacySessionTestScope(persistence);
+  const locatedTarget = historicalVerifierTarget(persistence.drizzle);
   const inert = makeDeclarativeV2InertRepositoryV1(locatedTarget);
   const candidate = candidateFixture();
   const encoded = Result.getOrThrow(encodeDeclarativeV2PhysicalFrameV1(
@@ -3405,69 +3050,6 @@ function semanticBudget(
       ]),
     ),
   }) as DeclarativeV2VerifierBudgetFrameV2;
-}
-
-function authenticatedProducerDefinitionInput():
-  StandardApplicationDefinitionInputV1 {
-  return {
-    programBudgetInput: {
-      maximumModules: 1,
-      maximumFunctions: 1,
-      maximumIdentifierUtf8Bytes: 4_096,
-      maximumValidatorNodes: 256,
-      maximumValidatorDepth: 32,
-      maximumValidatorStringUtf8Bytes: 4_096,
-    },
-    programInput: {
-      format: "flarex.declarative-program/v1",
-      version: 1,
-      schema: { tables: [], indexes: [] },
-      modules: [{
-        modulePath: "example",
-        functions: [{
-          exportName: "getThing",
-          kind: "query",
-          visibility: "public",
-          argsValidator: { type: "any" },
-          returnsValidator: null,
-        }],
-      }],
-    },
-    materializationBudgetInput: {
-      maximumModules: 2,
-      maximumEntryBindings: 1,
-      maximumSourceBytes: 2_048,
-      maximumSourceMapBytes: 1_024,
-      maximumBytesMaterialized: 32_000,
-      maximumSemanticRecords: 32,
-      maximumSemanticRecordBytes: 8_000,
-      maximumSemanticStreamBytes: 16_000,
-    },
-    graphInput: {
-      modules: [
-        {
-          path: "example.js",
-          roles: ["function"],
-          sourceBytes:
-            new TextEncoder().encode("export const getThing = 1;\n"),
-          sourceMapBytes: null,
-        },
-        {
-          path: "_flarex/execution.js",
-          roles: ["execution"],
-          sourceBytes: new TextEncoder().encode("export const run = 1;\n"),
-          sourceMapBytes: null,
-        },
-      ],
-      functionEntries: [{
-        logicalModulePath: "example",
-        artifactModulePath: "example.js",
-      }],
-      executionPath: "_flarex/execution.js",
-      schemaPath: null,
-      authPath: null,
-    },
-  };
 }
 
 function candidateFixture(): DeclarativeV2CandidateFrameV1 {

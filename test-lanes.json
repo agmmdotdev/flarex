@@ -1083,7 +1083,6 @@
             "test/database/postgresRuntime.postgres.test.ts",
             "test/support/postgresFileScopedFixture.postgres.test.ts",
             "test/database/postgresClient.test.ts",
-            "test/database/postgresClientDeclarativeV2VerifierProgressV2.postgres.test.ts",
             "test/database/postgresConcurrency.test.ts",
             "test/scope/scopeExecution.postgres.test.ts",
             "test/scope/scopeClock.postgres.test.ts",

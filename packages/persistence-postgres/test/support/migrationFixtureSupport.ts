@@ -31,7 +31,14 @@ export async function makeDrizzleCopyFixture(
   const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
   const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
   const migrationPath = resolve(migrationsFolder, migrationName);
-  await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
+  try {
+    await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
+  } catch (cause) {
+    try { await rm(root, { recursive: true, force: true }); } catch (cleanupCause) {
+      throw new AggregateError([cause, cleanupCause], "Migration fixture copy and cleanup failed");
+    }
+    throw cause;
+  }
   return Object.freeze({
     root,
     migrationsFolder,

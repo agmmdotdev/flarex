@@ -1,10 +1,5 @@
-import { copyDrizzleMigrations } from "../support/migrationFixtureSupport";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
-import { isNonArrayRecord } from "@flarex/utils/records";
+import { makeDrizzleCopyFixture, writeJournalThrough } from "../support/migrationFixtureSupport";
+import { readFile } from "node:fs/promises";
 
 import type { FlarexPersistence } from "../../src/index";
 
@@ -36,36 +31,27 @@ const CHILD_TABLES = new Set<RetiredDeclarativeV2VerifierProgressV1Table>(
 );
 
 export async function makeMigration0044Fixture(label: string) {
-  const root = await mkdtemp(resolve(tmpdir(), `flarex-v1-retirement-${label}-`));
-  const migrationsFolder = resolve(root, "drizzle");
-  const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const currentMigrationsFolder = resolve(packageRoot, "drizzle");
-  const sourceJournalPath = resolve(
-    currentMigrationsFolder,
-    "meta/_journal.json",
+  const fixture = await makeDrizzleCopyFixture(
+    "flarex-v1-retirement", label, "0044_melted_riptide.sql",
   );
-  const journalPath = resolve(migrationsFolder, "meta/_journal.json");
-  await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
-  const currentJournal = await readFile(sourceJournalPath, "utf8");
-  const parsed: unknown = JSON.parse(currentJournal);
-  if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
-    throw new Error("Expected a Drizzle migration journal.");
+  try {
+    // This proof owns 0044, before 0064 intentionally retires V2 as well.
+    await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 44);
+    const currentJournal = await readFile(fixture.temporaryJournal, "utf8");
+    await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 43);
+    return Object.freeze({
+      migrationsFolder: fixture.migrationsFolder,
+      journalPath: fixture.temporaryJournal,
+      currentJournal,
+      migrationPath: fixture.migrationPath,
+      dispose: fixture.cleanup,
+    });
+  } catch (cause) {
+    try { await fixture.cleanup(); } catch (cleanupCause) {
+      throw new AggregateError([cause, cleanupCause], "Verifier retirement fixture setup and cleanup failed");
+    }
+    throw cause;
   }
-  await writeFile(journalPath, `${JSON.stringify({
-    ...parsed,
-    entries: parsed.entries.filter(entry =>
-      isNonArrayRecord(entry) &&
-      typeof entry.idx === "number" &&
-      entry.idx < 44
-    ),
-  }, null, 2)}\n`, "utf8");
-  return Object.freeze({
-    migrationsFolder,
-    journalPath,
-    currentJournal,
-    migrationPath: resolve(migrationsFolder, "0044_melted_riptide.sql"),
-    dispose: () => rm(root, { recursive: true, force: true }),
-  });
 }
 
 export async function seedRetiredTableRow(

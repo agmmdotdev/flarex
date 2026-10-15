@@ -223,6 +223,21 @@ Journal/session fixtures with raw-driver fault injection pass
 retain its cleanup. Empty-schema admission witnesses and historical migration
 fixtures still start empty and execute their original migrations.
 
+Retained historical verifier repository cases use `legacy/historicalVerifierFixture`:
+one image of the copied journal before migration 0064, then an independent
+database per PGlite case. Native cases use the existing historical schema option.
+They reuse the transaction owner's READ COMMITTED settlement mechanics without
+current installation or execution authority. Current runners retain mandatory
+admission. The obsolete backend composition case is removed in favor of the
+current analyzer composition proofs; lease contention and query ordering share
+the existing lease lifecycle case. The connected Client serialization witness
+lives in `database/postgresClient.test.ts` with its current installed fixture.
+Historical runtime/registration fixtures have a separate schema/runtime gap;
+these repository fixtures do not establish their acceptance.
+The earlier V1-retirement migration proof uses the journal through 0044 and
+retains its fresh-install and nine-table refusal witnesses. Migration 0064
+separately proves removal of the later V2 graph.
+
 Single-database redelivery scheduler cases use
 `useFileScopedPGliteRedeliverySchedulerPersistence`. Reset restores the exact
 singleton captured from the migration image, including timestamps, in one real

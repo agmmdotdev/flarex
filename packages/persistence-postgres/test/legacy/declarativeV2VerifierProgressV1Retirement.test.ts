@@ -16,9 +16,11 @@ import {
 
 describe("Declarative V2 verifier-progress V1 retirement migration", () => {
   it("fresh-migrates without the nine V1 tables and retains V2 progress", async () => {
+    const fixture = await makeMigration0044Fixture("pglite-fresh");
     const db = newTestPGlite();
     try {
-      const persistence = await createPGlitePersistence({ db });
+      await writeFile(fixture.journalPath, fixture.currentJournal, "utf8");
+      const persistence = await createPGlitePersistence({ db, migrationsFolder: fixture.migrationsFolder });
       await expect(persistence.migrate()).resolves.toBeUndefined();
       await expect(persistence.migrate()).resolves.toBeUndefined();
       await expect(loadPresentRetiredTables(persistence)).resolves.toEqual([]);
@@ -26,7 +28,7 @@ describe("Declarative V2 verifier-progress V1 retirement migration", () => {
         [...declarativeV2VerifierProgressV2Tables].sort(),
       );
     } finally {
-      await db.close();
+      try { await db.close(); } finally { await fixture.dispose(); }
     }
   });
 
@@ -53,9 +55,11 @@ describe("Declarative V2 verifier-progress V1 retirement migration", () => {
           retiredDeclarativeV2VerifierProgressV1Tables.entries()
       ) {
         const scopeId = await seedRetiredTableRow(current, table, ordinal);
-        await expect(current.migrate()).rejects.toThrow(
-          new RegExp(`migration 0044 cannot retire non-empty ${table}`),
-        );
+        await expect(current.migrate()).rejects.toMatchObject({
+          _tag: "InstallationLifecycleError", reason: "resourceFailure",
+          cause: { cause: { code: "P0001", message:
+            `migration 0044 cannot retire non-empty ${table}` } },
+        });
         await expect(loadPresentRetiredTables(current)).resolves.toEqual(
           [...retiredDeclarativeV2VerifierProgressV1Tables].sort(),
         );
@@ -75,7 +79,7 @@ describe("Declarative V2 verifier-progress V1 retirement migration", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "47" }]);
+      expect(receipts.rows).toEqual([{ count: "45" }]);
     } finally {
       try {
         await db.close();

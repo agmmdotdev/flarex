@@ -3801,6 +3801,19 @@ them. Current Application proofs use the installed current schema and genuine
 unversioned owners; do not create a hybrid historical schema to make those
 older runtime harnesses pass.
 
+The retained granular verifier repository proofs use the pre-0064 journal and
+historical scope seed with the shared READ COMMITTED transaction/settlement
+mechanics. They do not construct current installation or execution authority.
+PGlite cases restore independent databases from one historical image; native
+cases retain real PostgreSQL contention, rollback and fencing. The displaced
+backend lineage composition case is removed in favor of current Application
+Analysis composition proofs. The unused connected-Client verifier adapter and
+its package route are retired; its real Client transaction-serialization witness
+remains with the current connected-Client persistence tests. This repository-only
+fixture disposition does not resolve the historical runtime harness gap above.
+The earlier verifier V1-retirement proof is bounded at migration 0044, where V2
+progress remains present; migration 0064 owns its subsequent retirement.
+
 The retained native Task fixtures have the same registered-parent ownership
 gap. `taskSystemRunRead.postgres.test.ts` caps its schema before 0064 but invokes
 the current registration runtime through `seedRegisteredTaskSystemParentV1`.

@@ -1,4 +1,5 @@
 import { webcrypto } from "node:crypto";
+import { historicalVerifierTarget } from "./historicalVerifierFixture";
 import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -31,12 +32,8 @@ import {
   makeDeclarativeV2VerifierProgressRepositoryV2,
 } from "../../src/legacy/declarativeV2VerifierProgressRepositoryV2";
 import {
-  createPostgresLocatedPointMutationSessionActivationTargetV1,
-} from "../../src/database/postgres";
-import {
   type LocatedReadCommittedAttemptTargetV1,
   RUN_LOCATED_READ_COMMITTED_V1,
-  isLocatedReadCommittedAttemptTargetV1,
 } from "../../src/database/locatedTransactionIdentity";
 import {
   LocatedReadCommittedTransactionFailureV1,
@@ -49,7 +46,7 @@ import {
 import {
   SESSION_TEST_EPOCH_UUID,
   SESSION_TEST_SCOPE_UUID,
-  insertSessionTestScope,
+  insertLegacySessionTestScope,
 } from "../execution/session/support/sessionStorage";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
@@ -79,19 +76,8 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
           value: webcrypto,
         });
       }
-      await insertSessionTestScope(persistence);
-      const target =
-        createPostgresLocatedPointMutationSessionActivationTargetV1(
-          persistence,
-          {
-            kind: "shared_database",
-            databaseKey: "primary",
-            schemaName: "public",
-          },
-        );
-      if (!isLocatedReadCommittedAttemptTargetV1(target)) {
-        throw new Error("Expected READ COMMITTED target.");
-      }
+      await insertLegacySessionTestScope(persistence);
+      const target = historicalVerifierTarget(persistence.drizzle);
       const inert = makeDeclarativeV2InertRepositoryV1(target);
       const candidate = candidateFixture();
       const encoded = Result.getOrThrow(encodeDeclarativeV2PhysicalFrameV1(
@@ -195,7 +181,7 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
         _tag: "DeclarativeV2VerifierProgressRepositoryStaleV2Error",
         reason: "ownerChanged",
       });
-    });
+    }, { historicalApplicationAnalysis: true });
   });
 
   it("recovers lost page responses, retries confirmed rollbacks, preserves ordered reads, and fences takeover", async () => {
@@ -206,19 +192,8 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
           value: webcrypto,
         });
       }
-      await insertSessionTestScope(persistence);
-      const target =
-        createPostgresLocatedPointMutationSessionActivationTargetV1(
-          persistence,
-          {
-            kind: "shared_database",
-            databaseKey: "primary",
-            schemaName: "public",
-          },
-        );
-      if (!isLocatedReadCommittedAttemptTargetV1(target)) {
-        throw new Error("Expected READ COMMITTED target.");
-      }
+      await insertLegacySessionTestScope(persistence);
+      const target = historicalVerifierTarget(persistence.drizzle);
       const inert = makeDeclarativeV2InertRepositoryV1(target);
       const candidate = candidateFixture();
       const encoded = Result.getOrThrow(encodeDeclarativeV2PhysicalFrameV1(
@@ -236,9 +211,7 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
       }));
       let failNextStatement = false;
       let loseNextCommittedResponse = false;
-      const faultTarget: LocatedReadCommittedAttemptTargetV1 = {
-        physicalLocator: target.physicalLocator,
-        getCurrentClock: scope => target.getCurrentClock(scope),
+      const faultTarget: Pick<LocatedReadCommittedAttemptTargetV1, typeof RUN_LOCATED_READ_COMMITTED_V1> = {
         [RUN_LOCATED_READ_COMMITTED_V1]: async work => {
           if (failNextStatement) {
             failNextStatement = false;
@@ -460,7 +433,7 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
           new Uint8Array([4, 5]),
         ]);
       expect(settledPages.next).toBeNull();
-    });
+    }, { historicalApplicationAnalysis: true });
   });
 
   it("atomically carries authenticated link intent through registration and cold resume", async () => {
@@ -471,19 +444,8 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
           value: webcrypto,
         });
       }
-      await insertSessionTestScope(persistence);
-      const target =
-        createPostgresLocatedPointMutationSessionActivationTargetV1(
-          persistence,
-          {
-            kind: "shared_database",
-            databaseKey: "primary",
-            schemaName: "public",
-          },
-        );
-      if (!isLocatedReadCommittedAttemptTargetV1(target)) {
-        throw new Error("Expected READ COMMITTED target.");
-      }
+      await insertLegacySessionTestScope(persistence);
+      const target = historicalVerifierTarget(persistence.drizzle);
       const inert = makeDeclarativeV2InertRepositoryV1(target);
       const candidate = candidateFixture();
       const encoded = Result.getOrThrow(encodeDeclarativeV2PhysicalFrameV1(
@@ -782,7 +744,7 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
         reserved_by_fence: "2",
         terminal_proof_bytes: null,
       });
-    });
+    }, { historicalApplicationAnalysis: true });
   });
 });
 
