@@ -11,7 +11,6 @@ import {
 import {
   postgresUrl,
   useFileScopedPostgresPersistence,
-  withTemporaryPostgresPersistence,
 } from "../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
@@ -52,7 +51,7 @@ describePostgres("real Postgres shared scope authority bootstrap", () => {
   });
 
   it("converges concurrent missing-clock repairs on one persisted epoch", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const scopeId = ScopeIdSchema.make(`scope_${uuids.scopeA}`);
       await persistence.insertDeploymentMetadata({
         deploymentId: "deployment_pg_bootstrap_repair",
@@ -91,7 +90,7 @@ describePostgres("real Postgres shared scope authority bootstrap", () => {
   });
 
   it("converges two runners over the same missing-scope page", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await persistence.insertDeploymentMetadata({
         deploymentId: "deployment_pg_bootstrap_page",
         projectId: "project_pg_bootstrap_page",
@@ -129,7 +128,7 @@ describePostgres("real Postgres shared scope authority bootstrap", () => {
   });
 
   it("holds the deployment identity lock through scope and clock creation", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await persistence.insertDeploymentMetadata({
         deploymentId: "deployment_pg_identity_lock",
         projectId: "project_pg_identity_lock",
@@ -142,11 +141,14 @@ describePostgres("real Postgres shared scope authority bootstrap", () => {
       const gateClient = await persistence.pool.connect();
       const updateClient = await persistence.pool.connect();
       let gateHeld = false;
+      let gatePid: number | undefined;
+      let removeInsertGate: (() => Promise<void>) | undefined;
       let pending: ReturnType<typeof bootstrap.runBatch> | undefined;
       let update: Promise<unknown> | undefined;
+      const primaryFailures: unknown[] = [];
       try {
-        const gatePid = await clientBackendPid(gateClient);
-        await installInsertGate(persistence, "scope", gatePid);
+        gatePid = await clientBackendPid(gateClient);
+        removeInsertGate = await installInsertGate(persistence, "scope", gatePid);
         await gateClient.query(
           "select pg_advisory_lock($1::integer)",
           [gatePid],
@@ -182,9 +184,11 @@ describePostgres("real Postgres shared scope authority bootstrap", () => {
         await expect(
           persistence.getDeploymentMetadata("deployment_pg_identity_lock"),
         ).resolves.toMatchObject({ projectId: "project_pg_identity_lock" });
+      } catch (error: unknown) {
+        primaryFailures.push(error);
+        throw error;
       } finally {
-        if (gateHeld) {
-          const gatePid = await clientBackendPid(gateClient);
+        if (gateHeld && gatePid !== undefined) {
           await gateClient
             .query("select pg_advisory_unlock($1::integer)", [gatePid])
             .catch(() => undefined);
@@ -196,8 +200,17 @@ describePostgres("real Postgres shared scope authority bootstrap", () => {
         if (pending !== undefined) {
           await Promise.allSettled([pending]);
         }
-        gateClient.release();
-        updateClient.release();
+        try {
+          await removeInsertGate?.();
+        } catch (error: unknown) {
+          if (primaryFailures.length > 0) {
+            throw new AggregateError([...primaryFailures, error], "Bootstrap work and insert gate cleanup failed.");
+          }
+          throw error;
+        } finally {
+          gateClient.release();
+          updateClient.release();
+        }
       }
     });
   });
@@ -304,11 +317,13 @@ async function runWithSerializedDeploymentLockProof<Result>(
   const gateClient = await persistence.pool.connect();
   let gateHeld = false;
   let gatePid: number | undefined;
+  let removeInsertGate: (() => Promise<void>) | undefined;
   let first: Promise<Result> | undefined;
   let second: Promise<Result> | undefined;
+  const primaryFailures: unknown[] = [];
   try {
     gatePid = await clientBackendPid(gateClient);
-    await installInsertGate(persistence, gateTarget, gatePid);
+    removeInsertGate = await installInsertGate(persistence, gateTarget, gatePid);
     await gateClient.query(
       "select pg_advisory_lock($1::integer)",
       [gatePid],
@@ -324,6 +339,9 @@ async function runWithSerializedDeploymentLockProof<Result>(
     );
     gateHeld = false;
     return await Promise.all([first, second]);
+  } catch (error: unknown) {
+    primaryFailures.push(error);
+    throw error;
   } finally {
     if (gateHeld && gatePid !== undefined) {
       await gateClient
@@ -334,7 +352,16 @@ async function runWithSerializedDeploymentLockProof<Result>(
       (promise): promise is Promise<Result> => promise !== undefined,
     );
     await Promise.allSettled(pending);
-    gateClient.release();
+    try {
+      await removeInsertGate?.();
+    } catch (error: unknown) {
+      if (primaryFailures.length > 0) {
+        throw new AggregateError([...primaryFailures, error], "Bootstrap work and insert gate cleanup failed.");
+      }
+      throw error;
+    } finally {
+      gateClient.release();
+    }
   }
 }
 
@@ -344,7 +371,7 @@ async function installInsertGate(
   persistence: PostgresFlarexPersistence,
   target: InsertGateTarget,
   advisoryKey: number,
-): Promise<void> {
+): Promise<() => Promise<void>> {
   switch (target) {
     case "clock":
       await persistence.exec(`
@@ -361,7 +388,12 @@ async function installInsertGate(
         before insert on fx_system_scope_clock
         for each row execute function block_bootstrap_clock_insert();
       `);
-      return;
+      return async () => {
+        await persistence.exec(`
+          drop trigger block_bootstrap_clock_insert_trigger on fx_system_scope_clock;
+          drop function block_bootstrap_clock_insert();
+        `);
+      };
     case "scope":
       await persistence.exec(`
         create function block_bootstrap_scope_insert()
@@ -377,7 +409,12 @@ async function installInsertGate(
         before insert on fx_control_scope
         for each row execute function block_bootstrap_scope_insert();
       `);
-      return;
+      return async () => {
+        await persistence.exec(`
+          drop trigger block_bootstrap_scope_insert_trigger on fx_control_scope;
+          drop function block_bootstrap_scope_insert();
+        `);
+      };
   }
 }
 

@@ -209,6 +209,9 @@ identity witnesses and register runtime/database cleanup rather than migrating
 or leaving a backend open for each case.
 
 Scope, catalog and index fixtures also restore independent migrated images.
+Bootstrap PGlite cases use the same fixture and registered cleanup, retaining
+independent databases for stored-authority corruption and orphan-clock proofs.
+Suite setup prepares the baseline before the first case even on direct runs.
 Journal/session fixtures with raw-driver fault injection pass
 `loadDataDir: await migratedPGliteDataDir()` to their existing driver owner and
 retain its cleanup. Empty-schema admission witnesses and historical migration
@@ -229,6 +232,9 @@ in separate single-case fixtures. Other row-only scope-provisioning cases
 share one migrated schema. Keep
 separate fixtures for migrations,
 persistent DDL, session settings, or migration-seeded singleton dependencies.
+Native bootstrap cases share the existing file fixture. Their temporary insert
+gates release advisory locks, drain pending work and remove their exact triggers
+and functions before returning the borrow; removal failure requires a rebuild.
 Plan probes use `withPostgresSequentialScansDisabled` to bind `SET LOCAL` and
 EXPLAIN to one client and roll back the setting before reuse.
 Validate converted suites as whole files, including failure-triggered rebuilds.
