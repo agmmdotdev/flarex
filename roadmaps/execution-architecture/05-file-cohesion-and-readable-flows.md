@@ -147,6 +147,16 @@ execute the Worker witnesses too. Exact execution may expose separate publicatio
 or activation imports; retain those gaps explicitly until their real owners are
 organized. No polyfill, host compatibility expansion or guard bypass is selected.
 
+Open regression: the full Journal consumer Worker witness currently fails its
+SQL-free graph assertion. `journal/api.ts` exposes `frozenAttempt.ts`, whose
+logical-write detachment reaches `logicalDocuments/detachChanges.ts` and
+`relationalRows.ts`; the latter also imports index/unique SQL construction.
+The expected boundary remains unchanged. Preserve
+`test/execution/journal/consumerApi.workerd.test.ts` as the failing witness;
+the correction belongs to Journal projections and the canonical detachment
+owner, preserving their existing registry and byte-ownership semantics. Test-lane
+cleanup does not repair this production dependency or establish Worker acceptance.
+
 Validate current finite provenance, capacity, cancellation/drainage, full Cause,
 control identity, mixed entry ordering, delayed/uncertain acknowledgement,
 detachment, replay origin, publication bytes and metadata ABA witnesses. Run

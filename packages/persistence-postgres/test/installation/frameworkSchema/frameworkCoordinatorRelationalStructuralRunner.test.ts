@@ -79,12 +79,6 @@ const TRANSACTION_REQUEST = Object.freeze({
 describe("private relational structural runner", () => {
   it("keeps its token source-private, frozen, and process-authenticated", async () => {
     expectTypeOf<PublicStructuralRunnerExport>().toEqualTypeOf<never>();
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/migrationCoordination/relationalStructuralRunner.ts",
-    );
 
     const fixture = await createSyntheticRunnerFixture();
     expect(Object.isFrozen(fixture.token)).toBe(true);

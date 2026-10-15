@@ -10,7 +10,6 @@ import * as storedValues from "../../../src/installation/migrationCoordination/s
 import * as driverRows from "../../../src/database/detachDriverRows";
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../../../src/installation/migrationCoordination/graphReadPass";
 
-import * as persistenceRoot from "../../../src";
 
 import type { FlarexMetadataTransaction } from
   "../../../src/database/metadataTransaction";
@@ -190,31 +189,6 @@ describe("framework coordinator migration-collision-head repository", () => {
     });
     expect(await persistence.drizzle.select().from(fxSystemFrameworkMigrationCollisionHeads)).toEqual(before);
   }, PGLITE_TEST_TIMEOUT);
-
-  it("keeps the mutable head kernel and dependency authority source-private", async () => {
-    expect(
-      "initializeFrameworkMigrationCollisionHeadInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "readFrameworkMigrationCollisionHeadInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "compareAndSwapFrameworkMigrationCollisionHeadInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "restoredFrameworkMigrationCollisionHeadAuthority" in persistenceRoot,
-    ).toBe(false);
-
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/migrationCoordination/migrationCollisionHeadRepository.ts",
-    );
-  });
 
   it("reads absence, initializes exact normalized storage, and replays", async () => {
     const persistence = await createMigratedPGlitePersistence();

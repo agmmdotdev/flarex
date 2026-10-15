@@ -1,4 +1,5 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyDrizzleMigrations } from "../support/migrationFixtureSupport";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,7 +23,7 @@ describe.skipIf(postgresUrl === null)("whole mutation migration 0127 on ordinary
     const migrationsFolder = resolve(testRoot, "drizzle");
     const sourceFolder = resolve(dirname(fileURLToPath(import.meta.url)), "../../drizzle");
     try {
-      await cp(sourceFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(sourceFolder, migrationsFolder);
       const journalPath = resolve(migrationsFolder, "meta/_journal.json");
       const journalText = await readFile(journalPath, "utf8");
       const parsed: unknown = JSON.parse(journalText);

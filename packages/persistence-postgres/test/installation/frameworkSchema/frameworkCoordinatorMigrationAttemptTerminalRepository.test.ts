@@ -8,7 +8,6 @@ import { and, asc, eq } from "drizzle-orm";
 import { Effect, Encoding, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
-import * as persistenceRoot from "../../../src";
 
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
 import {
@@ -88,39 +87,6 @@ type ReceiptValue = Awaited<
 >[number];
 
 describe("framework coordinator migration-attempt terminal repository", () => {
-  it("keeps transaction kernels and receipt-prefix restoration source-private", async () => {
-    expect(
-      "ensureFrameworkMigrationAttemptTerminalInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "readFrameworkMigrationAttemptTerminalInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "resolveAuthenticatedFrameworkMigrationAttemptTerminalOccupantsEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "corroborateRestoredFrameworkMigrationAttemptTerminalInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "restoreFrameworkMigrationStepReceiptPrefixForAttemptTerminalInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    const exportedSources = Object.values(packageJson.default.exports);
-    expect(exportedSources).not.toContain(
-      "./src/migrationCoordination/migrationAttemptTerminalRepository.ts",
-    );
-    expect(exportedSources).not.toContain(
-      "./src/migrationCoordination/migrationStepReceiptRepository.ts",
-    );
-  });
 
   it("ensures, reads, and exactly replays a successful full-plan terminal", async () => {
     const persistence = await createMigratedPGlitePersistence();

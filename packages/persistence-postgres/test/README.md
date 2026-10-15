@@ -87,7 +87,7 @@ consumer contracts, trusted construction and bounded native execution.
 | `session/terminalization.test.ts`, `session/terminalization.postgres.test.ts` | Abort/expiry, final guards, rollback and cleanup |
 | `session/finiteActivation.test.ts`, `session/finiteSession.test.ts`, `session/finiteSession.postgres.test.ts` | Finite entry, continuation/replacement and real authority barriers |
 | `session/attemptFacet.test.ts`, `session/terminalStorage.test.ts`, `session/sessionSchema.test.ts`, `session/sessionSchema.postgres.test.ts` | Pure facet projection, retained storage and driver-specific schema obligations |
-| `session/consumerApi.test.ts`, `session/consumerApi.workerd.test.ts` | Broad-facade exclusion and actual SQL-free Worker loading with copied recovery refusal |
+| `api/publicApi.test.ts`, `session/consumerApi.workerd.test.ts` | Broad-facade exclusion and actual SQL-free Worker loading with copied recovery refusal |
 
 `session/support/activationEvidence` owns pure evidence, while `attemptFixture`
 owns the one authentic test claim map. `authorityClock`, `activationFixture` and
@@ -157,6 +157,42 @@ connected lanes and exact selectors. List available lanes from the repository:
 pnpm test:lane:list
 pnpm check:test-lanes
 ```
+
+Package commands separate iteration costs:
+
+| Command | Selection |
+| --- | --- |
+| `pnpm test:fast` | Curated contracts without database or Worker startup |
+| `pnpm test` / `pnpm test:pglite` | Local correctness, including migrations; native PostgreSQL and Workerd excluded |
+| `pnpm test:postgres` | Curated ordinary-role PostgreSQL correctness sweep, not every native suite |
+| `pnpm test:workerd` | Four consumer API Worker boundary suites |
+| `pnpm test:measure:publication` | Opt-in publication measurement campaign, outside correctness/release selections |
+| `pnpm test:pglite:runtime` / `pnpm test:pglite:migrations` | Focused driver runtime / migration suites |
+
+The runner explicitly selects the persistence driver and removes inherited
+PostgreSQL activation from local lanes. The repository `fast` selector still
+runs broad defaults from other packages; use `fast-persistence` for this package's
+bounded contract lane. C08-I1 aliases keep their connected system-test step in
+that package rather than referring to removed local files.
+
+The PGlite lane builds a fresh schema-only image once per invocation using
+`vitest.pglite.config.ts`. Every fixture restores an independent database;
+file-backed Worker restarts reopen their modified data, never the baseline.
+Direct focused invocations without that config retain per-file image creation.
+Historical/upgrade migration tests still create their own fresh databases.
+Migration-copy fixtures retain SQL and the journal, omitting generator snapshots.
+
+Ordinary PostgreSQL suites reuse `useFileScopedPostgresPersistence` where row
+reset preserves the required baseline. Keep separate fixtures for migrations,
+persistent DDL, session settings, or migration-seeded singleton dependencies.
+Validate converted suites as whole files, including failure-triggered rebuilds.
+`database/postgresRuntime.postgres.test.ts` keeps real installation admission
+on its test-owned connection while injecting only transaction-command failures.
+
+API export exclusions belong in `api/publicApi.test.ts`. Prefer assertions in
+existing consumer scenarios over separate tests of fixed fixture contents or
+helper allocation details. Preserve behavioral, durable-data, rollback and
+compatibility witnesses; an old checkpoint label alone does not make one obsolete.
 
 Run a focused owner from this package, for example:
 

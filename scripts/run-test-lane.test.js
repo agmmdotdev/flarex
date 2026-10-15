@@ -1,6 +1,6 @@
 // @ts-check
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -35,6 +35,52 @@ describe("test lane manifest and runner", () => {
       .toEqual(["dte05-repair-checkpoint-pglite"]);
     expect(resolveTestLaneSelection(manifest, "dte05-e2c1-pglite").map((lane) => lane.id))
       .toEqual(["dte05-repair-checkpoint-pglite"]);
+  });
+
+  it("separates persistence defaults, fast contracts, Workerd and measurements", () => {
+    const manifest = loadTestLaneManifest();
+    const pkg = JSON.parse(readFileSync("packages/persistence-postgres/package.json", "utf8"));
+    expect(pkg.scripts.test).toBe("node ../../scripts/run-test-lane.mjs pglite-persistence");
+    expect(pkg.scripts["test:pglite"]).toBe(pkg.scripts.test);
+    expect(pkg.scripts["test:fast"]).toBe("node ../../scripts/run-test-lane.mjs fast-persistence");
+    const local = resolveTestLaneSelection(manifest, "pglite-persistence")[0];
+    expect(local.steps[0].args).toContain("test/**/*.workerd.test.ts");
+    const worker = resolveTestLaneSelection(manifest, "workerd-persistence")[0];
+    expect(resolveTestLaneStepArguments(manifest, worker.steps[0]).filter(arg => arg.endsWith(".test.ts")))
+      .toHaveLength(4);
+    expect(resolveTestLaneSelection(manifest, "release").map(lane => lane.id)).toContain(worker.id);
+    const measurement = "test/commit/point/publicationDiagnostics.postgres.test.ts";
+    for (const lane of manifest.lanes) {
+      for (const step of lane.steps) {
+        if (resolveTestLaneStepArguments(manifest, step).includes(measurement)) {
+          expect(lane.id).toBe("postgres-publication-measurement");
+        }
+      }
+    }
+    expect(resolveTestLaneStepArguments(manifest,
+      resolveTestLaneSelection(manifest, "postgres-publication-measurement")[0].steps[0]))
+      .toContain(measurement);
+    expect(resolveTestLaneSelection(manifest, "release").map(lane => lane.id))
+      .not.toContain("postgres-publication-measurement");
+    for (const command of Object.values(pkg.scripts)) {
+      if (typeof command !== "string") continue;
+      for (const [file] of command.matchAll(/test\/[^\s]+\.test\.ts/g)) {
+        expect(existsSync("packages/persistence-postgres/" + file), file).toBe(true);
+        expect(file).not.toBe(measurement);
+      }
+    }
+  });
+
+  it.each(["pglite", "postgres"])("keeps C08-I1 %s connected coverage with its actual owners", driver => {
+    const manifest = loadTestLaneManifest();
+    const lane = resolveTestLaneSelection(manifest, "c08-i1-" + driver)[0];
+    expect(lane.steps.map(step => step.cwd)).toEqual([
+      "packages/persistence-postgres", "packages/system-test",
+    ]);
+    const suffix = driver === "postgres" ? ".postgres" : "";
+    expect(lane.steps[0].args).toContain("test/storage/indexes/intrinsicCreationTimeIndexBuildV1" + suffix + ".test.ts");
+    expect(lane.steps[1].args).toContain("test/integration/c07PrivatePointMutation" + suffix + ".test.ts");
+    expect(lane.steps[1].args).toContain("--testTimeout=480000");
   });
 
   it("keeps stable package PostgreSQL commands delegated to the root manifest", () => {
@@ -316,7 +362,6 @@ describe("test lane manifest and runner", () => {
           "test/commit/point/publication.postgres.test.ts",
           "test/commit/point/publicationConcurrency.postgres.test.ts",
           "test/commit/point/sidecarPublication.postgres.test.ts",
-          "test/commit/point/publicationDiagnostics.postgres.test.ts",
           "test/commit/point/decisionProvenance.postgres.test.ts",
           "test/commit/point/replacement.postgres.test.ts",
           "--no-file-parallelism",
@@ -333,7 +378,6 @@ describe("test lane manifest and runner", () => {
           "test/commit/point/publication.postgres.test.ts",
           "test/commit/point/publicationConcurrency.postgres.test.ts",
           "test/commit/point/sidecarPublication.postgres.test.ts",
-          "test/commit/point/publicationDiagnostics.postgres.test.ts",
           "test/commit/point/decisionProvenance.postgres.test.ts",
           "test/commit/point/replacement.postgres.test.ts",
           "--no-file-parallelism",
@@ -492,13 +536,21 @@ describe("test lane manifest and runner", () => {
     const parentEnvironment = {
       FLAREX_POSTGRES_DATABASE_URL: "postgresql://secret@example.test/db",
       flarex_postgres_database_url: "postgresql://lowercase-secret@example.test/db",
+      FLAREX_TEST_DRIVER: "postgres",
+      flarex_test_driver: "postgres",
       RETAINED_VALUE: "retained",
     };
 
     expect(projectTestLaneEnvironment(pglite, parentEnvironment)).toEqual({
       RETAINED_VALUE: "retained",
+      FLAREX_TEST_DRIVER: "pglite",
     });
-    expect(projectTestLaneEnvironment(postgres, parentEnvironment)).toEqual(parentEnvironment);
+    expect(projectTestLaneEnvironment(postgres, { ...parentEnvironment, FLAREX_TEST_DRIVER: "pglite" })).toEqual({
+      FLAREX_POSTGRES_DATABASE_URL: parentEnvironment.FLAREX_POSTGRES_DATABASE_URL,
+      flarex_postgres_database_url: parentEnvironment.flarex_postgres_database_url,
+      RETAINED_VALUE: "retained",
+      FLAREX_TEST_DRIVER: "postgres",
+    });
     expect(parentEnvironment.FLAREX_POSTGRES_DATABASE_URL).toContain("secret");
     expect(parentEnvironment.flarex_postgres_database_url).toContain("lowercase-secret");
 

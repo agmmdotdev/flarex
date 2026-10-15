@@ -1,20 +1,56 @@
 {
   "schemaVersion": 1,
   "testFileGroups": {
-    "framework-payload-joins-pglite": ["test/integration/payload/payloadJoin.test.ts", "test/integration/payload/payloadJoinValues.test.ts"],
-    "framework-payload-joins-postgres": ["test/integration/payload/payloadJoin.postgres.test.ts"],
-    "framework-payload-many-pglite": ["test/integration/payload/payloadMany.test.ts", "test/integration/payload/payloadManyUpgrade.test.ts", "test/integration/payload/payloadManyValues.test.ts"],
-    "framework-payload-many-postgres": ["test/integration/payload/payloadMany.postgres.test.ts"],
-    "framework-payload-population-postgres": ["test/integration/payload/payloadPopulation.postgres.test.ts"],
-    "framework-payload-population-pglite": ["test/integration/payload/payloadPopulation.test.ts", "test/integration/payload/payloadPopulationValues.test.ts"],
-    "framework-payload-relations-postgres": ["test/integration/payload/payloadRelation.postgres.test.ts"],
-    "framework-payload-relations-pglite": ["test/integration/payload/payloadRelation.test.ts", "test/integration/payload/payloadRelationValues.test.ts"],
-    "framework-payload-preferences-postgres": ["test/frameworks/payloadPreferences/payloadPreferenceBinding.postgres.test.ts"],
-    "framework-payload-preferences-pglite": ["test/frameworks/payloadPreferences/payloadPreferenceBinding.test.ts", "test/frameworks/payloadPreferences/payloadPreferenceCleanupValues.test.ts"],
-    "framework-payload-scalar-postgres": ["test/integration/payload/payloadScalar.postgres.test.ts"],
-    "framework-payload-scalar-pglite": ["test/integration/payload/payloadScalarProfile.test.ts", "test/integration/payload/payloadScalar.test.ts"],
-    "framework-cms-pglite": ["test/frameworks/cmsTransaction/cmsRequestLifetime.test.ts", "test/frameworks/cmsTransaction/cmsHost.test.ts"],
-    "framework-cms-postgres": ["test/frameworks/cmsTransaction/cmsHost.postgres.test.ts"],
+    "framework-payload-joins-pglite": [
+      "test/integration/payload/payloadJoin.test.ts",
+      "test/integration/payload/payloadJoinValues.test.ts"
+    ],
+    "framework-payload-joins-postgres": [
+      "test/integration/payload/payloadJoin.postgres.test.ts"
+    ],
+    "framework-payload-many-pglite": [
+      "test/integration/payload/payloadMany.test.ts",
+      "test/integration/payload/payloadManyUpgrade.test.ts",
+      "test/integration/payload/payloadManyValues.test.ts"
+    ],
+    "framework-payload-many-postgres": [
+      "test/integration/payload/payloadMany.postgres.test.ts"
+    ],
+    "framework-payload-population-postgres": [
+      "test/integration/payload/payloadPopulation.postgres.test.ts"
+    ],
+    "framework-payload-population-pglite": [
+      "test/integration/payload/payloadPopulation.test.ts",
+      "test/integration/payload/payloadPopulationValues.test.ts"
+    ],
+    "framework-payload-relations-postgres": [
+      "test/integration/payload/payloadRelation.postgres.test.ts"
+    ],
+    "framework-payload-relations-pglite": [
+      "test/integration/payload/payloadRelation.test.ts",
+      "test/integration/payload/payloadRelationValues.test.ts"
+    ],
+    "framework-payload-preferences-postgres": [
+      "test/frameworks/payloadPreferences/payloadPreferenceBinding.postgres.test.ts"
+    ],
+    "framework-payload-preferences-pglite": [
+      "test/frameworks/payloadPreferences/payloadPreferenceBinding.test.ts",
+      "test/frameworks/payloadPreferences/payloadPreferenceCleanupValues.test.ts"
+    ],
+    "framework-payload-scalar-postgres": [
+      "test/integration/payload/payloadScalar.postgres.test.ts"
+    ],
+    "framework-payload-scalar-pglite": [
+      "test/integration/payload/payloadScalarProfile.test.ts",
+      "test/integration/payload/payloadScalar.test.ts"
+    ],
+    "framework-cms-pglite": [
+      "test/frameworks/cmsTransaction/cmsRequestLifetime.test.ts",
+      "test/frameworks/cmsTransaction/cmsHost.test.ts"
+    ],
+    "framework-cms-postgres": [
+      "test/frameworks/cmsTransaction/cmsHost.postgres.test.ts"
+    ],
     "framework-coordinator-fresh-postgres": [
       "test/installation/frameworkSchema/retainedPhysicalInstallation.postgres.test.ts",
       "test/installation/frameworkSchema/frameworkCoordinatorMetadataProtection.postgres.test.ts",
@@ -61,7 +97,6 @@
       "test/commit/point/publication.postgres.test.ts",
       "test/commit/point/publicationConcurrency.postgres.test.ts",
       "test/commit/point/sidecarPublication.postgres.test.ts",
-      "test/commit/point/publicationDiagnostics.postgres.test.ts",
       "test/commit/point/decisionProvenance.postgres.test.ts",
       "test/commit/point/replacement.postgres.test.ts"
     ],
@@ -138,23 +173,76 @@
       "test/integration/applicationRelationalCore.postgres.test.ts",
       "test/integration/applicationRelationQuery.postgres.test.ts",
       "test/simulation/relations/relationalSimulation.postgres.test.ts"
+    ],
+    "persistence-fast": [
+      "test/api/publicApi.test.ts",
+      "test/application/functionMetadataCodec.test.ts",
+      "test/commit/point/observation.test.ts",
+      "test/commit/point/promiseBoundary.test.ts",
+      "test/commit/storedCommitAuthorityMaterialization.test.ts",
+      "test/database/drizzleQueryObservation.test.ts",
+      "test/database/physicalSessionObservation.test.ts",
+      "test/database/readinessProjectionSql.test.ts",
+      "test/execution/claims/renewalProjection.test.ts",
+      "test/execution/preparation/executionPolicy.test.ts",
+      "test/execution/session/attemptFacet.test.ts",
+      "test/frameworks/commerceTransaction/commerceDriverRows.test.ts",
+      "test/frameworks/commerceTransaction/commerceRequestFailure.test.ts",
+      "test/frameworks/commerceTransaction/commerceResources.test.ts",
+      "test/installation/migrationCoordinationValues.test.ts",
+      "test/support/frameworkTestWorkers.test.ts",
+      "test/values/privateCanonicalValue.test.ts"
+    ],
+    "persistence-workerd": [
+      "test/application/activation/consumerApi.workerd.test.ts",
+      "test/commit/point/consumerApi.workerd.test.ts",
+      "test/execution/journal/consumerApi.workerd.test.ts",
+      "test/execution/session/consumerApi.workerd.test.ts"
     ]
   },
   "selectors": {
-    "framework-payload-joins-postgres": ["framework-payload-joins-postgres"],
-    "framework-payload-joins-pglite": ["framework-payload-joins-pglite"],
-    "framework-payload-many-pglite": ["framework-payload-many-pglite"],
-    "framework-payload-many-postgres": ["framework-payload-many-postgres"],
-    "framework-payload-population-postgres": ["framework-payload-population-postgres"],
-    "framework-payload-population-pglite": ["framework-payload-population-pglite"],
-    "framework-payload-relations-postgres": ["framework-payload-relations-postgres"],
-    "framework-payload-relations-pglite": ["framework-payload-relations-pglite"],
-    "framework-payload-scalar-pglite": ["framework-payload-scalar-pglite"],
-    "framework-payload-scalar-postgres": ["framework-payload-scalar-postgres"],
-    "framework-payload-preferences-pglite": ["framework-payload-preferences-pglite"],
-    "framework-payload-preferences-postgres": ["framework-payload-preferences-postgres"],
-    "framework-cms-pglite": ["framework-cms-pglite"],
-    "framework-cms-postgres": ["framework-cms-postgres"],
+    "framework-payload-joins-postgres": [
+      "framework-payload-joins-postgres"
+    ],
+    "framework-payload-joins-pglite": [
+      "framework-payload-joins-pglite"
+    ],
+    "framework-payload-many-pglite": [
+      "framework-payload-many-pglite"
+    ],
+    "framework-payload-many-postgres": [
+      "framework-payload-many-postgres"
+    ],
+    "framework-payload-population-postgres": [
+      "framework-payload-population-postgres"
+    ],
+    "framework-payload-population-pglite": [
+      "framework-payload-population-pglite"
+    ],
+    "framework-payload-relations-postgres": [
+      "framework-payload-relations-postgres"
+    ],
+    "framework-payload-relations-pglite": [
+      "framework-payload-relations-pglite"
+    ],
+    "framework-payload-scalar-pglite": [
+      "framework-payload-scalar-pglite"
+    ],
+    "framework-payload-scalar-postgres": [
+      "framework-payload-scalar-postgres"
+    ],
+    "framework-payload-preferences-pglite": [
+      "framework-payload-preferences-pglite"
+    ],
+    "framework-payload-preferences-postgres": [
+      "framework-payload-preferences-postgres"
+    ],
+    "framework-cms-pglite": [
+      "framework-cms-pglite"
+    ],
+    "framework-cms-postgres": [
+      "framework-cms-postgres"
+    ],
     "fast": [
       "fast-workspace"
     ],
@@ -210,6 +298,7 @@
       "o09-b-postgres"
     ],
     "workerd": [
+      "workerd-persistence",
       "h04-workerd-postgres"
     ],
     "hosted": [
@@ -222,7 +311,8 @@
       "postgres-executor",
       "postgres-system",
       "h04-workerd-postgres",
-      "h05-hosted"
+      "h05-hosted",
+      "workerd-persistence"
     ],
     "framework-coordinator-additive-pglite": [
       "framework-coordinator-additive-pglite"
@@ -250,6 +340,21 @@
     ],
     "framework-application-preservation-postgres": [
       "framework-application-preservation-postgres"
+    ],
+    "fast-persistence": [
+      "fast-persistence"
+    ],
+    "workerd-persistence": [
+      "workerd-persistence"
+    ],
+    "postgres-publication-measurement": [
+      "postgres-publication-measurement"
+    ],
+    "c08-i1-pglite": [
+      "c08-i1-pglite"
+    ],
+    "c08-i1-postgres": [
+      "c08-i1-postgres"
     ]
   },
   "lanes": [
@@ -502,7 +607,10 @@
       "category": "postgres",
       "proof": "Exact preference binding, bounded cleanup and authenticated atomic lifecycle facts, pinned Payload delete, rollback, retention, native replay, concurrency, interruption and lost-COMMIT recovery.",
       "prerequisites": [
-        { "name": "PAYLOAD_DISABLE_DEPENDENCY_CHECKER", "equals": "true" },
+        {
+          "name": "PAYLOAD_DISABLE_DEPENDENCY_CHECKER",
+          "equals": "true"
+        },
         {
           "name": "FLAREX_POSTGRES_DATABASE_URL"
         }
@@ -530,7 +638,12 @@
       "id": "framework-payload-preferences-pglite",
       "category": "pglite",
       "proof": "Exact preference binding, bounded cleanup and authenticated atomic lifecycle facts, pinned Payload delete, publication rollback, identity limits, replay and retention.",
-      "prerequisites": [{ "name": "PAYLOAD_DISABLE_DEPENDENCY_CHECKER", "equals": "true" }],
+      "prerequisites": [
+        {
+          "name": "PAYLOAD_DISABLE_DEPENDENCY_CHECKER",
+          "equals": "true"
+        }
+      ],
       "steps": [
         {
           "id": "persistence-framework-payload-preferences-pglite",
@@ -677,7 +790,9 @@
             "exec",
             "vitest",
             "run",
-            { "testFileGroup": "framework-application-preservation-pglite" },
+            {
+              "testFileGroup": "framework-application-preservation-pglite"
+            },
             "--no-file-parallelism",
             "--maxWorkers=1",
             "--testTimeout=480000"
@@ -690,7 +805,9 @@
       "category": "postgres",
       "proof": "The same complete Application document/OCC/relation/commit/read vertical on ordinary-role PostgreSQL 18 with split control and target stores. Existing assertions and fixture ownership are unchanged; one Worker-backed file at a time.",
       "prerequisites": [
-        { "name": "FLAREX_POSTGRES_DATABASE_URL" }
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
       ],
       "steps": [
         {
@@ -703,7 +820,9 @@
             "run",
             "--config",
             "vitest.postgres.config.ts",
-            { "testFileGroup": "framework-application-preservation-postgres" },
+            {
+              "testFileGroup": "framework-application-preservation-postgres"
+            },
             "--no-file-parallelism",
             "--maxWorkers=1",
             "--testTimeout=480000"
@@ -831,7 +950,7 @@
     {
       "id": "pglite-persistence",
       "category": "pglite",
-      "proof": "First-party persistence behavior through the PGlite adapter, excluding explicitly PostgreSQL-suffixed files.",
+      "proof": "Persistence correctness through PGlite, including pure contracts and migration regressions; excludes native PostgreSQL and Workerd suites. Each database remains isolated while the run shares one schema-only migration image.",
       "prerequisites": [],
       "steps": [
         {
@@ -842,6 +961,7 @@
             "exec",
             "vitest",
             "run",
+            "--config=vitest.pglite.config.ts",
             "--exclude",
             "test/**/*.postgres.test.ts",
             "--exclude",
@@ -851,7 +971,9 @@
             "--exclude",
             "test/database/postgresConcurrency.test.ts",
             "--fileParallelism",
-            "--maxWorkers=2"
+            "--maxWorkers=2",
+            "--exclude",
+            "test/**/*.workerd.test.ts"
           ]
         }
       ]
@@ -958,6 +1080,7 @@
             "vitest",
             "run",
             "test/database/postgres.test.ts",
+            "test/database/postgresRuntime.postgres.test.ts",
             "test/support/postgresFileScopedFixture.postgres.test.ts",
             "test/database/postgresClient.test.ts",
             "test/database/postgresClientDeclarativeV2VerifierProgressV2.postgres.test.ts",
@@ -985,7 +1108,6 @@
             "test/commit/point/publication.postgres.test.ts",
             "test/commit/point/publicationConcurrency.postgres.test.ts",
             "test/commit/point/sidecarPublication.postgres.test.ts",
-            "test/commit/point/publicationDiagnostics.postgres.test.ts",
             "test/commit/point/decisionProvenance.postgres.test.ts",
             "test/commit/point/replacement.postgres.test.ts",
             "test/commit/point/finishing.postgres.test.ts",
@@ -1485,6 +1607,147 @@
               "testFileGroup": "framework-scalar-store-postgres"
             },
             "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fast-persistence",
+      "category": "fast",
+      "proof": "Curated persistence contracts with no database or Worker startup; not a complete correctness sweep.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-fast",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "persistence-fast"
+            },
+            "--maxWorkers=2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "workerd-persistence",
+      "category": "workerd",
+      "proof": "Actual consumer entrypoints load in Workerd with SQL construction refused and copied authority rejected.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-workerd",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "persistence-workerd"
+            },
+            "--no-file-parallelism"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "postgres-publication-measurement",
+      "category": "postgres",
+      "proof": "Explicit publication measurement campaign; excluded from correctness and release selectors.",
+      "prerequisites": [
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "publication-measurement",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "test/commit/point/publicationDiagnostics.postgres.test.ts",
+            "--no-file-parallelism"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "c08-i1-pglite",
+      "category": "pglite",
+      "proof": "Intrinsic creation-time index behavior plus the system-test-owned connected point-mutation regression.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-index-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "test/storage/indexes/intrinsicCreationTimeIndexBuildV1.test.ts",
+            "test/execution/storedAttemptEvidence.test.ts",
+            "--no-file-parallelism",
+            "--testTimeout=180000"
+          ]
+        },
+        {
+          "id": "system-point-mutation-pglite",
+          "cwd": "packages/system-test",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "test/integration/c07PrivatePointMutation.test.ts",
+            "--no-file-parallelism",
+            "--testTimeout=480000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "c08-i1-postgres",
+      "category": "postgres",
+      "proof": "Intrinsic creation-time index behavior plus the system-test-owned connected point-mutation regression.",
+      "prerequisites": [
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-index-postgres",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "test/storage/indexes/intrinsicCreationTimeIndexBuildV1.postgres.test.ts",
+            "--no-file-parallelism",
+            "--testTimeout=180000"
+          ]
+        },
+        {
+          "id": "system-point-mutation-postgres",
+          "cwd": "packages/system-test",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "test/integration/c07PrivatePointMutation.postgres.test.ts",
+            "--no-file-parallelism",
+            "--testTimeout=480000"
           ]
         }
       ]

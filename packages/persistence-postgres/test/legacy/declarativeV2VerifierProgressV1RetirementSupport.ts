@@ -1,4 +1,5 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyDrizzleMigrations } from "../support/migrationFixtureSupport";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,7 +45,7 @@ export async function makeMigration0044Fixture(label: string) {
     "meta/_journal.json",
   );
   const journalPath = resolve(migrationsFolder, "meta/_journal.json");
-  await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+  await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
   const currentJournal = await readFile(sourceJournalPath, "utf8");
   const parsed: unknown = JSON.parse(currentJournal);
   if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {

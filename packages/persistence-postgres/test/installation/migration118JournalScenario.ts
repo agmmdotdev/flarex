@@ -1,4 +1,5 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyDrizzleMigrations } from "../support/migrationFixtureSupport";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,7 +19,7 @@ export async function withMigration118Folder(run: (folder: string, enableCurrent
   const folder = resolve(root, "drizzle");
   const source = resolve(dirname(fileURLToPath(import.meta.url)), "../../drizzle");
   try {
-    await cp(source, folder, { recursive: true });
+    await copyDrizzleMigrations(source, folder);
     const journalPath = resolve(folder, "meta/_journal.json");
     const full = await readFile(journalPath, "utf8");
     const parsed: unknown = JSON.parse(full);

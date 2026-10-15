@@ -9,14 +9,15 @@ import {
 } from "../../src";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 
 describePostgres("createPostgresPersistence", () => {
   it("uses transaction time for an implicit live query subscription update timestamp", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const key = {
         deploymentId: "deployment_real_pg_live_query_database_time",
         connectionId: "connection_database_time",
@@ -64,7 +65,7 @@ describePostgres("createPostgresPersistence", () => {
   });
 
   it("enforces the scope catalog constraints on real Postgres", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       for (const deploymentId of [
         "deployment_real_pg_scope_a",
         "deployment_real_pg_scope_b",
@@ -232,7 +233,7 @@ describePostgres("createPostgresPersistence", () => {
   });
 
   it("uses the indexed freshness btree path on real Postgres", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const bounds = indexBoundsForExpressions(["text"], [
         { op: "eq", field: "text", value: "hello" },
       ]);

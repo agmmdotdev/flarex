@@ -38,7 +38,7 @@ import type {
 import { createPointMutationExecutionClaimLivenessV1 } from
   "../../../src/execution/claims/transactionExecutionClaimLiveness";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
-import { postgresUrl, withTemporaryPostgresPersistence } from
+import { postgresUrl, useFileScopedPostgresPersistence } from
   "../../support/postgresHelpers";
 import {
   abortPointMutationSessionAttempt,
@@ -52,6 +52,7 @@ import {
 } from "../session/support/authorityClock";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 const LIVENESS_POLICY = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
   maximumGrantLifetimeMilliseconds: 86_400_000,
   maximumFutureIssuedAtSkewMilliseconds: 0,
@@ -60,7 +61,7 @@ const LIVENESS_POLICY = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
 
 describePostgres("real Postgres execution-claim liveness", () => {
   it("serializes duplicate renewals and rolls lease plus claim back together", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -145,7 +146,7 @@ describePostgres("real Postgres execution-claim liveness", () => {
   }, 120_000);
 
   it("serializes one scope while an independent scope continues", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const ids = uuidFactory();
       const contextA = await provisionContext(
         persistence,
@@ -227,7 +228,7 @@ describePostgres("real Postgres execution-claim liveness", () => {
   }, 120_000);
 
   it("cannot renew through an expired-claim takeover", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -298,7 +299,7 @@ describePostgres("real Postgres execution-claim liveness", () => {
   }, 120_000);
 
   it("rejects renewal after claim-fenced abort wins the scope lock", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,

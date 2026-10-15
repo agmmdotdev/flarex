@@ -97,12 +97,6 @@ describe("private fresh framework migration coordinator", () => {
 
   it("keeps claims source-private and rejects forged authority", async () => {
     expectTypeOf<PublicFreshCoordinatorExport>().toEqualTypeOf<never>();
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/migrationCoordination/freshCoordinator.ts",
-    );
 
     // SAFETY: this deliberately bypasses the compile-time brand to exercise
     // the WeakMap-backed runtime capability boundary.

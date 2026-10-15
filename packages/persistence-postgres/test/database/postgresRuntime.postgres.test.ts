@@ -1,6 +1,9 @@
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Cause, Effect, Exit, Fiber } from "effect";
-import { describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { PoolClient } from "pg";
+import { createFileScopedPostgresFixture, postgresUrl,
+  type FileScopedPostgresFixture } from "../support/postgresHelpers";
 
 import type { QueryResult } from "../../src";
 import {
@@ -12,7 +15,23 @@ import {
 } from "../../src/database/postgresRuntime";
 import { flarexSchema } from "../../src/database/schema";
 
-describe("runPostgresTransaction", () => {
+const describePostgres = postgresUrl === null ? describe.skip : describe;
+let clientLease: PoolClient | undefined;
+
+describePostgres("runPostgresTransaction", () => {
+  let fixture: FileScopedPostgresFixture;
+  beforeAll(async () => { fixture = await createFileScopedPostgresFixture(); }, 120_000);
+  beforeEach(async () => { clientLease = await fixture.persistence.pool.connect(); });
+  afterEach(async () => {
+    const client = clientLease;
+    clientLease = undefined;
+    // Injected rollback failures can leave a transaction open. End it before
+    // disposing this test's connection, without hiding cleanup failures.
+    if (client !== undefined) {
+      try { await client.query("ROLLBACK"); } finally { client.release(true); }
+    }
+  });
+  afterAll(async () => { await fixture?.dispose(); }, 120_000);
   it("commits a successful Effect callback", async () => {
     const client = new ScriptedPostgresClient();
 
@@ -325,12 +344,17 @@ class ScriptedPostgresClient implements PostgresQueryClient {
     const behavior = this.behaviors.get(sql);
     if (behavior instanceof Error) throw behavior;
     await behavior?.();
-    return { rows: [] };
+    return connectedClient().query<Row>(sql, _params);
   }
 }
 
 function testDatabase(): NodePgDatabase<typeof flarexSchema> {
-  return drizzle.mock({ schema: flarexSchema });
+  return drizzle(connectedClient(), { schema: flarexSchema });
+}
+
+function connectedClient(): PoolClient {
+  if (clientLease === undefined) throw new Error("Missing test-owned Postgres connection");
+  return clientLease;
 }
 
 function deferredValue<T>(): {

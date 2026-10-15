@@ -573,10 +573,15 @@ export function runTestLaneStep(lane, step, args) {
  */
 export function projectTestLaneEnvironment(lane, environment) {
   const projected = { ...environment };
-  if (lane.category === "fast" || lane.category === "pglite" || lane.category === "integration") {
+  const local = lane.category === "fast" || lane.category === "pglite" || lane.category === "integration";
+  const nativePersistence = lane.category === "postgres" &&
+    lane.steps.some(step => step.cwd === "packages/persistence-postgres");
+  if (local || nativePersistence) {
     for (const name of Object.keys(projected)) {
-      if (name.toUpperCase() === "FLAREX_POSTGRES_DATABASE_URL") delete projected[name];
+      if (name.toUpperCase() === "FLAREX_TEST_DRIVER" ||
+          (local && name.toUpperCase() === "FLAREX_POSTGRES_DATABASE_URL")) delete projected[name];
     }
+    projected.FLAREX_TEST_DRIVER = local ? "pglite" : "postgres";
   }
   return projected;
 }

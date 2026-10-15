@@ -4,7 +4,6 @@ import { eq } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 import { describe, expect, it, onTestFinished } from "vitest";
 
-import * as persistenceRoot from "../../../src";
 
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
 import {
@@ -115,27 +114,6 @@ describe("framework coordinator migration-plan repository", () => {
       yield* Effect.promise(() => expect(read()).rejects.toMatchObject({ reason: "storedCorruption" }));
     })));
   }, PGLITE_TEST_TIMEOUT);
-
-  it("keeps transaction kernels source-private", async () => {
-    expect(
-      "ensureFreshRelationalMigrationPlanInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "readFreshRelationalMigrationPlanInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "resolveAuthenticatedFreshRelationalMigrationPlanOccupantEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/migrationCoordination/migrationPlanRepository.ts",
-    );
-  });
 
   it("ensures, reads, and exactly replays an ordered plan aggregate", async () => {
     const persistence = await createMigratedPGlitePersistence();

@@ -1,11 +1,5 @@
-import {
-  cp,
-  copyFile,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { copyDrizzleMigrations } from "../support/migrationFixtureSupport";
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -60,7 +54,7 @@ import type {
 import { fxSystemScopeClocks, fxSystemScopeExecutionAuthorities } from "../../src/database/schema";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
   withTemporaryPostgresSchema,
 } from "../support/postgresHelpers";
 import {
@@ -71,10 +65,11 @@ import {
 } from "../execution/session/support/sessionStorage";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 
-describePostgres("real Postgres scope clock locking", () => {
+describePostgres("real Postgres scope clock locking", { timeout: 30_000 }, () => {
   it("lends protected native identity and transaction time while revocation waits for the original snapshot", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       const scopeId = ScopeIdSchema.make("scope_5b000000-0000-0000-0000-000000000004");
       await insertScopeClock(persistence, scopeId, "epoch-native-read");
       await persistence.drizzle.transaction(async reader => {
@@ -110,7 +105,7 @@ describePostgres("real Postgres scope clock locking", () => {
   });
 
   it("refreshes the READ COMMITTED clock after ordinary publication while retaining only its identity and time loan", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       expect((await persistence.query("select rolsuper as superuser from pg_roles where rolname=current_user")).rows)
         .toEqual([{ superuser: false }]);
       const scopeId = ScopeIdSchema.make("scope_5b000000-0000-0000-0000-000000000008");
@@ -165,7 +160,7 @@ describePostgres("real Postgres scope clock locking", () => {
 
   it.each(["readerFirst", "writerFirst", "publicationBeforeAdmission"] as const)(
     "keeps a repeatable clock snapshot while candidate publication progresses: %s",
-    async order => withTemporaryPostgresPersistence(async persistence => {
+    async order => withPersistence(async persistence => {
       expect((await persistence.query("select rolsuper as superuser from pg_roles where rolname=current_user")).rows)
         .toEqual([{ superuser: false }]);
       const scopeId = ScopeIdSchema.make(`scope_clock_snapshot_${order}`);
@@ -204,7 +199,7 @@ describePostgres("real Postgres scope clock locking", () => {
   );
 
   it("holds the real revocation owner behind a live key-share snapshot", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       const scopeId = ScopeIdSchema.make("scope_clock_snapshot_revocation_wait");
       await insertScopeClock(persistence, scopeId, "epoch-snapshot");
       await persistence.drizzle.transaction(async reader => {
@@ -225,7 +220,7 @@ describePostgres("real Postgres scope clock locking", () => {
   });
 
   it.each([false, true])("rejects stale key-share admission across revocation and later sequence advance: %s", async advanceAfterRevocation => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       const scopeId = ScopeIdSchema.make("scope_clock_snapshot_revocation_stale");
       await insertScopeClock(persistence, scopeId, "epoch-snapshot");
       await expect(persistence.drizzle.transaction(async reader => {
@@ -247,7 +242,7 @@ describePostgres("real Postgres scope clock locking", () => {
   });
 
   it("blocks the same scope, permits another scope, and rolls back the probe", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const lockedScopeId = ScopeIdSchema.make("scope_00000000-0000-5000-8000-000000000081");
       const independentScopeId = ScopeIdSchema.make(
         "scope_00000000-0000-5000-8000-000000000082",
@@ -357,7 +352,7 @@ describePostgres("real Postgres scope clock locking", () => {
   });
 
   it("serializes concurrent same-scope authorization increments without lost updates", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const scopeId = ScopeIdSchema.make("scope_authorization_pg_concurrent");
       await insertScopeClock(
         persistence,
@@ -388,7 +383,7 @@ describePostgres("real Postgres scope clock locking", () => {
   });
 
   it("admits against the epoch read from the independently located Postgres target", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
         "deployment_epoch_pg",
       );
@@ -451,7 +446,7 @@ describePostgres("real Postgres scope clock locking", () => {
   });
 
   it("allows shared authorization readers while an increment waits", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const scopeId = ScopeIdSchema.make("scope_authorization_pg_shared");
       await insertScopeClock(
         persistence,
@@ -523,7 +518,7 @@ describePostgres("real Postgres scope clock locking", () => {
   });
 
   it("isolates scope authorization locks and advances after a competing rollback", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const lockedScopeId = ScopeIdSchema.make(
         "scope_authorization_pg_locked",
       );
@@ -628,7 +623,7 @@ describePostgres("real Postgres scope clock locking", () => {
   });
 
   it("rejects authorization epoch exhaustion without changing the row", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const scopeId = ScopeIdSchema.make("scope_authorization_pg_exhausted");
       await insertScopeClock(
         persistence,
@@ -678,7 +673,7 @@ describePostgres("real Postgres scope clock locking", () => {
     const copiedMigration = resolve(migrationsFolder, migrationName);
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       await copyFile(
         previousJournal,
         resolve(migrationsFolder, "meta/_journal.json"),

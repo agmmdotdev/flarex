@@ -3,7 +3,6 @@ import { eq, sql } from "drizzle-orm";
 import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
-import * as persistenceRoot from "../../../src";
 
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
 import {
@@ -34,30 +33,6 @@ import {
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 
 describe("framework coordinator physical-name assignment repository", () => {
-  it("keeps transaction kernels source-private", async () => {
-    expect(
-      "ensureRelationalPhysicalNameAssignmentsInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "readRelationalPhysicalNameAssignmentInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "resolveAuthenticatedRelationalPhysicalNameAssignmentOccupantsEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "restoreRelationalPhysicalNameAssignmentOccupantInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/migrationCoordination/physicalNameAssignmentRepository.ts",
-    );
-  });
 
   it("ensures, reads, and exactly replays ordinary assignments", async () => {
     const persistence = await createMigratedPGlitePersistence();

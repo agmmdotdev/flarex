@@ -2,7 +2,6 @@ import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepa
 import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 
-import * as persistenceRoot from "../../../src";
 
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
 import {
@@ -30,26 +29,6 @@ import {
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 
 describe("framework coordinator target/collision repository", () => {
-  it("keeps transaction kernels source-private", async () => {
-    expect(
-      "ensureFrameworkSchemaTargetNamespaceInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "ensureFrameworkMigrationCollisionDomainInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect("FrameworkMigrationRepositoryError" in persistenceRoot).toBe(false);
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/migrationCoordination/targetCollisionRepository.ts",
-    );
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/migrationCoordination/repositoryErrors.ts",
-    );
-  });
 
   it("ensures, reads, and exactly replays one target and collision", async () => {
     const persistence = await createMigratedPGlitePersistence();

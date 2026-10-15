@@ -1,4 +1,5 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyDrizzleMigrations } from "../../support/migrationFixtureSupport";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,7 +27,7 @@ describePostgres("real PostgreSQL O11-F1 retained-history migration", () => {
       "0065_omniscient_prism.sql",
     );
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const journalText = await readFile(currentJournalPath, "utf8");
       const previousJournal = migrationJournalBefore(journalText, 65);
       const migrationText = await readFile(copiedMigrationPath, "utf8");

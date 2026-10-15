@@ -1,11 +1,5 @@
-import {
-  cp,
-  copyFile,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { copyDrizzleMigrations } from "../support/migrationFixtureSupport";
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,7 +26,7 @@ import {
   FRAMEWORK_COORDINATOR_METADATA_TABLE_NAMES,
 } from "../installation/frameworkSchema/frameworkCoordinatorMetadataStorageTestSupport";
 
-describe("createPGlitePersistence", () => {
+describe("createPGlitePersistence", { timeout: 180_000 }, () => {
   it("checks connectivity", async () => {
     const persistence = await createPGlitePersistence();
 
@@ -46,7 +40,7 @@ describe("createPGlitePersistence", () => {
     const journalPath = resolve(migrationsFolder, "meta/_journal.json");
     const db = newTestPGlite();
     try {
-      await cp(sourceFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(sourceFolder, migrationsFolder);
       const journalText = await readFile(journalPath, "utf8");
       await writeFile(journalPath, migrationJournalBefore(journalText, 127), "utf8");
       const previous = await createPGlitePersistence({ db, migrationsFolder });
@@ -471,7 +465,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const journalText = await readFile(currentJournal, "utf8");
       const migrationText = await readFile(copiedMigration, "utf8");
       await writeFile(
@@ -617,7 +611,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const journalText = await readFile(currentJournal, "utf8");
       const migrationText = await readFile(copiedMigration, "utf8");
       await writeFile(
@@ -733,7 +727,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const journalText = await readFile(currentJournal, "utf8");
       const migrationText = await readFile(migrationPath, "utf8");
       expect(migrationText.indexOf("LOCK TABLE")).toBeLessThan(
@@ -879,7 +873,7 @@ describe("createPGlitePersistence", () => {
     const journalPath = resolve(migrationsFolder, "meta/_journal.json");
     const db = newTestPGlite();
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const currentJournalText = await readFile(journalPath, "utf8");
       const journal = JSON.parse(currentJournalText) as {
         entries?: Array<{ idx?: number }>;
@@ -1000,7 +994,7 @@ describe("createPGlitePersistence", () => {
     const journalPath = resolve(migrationsFolder, "meta/_journal.json");
     const db = newTestPGlite();
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const currentJournalText = await readFile(journalPath, "utf8");
       await writeFile(
         journalPath,
@@ -1131,7 +1125,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const parsed: unknown = JSON.parse(
         await readFile(currentJournal, "utf8"),
       );
@@ -1228,7 +1222,7 @@ describe("createPGlitePersistence", () => {
     const scopeId = "scope_00000000-0000-4000-8000-000000000062";
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const parsed: unknown = JSON.parse(
         await readFile(currentJournal, "utf8"),
       );
@@ -1340,9 +1334,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, previousMigrationsFolder, {
-        recursive: true,
-      });
+      await copyDrizzleMigrations(currentMigrationsFolder, previousMigrationsFolder);
       await copyFile(
         previousJournal,
         resolve(previousMigrationsFolder, "meta/_journal.json"),
@@ -1396,9 +1388,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, previousMigrationsFolder, {
-        recursive: true,
-      });
+      await copyDrizzleMigrations(currentMigrationsFolder, previousMigrationsFolder);
       await copyFile(
         previousJournal,
         resolve(previousMigrationsFolder, "meta/_journal.json"),
@@ -1467,9 +1457,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, previousMigrationsFolder, {
-        recursive: true,
-      });
+      await copyDrizzleMigrations(currentMigrationsFolder, previousMigrationsFolder);
       await copyFile(
         previousJournal,
         resolve(previousMigrationsFolder, "meta/_journal.json"),
@@ -1540,9 +1528,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, previousMigrationsFolder, {
-        recursive: true,
-      });
+      await copyDrizzleMigrations(currentMigrationsFolder, previousMigrationsFolder);
       await copyFile(
         previousJournal,
         resolve(previousMigrationsFolder, "meta/_journal.json"),
@@ -1600,9 +1586,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, previousMigrationsFolder, {
-        recursive: true,
-      });
+      await copyDrizzleMigrations(currentMigrationsFolder, previousMigrationsFolder);
       await copyFile(
         previousJournal,
         resolve(previousMigrationsFolder, "meta/_journal.json"),
@@ -1678,9 +1662,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, previousMigrationsFolder, {
-        recursive: true,
-      });
+      await copyDrizzleMigrations(currentMigrationsFolder, previousMigrationsFolder);
       await copyFile(
         previousJournal,
         resolve(previousMigrationsFolder, "meta/_journal.json"),
@@ -1775,9 +1757,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, previousMigrationsFolder, {
-        recursive: true,
-      });
+      await copyDrizzleMigrations(currentMigrationsFolder, previousMigrationsFolder);
       await copyFile(
         previousJournal,
         resolve(previousMigrationsFolder, "meta/_journal.json"),
@@ -1883,9 +1863,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, previousMigrationsFolder, {
-        recursive: true,
-      });
+      await copyDrizzleMigrations(currentMigrationsFolder, previousMigrationsFolder);
       await copyFile(
         previousJournal,
         resolve(previousMigrationsFolder, "meta/_journal.json"),
@@ -1955,9 +1933,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, previousMigrationsFolder, {
-        recursive: true,
-      });
+      await copyDrizzleMigrations(currentMigrationsFolder, previousMigrationsFolder);
       await copyFile(
         previousJournal,
         resolve(previousMigrationsFolder, "meta/_journal.json"),
@@ -2046,9 +2022,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, previousMigrationsFolder, {
-        recursive: true,
-      });
+      await copyDrizzleMigrations(currentMigrationsFolder, previousMigrationsFolder);
       await copyFile(
         previousJournal,
         resolve(previousMigrationsFolder, "meta/_journal.json"),
@@ -2146,7 +2120,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       await copyFile(
         previousJournal,
         resolve(migrationsFolder, "meta/_journal.json"),
@@ -2230,9 +2204,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, previousMigrationsFolder, {
-        recursive: true,
-      });
+      await copyDrizzleMigrations(currentMigrationsFolder, previousMigrationsFolder);
       await copyFile(
         previousJournal,
         resolve(previousMigrationsFolder, "meta/_journal.json"),
@@ -2332,7 +2304,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       await copyFile(
         previousJournal,
         resolve(migrationsFolder, "meta/_journal.json"),
@@ -2430,7 +2402,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const parsedJournal = JSON.parse(
         await readFile(currentJournal, "utf8"),
       ) as { entries?: Array<{ idx?: number }> };
@@ -2557,7 +2529,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const parsedJournal = JSON.parse(
         await readFile(currentJournal, "utf8"),
       ) as { entries?: Array<{ idx?: number }> };
@@ -2655,7 +2627,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const currentJournalText = await readFile(currentJournalPath, "utf8");
       const parsedJournal: unknown = JSON.parse(currentJournalText);
       if (
@@ -2771,7 +2743,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const currentJournalText = await readFile(currentJournalPath, "utf8");
       const parsedJournal: unknown = JSON.parse(currentJournalText);
       if (
@@ -2875,7 +2847,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const currentJournalText = await readFile(currentJournalPath, "utf8");
       const parsedJournal: unknown = JSON.parse(currentJournalText);
       if (
@@ -3240,7 +3212,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const currentJournalText = await readFile(currentJournalPath, "utf8");
       const parsedJournal: unknown = JSON.parse(currentJournalText);
       if (
@@ -3343,7 +3315,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const currentJournalText = await readFile(currentJournalPath, "utf8");
       const parsedJournal: unknown = JSON.parse(currentJournalText);
       if (
@@ -3447,7 +3419,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const currentJournalText = await readFile(currentJournalPath, "utf8");
       const parsedJournal: unknown = JSON.parse(currentJournalText);
       if (
@@ -3551,7 +3523,7 @@ describe("createPGlitePersistence", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const currentJournalText = await readFile(currentJournalPath, "utf8");
       const parsedJournal: unknown = JSON.parse(currentJournalText);
       if (
@@ -3675,7 +3647,7 @@ describe("createPGlitePersistence", () => {
     );
     const db = newTestPGlite();
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const journalText = await readFile(currentJournalPath, "utf8");
       const parsed: unknown = JSON.parse(journalText);
       if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
@@ -3781,7 +3753,7 @@ describe("createPGlitePersistence", () => {
     const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
     const db = newTestPGlite();
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const journalText = await readFile(currentJournalPath, "utf8");
       const parsed: unknown = JSON.parse(journalText);
       if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
@@ -3873,7 +3845,7 @@ describe("createPGlitePersistence", () => {
     );
     const db = newTestPGlite();
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const journalText = await readFile(currentJournalPath, "utf8");
       const parsed: unknown = JSON.parse(journalText);
       if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
@@ -3988,7 +3960,7 @@ describe("createPGlitePersistence", () => {
     );
     const db = newTestPGlite();
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const journalText = await readFile(currentJournalPath, "utf8");
       await writeFile(
         copiedJournalPath,

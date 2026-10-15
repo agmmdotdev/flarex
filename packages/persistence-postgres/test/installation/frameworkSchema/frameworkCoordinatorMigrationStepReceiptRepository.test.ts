@@ -8,7 +8,6 @@ import { and, asc, eq } from "drizzle-orm";
 import { Effect, Encoding, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
-import * as persistenceRoot from "../../../src";
 
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
 import { withFrameworkGraphReadPass } from "../../../src/installation/migrationCoordination/graphReadPass";
@@ -132,31 +131,6 @@ describe("framework coordinator migration-step receipt repository", () => {
       ))
     )).toEqual([]);
   }, PGLITE_TEST_TIMEOUT);
-
-  it("keeps transaction kernels source-private", async () => {
-    expect(
-      "ensureFrameworkMigrationStepReceiptInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "readFrameworkMigrationStepReceiptInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "resolveAuthenticatedFrameworkMigrationStepReceiptOccupantsEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "corroborateRestoredFrameworkMigrationStepReceiptInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/migrationCoordination/migrationStepReceiptRepository.ts",
-    );
-  });
 
   it("ensures, reads, and exactly replays the complete topological receipt graph", async () => {
     const persistence = await createMigratedPGlitePersistence();

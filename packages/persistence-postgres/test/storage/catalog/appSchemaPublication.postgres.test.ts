@@ -38,10 +38,11 @@ import {
   acquirePostgresDeploymentLock,
   postgresUrl,
   waitForBlockedPostgresDeploymentLocks,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 
 const prepareAppSchemaPublicationV1 = (
   ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
@@ -57,7 +58,7 @@ const prepareAppDeveloperIndexDefinitionBindingV1 = (
 
 describePostgres("real Postgres app-schema V1 publication", () => {
   it("converges concurrent identical app-schema publications", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_schema_publication_v1_pg_concurrent_replay";
       await insertDeployment(persistence, deploymentId);
       const input = publicationInput(
@@ -101,7 +102,7 @@ describePostgres("real Postgres app-schema V1 publication", () => {
   }, 30_000);
 
   it("replans and commits competing publications from the same frontiers", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_schema_publication_v1_pg_competing";
       await insertDeployment(persistence, deploymentId);
       const firstInput = publicationInput(
@@ -167,7 +168,7 @@ describePostgres("real Postgres app-schema V1 publication", () => {
   }, 30_000);
 
   it("replans after an external table-frontier allocation wins", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_schema_publication_v1_pg_table_frontier";
       await insertDeployment(persistence, deploymentId);
       const input = publicationInput(
@@ -220,7 +221,7 @@ describePostgres("real Postgres app-schema V1 publication", () => {
   }, 30_000);
 
   it("replans after an index-only frontier race", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_schema_publication_v1_pg_index_frontier";
       await insertDeployment(persistence, deploymentId);
       await persistence.publishAppSchemaV1(
@@ -287,7 +288,7 @@ describePostgres("real Postgres app-schema V1 publication", () => {
   }, 30_000);
 
   it("rolls a stale conflicting loser back without leaking catalog rows", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_schema_publication_v1_pg_conflict";
       const schemaVersionId = "schema_publication_v1_pg_conflict";
       await insertDeployment(persistence, deploymentId);
@@ -352,7 +353,7 @@ describePostgres("real Postgres app-schema V1 publication", () => {
   }, 30_000);
 
   it("rolls all newly projected rows back on a late projection failure", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_schema_publication_v1_pg_late_projection";
       await insertDeployment(persistence, deploymentId);
       const targetInput = publicationInput(
@@ -478,7 +479,7 @@ describePostgres("real Postgres app-schema V1 publication", () => {
   }, 30_000);
 
   it("publishes and exactly replays the full projection sequentially", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_schema_publication_v1_pg_replay";
       await insertDeployment(persistence, deploymentId);
       const input = publicationInput(
@@ -521,7 +522,7 @@ describePostgres("real Postgres app-schema V1 publication", () => {
   }, 30_000);
 
   it("rolls the whole projection back with its caller transaction", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_schema_publication_v1_pg_rollback";
       await insertDeployment(persistence, deploymentId);
       const prepared = await prepareAppSchemaPublicationV1(
@@ -553,7 +554,7 @@ describePostgres("real Postgres app-schema V1 publication", () => {
   }, 30_000);
 
   it("publishes the current operational work limit within the bounded gate", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_schema_publication_v1_pg_operational_limit";
       await insertDeployment(persistence, deploymentId);
       const input = nearLimitPublicationInput(

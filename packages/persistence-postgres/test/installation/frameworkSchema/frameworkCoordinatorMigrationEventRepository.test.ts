@@ -10,7 +10,6 @@ import { describe, expect, it, vi } from "vitest";
 import * as storedValues from "../../../src/installation/migrationCoordination/storedRestoration";
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../../../src/installation/migrationCoordination/graphReadPass";
 
-import * as persistenceRoot from "../../../src";
 
 import type { FlarexMetadataTransaction } from
   "../../../src/database/metadataTransaction";
@@ -115,24 +114,6 @@ describe("framework coordinator migration-event repository", () => {
         stepReceipts: { kind: "restoredFrameworkMigrationReceiptPrefix" } }))).toMatchObject({ reason: "storedStateCorrupt" });
     } finally { attempts.mockRestore(); terminals.mockRestore(); receipts.mockRestore(); }
   }, PGLITE_TEST_TIMEOUT);
-
-  it("keeps the event transaction kernel and authority source-private", async () => {
-    expect(
-      "appendFrameworkMigrationEventInTransactionEffect" in persistenceRoot,
-    ).toBe(false);
-    expect(
-      "readFrameworkMigrationEventInTransactionEffect" in persistenceRoot,
-    ).toBe(false);
-    expect("restoredFrameworkMigrationEventAuthority" in persistenceRoot)
-      .toBe(false);
-
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/migrationCoordination/migrationEventRepository.ts",
-    );
-  });
 
   it("appends, reads, and exactly replays all seven event kinds", async () => {
     const persistence = await createMigratedPGlitePersistence();

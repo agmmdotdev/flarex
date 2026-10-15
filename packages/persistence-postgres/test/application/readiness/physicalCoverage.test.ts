@@ -120,6 +120,13 @@ describe("Application readiness/physicalCoverage", { timeout: 30_000 }, () => {
     await fixture.target.drizzle.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(2n) })
       .where(eq(fxSystemScopeClocks.scopeId, fixture.authority.scopeId));
     const advanced = await runEffect(activation.readActive());
+    expect(advanced.basis).toEqual({
+      ...before.basis,
+      authority: {
+        ...before.basis.authority,
+        lastCommitSeq: before.basis.authority.lastCommitSeq + 1n,
+      },
+    });
     expect(advanced.expectedActiveHead).toEqual(before.expectedActiveHead);
     expect(await fixture.target.drizzle.select().from(fxSystemIndexBuildStates)).toEqual(builds);
     const inventory = async () => ({

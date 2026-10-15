@@ -1,11 +1,5 @@
-import {
-  cp,
-  copyFile,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { copyDrizzleMigrations } from "../../support/migrationFixtureSupport";
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -309,7 +303,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
     const copiedMigration = resolve(migrationsFolder, migrationName);
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const parsedJournal = JSON.parse(
         await readFile(currentJournal, "utf8"),
       ) as { entries?: Array<{ idx?: number }> };
@@ -432,7 +426,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
     const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const journalText = await readFile(currentJournal, "utf8");
       await writeFile(
         temporaryJournal,

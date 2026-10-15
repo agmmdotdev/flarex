@@ -1,4 +1,5 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyDrizzleMigrations } from "../../support/migrationFixtureSupport";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,7 +18,7 @@ export async function withReadinessMetadataUpgradeMigrations(
   const root = await mkdtemp(resolve(tmpdir(), "flarex-readiness-140-"));
   const folder = resolve(root, "drizzle");
   try {
-    await cp(resolve(dirname(fileURLToPath(import.meta.url)), "../../../drizzle"), folder, { recursive: true });
+    await copyDrizzleMigrations(resolve(dirname(fileURLToPath(import.meta.url)), "../../../drizzle"), folder);
     const journalPath = resolve(folder, "meta/_journal.json");
     const currentText = await readFile(journalPath, "utf8");
     const journal = decodeJournal(JSON.parse(currentText));

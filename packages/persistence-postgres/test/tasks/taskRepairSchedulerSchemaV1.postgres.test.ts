@@ -1,4 +1,5 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyDrizzleMigrations } from "../support/migrationFixtureSupport";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -137,7 +138,7 @@ async function makeMigrationFixture() {
   const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const currentMigrationsFolder = resolve(packageRoot, "drizzle");
   const journalPath = resolve(migrationsFolder, "meta/_journal.json");
-  await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+  await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
   const parsed: unknown = JSON.parse(await readFile(journalPath, "utf8"));
   if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
     throw new Error("Drizzle journal must contain an entries array.");

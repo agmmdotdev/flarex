@@ -11,12 +11,32 @@ import {
   decodeSessionIdentityResult,
   decodeStoredSchemaArtifactResult,
 } from "../../src/commit/authority/materialization";
+import { authorityMismatch, corrupt } from "../../src/commit/authority/model";
 
 const SCOPE_UUID = "11111111-1111-4111-8111-111111111111";
 const EPOCH_UUID = "22222222-2222-4222-8222-222222222222";
 const SESSION_ID = "33333333-3333-4333-8333-333333333333";
 
 describe("stored commit-authority materialization decoders", () => {
+  it("freezes refusal results without taking ownership of their causes", () => {
+    const mismatch = authorityMismatch("scopeChanged");
+    expect(mismatch).toEqual({ kind: "authorityMismatch", reason: "scopeChanged" });
+    expect(Object.isFrozen(mismatch)).toBe(true);
+
+    const absentCause = corrupt("schemaArtifactInvalid");
+    expect(absentCause).toEqual({ kind: "corrupt", reason: "schemaArtifactInvalid" });
+    expect(Object.hasOwn(absentCause, "cause")).toBe(false);
+    expect(Object.isFrozen(absentCause)).toBe(true);
+
+    const cause = { detail: "before" };
+    const failure = corrupt("schemaArtifactInvalid", cause);
+    expect(failure.kind === "corrupt" && failure.cause).toBe(cause);
+    expect(Object.isFrozen(failure)).toBe(true);
+    expect(Object.isFrozen(cause)).toBe(false);
+    cause.detail = "after";
+    expect(failure).toMatchObject({ cause: { detail: "after" } });
+  });
+
   it("decodes the authority identity rows through ordered Results", () => {
     expect(Result.isSuccess(
       decodeClockAuthorityResult(validClockAuthorityRow()),

@@ -1,4 +1,5 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyDrizzleMigrations } from "../support/migrationFixtureSupport";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +25,7 @@ describe("DTE06-C3 compute pending migration", () => {
     const db = newTestPGlite();
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const journalText = await readFile(currentJournalPath, "utf8");
       const parsed: unknown = JSON.parse(journalText);
       if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {

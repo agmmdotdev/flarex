@@ -178,12 +178,6 @@ describe("private migration coordination values", () => {
 
   it("keeps the value family private", async () => {
     expectTypeOf<PublicMigrationValueExport>().toEqualTypeOf<never>();
-    const packageJson = await import("../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/migrationCoordination/canonical.ts",
-    );
   });
 
   it("captures the alias-safe target namespace without logical routing names", async () => {

@@ -1,5 +1,6 @@
+import { copyDrizzleMigrations } from "../../support/migrationFixtureSupport";
 import { createHash } from "node:crypto";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,7 +40,7 @@ describePostgres("framework schema artifact storage - PostgreSQL", () => {
     );
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       const journalText = await readFile(currentJournal, "utf8");
       const migrationText = await readFile(migrationPath, "utf8");
       await writeFile(

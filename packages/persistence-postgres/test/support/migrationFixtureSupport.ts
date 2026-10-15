@@ -1,6 +1,6 @@
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export interface DrizzleCopyFixture {
@@ -14,7 +14,7 @@ export interface DrizzleCopyFixture {
 }
 
 /**
- * Copies the package drizzle tree into an isolated temp dir for migration
+ * Copies runtime migration inputs into an isolated temp dir for migration
  * tests. Caller-owned migration names, journal bounds, failure tables, and
  * receipt shapes stay with each *MigrationSupport module; only the exact
  * copy/journal/failure/restore mechanics live here.
@@ -31,7 +31,7 @@ export async function makeDrizzleCopyFixture(
   const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
   const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
   const migrationPath = resolve(migrationsFolder, migrationName);
-  await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+  await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
   return Object.freeze({
     root,
     migrationsFolder,
@@ -40,6 +40,22 @@ export async function makeDrizzleCopyFixture(
     temporaryJournal,
     migrationPath,
     cleanup: () => rm(root, { recursive: true, force: true }),
+  });
+}
+
+/** Drizzle executes SQL and its journal; generator snapshots are not runtime inputs. */
+export async function copyDrizzleMigrations(
+  source: string,
+  destination: string,
+): Promise<void> {
+  await cp(source, destination, {
+    recursive: true,
+    filter: path => {
+      const entry = relative(source, path);
+      return entry === "" || entry === "meta" ||
+        entry === join("meta", "_journal.json") ||
+        (dirname(entry) === "." && entry.endsWith(".sql"));
+    },
   });
 }
 

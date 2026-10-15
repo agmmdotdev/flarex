@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { onTestFinished } from "vitest";
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { Cause, Effect, Exit } from "effect";
 import { createPGlitePersistence } from "../../src/database/pglite";
 import type { FlarexMetadataDatabase } from "../../src/application/deployments";
@@ -19,11 +20,12 @@ import {
 /** One Wasm instance, one lease, with an external watchdog that can stop active SQL. */
 export async function createRelationalPGliteFixture(options: { readonly fileBacked?: boolean; readonly immutableCatalog?: FlarexMetadataDatabase; readonly transport?: "ordinary" | "finiteCapture"; readonly observeQuery?: (text: string) => Promise<void> | void; readonly registerCleanup?: (cleanup: () => Promise<void>) => void } = {}) {
   const fixtureOptions = options;
+  const loadDataDir = await migratedPGliteDataDir();
   // Only this fixture-created directory is removed by its registered cleanup.
   const dataDir = options.fileBacked === true ? await mkdtemp(join(tmpdir(), "flarex-relational-")) : undefined;
   const worker = new Worker(
     new URL("./relationalPGliteWorker.mjs", import.meta.url),
-    { workerData: { dataDir, transport: options.transport } },
+    { workerData: { dataDir, transport: options.transport, loadDataDir } },
   );
   let id = 0;
   let timeoutMs = 30_000;
@@ -144,7 +146,6 @@ export async function createRelationalPGliteFixture(options: { readonly fileBack
       }),
   };
   const persistence = await createPGlitePersistence({ db: client, ...(options.immutableCatalog===undefined ? {} : { immutableCatalog: options.immutableCatalog }) });
-  await persistence.migrate();
   await openPreparedHostTestRuntime(persistence.drizzle);
   runtimeDatabase = persistence.drizzle;
   const run: RunRelationalSession = Effect.fn(

@@ -1,4 +1,5 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyDrizzleMigrations } from "../support/migrationFixtureSupport";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,7 +42,7 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
     const copiedMigration = resolve(migrationsFolder, migrationName);
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       await writeJournalThrough0028(currentJournal, temporaryJournal);
 
       await withTemporaryPostgresSchema(async (databaseOptions) => {
@@ -162,7 +163,7 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
     const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       await writeJournalBeforeIndex(currentJournal, temporaryJournal, 77);
       await withTemporaryPostgresSchema(async (databaseOptions) => {
         const previous = await createPostgresPersistence({

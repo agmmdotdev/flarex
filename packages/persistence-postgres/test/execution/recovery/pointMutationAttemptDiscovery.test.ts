@@ -1,4 +1,5 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyDrizzleMigrations } from "../../support/migrationFixtureSupport";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -731,7 +732,7 @@ async function migrationFixture(): Promise<Readonly<{
   const currentMigrationsFolder = resolve(packageRoot, "drizzle");
   const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
   const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
-  await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+  await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
   await writeJournalThrough0032(currentJournal, temporaryJournal);
   return Object.freeze({
     root,

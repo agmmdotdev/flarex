@@ -84,8 +84,9 @@ second implementation of production mechanics.
 
 Moving folders preserves their runtime dependency graph. The journal capability,
 RPC and full consumer API now have actual Workerd witnesses under the
-[journal boundary plan](05-file-cohesion-and-readable-flows.md); their errors and
-frozen projections do not load SQL construction. Broader exact-runner imports
+[journal boundary plan](05-file-cohesion-and-readable-flows.md). The full Journal
+consumer witness currently fails because frozen logical-write detachment reaches
+SQL construction; the owning plan records that open regression. Broader exact-runner imports
 still require their publication/activation owner's independent boundary proof.
 Successful bundling alone does not establish a runtime capability.
 

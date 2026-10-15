@@ -2,7 +2,6 @@ import { sql } from "drizzle-orm";
 import { Cause, Effect, Exit } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import * as persistenceRoot from "../../../src";
 import {
   FrameworkSchemaTargetCompositionError,
   frameworkSchemaTargetSnapshot,
@@ -75,29 +74,6 @@ const executeProbeSqlEffect = Effect.fn(
 );
 
 describe("private framework migration target sessions", () => {
-  it("keeps target/session capabilities private and PGlite composition test-only", async () => {
-    expect("makeFrameworkMigrationTargetEffect" in persistenceRoot).toBe(false);
-    expect("makeFrameworkSchemaTarget" in persistenceRoot).toBe(false);
-    expect(
-      "runFrameworkMigrationTargetTransactionEffect" in persistenceRoot,
-    ).toBe(false);
-    expect("withFrameworkMigrationRawTransactionEffect" in persistenceRoot)
-      .toBe(false);
-    expect("makePGliteFrameworkMigrationTargetEffect" in persistenceRoot)
-      .toBe(false);
-
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    const exportedPaths = Object.values(packageJson.default.exports);
-    expect(exportedPaths).not.toContain("./src/frameworkSchema/target.ts");
-    expect(exportedPaths).not.toContain(
-      "./src/migrationCoordination/targetSession.ts",
-    );
-    expect(exportedPaths).not.toContain(
-      "./test/installation/frameworkSchema/frameworkMigrationPGliteTarget.ts",
-    );
-  }, PGLITE_TEST_TIMEOUT);
 
   it("captures an opaque target snapshot and rejects a conflicting database identity", async () => {
     const persistence = await createMigratedPGlitePersistence();

@@ -62,10 +62,11 @@ import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { observeUniqueBuildReturnedRows } from "./uniqueBuildStateAcceptanceScenario";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 const LOCATOR = Object.freeze({
   kind: "shared_database",
   databaseKey: "primary",
@@ -74,7 +75,7 @@ const LOCATOR = Object.freeze({
 
 describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
   it.each(["original","laterCompactFault","clockFailure"] as const)("preserves original post-lock clock and native getter order with %s", async fault => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       const fixture = await fixtureFor(persistence);
       const second = await runEffect(prepareAppUniqueConstraintDefinitionBindingV1Effect(persistence.drizzle, {
         deploymentId: fixture.input.deploymentId,
@@ -121,7 +122,7 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
   }, 120_000);
 
   it("reads an enabled unique set by exact scope after another shop joins its deployment", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       const fixture = await fixtureFor(persistence);
       await closeFixtureSet(fixture);
       await persistence.insertScopeMetadata({
@@ -147,7 +148,7 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
   }, 120_000);
 
   it.each([false, true])("builds conditional nullable keys with active duplicate = %s", async duplicate => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       const spec = decodeAppUniqueConstraintPhysicalSpecV1({ kind: "appUniqueConstraint", specVersion: 1,
         orderedFields: ["email"], sparse: false, nullsDistinct: true, predicate: { kind: "fieldIsNull", field: "deleted_at" },
         localePolicy: { kind: "none" }, keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1, keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1 });
@@ -175,7 +176,7 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
     });
   }, 120_000);
   it("bounds inherited claim draining and recovers rollback plus a lost response", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
     const fixture = await fixtureFor(persistence);
     await closeFixtureSet(fixture);
     for (let n = 1; n <= 17; n += 1) await appendLiveRow(fixture, n.toString(16).padStart(32, "0"), `owner${n}@example.com`);
@@ -232,7 +233,7 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
   }, 120_000);
 
   it("serializes closure/build replay and proves rollback plus stale redeclaration", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const fixture = await fixtureFor(persistence);
       const version = await persistence.query<{ server_version: string }>(
         "show server_version",
@@ -301,7 +302,7 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
   }, 120_000);
 
   it("serializes concurrent bounded backfill pages and publishes exact current claims", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const fixture = await fixtureFor(persistence);
       const eligibility = createAppUniqueConstraintSetEligibilityPortV1(
         fixture.ports,
@@ -375,7 +376,7 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
   }, 120_000);
 
   it("reads unique readiness while an ordinary coverage publication is held", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       const fixture = await fixtureFor(persistence);
       await closeFixtureSet(fixture);
       await appendLiveRow(fixture, "73000000000040008000000000000001", "a@example.com");
@@ -447,7 +448,7 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
   }, 120_000);
 
   it("serializes exact workspace reclamation, replay, and rollback", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const fixture = await fixtureFor(persistence);
       const prepared = await runEffect(
         prepareAppUniqueConstraintSetClosureV1Effect(
@@ -611,7 +612,7 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
   }, 120_000);
 
   it("recovers uncertainty and reuses the exact physical-definition directory slot", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const fixture = await fixtureFor(persistence);
       await closeFixtureSet(fixture);
       await reconcile(fixture);
@@ -680,7 +681,7 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
   }, 120_000);
 
   it("rebuilds to enabled from retained claims without duplication", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const fixture = await fixtureFor(persistence);
       await closeFixtureSet(fixture);
       await appendLiveRow(

@@ -6,9 +6,9 @@ import { btree_gin } from "@electric-sql/pglite/contrib/btree_gin";
 const extensions = { pg_trgm, btree_gin };
 const startup = { extensions, ...(workerData?.transport === "finiteCapture"
   ? { startParams: [...PGlite.defaultStartParams, "-c", "statement_timeout=30000"] } : {}) };
-let db = workerData?.dataDir === undefined
-  ? await PGlite.create(startup)
-  : await PGlite.create(workerData.dataDir, startup);
+// Import the baseline only at construction. Reopen must retain the test's writes.
+let db = await PGlite.create({ ...startup,
+  dataDir: workerData?.dataDir, loadDataDir: workerData.loadDataDir });
 const parsers = Object.fromEntries(
   [1082, 1114, 1184, 1186, 1231, 1115, 1185, 1187, 1182].map((id) => [
     id,

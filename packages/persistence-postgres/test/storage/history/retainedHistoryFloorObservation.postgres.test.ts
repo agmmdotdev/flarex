@@ -39,7 +39,7 @@ import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { retainedHistoryFloorLeaseScenario, seedRetainedFloorLeaseCommit } from "./retainedHistoryFloorLeaseScenario";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 import {
   activatePointMutationSession,
@@ -52,6 +52,7 @@ import {
 } from "../../execution/session/support/authorityClock";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 
 const retentionPolicy = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
   maximumGrantLifetimeMilliseconds: 1_000,
@@ -61,7 +62,7 @@ const retentionPolicy = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
 
 describePostgres("real PostgreSQL O11-B/C retained-history floor", () => {
   it("advances past an expired lease backlog with indexed expiry filtering", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       const physicalLocator = sharedLocator("floor-lease-backlog");
       const ids = uuidFactory();
       const deploymentId = TransactionGrantDeploymentIdV1Schema.make("deployment_floor_lease_backlog");
@@ -119,7 +120,7 @@ describePostgres("real PostgreSQL O11-B/C retained-history floor", () => {
   }, 120_000);
 
   it("shares the scope-clock lane and observes without publishing", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const ids = uuidFactory();
       const physicalLocator = sharedLocator("o11b-postgres");
       const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
@@ -214,7 +215,7 @@ describePostgres("real PostgreSQL O11-B/C retained-history floor", () => {
   }, 60_000);
 
   it("publishes under the lease lane and recovers rollback and uncertainty", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const ids = uuidFactory();
       const physicalLocator = sharedLocator("o11c-postgres");
       const deploymentId = TransactionGrantDeploymentIdV1Schema.make(

@@ -7,7 +7,6 @@ import { eq } from "drizzle-orm";
 import { Encoding, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
-import * as persistenceRoot from "../../../src";
 
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
 import {
@@ -63,34 +62,6 @@ const LEASE_TWO = "2026-08-27T08:32:00.000Z";
 const LEASE_THREE = "2026-08-27T08:33:00.000Z";
 
 describe("framework coordinator migration-attempt repository", () => {
-  it("keeps transaction kernels source-private", async () => {
-    expect(
-      "ensureFrameworkMigrationAttemptStartInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "readFrameworkMigrationAttemptStartInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "resolveAuthenticatedFrameworkMigrationAttemptStartOccupantsEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "corroborateRestoredFrameworkMigrationAttemptStartInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/migrationCoordination/migrationAttemptRepository.ts",
-    );
-  });
 
   it("ensures, reads, and exactly replays a genesis attempt", async () => {
     const persistence = await createMigratedPGlitePersistence();

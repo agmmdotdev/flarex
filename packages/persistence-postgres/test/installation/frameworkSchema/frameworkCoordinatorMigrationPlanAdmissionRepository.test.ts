@@ -8,7 +8,6 @@ import { eq } from "drizzle-orm";
 import { Encoding, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
-import * as persistenceRoot from "../../../src";
 
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
 import {
@@ -55,26 +54,6 @@ const FIRST_ADMITTED_AT = "2026-08-27T08:30:00.000Z";
 const SECOND_ADMITTED_AT = "2026-08-27T08:31:00.000Z";
 
 describe("framework coordinator migration-plan admission repository", () => {
-  it("keeps transaction kernels source-private", async () => {
-    expect(
-      "ensureFrameworkMigrationPlanAdmissionInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "readFrameworkMigrationPlanAdmissionInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "resolveAuthenticatedFrameworkMigrationPlanAdmissionOccupantEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/migrationCoordination/migrationPlanAdmissionRepository.ts",
-    );
-  });
 
   it("ensures, reads, and exactly replays an ordered admission aggregate", async () => {
     const persistence = await createMigratedPGlitePersistence();

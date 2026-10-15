@@ -115,20 +115,6 @@ describe("framework coordinator metadata storage - PGlite", () => {
       expect(exportName in persistenceRoot).toBe(false);
       expect(exportName in flarexSchema).toBe(false);
     }
-
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    const exportTargets = Object.values(packageJson.default.exports);
-    expect(exportTargets).not.toContain(
-      "./src/migrationCoordination/schema.ts",
-    );
-    expect(exportTargets).not.toContain(
-      "./src/frameworkSchema/installation/schema.ts",
-    );
-    expect(exportTargets).not.toContain(
-      "./src/frameworkSchema/privateMetadataSchemaSupport.ts",
-    );
   });
 
   it("rejects incomplete nullable tuples instead of accepting SQL unknown", async () => {

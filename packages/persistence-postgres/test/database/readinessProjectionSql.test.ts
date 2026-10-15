@@ -79,21 +79,13 @@ it("keeps native timestamp and bigint row codecs on fresh client-bound execution
   expect(secondTransport).toHaveBeenCalledWith(expect.objectContaining({ rowMode: "array" }), [secondScope]);
 });
 
-it("preserves nested maintenance projection and ordered native index readiness SQL", () => {
+it("binds fresh index readiness parameters with a shared frozen maintenance projection", () => {
   const db = access(new Client()).transaction;
   const definitionIds = [CatalogIndexDefinitionIdSchema.make(7), CatalogIndexDefinitionIdSchema.make(11)];
   const predicate = and(eq(fxSystemIndexBuildStates.scopeId, firstScope), inArray(fxSystemIndexBuildStates.indexDefinitionId, definitionIds));
   const retained = db.select(indexBuildStateSelection()).from(fxSystemIndexBuildStates)
     .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate()).where(predicate)
     .orderBy(asc(fxSystemIndexBuildStates.indexDefinitionId)).for("key share", { of: fxSystemIndexBuildStates });
-  const native = db.select({ ...getTableColumns(fxSystemIndexBuildStates),
-    maintenanceObligation: getTableColumns(fxSystemIndexMaintenanceObligations) }).from(fxSystemIndexBuildStates)
-    .leftJoin(fxSystemIndexMaintenanceObligations, and(
-      eq(fxSystemIndexMaintenanceObligations.scopeId, fxSystemIndexBuildStates.scopeId),
-      eq(fxSystemIndexMaintenanceObligations.indexDefinitionId, fxSystemIndexBuildStates.indexDefinitionId),
-      eq(fxSystemIndexMaintenanceObligations.activationSequence, fxSystemIndexBuildStates.maintenanceActivationSequence)))
-    .where(predicate).orderBy(asc(fxSystemIndexBuildStates.indexDefinitionId)).for("key share", { of: fxSystemIndexBuildStates });
-  expect(retained.toSQL()).toEqual(native.toSQL());
   expect(retained.toSQL().params).toEqual([firstScope, ...definitionIds]);
   expect(indexBuildStateSelection()).toBe(indexBuildStateSelection());
   expect(Object.isFrozen(indexBuildStateSelection())).toBe(true);

@@ -1,4 +1,5 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyDrizzleMigrations } from "../support/migrationFixtureSupport";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,7 +48,7 @@ describePostgres("real Postgres S09-A committed-success idempotency schema", () 
     const copiedMigration = resolve(migrationsFolder, MIGRATION_NAME);
 
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       await writeJournalThrough0029(currentJournal, temporaryJournal);
 
       await withTemporaryPostgresSchema(async (databaseOptions) => {

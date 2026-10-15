@@ -1,4 +1,5 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyDrizzleMigrations } from "../support/migrationFixtureSupport";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,7 +31,7 @@ export async function withFiniteFrontierPredecessor(
   const temporary = await mkdtemp(resolve(tmpdir(), "flarex-finite-frontier-"));
   const folder = resolve(temporary, "drizzle");
   try {
-    await cp(resolve(dirname(fileURLToPath(import.meta.url)), "../../drizzle"), folder, { recursive: true });
+    await copyDrizzleMigrations(resolve(dirname(fileURLToPath(import.meta.url)), "../../drizzle"), folder);
     const journalPath = resolve(folder, "meta/_journal.json");
     const current = await readFile(journalPath, "utf8");
     const decoded = decodeJournal(JSON.parse(current));

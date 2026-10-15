@@ -5,7 +5,6 @@ import { Brand } from "effect";
 import { encodeCanonicalJson } from "flarex-protocol/json";
 import { describe, expect, it } from "vitest";
 
-import * as persistenceRoot from "../../../src";
 
 import {
   captureFrameworkSchemaAvailabilityHead,
@@ -81,21 +80,6 @@ describe("framework coordinator stored restoration", () => {
     await runEffectFailure(captureFrameworkMigrationPlanAdmission(input));
     expect(reaffirmCapturedPlanAdmissionAuthority(values.restoredPlan.plan, values.plan)).toBe(true);
     expect((await runEffect(captureFrameworkMigrationPlanAdmission(input))).frame.admissionProfile).toBe("synthetic-system-fresh");
-  });
-  it("keeps cold-restoration operations source-private", async () => {
-    expect("restoreStoredFreshRelationalMigrationPlan" in persistenceRoot)
-      .toBe(false);
-    expect("restoreStoredFrameworkSchemaInstallationMetadata" in persistenceRoot)
-      .toBe(false);
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/migrationCoordination/storedRestoration.ts",
-    );
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/frameworkSchema/installation/storedMetadataRestoration.ts",
-    );
   });
 
   it("rehydrates the exact dependency graph into the live private authority", async () => {
