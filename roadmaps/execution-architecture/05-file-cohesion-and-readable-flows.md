@@ -147,15 +147,16 @@ execute the Worker witnesses too. Exact execution may expose separate publicatio
 or activation imports; retain those gaps explicitly until their real owners are
 organized. No polyfill, host compatibility expansion or guard bypass is selected.
 
-Open regression: the full Journal consumer Worker witness currently fails its
-SQL-free graph assertion. `journal/api.ts` exposes `frozenAttempt.ts`, whose
-logical-write detachment reaches `logicalDocuments/detachChanges.ts` and
-`relationalRows.ts`; the latter also imports index/unique SQL construction.
-The expected boundary remains unchanged. Preserve
-`test/execution/journal/consumerApi.workerd.test.ts` as the failing witness;
-the correction belongs to Journal projections and the canonical detachment
-owner, preserving their existing registry and byte-ownership semantics. Test-lane
-cleanup does not repair this production dependency or establish Worker acceptance.
+Frozen logical-write detachment reaches `logicalDocuments/detachChanges.ts` and
+`relationalRows.ts`. Its index and unique dependencies are SQL-free storage
+owners: `locatedAppIndexDefinition.ts` / `locatedAppUniqueConstraintDefinition.ts`
+own each single provenance registry, and `appDeveloperIndexKeys.ts` /
+`appUniqueConstraintKeys.ts` own pure lowering. Catalog readers alone issue
+located definitions; the existing construction entrypoints retain their consumer
+exports without exposing the private issuers. Canonical ownership, detachment
+and derived-key lifetime remain in `relationalRows.ts`. The unchanged full
+Journal consumer witness in `test/execution/journal/consumerApi.workerd.test.ts`
+enforces the SQL-free graph and executes the consumer API in Workerd.
 
 Validate current finite provenance, capacity, cancellation/drainage, full Cause,
 control identity, mixed entry ordering, delayed/uncertain acknowledgement,

@@ -11,10 +11,10 @@ import { capturePrivateJsonData, inspectCapturedPrivateJsonData, useCapturedPriv
 import { detachStoredAppDocumentEvidence, detachStoredAppRowRevisionEvidence, inspectStoredAppDocumentEvidence } from "../appRowCanonicalEvidence";
 import type { AppRowReadResultV1 } from "../appRows";
 import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
-import { isLocatedAppIndexDefinitionV1, type LocatedAppIndexDefinitionV1 } from "../../indexes/appIndexDefinitions";
-import { isLocatedAppUniqueConstraintDefinitionV1, type LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/appUniqueConstraintDefinitions";
-import { lowerAppDeveloperIndexKeyV1 } from "../../indexes/appDeveloperIndexCommitV1";
-import { lowerCanonicalAppUniqueConstraintV1Result } from "../../unique/appUniqueConstraintCommitV1";
+import { isLocatedAppIndexDefinitionV1, type LocatedAppIndexDefinitionV1 } from "../../indexes/locatedAppIndexDefinition";
+import { isLocatedAppUniqueConstraintDefinitionV1, type LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/locatedAppUniqueConstraintDefinition";
+import { lowerAppDeveloperIndexKeyV1 } from "../../indexes/appDeveloperIndexKeys";
+import { lowerCanonicalAppUniqueConstraintV1Result } from "../../unique/appUniqueConstraintKeys";
 import { inspectCanonicalFlarexValueOwnershipV1, isCanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeObjectV1 } from "flarex-protocol/value";
 

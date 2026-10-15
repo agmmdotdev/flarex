@@ -5,6 +5,11 @@ import {
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, desc, eq, inArray, or } from "drizzle-orm";
+import {
+  markLocatedAppIndexDefinition,
+  type AppIndexDefinitionRecord,
+  type LocatedAppIndexDefinitionV1,
+} from "./locatedAppIndexDefinition";
 import { Data, Effect, Result, Schema } from "effect";
 import { readPublishedPhysicalRequirementDefinitionRecordsResult, InvalidIndexBuildReconciliationInputV1Error } from "../../installation/publishedPhysicalRequirementProvenance";
 import type { PublishedPhysicalRequirementSnapshotV1 } from "./indexBuildReconciliation";
@@ -82,6 +87,8 @@ import {
   type StableTableIdentityPersistenceError,
 } from "../catalog/stableTableCatalog";
 
+export { isLocatedAppIndexDefinitionV1, type AppIndexDefinitionRecord, type LocatedAppIndexDefinitionV1 } from "./locatedAppIndexDefinition";
+
 const PREPARE_INPUT_KEYS = Object.freeze([
   "deploymentId",
   "schemaVersionId",
@@ -141,35 +148,6 @@ export interface PreparedAppCreationTimeIndexDefinitionV1 {
   readonly deploymentId: string;
   readonly tableId: CatalogTableId;
   readonly [preparedCreationTimeDefinitionBrand]: true;
-}
-
-export interface AppIndexDefinitionRecord {
-  readonly deploymentId: string;
-  readonly indexDefinitionId: CatalogIndexDefinitionId;
-  readonly access: AppPhysicalIndexAccessIdentityV1;
-  readonly physicalSpecCodecVersion: AppIndexPhysicalSpecCodecVersion;
-  readonly physicalSpec: AppOrderedIndexPhysicalSpecV1;
-  readonly physicalSpecBytesHex: CanonicalAppIndexPhysicalSpecBytesHexV1;
-  readonly physicalSpecSha256Hex: AppIndexPhysicalSpecSha256HexV1;
-  readonly createdAt: Date;
-}
-
-const locatedAppIndexDefinitionBrand: unique symbol = Symbol(
-  "FlarexDB/LocatedAppIndexDefinitionV1",
-);
-
-export interface LocatedAppIndexDefinitionV1 extends AppIndexDefinitionRecord {
-  readonly scopeId: ScopeId;
-  readonly [locatedAppIndexDefinitionBrand]: true;
-}
-
-const locatedAppIndexDefinitions = new WeakSet<object>();
-
-export function isLocatedAppIndexDefinitionV1(
-  value: unknown,
-): value is LocatedAppIndexDefinitionV1 {
-  return typeof value === "object" && value !== null &&
-    locatedAppIndexDefinitions.has(value);
 }
 
 export type AppIndexDefinitionRecordForAccessKindV1<
@@ -1289,24 +1267,6 @@ export const locateAppDeveloperIndexDefinitionsForSchemaEffect = Effect.fn(
   );
   return Object.freeze(located);
 });
-
-function markLocatedAppIndexDefinition(
-  scopeId: ScopeId,
-  definition: AppIndexDefinitionRecord,
-): LocatedAppIndexDefinitionV1 {
-  // SAFETY: the copy carries every record field plus the scope, and the
-  // non-enumerable brand property is installed immediately below.
-  const located = { ...definition, scopeId } as LocatedAppIndexDefinitionV1;
-  Object.defineProperty(located, locatedAppIndexDefinitionBrand, {
-    value: true,
-    enumerable: false,
-    configurable: false,
-    writable: false,
-  });
-  const frozen = Object.freeze(located);
-  locatedAppIndexDefinitions.add(frozen);
-  return frozen;
-}
 
 export const listAppIndexDefinitionsForLogicalIndexEffect = Effect.fn(
   "AppIndexDefinitions.listDefinitionsForLogicalIndex",
