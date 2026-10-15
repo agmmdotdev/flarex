@@ -196,6 +196,16 @@ admission and portable endpoint integrity remain intact. Larger graphs, durable
 import/export execution, general restoration and hosted activation remain
 unadmitted.
 
+The [inline Product import preflight](./preflight/109-native-inline-product-import-workflow.md)
+is the next proposed workflow boundary. It requires durable confirmation,
+background child invocation, native local-feed Notification phases and
+parent-controlled event eligibility. Bounded native orchestration distinguishes
+a completed default batch from its subsequently failed parent invocation:
+the uncheckpointed child cannot be found for cancellation, so business undo
+must not be invented. Durable integration, real module/provider persistence and
+release-failure recovery remain unimplemented; chunked File import and Region/File
+export retain their separate dependencies.
+
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a
