@@ -60,7 +60,7 @@ import {
   appendPreparedAppRowRevisionsInTransactionEffect,
   type AppRowTransaction,
 } from "../../../src/storage/documents/appRows";
-import { createPGlitePersistence } from "../../../src/database/pglite";
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 import type { ScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
@@ -1423,7 +1423,7 @@ function observeForLockModes<T extends AppRowTransaction>(
   return wrap(transaction) as T;
 }
 
-type Persistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
+type Persistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
 interface Fixture {
   readonly persistence: Persistence;
@@ -1439,8 +1439,7 @@ interface Fixture {
 }
 
 async function fixtureFor(suffix: string, tableNames: ReadonlyArray<string> = ["users"]): Promise<Fixture> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
+  const persistence = await createMigratedPGlitePersistence();
   fixtureOrdinal += 1;
   const fixtureSuffix = fixtureOrdinal.toString(16).padStart(12, "0");
   const deploymentId = `deployment_unique_set_${suffix}`;

@@ -13,9 +13,9 @@ import {
   type SettleCommitWakeClaimInputV1,
 } from "../../src/commit/commitWakeOutbox";
 import {
-  createPGlitePersistence,
   type PGliteFlarexPersistence,
 } from "../../src/database/pglite";
+import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
 import {
   commitSeq,
   insertPendingWake,
@@ -39,7 +39,7 @@ describe("S09-B private commit-wake outbox", () => {
   });
 
   it("preserves fail-fast input validation order before transaction work", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     let transactionCalls = 0;
     const observedDatabase = new Proxy(persistence.drizzle, {
       get(target, property, receiver) {
@@ -170,7 +170,7 @@ describe("S09-B private commit-wake outbox", () => {
   });
 
   it("claims an old-epoch wake, retries it, and delivers it with exact fencing", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertWakeScope(persistence, {
       scopeUuid: WAKE_SCOPE_A,
       epochUuid: WAKE_EPOCH_B,
@@ -277,7 +277,7 @@ describe("S09-B private commit-wake outbox", () => {
   });
 
   it("reclaims an expired lease and rejects the stale same-row fence", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertWakeScope(persistence, {
       scopeUuid: WAKE_SCOPE_A,
       epochUuid: WAKE_EPOCH_A,
@@ -340,7 +340,7 @@ describe("S09-B private commit-wake outbox", () => {
   });
 
   it("uses the inclusive retained floor and permits only strictly pre-floor missing headers", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertWakeScope(persistence, {
       scopeUuid: WAKE_SCOPE_A,
       epochUuid: WAKE_EPOCH_A,
@@ -411,7 +411,7 @@ describe("S09-B private commit-wake outbox", () => {
   });
 
   it("fails closed on clock/token corruption and claim-fence exhaustion", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertWakeScope(persistence, {
       scopeUuid: WAKE_SCOPE_A,
       epochUuid: WAKE_EPOCH_A,
@@ -482,12 +482,6 @@ describe("S09-B private commit-wake outbox", () => {
     }]);
   });
 });
-
-async function migratedPGlite(): Promise<PGliteFlarexPersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  return persistence;
-}
 
 function changed<Value extends object>(
   value: Value,

@@ -26,9 +26,9 @@ import {
   StorageGenerationFenceSchema,
 } from "flarex-protocol/storage-authority";
 import { Effect } from "effect";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it } from "vitest";
 import { retainPreparedHost } from "../../../src/execution/preparation/preparedHostRuntime";
-import { openPreparedHostTestRuntime, closePreparedHostTestRuntime, preparedHostTestRuntime } from "../../execution/preparation/preparedHostRuntimeTestSupport";
+import { preparedHostTestRuntime } from "../../execution/preparation/preparedHostRuntimeTestSupport";
 
 import {
   advanceAppSchemaCandidateValidationEffect,
@@ -54,7 +54,7 @@ import {
 import {
   appendPreparedAppRowRevisionsInTransactionEffect,
 } from "../../../src/storage/documents/appRows";
-import { createPGlitePersistence } from "../../../src/database/pglite";
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 import type { ScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
 import { lockScopeClockForUpdateInTransactionEffect } from
   "../../../src/scope/scopeClock";
@@ -85,8 +85,6 @@ describe("M03-A app-schema candidate validation", () => {
     expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardPortEffect({ candidateValidation, pointCommitAuthority },
       { profile: "fullArtifactProof", deploymentId: fixture.deploymentId, scopeId: fixture.scopeId })))
       .toMatchObject({ reason: "compositionMismatch" });
-    await openPreparedHostTestRuntime(fixture.persistence.drizzle);
-    onTestFinished(() => closePreparedHostTestRuntime(fixture.persistence.drizzle));
     const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(fixture.persistence.drizzle),
       prepareFiniteAppSchemaCandidateWriteGuardPortEffect({ candidateValidation, pointCommitAuthority },
         { profile: "fullArtifactProof", deploymentId: fixture.deploymentId, scopeId: fixture.scopeId })));
@@ -1180,7 +1178,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 });
 
-type Persistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
+type Persistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
 interface Fixture {
   readonly persistence: Persistence;
@@ -1202,8 +1200,7 @@ interface Fixture {
 }
 
 async function fixtureFor(suffix: string): Promise<Fixture> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
+  const persistence = await createMigratedPGlitePersistence();
   fixtureOrdinal += 1;
   const fixtureSuffix = fixtureOrdinal.toString(16).padStart(12, "0");
   const deploymentId = `deployment_schema_validation_${suffix}`;

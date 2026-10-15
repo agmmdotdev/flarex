@@ -1,4 +1,5 @@
-import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { createTestPGlite } from "../support/pgliteSearchExtensions";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { Effect, Exit } from "effect";
 import { MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 } from "flarex-protocol/commit-protocol";
 import { isJsonObject } from "flarex-protocol/json";
@@ -61,7 +62,7 @@ describe("O07-A committed point outcome resolver", () => {
       false,
     );
 
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     let statementCount = 0;
     const resolver = createCommittedPointOutcomeResolverV1(
       persistence.drizzle,
@@ -147,7 +148,7 @@ describe("O07-A committed point outcome resolver", () => {
   });
 
   it("resolves missing, matching available, and matching expired outcomes", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertOutcomeScope(persistence);
     await insertOutcomeHeader(persistence);
     await insertCanonicalAvailableOutcome(persistence, {
@@ -206,7 +207,7 @@ describe("O07-A committed point outcome resolver", () => {
   });
 
   it("copies caller hashes before the one bounded query and decodes only after it settles", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertOutcomeScope(persistence);
     await insertOutcomeHeader(persistence);
     await insertCanonicalAvailableOutcome(persistence, {
@@ -240,7 +241,7 @@ describe("O07-A committed point outcome resolver", () => {
   });
 
   it("returns redacted typed conflicts for every exact request-key mismatch", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertOutcomeScope(persistence);
     await insertOutcomeHeader(persistence);
     await insertCanonicalAvailableOutcome(persistence, {
@@ -275,7 +276,7 @@ describe("O07-A committed point outcome resolver", () => {
   });
 
   it("classifies a constraint-bypassed whitespace-only function path as corruption", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertOutcomeScope(persistence);
     await insertOutcomeHeader(persistence);
     await insertCanonicalAvailableOutcome(persistence, {
@@ -307,7 +308,7 @@ describe("O07-A committed point outcome resolver", () => {
   });
 
   it("accepts retained and compacted old-epoch tokens without comparing current epoch", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertOutcomeScope(persistence, {
       epochUuid: OUTCOME_EPOCH_B,
       lastCommitSeq: 2n,
@@ -338,7 +339,7 @@ describe("O07-A committed point outcome resolver", () => {
   });
 
   it("fails closed for future tokens, inclusive-floor gaps, and retained epoch mismatch", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertOutcomeScope(persistence, { lastCommitSeq: 3n });
     await insertCanonicalAvailableOutcome(persistence, {
       requestKey: "floor-zero",
@@ -401,7 +402,7 @@ describe("O07-A committed point outcome resolver", () => {
   });
 
   it("rejects malformed result evidence and semantic-size drift after canonical verification", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertOutcomeScope(persistence);
     await insertOutcomeHeader(persistence);
     await insertCanonicalAvailableOutcome(persistence, {
@@ -467,7 +468,7 @@ describe("O07-A committed point outcome resolver", () => {
   });
 
   it("withholds oversized canonical evidence before verification", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertOutcomeScope(persistence);
     await insertOutcomeHeader(persistence);
     await persistence.query(
@@ -505,9 +506,8 @@ describe("O07-A committed point outcome resolver", () => {
   }, 180_000);
 
   it("maps a foreign SQL rejection once while preserving post-SQL defects", async () => {
-    const raw = newTestPGlite();
+    const raw = await createTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     const persistence = await createPGlitePersistence({ db: raw });
-    await persistence.migrate();
     const sqlResolver = createCommittedPointOutcomeResolverV1(
       persistence.drizzle,
     );
@@ -516,7 +516,7 @@ describe("O07-A committed point outcome resolver", () => {
       CommittedPointOutcomeSqlErrorV1,
     );
 
-    const live = await migratedPGlite();
+    const live = await createMigratedPGlitePersistence();
     await insertOutcomeScope(live);
     await insertOutcomeHeader(live);
     await insertCanonicalAvailableOutcome(live, { requestKey: "defect" });
@@ -547,12 +547,6 @@ describe("O07-A committed point outcome resolver", () => {
     }
   });
 });
-
-async function migratedPGlite(): Promise<PGliteFlarexPersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  return persistence;
-}
 
 function resolve(
   resolver: CommittedPointOutcomeResolverV1,

@@ -57,7 +57,6 @@ import {
 import { makePhysicalEdgeDefinition } from
   "../../../src/application/relations/binding/Policy";
 import {
-  createPGlitePersistence,
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
 import {
@@ -66,6 +65,7 @@ import {
   fxSystemScopeClocks,
 } from "../../../src/database/schema";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
+import { createMigratedPGlitePersistence, useFileScopedPGliteStoragePersistence } from "../../support/pgliteTestFixture";
 
 const scopeId = ScopeIdSchema.make(
   "scope_5a000000-0000-0000-0000-000000000001",
@@ -90,9 +90,10 @@ const targetA = decodeAppRowIdHexV1("5a00000000000000000000000000001a");
 const targetB = decodeAppRowIdHexV1("5a00000000000000000000000000001b");
 const definition = definitionPin(false);
 
+const withPersistence = useFileScopedPGliteStoragePersistence();
+
 describe("S12 app relation-edge storage", () => {
-  it("puts, reorders, removes, retargets, and coalesces endpoint versions", async () => {
-    const persistence = await edgePersistence();
+  it("puts, reorders, removes, retargets, and coalesces endpoint versions", async () => withEdgePersistence(async persistence => {
     const first = await apply(persistence, scopeId, 1n, [
       put(definition, occurrence(sourceA, targetA), 0),
       put(definition, occurrence(sourceA, targetB), 1),
@@ -149,10 +150,9 @@ describe("S12 app relation-edge storage", () => {
     }).from(fxAppEdgeCurrent);
     expect(remaining).toHaveLength(1);
     expect(await version(persistence, scopeId, "outgoing", sourceA)).toBe(4n);
-  });
+  }));
 
-  it("keeps physical definitions and scopes isolated", async () => {
-    const persistence = await edgePersistence();
+  it("keeps physical definitions and scopes isolated", async () => withEdgePersistence(async persistence => {
     const replacement = definitionPin(false, 32);
     await apply(persistence, scopeId, 1n, [
       put(definition, occurrence(sourceA, targetA), 0),
@@ -182,10 +182,9 @@ describe("S12 app relation-edge storage", () => {
       }))
     );
     expect(invalidScalarPosition).toBeInstanceOf(AppRelationEdgeInputError);
-  });
+  }));
 
-  it("checks exact current incoming existence for writer-side restrict", async () => {
-    const persistence = await edgePersistence();
+  it("checks exact current incoming existence for writer-side restrict", async () => withEdgePersistence(async persistence => {
     const replacement = definitionPin(false, 32);
     await apply(persistence, scopeId, 1n, [
       put(definition, occurrence(sourceA, targetA), 0),
@@ -243,10 +242,9 @@ describe("S12 app relation-edge storage", () => {
         targetRowId: targetA,
       }),
     ))).resolves.toBe(false);
-  });
+  }));
 
-  it("fails closed on duplicate identity and retained digest collision", async () => {
-    const persistence = await edgePersistence();
+  it("fails closed on duplicate identity and retained digest collision", async () => withEdgePersistence(async persistence => {
     const duplicateBatch = await persistence.drizzle.transaction((tx) =>
       runEdgeFailure(applyAppRelationEdgeChangesInTransactionEffect(tx, {
         scopeId,
@@ -308,10 +306,9 @@ describe("S12 app relation-edge storage", () => {
       AppRelationEdgeOccurrenceCollisionError,
     );
     expect(await persistence.drizzle.select().from(fxAppEdgeCurrent)).toHaveLength(1);
-  });
+  }));
 
-  it("classifies incoherent retained evidence as corruption", async () => {
-    const persistence = await edgePersistence();
+  it("classifies incoherent retained evidence as corruption", async () => withEdgePersistence(async persistence => {
     await apply(persistence, scopeId, 1n, [
       put(definition, occurrence(sourceA, targetA), 0),
     ]);
@@ -329,10 +326,9 @@ describe("S12 app relation-edge storage", () => {
       }))
     );
     expect(failure).toBeInstanceOf(AppRelationEdgeCorruptionError);
-  });
+  }));
 
-  it("uses bounded statement batches across reads, writes, and versions", async () => {
-    const persistence = await edgePersistence();
+  it("uses bounded statement batches across reads, writes, and versions", async () => withEdgePersistence(async persistence => {
     const actions = Array.from({ length: 513 }, (_, index) => {
       const source = decodeAppRowIdHexV1(
         (10_000 + index).toString(16).padStart(32, "0"),
@@ -379,10 +375,11 @@ describe("S12 app relation-edge storage", () => {
     expect(
       await persistence.drizzle.select().from(fxAppEdgeAdjacencyVersions),
     ).toHaveLength(514);
-  }, 120_000);
+  }), 120_000);
 
   it("reads 128 incoming adjacency versions in one correlated query", async () => {
-    const persistence = await edgePersistence();
+    const persistence = await createMigratedPGlitePersistence();
+    await seedEdgeClocks(persistence);
     const endpoints = Object.freeze(Array.from({ length: 128 }, (_, index) =>
       Object.freeze({
         edgeDefinitionId,
@@ -453,8 +450,7 @@ describe("S12 app relation-edge storage", () => {
     });
   });
 
-  it("rejects the 4,097th action before any SQL", async () => {
-    const persistence = await edgePersistence();
+  it("rejects the 4,097th action before any SQL", async () => withEdgePersistence(async persistence => {
     const actions = Array.from({ length: 4_097 }, (_, index) => {
       const source = decodeAppRowIdHexV1(
         (30_000 + index).toString(16).padStart(32, "0"),
@@ -480,10 +476,9 @@ describe("S12 app relation-edge storage", () => {
     });
     expect(statements).toEqual([]);
     expect(await persistence.drizzle.select().from(fxAppEdgeCurrent)).toEqual([]);
-  });
+  }));
 
-  it("rejects a current-edge change behind an affected endpoint version", async () => {
-    const persistence = await edgePersistence();
+  it("rejects a current-edge change behind an affected endpoint version", async () => withEdgePersistence(async persistence => {
     await apply(persistence, scopeId, 5n, [
       put(definition, occurrence(sourceA, targetA), 0),
     ]);
@@ -501,10 +496,9 @@ describe("S12 app relation-edge storage", () => {
     });
     expect(await persistence.drizzle.select().from(fxAppEdgeCurrent)).toHaveLength(1);
     expect(await version(persistence, scopeId, "incoming", targetA)).toBe(5n);
-  });
+  }));
 
-  it("rejects stored positions that disagree with the physical definition", async () => {
-    const persistence = await edgePersistence();
+  it("rejects stored positions that disagree with the physical definition", async () => withEdgePersistence(async persistence => {
     const scalar = definitionPin(true, 33);
     await apply(persistence, scopeId, 1n, [
       put(scalar, occurrence(sourceB, targetB), null),
@@ -528,10 +522,9 @@ describe("S12 app relation-edge storage", () => {
       }))
     );
     expect(pageFailure).toBeInstanceOf(AppRelationEdgeCorruptionError);
-  });
+  }));
 
-  it("reads at most 128 incoming identities with one-row lookahead", async () => {
-    const persistence = await edgePersistence();
+  it("reads at most 128 incoming identities with one-row lookahead", async () => withEdgePersistence(async persistence => {
     const actions: AppRelationEdgeStorageAction[] = [];
     for (let index = 1; index <= 130; index += 1) {
       const source = decodeAppRowIdHexV1(index.toString(16).padStart(32, "0"));
@@ -548,10 +541,9 @@ describe("S12 app relation-edge storage", () => {
     expect(second.items).toHaveLength(2);
     expect(second.exhausted).toBe(true);
     expect(second.nextFrontier).toBeNull();
-  });
+  }));
 
-  it("validates provenance on the unreturned incoming lookahead row", async () => {
-    const persistence = await edgePersistence();
+  it("validates provenance on the unreturned incoming lookahead row", async () => withEdgePersistence(async persistence => {
     await apply(persistence, scopeId, 9n, [
       put(definition, occurrence(sourceA, targetA), 0),
       put(definition, occurrence(sourceB, targetA), 0),
@@ -576,10 +568,9 @@ describe("S12 app relation-edge storage", () => {
       operation: "readIncomingPage",
       reason: "incoming edge provenance exceeds adjacency-version evidence",
     });
-  });
+  }));
 
-  it("rolls current edges and endpoint versions back with the caller transaction", async () => {
-    const persistence = await edgePersistence();
+  it("rolls current edges and endpoint versions back with the caller transaction", async () => withEdgePersistence(async persistence => {
     await expect(persistence.drizzle.transaction(async (tx) => {
       await runEdge(applyAppRelationEdgeChangesInTransactionEffect(tx, {
         scopeId,
@@ -593,10 +584,9 @@ describe("S12 app relation-edge storage", () => {
     expect(
       await persistence.drizzle.select().from(fxAppEdgeAdjacencyVersions),
     ).toEqual([]);
-  });
+  }));
 
-  it("keeps a captured mixed-action failure atomic", async () => {
-    const persistence = await edgePersistence();
+  it("keeps a captured mixed-action failure atomic", async () => withEdgePersistence(async persistence => {
     const failure = await persistence.drizzle.transaction((tx) =>
       runEdgeFailure(applyAppRelationEdgeChangesInTransactionEffect(tx, {
         scopeId,
@@ -613,10 +603,9 @@ describe("S12 app relation-edge storage", () => {
     expect(
       await persistence.drizzle.select().from(fxAppEdgeAdjacencyVersions),
     ).toEqual([]);
-  });
+  }));
 
-  it("preserves the original failure when savepoint cleanup also fails", async () => {
-    const persistence = await edgePersistence();
+  it("preserves the original failure when savepoint cleanup also fails", async () => withEdgePersistence(async persistence => {
     const cleanupDefect = new Error("injected savepoint cleanup failure");
     const exit = await persistence.drizzle.transaction((tx) => runEdgeExit(
       applyAppRelationEdgeChangesInTransactionEffect(
@@ -646,10 +635,11 @@ describe("S12 app relation-edge storage", () => {
     });
     expect(Result.getOrThrow(Cause.findDie(exit.cause)).defect)
       .toBe(cleanupDefect);
-  });
+  }));
 
   it("restores transaction usability after a late persistence failure", async () => {
-    const persistence = await edgePersistence();
+    const persistence = await createMigratedPGlitePersistence();
+    await seedEdgeClocks(persistence);
     await persistence.query(`
       create function reject_edge_version_insert() returns trigger
       language plpgsql as $$
@@ -698,12 +688,16 @@ describe("S12 app relation-edge storage", () => {
   });
 });
 
-async function edgePersistence(): Promise<PGliteFlarexPersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
+function withEdgePersistence(run: (persistence: PGliteFlarexPersistence) => Promise<void>): Promise<void> {
+  return withPersistence(async persistence => {
+    await seedEdgeClocks(persistence);
+    await run(persistence);
+  });
+}
+
+async function seedEdgeClocks(persistence: PGliteFlarexPersistence): Promise<void> {
   await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch, lastCommitSeq: 100n });
   await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId: otherScopeId, epoch: otherEpoch, lastCommitSeq: 100n });
-  return persistence;
 }
 
 function definitionPin(

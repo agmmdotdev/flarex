@@ -19,9 +19,9 @@ import {
   type CommitFeedRepositoryV1,
 } from "../../src/commit/commitFeed";
 import {
-  createPGlitePersistence,
   type PGliteFlarexPersistence,
 } from "../../src/database/pglite";
+import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
 import type { PostgresFlarexPersistence } from "../../src/database/postgres";
 import { runEffect } from "../support/effectTestRuntime";
 
@@ -98,7 +98,7 @@ describe("S08 package-private commit feed reader", () => {
         persistenceRoot.flarexSchema,
     ).toBe(false);
 
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     expect("fxSystemCommits" in persistence.drizzle.query).toBe(false);
     expect(
       "fxSystemCommitAppRowChanges" in persistence.drizzle.query,
@@ -203,7 +203,7 @@ describe("S08 package-private commit feed reader", () => {
   });
 
   it("isolates scopes while retaining old-epoch revision provenance", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertScope(persistence, SCOPE_GROUPS, EPOCH_B, 1n);
     await insertScope(persistence, SCOPE_OTHER, EPOCH_B, 1n);
     await insertCommitGroup(persistence, {
@@ -239,7 +239,7 @@ describe("S08 package-private commit feed reader", () => {
   });
 
   it("fails closed for interior and tail commit-header gaps", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertScope(persistence, SCOPE_INTERIOR_GAP, EPOCH_A, 3n);
     await insertHeader(persistence, {
       scopeUuid: SCOPE_INTERIOR_GAP,
@@ -275,7 +275,7 @@ describe("S08 package-private commit feed reader", () => {
   });
 
   it("rejects missing, extra, and noncontiguous child evidence", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertScope(persistence, SCOPE_MISSING_CHILD, EPOCH_A, 1n);
     await insertHeader(persistence, {
       scopeUuid: SCOPE_MISSING_CHILD,
@@ -342,7 +342,7 @@ describe("S08 package-private commit feed reader", () => {
   });
 
   it("strictly correlates each child with its header and same-epoch revision", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await persistence.query(`
       alter table fx_system_commit_app_row_change
         drop constraint fx_system_commit_app_row_change_header_fk,
@@ -403,7 +403,7 @@ describe("S08 package-private commit feed reader", () => {
   });
 
   it("rejects missing, extra, noncontiguous, mismatched, duplicate, and noncanonical relation facts", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await persistence.query(`
       alter table fx_system_commit_relation_adjacency_change
         drop constraint fx_system_commit_relation_adjacency_header_fk,
@@ -537,7 +537,7 @@ describe("S08 package-private commit feed reader", () => {
   });
 
   it("requires reset only before the retained floor and resumes at floor minus one", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertScope(persistence, SCOPE_FLOOR, EPOCH_A, 3n);
     for (const commitSeq of [1n, 2n, 3n]) {
       await insertHeader(persistence, {
@@ -596,7 +596,7 @@ describe("S08 package-private commit feed reader", () => {
   });
 
   it("returns exactly 100 whole commit groups before an explicit continuation", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertScope(persistence, SCOPE_HEADER_LIMIT, EPOCH_A, 101n);
     await persistence.query(
       `
@@ -634,7 +634,7 @@ describe("S08 package-private commit feed reader", () => {
   });
 
   it("returns the exact combined child maximum without splitting and bounds every query", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertScope(persistence, SCOPE_CHILD_LIMIT, EPOCH_A, 3n);
     await insertCommitGroup(persistence, {
       scopeUuid: SCOPE_CHILD_LIMIT,
@@ -733,7 +733,7 @@ describe("S08 package-private commit feed reader", () => {
   }, 30_000);
 
   it("closes repeatable read before materialization and detaches row bytes", async () => {
-    const persistence = await migratedPGlite();
+    const persistence = await createMigratedPGlitePersistence();
     await insertScope(persistence, SCOPE_DETACHED, EPOCH_A, 1n);
     await insertCommitGroup(persistence, {
       scopeUuid: SCOPE_DETACHED,
@@ -802,12 +802,6 @@ describe("S08 package-private commit feed reader", () => {
     ).toBe(rowHex(80_001n));
   });
 });
-
-async function migratedPGlite(): Promise<PGliteFlarexPersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  return persistence;
-}
 
 function listAfter(
   repository: CommitFeedRepositoryV1,

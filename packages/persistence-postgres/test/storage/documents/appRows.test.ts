@@ -1,4 +1,4 @@
-import { newTestPGlite } from "../../support/pgliteSearchExtensions";
+import { useFileScopedPGliteStoragePersistence } from "../../support/pgliteTestFixture";
 import { snapshotHydrationBatchScenario } from "./snapshotHydrationBatchScenario";
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import {
@@ -42,7 +42,6 @@ import {
   AppRowStorageCorruptionError,
 } from "../../../src/storage/documents/appRowErrors";
 import {
-  createPGlitePersistence,
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
@@ -71,6 +70,8 @@ const corruptionRowId = decodeAppRowIdHexV1(
 const schemaVersionId = decodeCatalogSchemaVersionId("schema_rows_v1");
 const creationTime = decodeAppCreationTimeV1(1_725_000_000_000.25);
 const identity = Object.freeze({ scopeId, tableId, rowId }) satisfies AppRowIdentityV1;
+
+const withPersistence = useFileScopedPGliteStoragePersistence();
 
 describe("FlarexDB app-row revision storage", () => {
   it("issues stored decoder provenance only after full evidence verification and keeps runtime binary untrusted as JSON", async () => {
@@ -105,19 +106,12 @@ describe("FlarexDB app-row revision storage", () => {
       .toMatchObject({ issue: { reason: "sha256Mismatch" } });
   });
 
-  it("hydrates bounded historical batches in request order with exact failures", async () => {
-    const db = newTestPGlite();
-    const persistence = await createPGlitePersistence({ db });
-    await persistence.migrate();
-    await insertClock(persistence, scopeId, firstEpoch);
-    try {
-      await admittedTransaction(persistence, tx => snapshotHydrationBatchScenario(tx,
-        { identity, epoch: firstEpoch, schemaVersionId, creationTime }));
-    } finally { await db.close(); }
-  });
+  it("hydrates bounded historical batches in request order with exact failures", async () => withAppRows(async persistence => {
+    await admittedTransaction(persistence, tx => snapshotHydrationBatchScenario(tx,
+      { identity, epoch: firstEpoch, schemaVersionId, creationTime }));
+  }));
 
-  it("preserves exact missing, live, update, and tombstone history", async () => {
-    const persistence = await appRowPersistence();
+  it("preserves exact missing, live, update, and tombstone history", async () => withAppRows(async persistence => {
     const first = await canonicalDocument({
       title: "before\u0000after",
       count: 9_007_199_254_740_993n,
@@ -201,10 +195,9 @@ describe("FlarexDB app-row revision storage", () => {
       commitSeq: 3n,
       writeEpochUuid: "50000000-0000-0000-0000-000000000002",
     });
-  });
+  }));
 
-  it("projects exact point reads into present and qualified missing dependencies", async () => {
-    const persistence = await appRowPersistence();
+  it("projects exact point reads into present and qualified missing dependencies", async () => withAppRows(async persistence => {
     const first = await canonicalDocument({ title: "first" });
     const replacement = await canonicalDocument({ title: "replacement" });
     await append(persistence, {
@@ -300,10 +293,9 @@ describe("FlarexDB app-row revision storage", () => {
       `select count(*)::text as revisions from fx_app_row_rev`,
     );
     expect(counts.rows).toEqual([{ revisions: "3" }]);
-  });
+  }));
 
-  it("keeps identical physical row bytes isolated by scope and table", async () => {
-    const persistence = await appRowPersistence();
+  it("keeps identical physical row bytes isolated by scope and table", async () => withAppRows(async persistence => {
     const document = await canonicalDocument({ title: "isolated" });
     await append(persistence, {
       kind: "live",
@@ -371,10 +363,9 @@ describe("FlarexDB app-row revision storage", () => {
         })),
       ),
     ).resolves.toEqual({ kind: "missing" });
-  });
+  }));
 
-  it("rolls back an appended revision when current-pointer CAS fails", async () => {
-    const persistence = await appRowPersistence();
+  it("rolls back an appended revision when current-pointer CAS fails", async () => withAppRows(async persistence => {
     const first = await canonicalDocument({ value: 1 });
     const second = await canonicalDocument({ value: 2 });
     const stale = await canonicalDocument({ value: 3 });
@@ -430,10 +421,9 @@ describe("FlarexDB app-row revision storage", () => {
         (select count(*)::text from fx_app_row_current) as current_rows
     `);
     expect(counts.rows).toEqual([{ revisions: "2", current_rows: "1" }]);
-  });
+  }));
 
-  it("preserves prepared batch failures and foreign defects", async () => {
-    const persistence = await appRowPersistence();
+  it("preserves prepared batch failures and foreign defects", async () => withAppRows(async persistence => {
     const document = await canonicalDocument({ value: "prepared" });
     const input = {
       kind: "live",
@@ -471,10 +461,9 @@ describe("FlarexDB app-row revision storage", () => {
       expect(Cause.hasFails(defect.cause)).toBe(false);
       expect(Result.getOrThrow(Cause.findDefect(defect.cause))).toBe(foreignCause);
     }
-  });
+  }));
 
-  it("rejects creation-time changes on live and tombstone revisions", async () => {
-    const persistence = await appRowPersistence();
+  it("rejects creation-time changes on live and tombstone revisions", async () => withAppRows(async persistence => {
     const first = await canonicalDocument({ value: 1 });
     await append(persistence, {
       kind: "live",
@@ -531,10 +520,9 @@ describe("FlarexDB app-row revision storage", () => {
       `select count(*)::text as revisions from fx_app_row_rev`,
     );
     expect(counts.rows).toEqual([{ revisions: "1" }]);
-  });
+  }));
 
-  it("fails closed on legacy scope authority and corrupted value evidence", async () => {
-    const persistence = await appRowPersistence();
+  it("fails closed on legacy scope authority and corrupted value evidence", async () => withAppRows(async persistence => {
     const legacyScope = ScopeIdSchema.make("scope-legacy-row-path");
     await insertClock(
       persistence,
@@ -622,7 +610,7 @@ describe("FlarexDB app-row revision storage", () => {
         corruptionRowId,
       ),
     ).rejects.toBeInstanceOf(AppRowStorageCorruptionError);
-  });
+  }));
 
   it("exposes the read kernel as a typed lazy Effect", () => {
     let queryConstructed = false;
@@ -672,31 +660,31 @@ describe("FlarexDB app-row revision storage", () => {
     expect(queryConstructed).toBe(false);
   });
 
-  it("maps a rejected revision query into the typed persistence channel", async () => {
+  it("maps a rejected revision query into the typed persistence channel", async () => withAppRows(async persistence => {
     const rejection = new Error("revision query rejected");
-    const failure = await withSnapshotReadFixture(() => Promise.reject(rejection), tx =>
+    const failure = await withSnapshotReadFixture(persistence, () => Promise.reject(rejection), tx =>
       runEffectFailure(readAppRowAtSnapshotInTransactionEffect(tx, {
         ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
       })));
     expect(failure).toBeInstanceOf(AppRowReadPersistenceError);
     expect(failure).toMatchObject({ operation: "readSnapshotRevision", cause: rejection });
-  });
+  }));
 
-  it("maps malformed stored revision columns into typed corruption", async () => {
+  it("maps malformed stored revision columns into typed corruption", async () => withAppRows(async persistence => {
     const row = { ...storedTombstoneDriverRow(), scopeUuid: "not-a-canonical-uuid" };
-    const failure = await withSnapshotReadFixture(() => Promise.resolve([row]), tx =>
+    const failure = await withSnapshotReadFixture(persistence, () => Promise.resolve([row]), tx =>
       runEffectFailure(readAppRowAtSnapshotInTransactionEffect(tx, {
         ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
       })));
     expect(failure).toBeInstanceOf(AppRowStorageCorruptionError);
     expect(failure).toMatchObject({ reason: "stored revision columns do not decode" });
-  });
+  }));
 
-  it("maps malformed live canonical bytes into typed corruption", async () => {
+  it("maps malformed live canonical bytes into typed corruption", async () => withAppRows(async persistence => {
     const document = await canonicalDocument({ title: "malformed codec" });
     const storedRow = storedLiveDriverRow(document);
     storedRow.valueBytes = undefined;
-    const exit = await withSnapshotReadFixture(() => Promise.resolve([storedRow]), tx =>
+    const exit = await withSnapshotReadFixture(persistence, () => Promise.resolve([storedRow]), tx =>
       Effect.runPromiseExit(readAppRowAtSnapshotInTransactionEffect(tx, {
         ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
       })));
@@ -708,12 +696,12 @@ describe("FlarexDB app-row revision storage", () => {
       expect(Option.isSome(failure)).toBe(true);
       if (Option.isSome(failure)) expect(failure.value).toBeInstanceOf(AppRowStorageCorruptionError);
     }
-  });
+  }));
 
-  it("maps mismatched trusted document fields into typed corruption", async () => {
+  it("maps mismatched trusted document fields into typed corruption", async () => withAppRows(async persistence => {
     const document = await canonicalizeAppDocumentV1({ tableId, rowId: corruptionRowId, creationTime,
       fields: { title: "mismatched identity" } });
-    const exit = await withSnapshotReadFixture(() => Promise.resolve([storedLiveDriverRow(document)]), tx =>
+    const exit = await withSnapshotReadFixture(persistence, () => Promise.resolve([storedLiveDriverRow(document)]), tx =>
       Effect.runPromiseExit(readAppRowAtSnapshotInTransactionEffect(tx, {
         ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
       })));
@@ -725,12 +713,12 @@ describe("FlarexDB app-row revision storage", () => {
       expect(Option.isSome(failure)).toBe(true);
       if (Option.isSome(failure)) expect(failure.value).toBeInstanceOf(AppRowStorageCorruptionError);
     }
-  });
+  }));
 
-  it("preserves unexpected live evidence verification rejections as defects", async () => {
+  it("preserves unexpected live evidence verification rejections as defects", async () => withAppRows(async persistence => {
     const document = await canonicalDocument({ title: "crypto defect" });
     const rejection = new Error("app-row digest rejected");
-    await withSnapshotReadFixture(() => Promise.resolve([storedLiveDriverRow(document)]), async tx => {
+    await withSnapshotReadFixture(persistence, () => Promise.resolve([storedLiveDriverRow(document)]), async tx => {
       // Installation construction uses hashing too; inject only after admission.
       const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(rejection);
       try {
@@ -745,25 +733,25 @@ describe("FlarexDB app-row revision storage", () => {
         }
       } finally { digest.mockRestore(); }
     });
-  });
+  }));
 
-  it("rejects truthy and falsy non-boolean tombstone discriminators", async () => {
+  it("rejects truthy and falsy non-boolean tombstone discriminators", async () => withAppRows(async persistence => {
     for (const isTombstone of ["false", 0]) {
       const row = { ...storedTombstoneDriverRow(), isTombstone };
-      const failure = await withSnapshotReadFixture(() => Promise.resolve([row]), tx =>
+      const failure = await withSnapshotReadFixture(persistence, () => Promise.resolve([row]), tx =>
         runEffectFailure(readAppRowAtSnapshotInTransactionEffect(tx, {
           ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
         })));
       expect(failure).toBeInstanceOf(AppRowStorageCorruptionError);
       expect(failure).toMatchObject({ reason: "stored revision columns do not decode" });
     }
-  });
+  }));
 
-  it("preserves unexpected stored-row accessor throws as defects", async () => {
+  it("preserves unexpected stored-row accessor throws as defects", async () => withAppRows(async persistence => {
     const defect = new Error("stored revision accessor defect");
     const storedRow = storedTombstoneDriverRow();
     Object.defineProperty(storedRow, "scopeUuid", { enumerable: true, get(): never { throw defect; } });
-    const exit = await withSnapshotReadFixture(() => Promise.resolve([storedRow]), tx =>
+    const exit = await withSnapshotReadFixture(persistence, () => Promise.resolve([storedRow]), tx =>
       Effect.runPromiseExit(readAppRowAtSnapshotInTransactionEffect(tx, {
         ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
       })));
@@ -773,9 +761,9 @@ describe("FlarexDB app-row revision storage", () => {
       expect(Cause.hasFails(exit.cause)).toBe(false);
       expect(exit.cause.toString()).toContain(defect.message);
     }
-  });
+  }));
 
-  it("short-circuits malformed earlier columns before later accessors", async () => {
+  it("short-circuits malformed earlier columns before later accessors", async () => withAppRows(async persistence => {
     const storedRow = storedTombstoneDriverRow();
     storedRow.rowId = new Uint8Array(15);
     let scopeUuidObserved = false;
@@ -783,18 +771,18 @@ describe("FlarexDB app-row revision storage", () => {
       scopeUuidObserved = true;
       throw new Error("later scope UUID accessor must not run");
     } });
-    const failure = await withSnapshotReadFixture(() => Promise.resolve([storedRow]), tx =>
+    const failure = await withSnapshotReadFixture(persistence, () => Promise.resolve([storedRow]), tx =>
       runEffectFailure(readAppRowAtSnapshotInTransactionEffect(tx, {
         ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
       })));
     expect(failure).toBeInstanceOf(AppRowStorageCorruptionError);
     expect(failure).toMatchObject({ reason: "stored revision columns do not decode" });
     expect(scopeUuidObserved).toBe(false);
-  });
+  }));
 
-  it("preserves query construction exceptions as defects", async () => {
+  it("preserves query construction exceptions as defects", async () => withAppRows(async persistence => {
     const defect = new Error("app-row query construction defect");
-    const exit = await withSnapshotReadFixture(() => Promise.resolve([]), tx =>
+    const exit = await withSnapshotReadFixture(persistence, () => Promise.resolve([]), tx =>
       Effect.runPromiseExit(readAppRowAtSnapshotInTransactionEffect(tx, {
         ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
       })), () => { throw defect; });
@@ -804,12 +792,12 @@ describe("FlarexDB app-row revision storage", () => {
       expect(Cause.hasFails(exit.cause)).toBe(false);
       expect(exit.cause.toString()).toContain(defect.message);
     }
-  });
+  }));
 
-  it("waits for a pending database read before interruption completes", async () => {
+  it("waits for a pending database read before interruption completes", async () => withAppRows(async persistence => {
     const entered = deferredValue<void>();
     const query = deferredValue<ReadonlyArray<unknown>>();
-    await withSnapshotReadFixture(() => { entered.resolve(undefined); return query.promise; }, async tx => {
+    await withSnapshotReadFixture(persistence, () => { entered.resolve(undefined); return query.promise; }, async tx => {
       const fiber = Effect.runFork(readAppRowAtSnapshotInTransactionEffect(tx, {
         ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
       }));
@@ -826,9 +814,8 @@ describe("FlarexDB app-row revision storage", () => {
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
     });
-  });
-  it("enforces physical row constraints and keeps mutation off the root API", async () => {
-    const persistence = await appRowPersistence();
+  }));
+  it("enforces physical row constraints and keeps mutation off the root API", async () => withAppRows(async persistence => {
     for (const statement of [
       `insert into fx_app_row_rev
         (scope_uuid, table_id, row_id, commit_seq, write_epoch_uuid,
@@ -864,14 +851,14 @@ describe("FlarexDB app-row revision storage", () => {
       : false = true;
     expect(hasNoAmbientMutation).toBe(true);
     expect(hasNoAmbientPointRead).toBe(true);
-  });
+  }));
 });
 
-async function appRowPersistence(): Promise<PGliteFlarexPersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  await insertClock(persistence, scopeId, firstEpoch);
-  return persistence;
+function withAppRows(run: (persistence: PGliteFlarexPersistence) => Promise<void>): Promise<void> {
+  return withPersistence(async persistence => {
+    await insertClock(persistence, scopeId, firstEpoch);
+    await run(persistence);
+  });
 }
 
 function admittedTransaction<Value>(persistence: PGliteFlarexPersistence,
@@ -954,35 +941,30 @@ async function pointReadAt(
 }
 
 async function withSnapshotReadFixture<Value>(
+  persistence: PGliteFlarexPersistence,
   read: () => PromiseLike<ReadonlyArray<unknown>>,
   use: (tx: AppRowTransaction) => Promise<Value>,
   construct?: () => void,
 ): Promise<Value> {
-  const db = newTestPGlite();
-  try {
-    const persistence = await createPGlitePersistence({ db });
-    await persistence.migrate();
-    await insertClock(persistence, scopeId, firstEpoch);
-    return await admittedTransaction(persistence, async tx => {
-      // Admission and scope authority remain real reads on this transaction.
-      // Only the bounded snapshot driver's result is replaced by the witness.
-      const execute = vi.spyOn(tx, "execute").mockImplementation(() => {
-        construct?.();
-        return new PgRaw(async () => {
-          const rows = await read();
-          return { rows: rows.length === 0 ? [{ ordinal: 0, requestedRowId: appRowIdHexV1ToBytes(rowId),
-            rowPresent: false, bodyWithheld: false }] : rows.map((row, ordinal) => {
-            if (typeof row !== "object" || row === null) return row;
-            // Copy descriptors without observing later corrupt stored getters.
-            return Object.defineProperties({ ordinal, requestedRowId: appRowIdHexV1ToBytes(rowId),
-              rowPresent: true, bodyWithheld: false }, Object.getOwnPropertyDescriptors(row));
-          }) };
-        }, sql`select fixture_snapshot_envelope`, { sql: "select fixture_snapshot_envelope", params: [] }, result => result);
-      });
-      try { return await use(tx); }
-      finally { execute.mockRestore(); }
+  return admittedTransaction(persistence, async tx => {
+    // Admission and scope authority remain real reads on this transaction.
+    // Only the bounded snapshot driver's result is replaced by the witness.
+    const execute = vi.spyOn(tx, "execute").mockImplementation(() => {
+      construct?.();
+      return new PgRaw(async () => {
+        const rows = await read();
+        return { rows: rows.length === 0 ? [{ ordinal: 0, requestedRowId: appRowIdHexV1ToBytes(rowId),
+          rowPresent: false, bodyWithheld: false }] : rows.map((row, ordinal) => {
+          if (typeof row !== "object" || row === null) return row;
+          // Copy descriptors without observing later corrupt stored getters.
+          return Object.defineProperties({ ordinal, requestedRowId: appRowIdHexV1ToBytes(rowId),
+            rowPresent: true, bodyWithheld: false }, Object.getOwnPropertyDescriptors(row));
+        }) };
+      }, sql`select fixture_snapshot_envelope`, { sql: "select fixture_snapshot_envelope", params: [] }, result => result);
     });
-  } finally { await db.close(); }
+    try { return await use(tx); }
+    finally { execute.mockRestore(); }
+  });
 }
 
 function storedTombstoneDriverRow(): Record<string, unknown> {

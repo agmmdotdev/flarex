@@ -193,6 +193,16 @@ and restart cases keep independent fixtures. The shared
 both drivers; each driver retains its own reset/disposal owner. Their lifecycle
 contract scenarios are shared too.
 
+Document revision and relation-edge storage suites use the same lifecycle with
+`useFileScopedPGliteStoragePersistence`. Its reset atomically deletes only row,
+edge and scope-clock/authority state, preserving foreign keys, deferred pairing
+checks and system seeds. Each case still commits and rolls back through the real
+transaction owners. Persistent trigger/constraint corruption cases keep separate
+backends. Catalog and commit suites restore fresh databases from the shared
+image through `createMigratedPGlitePersistence`; they retain foreign-database
+identity witnesses and register runtime/database cleanup rather than migrating
+or leaving a backend open for each case.
+
 Ordinary PostgreSQL suites reuse `useFileScopedPostgresPersistence` where row
 reset preserves the required baseline. It drains an outstanding callback and
 its reset before another borrow or test, including after caller timeout. Keep

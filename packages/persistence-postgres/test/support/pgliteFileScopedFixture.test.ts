@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { ScopeEpochSchema, ScopeIdSchema } from "flarex-protocol/storage-authority";
 import type { PGliteFlarexPersistence } from "../../src/database/pglite";
 import { preparedHostTestRuntime } from "../execution/preparation/preparedHostRuntimeTestSupport";
 import { registerFileScopedPersistenceTests } from "./fileScopedPersistenceScenario";
-import { useFileScopedPGliteRuntimePersistence } from "./pgliteTestFixture";
-
-const withPersistence = useFileScopedPGliteRuntimePersistence();
+import { useFileScopedPGliteRuntimePersistence, useFileScopedPGliteStoragePersistence } from "./pgliteTestFixture";
+import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
 
 describe("file-scoped PGlite runtime fixture", () => {
+  const withPersistence = useFileScopedPGliteRuntimePersistence();
   registerFileScopedPersistenceTests(withPersistence, (previous, current) => {
     expect(current).not.toBe(previous);
     expect(() => preparedHostTestRuntime(previous.drizzle)).toThrow("no open host runtime");
@@ -39,6 +40,39 @@ describe("file-scoped PGlite runtime fixture", () => {
       expect((await persistence.query("select to_regclass('fixture_runtime_reset_ref') as relation")).rows)
         .toEqual([{ relation: null }]);
       expect(await persistence.getDeploymentMetadata("fixture_reset")).toBeNull();
+    });
+  });
+});
+
+describe("file-scoped PGlite storage fixture", () => {
+  const withPersistence = useFileScopedPGliteStoragePersistence();
+
+  it("resets scope authority atomically, preserves seeds and rebuilds after an unexpected dependant", async () => {
+    const scope = { scopeId: ScopeIdSchema.make("scope_72000000-0000-4000-8000-000000000001"),
+      epoch: ScopeEpochSchema.make("epoch_72000000-0000-4000-8000-000000000002") };
+    let baseline: Awaited<ReturnType<typeof seededRows>> = [];
+    await withPersistence(async persistence => {
+      baseline = await seededRows(persistence);
+      expect(baseline).toHaveLength(5);
+      await insertCurrentScopeClockFixture(persistence.drizzle, scope);
+    });
+
+    await expect(withPersistence(async persistence => {
+      expect(await seededRows(persistence)).toEqual(baseline);
+      expect(await persistence.getScopeClock(scope.scopeId)).toBeNull();
+      expect((await persistence.query("select scope_id from fx_system_scope_execution_authority")).rows).toEqual([]);
+      await insertCurrentScopeClockFixture(persistence.drizzle, scope);
+      await persistence.query("delete from fx_system_retained_history_scheduler");
+      await persistence.query(`create table fixture_storage_reset_ref (
+        scope_id text references fx_system_scope_clock (scope_id))`);
+      await persistence.query("insert into fixture_storage_reset_ref values ($1)", [scope.scopeId]);
+    })).rejects.toMatchObject({ code: "23503" });
+
+    await withPersistence(async persistence => {
+      expect(await seededRows(persistence)).toEqual(baseline);
+      expect(await persistence.getScopeClock(scope.scopeId)).toBeNull();
+      expect((await persistence.query("select to_regclass('fixture_storage_reset_ref') as relation")).rows)
+        .toEqual([{ relation: null }]);
     });
   });
 });
