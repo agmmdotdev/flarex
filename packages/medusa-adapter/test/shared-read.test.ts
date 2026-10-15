@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mockRelationalRead } from "./mock-relational-read";
 import { Effect, Option, Result, Schema } from "effect";
 import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { commerceDecoder } from "../src/value/decoder";
-import type { CommerceRelation } from "../src/query/relations";
+import type { CommerceRelation, CommerceRelationReadContext } from "../src/query/relations";
+import { resolveCommerceRelationFilter } from "../src/query/relation-filter";
 import { makeReadCatalog, type ReadTable } from "../src/query/catalog";
 import { compileWhere, selectorPredicate, type WherePolicy } from "../src/query/predicate";
 import { compileProjection, projectRows, type ProjectionPolicy } from "../src/query/projection";
@@ -38,7 +39,228 @@ const profile: ProjectionPolicy = {
   nested: new Map([["editor", retained], ["editions", retained], ["labels", retained]]), nullToOne: true,
 };
 
+/** Script owned store results without evaluating predicates, projection or
+ * relation algorithms in the harness. The real read owner performs those. */
+async function selectionFixture(responses: ReadonlyMap<string, readonly JsonObject[]>) {
+  const lifetime = await Effect.runPromise(makeBoundedRequestLifetime(reason => commerceError(reason),
+    commerceLimits, {}, {}, "selection-admission", "read"));
+  const operations: string[] = [];
+  const queries: Array<{ table: string; query: unknown }> = [];
+  const write = vi.fn(() => Effect.fail(commerceError("unsupportedProfile")));
+  const ctx: CommerceRelationReadContext = { manager: lifetime.context, resources: defaultCommerceResources,
+    table: table => Effect.sync(() => {
+      const rows = responses.get(table);
+      if (rows === undefined) throw new Error("Unexpected table acquisition: " + table);
+      const store: CommerceCommandContext["store"] = {
+        prepareRead(query) { operations.push("prepare:" + table); return mockRelationalRead(this, query); },
+        find: (manager, query) => Effect.sync(() => { expect(manager).toBe(lifetime.context); operations.push("find:" + table); queries.push({ table, query }); return rows; }),
+        findPage: (manager, query) => Effect.sync(() => { expect(manager).toBe(lifetime.context); operations.push("page:" + table); queries.push({ table, query }); return { rows, hasMore: false }; }),
+        count: manager => Effect.sync(() => { expect(manager).toBe(lifetime.context); operations.push("count:" + table); return rows.length; }),
+        aggregate: () => Effect.fail(commerceError("unsupportedProfile")), write, delete: write, lifecycle: write,
+      };
+      return store;
+    }),
+  };
+  return { ctx, operations, queries, write, close: () => Effect.runPromise(lifetime.close) };
+}
+
 describe("shared Medusa read compilation and execution", () => {
+  it("constrains a direct belongs-to root FK before paging/count without rescanning roots", async () => {
+    const catalog = Result.getOrThrow(makeReadCatalog(tables, relationships));
+    const projection = Result.getOrThrow(compileProjection(catalog, "volumes", ["title"], [], profile));
+    const fixture = await selectionFixture(new Map<string, readonly JsonObject[]>([
+      ["editors", [{ code: "e1", name: "Selected editor", deleted_at: null }]],
+      ["volumes", [{ isbn: "volume-with-distinct-key", title: "Volume", editor_code: "e1" }]],
+    ]));
+    const target = { kind: "and", children: [{ kind: "in", column: "code", values: ["e1"] }, { kind: "isNull", column: "deleted_at" }] };
+    const seen: string[] = [];
+    try {
+      expect(await Effect.runPromise(executeRead({ ...fixture.ctx, admitSelection: (table, rows) => {
+        seen.push(table); expect(rows.length).toBe(1); return Result.succeed(undefined);
+      } }, catalog, { table: "volumes", projection, paths: [], ordering: new Map(), withDeleted: false,
+        relationFilters: [{ path: "editor", predicate: target }],
+        query: { skip: 2, take: 1, order: { column: "isbn", direction: "asc" }, predicate: { kind: "and", children: [] } },
+        window: { kind: "database", countAt: "beforePopulation" },
+      }, true))).toEqual({ rows: [{ title: "Volume" }], count: 1 });
+      expect(seen).toEqual(["editors", "volumes"]);
+      expect(fixture.operations).toEqual(["find:editors", "prepare:volumes", "find:volumes", "count:volumes"]);
+      expect(fixture.queries).toEqual([
+        { table: "editors", query: { take: defaultCommerceResources.queryRows, order: { column: "code", direction: "asc" }, predicate: target } },
+        { table: "volumes", query: { skip: 2, take: 1, order: { column: "isbn", direction: "asc" },
+          predicate: { kind: "and", children: [{ kind: "in", column: "editor_code", values: ["e1"] }] } } },
+      ]);
+      expect(fixture.write).not.toHaveBeenCalled();
+    } finally { await fixture.close(); }
+  });
+
+  it.each(["missing", "deleted"])("keeps a %s belongs-to target's empty cohort as an empty source-FK predicate", async () => {
+    const catalog = Result.getOrThrow(makeReadCatalog(tables, relationships));
+    const projection = Result.getOrThrow(compileProjection(catalog, "volumes", ["title"], [], profile));
+    // The script supplies the owned store's exact active-target read result;
+    // no predicate or soft-delete filtering is recreated by the harness.
+    const fixture = await selectionFixture(new Map([ ["editors", []], ["volumes", []] ]));
+    try {
+      expect(await Effect.runPromise(executeRead(fixture.ctx, catalog, { table: "volumes", projection, paths: [], ordering: new Map(),
+        withDeleted: false, relationFilters: [{ path: "editor", predicate: { kind: "and", children: [
+          { kind: "in", column: "code", values: ["e-missing-or-deleted"] }, { kind: "isNull", column: "deleted_at" },
+        ] } }], query: { take: 1, predicate: { kind: "and", children: [] } }, window: { kind: "page", countAt: "afterPopulation" },
+      }, false))).toEqual({ rows: [], count: undefined });
+      expect(fixture.operations).toEqual(["find:editors", "prepare:volumes", "page:volumes"]);
+      expect(fixture.queries[1]).toMatchObject({ table: "volumes", query: { take: 1,
+        predicate: { kind: "and", children: [{ kind: "in", column: "editor_code", values: [] }] } } });
+    } finally { await fixture.close(); }
+  });
+
+  it("propagates belongs-to target admission refusal before any root execution", async () => {
+    const catalog = Result.getOrThrow(makeReadCatalog(tables, relationships));
+    const projection = Result.getOrThrow(compileProjection(catalog, "volumes", ["title"], [], profile));
+    const fixture = await selectionFixture(new Map<string, readonly JsonObject[]>([
+      ["editors", [{ code: "e1", name: "Hidden target", deleted_at: null }]], ["volumes", []],
+    ]));
+    try {
+      expect(await Effect.runPromise(Effect.result(executeRead({ ...fixture.ctx,
+        admitSelection: (table, rows) => { expect(table).toBe("editors"); expect(rows[0]?.name).toBe("Hidden target"); return Result.fail(commerceError("unsupportedProfile")); },
+      }, catalog, { table: "volumes", projection, paths: [], ordering: new Map(), withDeleted: false,
+        relationFilters: [{ path: "editor", predicate: { kind: "in", column: "code", values: ["e1"] } }],
+        query: { predicate: { kind: "and", children: [] } }, window: { kind: "database", countAt: "beforePopulation" },
+      }, true)))).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+      expect(fixture.operations).toEqual(["find:editors"]); expect(fixture.write).not.toHaveBeenCalled();
+    } finally { await fixture.close(); }
+  });
+
+  it.each([false, true])("reverses a nested has-many/belongs-to path with intermediate visibility=%s", async withDeleted => {
+    const nested = new Map(relationships);
+    nested.set("editions", new Map([["editor", { name: "editor", sourcePrimaryKeys: ["serial"], targetTable: "editors",
+      targetPrimaryKeys: ["code"], join: { type: "belongsTo" as const, foreignKeys: ["editor_code"] } }]]));
+    const fixture = await selectionFixture(new Map<string, readonly JsonObject[]>([
+      ["editors", [{ code: "e1", deleted_at: null }]], ["editions", [{ serial: "s1", volume_isbn: "v1", editor_code: "e1" }]],
+    ]));
+    const admitted: string[] = [];
+    try {
+      expect(await Effect.runPromise(resolveCommerceRelationFilter({ ...fixture.ctx, admitSelection: table => {
+        admitted.push(table); return Result.succeed(undefined);
+      } }, "volumes", "editions.editor", { kind: "in", column: "code", values: ["e1"] }, nested, withDeleted)))
+        .toEqual({ kind: "in", column: "isbn", values: ["v1"] });
+      expect(fixture.operations).toEqual(["find:editors", "find:editions"]); expect(admitted).toEqual(["editors", "editions"]);
+      expect(fixture.queries[1]).toEqual({ table: "editions", query: { take: defaultCommerceResources.queryRows,
+        order: { column: "serial", direction: "asc" }, predicate: { kind: "and", children: [
+          ...(withDeleted ? [] : [{ kind: "isNull", column: "deleted_at" }]), { kind: "in", column: "editor_code", values: ["e1"] },
+        ] } } });
+    } finally { await fixture.close(); }
+  });
+
+  it("reverses a belongs-to/belongs-to path through the actual intermediate FK", async () => {
+    const nested = new Map(relationships);
+    nested.set("editors", new Map([["edition", { name: "edition", sourcePrimaryKeys: ["code"], targetTable: "editions",
+      targetPrimaryKeys: ["serial"], join: { type: "belongsTo" as const, foreignKeys: ["edition_serial"] } }]]));
+    const fixture = await selectionFixture(new Map<string, readonly JsonObject[]>([
+      ["editions", [{ serial: "s1", deleted_at: null }]], ["editors", [{ code: "e1", edition_serial: "s1" }]],
+    ]));
+    try {
+      expect(await Effect.runPromise(resolveCommerceRelationFilter(fixture.ctx, "volumes", "editor.edition",
+        { kind: "in", column: "serial", values: ["s1"] }, nested)))
+        .toEqual({ kind: "in", column: "editor_code", values: ["e1"] });
+      expect(fixture.operations).toEqual(["find:editions", "find:editors"]);
+      expect(fixture.queries[1]).toMatchObject({ table: "editors", query: { predicate: { kind: "and", children: [
+        { kind: "isNull", column: "deleted_at" }, { kind: "in", column: "edition_serial", values: ["s1"] },
+      ] } } });
+    } finally { await fixture.close(); }
+  });
+
+  it("refuses composite belongs-to metadata without acquiring a store", async () => {
+    const fixture = await selectionFixture(new Map());
+    const nested = new Map([["volumes", new Map<string, CommerceRelation>([["editor", { name: "editor", sourcePrimaryKeys: ["isbn"],
+      targetTable: "editors", targetPrimaryKeys: ["code", "region"], join: { type: "belongsTo", foreignKeys: ["editor_code", "region"] } }]])]]);
+    try {
+      expect(await Effect.runPromise(Effect.result(resolveCommerceRelationFilter(fixture.ctx, "volumes", "editor",
+        { kind: "and", children: [] }, nested))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+      expect(fixture.operations).toEqual([]);
+    } finally { await fixture.close(); }
+  });
+
+  it.each(["database", "page"] as const)("admits root %s rows before projection, count or relation reads", async kind => {
+    const catalog = Result.getOrThrow(makeReadCatalog(tables, relationships));
+    const projection = Result.getOrThrow(compileProjection(catalog, "volumes", ["title", "labels.label"], ["labels"], profile));
+    const raw = [{ isbn: "v1", title: "Volume", editor_code: "hidden-owner" }];
+    const fixture = await selectionFixture(new Map([["volumes", raw]]));
+    const admitSelection = vi.fn((table: string, rows: readonly JsonObject[]) => {
+      expect(table).toBe("volumes"); expect(rows).toBe(raw);
+      return Result.fail(commerceError("unsupportedProfile"));
+    });
+    try {
+      expect(await Effect.runPromise(Effect.result(executeRead({ ...fixture.ctx, admitSelection }, catalog, {
+        table: "volumes", projection, paths: ["labels"], ordering: new Map(), withDeleted: false, relationFilters: [],
+        query: { predicate: { kind: "and", children: [] } }, window: { kind, countAt: "beforePopulation" },
+      }, true)))).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+      expect(fixture.operations).toEqual(["prepare:volumes", (kind === "database" ? "find" : "page") + ":volumes"]);
+      expect(admitSelection).toHaveBeenCalledTimes(1); expect(fixture.write).not.toHaveBeenCalled();
+    } finally { await fixture.close(); }
+  });
+
+  it("admits the full catalog before an owning presentation callback can discard rows", async () => {
+    const catalog = Result.getOrThrow(makeReadCatalog(tables, relationships));
+    const projection = Result.getOrThrow(compileProjection(catalog, "volumes", ["title"], [], profile));
+    const raw = [{ isbn: "v1", title: "Visible" }, { isbn: "v2", title: "Would be hidden" }];
+    const fixture = await selectionFixture(new Map([["volumes", raw]]));
+    const select = vi.fn(() => ({ rows: [], count: 0 }));
+    const admitSelection = vi.fn((_table: string, rows: readonly JsonObject[]) => {
+      expect(rows).toBe(raw); return Result.fail(commerceError("unsupportedProfile"));
+    });
+    try {
+      expect(await Effect.runPromise(Effect.result(executeRead({ ...fixture.ctx, admitSelection }, catalog, {
+        table: "volumes", projection, paths: [], ordering: new Map(), withDeleted: false, relationFilters: [],
+        query: { predicate: { kind: "and", children: [] } }, window: { kind: "catalog", order: "isbn", select },
+      }, true)))).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+      expect(select).not.toHaveBeenCalled(); expect(fixture.operations).toEqual(["find:volumes"]);
+    } finally { await fixture.close(); }
+  });
+
+  it("admits unprojected population pivots before loading or presenting their endpoints", async () => {
+    const catalog = Result.getOrThrow(makeReadCatalog(tables, relationships));
+    const projection = Result.getOrThrow(compileProjection(catalog, "volumes", ["title", "labels.label"], ["labels"], profile));
+    const pivots = [{ volume_isbn: "v1", label_slug: "one" }, { volume_isbn: "v1", label_slug: "two" }];
+    const fixture = await selectionFixture(new Map<string, readonly JsonObject[]>([
+      ["volumes", [{ isbn: "v1", title: "Volume" }]], ["volume_labels", pivots],
+    ]));
+    const seen: string[] = [];
+    const admitSelection = (table: string, rows: readonly JsonObject[]) => {
+      seen.push(table);
+      if (table === "volume_labels") { expect(rows).toBe(pivots); return Result.fail(commerceError("unsupportedProfile")); }
+      return Result.succeed(undefined);
+    };
+    try {
+      expect(await Effect.runPromise(Effect.result(executeRead({ ...fixture.ctx, admitSelection }, catalog, {
+        table: "volumes", projection, paths: ["labels"], ordering: new Map(), withDeleted: false, relationFilters: [],
+        query: { predicate: { kind: "and", children: [] } }, window: { kind: "database", countAt: "afterPopulation" },
+      }, true)))).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+      expect(seen).toEqual(["volumes", "volume_labels"]);
+      expect(fixture.operations).toEqual(["prepare:volumes", "find:volumes", "find:volume_labels"]);
+      expect(fixture.write).not.toHaveBeenCalled();
+    } finally { await fixture.close(); }
+  });
+
+  it("applies admission to reverse relation-filter pivots before executing the root query", async () => {
+    const catalog = Result.getOrThrow(makeReadCatalog(tables, relationships));
+    const projection = Result.getOrThrow(compileProjection(catalog, "volumes", ["title"], [], profile));
+    const fixture = await selectionFixture(new Map<string, readonly JsonObject[]>([
+      ["volumes", []], ["labels", [{ slug: "one", label: "One" }]],
+      ["volume_labels", [{ volume_isbn: "v1", label_slug: "one" }, { volume_isbn: "v2", label_slug: "one" }]],
+    ]));
+    const seen: string[] = [];
+    const admitSelection = (table: string) => { seen.push(table); return table === "volume_labels"
+      ? Result.fail(commerceError("unsupportedProfile")) : Result.succeed(undefined); };
+    try {
+      expect(await Effect.runPromise(Effect.result(executeRead({ ...fixture.ctx, admitSelection }, catalog, {
+        table: "volumes", projection, paths: [], ordering: new Map(), withDeleted: false,
+        relationFilters: [{ path: "labels", predicate: { kind: "in", column: "slug", values: ["one"] } }],
+        query: { predicate: { kind: "and", children: [] } }, window: { kind: "database", countAt: "afterPopulation" },
+      }, false)))).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+      expect(seen).toEqual(["labels", "volume_labels"]);
+      expect(fixture.operations).toEqual(["find:labels", "find:volume_labels"]);
+    } finally { await fixture.close(); }
+  });
+
   it.each([false, true])("preserves Currency's call ceiling with count=%s", async withCount => {
     const lifetime = await Effect.runPromise(makeBoundedRequestLifetime(
       reason => commerceError(reason), commerceLimits, {}, {}, "currency-budget", "read"));

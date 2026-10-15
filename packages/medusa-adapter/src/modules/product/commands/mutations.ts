@@ -144,9 +144,13 @@ export function productMutationCommands({ metadata, withService, withCollectionS
   }));
   const updateVariantsBySelector = defineCommerceCommand("productUpdateVariantsBySelector", "write", Effect.fn("ProductAdapter.updateVariantsBySelector")(function* (ctx, input) {
     const decoded = yield* Effect.fromResult(decodeVariantThumbnailUpdate(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    // This retained command belongs to Variant-to-Images. The inverse native
+    // selector is available only through its separately bound command profile.
+    if (typeof decoded.selector.id !== "string") return yield* ctx.refuse(commerceError("invalidInput"));
+    const selector = { id: decoded.selector.id };
     yield* Effect.fromResult(metadata.valueProfile.validateRelatedUpdateData(metadata.variant.table.name, decoded.update))
       .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    return yield* withService(ctx, ({ service, context }) => service.updateProductVariants({ ...decoded.selector }, { ...decoded.update }, context));
+    return yield* withService(ctx, ({ service, context }) => service.updateProductVariants(selector, { ...decoded.update }, context));
   }));
   const updateVariantsForWorkflow = defineCommerceCommand("productUpdateVariantsForWorkflow", "write", Effect.fn("ProductAdapter.updateVariantsForWorkflow")(function* (ctx, input) {
     const decoded = yield* Effect.fromResult(decodeVariantSelectorUpdate(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));

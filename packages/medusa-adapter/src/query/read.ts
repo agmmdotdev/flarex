@@ -1,13 +1,13 @@
 import { Effect } from "effect";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { populateCommerceRelations, readCommerceRelationRows } from "./relations";
+import { populateCommerceRelations, readCommerceRelationRows, type CommerceRelationReadContext } from "./relations";
 import { resolveCommerceRelationFilter } from "./relation-filter";
 import type { ReadCatalog } from "./catalog";
 import { projectRows, type ReadProjection } from "./projection";
 import type { PopulationFilter } from "./population";
 
-export type ReadContext = Pick<CommerceCommandContext, "manager" | "table" | "resources">;
+export type ReadContext = CommerceRelationReadContext;
 export interface CatalogSelection {
   readonly rows: readonly JsonObject[];
   readonly count: number;
@@ -46,9 +46,8 @@ export const executeRead: (
     const key = table.primaryKeys[0];
     if (table.primaryKeys.length !== 1 || key === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
     const children: Json[] = [...query.predicate.children];
-    for (const filter of plan.relationFilters) children.push({ kind: "in", column: key,
-      values: yield* resolveCommerceRelationFilter(ctx, plan.table, filter.path, filter.predicate, catalog.relations, plan.withDeleted),
-    });
+    for (const filter of plan.relationFilters) children.push(yield* resolveCommerceRelationFilter(
+      ctx, plan.table, filter.path, filter.predicate, catalog.relations, plan.withDeleted));
     query = { ...query, predicate: { kind: "and", children } };
   }
   const selection = yield* readWindow(ctx, plan.table, query, window);
@@ -75,6 +74,7 @@ const readWindow = Effect.fn("MedusaRead.window")(function* (
   const program = window.store.prepareRead(query);
   const rows = window.kind === "page" ? (yield* program.findPage(ctx.manager)).rows
     : yield* program.find(ctx.manager);
+  if (ctx.admitSelection !== undefined) yield* Effect.fromResult(ctx.admitSelection(table, rows));
   return { rows, count: Effect.suspend(() => program.count(ctx.manager)) };
 });
 

@@ -21,6 +21,8 @@ export const productCategoryUpdateResources = Object.freeze({ ...defaultCommerce
 export const productOptionCreationResources = Object.freeze({ ...defaultCommerceResources, calls: 128, eventMessages: 64 });
 export const productOptionUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 128, eventMessages: 64 });
 export const productOptionDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 64, eventMessages: 64 });
+/** Native Image-to-Variants removal retains complete thumbnail preparation. */
+export const productImageVariantResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 export const productShippingProfileResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 export const productVariantPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Complete finite Variant graph, including Inventory children and both Link families. */

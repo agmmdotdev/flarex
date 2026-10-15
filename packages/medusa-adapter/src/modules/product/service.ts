@@ -15,6 +15,8 @@ import { productCategoryCommands } from "./commands/category";
 import { productCategoryWorkflowModule } from "./product-category-workflow";
 import { productOptionCommands } from "./commands/option";
 import { productOptionWorkflowModule } from "./product-option-workflow";
+import { productImageVariantCommands } from "./commands/image-variants";
+import type { WorkflowLogicalPolicy } from "../../workflow/module";
 import { prepareProductCommandServices } from "./commands/services";
 import { productReadCommands } from "./commands/reads";
 import { productInternalCommands } from "./commands/internal";
@@ -38,6 +40,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
   const collection = productCollectionCommands(services);
   const category = productCategoryCommands(services);
   const option = productOptionCommands(services);
+  const imageVariants = productImageVariantCommands(services);
   const commands = Object.freeze({
     internalProductList: internalProductRead("list"), internalProductRetrieve: internalProductRead("retrieve"),
     internalProductCreate: internalProductChange("create"), internalProductUpdate: internalProductChange("update"),
@@ -74,6 +77,10 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     createOptionsForWorkflow: option.createOptions, listOptionsForWorkflow: option.listOptions,
     updateOptionsBySelector: option.updateOptionsBySelector, softDeleteOptionsForWorkflow: option.softDeleteOptions,
     countOptionsForWorkflow: reads.countOptionsForWorkflow,
+    addImageToVariantForImageWorkflow: imageVariants.addImageToVariant,
+    removeImageFromVariantForImageWorkflow: imageVariants.removeImageFromVariant,
+    listVariantsForImageWorkflow: imageVariants.listVariants,
+    updateVariantsBySelectorForImageWorkflow: imageVariants.updateVariantsBySelector,
     countImages: reads.countImages, updateValues: writes.updateValues, updateCollections: writes.updateCollections,
     updateCategories: writes.updateCategories, upsertOptions: writes.upsertOptions, upsertVariants: writes.upsertVariants,
     upsertCollections: writes.upsertCollections, upsertCategories: writes.upsertCategories });
@@ -88,17 +95,21 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       yield* receipts.validateLogicalCall(call, activity);
     });
   const logicalPolicy = Object.freeze({ capture: receipts.capture, validateLogicalCall });
-  const workflow = yield* Effect.fromResult(productWorkflowModule(description, commands, graph,
-    { created: metadata.tag.createdEvent, updated: metadata.tag.updatedEvent, deleted: metadata.tag.deletedEvent,
+  const workflowEvents = { created: metadata.tag.createdEvent, updated: metadata.tag.updatedEvent, deleted: metadata.tag.deletedEvent,
       variantUpdated: metadata.variant.updatedEvent, variantCreated: metadata.variant.createdEvent,
       productCreated: metadata.product.createdEvent, productUpdated: metadata.product.updatedEvent,
       optionCreated: metadata.option.createdEvent, valueCreated: metadata.value.createdEvent,
-      imageCreated: metadata.image.createdEvent, collectionUpdated: metadata.collection.updatedEvent }, {
+      imageCreated: metadata.image.createdEvent, collectionUpdated: metadata.collection.updatedEvent };
+  const workflowPolicy: WorkflowLogicalPolicy = {
         ...logicalPolicy, commands: Object.values(commands), allowSetNull: true,
         referenceReplacement: { commands: [commands.updateCollections, commands.upsertCollections],
           eventName: metadata.product.updatedEvent,
           metadata: { source: Modules.PRODUCT, object: metadata.product.eventObject, action: CommonEvents.UPDATED }, eventLimit: productReferenceReplacementEventLimit },
-      }));
+      };
+  const workflow = yield* Effect.fromResult(productWorkflowModule(description, commands, graph, workflowEvents, workflowPolicy));
+  const productImageVariantWorkflow = yield* Effect.fromResult(productWorkflowModule({ ...description,
+    profile: description.profile + ".product-image-variant-workflows" }, { ...commands, ...imageVariants }, graph, workflowEvents,
+    { ...logicalPolicy, commands: Object.values(commands) }));
   const variantUpdateWorkflow = yield* Effect.fromResult(productVariantUpdateWorkflowModule(description, commands, graph,
     metadata.variant.updatedEvent, { ...logicalPolicy, commands: Object.values(commands) }));
   const productUpdateWorkflow = yield* Effect.fromResult(productUpdateWorkflowModule(description, commands, graph,
@@ -125,5 +136,5 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     { created: metadata.option.createdEvent, updated: metadata.option.updatedEvent, deleted: metadata.option.deletedEvent,
       valueCreated: metadata.value.createdEvent, valueUpdated: metadata.value.updatedEvent, valueDeleted: metadata.value.deletedEvent },
     { ...logicalPolicy, commands: Object.values(commands) }));
-  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, productUpdateWorkflow, productDeletionWorkflow, productBatchWorkflow, productTypeWorkflow, productCollectionWorkflow, productCategoryWorkflow, productOptionWorkflow, logicalPolicy };
+  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, productUpdateWorkflow, productDeletionWorkflow, productBatchWorkflow, productTypeWorkflow, productCollectionWorkflow, productCategoryWorkflow, productOptionWorkflow, productImageVariantWorkflow, logicalPolicy };
 });

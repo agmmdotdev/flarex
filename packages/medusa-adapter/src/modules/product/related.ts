@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, type Result } from "effect";
 import { generateEntityId } from "@medusajs/framework/utils/portable";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -9,8 +9,10 @@ import { QueryEnvelope, QueryLimit, QueryOffset } from "../../query/decoder";
 import { decodeGraphArray } from "./value-profile";
 import { compileProjection, type ProjectionPolicy } from "../../query/projection";
 import { compileWhere } from "../../query/predicate";
-import { executeRead, orderedCatalog } from "../../query/read";
+import { executeRead, orderedCatalog, type ReadPlan } from "../../query/read";
 import { preservePrimaryKeyOrFilterOrder } from "@medusajs/drizzle/relation-query";
+import type { WherePolicy } from "../../query/predicate";
+import type { CommerceRelationReadContext } from "../../query/relations";
 
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const decodeRelatedWhere = commerceDecoder(Schema.JsonObject, "unsupportedProfile");
@@ -24,27 +26,32 @@ const decodeOptions = commerceDecoder(Schema.Struct({
 
 /** Internal service reads share the command's manager; this is no public DAL. */
 export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(function* (
-  ctx: Pick<CommerceCommandContext, "manager" | "table" | "resources">, metadata: ProductRuntimeMetadata, entity: ProductEntityMetadata, input: unknown, withCount: boolean,
-  profileOptions: { readonly nativeFilterOrder?: boolean; readonly projection?: ProjectionPolicy } = {},
+  ctx: CommerceRelationReadContext, metadata: ProductRuntimeMetadata, entity: ProductEntityMetadata, input: unknown, withCount: boolean,
+  profileOptions: { readonly nativeFilterOrder?: boolean; readonly projection?: ProjectionPolicy; readonly where?: WherePolicy | undefined; readonly complete?: boolean;
+    readonly relationFilters?: (where: JsonObject) => Result.Result<ReadPlan["relationFilters"], ReturnType<typeof commerceError>> } = {},
 ) {
   const captured = yield* Effect.fromResult(captureCommerceInput(input));
   const envelope = yield* Effect.fromResult(decodeEnvelope(captured));
   // Retain the entry's structural validation order before compiling capabilities.
   const where = yield* Effect.fromResult(decodeRelatedWhere(envelope.where ?? {}));
   const options = yield* Effect.fromResult(decodeOptions(envelope.options ?? {}));
+  if (profileOptions.complete && (options.limit !== undefined || options.offset !== undefined))
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
   const relations = options.populate ?? [];
   const profile = metadata.relatedReads.get(entity.table.name);
   if (profile === undefined || relations.some(path => !profile.paths.includes(path))) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const projection = yield* Effect.fromResult(compileProjection(metadata.readCatalog, entity.table.name, options.fields, relations, profileOptions.projection ?? profile.projection));
   const withDeleted = options.filters?.softDeletable.withDeleted ?? false;
-  const decoded = yield* Effect.fromResult(compileWhere(where, profile.where));
+  const decoded = yield* Effect.fromResult(compileWhere(where, profileOptions.where ?? profile.where));
+  const relationFilters = profileOptions.relationFilters === undefined ? []
+    : yield* Effect.fromResult(profileOptions.relationFilters(where));
   const children: Json[] = !withDeleted && entity.table.columns.some(column => column.name === "deleted_at")
     ? [{ kind: "isNull", column: "deleted_at" }] : [];
   if (decoded.kind === "and") children.push(...decoded.children);
   else children.push(decoded);
   const direction = options.orderBy?.id === "DESC" ? "desc" : "asc";
   const result = yield* executeRead(ctx, metadata.readCatalog, {
-    table: entity.table.name, projection, paths: relations, withDeleted, relationFilters: [], ordering: new Map(),
+    table: entity.table.name, projection, paths: relations, withDeleted, relationFilters, ordering: new Map(),
     query: { fields: projection.storageFields, take: options.limit ?? 15, skip: options.offset ?? 0,
       order: { column: "id", direction }, predicate: { kind: "and", children } },
     window: options.limit === undefined && options.offset === undefined

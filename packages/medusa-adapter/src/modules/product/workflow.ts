@@ -11,7 +11,7 @@ import { defineWorkflowMethod, defineWorkflowModule, type WorkflowLogicalPolicy 
 import { ProductNamedFilters } from "./service-input";
 import { ProductTagUpdateData } from "./tag-update-input";
 import { ProductLifecycleIds } from "./lifecycle";
-import { VariantSelector, VariantThumbnailUpdate, VariantImagePairs, SimpleVariantInput } from "./variant-workflow-input";
+import { VariantThumbnailSelector, VariantThumbnailUpdate, VariantImagePairs, SimpleVariantInput } from "./variant-workflow-input";
 
 export const ProductTagWorkflowInput = Schema.Array(Schema.Struct({ value: Schema.String,
   id: Schema.optionalKey(Schema.String), metadata: Schema.optionalKey(Schema.Json),
@@ -34,10 +34,10 @@ const decodeDeleteResult = commerceDecoder(Schema.NullOr(Schema.Record(Schema.St
 const decodeImageArguments = commerceDecoder(Schema.Tuple([VariantImagePairs]), "invalidInput");
 const decodeAssignmentResult = commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String })).check(Schema.isMaxLength(256)), "storedCorruption");
 const decodeRemoveResult = commerceDecoder(Schema.Null, "storedCorruption");
-const decodeVariantListArguments = commerceDecoder(Schema.Tuple([VariantSelector,
+const decodeVariantListArguments = commerceDecoder(Schema.Tuple([VariantThumbnailSelector,
   Schema.Struct({ select: Schema.Array(Schema.String), relations: Schema.Array(Schema.String) }),
 ]), "invalidInput");
-const decodeVariantUpdateArguments = commerceDecoder(Schema.Tuple([VariantSelector, VariantThumbnailUpdate]), "invalidInput");
+const decodeVariantUpdateArguments = commerceDecoder(Schema.Tuple([VariantThumbnailSelector, VariantThumbnailUpdate]), "invalidInput");
 const decodeCreateVariantsArguments = commerceDecoder(Schema.Tuple([Schema.Array(SimpleVariantInput).check(Schema.isMaxLength(4))]), "invalidInput");
 
 export function productWorkflowModule(source: CommerceModuleDescription,

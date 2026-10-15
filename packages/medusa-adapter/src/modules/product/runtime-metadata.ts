@@ -126,13 +126,14 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
     }
     queryRelations.set(source.table.name, declared);
   }
-  for (const source of [option, variant]) {
-    const parent = source.table.relationships.find(relation => relation.name === "product");
-    if (parent?.type !== "belongsTo" || parent.targetModel !== product.model) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    const declared = queryRelations.get(source.table.name);
-    if (declared === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    declared.set("product", { name: "product", sourcePrimaryKeys: ["id"], targetTable: product.table.name, targetPrimaryKeys: ["id"],
-      join: { type: "belongsTo", foreignKeys: [yield* foreignKey(source, product)] } });
+  for (const [source, name, target] of [[option, "product", product], [variant, "product", product],
+    [assignment, "image", image], [assignment, "variant", variant]] as const) {
+    const parent = source.table.relationships.find(relation => relation.name === name);
+    if (parent?.type !== "belongsTo" || parent.targetModel !== target.model) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const declared = queryRelations.get(source.table.name) ?? new Map<string, CommerceRelation>();
+    declared.set(name, { name, sourcePrimaryKeys: [source.keyColumn], targetTable: target.table.name, targetPrimaryKeys: [target.keyColumn],
+      join: { type: "belongsTo", foreignKeys: [yield* foreignKey(source, target)] } });
+    queryRelations.set(source.table.name, declared);
   }
   const entities = [product, option, value, variant, image, tag, type, collection, category, assignment];
   const tables = [...entities.map(item => item.table), pivot, tagPivot, categoryPivot];

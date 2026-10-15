@@ -31,6 +31,7 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
   const collectionDelete = collectionDeleteEventPolicy(catalog);
   const tags = tagCallEventPolicy(catalog);
   const variantImages = productLogicalVariantImagesEventPolicy(catalog);
+  const imageVariants = productLogicalVariantImagesEventPolicy(catalog, "imageVariants");
   const policies = new Map<string, LogicalCallReceiptValidation>([
     ["productCreateCategoriesForWorkflow", categoryWorkflowCreatePolicy(catalog)],
     ["productUpdateCategoriesBySelector", categoryWorkflowSelectorUpdatePolicy(catalog)],
@@ -91,6 +92,9 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
     ["productCreateassignment", variantImages.validateLogicalCall],
     ["productDeleteassignment", variantImages.validateLogicalCall],
     ["productUpdateVariantsBySelector", variantImages.validateLogicalCall],
+    ["productImageWorkflowCreateAssignment", imageVariants.validateLogicalCall],
+    ["productImageWorkflowDeleteAssignment", imageVariants.validateLogicalCall],
+    ["productImageWorkflowUpdateVariantsBySelector", imageVariants.validateLogicalCall],
   ]);
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalCall")(
     function* (call, activity) {

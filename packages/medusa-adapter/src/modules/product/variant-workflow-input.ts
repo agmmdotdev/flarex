@@ -38,8 +38,13 @@ export function variantUpdateInput(columns: readonly string[]) {
   return variantUpdateData(columns, { id: Id });
 }
 export const VariantThumbnailUpdate = Schema.Struct({ thumbnail: Schema.Null });
+/** The inverse Image workflow clears only requested Variants whose current
+ * thumbnail equals this Image URL. The existing scalar selector stays valid. */
+export const VariantThumbnailSelector = Schema.Union([VariantSelector, Schema.Struct({
+  id: Schema.Array(Id).check(Schema.isMaxLength(4)), thumbnail: Schema.String,
+})]);
 export const decodeVariantThumbnailUpdate = commerceDecoder(Schema.Struct({
-  selector: VariantSelector, update: VariantThumbnailUpdate,
+  selector: VariantThumbnailSelector, update: VariantThumbnailUpdate,
 }), "invalidInput");
 export const VariantImagePairs = Schema.Array(Schema.Struct({ variant_id: Id, image_id: Id })).check(Schema.isMaxLength(256));
 export const VariantImagesWorkflowInput = Schema.Struct({ variant_id: Id,
@@ -49,3 +54,10 @@ export const VariantImagesWorkflowInput = Schema.Struct({ variant_id: Id,
   return new Set(add).size === add.length && new Set(remove).size === remove.length && !add.some(id => remove.includes(id));
 }));
 export const VariantImagesWorkflowOutput = Schema.Struct({ added: ProductLifecycleIds, removed: ProductLifecycleIds });
+const ImageVariantIds = Schema.Array(Id).check(Schema.isMaxLength(4));
+/** This native entry point returns raw requested IDs. Duplicate/intersecting
+ * requests retain their native service outcomes rather than facade filtering. */
+export const ImageVariantsWorkflowInput = Schema.Struct({ image_id: Id,
+  add: Schema.optionalKey(ImageVariantIds), remove: Schema.optionalKey(ImageVariantIds),
+});
+export const ImageVariantsWorkflowOutput = Schema.Struct({ added: ImageVariantIds, removed: ImageVariantIds });

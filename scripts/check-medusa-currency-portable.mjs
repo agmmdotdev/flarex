@@ -9,6 +9,7 @@ const promotion = verifyCurrencyPromotion(root);
 const admitted = new Set(promotion.files.map((file) => path.resolve(root, file.target).replaceAll("\\", "/")));
 const inputs = new Set();
 for (const entry of [
+  "packages/medusa-core-flows/src/product/workflows/batch-image-variants.ts",
   "packages/medusa-adapter/src/workflows/product/category-workflows.ts",
   "packages/medusa-adapter/src/workflows/product/option-workflows.ts",
   "packages/medusa-core-flows/src/product/workflows/create-product-options.ts",

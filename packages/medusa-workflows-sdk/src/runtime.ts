@@ -1,8 +1,8 @@
-import { Deferred, Effect } from "effect";
+import { Deferred, Effect, Result } from "effect";
 import { StepResponse } from "./responses";
 import { definitionError, type ParallelGroup, type StepExecutionContext } from "./model";
 import { isPreparedWorkflow, type PreparedWorkflow } from "./definition";
-import { resolveWorkflowValue, type WorkflowResolution } from "./resolution";
+import { prepareTransformResolution, resolveWorkflowValue, type WorkflowResolution } from "./resolution";
 
 export interface WorkflowExecutionPort<Failure> {
   readonly checkpoint: Effect.Effect<void, Failure>;
@@ -27,27 +27,47 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
   const outputs = new Map<object, unknown>();
   const transforms = new Map<object, unknown>();
   const pendingTransforms = new Map<object, Deferred.Deferred<unknown, Failure | ReturnType<typeof definitionError>>>();
+  const transformDependencies = new Map<object, Set<object>>();
   const frame = { owner: definition.owner, input, outputs, transforms };
-  const sharedTransform = (reference: object, work: Effect.Effect<unknown, Failure | ReturnType<typeof definitionError>>) => Effect.suspend(() => {
+  const sharedTransform = (reference: object, parent: object | undefined, work: Effect.Effect<unknown, Failure | ReturnType<typeof definitionError>>) => Effect.suspend(() => {
+    if (parent !== undefined) {
+      const pending = [reference], seen = new Set<object>();
+      while (pending.length !== 0) {
+        const current = pending.pop()!;
+        if (current === parent) return Effect.fail(definitionError("invalidReference", "Cyclic transform dependency"));
+        if (seen.has(current)) continue;
+        seen.add(current);
+        pending.push(...transformDependencies.get(current) ?? []);
+      }
+      const dependencies = transformDependencies.get(parent) ?? new Set<object>();
+      dependencies.add(reference); transformDependencies.set(parent, dependencies);
+    }
     const existing = pendingTransforms.get(reference);
     if (existing !== undefined) return Deferred.await(existing);
+    if (pendingTransforms.size >= 4096) return Effect.fail(definitionError("invalidReference", "Transform resolution bounds exceeded"));
     // Register synchronously before any sibling can suspend on this transform.
     // This cell belongs only to this invocation frame and retains its full Exit.
     const pending = Deferred.makeUnsafe<unknown, Failure | ReturnType<typeof definitionError>>();
     pendingTransforms.set(reference, pending);
     return Deferred.complete(pending, work).pipe(Effect.andThen(Deferred.await(pending)));
   });
-  const resolve = Effect.fn("MedusaWorkflow.resolve")(function* (resolution: WorkflowResolution): Effect.fn.Return<unknown, Failure | ReturnType<typeof definitionError>> {
-    const evaluation = resolveWorkflowValue(resolution, frame);
+  const resolve = Effect.fn("MedusaWorkflow.resolve")(function* (resolution: WorkflowResolution, parent?: object, depth = 0): Effect.fn.Return<unknown, Failure | ReturnType<typeof definitionError>> {
+    const evaluation = resolveWorkflowValue(resolution, frame, depth);
     let next = evaluation.next();
     while (!next.done) {
       const request = next.value;
-      const captured = yield* sharedTransform(request.reference, Effect.gen(function* () {
+      const captured = yield* sharedTransform(request.reference, parent, Effect.gen(function* () {
         const resolved = yield* port.capture(request.input);
         const transform = request.reference.transform;
         if (transform === undefined) return yield* Effect.fail(definitionError("invalidReference", "Missing transformer"));
         const output = yield* port.invoke(() => transform(resolved, port.context));
-        return yield* port.capture(output);
+        // Foreign Proxy descriptor traps belong to the same callback boundary
+        // as transformer invocation. The initialized failure also refuses a
+        // broken port that reports success without running its callback.
+        let inspected: ReturnType<typeof prepareTransformResolution> = Result.fail(definitionError("invalidReference", "Transform result inspection did not complete"));
+        yield* port.invoke(() => { inspected = prepareTransformResolution(output); });
+        const returned = yield* Effect.fromResult(inspected);
+        return yield* port.capture(yield* resolve(returned, request.reference, request.depth + 1));
       }));
       next = evaluation.next(captured);
     }

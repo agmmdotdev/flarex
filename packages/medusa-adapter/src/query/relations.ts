@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, type Result } from "effect";
 import {
   groupHasManyRows, groupManyToManyRows, toPopulateTree, tupleKey,
   type PopulateTree, type ToManyRelation,
@@ -16,18 +16,25 @@ export type CommerceRelation = ToManyRelation | {
 export type CommerceRelations = ReadonlyMap<string, ReadonlyMap<string, CommerceRelation>>;
 export type CommerceRelationLookup = Pick<ReadonlyMap<string, Pick<ReadonlyMap<string, CommerceRelation>, "get">>, "get">;
 
+/** Module-owned finite admission sees actual selections before presentation.
+ * The callback receives rows only; it cannot acquire persistence authority. */
+export type CommerceRelationReadContext = Pick<CommerceCommandContext, "manager" | "table" | "resources"> & {
+  readonly admitSelection?: (table: string, rows: readonly JsonObject[]) => Result.Result<void, CommerceTransactionError>;
+};
+
 /** The selected store must return a complete bounded relation set or refuse.
  * Shared logical storage uses an indexed complete-set read; the retained
  * physical profile enforces its own catalog bound. A truncated population
  * would silently omit Medusa relationships, so a page alone is insufficient.
  */
 export const readCommerceRelationRows = Effect.fn("MedusaAdapter.readRelationRows")(function* (
-  ctx: Pick<CommerceCommandContext, "manager" | "table" | "resources">, table: string, predicate: Json, order: string = "id",
+  ctx: CommerceRelationReadContext, table: string, predicate: Json, order: string = "id",
 ) {
   const store = yield* ctx.table(table);
   const query = { take: ctx.resources.queryRows, order: { column: order, direction: "asc" }, predicate } satisfies JsonObject;
   const rows = yield* store.find(ctx.manager, query);
   if (rows.length > ctx.resources.queryRows) return yield* Effect.fail(commerceError("storedCorruption"));
+  if (ctx.admitSelection !== undefined) yield* Effect.fromResult(ctx.admitSelection(table, rows));
   return rows;
 });
 
@@ -118,7 +125,7 @@ const populateRelationTree = Effect.fn("MedusaAdapter.populateTree")(function* (
 /** Core owns the session, bounds and row decoding. Medusa owns relation grouping.
  * This instance is local to one call and never acquires a second manager. */
 export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelations")(function* (
-  ctx: Pick<CommerceCommandContext, "manager" | "table" | "resources">,
+  ctx: CommerceRelationReadContext,
   table: string,
   roots: readonly JsonObject[],
   paths: readonly string[],

@@ -20,8 +20,9 @@ import { captureCategoryProjection, decodeCategoryProjection } from "./category-
 import { findCategoryRows, insertCategoryRows, updateCategoryRows, softDeleteCategoryRows } from "./category-repository";
 import { changeProductLifecycle } from "./lifecycle";
 import { optionWorkflowReadProjection } from "./read-profile";
+import { productImageVariantReadProfile } from "./image-variant-profile";
 
-export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct" | "deletion" | "typeWorkflow" | "collectionWorkflow" | "categoryWorkflow" | "optionWorkflow";
+export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct" | "deletion" | "typeWorkflow" | "collectionWorkflow" | "categoryWorkflow" | "optionWorkflow" | "imageVariantWorkflow";
 const decodeCollectionReplacement = commerceDecoder(Schema.Array(Schema.Struct({
   id: ProductRelationshipId, productIds: ProductRelationshipIds,
 })).check(Schema.isLengthBetween(1, 1)), "invalidInput");
@@ -31,6 +32,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
   const collectionMembership = profile === "collectionMembership" || profile === "collectionWorkflow";
   const categoryProjection = profile === "categoryProjection";
   const internalProduct = profile === "internalProduct";
+  const imageVariant = profile === "imageVariantWorkflow" ? productImageVariantReadProfile(metadata) : undefined;
   const bridge = commerceRepositoryContext(root, owner);
   const events = commerceMutationEvents(owner);
   const categoryIdentities = new Set<string>();
@@ -142,8 +144,13 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
   const nativeRelatedWorkflow = (entity: ProductEntityMetadata) => profile === "collectionWorkflow" && entity === metadata.collection ||
     profile === "typeWorkflow" && entity === metadata.type || profile === "optionWorkflow" && entity === metadata.option;
   const findRelated = Effect.fn("ProductAdapter.findRelatedForProfile")((ctx: CommerceCommandContext, entity: ProductEntityMetadata, input: unknown, withCount: boolean) =>
-    findProductRelated(ctx, metadata, entity, input, withCount,
+    findProductRelated(imageVariant === undefined ? ctx : { ...ctx, admitSelection: imageVariant.admitSelection }, metadata, entity, input, withCount,
       { nativeFilterOrder: nativeRelatedWorkflow(entity),
+        ...(imageVariant === undefined ? {} : { complete: true,
+          ...(entity === metadata.variant ? { nativeFilterOrder: true, where: imageVariant.where } : {}),
+          ...(entity === metadata.option ? { projection: optionWorkflowReadProjection } : {}),
+          ...(entity === metadata.assignment ? { relationFilters: imageVariant.assignmentFilters } : {}),
+        }),
         ...(profile === "optionWorkflow" && entity === metadata.option ? { projection: optionWorkflowReadProjection } : {}) }).pipe(Effect.flatMap(result => {
       // Native selector update performs its own full list before keyed
       // writes. Refuse a fifth selected root instead of updating a page prefix.

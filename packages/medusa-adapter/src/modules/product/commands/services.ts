@@ -22,6 +22,7 @@ export const prepareProductCommandServices = Effect.fn("ProductAdapter.prepareCo
   const collectionWorkflow = yield* Effect.fromResult(defineProductModule(metadata, "collectionWorkflow"));
   const categoryWorkflow = yield* Effect.fromResult(defineProductModule(metadata, "categoryWorkflow"));
   const optionWorkflow = yield* Effect.fromResult(defineProductModule(metadata, "optionWorkflow"));
+  const imageVariantWorkflow = yield* Effect.fromResult(defineProductModule(metadata, "imageVariantWorkflow"));
   const withService = standard.use;
   const withCategoryReadService = category.use;
   const withCollectionService = collection.use;
@@ -32,7 +33,8 @@ export const prepareProductCommandServices = Effect.fn("ProductAdapter.prepareCo
   const withInternalProduct = Effect.fn("ProductAdapter.withInternalProduct")((ctx: CommerceCommandContext, work: (value: ProductScope) => Promise<unknown>) =>
     internal.use(ctx, async value => value.capture(await work(value))));
   return { metadata, description: standard.description, withService, withDeletionService: deletion.use, withTypeWorkflowService: typeWorkflow.use,
-    withCollectionWorkflowService: collectionWorkflow.use, withCategoryWorkflowService: categoryWorkflow.use, withOptionWorkflowService: optionWorkflow.use, withCategoryReadService,
+    withCollectionWorkflowService: collectionWorkflow.use, withCategoryWorkflowService: categoryWorkflow.use, withOptionWorkflowService: optionWorkflow.use,
+    withImageVariantWorkflowService: imageVariantWorkflow.use, withCategoryReadService,
     withCollectionService, withInternalCategory, withInternalProduct };
 });
 export type ProductCommandServices = Effect.Success<ReturnType<typeof prepareProductCommandServices>>;

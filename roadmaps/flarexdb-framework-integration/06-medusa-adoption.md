@@ -180,6 +180,22 @@ route. The selected portable fork's DTO/order/event distinctions from fresh ORM
 execution remain explicit. Reassignment, restoration, custom Option Links,
 larger graphs and hosted activation remain unadmitted.
 
+The [native Image-to-Variants slice](./preflight/108-native-image-variant-workflow.md)
+implements the inverse image-association composer with one Image and four raw
+additions/removals each. Duplicate requests, distinct assignment identities,
+cross-Product pairs and genuine parallel intersections retain native behavior.
+Full-row removal sees only assignments with active Image and Variant endpoints;
+native URL-filtered thumbnail updates retain complete sibling/Option preparation.
+The named profile admits sixteen prepared sibling Variants, four read Product
+parents, four total Options, four selected Values per Option, four pivots per
+Variant and eight selected assignment deletions. Its authenticated facade selects
+128 calls with ordinary 64 events, 128-identity working sets and default OCC.
+SDK resolution authenticates closure-returned references before capture and
+bounds descriptor inspection and expanded traversal. Existing Variant-to-Images
+admission and portable endpoint integrity remain intact. Larger graphs, durable
+import/export execution, general restoration and hosted activation remain
+unadmitted.
+
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a

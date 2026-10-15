@@ -48,7 +48,8 @@
     "./product-category/delete-product-categories": "./src/product-category/workflows/delete-product-categories.ts",
     "./product/create-product-options": "./src/product/workflows/create-product-options.ts",
     "./product/update-product-options": "./src/product/workflows/update-product-options.ts",
-    "./product/delete-product-options": "./src/product/workflows/delete-product-options.ts"
+    "./product/delete-product-options": "./src/product/workflows/delete-product-options.ts",
+    "./product/batch-image-variants": "./src/product/workflows/batch-image-variants.ts"
   },
   "dependencies": {
     "@medusajs/modules-sdk": "workspace:*",
