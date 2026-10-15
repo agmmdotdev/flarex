@@ -30,6 +30,12 @@ const ownedProjection: ProjectionPolicy = { ...retainedProjection, incomingKeys:
 const productOptionProjection: ProjectionPolicy = { ...ownedProjection, selectableRelations: ["values"],
   nested: new Map([["values", ownedProjection]]),
 };
+/** Native Option compensation selects nested Value keys without broadening
+ * ordinary related reads or adding DTO-only paths to shared compilation. */
+export const optionWorkflowReadProjection: ProjectionPolicy = { ...parentProjection,
+  allowedPaths: ["product", "values"], selectableRelations: ["product", "values"],
+  nested: new Map([...parentProjection.nested, ...productOptionProjection.nested]),
+};
 const productVariantProjection: ProjectionPolicy = { ...ownedProjection, selectableRelations: ["options"],
   nested: new Map([["options", retainedProjection]]),
 };

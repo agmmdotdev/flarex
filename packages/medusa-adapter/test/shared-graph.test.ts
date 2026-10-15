@@ -47,6 +47,7 @@ const catalog: GraphCatalog = {
 };
 const replacement: ReplacementProfile = {
   catalog, allowedRelations: () => ["editions", "labels"], ownedToOne: () => [], mutableForeignKeys: () => false,
+  admitSelection: () => Result.succeed(undefined), prepareProjection: () => Effect.void,
   toManyMode: () => Result.succeed("replace"), validateLink: () => Effect.void,
   projectionPaths: (_entity, paths) => paths, project: rows => Result.succeed(rows),
 };
@@ -154,6 +155,33 @@ describe("shared graph planning over renamed module keys", () => {
       const { ctx, calls } = yield* fixture(seeded);
       yield* replaceGraphRows(ctx, replacement, volume, [{ isbn: "v1", title: "New" }], { relations: [] });
       expect(calls.map(call => call.operation)).toEqual(["table:volumes", "find:volumes", "update:volumes"]);
+    }));
+  });
+
+  it("refuses a complete projection cohort during preparation before any write", async () => {
+    await run(Effect.gen(function* () {
+      const { ctx, calls } = yield* fixture(seeded);
+      const error = commerceError("unsupportedProfile");
+      const result = yield* replaceGraphRows(ctx, { ...replacement,
+        admitSelection: table => table === edition.table ? Result.fail(error) : Result.succeed(undefined),
+        prepareProjection: (_entity, roots, load) => load(edition.table, "volume_isbn", roots.flatMap(row => typeof row.isbn === "string" ? [row.isbn] : [])).pipe(Effect.asVoid),
+      }, volume, [{ isbn: "v1", title: "New" }], { relations: ["editions"] }).pipe(Effect.result);
+      expect(Result.isFailure(result) && result.failure).toBe(error);
+      expect(calls.some(call => call.operation === "find:editions")).toBe(true);
+      expect(calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+    }));
+  });
+
+  it("reuses the prepared complete cohort for post-write projection", async () => {
+    await run(Effect.gen(function* () {
+      const { ctx, calls } = yield* fixture(seeded);
+      const result = yield* replaceGraphRows(ctx, { ...replacement,
+        prepareProjection: (_entity, roots, load) => load(edition.table, "volume_isbn", roots.flatMap(row => typeof row.isbn === "string" ? [row.isbn] : [])).pipe(Effect.asVoid),
+      }, volume, [{ isbn: "v1", title: "New" }], { relations: ["editions"] });
+      const operations = calls.map(call => call.operation);
+      expect(operations.filter(operation => operation === "find:editions")).toHaveLength(1);
+      expect(operations.indexOf("find:editions")).toBeLessThan(operations.indexOf("update:volumes"));
+      expect(result.entities[0]?.editions).toEqual(seeded.get("editions"));
     }));
   });
 

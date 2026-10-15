@@ -19,8 +19,9 @@ import { replaceProductRows } from "./mutation";
 import { captureCategoryProjection, decodeCategoryProjection } from "./category-projection";
 import { findCategoryRows, insertCategoryRows, updateCategoryRows, softDeleteCategoryRows } from "./category-repository";
 import { changeProductLifecycle } from "./lifecycle";
+import { optionWorkflowReadProjection } from "./read-profile";
 
-export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct" | "deletion" | "typeWorkflow" | "collectionWorkflow" | "categoryWorkflow";
+export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct" | "deletion" | "typeWorkflow" | "collectionWorkflow" | "categoryWorkflow" | "optionWorkflow";
 const decodeCollectionReplacement = commerceDecoder(Schema.Array(Schema.Struct({
   id: ProductRelationshipId, productIds: ProductRelationshipIds,
 })).check(Schema.isLengthBetween(1, 1)), "invalidInput");
@@ -66,15 +67,27 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
   const lifecycle = (entity: ProductEntityMetadata, operation: "softDelete" | "restore"): DAL.RepositoryService["softDelete"] => (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
     const result = yield* changeProductLifecycle(ctx, metadata, entity, operation, input,
       profile === "deletion" ? "product-deletions" : profile === "typeWorkflow" ? "type-workflows"
-        : profile === "collectionWorkflow" ? "collection-workflows" : "standard");
+        : profile === "collectionWorkflow" ? "collection-workflows" : profile === "optionWorkflow" ? "option-workflows" : "standard");
     if (shared === undefined || (operation === "softDelete" && !events.isSubscribed(shared))) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+    // Retimestamped deleted Values are updates, so this named native path
+    // needs the real operation preimage rather than a fabricated null value.
+    const originalDeletion = new WeakMap<object, string | null>();
+    if (profile === "optionWorkflow") for (const [model, rows] of Object.entries(result.cascades)) {
+      const before = new Map((result.preimages.get(model) ?? []).map(row => [row.id, row]));
+      for (const row of rows) {
+        const prior = before.get(row.id)?.deleted_at;
+        if (prior !== null && typeof prior !== "string") return yield* ctx.refuse(commerceError("storedCorruption"));
+        originalDeletion.set(row, prior);
+      }
+    }
     // Preserve the pinned Drizzle subscriber's lifecycle callback convention,
     // including restored events for selected already-active rows. Core records
     // the actual before/after state and authenticates the managed operation.
     // Pinned restore does not register a subscriber: the existing dispatcher
     // uses its conventional aggregator path on that framework-owned context.
     yield* events.cascades(result.cascades, shared,
-      row => ({ entity: row, originalEntity: { deleted_at: operation === "softDelete" ? null : row.updated_at } }));
+      row => ({ entity: row, originalEntity: { deleted_at: profile === "optionWorkflow" ? originalDeletion.get(row)
+        : operation === "softDelete" ? null : row.updated_at } }));
     return [result.roots, result.cascades] satisfies [object[], Record<string, unknown[]>];
   })));
   const repository: DAL.RepositoryService = {
@@ -126,20 +139,25 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     upsertWithReplace: (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, replaceProductRows(ctx, metadata, metadata.product, input, config))),
   };
   /** Table-bound repositories share this request's bridge and subscriber set. */
+  const nativeRelatedWorkflow = (entity: ProductEntityMetadata) => profile === "collectionWorkflow" && entity === metadata.collection ||
+    profile === "typeWorkflow" && entity === metadata.type || profile === "optionWorkflow" && entity === metadata.option;
   const findRelated = Effect.fn("ProductAdapter.findRelatedForProfile")((ctx: CommerceCommandContext, entity: ProductEntityMetadata, input: unknown, withCount: boolean) =>
     findProductRelated(ctx, metadata, entity, input, withCount,
-      profile === "collectionWorkflow" && entity === metadata.collection || profile === "typeWorkflow" && entity === metadata.type).pipe(Effect.flatMap(result => {
+      { nativeFilterOrder: nativeRelatedWorkflow(entity),
+        ...(profile === "optionWorkflow" && entity === metadata.option ? { projection: optionWorkflowReadProjection } : {}) }).pipe(Effect.flatMap(result => {
       // Native selector update performs its own full list before keyed
       // writes. Refuse a fifth selected root instead of updating a page prefix.
-      if ((profile === "typeWorkflow" && entity === metadata.type || profile === "collectionWorkflow" && entity === metadata.collection) &&
+      if (nativeRelatedWorkflow(entity) &&
         (result.rows.length > 4 || result.count !== undefined && result.count > 4))
+        return ctx.refuse(commerceError("unsupportedProfile"));
+      if (profile === "optionWorkflow" && entity === metadata.option &&
+        result.rows.some(row => Array.isArray(row.values) && row.values.length > 4))
         return ctx.refuse(commerceError("unsupportedProfile"));
       return Effect.succeed(result);
     })));
   const relatedRepository = (entity: ProductEntityMetadata): DAL.RepositoryService => ({
     ...repository,
-    delete: deleteRows(entity), softDelete: [metadata.variant, metadata.tag].includes(entity) || profile === "typeWorkflow" && entity === metadata.type ||
-      profile === "collectionWorkflow" && entity === metadata.collection
+    delete: deleteRows(entity), softDelete: [metadata.variant, metadata.tag].includes(entity) || nativeRelatedWorkflow(entity)
       ? lifecycle(entity, "softDelete") : refuse, restore: refuse,
     update: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       if (![metadata.tag, metadata.type, metadata.collection, metadata.category, metadata.value].includes(entity)) return yield* ctx.refuse(commerceError("unsupportedProfile"));
@@ -158,7 +176,8 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       if (entity === metadata.collection) return yield* ctx.refuse(commerceError("unsupportedProfile"));
       if (entity === metadata.option || entity === metadata.variant) {
-        const result = yield* replaceProductRows(ctx, metadata, entity, input, { relations: entity === metadata.option ? ["values"] : ["options"] }, true);
+        const result = yield* replaceProductRows(ctx, metadata, entity, input, { relations: entity === metadata.option ? ["values"] : ["options"] }, true,
+          profile === "optionWorkflow" ? "option-workflows" : "standard");
         if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
         const mutations = Object.entries(result.performedActions.created).flatMap(([modelName, values]) => values.map(value => ({ modelName, entity: { ...value } })));
         yield* events.created(mutations, shared);
@@ -170,7 +189,8 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       return [...rows];
     }))),
     upsertWithReplace: (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-      if (entity === metadata.option || entity === metadata.variant) return yield* replaceProductRows(ctx, metadata, entity, input, config);
+      if (entity === metadata.option || entity === metadata.variant) return yield* replaceProductRows(ctx, metadata, entity, input, config, false,
+        profile === "optionWorkflow" ? "option-workflows" : "standard");
       if (entity !== metadata.collection) return yield* ctx.refuse(commerceError("unsupportedProfile"));
       return yield* replaceProductRows(ctx, metadata, entity, input, config, true);
     }))),

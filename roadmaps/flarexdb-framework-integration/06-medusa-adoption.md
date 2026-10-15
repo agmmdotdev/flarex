@@ -163,6 +163,23 @@ native identity, rank, path and ordered sibling shifts. Physical deletion retain
 complete soft-deleted descendant and pivot cleanup while returning and emitting
 callbacks for requested roots only. General restoration, custom Category Links,
 larger trees and hosted activation remain unadmitted.
+
+The [native Product Option slice](./preflight/107-native-product-option-workflows.md)
+implements creation, complete selector updates and soft deletion through the
+actual native composers. It bounds four roots, four persisted and four incoming
+Values per Option, four Product parents and two pivots per removed Value.
+Complete preparation precedes writes. Creation/update select named 128-call
+allowances; deletion retains 64 calls. All retain 64 events, ordinary
+128-identity working sets and default OCC. Matching active Values retain their
+identities; omitted Values preserve storage while explicit replacement removes
+omitted Values and their pivots, including already-deleted Values. Default
+presentation hides deleted children without discarding replacement evidence.
+Soft deletion preserves pivots and classifies retimestamped deleted Values from
+actual preimages. Hooks precede workflow events and use the genuine empty Link
+route. The selected portable fork's DTO/order/event distinctions from fresh ORM
+execution remain explicit. Reassignment, restoration, custom Option Links,
+larger graphs and hosted activation remain unadmitted.
+
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a

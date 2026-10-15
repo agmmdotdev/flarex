@@ -10,6 +10,10 @@ const admitted = new Set(promotion.files.map((file) => path.resolve(root, file.t
 const inputs = new Set();
 for (const entry of [
   "packages/medusa-adapter/src/workflows/product/category-workflows.ts",
+  "packages/medusa-adapter/src/workflows/product/option-workflows.ts",
+  "packages/medusa-core-flows/src/product/workflows/create-product-options.ts",
+  "packages/medusa-core-flows/src/product/workflows/update-product-options.ts",
+  "packages/medusa-core-flows/src/product/workflows/delete-product-options.ts",
   "packages/medusa-core-flows/src/product-category/workflows/create-product-categories.ts",
   "packages/medusa-core-flows/src/product-category/workflows/update-product-categories.ts",
   "packages/medusa-core-flows/src/product-category/workflows/delete-product-categories.ts",

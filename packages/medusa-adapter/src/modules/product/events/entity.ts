@@ -1,12 +1,18 @@
 import type { LogicalCallReceiptValidation } from "../../../repository/call-receipt";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { jsonEqual } from "flarex-protocol/json";
-import { commerceError, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductEntityMetadata, ProductRuntimeMetadata } from "../runtime-metadata";
 import { productModuleEventCapture } from "./capture";
 import { matchesPublicRow } from "./result";
+import { commerceDecoder } from "../../../value/decoder";
+import { decodeRelatedUpdate } from "../value-profile";
+import { decodeProductOptionCreateInput, decodeProductOptionUpdateInput, decodeProductOptionOutput } from "../option-input";
+import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
+import { preservePrimaryKeyOrFilterOrder } from "@medusajs/drizzle/relation-query";
+import { compareBytesLexicographically } from "@flarex/utils/bytes";
 
 /** One native entity command owns its row transitions and matching messages. */
 export function productLogicalEntityEventPolicy(catalog: ProductRuntimeMetadata, entity: ProductEntityMetadata,
@@ -224,15 +230,16 @@ export function productLogicalTypeUpsertEventPolicy(catalog: ProductRuntimeMetad
 /** Native Option commands own their Value graph. Hard deletion emits only the
  * Option root message; create/update/upsert emit each changed entity message. */
 export function productLogicalOptionEventPolicy(catalog: ProductRuntimeMetadata,
-  operation: "create" | "update" | "upsert" | "delete") {
+  operation: "create" | "update" | "upsert" | "delete" | "selector", namedCommand?: string) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const commandName = operation === "create" ? "productCreateoption" : operation === "update" ? "productupdateoption"
-    : operation === "upsert" ? "productupsertoption" : "productDeleteoption";
+  const commandName = namedCommand ?? (operation === "create" ? "productCreateoption" : operation === "update" ? "productupdateoption"
+    : operation === "upsert" ? "productupsertoption" : operation === "selector" ? "productUpdateOptionsBySelector" : "productDeleteoption");
   const mismatch = () => commerceError("receiptMismatch");
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalOption")(
     function* (call, activity) {
       const { mutations, lifecycle } = activity;
-      if (call.commandName !== commandName) return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (call.commandName !== commandName || call.mode !== "write" || activity.setNull.length !== 0 || activity.referenceReplacements.length !== 0 ||
+        mutations.some((mutation, index) => mutation.ordinal !== index)) return yield* Effect.fail(commerceError("receiptMismatch"));
       const emitted = call.events;
       if (lifecycle.length !== 0) return yield* Effect.fail(mismatch());
       const options = new Map<string, typeof mutations[number]>();
@@ -267,7 +274,7 @@ export function productLogicalOptionEventPolicy(catalog: ProductRuntimeMetadata,
             before !== null && after?.deleted_at === null ? "updated"
           : mutation.operation === "delete" && entity === catalog.value && before !== null && after === null ? "deleted" : undefined;
         if (action === undefined || (entity === catalog.option &&
-          (operation === "create" && action !== "created" || operation === "update" && action !== "updated")))
+          (operation === "create" && action !== "created" || (operation === "update" || operation === "selector") && action !== "updated")))
           return yield* Effect.fail(mismatch());
         expected.add(`${action === "created" ? entity.createdEvent : action === "updated" ? entity.updatedEvent : entity.deletedEvent}:${id}`);
       }
@@ -289,13 +296,165 @@ export function productLogicalOptionEventPolicy(catalog: ProductRuntimeMetadata,
           return yield* Effect.fail(mismatch());
         pivotKeys.add(key);
       }
+      yield* validateOptionCall(catalog, operation, call, activity, options, values, pivots);
+      const selectedOrder = [...options.keys()];
+      let selectedEventOrdinal = 0;
       for (const event of emitted) {
         const message = yield* capture(event);
         for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {
+          if (operation === "selector" && message.metadata.object === catalog.option.eventObject && id !== selectedOrder[selectedEventOrdinal++])
+            return yield* Effect.fail(mismatch());
           if (!expected.delete(`${message.name}:${id}`)) return yield* Effect.fail(mismatch());
         }
       }
-      if (expected.size !== 0) return yield* Effect.fail(mismatch());
+      if (expected.size !== 0 || operation === "selector" && selectedEventOrdinal !== selectedOrder.length) return yield* Effect.fail(mismatch());
     });
   return { capture, validateLogicalCall };
 }
+
+type OptionActivity = Parameters<LogicalCallReceiptValidation>[1];
+type OptionMutation = OptionActivity["mutations"][number];
+const decodeOptionObjects = commerceDecoder(Schema.Array(Schema.JsonObject).pipe(Schema.mutable).check(Schema.isMaxLength(256)), "receiptMismatch");
+const optionEncoder = new TextEncoder();
+const optionSameOutside = (before: JsonObject, after: JsonObject, allowed: ReadonlySet<string>) =>
+  [...new Set([...Object.keys(before), ...Object.keys(after)])].every(field => allowed.has(field) ||
+    before[field] !== undefined && after[field] !== undefined && jsonEqual(before[field], after[field]));
+
+/** Authenticate native replacement outcomes against the complete observed
+ * preimage, without executing a second replacement planner. */
+const validateOptionCall = Effect.fn("ProductEvents.validateOptionCall")(function* (
+  catalog: ProductRuntimeMetadata, operation: "create" | "update" | "upsert" | "delete" | "selector",
+  call: Parameters<LogicalCallReceiptValidation>[0], activity: OptionActivity,
+  options: ReadonlyMap<string, OptionMutation>, values: ReadonlyMap<string, OptionMutation>, pivots: readonly OptionMutation[],
+) {
+  const mismatch = () => commerceError("receiptMismatch");
+  const initialOptions = new Map<string, JsonObject>(), initialValues = new Map<string, JsonObject>();
+  for (const observation of activity.observedRows) {
+    const group = observation.table === catalog.option.table.name ? initialOptions : observation.table === catalog.value.table.name ? initialValues : undefined;
+    if (group !== undefined && typeof observation.row.id === "string") group.set(observation.row.id, observation.row);
+  }
+  for (const [id, mutation] of options) if (mutation.before !== null) initialOptions.set(id, mutation.before); else initialOptions.delete(id);
+  for (const [id, mutation] of values) if (mutation.before !== null) initialValues.set(id, mutation.before); else initialValues.delete(id);
+  const removedValues = new Set<string>();
+  if (operation === "delete") {
+    const requested = Array.isArray(call.input) ? call.input : [call.input];
+    if (call.result !== null || requested.some(id => typeof id !== "string")) return yield* Effect.fail(mismatch());
+    const requestedIds = new Set(requested);
+    // Physical deletion removes present identities, including inactive roots.
+    // Missing IDs and repeated requests add no transition or module event.
+    const eligible = new Set([...initialOptions.keys()].filter(id => requestedIds.has(id)));
+    if (options.size !== eligible.size || [...options.keys()].some(id => !eligible.has(id))) return yield* Effect.fail(mismatch());
+    const expected = new Set([...initialValues].filter(([, row]) => {
+      const parent = row[catalog.foreignKeys.value]; return typeof parent === "string" && options.has(parent);
+    }).map(([id]) => id));
+    for (const [id] of values) if (!expected.delete(id)) return yield* Effect.fail(mismatch()); else removedValues.add(id);
+    if (expected.size !== 0) return yield* Effect.fail(mismatch());
+  } else {
+    let requests: JsonObject[];
+    if (operation === "selector") {
+      const input = yield* Effect.fromResult(decodeProductOptionUpdateInput(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+      const selected = [...initialOptions.values()].filter(row => row.deleted_at === null &&
+        (input.selector.id === undefined || (typeof input.selector.id === "string" ? row.id === input.selector.id : typeof row.id === "string" && input.selector.id.includes(row.id))) &&
+        (input.selector.product_id === undefined || (typeof input.selector.product_id === "string" ? row.product_id === input.selector.product_id :
+          typeof row.product_id === "string" && input.selector.product_id.includes(row.product_id))) &&
+        (input.selector.title === undefined || row.title === input.selector.title))
+        .toSorted((left, right) => compareBytesLexicographically(optionEncoder.encode(String(left.id)), optionEncoder.encode(String(right.id))));
+      const ordered = preservePrimaryKeyOrFilterOrder(selected, buildQuery(input.selector, { order: { id: "ASC" } }).where, ["id"], [["id", "ASC"]]);
+      if (ordered.length > 4) return yield* Effect.fail(mismatch());
+      requests = [];
+      for (const row of ordered) {
+        if (typeof row.id !== "string") return yield* Effect.fail(mismatch());
+        requests.push({ ...input.update, id: row.id });
+      }
+    } else if (operation === "update") {
+      const input = yield* Effect.fromResult(decodeRelatedUpdate(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+      yield* Effect.fromResult(catalog.valueProfile.validateRelatedUpdateData(catalog.option.table.name, input.data))
+        .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+      requests = [{ ...input.data, id: input.id }];
+    } else {
+      if (operation === "create" && call.commandName === "productCreateOptionsForWorkflow")
+        yield* Effect.fromResult(decodeProductOptionCreateInput(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+      yield* Effect.fromResult(operation === "create" ? catalog.valueProfile.validateRelatedCreate(catalog.option.table.name, call.input)
+        : catalog.valueProfile.validateRelatedChange(catalog.option.table.name, call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+      requests = yield* Effect.fromResult(decodeOptionObjects(Array.isArray(call.input) ? call.input : [call.input]));
+      if (operation === "upsert") requests = [...requests.filter(row => row.id === undefined), ...requests.filter(row => row.id !== undefined)];
+    }
+    const results = yield* Effect.fromResult(decodeOptionObjects(Array.isArray(call.result) ? call.result : [call.result]));
+    if (call.commandName === "productCreateOptionsForWorkflow" || operation === "selector")
+      yield* Effect.fromResult(decodeProductOptionOutput(call.result)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+    if (requests.length !== results.length || options.size !== results.length ||
+      [...options.keys()].some((id, index) => results[index]?.id !== id)) return yield* Effect.fail(mismatch());
+    const expectedValues = new Set<string>();
+    for (const [index, result] of results.entries()) {
+      const request = requests[index], id = result.id;
+      if (request === undefined || typeof id !== "string" || request.id !== undefined && request.id !== id) return yield* Effect.fail(mismatch());
+      const mutation = options.get(id), before = mutation?.before, after = mutation?.after;
+      if (after == null || request.id !== undefined && operation !== "create" && before == null ||
+        typeof after.title !== "string" || typeof after.product_id !== "string") return yield* Effect.fail(mismatch());
+      const { values: returnedValues, product, ...scalars } = result;
+      if (!matchesPublicRow(after, scalars) || !Array.isArray(returnedValues)) return yield* Effect.fail(mismatch());
+      if (product !== undefined) {
+        const parent = activity.observedRows.find(row => row.table === catalog.product.table.name && row.row.id === after.product_id)?.row;
+        if (parent === undefined || !matchesPublicRow(parent, product)) return yield* Effect.fail(mismatch());
+      }
+      if (before != null) {
+        if (before.deleted_at !== null || !optionSameOutside(before, after, new Set(["updated_at", ...Object.keys(request).filter(field => field !== "id" && field !== "values")])))
+          return yield* Effect.fail(mismatch());
+      } else if (request.metadata === undefined && after.metadata !== null) return yield* Effect.fail(mismatch());
+      for (const [field, value] of Object.entries(request)) if (field !== "values" && (after[field] === undefined || !jsonEqual(after[field], value)))
+        return yield* Effect.fail(mismatch());
+      const persisted = [...initialValues.values()].filter(row => row[catalog.foreignKeys.value] === id);
+      const old = persisted.filter(row => row.deleted_at === null);
+      const expected = new Map<string, JsonObject>();
+      if (request.values === undefined) {
+        for (const row of old) if (typeof row.id === "string") expected.set(row.id, row);
+        if ([...values.values()].some(change => (change.after ?? change.before)?.[catalog.foreignKeys.value] === id)) return yield* Effect.fail(mismatch());
+      } else {
+        if (!Array.isArray(request.values) || request.values.some(value => typeof value !== "string") || new Set(request.values).size !== request.values.length)
+          return yield* Effect.fail(mismatch());
+        for (const value of request.values) {
+          const reused = old.find(row => row.value === value);
+          if (reused !== undefined && typeof reused.id === "string") {
+            const change = values.get(reused.id);
+            if (change !== undefined) {
+              if (change.before === null || change.after === null || !jsonEqual(change.before, reused) ||
+                !optionSameOutside(change.before, change.after, new Set(["updated_at"]))) return yield* Effect.fail(mismatch());
+              expectedValues.add(reused.id);
+            }
+            expected.set(reused.id, change?.after ?? reused);
+            continue;
+          }
+          const candidates = [...values].filter(([, change]) => change.after?.[catalog.foreignKeys.value] === id && change.after.value === value);
+          if (candidates.length !== 1) return yield* Effect.fail(mismatch());
+          const candidate = candidates[0];
+          if (candidate === undefined) return yield* Effect.fail(mismatch());
+          const [valueId, change] = candidate;
+          const afterValue = change.after;
+          if (afterValue === null || change.operation !== "insert" || change.before !== null || afterValue.metadata !== null) return yield* Effect.fail(mismatch());
+          expectedValues.add(valueId); expected.set(valueId, afterValue);
+        }
+        for (const row of persisted) if (typeof row.id === "string" && !expected.has(row.id)) {
+          const removed = values.get(row.id);
+          if (removed?.operation !== "delete" || removed.before === null || !jsonEqual(removed.before, row)) return yield* Effect.fail(mismatch());
+          expectedValues.add(row.id); removedValues.add(row.id);
+        }
+      }
+      if (returnedValues.length !== expected.size) return yield* Effect.fail(mismatch());
+      for (const returned of returnedValues) if (!isJsonObject(returned) || typeof returned.id !== "string" ||
+        !expected.has(returned.id) || !matchesPublicRow(expected.get(returned.id) ?? {}, returned) || !expected.delete(returned.id)) return yield* Effect.fail(mismatch());
+    }
+    if (expectedValues.size !== values.size) return yield* Effect.fail(mismatch());
+  }
+  const expectedPivots = new Set<string>();
+  const recordPivot = (table: string, row: JsonObject) => {
+    const value = row[catalog.pivot.valueColumn], variant = row[catalog.pivot.variantColumn];
+    if (table === catalog.pivot.table.name && typeof value === "string" && typeof variant === "string" && removedValues.has(value))
+      expectedPivots.add(JSON.stringify([variant, value]));
+  };
+  for (const observation of activity.observedRows) recordPivot(observation.table, observation.row);
+  for (const mutation of pivots) if (mutation.before !== null) recordPivot(mutation.table, mutation.before);
+  for (const mutation of pivots) if (!expectedPivots.delete(JSON.stringify([
+    mutation.before?.[catalog.pivot.variantColumn], mutation.before?.[catalog.pivot.valueColumn],
+  ]))) return yield* Effect.fail(mismatch());
+  if (expectedPivots.size !== 0) return yield* Effect.fail(mismatch());
+});

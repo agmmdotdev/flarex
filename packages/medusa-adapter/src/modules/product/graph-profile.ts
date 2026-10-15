@@ -55,13 +55,42 @@ export function productCreationProfile(catalog: ProductRuntimeMetadata): Creatio
 
 /** Module policy owns admission, membership and presentation. Storage, planning
  * state, dependency ordering and performed-action capture stay shared. */
-export function productReplacementProfile(catalog: ProductRuntimeMetadata): ReplacementProfile {
+export type ProductReplacementAdmission = "standard" | "option-workflows";
+export function productReplacementProfile(catalog: ProductRuntimeMetadata, admission: ProductReplacementAdmission = "standard"): ReplacementProfile {
   return {
     catalog: productGraphCatalog(catalog),
     allowedRelations: entity => entity === catalog.product ? ["options", "variants", "images", "tags", "categories"]
       : entity === catalog.option ? ["values"] : entity === catalog.variant ? ["options"] : entity === catalog.collection ? ["products"] : [],
     ownedToOne: entity => entity === catalog.product ? ["collection", "type"] : [],
     mutableForeignKeys: entity => entity === catalog.product,
+    admitSelection: (table, rows) => {
+      if (admission !== "option-workflows") return Result.succeed(undefined);
+      const column = table === catalog.value.table ? catalog.foreignKeys.value
+        : table === catalog.pivot.table ? catalog.pivot.valueColumn : undefined;
+      if (column === undefined) return Result.succeed(undefined);
+      const maximum = table === catalog.value.table ? 4 : 2;
+      const counts = new Map<string, number>();
+      for (const row of rows) {
+        const owner = row[column];
+        if (typeof owner !== "string") return Result.fail(commerceError("storedCorruption"));
+        const count = (counts.get(owner) ?? 0) + 1;
+        if (count > maximum) return Result.fail(commerceError("unsupportedProfile"));
+        counts.set(owner, count);
+      }
+      return Result.succeed(undefined);
+    },
+    prepareProjection: Effect.fn("ProductAdapter.prepareReplacementProjection")(function* (entity, roots, load) {
+      if (admission !== "option-workflows") return;
+      if (entity !== catalog.option) return yield* Effect.fail(commerceError("unsupportedProfile"));
+      const ids: string[] = [];
+      for (const root of roots) {
+        if (typeof root.id !== "string") return yield* Effect.fail(commerceError("storedCorruption"));
+        ids.push(root.id);
+      }
+      // Move the complete Value projection's existing indexed read before
+      // writes. The planner reuses this same operation-local selection later.
+      yield* load(catalog.value.table, catalog.foreignKeys.value, ids);
+    }),
     toManyMode: (entity, _name, child) => entity === catalog.collection
       ? child === catalog.product ? Result.succeed("associate") : Result.fail(commerceError("unsupportedProfile"))
       : Result.succeed("replace"),
@@ -74,6 +103,12 @@ export function productReplacementProfile(catalog: ProductRuntimeMetadata): Repl
     projectionPaths: (entity, relations) => relations.flatMap(name => name === "options" && entity === catalog.product ? [name, "options.values"] : [name]),
     project: rows => {
       const projection = new Map(rows);
+      // Default native relation presentation hides deleted entities without
+      // discarding their persisted replacement-removal or receipt evidence.
+      for (const entity of catalog.entities) if (entity.table.columns.some(column => column.name === "deleted_at")) {
+        const selected = projection.get(entity.table.name);
+        if (selected !== undefined) projection.set(entity.table.name, selected.filter(row => row.deleted_at === null));
+      }
       const images = projection.get(catalog.image.table.name);
       if (images !== undefined) {
         const ranked: { row: typeof images[number]; rank: number }[] = [];

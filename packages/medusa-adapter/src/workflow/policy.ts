@@ -17,6 +17,10 @@ export const productCategoryCreationResources = Object.freeze({ ...defaultCommer
 export const productCategoryDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 128, eventMessages: 64 });
 /** Four selected Category subtrees across a sixteen-Category native graph. */
 export const productCategoryUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 128, eventMessages: 64 });
+/** Native Option workflows retain separate measured admission profiles. */
+export const productOptionCreationResources = Object.freeze({ ...defaultCommerceResources, calls: 128, eventMessages: 64 });
+export const productOptionUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 128, eventMessages: 64 });
+export const productOptionDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 64, eventMessages: 64 });
 export const productShippingProfileResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 export const productVariantPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Complete finite Variant graph, including Inventory children and both Link families. */

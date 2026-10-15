@@ -35,10 +35,11 @@ function relatedReadInput<Read extends NamedRead>(decode: (input: unknown) => Re
 /** All bindings invoke the actual Medusa method on the command-owned receiver.
  * SAFETY: FindConfig and root filters are framework-boundary assertions only;
  * the existing selected DAL validates the normalized query before storage. */
-export function productReadCommands({ withService, withCategoryReadService }:
-  Pick<ProductCommandServices, "withService" | "withCategoryReadService">) {
+export function productReadCommands({ withService, withCategoryReadService, withOptionWorkflowService }:
+  Pick<ProductCommandServices, "withService" | "withCategoryReadService" | "withOptionWorkflowService">) {
   const commands = commerceServiceCommands(withService);
   const categories = commerceServiceCommands(withCategoryReadService);
+  const options = commerceServiceCommands(withOptionWorkflowService);
   const rootInput = Effect.fn("ProductAdapter.readInput")(function* (ctx: Context, input: Json) {
     const decoded = yield* Effect.fromResult(decodeProductRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
@@ -77,6 +78,8 @@ export function productReadCommands({ withService, withCategoryReadService }:
     listOptions: commands.read("productOptionlist", parent.list, ({ service, context }, args) => service.listProductOptions(args.filters, args.config as FindConfig<ProductTypes.ProductOptionDTO> | undefined, context)),
     retrieveOption: commands.read("productOptionretrieve", parent.retrieve, ({ service, context }, args) => service.retrieveProductOption(args.id, args.config as FindConfig<ProductTypes.ProductOptionDTO> | undefined, context)),
     countOptions: commands.read("productOptioncount", parent.list, ({ service, context }, args) => service.listAndCountProductOptions(args.filters, args.config as FindConfig<ProductTypes.ProductOptionDTO> | undefined, context)),
+    countOptionsForWorkflow: options.read("productOptionCountForWorkflow", parent.list, ({ service, context }, args) =>
+      service.listAndCountProductOptions(args.filters, args.config as FindConfig<ProductTypes.ProductOptionDTO> | undefined, context)),
     listVariants: commands.read("productVariantlist", parent.list, ({ service, context }, args) => service.listProductVariants(args.filters, args.config as FindConfig<ProductTypes.ProductVariantDTO> | undefined, context)),
     retrieveVariant: commands.read("productVariantretrieve", parent.retrieve, ({ service, context }, args) => service.retrieveProductVariant(args.id, args.config as FindConfig<ProductTypes.ProductVariantDTO> | undefined, context)),
     countVariants: commands.read("productVariantcount", parent.list, ({ service, context }, args) => service.listAndCountProductVariants(args.filters, args.config as FindConfig<ProductTypes.ProductVariantDTO> | undefined, context)),

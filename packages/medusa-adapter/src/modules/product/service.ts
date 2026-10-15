@@ -13,6 +13,8 @@ import { productCollectionWorkflowModule } from "./product-collection-workflow";
 import { productCollectionCommands } from "./commands/collection";
 import { productCategoryCommands } from "./commands/category";
 import { productCategoryWorkflowModule } from "./product-category-workflow";
+import { productOptionCommands } from "./commands/option";
+import { productOptionWorkflowModule } from "./product-option-workflow";
 import { prepareProductCommandServices } from "./commands/services";
 import { productReadCommands } from "./commands/reads";
 import { productInternalCommands } from "./commands/internal";
@@ -35,6 +37,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
   const type = productTypeCommands(services);
   const collection = productCollectionCommands(services);
   const category = productCategoryCommands(services);
+  const option = productOptionCommands(services);
   const commands = Object.freeze({
     internalProductList: internalProductRead("list"), internalProductRetrieve: internalProductRead("retrieve"),
     internalProductCreate: internalProductChange("create"), internalProductUpdate: internalProductChange("update"),
@@ -68,6 +71,9 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     updateCollectionsBySelector: collection.updateCollectionsBySelector, softDeleteCollectionsForWorkflow: collection.softDeleteCollections,
     createCategoriesForWorkflow: category.createCategories, listCategoriesForWorkflow: category.listCategories,
     updateCategoriesBySelector: category.updateCategoriesBySelector, softDeleteCategoriesForWorkflow: category.softDeleteCategories,
+    createOptionsForWorkflow: option.createOptions, listOptionsForWorkflow: option.listOptions,
+    updateOptionsBySelector: option.updateOptionsBySelector, softDeleteOptionsForWorkflow: option.softDeleteOptions,
+    countOptionsForWorkflow: reads.countOptionsForWorkflow,
     countImages: reads.countImages, updateValues: writes.updateValues, updateCollections: writes.updateCollections,
     updateCategories: writes.updateCategories, upsertOptions: writes.upsertOptions, upsertVariants: writes.upsertVariants,
     upsertCollections: writes.upsertCollections, upsertCategories: writes.upsertCategories });
@@ -115,5 +121,9 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
   const productCategoryWorkflow = yield* Effect.fromResult(productCategoryWorkflowModule(description, category, graph,
     { created: metadata.category.createdEvent, updated: metadata.category.updatedEvent, deleted: metadata.category.deletedEvent },
     { ...logicalPolicy, commands: Object.values(commands) }));
-  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, productUpdateWorkflow, productDeletionWorkflow, productBatchWorkflow, productTypeWorkflow, productCollectionWorkflow, productCategoryWorkflow, logicalPolicy };
+  const productOptionWorkflow = yield* Effect.fromResult(productOptionWorkflowModule(description, { ...option, countOptions: reads.countOptionsForWorkflow }, graph,
+    { created: metadata.option.createdEvent, updated: metadata.option.updatedEvent, deleted: metadata.option.deletedEvent,
+      valueCreated: metadata.value.createdEvent, valueUpdated: metadata.value.updatedEvent, valueDeleted: metadata.value.deletedEvent },
+    { ...logicalPolicy, commands: Object.values(commands) }));
+  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, productUpdateWorkflow, productDeletionWorkflow, productBatchWorkflow, productTypeWorkflow, productCollectionWorkflow, productCategoryWorkflow, productOptionWorkflow, logicalPolicy };
 });

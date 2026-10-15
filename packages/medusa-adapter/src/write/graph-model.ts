@@ -46,6 +46,8 @@ export interface ReplacementProfile {
   readonly allowedRelations: (entity: GraphEntity) => readonly string[];
   readonly ownedToOne: (entity: GraphEntity) => readonly string[];
   readonly mutableForeignKeys: (entity: GraphEntity) => boolean;
+  readonly admitSelection: (table: GraphTable, rows: readonly JsonObject[]) => Result.Result<void, CommerceTransactionError>;
+  readonly prepareProjection: (entity: GraphEntity, roots: readonly JsonObject[], load: GraphLoad) => Effect.Effect<void, CommerceTransactionError>;
   readonly toManyMode: (entity: GraphEntity, name: string, child: GraphEntity) => Result.Result<"replace" | "associate", CommerceTransactionError>;
   readonly validateLink: (source: GraphEntity, next: JsonObject, selected: JsonObject, load: GraphLoad) => Effect.Effect<void, CommerceTransactionError>;
   readonly projectionPaths: (entity: GraphEntity, relations: readonly string[]) => readonly string[];

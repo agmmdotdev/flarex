@@ -7,7 +7,7 @@ import { captureCommerceInput } from "../../value/input";
 import { commerceDecoder } from "../../value/decoder";
 import { QueryEnvelope, QueryLimit, QueryOffset } from "../../query/decoder";
 import { decodeGraphArray } from "./value-profile";
-import { compileProjection } from "../../query/projection";
+import { compileProjection, type ProjectionPolicy } from "../../query/projection";
 import { compileWhere } from "../../query/predicate";
 import { executeRead, orderedCatalog } from "../../query/read";
 import { preservePrimaryKeyOrFilterOrder } from "@medusajs/drizzle/relation-query";
@@ -25,7 +25,7 @@ const decodeOptions = commerceDecoder(Schema.Struct({
 /** Internal service reads share the command's manager; this is no public DAL. */
 export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(function* (
   ctx: Pick<CommerceCommandContext, "manager" | "table" | "resources">, metadata: ProductRuntimeMetadata, entity: ProductEntityMetadata, input: unknown, withCount: boolean,
-  nativeFilterOrder = false,
+  profileOptions: { readonly nativeFilterOrder?: boolean; readonly projection?: ProjectionPolicy } = {},
 ) {
   const captured = yield* Effect.fromResult(captureCommerceInput(input));
   const envelope = yield* Effect.fromResult(decodeEnvelope(captured));
@@ -35,7 +35,7 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
   const relations = options.populate ?? [];
   const profile = metadata.relatedReads.get(entity.table.name);
   if (profile === undefined || relations.some(path => !profile.paths.includes(path))) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const projection = yield* Effect.fromResult(compileProjection(metadata.readCatalog, entity.table.name, options.fields, relations, profile.projection));
+  const projection = yield* Effect.fromResult(compileProjection(metadata.readCatalog, entity.table.name, options.fields, relations, profileOptions.projection ?? profile.projection));
   const withDeleted = options.filters?.softDeletable.withDeleted ?? false;
   const decoded = yield* Effect.fromResult(compileWhere(where, profile.where));
   const children: Json[] = !withDeleted && entity.table.columns.some(column => column.name === "deleted_at")
@@ -51,7 +51,7 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
       ? { kind: "catalog", order: "id", select: orderedCatalog(direction) }
       : { kind: "database", countAt: "afterPopulation" },
   }, withCount);
-  return nativeFilterOrder ? { ...result, rows: preservePrimaryKeyOrFilterOrder(result.rows, where,
+  return profileOptions.nativeFilterOrder ? { ...result, rows: preservePrimaryKeyOrFilterOrder(result.rows, where,
     entity.table.columns.filter(column => column.primaryKey).map(column => column.name),
     [["id", direction === "desc" ? "DESC" : "ASC"]]) } : result;
 });

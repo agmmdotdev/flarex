@@ -80,6 +80,9 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
     ["productDeletetag", productLogicalTagHardDeleteEventPolicy(catalog)],
     ["productCreateimage", productLogicalImageCreateEventPolicy(catalog)],
     ["productCreateoption", productLogicalOptionEventPolicy(catalog, "create").validateLogicalCall],
+    ["productCreateOptionsForWorkflow", productLogicalOptionEventPolicy(catalog, "create", "productCreateOptionsForWorkflow").validateLogicalCall],
+    ["productUpdateOptionsBySelector", productLogicalOptionEventPolicy(catalog, "selector", "productUpdateOptionsBySelector").validateLogicalCall],
+    ["productSoftDeleteOptionsForWorkflow", productLogicalLifecycleEventPolicy(catalog, "softDelete", "option").validateLogicalCall],
     ["productupdateoption", productLogicalOptionEventPolicy(catalog, "update").validateLogicalCall],
     ["productupsertoption", productLogicalOptionEventPolicy(catalog, "upsert").validateLogicalCall],
     ["productDeleteoption", productLogicalOptionEventPolicy(catalog, "delete").validateLogicalCall],
@@ -108,6 +111,7 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
           "productSoftDeleteTypesForWorkflow",
           "productSoftDeleteCollectionsForWorkflow",
           "productSoftDeleteCategoriesForWorkflow",
+          "productSoftDeleteOptionsForWorkflow",
           "productSoftDeleteProductsForWorkflow", "productSoftDeleteVariantsForWorkflow",
           "productInternalProductsoftDelete", "productInternalProductrestore"].includes(call.commandName))
         return yield* Effect.fail(commerceError("receiptMismatch", { commandName: call.commandName,

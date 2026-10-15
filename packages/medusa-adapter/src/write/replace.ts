@@ -74,6 +74,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       if (order === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const rows = yield* store.find(ctx.manager, { take: ctx.resources.queryRows, order: { column: order, direction: "asc" },
         predicate: { kind: "in", column, values: [...selected] } });
+      yield* Effect.fromResult(profile.admitSelection(table, rows));
       // The plan's request-local rows override prior store values until its
       // batched writes run. The core read still owns index selection and bounds.
       for (const row of rows) {
@@ -251,6 +252,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
   }));
   const roots: JsonObject[] = [];
   for (const row of inputs) roots.push(yield* plan(entity, row, {}, true));
+  yield* profile.prepareProjection(entity, roots, load);
   // A stable dependency order batches independent rows and removes children
   // before parents. Self-referential tree policies require separate admission.
   const ordered: Table[] = [];
