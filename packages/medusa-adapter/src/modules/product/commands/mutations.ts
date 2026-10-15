@@ -11,6 +11,7 @@ import { decodeVariantThumbnailUpdate, decodeVariantSelectorUpdate } from "../va
 import { validateProductCreate } from "../graph";
 import { decodeRelatedUpdate, decodeProductRelationshipUpsert } from "../value-profile";
 import { decodeProductLifecycleIds } from "../lifecycle";
+import { decodeProductSelectorUpdate } from "../product-update-input";
 
 type Context = Parameters<ProductCommandServices["withService"]>[0];
 
@@ -101,6 +102,28 @@ export function productMutationCommands({ metadata, withService, withCollectionS
       ? service.upsertProducts(structuredClone(Array.isArray(products) ? products : [products]) as ProductTypes.UpsertProductDTO[], context)
       : service.updateProducts(selected.id, structuredClone(selected.data) as ProductTypes.UpdateProductDTO, context));
   }));
+  const updateProductsForWorkflow = defineCommerceCommand("productUpdateProductsForWorkflow", "write", Effect.fn("ProductAdapter.updateProductsForWorkflow")(function* (ctx, input) {
+    const decoded = yield* Effect.fromResult(decodeProductSelectorUpdate(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    if (decoded.update.id !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
+    const ids = typeof decoded.selector.id === "string" ? [decoded.selector.id] : [...decoded.selector.id];
+    // The same checked Product graph contract precedes native selector
+    // normalization. No adapter assembles or reconciles Product results.
+    yield* Effect.fromResult(metadata.valueProfile.validateUpdate(ids.map(id => ({ ...decoded.update, id }))))
+      .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    if (Array.isArray(decoded.update.options)) {
+      const claimed = decoded.update.options.flatMap(option => isJsonObject(option) && typeof option.id === "string" ? [option.id] : []);
+      if (claimed.length && ids.length) {
+        const store = yield* ctx.table(metadata.option.table.name);
+        const rows = yield* store.find(ctx.manager, { take: ctx.resources.queryRows, order: { column: "id", direction: "asc" },
+          predicate: { kind: "in", column: "id", values: claimed } });
+        if (new Set(claimed).size !== claimed.length || rows.length !== claimed.length ||
+          rows.some(row => row.deleted_at !== null || ids.some(id => row.product_id !== id)))
+          return yield* ctx.refuse(commerceError("invalidInput"));
+      }
+    }
+    return yield* withService(ctx, ({ service, context }) => service.updateProducts({ id: typeof decoded.selector.id === "string" ? decoded.selector.id : ids },
+      structuredClone(decoded.update) as ProductTypes.UpdateProductDTO, context));
+  }));
   const removeImageFromVariant = defineCommerceCommand("productDeleteassignment", "write", Effect.fn("ProductAdapter.removeVariantImage")(function* (ctx, input) {
     const decoded = yield* Effect.fromResult(decodeVariantImageInput(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     const pairs = "variant_id" in decoded ? [{ ...decoded }] : decoded.map(pair => ({ ...pair }));
@@ -137,7 +160,7 @@ export function productMutationCommands({ metadata, withService, withCollectionS
   // SAFETY: DML-derived admission restricts fields before these framework DTO
   // assertions. The selected DAL/core still validate normalized rows and authority.
   return {
-    create, update: productChange("update"), upsert: productChange("upsert"),
+    create, update: productChange("update"), upsert: productChange("upsert"), updateProductsForWorkflow,
     upsertRelationships: defineCommerceCommand("productUpsertRelationships", "write", Effect.fn("ProductAdapter.upsertRelationships")(function* (ctx, input) {
       const rows = yield* Effect.fromResult(decodeProductRelationshipUpsert(input))
         .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));

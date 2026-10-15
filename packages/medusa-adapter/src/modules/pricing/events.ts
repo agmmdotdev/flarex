@@ -9,10 +9,10 @@ import type { Json } from "@flarex/persistence-postgres/internal/commerce-values
 
 /** Core owns FK/unique settlement; this receipt authenticates the exact native
  * create events for each admitted Pricing graph. */
-export function pricingLogicalCreateEventPolicy() {
+export function pricingLogicalCreateEventPolicy(options: Readonly<{ priceListPriceRules?: true }> = {}) {
   const profiles = new Map<string, ReadonlySet<string>>([
     ["pricingCreate", new Set(["price_set", "price", "price_rule"])],
-    ["pricingCreateList", new Set(["price_list", "price", "price_list_rule"])],
+    ["pricingCreateList", new Set(["price_list", "price", "price_list_rule", ...(options.priceListPriceRules ? ["price_rule"] : [])])],
     ["pricingCreatePreference", new Set(["price_preference"])],
   ]);
   const tables = new Set([...profiles.values()].flatMap(profile => [...profile]));
@@ -86,6 +86,16 @@ export function pricingLogicalCreateEventPolicy() {
           }
         }
         if (listRootIds.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+      }
+      if (call.commandName === "pricingCreateList" && options.priceListPriceRules) {
+        const lists = new Set(mutations.flatMap(mutation => mutation.table === "price_list" && typeof mutation.after?.id === "string" ? [mutation.after.id] : []));
+        const prices = new Set(mutations.flatMap(mutation => mutation.table === "price" && typeof mutation.after?.id === "string" ? [mutation.after.id] : []));
+        for (const mutation of mutations) {
+          if (mutation.table === "price" && (typeof mutation.after?.price_list_id !== "string" || !lists.has(mutation.after.price_list_id)))
+            return yield* Effect.fail(commerceError("receiptMismatch"));
+          if (mutation.table === "price_rule" && (typeof mutation.after?.price_id !== "string" || !prices.has(mutation.after.price_id)))
+            return yield* Effect.fail(commerceError("receiptMismatch"));
+        }
       }
       for (const event of emitted) {
         const message = yield* capture(event);

@@ -1,5 +1,5 @@
 import { Effect, Result, Schema } from "effect";
-import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../value/decoder";
 import { commerceServiceCommands, commerceCommandPreparation } from "../module/commands";
 import { defineWorkflowMethod, type WorkflowMethod } from "../workflow/module";
@@ -15,6 +15,7 @@ interface LinkWorkflowServiceDefinition {
   readonly createMethod: WorkflowMethod<readonly unknown[], readonly JsonObject[]>;
   readonly listMethod: WorkflowMethod<readonly unknown[], readonly JsonObject[]>;
   readonly dismissMethod?: WorkflowMethod<readonly unknown[], readonly JsonObject[]>;
+  readonly softDeleteMethod?: WorkflowMethod;
 }
 const preparedServices = new WeakMap<object, LinkWorkflowServiceDefinition>();
 export function linkWorkflowServiceDefinition(input: unknown) {
@@ -24,7 +25,8 @@ export function linkWorkflowServiceDefinition(input: unknown) {
 
 /** Native Link service ABI over a single source's normal borrowed commands.
  * The composing native router owns routing/cardinality; the DAL remains local. */
-export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<typeof prepareLinkService>>, prefix: string, mutable = false) {
+export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<typeof prepareLinkService>>, prefix: string,
+  admission: "create" | "dismiss" | "cascade" = "create") {
   return Result.gen(function* () {
     const extras = Schema.Struct({ id: Schema.optionalKey(Id),
       ...Object.fromEntries(Object.keys(prepared.joiner.databaseConfig?.extraFields ?? {}).map(name =>
@@ -50,10 +52,26 @@ export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<t
       service.dismiss(bulk.map((row): [string, string] => [row[0], row[1]]), undefined, context));
     const dismissMethod = yield* defineWorkflowMethod({ command: dismiss, arguments: decodeDismissArguments,
       encode: ([pairs]) => pairs, output: decodeRows, moduleEvents: [prepared.entityName + ".detached"] });
+    const [primary, foreign] = prepared.joiner.relationships ?? [];
+    if (primary === undefined || foreign === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const endpointIds = Schema.Array(Id).check(Schema.isMaxLength(4));
+    const Endpoint = Schema.Union([Schema.Struct({ [primary.foreignKey]: endpointIds }), Schema.Struct({ [foreign.foreignKey]: endpointIds })]);
+    const ReturnKeys = Schema.Struct({ returnLinkableKeys: Schema.Array(Schema.Literals(["id", primary.foreignKey, foreign.foreignKey])).check(Schema.isLengthBetween(3, 3)) });
+    const decodeSoftDelete = commerceDecoder(Schema.Struct({ selector: Endpoint, config: ReturnKeys }), "invalidInput");
+    const decodeSoftDeleteArguments = commerceDecoder(Schema.Tuple([Endpoint, ReturnKeys]), "invalidInput");
+    const softDeleteName = prefix + "NativeSoftDelete";
+    const softDelete = commands.write(softDeleteName, prepare(decodeSoftDelete), ({ service, context }, input) =>
+      service.softDelete(input.selector, { returnLinkableKeys: [...input.config.returnLinkableKeys] }, context));
+    const softDeleteMethod = yield* defineWorkflowMethod({ command: softDelete, arguments: decodeSoftDeleteArguments,
+      encode: ([selector, config]) => ({ selector, config }),
+      output: commerceDecoder(Schema.Struct({ [primary.foreignKey]: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(8))),
+        [foreign.foreignKey]: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(8))) }), "storedCorruption"),
+      moduleEvents: [prepared.entityName + ".detached"] });
     const result = Object.freeze({ create, list, createName, createMethod, listMethod, routing: structuredClone(prepared.routing),
-      ...(mutable ? { dismiss, dismissName, dismissMethod } : {}) });
+      ...(admission === "create" ? {} : { dismiss, dismissName, dismissMethod }),
+      ...(admission === "cascade" ? { softDelete, softDeleteName, softDeleteMethod } : {}) });
     preparedServices.set(result, { routing: structuredClone(prepared.routing), createMethod, listMethod,
-      ...(mutable ? { dismissMethod } : {}) });
+      ...(admission === "create" ? {} : { dismissMethod }), ...(admission === "cascade" ? { softDeleteMethod } : {}) });
     return result;
   });
 }

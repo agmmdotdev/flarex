@@ -59,8 +59,9 @@ export const productCreationOptions = (value: ProductCreationFixture): Omit<Para
   modules: productCreationModules(value), link: value.link, revision: creationRevision("native-product-root"),
   subscribers: [{ id: "native-product-root", revision: "a".repeat(64) }],
 });
-export async function seedCreationEndpoints(value: ProductCreationFixture) {
+export async function seedCreationEndpoints(value: ProductCreationFixture, prefix = "root") {
   const modules = productCreationModules(value);
+  const label = prefix === "root" ? "Root" : prefix;
   const host = await Effect.runPromise(prepareProductShippingProfileWorkflow({ execution: productCreationExecution(value),
     modules: { product: modules.product, sales_channel: modules.sales_channel, fulfillment: modules.fulfillment,
       link: { module: value.productLinks.runtime.workflow, logicalStorage: value.productLinks.hostInput.logicalStorage } },
@@ -68,19 +69,21 @@ export async function seedCreationEndpoints(value: ProductCreationFixture) {
   }));
   try {
     for (const index of [0, 1]) await Effect.runPromise(host.run(host.newRequestKey(), {
-      shippingProfile: { id: "root-profile-" + index, name: "Root profile " + index, type: "default" },
-      salesChannel: { id: "root-channel-" + index, name: "Root channel " + index },
-      products: [{ id: "endpoint-seed-product-" + index, title: "Endpoint seed " + index }],
+      shippingProfile: { id: prefix + "-profile-" + index, name: label + " profile " + index, type: "default" },
+      salesChannel: { id: prefix + "-channel-" + index, name: label + " channel " + index },
+      products: [{ id: (prefix === "root" ? "" : prefix + "-") + "endpoint-seed-product-" + index,
+        title: (prefix === "root" ? "" : prefix + " ") + "Endpoint seed " + index }],
     }));
   } finally { await Effect.runPromise(host.close); }
 }
-export async function seedCreationReferences(value: ProductCreationFixture) {
+export async function seedCreationReferences(value: ProductCreationFixture, prefix = "root") {
   const { commands, metadata, logicalPolicy } = value.product.runtime;
+  const label = prefix === "root" ? "Root" : prefix;
   const entries = [
-    [commands.createTypes, metadata.type.createdEvent, [{ id: "root-type", value: "Root type" }]],
-    [commands.createCollections, metadata.collection.createdEvent, [{ id: "root-collection", title: "Root collection" }]],
-    [commands.createTags, metadata.tag.createdEvent, Array.from({ length: 4 }, (_, index) => ({ id: "root-tag-" + index, value: "Root tag " + index }))],
-    [commands.createCategories, metadata.category.createdEvent, Array.from({ length: 4 }, (_, index) => ({ id: "root-category-" + index, name: "Root category " + index }))],
+    [commands.createTypes, metadata.type.createdEvent, [{ id: prefix + "-type", value: label + " type" }]],
+    [commands.createCollections, metadata.collection.createdEvent, [{ id: prefix + "-collection", title: label + " collection" }]],
+    [commands.createTags, metadata.tag.createdEvent, Array.from({ length: 4 }, (_, index) => ({ id: prefix + "-tag-" + index, value: label + " tag " + index }))],
+    [commands.createCategories, metadata.category.createdEvent, Array.from({ length: 4 }, (_, index) => ({ id: prefix + "-category-" + index, name: label + " category " + index }))],
   ] as const;
   const participant = defineAtomicCommerceParticipant("product");
   const contracts = entries.map(([, name]) => defineCommerceEventContract({ name, revision: "c".repeat(64), internal: true, decode: logicalPolicy.capture }));

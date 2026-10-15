@@ -464,3 +464,44 @@ identity; an explicit selection is included in replay identity. Product's explic
 workflow profile admits 256 calls. The shared lifetime, per-child accounting,
 64-statement SQL limit, other resource ceilings and settlement remain unchanged.
 Topic 16 retains the reproduction, measurement, preflight and validation.
+
+## Explicit Queued Root Operations
+
+Status: implemented bounded private profile. The native Product-update consumer
+and its retained overlap witness are described in
+[preflight 101](../flarexdb-framework-integration/preflight/101-native-product-update-workflow.md#shared-atomic-operation-finding).
+
+Trusted hosts may explicitly select identity-bound `operationScheduling: "queued"`.
+This serializes complete root operations, including participant receipt and
+observation boundaries, while preserving native concurrent submission. It does
+not permit concurrent borrowed contexts or parallel access to a transaction.
+Default roots still refuse overlap. Internal child commands use their current
+borrowed context; they do not submit recursively to the root queue.
+
+Admission captures and charges immutable inputs before waiting, bounds total
+accepted jobs by the existing call allowance, and rechecks the original deadline
+before execution. The first full Cause remains sticky across caught errors.
+Cancellation and closure revoke queued work and interrupt and join the owned
+worker before database exit. Returning with active or pending jobs fails closed.
+No database, clock, finalizer or settlement capability crosses this boundary.
+Neutral core proofs and native regressions apply separately to PGlite and
+ordinary-role PostgreSQL. Application, Payload, isolation and other profiles
+retain their existing contracts.
+
+## Explicit Mixed Logical Publication
+
+Trusted logical participants may select identity-bound
+`logicalPublication: "mixed"` independently of their working-set resources. This admits
+multiple materialization packets for mixed writes only when the participant's
+working set and final changes stay within 256 identities. Omission and own
+`undefined` retain existing replay identity and behavior; physical participants
+cannot select this mode. Larger batch profiles retain mixed-write refusal.
+
+The publication owner lowers authenticated first preimages and final documents
+through the existing canonical unique-key owner. Connected key transfers stay
+in one packet; a component exceeding an existing row, index or unique-transition
+ceiling is refused. Every packet is accepted before any materialization, and
+facts preserve canonical source order. Commit packet limits, reference-replacement
+restrictions, one outer settlement and pure create/delete batching remain unchanged.
+The Product-update consumer selects this mode for Product (256 identities) and
+Pricing (128 identities); Link participants retain their ordinary profiles.

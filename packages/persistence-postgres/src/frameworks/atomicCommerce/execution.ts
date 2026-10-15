@@ -1,7 +1,7 @@
 import { observeExecution } from "../../execution/diagnostics/operation";
 import { readExactScopeWriteClockObservation } from "../../scope/scopeClock";
 // Quiet calls retain lazy operation bodies; actual caller/SDK policy owns diagnostic spans.
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Result } from "effect";
 import type { Json } from "flarex-protocol/json";
 import { canonicalizeJsonOutcome } from "../../values/jsonOutcome";
 import { captureCommerceJsonData } from "../commerceTransaction/request";
@@ -31,6 +31,9 @@ import {
   type CommerceEventClosure,
 } from "./events";
 import type { PreparedAtomicCommerceConfiguration } from "./configuration";
+import { makeAtomicCommerceOperations, type AtomicCommerceOperations } from "./operations";
+import { capturePrivateJsonData } from "../../values/privateJsonData";
+import { commitEventLimits } from "../../commit/events/model";
 import type { AtomicCommerceAdmission } from "./admission";
 import {
   invalidateAcceptedApplicationBindingInTransaction,
@@ -44,7 +47,7 @@ import {
 
 type ExecutionConfiguration = Pick<
   PreparedAtomicCommerceConfiguration<never>,
-  "members" | "eventPolicy" | "limits" | "eventLimit" | "factLimit" | "owner" | "executionIsolation" | "scopeId"
+  "members" | "eventPolicy" | "limits" | "eventLimit" | "factLimit" | "owner" | "executionIsolation" | "operationScheduling" | "scopeId"
 >;
 
 const scopeExclusions = new WeakMap<AtomicCommerceContext, Effect.Effect<void, CommerceTransactionError>>();
@@ -84,14 +87,17 @@ function makeParticipantInvocation(
     manager: BoundedRequestContext,
     nested: CommerceCommand,
     nestedArgs: Json,
+    capturedInput?: Readonly<{ value: Json }>,
   ): Effect.fn.Return<Pick<AtomicCommerceCallObservation, "input" | "result">, CommerceTransactionError> {
     const operation = getCommerceCommand(nested);
     if (operation === undefined || !member.commands.has(nested))
       return yield* Effect.fail(commerceError("invalidAuthority"));
-    const value = yield* Effect.fromResult(
-      captureCommerceJsonData(nestedArgs, lifetime.remainingBytes()),
-    );
-    yield* Effect.fromResult(lifetime.charge(value.bytes));
+    let value = capturedInput;
+    if (value === undefined) {
+      const captured = yield* Effect.fromResult(captureCommerceJsonData(nestedArgs, lifetime.remainingBytes()));
+      yield* Effect.fromResult(lifetime.charge(captured.bytes));
+      value = captured;
+    }
     const commandContext = makeCommerceCommandContext(
       lifetime,
       working,
@@ -134,6 +140,7 @@ function makeAtomicCommerceExecution(
   lifetime: BoundedRequestLifetime<CommerceTransactionError>,
   id: string,
   key: CapturedAtomicCommerceRequest["key"],
+  operations: AtomicCommerceOperations | undefined,
 ): AtomicCommerceExecution {
   const { members, eventPolicy, factLimit } = configuration;
   const eventCapture =
@@ -163,7 +170,7 @@ function makeAtomicCommerceExecution(
     const member = members[admissions.indexOf(admission)];
     if (member?.kind !== "logical") return yield* Effect.fail(commerceError("invalidAuthority"));
     const created = yield* makeLogicalCommerceParticipant(admission.admission, tx, lifetime, manager, id,
-      member.allowReferenceReplacement === true, member.selectedResources);
+      member.allowReferenceReplacement === true, member.selectedResources, member.logicalPublication);
     logicalWork.set(admission, created);
     contributions.push({ kind: "logical", token: admission, working: created });
     return created;
@@ -171,8 +178,10 @@ function makeAtomicCommerceExecution(
   let facts = 0;
   let replacementPlanned = false;
   const observations: AtomicCommerceCallObservation[] = [];
-  const callParticipant: AtomicCommerceContext["call"] =
-    (participant, command, inputArgs) => observeExecution("AtomicCommerce.callParticipant", Effect.suspend(() =>
+  const callParticipantNow = (
+    participant: Parameters<AtomicCommerceContext["call"]>[0],
+    command: CommerceCommand, inputArgs: Json, capturedInput?: Readonly<{ value: Json }>,
+  ) => observeExecution("AtomicCommerce.callParticipant", Effect.suspend(() =>
       lifetime.nested(
         lifetime.context,
         id,
@@ -196,7 +205,7 @@ function makeAtomicCommerceExecution(
             const cursor = member.kind === "logical" && (member.validateLogicalCall !== undefined || member.allowReferenceReplacement === true) && "activityCursor" in working
               ? working.activityCursor() : undefined;
             const { invoke, events } = makeParticipantInvocation(member, working, lifetime, id, eventCapture);
-            const call: Pick<AtomicCommerceCallObservation, "input" | "result"> = yield* invoke(child, command, inputArgs);
+            const call: Pick<AtomicCommerceCallObservation, "input" | "result"> = yield* invoke(child, command, inputArgs, capturedInput);
             if (cursor !== undefined && "callActivity" in working) {
               const activity = yield* working.callActivity(cursor);
               if (root.mode === "read" && (activity.mutations.length !== 0 || activity.lifecycle.length !== 0 ||
@@ -235,11 +244,31 @@ function makeAtomicCommerceExecution(
           }),
         getCommerceCommand(command)?.mode,
       )), "caller");
+  const prepareCapture = (value: unknown) => Result.gen(function* () {
+    const captured = yield* captureCommerceJsonData(value, lifetime.remainingBytes());
+    yield* lifetime.charge(captured.bytes);
+    return captured;
+  });
+  const rootOperation = <A>(work: Effect.Effect<A, CommerceTransactionError>): Effect.Effect<A, CommerceTransactionError> =>
+    operations === undefined ? work : operations.submit(() => Result.succeed(undefined), () => work);
+  const callParticipant: AtomicCommerceContext["call"] = (participant, command, inputArgs) =>
+    operations === undefined ? callParticipantNow(participant, command, inputArgs) :
+      operations.submit(() => {
+        const index = members.findIndex(member => member.participant === participant);
+        const member = members[index];
+        if (replacementPlanned || member === undefined || admissions[index] === undefined ||
+          getCommerceCommand(command) === undefined || !member.commands.has(command))
+          return Result.fail(commerceError("invalidAuthority"));
+        return prepareCapture(inputArgs);
+      },
+        captured => callParticipantNow(participant, command, captured.value, captured));
   const context = Object.freeze<AtomicCommerceContext>({
     eventGroupId: key,
-    checkpoint: lifetime.operation(lifetime.context, id, "read", Effect.void),
-    capture: (value, normalize) =>
-      lifetime.operation(
+    checkpoint: rootOperation(lifetime.operation(lifetime.context, id, "read", Effect.void)),
+    capture: (value, normalize) => operations !== undefined ? operations.submit(
+      () => (normalize === undefined ? Result.succeed(value) : normalize(value)).pipe(Result.flatMap(prepareCapture)),
+      captured => lifetime.operation(lifetime.context, id, "read", Effect.succeed(captured.value)),
+    ) : lifetime.operation(
         lifetime.context,
         id,
         "read",
@@ -252,8 +281,21 @@ function makeAtomicCommerceExecution(
           return intermediate.value;
         }),
       ),
-    emit: (contract, message) =>
-      lifetime.operation(
+    emit: (contract, message) => operations !== undefined ? operations.submit(
+      () => Result.gen(function* () {
+        if (replacementPlanned) return yield* Result.fail(commerceError("invalidAuthority"));
+        if (eventPolicy === undefined || !eventPolicy.allowed.has(contract))
+          return yield* Result.fail(commerceError("unadmittedEvent"));
+        const captured = yield* capturePrivateJsonData(message,
+          Math.min(commitEventLimits.bytes, lifetime.remainingBytes()), commerceError);
+        yield* lifetime.charge(captured.bytes);
+        return captured;
+      }),
+      captured => lifetime.operation(lifetime.context, id, "write", Effect.suspend(() =>
+        replacementPlanned ? Effect.fail(commerceError("invalidAuthority")) : eventCapture === undefined
+          ? Effect.fail(commerceError("unadmittedEvent"))
+          : eventCapture.capturePrecharged(contract, captured.value, captured.bytes).pipe(Effect.asVoid))),
+    ) : lifetime.operation(
         lifetime.context,
         id,
         "write",
@@ -261,12 +303,14 @@ function makeAtomicCommerceExecution(
           ? Effect.fail(commerceError("unadmittedEvent"))
           : eventCapture.capture(contract, message).pipe(Effect.asVoid)),
       ),
-    refuse: (error) => lifetime.operation(lifetime.context, id, "write", Effect.fail(error)),
+    refuse: (error) => operations === undefined
+      ? lifetime.operation(lifetime.context, id, "write", Effect.fail(error))
+      : operations.submit(() => Result.fail(error), () => Effect.fail(error)),
     call: callParticipant,
   });
-  scopeExclusions.set(context, lifetime.operation(lifetime.context, id, "read", Effect.suspend(() =>
+  scopeExclusions.set(context, rootOperation(lifetime.operation(lifetime.context, id, "read", Effect.suspend(() =>
     configuration.executionIsolation === "scopeExclusive" && readExactScopeWriteClockObservation(tx, configuration.scopeId) !== undefined
-      ? Effect.void : Effect.fail(commerceError("unsupportedProfile")))));
+      ? Effect.void : Effect.fail(commerceError("unsupportedProfile"))))));
   const openMissingContributions = Effect.fnUntraced(function* () {
     // Opening a logical table is a bounded request operation, so admitted but
     // unused participants must be constructed while the lifetime is still open.
@@ -337,7 +381,10 @@ export const executeAtomicCommerceRequest = Effect.fnUntraced(function* (
     id,
     "write",
   );
-  return yield* Effect.gen(function* () {
+  return yield* Effect.acquireUseRelease(
+    configuration.operationScheduling === "queued"
+      ? makeAtomicCommerceOperations(lifetime, configuration.limits.calls) : Effect.succeed(undefined),
+    operations => Effect.gen(function* () {
     const execution = makeAtomicCommerceExecution(
       configuration,
       admissions,
@@ -346,10 +393,13 @@ export const executeAtomicCommerceRequest = Effect.fnUntraced(function* (
       lifetime,
       id,
       request.key,
+      operations,
     );
     yield* Effect.fromResult(lifetime.charge(evidence.bytes));
     const value = yield* Effect.gen(function* () {
       const output = yield* request.definition.run(execution.context, request.args);
+      // Escaped calls must fail closed before unused stores can be opened.
+      if (operations !== undefined) yield* operations.seal;
       // An unused logical member still needs a closure. Open it before seal,
       // inside the same Cause boundary as participant command execution.
       yield* execution.openMissingContributions();
@@ -359,8 +409,11 @@ export const executeAtomicCommerceRequest = Effect.fnUntraced(function* (
         Effect.gen(function* () {
           // Preserve any earlier participant refusal alongside a later
           // failure, including failures swallowed by trusted command code.
+          const scheduled = operations === undefined ? undefined : yield* Effect.exit(operations.seal);
           const sealed = yield* Effect.exit(lifetime.seal);
-          return yield* Effect.failCause(Exit.isFailure(sealed) ? Cause.combine(cause, sealed.cause) : cause);
+          const schedulingCause = scheduled !== undefined && Exit.isFailure(scheduled)
+            ? Cause.combine(cause, scheduled.cause) : cause;
+          return yield* Effect.failCause(Exit.isFailure(sealed) ? Cause.combine(schedulingCause, sealed.cause) : schedulingCause);
         }),
       ),
     );
@@ -390,6 +443,7 @@ export const executeAtomicCommerceRequest = Effect.fnUntraced(function* (
       duration: configuration.limits.commandMs,
       orElse: () => Effect.fail(commerceError("deadlineExceeded")),
     }),
-    Effect.ensuring(lifetime.close),
+    ),
+    operations => (operations === undefined ? Effect.void : operations.close).pipe(Effect.andThen(lifetime.close)),
   );
 }, work => observeExecution("AtomicCommerce.executeRequest", work, "caller"));

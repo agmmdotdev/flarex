@@ -25,6 +25,9 @@ const decode = Schema.decodeUnknownResult(Input, { onExcessProperty: "error" });
 const refusal = (detail: string) => new WorkflowDefinitionError({ reason: "unsupportedProfile", detail });
 /** The portable Query ABI requires explicit pagination and complete-set proof
  * when a native caller omits it. Reuse this seam in direct native graph calls. */
+export function queryWorkflowGraph(input: QueryGraphInput & { readonly options: { readonly isList: false } }, query: WorkflowGraphResource): Promise<{ readonly data: Row | undefined; readonly metadata: Metadata }>;
+export function queryWorkflowGraph(input: QueryGraphInput & { readonly options?: { readonly isList?: true } }, query: WorkflowGraphResource): Promise<{ readonly data: readonly Row[]; readonly metadata: Metadata }>;
+export function queryWorkflowGraph(input: QueryGraphInput, query: WorkflowGraphResource): Promise<{ readonly data: Row | readonly Row[] | undefined; readonly metadata: Metadata }>;
 export async function queryWorkflowGraph(input: QueryGraphInput, query: WorkflowGraphResource) {
   // Deliberate Promise/throw compatibility edge for the Medusa step signature.
   const { options, pagination, ...queryInput } = Result.getOrThrow(decode(input).pipe(

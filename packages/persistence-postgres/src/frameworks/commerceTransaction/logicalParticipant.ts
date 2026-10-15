@@ -88,6 +88,8 @@ interface ClosureState {
   readonly activity: () => Effect.Effect<LogicalCommerceActivity, CommerceTransactionError>;
   readonly maximumIndexEntries: number;
   readonly maximumFacts: number;
+  readonly maximumIdentities: number;
+  readonly logicalPublication: "mixed" | undefined;
 }
 const closures = new WeakMap<object, ClosureState>();
 
@@ -96,9 +98,10 @@ const closures = new WeakMap<object, ClosureState>();
 export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
   admission: LogicalRelationalAdmission, tx: FlarexMetadataTransaction,
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, initialContext: BoundedRequestContext, id: string,
-  allowReferenceReplacement = false, selectedResources?: CommerceResources,
+  allowReferenceReplacement = false, selectedResources?: CommerceResources, logicalPublication?: "mixed",
 ) {
   const resources = selectedResources ?? defaultCommerceResources;
+  const maximumIdentities = selectedResources?.catalogRows ?? logicalCommerceWorkingSetLimits.identities;
   const state = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
   const sourceReadReadiness = state.readReadiness;
   if (sourceReadReadiness.kind === "finiteQueryRequired") return yield* Effect.fail(commerceError("invalidAuthority"));
@@ -128,7 +131,7 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
       .pipe(Effect.mapError(cause => commerceError("invalidInput", cause))), error: logicalCommerceError,
     uniqueConflict: () => commerceError("invalidInput"),
     limits: { ...logicalCommerceWorkingSetLimits, pageRows: selectedResources?.queryRows ?? logicalCommerceWorkingSetLimits.pageRows,
-      identities: selectedResources?.catalogRows ?? logicalCommerceWorkingSetLimits.identities },
+      identities: maximumIdentities },
   }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis),
     readReadiness.kind === "queryRequired" ? state.unique : state.writeMechanics.unique,
     readReadiness.kind === "queryRequired" ? [] : state.writeMechanics.indexes);
@@ -144,7 +147,7 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
     const closure = Object.freeze({}) as LogicalCommerceClosure;
     closures.set(closure, { admission, tx, lifetime, changes, activity: () => projectActivity(activity),
       maximumIndexEntries: selectedResources?.catalogRows ?? logicalCommerceWorkingSetLimits.identities,
-      maximumFacts: resources.facts });
+      maximumFacts: resources.facts, maximumIdentities, logicalPublication });
     return closure;
   }, work => observeExecution("LogicalCommerce.close", work, "caller"));
   const callActivity = Effect.fnUntraced(function* (

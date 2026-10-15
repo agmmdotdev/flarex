@@ -1,0 +1,241 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
+import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
+import { isJsonObject, type Json } from "flarex-protocol/json";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
+import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
+import { defineCommerceCommand, type CommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
+import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
+import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, type AtomicCommerceContext } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import type { LogicalCommerceCallValidation } from "../../persistence-postgres/src/frameworks/atomicCommerce/participants";
+import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
+
+const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
+const cleanup: Array<() => Promise<void>> = [];
+const origin = { kind: "synthetic", sourceId: "atomic-queued-operations" };
+const schema = Result.getOrThrow(normalizeRelationalSchema({ owner: "medusa", lineageId: "atomic-queued-operations",
+  tables: [{ tableId: "queue_probe", origin, columns: [
+    { columnId: "id", type: "text", nullable: false, default: { kind: "none" }, origin },
+    { columnId: "value", type: "integer", nullable: false, default: { kind: "none" }, origin },
+  ], keys: [{ keyId: "queue_probe.primary", kind: "primary", columns: ["id"], origin }], indexes: [], constraints: [], relationships: [] }],
+  capabilities: [],
+}));
+const evidence = { kind: "synthetic", sourceId: "atomic-queued-operations" };
+const decodeInput = Schema.decodeUnknownResult(Schema.Struct({ id: Schema.String, value: Schema.Int }), { onExcessProperty: "error" });
+type Input = Result.Result.Success<ReturnType<typeof decodeInput>>;
+const participant = defineAtomicCommerceParticipant("queue_probe");
+let fixture: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
+let storage: Awaited<ReturnType<typeof makeStorage>>;
+let reader: Effect.Success<ReturnType<typeof makeCommerceHost>>;
+const rows = () => fixture.persistence.drizzle.select().from(fxAppRowCurrent);
+const commits = () => fixture.persistence.drizzle.select().from(fxSystemCommits);
+const events = () => fixture.persistence.drizzle.select().from(fxSystemCommitEvents);
+const read = defineCommerceCommand("queueProbeRead", "read", Effect.fn(function* (ctx) {
+  const table = yield* ctx.table("queue_probe");
+  return [...yield* table.find(ctx.manager, { fields: ["id", "value"], take: 100, order: { column: "id", direction: "asc" } })];
+}));
+
+async function makeStorage() {
+  const empty = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: [] }, 1_048_576,
+    { invalidInput: () => new Error("Invalid queued-operation dataset"), hashFailure: cause => new Error("Queued-operation dataset hash", { cause }) }));
+  return { ...fixture.hostInput.logicalStorage,
+    source: { sourceKey: "medusa.queue-probe", writeProfile: "medusa.queue-probe", schema, evidence },
+    initialization: { stepId: "queue-probe-empty", datasetSha256: empty.sha256Hex, expectedRowCount: 0 },
+  };
+}
+
+function write(name: string, enter: (input: Input) => Effect.Effect<void> = () => Effect.void, refuse = false) {
+  return defineCommerceCommand(name, "write", Effect.fn(function* (ctx, input) {
+    const data = yield* Effect.fromResult(decodeInput(input)).pipe(Effect.mapError(cause => commerceError("invalidInput", cause)),
+      Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    const table = yield* ctx.table("queue_probe");
+    yield* table.write(ctx.manager, "insert", [{ id: data.id, value: data.value }]);
+    yield* enter(data);
+    if (refuse) return yield* ctx.refuse(commerceError("invalidInput"));
+    return data.id;
+  }));
+}
+
+async function open(root: Parameters<typeof defineAtomicCommerceCommand>[1], commands: readonly CommerceCommand[],
+  validateLogicalCall?: LogicalCommerceCallValidation, scheduling: "queued" | "strict" = "queued") {
+  const command = defineAtomicCommerceCommand("queuedNeutralRoot", root);
+  const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
+    identityAndAccessPolicy: { profile: "neutral-queued-operation-proof" },
+    ...(scheduling === "queued" ? { operationScheduling: scheduling } : {}),
+    participants: [{ participant, logicalStorage: storage, commands,
+      ...(validateLogicalCall === undefined ? {} : { validateLogicalCall }) }], commands: [command],
+  }));
+  cleanup.push(() => Effect.runPromise(host.close));
+  return { host, command };
+}
+
+function reasons(value: unknown): string[] {
+  if (Cause.isCause(value)) return value.reasons.flatMap(reason => {
+    switch (reason._tag) {
+      case "Fail": return reasons(reason.error);
+      case "Die": return reasons(reason.defect);
+      case "Interrupt": return ["Interrupt"];
+    }
+  });
+  if (typeof value !== "object" || value === null) return [];
+  const reason = Object.getOwnPropertyDescriptor(value, "reason")?.value;
+  const cause = Object.getOwnPropertyDescriptor(value, "cause")?.value;
+  return [...(typeof reason === "string" ? [reason] : []), ...(cause === undefined ? [] : reasons(cause))];
+}
+
+describe("explicit queued atomic operations on a neutral logical source", () => {
+  beforeAll(async () => {
+    const source = await Effect.runPromise(captureLogicalSchemaSource({ key: "medusa.queue-probe", owner: "medusa", writeProfile: "medusa.queue-probe",
+      evidence, definition: { kind: "relational", schema },
+      bindings: [{ kind: "definition", localName: "queue_probe", table: { namespace: "medusa", logicalName: "atomic-queued-operations/queue_probe" } }],
+    }));
+    // Reuse authenticated catalog/database construction only. The source and
+    // commands below are authored neutral records, with no module services.
+    fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { additionalSources: [source] });
+    storage = await makeStorage();
+    reader = await Effect.runPromise(makeCommerceHost({ ...fixture.hostInput, logicalStorage: storage, commands: [read] }));
+    cleanup.push(() => Effect.runPromise(reader.close));
+    await Effect.runPromise(reader.initialize([]));
+  }, 180_000);
+  afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
+
+  it("captures queued arguments before waiting and keeps FIFO writes and receipt boundaries separate", async () => {
+    const reached = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>();
+    const started: string[] = [], receipts: Array<{ input: Json; ids: readonly unknown[] }> = [];
+    const command = write("queueProbeWrite", input => Effect.gen(function* () {
+      started.push(input.id);
+      if (input.id === "fifo-first") { yield* Deferred.succeed(reached, undefined); yield* Deferred.await(release); }
+    }));
+    const validate: LogicalCommerceCallValidation = Effect.fn(function* (call, activity) {
+      expect(isJsonObject(call.input)).toBe(true);
+      expect(activity.mutations).toHaveLength(1);
+      expect(activity.mutations[0]).toMatchObject({ ordinal: 0, operation: "insert", table: "queue_probe", after: call.input });
+      expect(activity.lifecycle).toEqual([]); expect(activity.setNull).toEqual([]); expect(activity.referenceReplacements).toEqual([]);
+      expect(call.events).toEqual([]);
+      receipts.push({ input: call.input, ids: activity.mutations.map(mutation => mutation.after?.id) });
+    });
+    const tested = await open(Effect.fn(function* (ctx) {
+      const first = yield* Effect.forkChild(ctx.call(participant, command, { id: "fifo-first", value: 1 }));
+      yield* Deferred.await(reached).pipe(Effect.timeoutOrElse({ duration: 5000, orElse: () => Effect.fail(commerceError("deadlineExceeded")) }));
+      const mutable = { id: "fifo-second", value: 2 };
+      const captured = Deferred.makeUnsafe<void>();
+      let captures = 0;
+      const observed = new Proxy(mutable, { ownKeys(target) {
+        captures++;
+        // Observe completion of this synchronous foreign-value snapshot. An
+        // immediate Deferred signal can resume the mutator inside ownKeys,
+        // before capture has read the object's data descriptors.
+        queueMicrotask(() => { Deferred.doneUnsafe(captured, Effect.void); });
+        return Reflect.ownKeys(target);
+      } });
+      const second = yield* Effect.forkChild(ctx.call(participant, command, observed));
+      return yield* Effect.gen(function* () {
+        yield* Deferred.await(captured).pipe(Effect.timeoutOrElse({ duration: 5000, orElse: () => Effect.fail(commerceError("deadlineExceeded")) }));
+        expect(captures).toBeGreaterThan(0); expect(started).toEqual(["fifo-first"]);
+        mutable.id = "mutated-after-queue"; mutable.value = 999;
+        yield* Deferred.succeed(release, undefined);
+        return [yield* Fiber.join(first), yield* Fiber.join(second)];
+      }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)));
+    }), [command], validate);
+    const beforeCommits = await commits(), key = tested.host.newRequestKey();
+    expect(await Effect.runPromise(tested.host.run(key, tested.command, null))).toEqual(["fifo-first", "fifo-second"]);
+    expect(started).toEqual(["fifo-first", "fifo-second"]);
+    expect(receipts).toEqual([{ input: { id: "fifo-first", value: 1 }, ids: ["fifo-first"] },
+      { input: { id: "fifo-second", value: 2 }, ids: ["fifo-second"] }]);
+    expect(await Effect.runPromise(reader.read(read, null))).toMatchObject([{ id: "fifo-first", value: 1 }, { id: "fifo-second", value: 2 }]);
+    expect((await commits()).length - beforeCommits.length).toBe(1);
+    expect(await Effect.runPromise(tested.host.run(key, tested.command, null))).toEqual(["fifo-first", "fifo-second"]);
+    expect(started).toHaveLength(2); expect(receipts).toHaveLength(2);
+  });
+
+  it("rolls back all writes when a queued operation fails even when every caller catches the failure", async () => {
+    const started: string[] = [];
+    const record = (input: Input) => Effect.sync(() => { started.push(input.id); });
+    const successful = write("queueProbeBeforeRefusal", record), failing = write("queueProbeRefused", record, true);
+    const later = write("queueProbeAfterRefusal", record);
+    const tested = await open(Effect.fn(function* (ctx) {
+      const outcomes = yield* Effect.all([
+        ctx.call(participant, successful, { id: "caught-first", value: 1 }),
+        ctx.call(participant, failing, { id: "caught-failure", value: 2 }),
+        ctx.call(participant, later, { id: "caught-never", value: 3 }),
+      ].map(operation => Effect.exit(operation)), { concurrency: "unbounded" });
+      expect(outcomes[0]?._tag).toBe("Success"); expect(outcomes[1]?._tag).toBe("Failure"); expect(outcomes[2]?._tag).toBe("Failure");
+      return null;
+    }), [successful, failing, later]);
+    const beforeRows = await rows(), beforeCommits = await commits(), beforeEvents = await events();
+    const exit = await Effect.runPromise(Effect.exit(tested.host.run(tested.host.newRequestKey(), tested.command, null)));
+    expect(exit._tag).toBe("Failure");
+    expect(exit._tag === "Failure" ? reasons(exit.cause) : []).toContain("invalidInput");
+    expect(started).toEqual(["caught-first", "caught-failure"]);
+    expect(await rows()).toEqual(beforeRows); expect(await commits()).toEqual(beforeCommits); expect(await events()).toEqual(beforeEvents);
+  });
+
+  it("refuses settlement with escaped active and pending jobs, drains the worker and closes escaped authority", async () => {
+    const reached = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>();
+    const pendingCaptured = Deferred.makeUnsafe<void>();
+    let activeEnded = false, pendingEntered = false, rootReachedReturn = false;
+    let escaped: AtomicCommerceContext | undefined;
+    const pending: Array<Promise<Exit.Exit<Json, ReturnType<typeof commerceError>>>> = [];
+    const active = write("queueProbeEscapedActive", () => Deferred.succeed(reached, undefined).pipe(Effect.andThen(Deferred.await(release)),
+      Effect.ensuring(Effect.sync(() => { activeEnded = true; }))));
+    const later = write("queueProbeEscapedPending", () => Effect.sync(() => { pendingEntered = true; }));
+    const tested = await open(Effect.fn(function* (ctx) {
+      escaped = ctx;
+      pending.push(Effect.runPromise(Effect.exit(ctx.call(participant, active, { id: "escaped-active", value: 1 }))));
+      yield* Deferred.await(reached).pipe(Effect.timeoutOrElse({ duration: 5000, orElse: () => Effect.fail(commerceError("deadlineExceeded")) }));
+      const pendingInput = new Proxy({ id: "escaped-pending", value: 2 }, { ownKeys(target) {
+        // Resume the root after synchronous capture and queue admission finish.
+        queueMicrotask(() => { Deferred.doneUnsafe(pendingCaptured, Effect.void); });
+        return Reflect.ownKeys(target);
+      } });
+      pending.push(Effect.runPromise(Effect.exit(ctx.call(participant, later, pendingInput))));
+      yield* Deferred.await(pendingCaptured).pipe(Effect.timeoutOrElse({ duration: 5000, orElse: () => Effect.fail(commerceError("deadlineExceeded")) }));
+      rootReachedReturn = true;
+      return null;
+    }), [active, later]);
+    const beforeRows = await rows(), beforeCommits = await commits();
+    try {
+      const exit = await Effect.runPromise(Effect.exit(tested.host.run(tested.host.newRequestKey(), tested.command, null)));
+      expect(rootReachedReturn).toBe(true);
+      expect(exit._tag).toBe("Failure");
+      expect(exit._tag === "Failure" ? reasons(exit.cause) : []).toContain("overlappingOperation");
+      expect((await Promise.all(pending)).map(result => result._tag)).toEqual(["Failure", "Failure"]);
+      expect(activeEnded).toBe(true); expect(pendingEntered).toBe(false);
+      expect(await rows()).toEqual(beforeRows); expect(await commits()).toEqual(beforeCommits);
+      if (escaped === undefined) throw new Error("Missing escaped root authority");
+      expect(await Effect.runPromise(Effect.result(escaped.call(participant, later, { id: "escaped-late", value: 3 }))))
+        .toMatchObject({ _tag: "Failure" });
+      expect(pendingEntered).toBe(false); expect(await rows()).toEqual(beforeRows);
+    } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); }
+  });
+
+  it("keeps the default profile's overlap refusal instead of silently queuing sibling calls", async () => {
+    const reached = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>();
+    const started: string[] = [];
+    const command = write("queueProbeDefault", input => Effect.gen(function* () {
+      started.push(input.id);
+      if (input.id === "default-active") { yield* Deferred.succeed(reached, undefined); yield* Deferred.await(release); }
+    }));
+    const tested = await open(Effect.fn(function* (ctx) {
+      const first = yield* Effect.forkChild(Effect.exit(ctx.call(participant, command, { id: "default-active", value: 1 })));
+      yield* Deferred.await(reached).pipe(Effect.timeoutOrElse({ duration: 5000, orElse: () => Effect.fail(commerceError("deadlineExceeded")) }));
+      const refused = yield* Effect.exit(ctx.call(participant, command, { id: "default-overlap", value: 2 }));
+      expect(refused._tag).toBe("Failure");
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(first);
+      return null;
+    }), [command], undefined, "strict");
+    const beforeRows = await rows(), beforeCommits = await commits();
+    try {
+      const exit = await Effect.runPromise(Effect.exit(tested.host.run(tested.host.newRequestKey(), tested.command, null)));
+      expect(exit._tag).toBe("Failure");
+      expect(exit._tag === "Failure" ? reasons(exit.cause) : []).toContain("overlappingOperation");
+      expect(started).toEqual(["default-active"]);
+      expect(await rows()).toEqual(beforeRows); expect(await commits()).toEqual(beforeCommits);
+    } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); }
+  });
+});

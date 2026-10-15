@@ -1,4 +1,4 @@
-import { Cause, Effect, Result } from "effect";
+import { Cause, Effect, Result, Schema } from "effect";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { getCommerceCommand, type CommerceCommand } from "../commerceTransaction/commands";
@@ -71,27 +71,33 @@ interface AtomicCommerceParticipantBase {
   readonly events?: ParticipantEventSelection;
 }
 export type AtomicCommerceParticipantInput = AtomicCommerceParticipantBase & (
-  Readonly<{ profile: CommerceProfile; installation: InstallationBindingReference; logicalStorage?: never; logicalResources?: never }> |
-  Readonly<{ logicalStorage: LogicalCommerceSelectionInput; logicalResources?: CommerceResources; profile?: never; installation?: never }>
+  Readonly<{ profile: CommerceProfile; installation: InstallationBindingReference; logicalStorage?: never; logicalResources?: never; logicalPublication?: never }> |
+  Readonly<{ logicalStorage: LogicalCommerceSelectionInput; logicalResources?: CommerceResources;
+    /** Trusted mixed-packet publication within this source's existing identity budget. */
+    logicalPublication?: "mixed" | undefined; profile?: never; installation?: never }>
 );
 export const isCommerceDefinitionName = (name: string) => /^[a-z][a-zA-Z0-9_-]{0,63}$/.test(name) && name !== "initialize";
 
-function captureParticipant(member: AtomicCommerceParticipantInput) {
+function captureParticipant(member: AtomicCommerceParticipantInput, logicalPublication: "mixed" | undefined) {
+  const logicalStorage = member.logicalStorage;
+  if (logicalPublication !== undefined && logicalStorage === undefined)
+    return Result.fail(commerceError("unsupportedProfile"));
   const derived = member.derivedIdEvent;
-  return Object.freeze({ factoryInput: member, participant: member.participant,
+  return Result.succeed(Object.freeze({ factoryInput: member, participant: member.participant,
     commands: Object.freeze([...member.commands]), validate: member.validate, validateLogical: member.validateLogical,
     validateLogicalCall: member.validateLogicalCall,
     allowSetNull: member.allowSetNull, allowReferenceReplacement: member.allowReferenceReplacement,
     derivedIdEvent: derived === undefined ? undefined : Object.freeze({ contract: derived.contract }),
     events: captureParticipantEvents(member.events),
-    ...(member.logicalStorage === undefined
+    ...(logicalStorage === undefined
       ? { kind: "physical" as const, profile: member.profile,
         reference: capturePrivateJsonData(member.installation, commerceLimits.rowBytes, commerceError) }
-      : { kind: "logical" as const, logical: captureLogicalCommerceSelection(member.logicalStorage),
+      : { kind: "logical" as const, logicalPublication, logical: captureLogicalCommerceSelection(logicalStorage),
         resources: member.logicalResources === undefined ? undefined : captureCommerceResources(member.logicalResources) }),
-  });
+  }));
 }
-export type CapturedAtomicCommerceParticipants = readonly ReturnType<typeof captureParticipant>[];
+export type CapturedAtomicCommerceParticipants = readonly Result.Result.Success<ReturnType<typeof captureParticipant>>[];
+const decodeLogicalPublication = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal("mixed")));
 const preparedLogicalMembers = new WeakMap<object, Readonly<{ factory: AtomicCommerceParticipantInput;
   commands: readonly CommerceCommand[]; lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>> }>>();
 
@@ -100,7 +106,15 @@ const preparedLogicalMembers = new WeakMap<object, Readonly<{ factory: AtomicCom
 export function captureAtomicCommerceParticipants(input: readonly AtomicCommerceParticipantInput[]): Result.Result<CapturedAtomicCommerceParticipants, ReturnType<typeof commerceError>> {
   if (!Array.isArray(input) || input.length < 1 || input.length > MAX_COMMERCE_BINDINGS)
     return Result.fail(commerceError("unsupportedProfile"));
-  return Result.succeed(Object.freeze(input.map(captureParticipant)));
+  return Result.gen(function* () {
+    const captured = [];
+    for (const member of input) {
+      const publication = yield* decodeLogicalPublication(member.logicalPublication)
+        .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
+      captured.push(yield* captureParticipant(member, publication));
+    }
+    return Object.freeze(captured);
+  });
 }
 
 export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepareParticipants")(function* (
@@ -171,6 +185,7 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
       yield* chargeHostPreparation({ sourceKey, contractSha256: contract.sha256Hex })
         .pipe(Effect.mapError(projectCommerceRequestFailure));
       const preparedMember = { ...common, kind: "logical" as const, sourceKey, contractSha256: contract.sha256Hex,
+        logicalPublication: member.logicalPublication,
         descriptor: Object.freeze({ resources, contractSha256: contract.sha256Hex,
           initialization: selection.initialization }), prepared,
         selectedResources: member.resources === undefined ? undefined : resources };
@@ -184,6 +199,7 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     if (!isSyntheticBindingReference(capturedReference.value)) return yield* Effect.fail(commerceError("invalidInput"));
     const reference = capturedReference.value;
     yield* chargeHostPreparation(reference).pipe(Effect.mapError(projectCommerceRequestFailure));
+    if (member.profile === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
     const descriptor = yield* requireCommerceProfile(member.profile);
     if (member.validateLogical !== undefined || member.validateLogicalCall !== undefined || member.allowSetNull === true ||
       member.allowReferenceReplacement === true || derivedIdEvent !== undefined)

@@ -1,6 +1,18 @@
 import { Result } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { commerceError, commerceLimits } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, commerceLimits, capturePrivateJsonDataOmittingUndefined, useCapturedPrivateJsonData } from "@flarex/persistence-postgres/internal/commerce-values";
+
+/** Configuration uses the atomic owner's policy JSON contract (64 KiB and
+ * depth 64), rather than the native business-value envelope. Keep the complete
+ * canonical preimage so existing workflow replay identities remain unchanged. */
+export const captureWorkflowPolicy = (input: unknown) => capturePrivateJsonDataOmittingUndefined(input,
+  // Native optional metadata still omits own undefined members. Bound descriptor
+  // work by the configuration byte ceiling, independently of business values.
+  { bytes: commerceLimits.rowBytes, nodes: commerceLimits.rowBytes, depth: 64 }, commerceError).pipe(
+    Result.flatMap(snapshot => useCapturedPrivateJsonData(snapshot.value, commerceLimits.rowBytes,
+      commerceError, { canonicalNumbers: true, wellFormedUnicode: true })),
+    Result.map(snapshot => snapshot.value),
+  );
 
 /** Capture trusted registration data without dispatching property getters.
  * Nested capabilities are captured by their owners, never cloned as JSON. */

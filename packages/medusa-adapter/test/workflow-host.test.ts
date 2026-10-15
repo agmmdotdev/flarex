@@ -2,7 +2,7 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { createHook, createStep, createWorkflow, isPreparedWorkflow, StepResponse, transform, when, WorkflowResponse } from "@medusajs/workflows-sdk";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineGraphReadCommand } from "../src/local-graph/commands";
 import type { GraphModuleDefinition } from "../src/local-graph/model";
 import { commerceDecoder } from "../src/value/decoder";
@@ -37,6 +37,67 @@ const context = (): AtomicCommerceContext => ({ eventGroupId: "unit", checkpoint
 });
 
 describe("workflow registration and scoped resource composition", () => {
+  it("snapshots an explicit logical publication profile and omits an undefined selection", () => {
+    const selected = { module, logicalPublication: "mixed" };
+    const registrations: Record<string, InstalledWorkflowModule> = {};
+    Object.defineProperty(registrations, "sample", { value: selected, enumerable: true });
+    const captured = Result.getOrThrow(captureInstalledWorkflowModules(registrations, ["sample"]));
+    expect(captured.sample?.logicalPublication).toBe("mixed");
+    expect(captured.sample?.module).toBe(module);
+    expect(Object.isFrozen(captured.sample)).toBe(true);
+    expect(Reflect.set(selected, "logicalPublication", "invalid")).toBe(true);
+    expect(captured.sample?.logicalPublication).toBe("mixed");
+    const omitted: Record<string, InstalledWorkflowModule> = {};
+    Object.defineProperty(omitted, "sample", { enumerable: true, value: Object.defineProperty({ module },
+      "logicalPublication", { value: undefined, enumerable: true }) });
+    const absent = Result.getOrThrow(captureInstalledWorkflowModules(omitted, ["sample"]));
+    expect(absent.sample).not.toHaveProperty("logicalPublication");
+  });
+
+  it("refuses logical publication accessors and unknown profiles before dispatch", () => {
+    const getter = vi.fn(() => "mixed");
+    const registrations: Record<string, InstalledWorkflowModule> = {};
+    Object.defineProperty(registrations, "accessor", { enumerable: true,
+      value: Object.defineProperty({ module }, "logicalPublication", { get: getter, enumerable: true }) });
+    Object.defineProperty(registrations, "invalid", { enumerable: true,
+      value: Object.defineProperty({ module }, "logicalPublication", { value: "parallel", enumerable: true }) });
+    expect(captureInstalledWorkflowModules(registrations, ["accessor"]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(captureInstalledWorkflowModules(registrations, ["invalid"]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it("snapshots an explicit logical resource selection without cloning capabilities", () => {
+    const selected = { ...defaultCommerceResources };
+    const registrations: Record<string, InstalledWorkflowModule> = {};
+    // This exercises registration capture only; core separately authenticates
+    // storage admission when a real host is prepared.
+    Object.defineProperty(registrations, "sample", { value: { module, logicalResources: selected }, enumerable: true });
+    const captured = Result.getOrThrow(captureInstalledWorkflowModules(registrations, ["sample"]));
+    selected.catalogRows = 4096;
+    expect(captured.sample?.module).toBe(module);
+    expect(captured.sample?.logicalResources?.catalogRows).toBe(defaultCommerceResources.catalogRows);
+    expect(captured.sample?.logicalResources).not.toBe(selected);
+    expect(Object.isFrozen(captured.sample?.logicalResources)).toBe(true);
+    expect(captureInstalledWorkflowModules(registrations, ["sample"]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
+
+  it("refuses resource getters and unsupported resource values before dispatch", () => {
+    const getter = vi.fn(() => 256);
+    const registrations: Record<string, InstalledWorkflowModule> = {};
+    Object.defineProperty(registrations, "accessor", { enumerable: true, value: { module,
+      logicalResources: Object.defineProperty({ ...defaultCommerceResources }, "catalogRows", { get: getter, enumerable: true }) } });
+    Object.defineProperty(registrations, "oversized", { enumerable: true, value: { module,
+      logicalResources: { ...defaultCommerceResources, calls: 4097 } } });
+    expect(captureInstalledWorkflowModules(registrations, ["accessor"]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+    expect(captureInstalledWorkflowModules(registrations, ["oversized"]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(getter).not.toHaveBeenCalled();
+  });
+
   it("captures selected installed bindings without invoking registration or nested getters", () => {
     const getter = vi.fn(() => module);
     const registrations: Record<string, InstalledWorkflowModule> = {};

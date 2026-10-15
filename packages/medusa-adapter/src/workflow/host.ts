@@ -3,11 +3,11 @@ import { isPreparedWorkflow, type PreparedWorkflow } from "@medusajs/workflows-s
 import { commerceCommandIdentity, defineAtomicCommerceCommand, defineCommerceEventContract, defineCommerceDerivedIdEventContract, type AtomicCommerceContext, type AtomicCommerceHost, type AtomicCommerceHostInput,
   type AtomicCommerceParticipantInput, type AtomicCommerceEvents, type AtomicCommerceCallObservation, type CommerceCommand, type CommerceEventContract,
   } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, isJsonObject, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { captureCommerceResources, commerceError, isJsonObject, type CommerceResources, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareLocalGraph } from "../local-graph/query";
 import { runNativeMedusaWorkflow } from "./runtime";
 import { captureCommerceInput } from "../value/input";
-import { captureWorkflowArray, captureWorkflowRecord } from "./configuration";
+import { captureWorkflowArray, captureWorkflowRecord, captureWorkflowPolicy } from "./configuration";
 import { workflowMethodDefinition, workflowModuleDefinition, type WorkflowMethod, type WorkflowModule } from "./module";
 import { workflowResourceSelections, workflowComposedResources, type PreparedWorkflowResources } from "./resources";
 import { composedWorkflowResourceDefinition } from "./composed-resource";
@@ -16,7 +16,10 @@ import { checkedCommerceValue } from "../value/checked";
 import { requireAtomicCommerceScopeExclusion } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceDecoder } from "../value/decoder";
 
-export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestCallLimit" | "requestEventLimit" | "executionIsolation">;
+const decodeOperationScheduling = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("queued")));
+const decodeLogicalPublication = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal("mixed")));
+
+export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestCallLimit" | "requestByteLimit" | "requestEventLimit" | "executionIsolation" | "operationScheduling">;
 /** The trusted database host closes its own database/session/authority inputs.
  * Only preparation data crosses this portable adapter boundary. */
 export interface AtomicWorkflowExecution {
@@ -25,6 +28,10 @@ export interface AtomicWorkflowExecution {
 }
 export type InstalledWorkflowModule<Module extends WorkflowModule = WorkflowModule> = {
   readonly module: Module;
+  /** Trusted selection of the existing identity-bound logical resource profile. */
+  readonly logicalResources?: CommerceResources;
+  /** Trusted opt-in to native upsert/delete publication within one logical participant. */
+  readonly logicalPublication?: "mixed";
   readonly logicalStorage: Extract<AtomicCommerceParticipantInput, { readonly logicalStorage: unknown }>["logicalStorage"];
 };
 
@@ -45,7 +52,15 @@ export function captureInstalledWorkflowModules<Modules extends Readonly<Record<
         return yield* Result.fail(commerceError("unsupportedProfile"));
       const binding: unknown = property.value;
       if (binding === null || typeof binding !== "object") return yield* Result.fail(commerceError("unsupportedProfile"));
-      entries.push([name, yield* captureWorkflowRecord(binding)]);
+      const captured = yield* captureWorkflowRecord(binding);
+      const resourceInput: unknown = Object.getOwnPropertyDescriptor(captured, "logicalResources")?.value;
+      const logicalResources = resourceInput === undefined ? undefined
+        : yield* captureWorkflowPolicy(resourceInput).pipe(Result.flatMap(captureCommerceResources));
+      const logicalPublication = yield* decodeLogicalPublication(Object.getOwnPropertyDescriptor(captured, "logicalPublication")?.value)
+        .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
+      const bindingFields = Object.fromEntries(Object.entries(captured).filter(([field]) => field !== "logicalPublication"));
+      entries.push([name, Object.freeze({ ...bindingFields, ...(logicalResources === undefined ? {} : { logicalResources }),
+        ...(logicalPublication === undefined ? {} : { logicalPublication }) })]);
     }
     // SAFETY: each selected own data binding is captured under its exact key.
     // This retains the typed configuration, not authority over nested tokens.
@@ -79,17 +94,22 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
   readonly subscribers?: AtomicCommerceEvents["subscribers"];
   /** Trusted composition only; the atomic owner validates the request budget. */
   readonly requestCallLimit?: number;
+  readonly requestByteLimit?: number;
   readonly requestEventLimit?: number;
+  readonly operationScheduling?: "queued";
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
-  const policy = yield* Effect.fromResult(captureCommerceInput(options.identityAndAccessPolicy));
+  const operationScheduling = yield* decodeOperationScheduling(options.operationScheduling)
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const policy = yield* Effect.fromResult(captureWorkflowPolicy(options.identityAndAccessPolicy));
   const workflow = yield* Effect.fromResult(captureWorkflowRecord(options.workflow));
   if (!isPreparedWorkflow(workflow.prepared)) return yield* Effect.fail(commerceError("invalidAuthority"));
-  const installed = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
+  const registrations = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
   const members = workflowResourceSelections(workflow.resources);
-  if (members === undefined || members.length < 1 || members.length !== Object.keys(installed).length
+  if (members === undefined || members.length < 1 || members.length !== Object.keys(registrations).length
     || !Schema.isSchema(workflow.input) || !Schema.isSchema(workflow.output) || !/^[a-f0-9]{64}$/.test(options.revision)
     || workflow.resources.events !== (workflow.events !== undefined) || (!workflow.resources.events && options.subscribers !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const installed = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, members.map(member => member.name)));
   const eventDefinition = workflow.events === undefined ? undefined : yield* Effect.fromResult(captureWorkflowRecord(workflow.events));
   const emitted: BoundWorkflowEvent[] = [];
   const contracts = [];
@@ -116,7 +136,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
     const binding = yield* Effect.fromResult(captureWorkflowRecord(raw));
     const definition = workflowModuleDefinition(member.module);
     if (binding.module !== member.module || definition === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
-    if (Object.keys(binding).some(key => key !== "module" && key !== "logicalStorage") || binding.logicalStorage === undefined)
+    if (Object.keys(binding).some(key => key !== "module" && key !== "logicalStorage" && key !== "logicalResources" && key !== "logicalPublication") || binding.logicalStorage === undefined)
       return yield* Effect.fail(commerceError("unsupportedProfile"));
     const moduleEvents = definition.logical;
     const commands = new Set<CommerceCommand>();
@@ -181,7 +201,10 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
         }),
       } }),
     };
-    participants.push({ ...selected, logicalStorage: binding.logicalStorage });
+    participants.push({ ...selected, logicalStorage: binding.logicalStorage,
+      ...(binding.logicalResources === undefined ? {} : { logicalResources: binding.logicalResources }),
+      ...(binding.logicalPublication === undefined ? {} : { logicalPublication: binding.logicalPublication }),
+    });
     identities.push({ name: member.name, module: member.module.name, profile: definition.source.profile, methods: methodIdentities,
       ...(member.expose === false ? { expose: false } : {}),
       graph: member.graph ? { aliases: definition.graph.aliases, reads: graphIdentities } : null,
@@ -227,13 +250,17 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
       });
     },
   };
-  const identity = yield* Effect.fromResult(captureCommerceInput({ policy, workflow: {
+  const identity = yield* Effect.fromResult(captureWorkflowPolicy({ policy, workflow: {
     revision: options.revision, definition: workflow.prepared.identity, resources: identities, events: [...names],
     ...(composedIdentities.length ? { composedResources: composedIdentities } : {}),
+    ...(operationScheduling === undefined ? {} : { operationScheduling }),
+    ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
   } }));
   const composition = { participants, commands: [command], identityAndAccessPolicy: identity,
+    ...(operationScheduling === undefined ? {} : { operationScheduling }),
     ...(scopeExclusive ? { executionIsolation: "scopeExclusive" as const } : {}),
     ...(requestEventLimit === undefined ? {} : { requestEventLimit }),
+    ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
     ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }), ...(events === undefined ? {} : { events }) };
   return Object.freeze({ composition, command, decodeStoredOutput,
     run: (ctx: AtomicCommerceContext, value: Json) => Effect.fromResult(captureCommerceInput(value)).pipe(
@@ -249,7 +276,9 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
   readonly revision: string;
   readonly subscribers?: AtomicCommerceEvents["subscribers"];
   readonly requestCallLimit?: number;
+  readonly requestByteLimit?: number;
   readonly requestEventLimit?: number;
+  readonly operationScheduling?: "queued";
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   const execution = yield* Effect.fromResult(captureWorkflowRecord(options.execution));
@@ -258,7 +287,9 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
     modules: options.modules, workflow: options.workflow, revision: options.revision,
     ...(options.subscribers === undefined ? {} : { subscribers: options.subscribers }),
     ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }),
+    ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
     ...(options.requestEventLimit === undefined ? {} : { requestEventLimit: options.requestEventLimit }),
+    ...(options.operationScheduling === undefined ? {} : { operationScheduling: options.operationScheduling }),
   });
   const host = yield* execution.prepare(prepared.composition);
   return Object.freeze({ newRequestKey: host.newRequestKey, close: host.close,

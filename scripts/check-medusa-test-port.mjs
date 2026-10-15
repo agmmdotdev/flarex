@@ -90,12 +90,15 @@ export function verifyPricingWorkflowSelection(source, target) {
   const selections = [];
   /** @type {ts.VariableDeclaration[]} */
   const admissions = [];
+  /** @type {ts.VariableDeclaration[]} */
+  const lifecycles = [];
   /** @type {ts.ParameterDeclaration[]} */
   const parameters = [];
   /** @param {ts.Node} node */
   const visit = node => {
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "defineWorkflowModule") selections.push(node);
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "mutable") admissions.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "lifecycle") lifecycles.push(node);
     if (ts.isParameter(node) && ts.isIdentifier(node.name) && node.name.text === "admission") parameters.push(node);
     ts.forEachChild(node, visit);
   };
@@ -111,6 +114,7 @@ export function verifyPricingWorkflowSelection(source, target) {
     ? input.properties.filter(ts.isPropertyAssignment).filter(property => property.name.getText(adapter) === "methods") : [];
   const initializer = selected[0]?.initializer;
   const properties = initializer !== undefined && ts.isObjectLiteralExpression(initializer) ? [...initializer.properties] : [];
+  const lifecycleSpread = properties.pop();
   const spread = properties.pop();
   const selectedMethods = properties.map(property => ts.isShorthandPropertyAssignment(property) ? property.name.text : null);
   const expression = spread !== undefined && ts.isSpreadAssignment(spread) ? spread.expression : undefined;
@@ -119,13 +123,22 @@ export function verifyPricingWorkflowSelection(source, target) {
     ts.isIdentifier(conditional.condition) && conditional.condition.text === "mutable" &&
     ts.isObjectLiteralExpression(conditional.whenTrue) && ts.isObjectLiteralExpression(conditional.whenFalse) && conditional.whenFalse.properties.length === 0
     ? conditional.whenTrue.properties.map(property => ts.isShorthandPropertyAssignment(property) ? property.name.text : null) : [];
-  if (admissions.length !== 1 || admissions[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="variant-updates"' ||
+  const lifecycleExpression = lifecycleSpread !== undefined && ts.isSpreadAssignment(lifecycleSpread) ? lifecycleSpread.expression : undefined;
+  const lifecycleConditional = lifecycleExpression !== undefined && ts.isParenthesizedExpression(lifecycleExpression) ? lifecycleExpression.expression : lifecycleExpression;
+  const lifecycleMethods = lifecycleConditional !== undefined && ts.isConditionalExpression(lifecycleConditional) &&
+    ts.isIdentifier(lifecycleConditional.condition) && lifecycleConditional.condition.text === "lifecycle" &&
+    ts.isObjectLiteralExpression(lifecycleConditional.whenTrue) && ts.isObjectLiteralExpression(lifecycleConditional.whenFalse) && lifecycleConditional.whenFalse.properties.length === 0
+    ? lifecycleConditional.whenTrue.properties.map(property => ts.isShorthandPropertyAssignment(property) ? property.name.text : null) : [];
+  if (admissions.length !== 1 || admissions[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission!=="create"' ||
+    lifecycles.length !== 1 || lifecycles[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="product-updates"' ||
     parameters.length !== 1 || parameters[0]?.initializer?.getText(adapter) !== '"create"' ||
+    parameters[0]?.type?.getText(adapter).replace(/\s/g, "") !== '"create"|"variant-updates"|"product-updates"' ||
     selections.length !== 1 || selected.length !== 1 || selectedMethods.length !== 3 ||
     selectedMethods.includes(null) || new Set(selectedMethods).size !== 3 ||
     !selectedMethods.includes("createPriceSets") || !selectedMethods.includes("createPriceLists") ||
     !selectedMethods.includes("createPricePreferences") || updateMethods.length !== 3 || new Set(updateMethods).size !== 3 ||
-    !updateMethods.includes("upsertPriceSets") || !updateMethods.includes("updatePriceSets") || !updateMethods.includes("listPriceSets"))
+    !updateMethods.includes("upsertPriceSets") || !updateMethods.includes("updatePriceSets") || !updateMethods.includes("listPriceSets") ||
+    lifecycleMethods.length !== 1 || lifecycleMethods[0] !== "softDeletePriceSets")
     throw new Error("Unadmitted native Pricing workflow selection");
 }
 

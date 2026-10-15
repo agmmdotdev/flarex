@@ -7,4 +7,4 @@ export { commerceError, commerceLimits, CommerceTransactionError } from "./model
 export type { Json, JsonObject } from "flarex-protocol/json";
 export { isJsonObject } from "flarex-protocol/json";
 
-export { defaultCommerceResources, logicalCommerceBatchResources, type CommerceResources } from "./resources";
+export { captureCommerceResources, defaultCommerceResources, logicalCommerceBatchResources, type CommerceResources } from "./resources";

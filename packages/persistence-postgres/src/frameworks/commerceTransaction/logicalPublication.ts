@@ -15,6 +15,7 @@ import type { LogicalDocumentChange } from "../../storage/documents/logicalDocum
 import type { consumeLogicalCommerceClosure } from "./logicalParticipant";
 import { commerceError, logicalCommerceError, type CommerceTransactionError } from "./model";
 import { projectCommerceRequestFailure } from "./request";
+import { planLogicalCommercePublicationPages } from "./logicalPublicationPages";
 
 type ClosedCommerceSource = Effect.Success<ReturnType<typeof consumeLogicalCommerceClosure>>;
 
@@ -82,29 +83,9 @@ export const prepareLogicalCommercePublication = Effect.fn("LogicalCommerce.prep
     unique: unique.filter(definition => definition.tableId === tableId).length,
   }]));
   for (const source of sources) {
-    const sourcePages: LogicalDocumentChange[][] = [];
-    let page: LogicalDocumentChange[] = [];
-    let indexCost = 0;
-    let uniqueCost = 0;
-    for (const change of source.changes) {
-      const cost = costs.get(change.tableId);
-      if (cost === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
-      const nextIndexCost = cost.indexes;
-      const nextUniqueCost = cost.unique;
-      if (nextIndexCost > MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1 || nextUniqueCost > MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1)
-        return yield* Effect.fail(commerceError("limitExceeded"));
-      if (page.length === MAX_POINT_COMMIT_MATERIAL_ROWS_V1 ||
-        indexCost + nextIndexCost > MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1 ||
-        uniqueCost + nextUniqueCost > MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1) {
-        sourcePages.push(page); page = []; indexCost = 0; uniqueCost = 0;
-      }
-      page.push(change); indexCost += nextIndexCost; uniqueCost += nextUniqueCost;
-    }
-    sourcePages.push(page);
-    const allCreated = source.changes.every(change => change.kind === "live" && (change.dependency.kind === "generatedInsertion" ||
-      change.dependency.observed.kind === "missing" && change.dependency.observed.basis.kind === "noVisibleRevision"));
-    const allDeleted = source.changes.every(change => change.kind === "deleted" && change.dependency.kind === "appRowPoint" && change.dependency.observed.kind === "present");
-    if (sourcePages.length > 1 && (source.replacements.length !== 0 || !(allCreated || allDeleted)))
+    const sourcePages = yield* Effect.fromResult(planLogicalCommercePublicationPages(source.changes, source.closed.changes.attempts,
+      source.closed.state.unique, costs, source.closed.maximumIdentities, source.closed.logicalPublication));
+    if (sourcePages.length > 1 && source.replacements.length !== 0)
       return yield* Effect.fail(commerceError("limitExceeded"));
     for (const sourcePage of sourcePages) {
       const previous = pages.at(-1);
@@ -143,8 +124,8 @@ export const prepareLogicalCommercePublication = Effect.fn("LogicalCommerce.prep
   // All original points, including coalesced and read-only observations from
   // later sources, are accepted before the root creates its publication prefix.
   const firstDelta = yield* core.prepareDelta(firstPage, dependencies).pipe(Effect.mapError(projectCommerceRequestFailure));
-  // Packet ceilings may require several source-disjoint pages. Accept all of
-  // them before any write; same-source key transfers stay on one packet.
+  // Accept every page before any write. Connected unique-key transfers remain
+  // in one packet, whose unique owner releases all old claims before claiming.
   const remainingDeltas = yield* Effect.forEach(pages.slice(1), rows => core.prepareDelta(rows, rows)
     .pipe(Effect.mapError(projectCommerceRequestFailure), Effect.map(delta => ({ rows, delta }))));
   const derivedIds = Object.freeze(replacements.flatMap(({ selection }) => [...selection.detach, ...selection.associate].map(row => row.key)));

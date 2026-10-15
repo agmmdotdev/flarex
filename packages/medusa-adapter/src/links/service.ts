@@ -20,7 +20,7 @@ const decodeCascade = commerceDecoder(Schema.Tuple([Schema.Null,
   Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Array(Id)))]), "adapterFailure");
 
 export interface BoundLink { readonly link: Readonly<Pick<Link, "create" | "dismiss" | "delete" | "restore" | "list">>;
-  readonly service: Readonly<Pick<ILinkModule, "list" | "listAndCount" | "create" | "dismiss" | "restore">>; readonly context: Context;
+  readonly service: Readonly<Pick<ILinkModule, "list" | "listAndCount" | "create" | "dismiss" | "softDelete" | "restore">>; readonly context: Context;
   readonly cascade: (result: unknown) => Promise<Json> }
 
 /** One prepared Link owns its repository, native services/router, read tokens
@@ -64,7 +64,7 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
     } satisfies LoadedModule & Pick<ILinkModule, "create" | "dismiss" | "list" | "softDelete" | "restore">;
     return { bound, service: {
       list: service.list.bind(service), listAndCount: service.listAndCount.bind(service),
-      create: service.create.bind(service), dismiss: service.dismiss.bind(service), restore: service.restore.bind(service),
+      create: service.create.bind(service), dismiss: service.dismiss.bind(service), softDelete: service.softDelete.bind(service), restore: service.restore.bind(service),
     } satisfies BoundLink["service"], loaded };
   };
   const use = (ctx: CommerceCommandContext, work: (service: BoundLink) => Promise<unknown>) => withCommerceService(ctx, owner => {
@@ -82,7 +82,7 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
         delete: async (input: DeleteEntityInput, context?: Context) => router.delete(await endpoint(input), context),
         restore: async (input: DeleteEntityInput, context?: Context) => router.restore(await endpoint(input), context), list: router.list.bind(router) }),
       service: Object.freeze({ list: service.list.bind(service), listAndCount: service.listAndCount.bind(service),
-        create: service.create.bind(service), dismiss: service.dismiss.bind(service), restore: service.restore.bind(service) }),
+        create: service.create.bind(service), dismiss: service.dismiss.bind(service), softDelete: service.softDelete.bind(service), restore: service.restore.bind(service) }),
       context: { manager: ctx.manager, transactionManager: ctx.manager },
       cascade: result => owner.run(bound.bridge.checked(ctx, Effect.gen(function* () {
         const captured = yield* Effect.fromResult(captureCommerceInput(result, ctx.resources));

@@ -2,6 +2,8 @@ import { Effect } from "effect";
 import { productGraphDefinition } from "./graph-query";
 import { productWorkflowModule } from "./workflow";
 import { productVariantUpdateWorkflowModule } from "./variant-update-workflow";
+import { productUpdateWorkflowModule } from "./product-update-workflow";
+import { productUpdateGraphReceipt } from "./product-update-receipt";
 import { prepareProductCommandServices } from "./commands/services";
 import { productReadCommands } from "./commands/reads";
 import { productInternalCommands } from "./commands/internal";
@@ -44,6 +46,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     createVariants: writes.createVariants, createCategories: writes.createCategories, addImageToVariant: writes.addImageToVariant,
     updateOptions: writes.updateOptions, updateVariants: writes.updateVariants, updateVariantsBySelector: writes.updateVariantsBySelector,
     updateVariantsForWorkflow: writes.updateVariantsForWorkflow,
+    updateProductsForWorkflow: writes.updateProductsForWorkflow,
     countImages: reads.countImages, updateValues: writes.updateValues, updateCollections: writes.updateCollections,
     updateCategories: writes.updateCategories, upsertOptions: writes.upsertOptions, upsertVariants: writes.upsertVariants,
     upsertCollections: writes.upsertCollections, upsertCategories: writes.upsertCategories });
@@ -71,5 +74,9 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       }));
   const variantUpdateWorkflow = yield* Effect.fromResult(productVariantUpdateWorkflowModule(description, commands, graph,
     metadata.variant.updatedEvent, { ...logicalPolicy, commands: Object.values(commands) }));
-  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, logicalPolicy };
+  const productUpdateWorkflow = yield* Effect.fromResult(productUpdateWorkflowModule(description, commands, graph,
+    [metadata.product.updatedEvent, ...[metadata.option, metadata.value, metadata.variant, metadata.image]
+      .flatMap(entity => [entity.createdEvent, entity.updatedEvent, entity.deletedEvent])],
+    { ...logicalPolicy, validateLogicalCall: productUpdateGraphReceipt(metadata, validateLogicalCall), commands: Object.values(commands) }));
+  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, productUpdateWorkflow, logicalPolicy };
 });

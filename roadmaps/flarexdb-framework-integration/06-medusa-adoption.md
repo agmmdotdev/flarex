@@ -108,8 +108,14 @@ dismissal and ordered workflow events/hooks. Its explicit Pricing and Link
 mutation profiles retain existing creation consumers and endpoint identities.
 The bounded root admits at most four variants, two base prices and two Inventory
 links per variant under a named 256-call/64-event allowance and default atomic
-OCC. The larger native Product update composer follows with whole-Product and
-relationship reconciliation.
+OCC. The [whole-Product update profile](./preflight/101-native-product-update-workflow.md)
+now executes the native parent and Pricing child, owned-graph reconciliation,
+Product Link replacement and endpoint-selected Pricing cascades. Its bounded
+four-Product/four-Variant root selects 512 calls, 2 MiB and 256 events under
+default OCC. Explicit queued root operations preserve native Link concurrency;
+identity-bound mixed publication supports Product and Pricing while retaining
+their 256/128 identity allowances and the existing commit packet limits.
+General Product/Variant deletion and its Inventory ownership graph follow.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a

@@ -8,7 +8,7 @@ import { collectionWriteEventPolicy, collectionDeleteEventPolicy } from "./colle
 import { productLogicalTypeEventPolicy, productLogicalTypeUpsertEventPolicy, productLogicalImageCreateEventPolicy, productLogicalOptionEventPolicy, productLogicalDirectEntityUpdateEventPolicy } from "./entity";
 import { tagCallEventPolicy, productLogicalTagHardDeleteEventPolicy } from "./tag";
 import { productLogicalVariantImagesEventPolicy, productLogicalVariantCreateEventPolicy, productLogicalVariantChangeEventPolicy } from "./variant";
-import { productLogicalCreateEventPolicy, productLogicalUpdateEventPolicy, productLogicalUpsertEventPolicy, productLogicalInternalProductWriteEventPolicy, productLogicalDeleteEventPolicy } from "./product";
+import { productLogicalCreateEventPolicy, productLogicalUpdateEventPolicy, productLogicalUpsertEventPolicy, productLogicalSelectorUpdateEventPolicy, productLogicalInternalProductWriteEventPolicy, productLogicalDeleteEventPolicy } from "./product";
 import { productRelationshipCallReceipt } from "./memberships";
 import { productLogicalInternalProductLifecycleEventPolicy, productLogicalLifecycleEventPolicy } from "./lifecycle";
 
@@ -45,6 +45,7 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
     ["productCreate", productLogicalCreateEventPolicy(catalog).validateLogicalCall],
     ["productUpdate", productLogicalUpdateEventPolicy(catalog).validateLogicalCall],
     ["productUpsert", productLogicalUpsertEventPolicy(catalog)],
+    ["productUpdateProductsForWorkflow", productLogicalSelectorUpdateEventPolicy(catalog)],
     ["productUpsertRelationships", productRelationshipCallReceipt(catalog)],
     ["productInternalProductcreate", productLogicalInternalProductWriteEventPolicy(catalog, "create")],
     ["productInternalProductupdate", productLogicalInternalProductWriteEventPolicy(catalog, "update")],

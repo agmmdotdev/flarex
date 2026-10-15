@@ -13,6 +13,11 @@ export const productVariantInventoryResources = Object.freeze({ ...defaultCommer
 export const productVariantUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
 /** Complete finite Product root; its maximum envelope has a distinct allowance. */
 export const productCreationResources = Object.freeze({ ...defaultCommerceResources, calls: 512, eventMessages: 128 });
+/** Existing Product graphs, including replacement links and removed Pricing descendants. */
+export const productUpdateResources = Object.freeze({ ...defaultCommerceResources, catalogRows: 256, calls: 512, eventMessages: 256, commandBytes: 2_097_152 });
+/** Pricing and Link participants retain the ordinary logical working set while
+ * admitting the complete Product root's shared byte allowance. */
+export const productUpdateParticipantResources = Object.freeze({ ...defaultCommerceResources, catalogRows: 128, commandBytes: 2_097_152 });
 /** Four locations/addresses and eight native Inventory levels, one settlement. */
 export const inventoryStockingResources = Object.freeze({ ...defaultCommerceResources });
 /** One parent launch graph owns Pricing, Link, Product Tag and pending graph reads. */

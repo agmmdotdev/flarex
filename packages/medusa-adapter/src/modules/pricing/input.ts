@@ -41,6 +41,10 @@ const PriceListInput = Schema.Struct({ id: Schema.optionalKey(PricingId), title:
 });
 export const PriceListsInput = Schema.Array(PriceListInput).check(Schema.isLengthBetween(1, 4));
 export const decodePriceListCreate = commerceDecoder(PriceListsInput, "invalidInput");
+export const ProductUpdatePriceListsInput = Schema.Array(Schema.Struct({ ...PriceListInput.fields,
+  prices: Schema.Array(Schema.Struct({ ...ListPriceInput.fields, rules: BasePriceInput.fields.rules })).check(Schema.isMaxLength(2)),
+})).check(Schema.isLengthBetween(1, 4));
+export const decodeProductUpdatePriceListCreate = commerceDecoder(ProductUpdatePriceListsInput, "invalidInput");
 export const PricePreferencesInput = Schema.Array(Schema.Struct({
   attribute: Text,
   value: Text,

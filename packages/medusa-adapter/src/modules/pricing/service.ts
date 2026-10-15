@@ -19,24 +19,28 @@ import { moduleAliases } from "../../local-graph/module";
 import { decodeGraphCount } from "../../local-graph/query";
 import type { GraphModuleDefinition } from "../../local-graph/model";
 import { PriceSetsInput, PriceListsInput, PricePreferencesInput, PricingId, decodePriceSetCreate, decodePriceListCreate, decodePricePreferenceCreate, decodePriceSetRead, decodePriceSetRetrieve,
-  PriceSetsUpsertInput, PriceSetsUpdateInput, PriceSetFilters, decodePriceSetUpsert, decodePriceSetUpdate } from "./input";
+  PriceSetsUpsertInput, PriceSetsUpdateInput, PriceSetFilters, decodePriceSetUpsert, decodePriceSetUpdate,
+  ProductUpdatePriceListsInput, decodeProductUpdatePriceListCreate } from "./input";
 import { decodePricingCalculation } from "./calculation";
 import { pricingLogicalCreateEventPolicy } from "./events";
 import { pricingLogicalMutationEventPolicy } from "./mutation-events";
 import { NativePreimageConfig, nativePreimageSelection } from "../../workflow/preimage";
+import { PricingLifecycleSelection, PricingLifecycleConfig, decodePricingLifecycleInput } from "./lifecycle";
+import { pricingLogicalProductUpdateEventPolicy } from "./lifecycle-events";
 const decodeCreateArguments = commerceDecoder(Schema.Tuple([PriceSetsInput]), "invalidInput");
-const decodeCreateListArguments = commerceDecoder(Schema.Tuple([PriceListsInput]), "invalidInput");
 const decodeCreatePreferenceArguments = commerceDecoder(Schema.Tuple([PricePreferencesInput]), "invalidInput");
 const decodeUpsertArguments = commerceDecoder(Schema.Tuple([PriceSetsUpsertInput]), "invalidInput");
 const decodeUpdateArguments = commerceDecoder(Schema.Tuple([PriceSetsUpdateInput.fields.selector, PriceSetsUpdateInput.fields.update]), "invalidInput");
 const decodeListArguments = commerceDecoder(Schema.Union([Schema.Tuple([PriceSetFilters]), Schema.Tuple([PriceSetFilters, NativePreimageConfig])]), "invalidInput");
+const decodeSoftDeleteArguments = commerceDecoder(Schema.Union([Schema.Tuple([PricingLifecycleSelection]),
+  Schema.Tuple([PricingLifecycleSelection, PricingLifecycleConfig])]), "invalidInput");
 
-export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(function* (admission: "create" | "variant-updates" = "create") {
-  if (admission !== "create" && admission !== "variant-updates") return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const mutable = admission === "variant-updates";
+export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(function* (admission: "create" | "variant-updates" | "product-updates" = "create") {
+  if (admission !== "create" && admission !== "variant-updates" && admission !== "product-updates") return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const mutable = admission !== "create", lifecycle = admission === "product-updates";
   const metadata = yield* capturePricingMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
-    const prepared = yield* preparePricingRepository(metadata.frame, mutable);
+    const prepared = yield* preparePricingRepository(metadata.frame, mutable, lifecycle);
     const bind = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const bound = prepared.bind(ctx, owner);
       const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
@@ -50,7 +54,7 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
     };
     const module = yield* defineCommerceModule({ name: "flarex-pricing-local",
       models: [PriceSet, Price, PriceRule, PriceList, PriceListRule, PricePreference],
-      profile: { name: mutable ? "pricing-variant-updates" : "pricing-base-prices", capabilities: [], bind },
+      profile: { name: lifecycle ? "pricing-product-updates" : mutable ? "pricing-variant-updates" : "pricing-base-prices", capabilities: [], bind },
       extensions: { pricingRepository: { mode: "add", create: ({ binding }) => ({ calculatePrices: binding.calculatePrices } satisfies PricingRepositoryService) } },
       service: ({ binding, dependencies, context }) => {
         const container = { ...dependencies, [Modules.EVENT_BUS]: binding.eventBus };
@@ -60,11 +64,16 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
           listPriceSets: native.listPriceSets.bind(native),
           retrievePriceSet: native.retrievePriceSet.bind(native), listAndCountPriceSets: native.listAndCountPriceSets.bind(native),
           calculatePrices: native.calculatePrices.bind(native), upsertPriceSets: mutable ? native.upsertPriceSets.bind(native) : binding.refuse,
-          updatePriceSets: mutable ? native.updatePriceSets.bind(native) : binding.refuse }, context };
+          updatePriceSets: mutable ? native.updatePriceSets.bind(native) : binding.refuse,
+          softDeletePriceSets: lifecycle ? native.softDeletePriceSets.bind(native) : binding.refuse }, context };
       },
     }).pipe(Result.mapError(error => commerceError("unsupportedProfile", error)));
     const commands = commerceServiceCommands(module.use);
     const prepare = commerceCommandPreparation("PricingCommand.prepare");
+    const decodeCreateListArguments = commerceDecoder(Schema.Tuple([lifecycle ? ProductUpdatePriceListsInput : PriceListsInput]), "invalidInput");
+    const softDeletePriceSetsCommand = commands.write("pricingSoftDeletePriceSets", prepare(decodePricingLifecycleInput), ({ service, context }, data) =>
+      service.softDeletePriceSets(structuredClone(data.selector),
+        data.config.returnLinkableKeys === undefined ? {} : { returnLinkableKeys: [...data.config.returnLinkableKeys] }, context));
     const upsert = commands.write("pricingUpsert", prepare(decodePriceSetUpsert), ({ service, context }, data) =>
       service.upsertPriceSets(data.map(set => ({ ...set, prices: set.prices.map(price => ({ ...price })) })) as PricingTypes.UpsertPriceSetDTO[], context));
     const update = commands.write("pricingUpdate", prepare(decodePriceSetUpdate), ({ service, context }, data) =>
@@ -74,7 +83,7 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
     // and rule grammar. The selected DAL validates normalized graph inputs.
     const create = commands.write("pricingCreate", prepare(decodePriceSetCreate), ({ service, context }, data) =>
       Array.isArray(data) ? service.createPriceSets(data as CreatePriceSetDTO[], context) : service.createPriceSets(data as CreatePriceSetDTO, context));
-    const createList = commands.write("pricingCreateList", prepare(decodePriceListCreate), ({ service, context }, data) =>
+    const createList = commands.write("pricingCreateList", prepare(lifecycle ? decodeProductUpdatePriceListCreate : decodePriceListCreate), ({ service, context }, data) =>
       service.createPriceLists(data.map(list => {
         const { prices, rules, ...fields } = list;
         return { ...fields, prices: prices.map(price => ({ ...price })),
@@ -100,7 +109,7 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
       encode: ([lists]) => lists,
       output: commerceDecoder(Schema.Array(Schema.StructWithRest(Schema.Struct({ id: PricingId }),
         [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isLengthBetween(1, 4)), "storedCorruption"),
-      moduleEvents: ["price_list", "price", "price_list_rule"].map(objectName =>
+      moduleEvents: ["price_list", "price", "price_list_rule", ...(lifecycle ? ["price_rule"] : [])].map(objectName =>
         buildModuleResourceEventName({ prefix: Modules.PRICING, objectName, action: "created" })),
     });
     const createPricePreferences = yield* defineWorkflowMethod({ command: createPreference,
@@ -121,15 +130,20 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
     const updatePriceSets = yield* defineWorkflowMethod({ command: update,
       arguments: decodeUpdateArguments,
       encode: ([selector, update]) => ({ selector, update }), output: decodeOutput, moduleEvents: mutationEvents });
-    const admitted = [create, createList, createPreference, list, count, retrieve, calculate, ...(mutable ? [upsert, update] : [])];
+    const softDeletePriceSets = yield* defineWorkflowMethod({ command: softDeletePriceSetsCommand, arguments: decodeSoftDeleteArguments,
+      encode: args => ({ selector: args[0], config: args[1] ?? {} }),
+      output: commerceDecoder(Schema.Record(Schema.String, Schema.Array(PricingId).check(Schema.isMaxLength(16))), "storedCorruption"),
+      moduleEvents: ["price_set", "price", "price_rule"].map(objectName => buildModuleResourceEventName({ prefix: Modules.PRICING, objectName, action: "deleted" })),
+    });
+    const admitted = [create, createList, createPreference, list, count, retrieve, calculate, ...(mutable ? [upsert, update] : []), ...(lifecycle ? [softDeletePriceSetsCommand] : [])];
     const listPriceSets = yield* defineWorkflowMethod({ command: list, arguments: decodeListArguments,
       encode: args => ({ filters: args[0], ...(args.length === 1 ? {} : { config: nativePreimageSelection(args[1], graph.reads[0]!) }) }),
       output: commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(4)), "storedCorruption") });
     const workflow = yield* defineWorkflowModule({ name: Modules.PRICING, source: module.description,
-      methods: { createPriceSets, createPriceLists, createPricePreferences, ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}) }, graph,
-      logical: { ...(mutable ? pricingLogicalMutationEventPolicy() : pricingLogicalCreateEventPolicy()), commands: admitted },
+      methods: { createPriceSets, createPriceLists, createPricePreferences, ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle ? { softDeletePriceSets } : {}) }, graph,
+      logical: { ...(lifecycle ? pricingLogicalProductUpdateEventPolicy() : mutable ? pricingLogicalMutationEventPolicy() : pricingLogicalCreateEventPolicy()), commands: admitted },
     });
     return { create, createList, createPreference, list, count, retrieve, calculate, ...(mutable ? { upsert, update } : {}),
-      commands: admitted, graph, workflow, withService: module.use };
+      ...(lifecycle ? { softDeletePriceSets: softDeletePriceSetsCommand } : {}), commands: admitted, graph, workflow, withService: module.use };
   }));
 });

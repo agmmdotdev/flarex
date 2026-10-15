@@ -16,6 +16,7 @@
     "./product/batch-link-products-collection": "./src/product/workflows/batch-link-products-collection.ts",
     "./product/batch-variant-images": "./src/product/workflows/batch-variant-images.ts",
     "./common/use-query-graph": "./src/common/steps/use-query-graph.ts",
+    "./common/use-remote-query": "./src/common/steps/use-remote-query.ts",
     "./product/create-product-variants-step": "./src/product/steps/create-product-variants.ts",
     "./product/create-variant-pricing-link-step": "./src/product/steps/create-variant-pricing-link.ts",
     "./pricing/create-price-sets-step": "./src/pricing/steps/create-price-sets.ts",
@@ -29,7 +30,9 @@
     "./reservation/delete-reservations": "./src/reservation/workflows/delete-reservations.ts",
     "./stock-location/link-sales-channels": "./src/stock-location/workflows/link-sales-channels-to-stock-location.ts",
     "./product/update-product-variants": "./src/product/workflows/update-product-variants.ts",
-    "./pricing/update-price-sets-step": "./src/pricing/steps/update-price-sets.ts"
+    "./pricing/update-price-sets-step": "./src/pricing/steps/update-price-sets.ts",
+    "./product/update-products": "./src/product/workflows/update-products.ts",
+    "./product/upsert-variant-prices": "./src/product/workflows/upsert-variant-prices.ts"
   },
   "dependencies": {
     "@medusajs/modules-sdk": "workspace:*",

@@ -23,6 +23,7 @@ import { fxSystemFrameworkSchemaAvailabilityHeads as availabilityHeads } from ".
 import * as installationRuntime from "../../../src/installation/frameworkSchema/installation/runtime";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, type AtomicCommerceContext } from "../../../src/frameworks/atomicCommerce/commands";
 import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from "../../../src/frameworks/atomicCommerce/host";
+import { captureAtomicCommerceConfiguration } from "../../../src/frameworks/atomicCommerce/configuration";
 import { captureAtomicCommerceParticipants, prepareAtomicCommerceParticipants, type AtomicCommerceParticipantInput } from "../../../src/frameworks/atomicCommerce/participants";
 import { commerceInventory } from "../commerceTransaction/commerceInventory";
 import { readRelationalCommitFactsInTransaction } from "../../../src/commit/publication/relationalFacts";
@@ -247,6 +248,36 @@ describe("atomic participants sharing physical installation", () => {
       .toMatchObject({ reason: "unsupportedProfile" });
     expect(await runEffectFailure(makeAtomicCommerceHost({ ...input, requestCommandMs: 30_001 })))
       .toMatchObject({ reason: "unsupportedProfile" });
+  });
+
+  it("captures explicit queued scheduling and refuses invalid scheduling before installation I/O", async () => {
+    expect(await runEffect(captureAtomicCommerceConfiguration({ ...input, operationScheduling: "queued" })))
+      .toMatchObject({ operationScheduling: "queued", executionIsolation: undefined });
+    expect((await runEffect(captureAtomicCommerceConfiguration(input))).operationScheduling).toBeUndefined();
+    const prepare = vi.spyOn(installationRuntime, "prepareInstallationRuntime");
+    const accept = vi.spyOn(installationRuntime, "acceptPreparedInstallation");
+    try {
+      // @ts-expect-error Runtime negative witness deliberately supplies an unadmitted scheduling profile.
+      expect(await runEffectFailure(makeAtomicCommerceHost({ ...input, operationScheduling: "parallel" })))
+        .toMatchObject({ reason: "unsupportedProfile" });
+      expect(prepare).not.toHaveBeenCalled();
+      expect(accept).not.toHaveBeenCalled();
+    } finally { prepare.mockRestore(); accept.mockRestore(); }
+  });
+
+  it("binds queued scheduling into replay identity while omitted and own undefined preserve the existing identity", async () => {
+    const echo = defineAtomicCommerceCommand("operationSchedulingIdentity", (_ctx, value) => Effect.succeed(value));
+    const plain = await runEffect(makeAtomicCommerceHost({ ...input, commands: [echo] }));
+    const ownUndefined = await runEffect(makeAtomicCommerceHost(Object.defineProperty({ ...input, commands: [echo] },
+      "operationScheduling", { value: undefined, enumerable: true })));
+    const queued = await runEffect(makeAtomicCommerceHost({ ...input, commands: [echo], operationScheduling: "queued" }));
+    try {
+      const key = plain.newRequestKey();
+      expect(await runEffect(plain.run(key, echo, "unchanged"))).toBe("unchanged");
+      expect(await runEffect(ownUndefined.run(key, echo, "unchanged"))).toBe("unchanged");
+      expect(await runEffectFailure(queued.run(key, echo, "unchanged"))).toMatchObject({ reason: "requestConflict" });
+      expect(await runEffect(queued.run(queued.newRequestKey(), echo, "queued"))).toBe("queued");
+    } finally { await runEffect(plain.close); await runEffect(ownUndefined.close); await runEffect(queued.close); }
   });
 
   it("rejects a physical-only fan-out above the shared fact allowance atomically", async () => {

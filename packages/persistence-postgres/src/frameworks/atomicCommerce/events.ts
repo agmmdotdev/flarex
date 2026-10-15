@@ -271,7 +271,7 @@ export function makeAtomicEventCapture(
 ) {
   const events: CommittedEvent[] = [];
   let sealed = false;
-  const retain = Effect.fnUntraced(function* (token: CommerceEventContract, input: Json) {
+  const retain = Effect.fnUntraced(function* (token: CommerceEventContract, input: Json, prechargedBytes = 0) {
     const definition = policy.allowed.get(token);
     if (sealed || definition === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
     if (events.length >= Math.min(maximum, commitEventLimits.messages)) return yield* Effect.fail(commerceError("limitExceeded"));
@@ -279,8 +279,11 @@ export function makeAtomicEventCapture(
     const envelope = yield* decodeEnvelope({ contract: definition.name, contractRevision: definition.revision, internal: definition.internal,
       producerRevision: policy.producerRevision, group, message, subscribers: policy.subscribers,
     }).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
-    const captured = yield* Effect.fromResult(capturePrivateJsonData(envelope, Math.min(commitEventLimits.bytes, lifetime.remainingBytes()), commerceError));
-    yield* Effect.fromResult(lifetime.charge(captured.bytes));
+    const captured = yield* Effect.fromResult(capturePrivateJsonData(envelope,
+      Math.min(commitEventLimits.bytes, lifetime.remainingBytes() + prechargedBytes), commerceError));
+    // Queued admission already owns and charges the raw message. A decoder may
+    // shrink it; retain that admission charge and add only envelope growth.
+    yield* Effect.fromResult(lifetime.charge(Math.max(0, captured.bytes - prechargedBytes)));
     // The decoder establishes the shape; the captured value owns immutable data.
     const owned = captured.value;
     if (!isEnvelope(owned)) return yield* Effect.fail(commerceError("unadmittedEvent"));
@@ -326,7 +329,10 @@ export function makeAtomicEventCapture(
       derived: prepared, derivedApplied: false });
     return token;
   }, work => observeExecution("AtomicEvents.close", work, "caller"));
-  return { capture, captureSelected, close };
+  // Only the request-local queued operation owner supplies an already captured,
+  // charged message. The envelope adds its remaining bytes exactly once.
+  const capturePrecharged = (token: CommerceEventContract, input: Json, bytes: number) => retain(token, input, bytes);
+  return { capture, captureSelected, capturePrecharged, close };
 }
 /** Only trusted settlement supplies identities selected from committed rows.
  * Static metadata was checked before the publication lock; this path performs

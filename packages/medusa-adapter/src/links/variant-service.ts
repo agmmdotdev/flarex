@@ -25,8 +25,9 @@ const Data = Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Id) }));
 const InventoryPair = Schema.Struct({ product: Schema.Struct({ variant_id: Id }), inventory: Schema.Struct({ inventory_item_id: Id }), data: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Id), required_quantity: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: -2147483648, maximum: 2147483647 }))) })) });
 const PricingPair = Schema.Struct({ product: Schema.Struct({ variant_id: Id }), pricing: Schema.Struct({ price_set_id: Id }), data: Data });
 // Each array is homogeneous before the native router can fan out with promiseAll.
-const Batch = Schema.Union([Schema.Array(InventoryPair).check(Schema.isMaxLength(8)).pipe(Schema.mutable),
-  Schema.Array(PricingPair).check(Schema.isMaxLength(8)).pipe(Schema.mutable)]);
+export const VariantInventoryLinkBatch = Schema.Array(InventoryPair).check(Schema.isMaxLength(8)).pipe(Schema.mutable);
+export const VariantPricingLinkBatch = Schema.Array(PricingPair).check(Schema.isMaxLength(8)).pipe(Schema.mutable);
+const Batch = Schema.Union([VariantInventoryLinkBatch, VariantPricingLinkBatch]);
 export const VariantLinkBatch = Batch;
 const decodeLinks = commerceDecoder(Schema.Union([InventoryPair, PricingPair, Batch]), "invalidInput");
 const decodeArguments = commerceDecoder(Schema.Tuple([Batch]), "invalidInput");
@@ -49,13 +50,13 @@ const decodePricingRead = commerceDecoder(Schema.Struct({ filters: Schema.option
 })), config: Schema.optionalKey(Config) }), "invalidInput");
 /** One native Link router and borrowed owner for the two named Product links.
  * Native routing owns associations; callers never register tables or services. */
-export const prepareLocalVariantLinks = Effect.fn("VariantLinks.prepare")(function* (admission: "create" | "variant-updates" = "create") {
-  if (admission !== "create" && admission !== "variant-updates") return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const mutable = admission === "variant-updates";
+export const prepareLocalVariantLinks = Effect.fn("VariantLinks.prepare")(function* (admission: "create" | "variant-updates" | "product-updates" = "create") {
+  if (admission !== "create" && admission !== "variant-updates" && admission !== "product-updates") return yield* Effect.fail(commerceError("unsupportedProfile"));
   const inventory = yield* prepareLinkService(yield* captureVariantInventoryLinkMetadata());
   const pricing = yield* prepareLinkService(yield* captureVariantPricingLinkMetadata());
-  const inventoryNative = yield* Effect.fromResult(prepareLinkWorkflowService(inventory, "inventoryLink", mutable));
-  const pricingNative = yield* Effect.fromResult(prepareLinkWorkflowService(pricing, "pricingLink"));
+  const inventoryNative = yield* Effect.fromResult(prepareLinkWorkflowService(inventory, "inventoryLink",
+    admission === "product-updates" ? "cascade" : admission === "variant-updates" ? "dismiss" : "create"));
+  const pricingNative = yield* Effect.fromResult(prepareLinkWorkflowService(pricing, "pricingLink", admission === "product-updates" ? "cascade" : "create"));
   const compose = (ctx: CommerceCommandContext, owner: Parameters<typeof inventory.bind>[1]) => {
     const inventoryBinding = inventory.bind(ctx, owner), pricingBinding = pricing.bind(ctx, owner);
     const router = new Link([inventoryBinding.loaded, pricingBinding.loaded]);
@@ -89,21 +90,29 @@ export const prepareLocalVariantLinks = Effect.fn("VariantLinks.prepare")(functi
   const logicalEventPolicy = () => selectedLinkLogicalEventPolicy([
     { tableName: "product_variant_inventory_item", serviceName: inventory.serviceName, entityName: inventory.entityName,
       endpoints: ["variant_id", "inventory_item_id"], createCommands: [inventoryNative.createName],
-      dismissCommands: inventoryNative.dismissName === undefined ? [] : [inventoryNative.dismissName] },
+      dismissCommands: inventoryNative.dismissName === undefined ? [] : [inventoryNative.dismissName],
+      deleteCommands: inventoryNative.softDeleteName === undefined ? [] : [inventoryNative.softDeleteName] },
     { tableName: "product_variant_price_set", serviceName: pricing.serviceName, entityName: pricing.entityName,
-      endpoints: ["variant_id", "price_set_id"], createCommands: [pricingNative.createName] },
+      endpoints: ["variant_id", "price_set_id"], createCommands: [pricingNative.createName],
+      deleteCommands: pricingNative.softDeleteName === undefined ? [] : [pricingNative.softDeleteName] },
   ]);
   const method = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeArguments, encode: ([links]) => links,
     output: decodeCreated, moduleEvents: [inventory.entityName + ".attached", pricing.entityName + ".attached"] }));
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: "flarex-variant-links", profile: "medusa.variant.links" },
     methods: { create: method, inventoryNativeCreate: inventoryNative.createMethod, inventoryNativeList: inventoryNative.listMethod,
       pricingNativeCreate: pricingNative.createMethod, pricingNativeList: pricingNative.listMethod,
-      ...(inventoryNative.dismissMethod === undefined ? {} : { inventoryNativeDismiss: inventoryNative.dismissMethod }) }, graph,
+      ...(inventoryNative.dismissMethod === undefined ? {} : { inventoryNativeDismiss: inventoryNative.dismissMethod }),
+      ...(inventoryNative.softDeleteMethod === undefined ? {} : { inventoryNativeSoftDelete: inventoryNative.softDeleteMethod }),
+      ...(pricingNative.softDeleteMethod === undefined ? {} : { pricingNativeSoftDelete: pricingNative.softDeleteMethod }) }, graph,
     logical: { ...logicalEventPolicy(), commands: [create, countInventory, countPricing, inventoryNative.create, inventoryNative.list, pricingNative.create, pricingNative.list,
-      ...(inventoryNative.dismiss === undefined ? [] : [inventoryNative.dismiss])] } }));
+      ...(inventoryNative.dismiss === undefined ? [] : [inventoryNative.dismiss]),
+      ...(inventoryNative.softDelete === undefined ? [] : [inventoryNative.softDelete]),
+      ...(pricingNative.softDelete === undefined ? [] : [pricingNative.softDelete])] } }));
   return { create, countInventory, countPricing,
     commands: [create, countInventory, countPricing, inventoryNative.create, inventoryNative.list, pricingNative.create, pricingNative.list,
-      ...(inventoryNative.dismiss === undefined ? [] : [inventoryNative.dismiss])],
+      ...(inventoryNative.dismiss === undefined ? [] : [inventoryNative.dismiss]),
+      ...(inventoryNative.softDelete === undefined ? [] : [inventoryNative.softDelete]),
+      ...(pricingNative.softDelete === undefined ? [] : [pricingNative.softDelete])],
     nativeServices: { inventory: inventoryNative, pricing: pricingNative },
     workflow, graph, logicalEventPolicy, withService: use };
 });

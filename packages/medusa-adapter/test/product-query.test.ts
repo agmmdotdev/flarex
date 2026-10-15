@@ -73,6 +73,28 @@ describe("Medusa relation query extraction", () => {
     expect(decoded.projection).toBe(Result.getOrThrow(prepared.publicProjection));
   });
 
+  it("projects native Product preimage relation fields while retaining child identities and hasMany owner keys", () => {
+    const selected = Result.getOrThrow(decodeProductQuery(catalog, { options: {
+      fields: ["id", "variants.title", "options.values.value", "images.url", "tags.value"],
+      populate: ["variants", "options", "options.values", "images", "tags"],
+    } }));
+    const variantOwner = catalog.foreignKeys.variant, optionOwner = catalog.foreignKeys.option;
+    const valueOwner = catalog.foreignKeys.value, imageOwner = catalog.foreignKeys.image;
+    expect(Result.getOrThrow(projectRows([{ id: "p", title: "Discard root", variants: [
+      { id: "v", [variantOwner]: "p", title: "Variant", sku: "Discard variant" },
+    ], options: [{ id: "o", [optionOwner]: "p", title: "Discard option", values: [
+      { id: "ov", [valueOwner]: "o", value: "Red", metadata: { discarded: true } },
+    ] }], images: [{ id: "i", [imageOwner]: "p", url: "image", rank: 1 }],
+    tags: [{ id: "t", value: "Tag", metadata: { discarded: true } }],
+    }], selected.projection.node))).toEqual([{ id: "p", variants: [{ id: "v", [variantOwner]: "p", title: "Variant" }],
+      options: [{ id: "o", [optionOwner]: "p", values: [{ id: "ov", [valueOwner]: "o", value: "Red" }] }],
+      images: [{ id: "i", [imageOwner]: "p", url: "image" }], tags: [{ id: "t", value: "Tag" }],
+    }]);
+    const emptyVariants = Result.getOrThrow(decodeProductQuery(catalog, { options: { fields: ["id", "variants.id"], populate: ["variants"] } }));
+    expect(Result.getOrThrow(projectRows([{ id: "p", variants: [{ id: "v", [variantOwner]: "p", title: "Discard" }] }], emptyVariants.projection.node)))
+      .toEqual([{ id: "p", variants: [{ id: "v", [variantOwner]: "p" }] }]);
+  });
+
   it("retains complete nested projection plans without exposing mutable fields or relation keys", () => {
     const sourceFields = new Set(["id", "title"]);
     const sourceKeys = ["collection_id"];

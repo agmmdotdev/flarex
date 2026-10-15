@@ -22,7 +22,7 @@ describe("maintained Medusa test ports", () => {
     const original = readFileSync(new URL("../third_party/medusa/upstream/packages/core/types/src/pricing/service.ts", import.meta.url), "utf8");
     const selected = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/service.ts", import.meta.url), "utf8");
     expect(() => verifyPricingWorkflowSelection(original, selected)).not.toThrow();
-    const methods = 'methods: { createPriceSets, createPriceLists, createPricePreferences, ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}) }';
+    const methods = 'methods: { createPriceSets, createPriceLists, createPricePreferences, ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle ? { softDeletePriceSets } : {}) }';
     expect(selected).toContain(methods);
     expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: {}'))).toThrow();
     expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceSets, createPriceLists, createPricePreferences, calculatePrices }'))).toThrow();
@@ -35,7 +35,11 @@ describe("maintained Medusa test ports", () => {
         `${methods}, ${override}`))).toThrow();
     }
     for (const changed of [
-      selected.replace('const mutable = admission === "variant-updates"', 'const mutable = true'),
+      selected.replace('const mutable = admission !== "create"', 'const mutable = true'),
+      selected.replace('lifecycle = admission === "product-updates"', 'lifecycle = true'),
+      selected.replace('...(lifecycle ? { softDeletePriceSets } : {})', '...(mutable ? { softDeletePriceSets } : {})'),
+      selected.replace('...(lifecycle ? { softDeletePriceSets } : {})', '...(lifecycle ? { softDeletePriceSets, calculatePrices } : {})'),
+      selected.replace('...(lifecycle ? { softDeletePriceSets } : {})', '...(lifecycle ? { softDeletePriceSets } : { softDeletePriceSets })'),
       selected.replace('= "create")', '= "variant-updates")'),
       selected.replace('...(mutable ? { upsertPriceSets', '...(true ? { upsertPriceSets'),
       selected.replace('upsertPriceSets, updatePriceSets, listPriceSets } : {}', 'upsertPriceSets, updatePriceSets, listPriceSets, calculatePrices } : {}'),

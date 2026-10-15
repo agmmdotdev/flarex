@@ -24,11 +24,21 @@ const inverseProjection: ProjectionPolicy = { ...retainedProjection, selectableR
 const collectionProjection: ProjectionPolicy = { ...inverseProjection,
   nested: new Map([["products", { ...nestedProjection, incomingKeys: true }]]),
 };
+// Pinned Drizzle projectLoadedRelationsFromTree retains target primary keys and
+// the incoming owner FK on hasMany rows, including explicit nested selections.
+const ownedProjection: ProjectionPolicy = { ...retainedProjection, incomingKeys: true };
+const productOptionProjection: ProjectionPolicy = { ...ownedProjection, selectableRelations: ["values"],
+  nested: new Map([["values", ownedProjection]]),
+};
+const productVariantProjection: ProjectionPolicy = { ...ownedProjection, selectableRelations: ["options"],
+  nested: new Map([["options", retainedProjection]]),
+};
 export const categoryReadProjection: ProjectionPolicy = { ...inverseProjection, allowedPaths: ["products"] };
 export const publicProductProjection: ProjectionPolicy = { ...scalarProjection,
   keys: "retainWhenNested", joinKeys: "retainWhenNested", nullToOne: true,
-  selectableRelations: ["collection", "type", "categories"],
-  nested: new Map([["collection", retainedProjection], ["type", retainedProjection], ["categories", retainedProjection]]),
+  selectableRelations: ["collection", "type", "categories", "tags", "images", "options", "variants"],
+  nested: new Map([["collection", retainedProjection], ["type", retainedProjection], ["categories", retainedProjection],
+    ["tags", retainedProjection], ["images", ownedProjection], ["options", productOptionProjection], ["variants", productVariantProjection]]),
 };
 export const internalProductProjection: ProjectionPolicy = { ...publicProductProjection, keys: "retain" };
 

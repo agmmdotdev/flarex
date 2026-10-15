@@ -54,11 +54,12 @@ const decodeShippingEndpoint = commerceDecoder(Schema.Union([
 
 /** One native Link router and borrowed owner for the two named Product links.
  * Native routing owns associations; callers never register tables or services. */
-export const prepareLocalProductLinks = Effect.fn("ProductLinks.prepare")(function* () {
+export const prepareLocalProductLinks = Effect.fn("ProductLinks.prepare")(function* (admission: "create" | "product-updates" = "create") {
+  if (admission !== "create" && admission !== "product-updates") return yield* Effect.fail(commerceError("unsupportedProfile"));
   const sales = yield* prepareLinkService(yield* captureProductSalesChannelLinkMetadata());
   const shipping = yield* prepareLinkService(yield* captureProductShippingProfileLinkMetadata());
-  const salesNative = yield* Effect.fromResult(prepareLinkWorkflowService(sales, "salesLink"));
-  const shippingNative = yield* Effect.fromResult(prepareLinkWorkflowService(shipping, "shippingLink"));
+  const salesNative = yield* Effect.fromResult(prepareLinkWorkflowService(sales, "salesLink", admission === "product-updates" ? "dismiss" : "create"));
+  const shippingNative = yield* Effect.fromResult(prepareLinkWorkflowService(shipping, "shippingLink", admission === "product-updates" ? "dismiss" : "create"));
   const compose = (ctx: CommerceCommandContext, owner: Parameters<typeof sales.bind>[1]) => {
     const salesBinding = sales.bind(ctx, owner), shippingBinding = shipping.bind(ctx, owner);
     const router = new Link([salesBinding.loaded, shippingBinding.loaded]);
@@ -95,19 +96,27 @@ export const prepareLocalProductLinks = Effect.fn("ProductLinks.prepare")(functi
   };
   const logicalEventPolicy = () => selectedLinkLogicalEventPolicy([
     { tableName: "product_sales_channel", serviceName: sales.serviceName, entityName: sales.entityName,
-      endpoints: ["product_id", "sales_channel_id"], createCommands: [salesNative.createName] },
+      endpoints: ["product_id", "sales_channel_id"], createCommands: [salesNative.createName],
+      dismissCommands: salesNative.dismissName === undefined ? [] : [salesNative.dismissName] },
     { tableName: "product_shipping_profile", serviceName: shipping.serviceName, entityName: shipping.entityName,
-      endpoints: ["product_id", "shipping_profile_id"], createCommands: [shippingNative.createName] },
+      endpoints: ["product_id", "shipping_profile_id"], createCommands: [shippingNative.createName],
+      dismissCommands: shippingNative.dismissName === undefined ? [] : [shippingNative.dismissName] },
   ]);
   const method = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeArguments, encode: ([links]) => links,
     output: decodeCreated, moduleEvents: [sales.entityName + ".attached", shipping.entityName + ".attached"] }));
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: "flarex-product-links", profile: "medusa.product.links" },
     methods: { create: method, salesNativeCreate: salesNative.createMethod, salesNativeList: salesNative.listMethod,
-      shippingNativeCreate: shippingNative.createMethod, shippingNativeList: shippingNative.listMethod }, graph,
+      shippingNativeCreate: shippingNative.createMethod, shippingNativeList: shippingNative.listMethod,
+      ...(salesNative.dismissMethod === undefined ? {} : { salesNativeDismiss: salesNative.dismissMethod }),
+      ...(shippingNative.dismissMethod === undefined ? {} : { shippingNativeDismiss: shippingNative.dismissMethod }) }, graph,
     logical: { ...logicalEventPolicy(), commands: [create, dismiss, restoreShipping, countSales, countShipping,
-      salesNative.create, salesNative.list, shippingNative.create, shippingNative.list] } }));
+      salesNative.create, salesNative.list, shippingNative.create, shippingNative.list,
+      ...(salesNative.dismiss === undefined ? [] : [salesNative.dismiss]),
+      ...(shippingNative.dismiss === undefined ? [] : [shippingNative.dismiss])] } }));
   return { create, dismiss, restoreShipping, countSales, countShipping,
-    commands: [create, dismiss, restoreShipping, countSales, countShipping, salesNative.create, salesNative.list, shippingNative.create, shippingNative.list],
+    commands: [create, dismiss, restoreShipping, countSales, countShipping, salesNative.create, salesNative.list, shippingNative.create, shippingNative.list,
+      ...(salesNative.dismiss === undefined ? [] : [salesNative.dismiss]),
+      ...(shippingNative.dismiss === undefined ? [] : [shippingNative.dismiss])],
     nativeServices: { sales: salesNative, shipping: shippingNative },
     workflow, graph, logicalEventPolicy, withService: use };
 });

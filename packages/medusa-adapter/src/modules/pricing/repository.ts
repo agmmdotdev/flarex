@@ -25,6 +25,7 @@ import { calculateLogicalPrices } from "./calculation";
 import { readCommerceRelationRows, assembleCommerceRelations } from "../../query/relations";
 import { prepareScalarRepository } from "../../repository/scalar";
 import { preparePricingMutations } from "./mutation-repository";
+import { softDeletePricingPriceSets } from "./lifecycle";
 
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
 const Rule = Schema.Struct({ id: Schema.optionalKey(PricingId), attribute: Schema.String, value: Schema.String,
@@ -97,7 +98,7 @@ const projectionPolicy: ProjectionPolicy = { ...scalarProjection, allowedPaths: 
 
 /** Pricing owns the finite nested creation policy; shared graph/read owners
  * retain traversal, scoped persistence and native mutation dispatch. */
-export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], mutable = false) {
+export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], mutable = false, lifecycle = false) {
   return Result.gen(function* () {
     const entities: GraphEntity[] = [];
     for (const [name, model] of [["price_set", "PriceSet"], ["price", "Price"], ["price_rule", "PriceRule"],
@@ -165,11 +166,11 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       }
       return Array.isArray(value) ? output : output[0]!;
     });
-    const listCatalog: GraphCatalog = { entities: [list, price, listRule],
-      tables: [list.table, price.table, listRule.table], writablePivots: [], queryRelations: relations,
+    const listCatalog: GraphCatalog = { entities: [list, price, listRule, ...(lifecycle ? [rule] : [])],
+      tables: [list.table, price.table, listRule.table, ...(lifecycle ? [rule.table] : [])], writablePivots: [], queryRelations: relations,
       decodeRow: (entity, input) => Result.gen(function* () {
         const supplied = entity === list ? yield* decodeList(input) : entity === price ? yield* decodeListPrice(input)
-          : yield* decodeListRule(input);
+          : entity === rule ? yield* decodeRule(input) : yield* decodeListRule(input);
         return { supplied, key: supplied.id };
       }),
       decodeReference: () => Result.fail(commerceError("unsupportedProfile")),
@@ -178,7 +179,10 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
     const listCreation: CreationProfile = { catalog: listCatalog, root: { entity: list,
       omitRelations: ["prices", "price_list_rules"], steps: [
         { kind: "children", name: "prices", foreignKey: listPriceForeignKey,
-          node: { entity: price, omitRelations: [], steps: [] } },
+          node: { entity: price, omitRelations: lifecycle ? ["price_rules"] : [], steps: lifecycle ? [
+            { kind: "children", name: "price_rules", foreignKey: ruleForeignKey,
+              node: { entity: rule, omitRelations: [], steps: [] } },
+          ] : [] } },
         { kind: "children", name: "price_list_rules", foreignKey: listRuleForeignKey,
           node: { entity: listRule, omitRelations: [], steps: [] } },
       ] }, rowLimitDetail: (maximum, attempted, tables) => ({ maximum, attempted, tables }) };
@@ -288,9 +292,15 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
           return [value.rows, value.count] satisfies [JsonObject[], number];
         }))),
         create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, creation, input, shared))),
-        update: refuse, delete: refuse, upsert: refuse, upsertWithReplace: refuse, softDelete: refuse, restore: refuse,
+        update: refuse, delete: refuse, upsert: refuse, upsertWithReplace: refuse, restore: refuse,
+        softDelete: lifecycle ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+          const result = yield* softDeletePricingPriceSets(ctx, metadata, input);
+          if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+          yield* events.cascades(result.cascades, shared, row => ({ entity: row, originalEntity: { deleted_at: null } }));
+          return [result.roots, result.cascades] satisfies [object[], Record<string, unknown[]>];
+        }))) : refuse,
       };
-      const denied: DAL.RepositoryService = { ...repository, serialize: refuse, find: refuse, findAndCount: refuse, create: refuse };
+      const denied: DAL.RepositoryService = { ...repository, serialize: refuse, find: refuse, findAndCount: refuse, create: refuse, softDelete: refuse };
       const listRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
         create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
       };

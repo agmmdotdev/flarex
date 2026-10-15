@@ -9,7 +9,7 @@ import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres
 /** The selected Link receipt binds native events to attempted rows or an
  * authenticated unchanged-restore observation, never a final-row reread. */
 export function linkLogicalEventPolicy(tableName: string, serviceName: string, entityName: string,
-  endpoints: readonly [string, string], createCommands: readonly string[] = [], dismissCommands: readonly string[] = []) {
+  endpoints: readonly [string, string], createCommands: readonly string[] = [], dismissCommands: readonly string[] = [], deleteCommands: readonly string[] = []) {
   const [primary, foreign] = endpoints;
   const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
@@ -32,10 +32,11 @@ export function linkLogicalEventPolicy(tableName: string, serviceName: string, e
         if (mutations.length || lifecycle.length || call.events.length) return yield* Effect.fail(commerceError("receiptMismatch"));
         return;
       }
-        if (call.commandName !== "linkCreate" && !createCommands.includes(call.commandName) && !dismissCommands.includes(call.commandName) && call.commandName !== "linkDismiss"
+        if (call.commandName !== "linkCreate" && !createCommands.includes(call.commandName) && !dismissCommands.includes(call.commandName) && !deleteCommands.includes(call.commandName) && call.commandName !== "linkDismiss"
           && call.commandName !== "linkDelete" && call.commandName !== "linkRestore")
           return yield* Effect.fail(commerceError("receiptMismatch"));
-        const command = createCommands.includes(call.commandName) ? "linkCreate" : dismissCommands.includes(call.commandName) ? "linkDismiss" : call.commandName;
+        const command = createCommands.includes(call.commandName) ? "linkCreate" : dismissCommands.includes(call.commandName) ? "linkDismiss"
+          : deleteCommands.includes(call.commandName) ? "linkDelete" : call.commandName;
         const expected: string[] = [];
         const expectedAction = command === "linkDismiss" || command === "linkDelete" ? "detached" : "attached";
         for (const mutation of mutations) {
@@ -103,10 +104,11 @@ export function selectedLinkLogicalEventPolicy(definitions: readonly {
   readonly endpoints: readonly [string, string];
   readonly createCommands?: readonly string[];
   readonly dismissCommands?: readonly string[];
+  readonly deleteCommands?: readonly string[];
 }[]) {
   const selected = definitions.map(definition => ({ ...definition,
     policy: linkLogicalEventPolicy(definition.tableName, definition.serviceName,
-      definition.entityName, definition.endpoints, definition.createCommands, definition.dismissCommands) }));
+      definition.entityName, definition.endpoints, definition.createCommands, definition.dismissCommands, definition.deleteCommands) }));
   const valid = selected.length > 0 && new Set(selected.map(item => item.tableName)).size === selected.length
     && new Set(selected.map(item => item.serviceName)).size === selected.length
     && new Set(selected.map(item => item.entityName)).size === selected.length;

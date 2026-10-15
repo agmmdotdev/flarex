@@ -61,6 +61,10 @@ export interface AtomicCommerceHostInput<Failure> extends CommerceHostConfigurat
   readonly requestCommandMs?: number;
   /** Trusted, identity-bound exclusion before callbacks. Omission retains OCC. */
   readonly executionIsolation?: "scopeExclusive";
+  /** Trusted scheduling for concurrent native module calls on one borrowed
+   * transaction. Omission retains immediate dispatch; explicit selection is
+   * included in the request identity. This does not change OCC isolation. */
+  readonly operationScheduling?: "queued";
 }
 
 const decodeCallLimit = Schema.decodeUnknownEffect(CommerceCallLimit);
@@ -69,6 +73,7 @@ const decodeEventLimit = Schema.decodeUnknownEffect(Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: commitEventLimits.messages })));
 const decodeCommandMs = Schema.decodeUnknownEffect(FrameworkCommandMilliseconds);
 const decodeIsolation = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("scopeExclusive")));
+const decodeOperationScheduling = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("queued")));
 
 /** Captured host configuration, with no request-local state or settlement capability. */
 export interface PreparedAtomicCommerceConfiguration<Failure> extends Omit<
@@ -85,6 +90,7 @@ export interface PreparedAtomicCommerceConfiguration<Failure> extends Omit<
   readonly factLimit: number;
   readonly owner: object;
   readonly executionIsolation: "scopeExclusive" | undefined;
+  readonly operationScheduling: "queued" | undefined;
 }
 
 /** Input ownership precedes the original generation's authority or catalog I/O.
@@ -106,6 +112,7 @@ export interface CapturedAtomicCommerceConfiguration<Failure> extends Omit<Comme
   readonly eventLimit: number;
   readonly commandMs: number;
   readonly executionIsolation: "scopeExclusive" | undefined;
+  readonly operationScheduling: "queued" | undefined;
 }
 
 export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.captureConfiguration")(function* <
@@ -132,6 +139,8 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
   const selectedCommandMs = input.requestCommandMs;
   const executionIsolation = yield* decodeIsolation(input.executionIsolation)
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const operationScheduling = yield* decodeOperationScheduling(input.operationScheduling)
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const callLimit = yield* decodeCallLimit(
     selectedCallLimit === undefined ? commerceLimits.calls : selectedCallLimit,
   ).pipe(Effect.mapError((cause) => commerceError("unsupportedProfile", cause)));
@@ -157,7 +166,8 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
   const capturedMembers = yield* Effect.fromResult(participantInput);
   yield* chargeHostPreparation({ names: [...names], policy: policy.value,
     requestSelection: { selectedCallLimit: selectedCallLimit ?? null, selectedByteLimit: selectedByteLimit ?? null,
-      selectedEventLimit: selectedEventLimit ?? null, selectedCommandMs: selectedCommandMs ?? null, executionIsolation: executionIsolation ?? null },
+      selectedEventLimit: selectedEventLimit ?? null, selectedCommandMs: selectedCommandMs ?? null, executionIsolation: executionIsolation ?? null,
+      ...(operationScheduling === undefined ? {} : { operationScheduling }) },
     participants: capturedMembers.map(member => ({
       commandCount: member.commands.length, derivedIdEvent: member.derivedIdEvent ?? null,
       events: Result.isSuccess(member.events) ? { contracts: member.events.success?.contracts.length ?? 0 } : null,
@@ -165,6 +175,7 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
         logical: Result.isSuccess(member.logical) ? { schemaVersionId: member.logical.success.schemaVersionId,
           source: member.logical.success.source, initialization: member.logical.success.initialization } : null,
         resources: member.resources !== undefined && Result.isSuccess(member.resources) ? member.resources.success : null,
+        ...(member.logicalPublication === undefined ? {} : { logicalPublication: member.logicalPublication }),
       } : { installation: Result.isSuccess(member.reference) ? member.reference.success.value : null }),
     })),
     events: eventInput !== undefined && Result.isSuccess(eventInput) ? {
@@ -173,7 +184,7 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
     } : null }).pipe(Effect.mapError(projectCommerceRequestFailure));
   return Object.freeze({ database, session, target, deploymentId, scopeId, application, authority, allowed,
     names: Object.freeze([...names]), capturedMembers, eventInput, policy,
-    selectedCallLimit, selectedByteLimit, selectedEventLimit, selectedCommandMs, callLimit, byteLimit, eventLimit, commandMs, executionIsolation });
+    selectedCallLimit, selectedByteLimit, selectedEventLimit, selectedCommandMs, callLimit, byteLimit, eventLimit, commandMs, executionIsolation, operationScheduling });
 });
 
 /** All storage preparations belong to the original current generation. */
@@ -183,7 +194,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
 ): Effect.fn.Return<PreparedAtomicCommerceConfiguration<Failure>, CommerceTransactionError> {
   const { database, session, target, deploymentId, scopeId, application, authority, allowed, names,
     capturedMembers, eventInput, policy, selectedCallLimit, selectedByteLimit, selectedEventLimit, selectedCommandMs,
-    callLimit, byteLimit, eventLimit, commandMs, executionIsolation } = captured;
+    callLimit, byteLimit, eventLimit, commandMs, executionIsolation, operationScheduling } = captured;
   if (currentAuthority.deploymentId !== deploymentId || currentAuthority.scopeId !== scopeId)
     return yield* Effect.fail(commerceError("invalidAuthority"));
   const members = yield* prepareAtomicCommerceParticipants(database, target, capturedMembers,
@@ -223,12 +234,17 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
       logicalResources: members.flatMap(member => member.kind === "logical" && member.selectedResources !== undefined
         ? [{ participant: member.name, resources: member.selectedResources }] : []),
     } : {}),
+    ...(members.some(member => member.kind === "logical" && member.logicalPublication !== undefined) ? {
+      logicalPublication: members.flatMap(member => member.kind === "logical" && member.logicalPublication !== undefined
+        ? [{ participant: member.name, profile: member.logicalPublication }] : []),
+    } : {}),
     ...(members.some(member => member.validateLogicalCall !== undefined) ? {
       logicalCallValidation: members.filter(member => member.validateLogicalCall !== undefined).map(member => member.name),
     } : {}),
     ...(selectedEventLimit === undefined ? {} : { requestEventLimit: eventLimit }),
     ...(selectedCommandMs === undefined ? {} : { requestCommandMs: commandMs }),
     ...(executionIsolation === undefined ? {} : { executionIsolation }),
+    ...(operationScheduling === undefined ? {} : { operationScheduling }),
   }, commerceLimits.commandBytes);
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(
     yield* hashAtomicCommerceBytes(identity.canonicalBytes),
@@ -276,5 +292,6 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     factLimit,
     owner,
     executionIsolation,
+    operationScheduling,
   };
 });
