@@ -184,17 +184,16 @@ The retained-history floor observation and publication ports still resolve by
 deployment alone and currently have only private test consumers. They must
 receive an exact trusted selection before production floor advancement is wired;
 the compaction cutover above does not authorize that deferred publisher.
-The normal provisioning path still targets one scope per deployment, but
-concurrent creation for an existing deployment is not serialized:
-`scopeAuthorityDeploymentLock.ts` takes `FOR SHARE`, so both
-`scopeAuthorityProvisioning.ts` callers can observe no scope and insert different
-generated IDs. The catalog correctly permits both rows for explicit multi-scope
-consumers. The existing `scopeAuthorityProvisioning.postgres.test.ts` convergence
-witness expects one scope and has observed two; preserve that assertion and its
-isolated fixture until the normal provisioner's discovery/creation owner is
-corrected. Its deployment lock must serialize this operation without changing
-split provisioning or restoring deployment uniqueness. A passing rerun does not
-close this race.
+The normal shared provisioning path still targets one scope per deployment.
+It takes `FOR NO KEY UPDATE` on the deployment before discovering scope absence
+and holds that lock through scope/clock commit. Competing normal provisioners
+therefore reuse one committed authority instead of inserting different generated
+IDs. Split provisioning retains its `FOR SHARE` lock, and the catalog still
+permits multiple scopes for explicit multi-scope consumers. The isolated native
+convergence witness retains the one-scope assertion; its trigger gate also
+requires a second normal provisioner to wait for the first authority commit.
+This forward correction does not repair already ambiguous deployment metadata;
+deployment-only resolution continues to refuse it.
 A multi-shop provisioning identity and idempotent
 creation contract must be selected before claiming general hosting support.
 Its bootstrap verifier reports a multi-scope deployment as blocked, including

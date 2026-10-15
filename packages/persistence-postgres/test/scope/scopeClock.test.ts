@@ -1,3 +1,4 @@
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { MetadataSequenceSchema, type MetadataSequence } from "flarex-protocol/commit-protocol";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -130,9 +131,8 @@ describe("scope clock", () => {
   });
 
   it("reuses only the held exact clock, owns its Date, and refreshes after revocation", async () => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     const persistence = await createPGlitePersistence({ db });
-    await persistence.migrate();
     const scopeId = ScopeIdSchema.make("scope_exact_clock_observation");
     const independent = ScopeIdSchema.make("scope_exact_clock_independent");
     try {
@@ -172,9 +172,8 @@ describe("scope clock", () => {
   });
 
   it.each(["snapshot", "share", "attempt"] as const)("lends native identity only for the current protected %s lifetime", async lock => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     const persistence = await createPGlitePersistence({ db });
-    await persistence.migrate();
     const ordinal = lock === "snapshot" ? "1" : lock === "share" ? "2" : "3";
     const scopeId = ScopeIdSchema.make(`scope_5b000000-0000-0000-0000-00000000000${ordinal}`);
     try {
@@ -211,9 +210,8 @@ describe("scope clock", () => {
   });
 
   it("retains actual native transaction time only through its snapshot admission lifetime", async () => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     const persistence = await createPGlitePersistence({ db });
-    await persistence.migrate();
     const scopeId = ScopeIdSchema.make("scope_native_transaction_time");
     try {
       await persistence.drizzle.transaction(async tx => {
@@ -253,9 +251,8 @@ describe("scope clock", () => {
   });
 
   it("refreshes native clocks while lending only immutable identity and transaction time", async () => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     const persistence = await createPGlitePersistence({ db });
-    await persistence.migrate();
     const scopeId = ScopeIdSchema.make("scope_5b000000-0000-0000-0000-000000000005");
     try {
       await persistence.drizzle.transaction(async tx => {
@@ -309,9 +306,8 @@ describe("scope clock", () => {
   });
 
   it("revokes the native identity and time loan when a fresh snapshot read fails", async () => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     const persistence = await createPGlitePersistence({ db });
-    await persistence.migrate();
     const scopeId = ScopeIdSchema.make("scope_5b000000-0000-0000-0000-000000000006");
     try {
       await persistence.drizzle.transaction(async tx => {
@@ -338,9 +334,8 @@ describe("scope clock", () => {
   });
 
   it("retains the native timestamp undecoded and never accesses it before a refused clock", async () => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     const persistence = await createPGlitePersistence({ db });
-    await persistence.migrate();
     const scopeId = ScopeIdSchema.make("scope_5b000000-0000-0000-0000-00000000000a");
     try {
       await persistence.drizzle.transaction(async tx => {
@@ -618,8 +613,7 @@ describe("scope clock", () => {
   });
 
   it("reads independent scope clocks with exact bigint values", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const emptyScopeId = ScopeIdSchema.make("scope_clock_empty");
     const largeScopeId = ScopeIdSchema.make("scope_clock_large");
 
@@ -666,8 +660,7 @@ describe("scope clock", () => {
   });
 
   it("requires explicit generation and enforces clock constraints", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
 
     await expect(
       persistence.query(
@@ -770,8 +763,7 @@ describe("scope clock", () => {
   });
 
   it("reads exact private authorization epochs without widening the public clock", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const defaultScopeId = ScopeIdSchema.make("scope_authorization_default");
     const maximumScopeId = ScopeIdSchema.make("scope_authorization_maximum");
     await insertDefaultScopeClock(persistence, {
@@ -820,8 +812,7 @@ describe("scope clock", () => {
   });
 
   it("fails closed on a corrupt persisted authorization epoch", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await persistence.exec(`
       alter table fx_system_scope_execution_authority
         drop constraint fx_scope_execution_authority_revocation_check
@@ -922,8 +913,7 @@ describe("scope clock", () => {
   });
 
   it("checked-increments only one scope with database time", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = ScopeIdSchema.make("scope_authorization_advance");
     const independentScopeId = ScopeIdSchema.make(
       "scope_authorization_independent",
@@ -967,8 +957,7 @@ describe("scope clock", () => {
   });
 
   it("rolls back increments and rejects signed-bigint exhaustion", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const rollbackScopeId = ScopeIdSchema.make("scope_authorization_rollback");
     const exhaustedScopeId = ScopeIdSchema.make("scope_authorization_exhausted");
     const oldUpdatedAt = new Date("2026-01-01T00:00:00.000Z");
@@ -1033,8 +1022,7 @@ describe("scope clock", () => {
   });
 
   it("fails closed when persisted authority is corrupt", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await persistence.exec(`
       alter table fx_system_scope_execution_authority
         drop constraint fx_scope_execution_authority_generation_check,
@@ -1105,8 +1093,7 @@ describe("scope clock", () => {
   });
 
   it("locks only inside a transaction and rolls test mutations back", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = ScopeIdSchema.make("scope_00000000-0000-5000-8000-000000000071");
     await insertDefaultScopeClock(persistence, {
       scopeId,

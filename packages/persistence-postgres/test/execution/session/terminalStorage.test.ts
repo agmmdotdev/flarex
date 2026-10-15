@@ -1,3 +1,4 @@
+import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import { newTestPGlite } from "../../support/pgliteSearchExtensions";
 import { describe, it } from "vitest";
 import { createPGlitePersistence } from "../../../src/database/pglite";
@@ -15,10 +16,9 @@ import {
 
 describe("terminal session storage", () => {
   it("enforces complete active bodies and absent terminal bodies on PGlite", async () => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     try {
       const persistence = await createPGlitePersistence({ db });
-      await persistence.migrate();
       await verifyTerminalSessionSchema(persistence);
     } finally {
       await db.close();

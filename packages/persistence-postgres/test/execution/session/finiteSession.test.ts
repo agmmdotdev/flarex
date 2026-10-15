@@ -1,3 +1,4 @@
+import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import { eq } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { expect, it } from "vitest";
@@ -41,10 +42,9 @@ import {
 } from "./support/sessionStorage";
 
 it("projects exact expected pins only from a successfully validated persisted entry, with isolated byte buffers", async () => {
-  const db = newTestPGlite();
+  const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
   const persistence = await createPGlitePersistence({ db });
   try {
-    await persistence.migrate();
     await insertSessionTestScope(persistence);
     const sessionId = TransactionSessionIdV1Schema.make(transactionSessionIdAt(130));
     const session = transactionSessionFixture(sessionId);

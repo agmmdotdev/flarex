@@ -1,10 +1,9 @@
+import { createTestPGlite } from "../../support/pgliteSearchExtensions";
 import { eq, sql } from "drizzle-orm";
 import { fxSystemTransactionSessions, fxSystemScopeExecutionAuthorities, fxSystemSnapshotLeases, fxSystemTransactionJournals, fxSystemTransactionExecutionClaims } from "../../../src/database/schema";
 import { finiteApplicationMetadataScenario } from "../../application/finiteApplicationMetadataScenario";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
-import { PGlite } from "@electric-sql/pglite";
-import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
-import { btree_gin } from "@electric-sql/pglite/contrib/btree_gin";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../../support/pgliteTestFixture";
+import type { PGlite } from "@electric-sql/pglite";
 import { ScopeEpochSchema, decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import {
@@ -65,9 +64,8 @@ describe("O03-B exact point-mutation attempt authority", () => {
 
 
   beforeAll(async () => {
-    driver = new PGlite({ extensions: { pg_trgm, btree_gin } });
+    driver = await createTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     persistence = await createPGlitePersistence({ db: driver });
-    await persistence.migrate();
   });
 
 

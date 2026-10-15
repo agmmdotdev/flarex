@@ -309,6 +309,7 @@ async function ensureDeployment(
   const existing = await lockDeploymentForAuthority(
     tx,
     input.deploymentId,
+    "no key update",
   );
   if (existing !== null) {
     return {
@@ -324,7 +325,7 @@ async function ensureDeployment(
     };
   } catch (error) {
     if (!(error instanceof DeploymentMetadataAlreadyExistsError)) throw error;
-    const raced = await lockDeploymentForAuthority(tx, input.deploymentId);
+    const raced = await lockDeploymentForAuthority(tx, input.deploymentId, "no key update");
     if (raced === null) throw error;
     return {
       deployment: requireProjectMatch(raced, input.projectId),

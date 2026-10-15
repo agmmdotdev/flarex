@@ -1,3 +1,4 @@
+import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
 import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
 import { fxSystemScopeExecutionAuthorities } from "../../src/database/schema";
 import { eq } from "drizzle-orm";
@@ -18,7 +19,6 @@ import {
   type SharedDatabaseScopePhysicalLocator,
 } from "../../src";
 import {
-  createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
   InvalidGeneratedScopeAuthorityIdError,
   ScopeAuthorityIdGenerationExhaustedError,
@@ -96,8 +96,7 @@ describe("shared scope authority provisioning", () => {
   });
 
   it("creates a deployment, locator, and explicit legacy clock atomically", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const provisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {
@@ -146,8 +145,7 @@ describe("shared scope authority provisioning", () => {
   });
 
   it("adds both authority rows to an existing deployment", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_existing",
       projectId: "project_existing",
@@ -174,8 +172,7 @@ describe("shared scope authority provisioning", () => {
   });
 
   it("fails closed when an existing locator is missing its clock", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = ScopeIdSchema.make(`scope_${uuids.scopeA}`);
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_missing_clock",
@@ -212,8 +209,7 @@ describe("shared scope authority provisioning", () => {
   });
 
   it("returns existing authority without consuming IDs or resetting an advanced clock", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const firstProvisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {
@@ -262,8 +258,7 @@ describe("shared scope authority provisioning", () => {
   });
 
   it("projects typed stored-clock corruption only at the transaction owner", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const input = {
       deploymentId: "deployment_corrupt_clock",
       projectId: "project_corrupt_clock",
@@ -300,8 +295,7 @@ describe("shared scope authority provisioning", () => {
   });
 
   it("rejects project and immutable locator conflicts without changing authority", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const provisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {
@@ -349,8 +343,7 @@ describe("shared scope authority provisioning", () => {
   });
 
   it("skips scope and orphan-clock collisions before publishing a locator", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const collisionScopeId = ScopeIdSchema.make(`scope_${uuids.collision}`);
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_collision_owner",
@@ -395,8 +388,7 @@ describe("shared scope authority provisioning", () => {
   });
 
   it("rolls back deployment and locator when generated epoch validation fails", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const provisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {
@@ -422,8 +414,7 @@ describe("shared scope authority provisioning", () => {
   });
 
   it("fails after bounded scope-ID collisions and rolls back a fresh deployment", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const collisionScopeId = ScopeIdSchema.make(`scope_${uuids.collision}`);
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_exhaustion_owner",
@@ -454,8 +445,7 @@ describe("shared scope authority provisioning", () => {
   });
 
   it("generates production-format scope and epoch IDs by default", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const provisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       { physicalLocator: sharedLocator },
@@ -475,8 +465,7 @@ describe("shared scope authority provisioning", () => {
   });
 
   it("captures the trusted locator when the provisioner is constructed", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const configuredLocator = {
       kind: "shared_database",
       databaseKey: "primary",
@@ -500,8 +489,7 @@ describe("shared scope authority provisioning", () => {
   });
 
   it("rejects invalid locators and unsupported topologies before writes", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     expect(() =>
       createPGliteSharedScopeAuthorityProvisioner(persistence, {
         physicalLocator: { ...sharedLocator, databaseKey: "\t" },
@@ -527,8 +515,7 @@ describe("shared scope authority provisioning", () => {
   });
 
   it("reports invalid generated scope IDs as typed errors", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const provisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {

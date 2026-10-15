@@ -1,3 +1,4 @@
+import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import {
   createPGlitePersistence,
   createPGliteLocatedPointMutationSessionActivationTargetV1,
@@ -225,11 +226,10 @@ export async function seedSnapshotDocument(
 
 /** Owns one suite's migrated database and authentic journal construction. */
 export async function createSessionJournalStorePGliteFixture() {
-  const db = await createTestPGlite();
+  const db = await createTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
   let persistence: PGliteFlarexPersistence;
   try {
     persistence = await createPGlitePersistence({ db });
-    await persistence.migrate();
   } catch (error: unknown) {
     await db.close();
     throw error;

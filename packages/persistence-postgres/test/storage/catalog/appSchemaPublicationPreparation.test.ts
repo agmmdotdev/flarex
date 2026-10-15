@@ -1,3 +1,4 @@
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 import {
   AppSchemaCatalogCompilationErrorV1,
   compileAppSchemaCatalogRequirementsV1,
@@ -42,7 +43,6 @@ import {
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
   prepareAppDeveloperIndexDefinitionBindingV1Effect,
 } from "../../../src/storage/indexes/appIndexDefinitions";
-import { createPGlitePersistence } from "../../../src/database/pglite";
 import {
   ensureSchemaVersionArtifactInTransactionEffect,
   SchemaVersionArtifactConflictError,
@@ -198,7 +198,7 @@ describe("app-schema V1 publication preparation", () => {
   });
 
   it("couples one bound plan, D1 result, and full artifact without writes", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_prepare";
     await insertDeployment(persistence, deploymentId);
     const input = publicationInput(deploymentId, "schema_publication_v1_prepare");
@@ -281,7 +281,7 @@ describe("app-schema V1 publication preparation", () => {
   });
 
   it("rejects copied, spread, serialized, and structural token forgeries", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_forgery";
     await insertDeployment(persistence, deploymentId);
     const prepared = await prepareAppSchemaPublicationV1(
@@ -314,7 +314,7 @@ describe("app-schema V1 publication preparation", () => {
   });
 
   it("snapshots every declaration before the first database await", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_snapshot";
     await insertDeployment(persistence, deploymentId);
     const input = publicationInput(deploymentId, "schema_publication_v1_snapshot");
@@ -342,7 +342,7 @@ describe("app-schema V1 publication preparation", () => {
   });
 
   it("rejects every non-exact or caller-authored preparation shape", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_shape";
     await insertDeployment(persistence, deploymentId);
     const valid = publicationInput(deploymentId, "schema_publication_v1_shape");
@@ -388,7 +388,7 @@ describe("app-schema V1 publication preparation", () => {
   });
 
   it("keeps schema-owned field failures typed", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const valid = publicationInput(
       "deployment_schema_publication_v1_invalid_fields",
       "schema_publication_v1_invalid_fields",
@@ -414,7 +414,7 @@ describe("app-schema V1 publication preparation", () => {
   });
 
   it("preserves unexpected publication input and declaration access as defects", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const fieldDefect = new Error("schema publication input field defect");
     const declarationDefect = new Error(
       "schema publication declaration reflection defect",
@@ -459,7 +459,7 @@ describe("app-schema V1 publication preparation", () => {
   });
 
   it("propagates D1 semantic failures without writing a partial plan", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_semantic";
     await insertDeployment(persistence, deploymentId);
     const before = await catalogCounts(persistence, deploymentId);
@@ -507,7 +507,7 @@ describe("app-schema V1 publication preparation", () => {
   });
 
   it("propagates a missing deployment before producing a token", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     await expect(
       prepareAppSchemaPublicationV1(
         persistence.drizzle,
@@ -519,7 +519,7 @@ describe("app-schema V1 publication preparation", () => {
 
 describe("app-schema V1 publication transaction", () => {
   it("publishes and exactly replays the complete normalized projection", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_publish";
     await insertDeployment(persistence, deploymentId);
     const input = publicationInput(deploymentId, "schema_publication_v1_publish");
@@ -623,7 +623,7 @@ describe("app-schema V1 publication transaction", () => {
   });
 
   it("publishes intrinsic definitions without fabricating schema bindings", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_intrinsic_only";
     await insertDeployment(persistence, deploymentId);
     const prepared = await prepareAppSchemaPublicationV1(
@@ -656,7 +656,7 @@ describe("app-schema V1 publication transaction", () => {
   });
 
   it("rolls every projected row back and reuses rolled-back definition IDs", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_rollback";
     await insertDeployment(persistence, deploymentId);
     const prepared = await prepareAppSchemaPublicationV1(
@@ -687,7 +687,7 @@ describe("app-schema V1 publication transaction", () => {
   });
 
   it("rolls stable bindings back when a later artifact conflict fails", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_late_conflict";
     await insertDeployment(persistence, deploymentId);
     const target = await prepareAppSchemaPublicationV1(
@@ -723,7 +723,7 @@ describe("app-schema V1 publication transaction", () => {
   });
 
   it("rejects excess schema-version bindings as catalog corruption and rolls back", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_extra_binding";
     await insertDeployment(persistence, deploymentId);
     const baselinePublication = await prepareAppSchemaPublicationV1(
@@ -800,7 +800,7 @@ describe("app-schema V1 publication transaction", () => {
   });
 
   it("rejects artifact JSON drift even when canonical bytes remain unchanged", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_artifact_json_drift";
     await insertDeployment(persistence, deploymentId);
     const prepared = await prepareAppSchemaPublicationV1(
@@ -823,7 +823,7 @@ describe("app-schema V1 publication transaction", () => {
   });
 
   it("authenticates the full publication token before writing", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_transaction_forgery";
     await insertDeployment(persistence, deploymentId);
     const prepared = await prepareAppSchemaPublicationV1(
@@ -859,7 +859,7 @@ describe("app-schema V1 publication transaction", () => {
   });
 
   it("performs no Web Crypto during the transaction", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_no_locked_crypto";
     await insertDeployment(persistence, deploymentId);
     const prepared = await prepareAppSchemaPublicationV1(
@@ -882,13 +882,7 @@ describe("app-schema V1 publication transaction", () => {
   });
 });
 
-type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
-
-async function migratedPersistence(): Promise<PGlitePersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  return persistence;
-}
+type PGlitePersistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
 async function insertDeployment(
   persistence: PGlitePersistence,

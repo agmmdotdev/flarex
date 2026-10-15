@@ -1,3 +1,4 @@
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 import {
   CatalogIndexDefinitionIdSchema,
   CatalogIndexIdSchema,
@@ -25,7 +26,7 @@ import {
   type SchemaManifestAppSchemaV1,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
-import { Cause, Effect, Exit, Fiber } from "effect";
+import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
@@ -57,7 +58,6 @@ import {
   type PrepareAppDeveloperIndexDefinitionBindingV1Input,
   type PreparedAppDeveloperIndexDefinitionBindingV1,
 } from "../../../src/storage/indexes/appIndexDefinitions";
-import { createPGlitePersistence } from "../../../src/database/pglite";
 import {
   applySchemaManifestAppSchemaBindingsV1InTransactionEffect,
   prepareSchemaManifestAppSchemaBindingsV1Effect,
@@ -186,7 +186,7 @@ describe("immutable app index definitions", () => {
   });
 
   it("reuses exact definitions and keeps changed generations coexisting", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_index_definition_generations";
     await insertDeployment(persistence, deploymentId);
     const v1 = await registerAppSchemaVersion(
@@ -611,19 +611,20 @@ describe("immutable app index definitions", () => {
   });
 
   it("maps physical-spec canonicalization rejection to typed preparation failure", async () => {
-    const rejection = new Error("physical index digest rejected");
+    const rejection = new DOMException("physical index digest rejected", "OperationError");
     const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(
       rejection,
     );
     try {
+      const input = {
+        deploymentId: "deployment_index_definition_prepare_failure",
+        schemaVersionId: schemaId("schema_definition_prepare_failure"),
+        tableId: CatalogTableIdSchema.make(1),
+        logicalIndexId: CatalogIndexIdSchema.make(2),
+        logicalSpec: developerLogicalSpec(["email"]),
+      };
       const failure = await runEffectFailure(
-        prepareAppDeveloperIndexDefinitionBindingV1Effect({
-          deploymentId: "deployment_index_definition_prepare_failure",
-          schemaVersionId: schemaId("schema_definition_prepare_failure"),
-          tableId: CatalogTableIdSchema.make(1),
-          logicalIndexId: CatalogIndexIdSchema.make(2),
-          logicalSpec: developerLogicalSpec(["email"]),
-        }),
+        prepareAppDeveloperIndexDefinitionBindingV1Effect(input),
       );
 
       expect(failure).toBeInstanceOf(AppIndexDefinitionPreparationError);
@@ -634,6 +635,15 @@ describe("immutable app index definitions", () => {
         logicalIndexId: 2,
         cause: rejection,
       });
+
+      const defect = new Error("unexpected physical index digest defect");
+      digest.mockRejectedValue(defect);
+      const exit = await Effect.runPromiseExit(prepareAppDeveloperIndexDefinitionBindingV1Effect(input));
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasFails(exit.cause)).toBe(false);
+        expect(Result.getOrThrow(Cause.findDie(exit.cause)).defect).toBe(defect);
+      }
     } finally {
       digest.mockRestore();
     }
@@ -1033,7 +1043,7 @@ describe("immutable app index definitions", () => {
   });
 
   it("rejects missing or mismatched parents and forged prepared tokens", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_index_definition_parents";
     await insertDeployment(persistence, deploymentId);
     const registered = await registerAppSchemaVersion(
@@ -1104,7 +1114,7 @@ describe("immutable app index definitions", () => {
   });
 
   it("maps a rejected developer parent read once at its SQL edge", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_index_definition_sql_failure";
     await insertDeployment(persistence, deploymentId);
     const registered = await registerAppSchemaVersion(
@@ -1141,7 +1151,7 @@ describe("immutable app index definitions", () => {
   });
 
   it("preserves developer query construction failures as defects", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_index_definition_construction_defect";
     await insertDeployment(persistence, deploymentId);
     const registered = await registerAppSchemaVersion(
@@ -1170,7 +1180,7 @@ describe("immutable app index definitions", () => {
   });
 
   it("waits for a pending developer parent read before interruption completes", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_index_definition_interruption";
     await insertDeployment(persistence, deploymentId);
     const registered = await registerAppSchemaVersion(
@@ -1217,7 +1227,7 @@ describe("immutable app index definitions", () => {
   });
 
   it("rolls a newly allocated definition back when its binding conflicts", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_index_definition_conflict";
     await insertDeployment(persistence, deploymentId);
     const registered = await registerAppSchemaVersion(
@@ -1260,7 +1270,7 @@ describe("immutable app index definitions", () => {
   });
 
   it("preserves developer checksum collision identity on replay", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_index_definition_replay_collision";
     await insertDeployment(persistence, deploymentId);
     const registered = await registerAppSchemaVersion(
@@ -1306,7 +1316,7 @@ describe("immutable app index definitions", () => {
   });
 
   it("does not consume definition IDs when the caller transaction rolls back", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_index_definition_rollback";
     await insertDeployment(persistence, deploymentId);
     const v1 = await registerAppSchemaVersion(
@@ -1347,7 +1357,7 @@ describe("immutable app index definitions", () => {
   });
 
   it("performs no Web Crypto while the deployment transaction is locked", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_index_definition_no_locked_crypto";
     await insertDeployment(persistence, deploymentId);
     const registered = await registerAppSchemaVersion(
@@ -1376,7 +1386,7 @@ describe("immutable app index definitions", () => {
   });
 
   it("supports table-owned creation-time definitions without fake logical IDs", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_index_definition_intrinsic";
     await insertDeployment(persistence, deploymentId);
     await registerAppSchemaVersion(
@@ -1459,7 +1469,7 @@ describe("immutable app index definitions", () => {
   });
 
   it("enforces composite ownership and detects stored canonical corruption", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_index_definition_constraints";
     await insertDeployment(persistence, deploymentId);
     const registered = await registerAppSchemaVersion(
@@ -1580,7 +1590,7 @@ describe("immutable app index definitions", () => {
   });
 
   it("fails closed at the deployment-local physical ID ceiling", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_index_definition_exhausted";
     await insertDeployment(persistence, deploymentId);
     const registered = await registerAppSchemaVersion(
@@ -1618,7 +1628,7 @@ describe("immutable app index definitions", () => {
   });
 
   it("accepts the largest closed v1 physical-spec envelope", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_index_definition_max_spec";
     await insertDeployment(persistence, deploymentId);
     const sharedSegments = Array.from(
@@ -1661,7 +1671,7 @@ describe("immutable app index definitions", () => {
   });
 });
 
-type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
+type PGlitePersistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
 interface RegisteredAppSchemaVersion {
   readonly deploymentId: string;
@@ -1669,12 +1679,6 @@ interface RegisteredAppSchemaVersion {
   readonly tableId: ReturnType<typeof CatalogTableIdSchema.make>;
   readonly logicalIndexId: ReturnType<typeof CatalogIndexIdSchema.make>;
   readonly logicalSpec: SchemaManifestAppSchemaV1["indexBindings"]["indexes"][number]["spec"];
-}
-
-async function migratedPersistence(): Promise<PGlitePersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  return persistence;
 }
 
 async function insertDeployment(

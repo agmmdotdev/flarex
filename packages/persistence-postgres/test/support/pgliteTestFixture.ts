@@ -56,13 +56,36 @@ export async function createMigratedPGlitePersistence(registerCleanup: (cleanup:
 /** Row-only legacy runtime/sync suites. Modern catalog, migration, DDL, session
  * configuration and restart tests must keep their independent databases. */
 export function useFileScopedPGliteRuntimePersistence() {
-  return useFileScopedPersistence(() => createFileScopedPGliteFixture(resetRuntimeRows));
+  return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () => resetRuntimeRows(db)));
 }
 
 /** Row and relation storage only. Catalog, commit history and persistent DDL
  * require independent databases; unexpected dependants make reset fail closed. */
 export function useFileScopedPGliteStoragePersistence() {
-  return useFileScopedPersistence(() => createFileScopedPGliteFixture(resetStorageRows));
+  return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () => resetStorageRows(db)));
+}
+
+/** Single-database scheduler cases only. Multi-database and persistent schema
+ * corruption witnesses keep independent fixtures. */
+export function useFileScopedPGliteRedeliverySchedulerPersistence() {
+  return useFileScopedPersistence(() => createFileScopedPGliteFixture(createRedeliverySchedulerReset));
+}
+
+async function createRedeliverySchedulerReset(db: PGlite): Promise<() => Promise<void>> {
+  // Retain the actual migration seed, including timestamps and future fields;
+  // the fixture does not duplicate scheduler defaults or reset live policy.
+  const rows = await db.query<{ seed: string }>(`
+    select row_to_json(seed)::text as seed from fx_system_point_mutation_redelivery_scheduler seed
+  `);
+  const seed = rows.rows[0]?.seed;
+  if (rows.rows.length !== 1 || seed === undefined) throw new Error("Expected one migrated redelivery scheduler seed");
+  return async () => {
+    await db.transaction(async transaction => {
+      await transaction.exec("delete from fx_system_point_mutation_redelivery_scheduler");
+      await transaction.query(`insert into fx_system_point_mutation_redelivery_scheduler
+        select (json_populate_record(null::fx_system_point_mutation_redelivery_scheduler, $1::json)).*`, [seed]);
+    });
+  };
 }
 
 async function resetRuntimeRows(db: PGlite): Promise<void> {
@@ -95,7 +118,7 @@ async function resetStorageRows(db: PGlite): Promise<void> {
 }
 
 async function createFileScopedPGliteFixture(
-  resetRows: (db: PGlite) => Promise<void>,
+  createResetRows: (db: PGlite) => Promise<() => Promise<void>>,
 ): Promise<FileScopedPersistenceFixture<PGlitePersistence>> {
   const db = await createTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
   let persistence: PGlitePersistence | undefined;
@@ -118,11 +141,12 @@ async function createFileScopedPGliteFixture(
 
   try {
     let current = await open();
+    const resetRows = await createResetRows(db);
     return {
       get persistence() { return current; },
       async reset() {
         await closePreparedHostTestRuntime(current.drizzle);
-        await resetRows(db);
+        await resetRows();
         // Retain only the backend; database-keyed runtime state gets a fresh owner.
         current = await open();
       },

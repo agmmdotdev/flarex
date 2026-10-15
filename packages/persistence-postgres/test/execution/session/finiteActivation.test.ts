@@ -21,7 +21,7 @@ import { applicationMutationActivationFixture } from "../../application/applicat
 import {
   createApplicationNativeMutationPGliteFixtureWithPersistence,
 } from "../../application/applicationNativeMutationTestFixture";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import { activatePointMutationSession } from "./support/attemptFixture";
 import { pointMutationSessionActivationFixture } from "./support/activationEvidence";
 import { setFlarexActivationClock } from "./support/authorityClock";
@@ -43,11 +43,10 @@ describe("O03-B1 point-mutation session activation", () => {
 
 
   beforeAll(async () => {
-    const acquiredDriver = newTestPGlite();
+    const acquiredDriver = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     activationDriver = acquiredDriver;
     try {
       persistence = await createPGlitePersistence({ db: acquiredDriver });
-      await persistence.migrate();
     } catch (cause) {
       activationDriver = undefined;
       const cleanup = await Promise.allSettled([acquiredDriver.close()]);

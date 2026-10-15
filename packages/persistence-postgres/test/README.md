@@ -182,6 +182,11 @@ Direct focused invocations without that config retain per-file image creation.
 Historical/upgrade migration tests still create their own fresh databases.
 Migration-copy fixtures retain SQL and the journal, omitting generator snapshots.
 
+The base Vitest configuration keeps transformed modules on disk between runs
+with `fsModuleCache`. This caches compilation, not test results or mutable
+databases; the migration image is still built afresh for each PGlite invocation.
+Use `--fsModuleCache=false` when comparing cold compilation costs.
+
 The row-only legacy runtime/sync suite uses
 `useFileScopedPGliteRuntimePersistence` to retain one backend per file. Each
 serialized borrow receives a fresh persistence wrapper and prepared runtime.
@@ -203,9 +208,25 @@ image through `createMigratedPGlitePersistence`; they retain foreign-database
 identity witnesses and register runtime/database cleanup rather than migrating
 or leaving a backend open for each case.
 
+Scope, catalog and index fixtures also restore independent migrated images.
+Journal/session fixtures with raw-driver fault injection pass
+`loadDataDir: await migratedPGliteDataDir()` to their existing driver owner and
+retain its cleanup. Empty-schema admission witnesses and historical migration
+fixtures still start empty and execute their original migrations.
+
+Single-database redelivery scheduler cases use
+`useFileScopedPGliteRedeliverySchedulerPersistence`. Reset restores the exact
+singleton captured from the migration image, including timestamps, in one real
+transaction. Multi-database and persistent constraint-corruption cases retain
+independent backends. Scheduler policy/defaults remain owned by migrations and
+production code rather than being reimplemented by fixture reset.
+
 Ordinary PostgreSQL suites reuse `useFileScopedPostgresPersistence` where row
 reset preserves the required baseline. It drains an outstanding callback and
 its reset before another borrow or test, including after caller timeout. Keep
+the scope-provisioning project-lock trigger and existing-deployment convergence
+in separate single-case fixtures. Other row-only scope-provisioning cases
+share one migrated schema. Keep
 separate fixtures for migrations,
 persistent DDL, session settings, or migration-seeded singleton dependencies.
 Plan probes use `withPostgresSequentialScansDisabled` to bind `SET LOCAL` and

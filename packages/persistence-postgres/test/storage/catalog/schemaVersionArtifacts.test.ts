@@ -1,3 +1,4 @@
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
@@ -14,7 +15,6 @@ import type {
   SchemaVersionArtifact,
 } from "../../../src";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
-import { createPGlitePersistence } from "../../../src/database/pglite";
 import {
   ensureSchemaVersionArtifactInTransactionEffect,
   getSchemaVersionArtifactByIdEffect,
@@ -433,8 +433,7 @@ describe("schema version artifacts", () => {
   });
 
   it("fails closed for missing ownership, invalid manifests, and computed fields", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await expect(
       ensure(persistence, {
         deploymentId: "missing_schema_deployment",
@@ -1103,11 +1102,10 @@ describe("schema version artifacts", () => {
   });
 });
 
-type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
+type PGlitePersistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
 async function migratedPGlite(suffix: string): Promise<PGlitePersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
+  const persistence = await createMigratedPGlitePersistence();
   await persistence.insertDeploymentMetadata({
     deploymentId: `deployment_schema_${suffix}`,
     projectId: `project_schema_${suffix}`,

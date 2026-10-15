@@ -1,3 +1,4 @@
+import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
@@ -70,8 +71,7 @@ describe("located scope authorization epoch authority", () => {
   });
 
   it("reads the exact target epoch and observes a completed private test bump", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       "deployment_epoch_authority",
     );
@@ -113,8 +113,7 @@ describe("located scope authorization epoch authority", () => {
   });
 
   it("keeps scope epochs isolated and fails closed on missing authority", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const provisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {
@@ -190,8 +189,7 @@ describe("located scope authorization epoch authority", () => {
   });
 
   it("propagates typed corruption from the private epoch read", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       "deployment_epoch_corrupt",
     );
@@ -227,8 +225,7 @@ describe("located scope authorization epoch authority", () => {
   });
 
   it("preserves corruption from the preliminary located-clock read", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       "deployment_epoch_located_clock_corrupt",
     );
@@ -270,8 +267,7 @@ describe("located scope authorization epoch authority", () => {
   });
 
   it("rejects malformed richer target capabilities through a typed boundary", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       "deployment_epoch_invalid_target",
     );
@@ -328,8 +324,7 @@ describe("located scope authorization epoch authority", () => {
   });
 
   it("maps a clock removed between located and epoch reads to typed absence", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       "deployment_epoch_removed_during_read",
     );
@@ -384,8 +379,7 @@ describe("located scope authorization epoch authority", () => {
   });
 
   it("preserves an unexpected target defect outside the typed port channel", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       "deployment_epoch_port_failure",
     );
@@ -459,8 +453,7 @@ describe("located scope authorization epoch authority", () => {
   });
 
   it("translates a concrete target query rejection once at its port edge", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const cause = new Error("epoch query unavailable");
     const rejectingDb = new Proxy(persistence.drizzle, {
       get(target, property, receiver) {
@@ -521,8 +514,7 @@ describe("located scope authorization epoch authority", () => {
   });
 
   it.each([false, true])("preserves a target callback defect when rollback failure is %s", async rollbackFails => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const defect = new Error("epoch query construction defect");
     const rollbackFailure = new Error("epoch defect rollback failed");
     let rolledBack = false;
@@ -555,8 +547,7 @@ describe("located scope authorization epoch authority", () => {
   });
 
   it("rolls back and rehydrates a typed target read failure", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     let committed = false;
     let rolledBack = false;
     const interceptedDb = new Proxy(persistence.drizzle, {
@@ -594,8 +585,7 @@ describe("located scope authorization epoch authority", () => {
   });
 
   it("retains a typed target failure when rollback also fails", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const rollbackFailure = new Error("scope epoch rollback failed");
     const interceptedDb = new Proxy(persistence.drizzle, {
       get(target, property, receiver) {
@@ -679,8 +669,7 @@ describe("located scope authorization epoch authority", () => {
   });
 
   it("preserves the exact signed-bigint epoch value", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       "deployment_epoch_bigint",
     );

@@ -3,6 +3,9 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  test: {
+    fsModuleCache: true,
+  },
   resolve: {
     alias: {
       "cloudflare:workers": fileURLToPath(

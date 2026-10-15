@@ -1,3 +1,4 @@
+import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import { captureSessionStorage, expectSessionPayloadScrubbed } from "./support/terminalStorageScenario";
 import { Effect, Exit, Fiber } from "effect";
@@ -88,11 +89,10 @@ describe("O03-B1 point-mutation session activation", () => {
 
 
   beforeAll(async () => {
-    const acquiredDriver = newTestPGlite();
+    const acquiredDriver = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     activationDriver = acquiredDriver;
     try {
       persistence = await createPGlitePersistence({ db: acquiredDriver });
-      await persistence.migrate();
     } catch (cause) {
       activationDriver = undefined;
       const cleanup = await Promise.allSettled([acquiredDriver.close()]);

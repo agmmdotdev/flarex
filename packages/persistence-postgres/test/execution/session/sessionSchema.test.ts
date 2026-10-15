@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_TRANSACTION_REQUEST_KEY_UTF8_BYTES_V1 } from "flarex-protocol/transaction-session";
-import { createPGlitePersistence } from "../../../src/database/pglite";
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 import {
   POSTGRES_SIGNED_BIGINT_MAX_TEXT,
   SESSION_TEST_EPOCH_UUID,
@@ -16,8 +16,7 @@ import {
 
 describe("S07 transaction-session authority schema", () => {
   it("stores maximum exact authorities and an epoch-independent snapshot pin", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await insertSessionTestScope(persistence);
     const sessionId = transactionSessionIdAt(10);
 
@@ -72,8 +71,7 @@ describe("S07 transaction-session authority schema", () => {
   });
 
   it("fails closed on malformed request authority and bigint overflow", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await insertSessionTestScope(persistence);
     const overflow = "9223372036854775808";
     const invalidFixtures = [
@@ -156,8 +154,7 @@ describe("S07 transaction-session authority schema", () => {
   });
 
   it("preserves legacy authority and admits exactly one complete Application authority branch", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await insertSessionTestScope(persistence);
     const sessionId = transactionSessionIdAt(41);
     await insertTransactionSessionFixture(
@@ -250,8 +247,7 @@ describe("S07 transaction-session authority schema", () => {
   });
 
   it("constrains leases to the exact current attempt and explicit removal", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await insertSessionTestScope(persistence);
     const sessionId = transactionSessionIdAt(40);
     await insertTransactionSessionFixture(
@@ -299,8 +295,7 @@ describe("S07 transaction-session authority schema", () => {
   });
 
   it("proves caller-owned atomic creation and fenced replacement rollback", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await insertSessionTestScope(persistence);
     const rolledBackSessionId = transactionSessionIdAt(50);
 
@@ -397,8 +392,7 @@ describe("S07 transaction-session authority schema", () => {
   });
 
   it("keeps snapshot epochs independent from the mutable current clock", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await insertSessionTestScope(persistence);
     const sessionId = transactionSessionIdAt(60);
     await insertTransactionSessionFixture(

@@ -3,7 +3,8 @@ import { ScopeEpochSchema, ScopeIdSchema } from "flarex-protocol/storage-authori
 import type { PGliteFlarexPersistence } from "../../src/database/pglite";
 import { preparedHostTestRuntime } from "../execution/preparation/preparedHostRuntimeTestSupport";
 import { registerFileScopedPersistenceTests } from "./fileScopedPersistenceScenario";
-import { useFileScopedPGliteRuntimePersistence, useFileScopedPGliteStoragePersistence } from "./pgliteTestFixture";
+import { useFileScopedPGliteRuntimePersistence, useFileScopedPGliteStoragePersistence,
+  useFileScopedPGliteRedeliverySchedulerPersistence } from "./pgliteTestFixture";
 import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
 
 describe("file-scoped PGlite runtime fixture", () => {
@@ -73,6 +74,22 @@ describe("file-scoped PGlite storage fixture", () => {
       expect(await persistence.getScopeClock(scope.scopeId)).toBeNull();
       expect((await persistence.query("select to_regclass('fixture_storage_reset_ref') as relation")).rows)
         .toEqual([{ relation: null }]);
+    });
+  });
+});
+
+describe("file-scoped PGlite redelivery scheduler fixture", () => {
+  const withPersistence = useFileScopedPGliteRedeliverySchedulerPersistence();
+
+  it("restores the exact migration seed after the singleton is deleted", async () => {
+    let baseline: Awaited<ReturnType<typeof seededRows>> = [];
+    await withPersistence(async persistence => {
+      baseline = await seededRows(persistence);
+      expect(baseline).toHaveLength(5);
+      await persistence.query("delete from fx_system_point_mutation_redelivery_scheduler");
+    });
+    await withPersistence(async persistence => {
+      expect(await seededRows(persistence)).toEqual(baseline);
     });
   });
 });

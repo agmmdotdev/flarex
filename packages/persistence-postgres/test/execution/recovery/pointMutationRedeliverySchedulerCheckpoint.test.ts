@@ -51,7 +51,7 @@ import {
   type LocatedReadCommittedAttemptTargetV1,
 } from "../../../src/database/locatedTransactionIdentity";
 import * as persistenceRoot from "../../../src";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import { createMigratedPGlitePersistence, useFileScopedPGliteRedeliverySchedulerPersistence } from "../../support/pgliteTestFixture";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
 const locator = Object.freeze({
@@ -62,6 +62,8 @@ const locator = Object.freeze({
 
 const OWNER_ONE = "76000000-0000-4000-8000-000000000001";
 const OWNER_TWO = "76000000-0000-4000-8000-000000000002";
+
+const withPersistence = useFileScopedPGliteRedeliverySchedulerPersistence();
 
 describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
   it("classifies confirmed rollback only by direct class and exact operation", () => {
@@ -86,8 +88,7 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
     )).toBe(false);
   });
 
-  it("migrates one fixed-key idle singleton with strict constraints", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("migrates one fixed-key idle singleton with strict constraints", async () => withPersistence(async persistence => {
     const rows = await schedulerRows(persistence);
     expect(rows).toEqual([expect.objectContaining({
       scheduler_key: POINT_MUTATION_REDELIVERY_SCHEDULER_KEY_V1,
@@ -117,10 +118,9 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
       set scheduler_key = 'another_scheduler'
       where scheduler_key = ${POINT_MUTATION_REDELIVERY_SCHEDULER_KEY_V1}
     `)).rejects.toThrow();
-  });
+  }));
 
-  it("acquires once, checkpoints detached bytes, renews, releases, and reloads only durable truth", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("acquires once, checkpoints detached bytes, renews, releases, and reloads only durable truth", async () => withPersistence(async persistence => {
     const first = repository(persistence, [OWNER_ONE]);
     const acquired = await acquire(first);
     const bytes = new Uint8Array([1, 2, 3, 4]);
@@ -164,10 +164,9 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
     detached.fill(77);
     expect([...reloaded.continuation!.canonicalBytes]).toEqual([1, 2, 3, 4]);
     expect(reloaded.run).not.toBe(acquired.run);
-  });
+  }));
 
-  it("runs one bounded invocation outside durable truth and restarts from the exact checkpoint", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("runs one bounded invocation outside durable truth and restarts from the exact checkpoint", async () => withPersistence(async persistence => {
     const continuation = Object.freeze({
       codecVersion: 1 as const,
       directory: Object.freeze({ kind: "unstarted" as const }),
@@ -217,10 +216,9 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
       checkpoint_sequence: 1,
       continuation_bytes: null,
     });
-  });
+  }));
 
-  it("serializes duplicate acquisition and lets only an expired claim advance the lifetime fence", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("serializes duplicate acquisition and lets only an expired claim advance the lifetime fence", async () => withPersistence(async persistence => {
     const left = repository(persistence, [OWNER_ONE]);
     const right = repository(persistence, [OWNER_TWO]);
     const [one, two] = await Promise.all([
@@ -251,10 +249,9 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
     expect(await runEffectFailure(
       previous.repository.renewEffect(previous.result.run),
     )).toBeInstanceOf(PointMutationRedeliverySchedulerStaleV1Error);
-  });
+  }));
 
-  it("returns notDue without advancing the singleton fence", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("returns notDue without advancing the singleton fence", async () => withPersistence(async persistence => {
     await persistence.drizzle.execute(sql`
       update fx_system_point_mutation_redelivery_scheduler
       set next_run_at = clock_timestamp() + interval '1 hour'
@@ -268,10 +265,9 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
       scheduler_state: "idle",
       run_fence: 0,
     });
-  });
+  }));
 
-  it("rejects stale, out-of-order, and forged handles", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects stale, out-of-order, and forged handles", async () => withPersistence(async persistence => {
     const base = locatedTarget(persistence);
     const repo = createPointMutationRedeliverySchedulerCheckpointV1(base, {
       claimDurationMilliseconds: 60_000,
@@ -297,7 +293,7 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
     expect(
       await runEffectFailure(repo.checkpointEffect(acquired.run, null)),
     ).toBeInstanceOf(PointMutationRedeliverySchedulerStaleV1Error);
-  });
+  }));
 
   it("permits one exact confirmed-rollback retry and closes on mismatch or a second rollback", async () => {
     const persistence = await createMigratedPGlitePersistence();
@@ -354,8 +350,7 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
       .toMatchObject({ reason: "runClosed" });
   });
 
-  it("serializes same-run operations without erasing an exact rollback retry", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("serializes same-run operations without erasing an exact rollback retry", async () => withPersistence(async persistence => {
     const base = locatedTarget(persistence);
     const statementCause = new Error("overlapped checkpoint rollback");
     let invocation = 0;
@@ -417,10 +412,9 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
     )).toMatchObject({ reason: "retryCommandMismatch" });
     expect(await runEffectFailure(repo.renewEffect(acquired.run)))
       .toMatchObject({ reason: "runClosed" });
-  });
+  }));
 
-  it("linearizes a queued command behind an in-flight exact retry", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("linearizes a queued command behind an in-flight exact retry", async () => withPersistence(async persistence => {
     const base = locatedTarget(persistence);
     const statementCause = new Error("initial exact checkpoint rollback");
     let invocation = 0;
@@ -490,10 +484,9 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
     });
     await expect(runEffect(repo.renewEffect(acquired.run))).resolves
       .toMatchObject({ kind: "renewed" });
-  });
+  }));
 
-  it("maps decision uncertainty, cleanup, and infrastructure without minting a run", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("maps decision uncertainty, cleanup, and infrastructure without minting a run", async () => withPersistence(async persistence => {
     for (const [issue, Expected] of [
       [
         Object.freeze({
@@ -529,10 +522,9 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
       scheduler_state: "idle",
       run_fence: 0,
     });
-  });
+  }));
 
-  it("preserves an unexpected rolled-back callback cause as a defect", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("preserves an unexpected rolled-back callback cause as a defect", async () => withPersistence(async persistence => {
     const defect = new Error("unexpected scheduler callback defect");
     const repo = createPointMutationRedeliverySchedulerCheckpointV1(
       failingTarget(locatedTarget(persistence), Object.freeze({
@@ -548,10 +540,9 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
       expect(Cause.hasFails(exit.cause)).toBe(false);
       expect(exit.cause.toString()).toContain(defect.message);
     }
-  });
+  }));
 
-  it("preserves a maximum-duration claim-expiry configuration failure", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("preserves a maximum-duration claim-expiry configuration failure", async () => withPersistence(async persistence => {
     const repo = createPointMutationRedeliverySchedulerCheckpointV1(
       locatedTarget(persistence),
       {
@@ -566,7 +557,7 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
       scheduler_state: "idle",
       run_fence: 0,
     });
-  });
+  }));
 
   it("closes a run after a transaction defect or interruption", async () => {
     const defectPersistence = await createMigratedPGlitePersistence();
@@ -632,8 +623,7 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
     )).toMatchObject({ reason: "runClosed" });
   });
 
-  it("closes a run after uncertain renewal so an in-flight result cannot checkpoint or start another invocation", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("closes a run after uncertain renewal so an in-flight result cannot checkpoint or start another invocation", async () => withPersistence(async persistence => {
     let becomeUncertain = false;
     const repo = createPointMutationRedeliverySchedulerCheckpointV1(
       switchableCommittedThenUncertainTarget(
@@ -661,7 +651,7 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
       checkpoint_sequence: 0,
       continuation_bytes: null,
     });
-  });
+  }));
 
   it("fails closed on missing singleton, fence exhaustion, and oversized stored evidence without fetching it", async () => {
     const missingPersistence = await createMigratedPGlitePersistence();
@@ -735,8 +725,7 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
     expect(oversized).toMatchObject({ reason: "continuationInvalid" });
   }, 30_000);
 
-  it("accepts exactly 4 MiB and rejects plus one before any checkpoint mutation", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("accepts exactly 4 MiB and rejects plus one before any checkpoint mutation", async () => withPersistence(async persistence => {
     const repo = repository(persistence, [OWNER_ONE]);
     const acquired = await acquire(repo);
     const maximum = new Uint8Array(
@@ -766,7 +755,7 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
       }),
     )).toMatchObject({ reason: "invalidContinuation" });
     expect((await schedulerRows(persistence))[0]?.checkpoint_sequence).toBe(1);
-  }, 30_000);
+  }), 30_000);
 });
 
 function repository(
