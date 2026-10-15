@@ -20,6 +20,8 @@ import { TransactionGrantDeploymentIdV1Schema } from
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import type { PoolClient } from "pg";
 import { describe, expect, it } from "vitest";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../../../src/installation/installationLifecycle";
+import { lockScopeClockForUpdateInTransactionEffect } from "../../../src/scope/scopeClock";
 
 import {
   type ApplicationRelationBindingRepository,
@@ -60,7 +62,7 @@ import {
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistencePair,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
@@ -80,8 +82,11 @@ describe("E01-A PostgreSQL acceptance environment", () => {
 });
 
 describePostgres("real PostgreSQL E01-A application relation builder", () => {
+  const withControl = useFileScopedPostgresPersistence();
+  const withTarget = useFileScopedPostgresPersistence();
+
   it("builds the selected scope after another scope joins its deployment", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const fixture = await fixtureFor(control, target);
       await control.insertScopeMetadata({
         deploymentId: fixture.deploymentId,
@@ -93,11 +98,11 @@ describePostgres("real PostgreSQL E01-A application relation builder", () => {
       expect(await runEffectFailure(fixture.port.advance({ ...fixture.input,
         scopeId: ScopeIdSchema.make("scope_relation_build_peer_postgres") })))
         .toMatchObject({ failure: { reason: "scopeClockMissing" } });
-    });
+    }));
   });
 
   it("serializes bounded progress, rolls back faults, replays readiness, and invalidates a moved frontier", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const fixture = await fixtureFor(control, target);
       const version = await target.query<{ server_version: string }>(
         "show server_version",
@@ -240,11 +245,11 @@ describePostgres("real PostgreSQL E01-A application relation builder", () => {
           edgeCount: "5",
           versionCount: "10",
         });
-    });
+    }));
   }, 240_000);
 
   it("validates 129 edges and 130 versions through exact PostgreSQL keyset pages", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const fixture = await fixtureFor(control, target, { many: true });
       await seedFanoutRows(fixture, 129);
 
@@ -271,7 +276,7 @@ describePostgres("real PostgreSQL E01-A application relation builder", () => {
           edgeCount: "129",
           versionCount: "130",
         });
-    });
+    }));
   }, 240_000);
 });
 
@@ -428,36 +433,42 @@ async function seedRows(
 ): Promise<void> {
   const commitSeq = CommitSeqSchema.make(1n);
   await fixture.target.drizzle.transaction(async (tx) => {
-    for (const row of rows) {
-      const tableId = decodeCatalogTableId(row.tableIdValue);
-      const rowId = relationBuildRowId(row.ordinal);
-      const creationTime = decodeAppCreationTimeV1(row.ordinal);
-      const value = await canonicalizeFlarexValueV1({
-        _id: appDocumentIdV1FromRowIdentity({ tableId, rowId }),
-        _creationTime: creationTime,
-        ...row.fields,
-      }, "appDocument");
-      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-        kind: "live",
-        scopeId: fixture.scopeId,
-        tableId,
-        rowId,
-        writeEpoch: fixture.epoch,
-        commitSeq,
-        prevCommitSeq: null,
-        schemaVersionId: fixture.schemaVersionId,
-        creationTime,
-        value: {
-          codecVersion: value.codecVersion,
-          valueJson: value.valueJson,
-          canonicalBytes: value.canonicalBytes,
-          sha256: value.sha256,
-        },
-      });
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId));
+      for (const row of rows) {
+        const tableId = decodeCatalogTableId(row.tableIdValue);
+        const rowId = relationBuildRowId(row.ordinal);
+        const creationTime = decodeAppCreationTimeV1(row.ordinal);
+        const value = await canonicalizeFlarexValueV1({
+          _id: appDocumentIdV1FromRowIdentity({ tableId, rowId }),
+          _creationTime: creationTime,
+          ...row.fields,
+        }, "appDocument");
+        await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+          kind: "live",
+          scopeId: fixture.scopeId,
+          tableId,
+          rowId,
+          writeEpoch: fixture.epoch,
+          commitSeq,
+          prevCommitSeq: null,
+          schemaVersionId: fixture.schemaVersionId,
+          creationTime,
+          value: {
+            codecVersion: value.codecVersion,
+            valueJson: value.valueJson,
+            canonicalBytes: value.canonicalBytes,
+            sha256: value.sha256,
+          },
+        });
+      }
+      await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq }).where(
+        eq(fxSystemScopeClocks.scopeId, fixture.scopeId),
+      );
+    } finally {
+      closeInstallationAdmission(tx);
     }
-    await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq }).where(
-      eq(fxSystemScopeClocks.scopeId, fixture.scopeId),
-    );
   });
 }
 

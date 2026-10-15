@@ -1,5 +1,6 @@
 import { PGlite } from "@electric-sql/pglite";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import {
   TASK_COMPUTE_CANCELLATION_RECEIPT_VERSION_V1,
   TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
@@ -30,7 +31,7 @@ import {
 import { and, count, eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Layer, Result } from "effect";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { beforeAll, describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
@@ -132,6 +133,8 @@ const computeProviderDescriptor = success(decodeTaskComputeProviderDescriptorV1(
 }));
 
 describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
+  beforeAll(async () => { await migratedPGliteDataDir(); });
+
   it("exposes an exact typed error channel for each operation", () => {
     expectTypeOf<ReturnType<TaskComputeDeliveryRepositoryV1["acquireDispatch"]>>()
       .toEqualTypeOf<Effect.Effect<
@@ -2723,7 +2726,7 @@ function latch<Value>() {
 async function withFixture(
   run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
 ): Promise<void> {
-  const raw = newTestPGlite();
+  const raw = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
   try {
     await run(await makeFixture(raw));
   } finally {
@@ -2733,7 +2736,6 @@ async function withFixture(
 
 async function makeFixture(raw: PGlite) {
   const persistence = await createPGlitePersistence({ db: raw });
-  await persistence.migrate();
   await seedTaskSystemRunAttemptStoreV1(persistence);
   await persistence.drizzle.delete(fxSystemDurableTaskRunsV1).where(eq(
     fxSystemDurableTaskRunsV1.scopeId,

@@ -20,7 +20,9 @@ import {
 import { TransactionGrantDeploymentIdV1Schema } from
   "flarex-protocol/transaction-grant";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../../support/pgliteTestFixture";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../../../src/installation/installationLifecycle";
 
 import {
   type ApplicationRelationBindingPublication,
@@ -55,7 +57,6 @@ import {
 import {
   createPGliteLocatedIndexBuildReconciliationTargetV1,
   createPGliteLocatedPointMutationSessionActivationTargetV1,
-  createPGlitePersistence,
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
 import type { ScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
@@ -96,6 +97,8 @@ const LOCATOR = Object.freeze({
 let fixtureOrdinal = 0;
 
 describe("E01-B private application relation readiness", () => {
+  beforeAll(async () => { await migratedPGliteDataDir(); });
+
   it("prepares the exact manifest-bound relation and physical-work set", async () => {
     const fixture = await fixtureFor("prepare");
     const publication = await publishNew(fixture, fixtureOrdinal);
@@ -1064,8 +1067,7 @@ interface Fixture {
 async function fixtureFor(suffix: string): Promise<Fixture> {
   ensureRelationBuildTestWebCrypto();
   fixtureOrdinal += 1;
-  const control = await createPGlitePersistence();
-  await control.migrate();
+  const control = await createMigratedPGlitePersistence();
   const uuidSuffix = fixtureOrdinal.toString(16).padStart(12, "0");
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     `deployment_e01_b_${suffix}_${fixtureOrdinal}`,
@@ -1358,32 +1360,38 @@ async function seedPopulatedRows(
   ];
   const commitSeq = CommitSeqSchema.make(1n);
   await fixture.control.drizzle.transaction(async (tx) => {
-    for (const row of rows) {
-      const tableId = decodeCatalogTableId(row.tableId);
-      const rowId = relationBuildRowId(row.ordinal);
-      const creationTime = decodeAppCreationTimeV1(row.ordinal);
-      const value = await canonicalizeFlarexValueV1({
-        _id: appDocumentIdV1FromRowIdentity({ tableId, rowId }),
-        _creationTime: creationTime,
-        ...row.fields,
-      }, "appDocument");
-      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-        kind: "live",
-        scopeId: fixture.scopeId,
-        tableId,
-        rowId,
-        writeEpoch: fixture.epoch,
-        commitSeq,
-        prevCommitSeq: null,
-        schemaVersionId: publication.binding.schemaVersionId,
-        creationTime,
-        value: {
-          codecVersion: value.codecVersion,
-          valueJson: value.valueJson,
-          canonicalBytes: value.canonicalBytes,
-          sha256: value.sha256,
-        },
-      });
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId));
+      for (const row of rows) {
+        const tableId = decodeCatalogTableId(row.tableId);
+        const rowId = relationBuildRowId(row.ordinal);
+        const creationTime = decodeAppCreationTimeV1(row.ordinal);
+        const value = await canonicalizeFlarexValueV1({
+          _id: appDocumentIdV1FromRowIdentity({ tableId, rowId }),
+          _creationTime: creationTime,
+          ...row.fields,
+        }, "appDocument");
+        await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+          kind: "live",
+          scopeId: fixture.scopeId,
+          tableId,
+          rowId,
+          writeEpoch: fixture.epoch,
+          commitSeq,
+          prevCommitSeq: null,
+          schemaVersionId: publication.binding.schemaVersionId,
+          creationTime,
+          value: {
+            codecVersion: value.codecVersion,
+            valueJson: value.valueJson,
+            canonicalBytes: value.canonicalBytes,
+            sha256: value.sha256,
+          },
+        });
+      }
+    } finally {
+      closeInstallationAdmission(tx);
     }
   });
   await fixture.control.drizzle.update(fxSystemScopeClocks).set({

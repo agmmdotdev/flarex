@@ -62,13 +62,6 @@ describe("private framework schema artifact admission", () => {
       never
     >>();
 
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/frameworkSchema/artifact/admission.ts",
-    );
-
     const artifact = await captureArtifact();
     const prepared = prepareOrThrow(artifact);
     let preparedReads = 0;

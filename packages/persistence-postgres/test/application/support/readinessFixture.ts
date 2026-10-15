@@ -17,6 +17,7 @@ import {
   type CanonicalApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
 import { newTestPGlite } from "../../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import {
   createAppSchemaCandidateReadinessPort,
   createAppSchemaCandidateValidationPort,
@@ -88,11 +89,10 @@ export async function readinessFixture(options: ReadinessFixtureOptions = {}) {
     createReadinessPGlitePersistence(),
     options.targetPersistence ?? createReadinessPGlitePersistence(),
   ]);
-  await Promise.all([control.migrate(), target.migrate()]);
+  if (options.targetPersistence !== undefined) await target.migrate();
   const schemaControl = options.foreignSchemaControl === true
     ? await createReadinessPGlitePersistence()
     : control;
-  if (schemaControl !== control) await schemaControl.migrate();
   const deploymentId = "deployment_application_readiness";
   const provisioned = await createPGliteSplitScopeAuthorityProvisioner(
     control,
@@ -285,7 +285,7 @@ export async function readinessFixture(options: ReadinessFixtureOptions = {}) {
 }
 
 export async function createReadinessPGlitePersistence(): Promise<TestPersistence> {
-  const db = newTestPGlite();
+  const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
   onTestFinished(() => db.close());
   return createPGlitePersistence({ db });
 }

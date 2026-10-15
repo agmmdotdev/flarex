@@ -1,12 +1,18 @@
 import { Client } from "pg";
 import { createPostgresClientDeclarativeV2VerifierProgressRepositoryV2 } from "@flarex/persistence-postgres/internal/system-test/postgres-client-declarative-v2-verifier-progress-v2";
 import type { DeclarativeV2VerifierProgressRepositoryV2 } from "../../src/legacy/declarativeV2VerifierProgressRepositoryV2";
+import type { PersistenceJson } from "@flarex/persistence-postgres";
+import type { WritableJson } from "flarex-protocol/json";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import * as persistenceApi from "../../src";
 import packageManifest from "../../package.json" with { type: "json" };
 
 describe("@flarex/persistence-postgres public API", () => {
+  it("preserves the published name as the protocol writable JSON shape", () => {
+    expectTypeOf<PersistenceJson>().toEqualTypeOf<WritableJson>();
+  });
+
   it("keeps activation off the broad persistence facade", () => {
     type RootActivationExport = Extract<
       keyof typeof persistenceApi,
@@ -70,6 +76,8 @@ describe("@flarex/persistence-postgres public API", () => {
     for (const source of Object.values(packageManifest.exports)) {
       expect(source).not.toMatch(/^\.\/src\/installation\/migrationCoordination\//);
       expect(source).not.toMatch(/^\.\/src\/installation\/frameworkSchema\/(installation\/|privateMetadataSchemaSupport\.ts|target\.ts)/);
+      expect(source).not.toMatch(/^\.\/src\/installation\/frameworkSchema\/artifact\//);
+      expect(source).not.toBe("./src/database/catalogControlSession.ts");
       expect(source).not.toBe("./test/installation/frameworkSchema/frameworkMigrationPGliteTarget.ts");
     }
   });

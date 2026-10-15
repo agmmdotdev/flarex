@@ -362,19 +362,6 @@ describe("private framework schema artifact repository composition", () => {
     expect(repositoryProxyPropertyReads).toBe(0);
   });
 
-  it("keeps repository construction and session contracts package-private", async () => {
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    const exportTargets = Object.values(packageJson.default.exports);
-
-    expect(exportTargets).not.toContain(
-      "./src/frameworkSchema/artifact/repository.ts",
-    );
-    expect(exportTargets).not.toContain(
-      "./src/catalogControlSession.ts",
-    );
-  });
 });
 
 function makeRepository(

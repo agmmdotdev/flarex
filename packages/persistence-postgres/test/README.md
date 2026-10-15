@@ -213,6 +213,11 @@ Bootstrap and split-provisioning PGlite cases use the same fixture and registere
 cleanup, retaining independent databases for stored-authority corruption,
 orphan-clock proofs and control/target separation.
 Suite setup prepares the baseline before the first case even on direct runs.
+Relation build/readiness fixtures also keep independent image restores. Row
+seeding acquires installation admission before the scope clock and closes that
+admission with its transaction. The Application readiness fixture restores its
+owned control, target and foreign-control databases from the image; supplied
+instrumented targets retain their caller-owned driver and migration path.
 Journal/session fixtures with raw-driver fault injection pass
 `loadDataDir: await migratedPGliteDataDir()` to their existing driver owner and
 retain its cleanup. Empty-schema admission witnesses and historical migration
@@ -224,6 +229,9 @@ singleton captured from the migration image, including timestamps, in one real
 transaction. Multi-database and persistent constraint-corruption cases retain
 independent backends. Scheduler policy/defaults remain owned by migrations and
 production code rather than being reimplemented by fixture reset.
+Task compute-delivery fixtures restore the same image through their existing
+raw-driver owner and close each borrow immediately. Constraint and evidence
+corruption cases retain independent databases.
 
 Ordinary PostgreSQL suites reuse `useFileScopedPostgresPersistence` where row
 reset preserves the required baseline. It drains an outstanding callback and
@@ -240,14 +248,19 @@ Native split provisioning borrows two independent instances of that fixture,
 resetting target rows before control rows. Its target insert gate follows the
 same cleanup contract, destroying the lock-holding session on failure before
 draining blocked reconcilers.
+Application readiness and relation build/readiness suites also borrow independent
+control/target file fixtures. Their concurrent writers and lock witnesses drain
+before reset, and failed callbacks rebuild both stores. Gate waits race unexpected
+operation settlement so a setup failure can release and drain the other work.
 Plan probes use `withPostgresSequentialScansDisabled` to bind `SET LOCAL` and
 EXPLAIN to one client and roll back the setting before reuse.
 Validate converted suites as whole files, including failure-triggered rebuilds.
 `database/postgresRuntime.postgres.test.ts` keeps real installation admission
 on its test-owned connection while injecting only transaction-command failures.
 
-API export exclusions and constructor surface guards belong in
-`api/publicApi.test.ts`. Prefer assertions in
+API export exclusions, constructor surface guards and published type aliases
+belong in `api/publicApi.test.ts`. Domain suites retain their operation-specific
+Effect contracts. Prefer assertions in
 existing consumer scenarios over separate tests of fixed fixture contents or
 helper allocation details. Preserve behavioral, durable-data, rollback and
 compatibility witnesses; an old checkpoint label alone does not make one obsolete.

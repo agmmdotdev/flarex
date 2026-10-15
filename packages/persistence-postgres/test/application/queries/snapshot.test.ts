@@ -751,6 +751,7 @@ describe("Application queries/snapshot", { timeout: 30_000 }, () => {
     await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({
       lifecycle: "validating",
       maintenanceActivationSequence: null,
+      maintenanceAuthorityKind: null,
     }).where(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId));
     const unavailable = await runEffect(Effect.result(Effect.scoped(Effect.gen(function* () {
       const opened = yield* openApplicationQuerySnapshot(

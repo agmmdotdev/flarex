@@ -56,7 +56,7 @@ afterEach(() => {
 });
 
 describe("private framework schema artifact point read", () => {
-  it("has the exact private Effect contract and no package export", async () => {
+  it("has the exact private Effect contract", () => {
     expectTypeOf<ReturnType<
       typeof getFrameworkSchemaArtifactEffect
     >>().toEqualTypeOf<Effect.Effect<
@@ -65,16 +65,6 @@ describe("private framework schema artifact point read", () => {
       never
     >>();
 
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    const exportTargets = Object.values(packageJson.default.exports);
-    expect(exportTargets).not.toContain(
-      "./src/frameworkSchema/artifact/read.ts",
-    );
-    expect(exportTargets).not.toContain(
-      "./src/frameworkSchema/artifact/storedLoader.ts",
-    );
   });
 
   it("authenticates the repository before identity access or session work", async () => {

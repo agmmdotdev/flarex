@@ -2608,8 +2608,11 @@ describe("createPGlitePersistence runtime", () => {
         queryId: 2,
         functionPath: "messages:count",
         argsJson: null,
+        partitionKey: "team_a",
         beginTs: 12,
-        readSetJson: {},
+        readSetJson: {
+          documents: [{ tableId: 1, id: "1:message", observedTs: null }],
+        },
         resultJson: null,
         resultHash: "hash_inserted_null",
       }),
@@ -2618,6 +2621,27 @@ describe("createPGlitePersistence runtime", () => {
       resultJson: null,
       resultHash: "hash_inserted_null",
     });
+
+    await expect(
+      persistence.listLiveQuerySubscriptions({
+        deploymentId: "deployment_live_query_json_null",
+      }),
+    ).resolves.toMatchObject([
+      { argsJson: null, resultJson: null },
+      { argsJson: null, resultJson: null },
+    ]);
+    await expect(
+      persistence.query<{ count: number }>(
+        `
+          select count(*)::int as count
+          from live_query_subscriptions
+          where deployment_id = $1
+            and args_json is null
+            and result_json is null
+        `,
+        ["deployment_live_query_json_null"],
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: 0 }] });
 
     await expect(
       persistence.insertLiveQueryDelivery({
@@ -2972,53 +2996,6 @@ describe("createPGlitePersistence runtime", () => {
         resultHash: "hash_other",
       },
     ]);
-  }));
-
-  it("round-trips JSON null live query args and results", async () => withPersistence(async persistence => {
-
-    await expect(
-      persistence.upsertLiveQuerySubscription({
-        deploymentId: "deployment_live_query_null",
-        connectionId: "connection_a",
-        queryId: 1,
-        functionPath: "messages:maybe",
-        argsJson: null,
-        partitionKey: "team_a",
-        beginTs: 10,
-        readSetJson: {
-          documents: [{ tableId: 1, id: "1:message", observedTs: null }],
-        },
-        resultJson: null,
-        resultHash: "null",
-      }),
-    ).resolves.toMatchObject({
-      argsJson: null,
-      resultJson: null,
-    });
-
-    await expect(
-      persistence.listLiveQuerySubscriptions({
-        deploymentId: "deployment_live_query_null",
-      }),
-    ).resolves.toMatchObject([
-      {
-        argsJson: null,
-        resultJson: null,
-      },
-    ]);
-
-    await expect(
-      persistence.query<{ count: number }>(
-        `
-          select count(*)::int as count
-          from live_query_subscriptions
-          where deployment_id = $1
-            and args_json is null
-            and result_json is null
-        `,
-        ["deployment_live_query_null"],
-      ),
-    ).resolves.toMatchObject({ rows: [{ count: 0 }] });
   }));
 
   it("records live query rerun results with durable delivery rows", async () => withPersistence(async persistence => {

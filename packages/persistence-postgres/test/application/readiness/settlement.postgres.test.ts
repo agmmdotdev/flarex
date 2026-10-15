@@ -23,7 +23,7 @@ import {
 } from "../../../src/installation/physicalDefinitionLifecycle";
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../../../src/scope/scopeAuthorityResolution";
 import { runEffect } from "../../support/effectTestRuntime";
-import { postgresUrl, withTemporaryPostgresPersistencePair } from "../../support/postgresHelpers";
+import { postgresUrl, useFileScopedPostgresPersistence } from "../../support/postgresHelpers";
 import { withPostgresExecutionObservation } from "../../performance/postgresExecutionObservation";
 import {
   readinessFixture,
@@ -46,8 +46,11 @@ beforeAll(() => {
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("Application readiness/settlement.postgres", { timeout: 30_000 }, () => {
+  const withControl = useFileScopedPostgresPersistence();
+  const withTarget = useFileScopedPostgresPersistence();
+
   it("loads the locked revision's candidate, analysis and legacy publication in one statement", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const fixture = await readinessFixture(control, target);
       await prepareReadinessAuthorities(fixture);
       const measured = await withPostgresExecutionObservation(
@@ -69,11 +72,11 @@ describePostgres("Application readiness/settlement.postgres", { timeout: 30_000 
         "fx_system_application_revision_v2",
       ].sort());
       expect(selected?.[0]?.ordinals).toHaveLength(1);
-    });
+    }));
   }, 120_000)
 
   it("keeps candidate refusal order after a joined fetch and classifies a joined SQL failure", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const fixture = await readinessFixture(control, target);
       await target.query(
         "update fx_system_application_analysis_v1 set manifest_bytes = decode('00', 'hex') where scope_id = $1",
@@ -150,11 +153,11 @@ describePostgres("Application readiness/settlement.postgres", { timeout: 30_000 
       if (Result.isFailure(afterFault)) {
         expect(afterFault.failure).toMatchObject({ reason: "authorityChanged" });
       }
-    });
+    }));
   }, 120_000)
 
   it("retries when the retained publisher claims the tentative version", async () => {
-    await withTemporaryPostgresPersistencePair(async (control) => {
+    await withControl(async (control) => {
       const deploymentId = "deployment_application_schema_interleaving";
       await control.insertDeploymentMetadata({
         deploymentId,
@@ -184,33 +187,41 @@ describePostgres("Application readiness/settlement.postgres", { timeout: 30_000 
         deploymentId,
         manifest: applicationManifest().manifest,
       }));
-      await firstTransactionEntered;
-      await control.publishAppSchemaV1({
-        deploymentId,
-        schemaVersionId: CatalogSchemaVersionIdSchema.make("retained_race"),
-        version: CatalogSchemaVersionSchema.make(1),
-        tables: [],
-        indexes: [],
-      });
-      releaseFirstTransaction?.();
+      try {
+        await Promise.race([
+          firstTransactionEntered,
+          application.then(() => { throw new Error("Expected publisher gate before settlement."); }),
+        ]);
+        await control.publishAppSchemaV1({
+          deploymentId,
+          schemaVersionId: CatalogSchemaVersionIdSchema.make("retained_race"),
+          version: CatalogSchemaVersionSchema.make(1),
+          tables: [],
+          indexes: [],
+        });
+        releaseFirstTransaction?.();
 
-      const authority = await application;
-      const reservations = await control.query<{
-        schema_version: number;
-      }>(
-        `select schema_version
-           from fx_control_application_schema_authority_v1
-          where deployment_id = $1`,
-        [deploymentId],
-      );
+        const authority = await application;
+        const reservations = await control.query<{
+          schema_version: number;
+        }>(
+          `select schema_version
+             from fx_control_application_schema_authority_v1
+            where deployment_id = $1`,
+          [deploymentId],
+        );
 
-      expect(authority.schemaVersion).toBe(2);
-      expect(reservations.rows).toEqual([{ schema_version: 2 }]);
+        expect(authority.schemaVersion).toBe(2);
+        expect(reservations.rows).toEqual([{ schema_version: 2 }]);
+      } finally {
+        releaseFirstTransaction?.();
+        await Promise.allSettled([application]);
+      }
     });
   }, 240_000)
 
   it("settles one table-bearing split-store revision under real locks", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const fixture = await readinessFixture(control, target);
       const schemaVersionId = await prepareReadinessAuthorities(fixture);
       await enablePhysicalBuilds(fixture, schemaVersionId);
@@ -244,6 +255,7 @@ describePostgres("Application readiness/settlement.postgres", { timeout: 30_000 
       const blocker = await target.pool.connect();
       let released = false;
       let concurrent: ReadonlyArray<ApplicationReadinessResult> | undefined;
+      const pending: Promise<ApplicationReadinessResult>[] = [];
       try {
         await blocker.query("begin");
         const pid = await blocker.query<{ pid: number }>(
@@ -258,14 +270,16 @@ describePostgres("Application readiness/settlement.postgres", { timeout: 30_000 
           [fixture.authority.scopeId],
         );
         const first = runEffect(fixture.repository.settle(fixture.input));
+        pending.push(first);
         const second = runEffect(fixture.repository.settle(fixture.input));
+        pending.push(second);
         await waitForBlockedBy(target, blockerPid, 2);
         await blocker.query("commit");
         released = true;
         concurrent = await Promise.all([first, second]);
       } finally {
-        if (!released) await blocker.query("rollback").catch(() => undefined);
-        blocker.release();
+        blocker.release(!released);
+        await Promise.allSettled(pending);
       }
       if (concurrent === undefined) {
         throw new Error("Concurrent Application readiness did not settle.");
@@ -323,11 +337,11 @@ describePostgres("Application readiness/settlement.postgres", { timeout: 30_000 
       ));
       expect(await runEffect(fixture.repository.settle(fixture.input)))
         .toMatchObject({ status: "ready", disposition: "replayed" });
-    });
+    }));
   }, 240_000)
 
   it("reads indexed Application readiness while an ordinary publication is held", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const fixture = await readinessFixture(control, target);
       const schemaVersionId = await prepareReadinessAuthorities(fixture);
       await enablePhysicalBuilds(fixture, schemaVersionId);
@@ -409,6 +423,6 @@ describePostgres("Application readiness/settlement.postgres", { timeout: 30_000 
         if (!released) await blocker.query("rollback").catch(() => undefined);
         blocker.release();
       }
-    });
+    }));
   }, 240_000)
 });

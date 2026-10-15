@@ -259,7 +259,7 @@ import {
 } from "../../commit/point/support/commandEvidence";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistencePair,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 import {
   applyExactRelationSourceCommit,
@@ -290,8 +290,11 @@ describe("E01-B PostgreSQL acceptance environment", () => {
 });
 
 describePostgres("real PostgreSQL E01-B application relation readiness", () => {
+  const withControl = useFileScopedPostgresPersistence();
+  const withTarget = useFileScopedPostgresPersistence();
+
   it("loads relation candidate, analysis and publication in one checked statement", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const fixture = await relationReadinessFixture({
         persistence: target,
         controlPersistence: control,
@@ -434,10 +437,10 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       expect(selectedHead?.[0]?.ordinals).toHaveLength(2);
       expect(head?.reduce((sum, shape) => sum + shape.ordinals.length, 0))
         .toBe(2);
-    });
+    }));
   }, 240_000);
   it("keeps an active relation-aware Application on its selected scope after a second shop joins", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const fixture = await relationReadinessFixture({
         persistence: target,
         controlPersistence: control,
@@ -460,11 +463,11 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         .toMatchObject({ status: "ready", scopeId: fixture.input.scopeId });
       expect(await runEffect(fixture.relationActivation.readActive()))
         .toMatchObject({ expectedActiveHead: first.expectedActiveHead, basis: { authority: { scopeId: fixture.input.scopeId } } });
-    });
+    }));
   }, 240_000);
 
   it("migrates, restarts, rolls back, serializes settlement, replays, and chains without sidecar writes", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const fixture = await fixtureFor(control, target);
       const version = await target.query<{ server_version: string }>(
         "show server_version",
@@ -608,11 +611,11 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       expect(await sidecarCounts(fixture, edgeDefinitionId)).toEqual(
         sidecarsBefore,
       );
-    });
+    }));
   }, 240_000);
 
   it("authenticates an ordered two-relation set across semantic reuse", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const fixture = await fixtureFor(control, target);
       const original = await publishNew(fixture, 30_001, {
         secondRelation: true,
@@ -666,11 +669,11 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       )).size).toBe(2);
       expect(semantic.evidence.sha256).not.toEqual(direct.evidence.sha256);
       expect(await physicalStateSnapshot(fixture)).toEqual(before);
-    });
+    }));
   }, 240_000);
 
   it("reads a relation active selection while an ordinary scope publication holds its clock update", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const ready = await preparePostgresRelationActivationFixture(await fixtureFor(control, target), 35_000);
       const activation = ready.makeActivation();
       const activated = await runEffect(activation.activate({ revisionId: ready.readiness.revisionId, expectedActiveHead: null }));
@@ -686,11 +689,11 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         await client.query("rollback");
         client.release();
       }
-    });
+    }));
   }, 180_000);
 
   it("orders standalone capture before the head while actual activation owns the clock", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const role = await target.query<{ rolsuper: boolean }>("select rolsuper from pg_roles where rolname=current_user");
       expect(role.rows[0]?.rolsuper).toBe(false);
       const ready = await preparePostgresRelationActivationFixture(await fixtureFor(control, target), 35_010);
@@ -742,11 +745,11 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         spy.mockRestore();
         await Promise.allSettled(capture === undefined ? [activating] : [activating, capture]);
       }
-    });
+    }));
   }, 180_000);
 
   it("keeps stored-active authority while relation A1 moves through Legacy B2 to relation C3", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const ready = await preparePostgresRelationActivationFixture(
         await fixtureFor(control, target),
         35_001,
@@ -869,11 +872,11 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
           readinessContractVersion: 2,
         }),
       ]);
-    });
+    }));
   }, 300_000);
 
   it("serializes real relation activation and builder restart in both lock orders", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const ready = await preparePostgresRelationActivationFixture(
         await fixtureFor(control, target),
         36_001,
@@ -892,47 +895,58 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         revisionId: ready.readiness.revisionId,
         expectedActiveHead: null,
       }));
-      await activationInserted.promise;
-
-      const builderPid = deferredValue<number>();
-      const builder = createPidCapturingRelationBuild(
-        ready.fixture,
-        pid => builderPid.resolve(pid),
-      );
-      const builderPromise = runEffectFailure(builder.restart(
-        ready.buildInput,
-        { faultAfter: point => { timeline.push(`builder:${point}`); } },
-      ));
+      const pending: Promise<unknown>[] = [activationPromise];
       try {
-        await waitForPostgresPidBlocked(target, await builderPid.promise);
+        await Promise.race([
+          activationInserted.promise,
+          activationPromise.then(() => { throw new Error("Expected activation gate before settlement."); }),
+        ]);
+
+        const builderPid = deferredValue<number>();
+        const builder = createPidCapturingRelationBuild(
+          ready.fixture,
+          pid => builderPid.resolve(pid),
+        );
+        const builderPromise = runEffectFailure(builder.restart(
+          ready.buildInput,
+          { faultAfter: point => { timeline.push(`builder:${point}`); } },
+        ));
+        pending.push(builderPromise);
+        const pid = await Promise.race([
+          builderPid.promise,
+          builderPromise.then(() => { throw new Error("Expected builder backend before settlement."); }),
+        ]);
+        await waitForPostgresPidBlocked(target, pid);
+        releaseActivation.resolve();
+        const [activated, builderFailure] = await Promise.all([
+          activationPromise,
+          builderPromise,
+        ]);
+        expect(activated).toMatchObject({
+          status: "activated",
+          activationSequence: 1n,
+        });
+        expect(builderFailure).toMatchObject({
+          _tag: "ApplicationRelationBuildServingDefinitionError",
+          activeRevisionId: ready.readiness.revisionId,
+        });
+        expect(timeline).toEqual([
+          "activation:activationInserted",
+          "activation:indexMaintenanceWritten",
+          "activation:uniqueMaintenanceWritten",
+          "activation:headWritten",
+          "builder:afterScopeClockLock",
+        ]);
+        expect(await physicalStateSnapshot(ready.fixture)).toEqual(
+          physicalBefore,
+        );
       } finally {
         releaseActivation.resolve();
+        await Promise.allSettled(pending);
       }
-      const [activated, builderFailure] = await Promise.all([
-        activationPromise,
-        builderPromise,
-      ]);
-      expect(activated).toMatchObject({
-        status: "activated",
-        activationSequence: 1n,
-      });
-      expect(builderFailure).toMatchObject({
-        _tag: "ApplicationRelationBuildServingDefinitionError",
-        activeRevisionId: ready.readiness.revisionId,
-      });
-      expect(timeline).toEqual([
-        "activation:activationInserted",
-        "activation:indexMaintenanceWritten",
-        "activation:uniqueMaintenanceWritten",
-        "activation:headWritten",
-        "builder:afterScopeClockLock",
-      ]);
-      expect(await physicalStateSnapshot(ready.fixture)).toEqual(
-        physicalBefore,
-      );
-    });
+    }));
 
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const ready = await preparePostgresRelationActivationFixture(
         await fixtureFor(control, target),
         36_002,
@@ -957,49 +971,56 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
           await releaseBuilder.promise;
         },
       }));
-      await lifecycleTransition.promise;
-      const pid = await builderPid.promise;
-      const activation = ready.makeActivation();
-      const activationPromise = runEffectFailure(activation.activate({
-        revisionId: ready.readiness.revisionId,
-        expectedActiveHead: null,
-      }));
+      const pending: Promise<unknown>[] = [builderPromise];
       try {
+        await Promise.race([
+          lifecycleTransition.promise,
+          builderPromise.then(() => { throw new Error("Expected builder gate before settlement."); }),
+        ]);
+        const pid = await builderPid.promise;
+        const activation = ready.makeActivation();
+        const activationPromise = runEffectFailure(activation.activate({
+          revisionId: ready.readiness.revisionId,
+          expectedActiveHead: null,
+        }));
+        pending.push(activationPromise);
         await waitForBlockedScopeClockOperations(target, pid, 1);
+        releaseBuilder.resolve();
+        const [restarted, activationFailure] = await Promise.all([
+          builderPromise,
+          activationPromise,
+        ]);
+        expect(restarted).toMatchObject({
+          status: "restarted",
+          lifecycle: "cleaning",
+        });
+        expect(builderPoints).toEqual([
+          "afterScopeClockLock",
+          "afterLifecycleTransition",
+        ]);
+        expect(activationFailure).toMatchObject({
+          _tag: "ApplicationActivationError",
+          operation: "activate",
+          reason: "notReady",
+          revisionId: ready.readiness.revisionId,
+        });
+        expect(await sidecarCounts(
+          ready.fixture,
+          ready.buildInput.edgeDefinitionId,
+        )).toEqual(sidecarsBefore);
+        expect(await Promise.all([
+          target.drizzle.select().from(fxSystemApplicationActivations),
+          target.drizzle.select().from(fxSystemApplicationActiveHeads),
+        ])).toEqual([[], []]);
       } finally {
         releaseBuilder.resolve();
+        await Promise.allSettled(pending);
       }
-      const [restarted, activationFailure] = await Promise.all([
-        builderPromise,
-        activationPromise,
-      ]);
-      expect(restarted).toMatchObject({
-        status: "restarted",
-        lifecycle: "cleaning",
-      });
-      expect(builderPoints).toEqual([
-        "afterScopeClockLock",
-        "afterLifecycleTransition",
-      ]);
-      expect(activationFailure).toMatchObject({
-        _tag: "ApplicationActivationError",
-        operation: "activate",
-        reason: "notReady",
-        revisionId: ready.readiness.revisionId,
-      });
-      expect(await sidecarCounts(
-        ready.fixture,
-        ready.buildInput.edgeDefinitionId,
-      )).toEqual(sidecarsBefore);
-      expect(await Promise.all([
-        target.drizzle.select().from(fxSystemApplicationActivations),
-        target.drizzle.select().from(fxSystemApplicationActiveHeads),
-      ])).toEqual([[], []]);
-    });
+    }));
   }, 300_000);
 
   it("concurrently settles one authentic relation-aware Application root and replaces a natural exact-read conflict", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const fixture = await fixtureFor(control, target);
       const version = await target.query<{ server_version: string }>(
         "show server_version",
@@ -1191,10 +1212,12 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         scopeId: fixture.scopeId,
         revisionId: publication.revisionId,
       });
-      const [left, right] = await Promise.all([
+      const pendingSettlements = [
         runEffect(fold.settle(input)),
         runEffect(fold.settle(input)),
-      ]);
+      ] as const;
+      const [left, right] = await Promise.all(pendingSettlements)
+        .finally(() => Promise.allSettled(pendingSettlements));
       if (left.status !== "ready" || right.status !== "ready") {
         throw new Error("Expected concurrent PostgreSQL relation readiness.");
       }
@@ -1487,7 +1510,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         [activation.anchor.sessionId],
       );
       const selector = selectorFromRelationAnchor(activation.anchor);
-      const acquisitions = await Promise.all([
+      const pendingAcquisitions = [
         runEffect(createPointMutationExecutionClaimAcquisitionV1(
           fixture.pointCommitAuthority,
           {
@@ -1502,7 +1525,9 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
             randomOwner: relationFoldUuidSequence(35),
           },
         ).acquireEffect(selector)),
-      ]);
+      ] as const;
+      const acquisitions = await Promise.all(pendingAcquisitions)
+        .finally(() => Promise.allSettled(pendingAcquisitions));
       const acquired = acquisitions.find(result => result.kind === "acquired");
       const busy = acquisitions.find(result => result.kind === "busy");
       if (
@@ -1796,10 +1821,15 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
           },
         ).prove(retryCommand),
       );
-      await finishClockLocked.promise;
-      const activationWaiter = await fixture.target.pool.connect();
+      let activationWaiter: PoolClient | undefined;
+      let activationLock: Promise<unknown> | undefined;
       let activationWaiterReleased = false;
       try {
+        await Promise.race([
+          finishClockLocked.promise,
+          finishFirst.then(() => { throw new Error("Expected finishing clock gate before settlement."); }),
+        ]);
+        activationWaiter = await fixture.target.pool.connect();
         await activationWaiter.query("begin");
         const activationWaiterPidResult = await activationWaiter.query<{
           pid: number;
@@ -1808,7 +1838,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         if (activationWaiterPid === undefined) {
           throw new Error("Expected an activation-waiter backend PID.");
         }
-        const activationLock = activationWaiter.query(
+        activationLock = activationWaiter.query(
           `select 1 from fx_system_scope_clock
             where scope_id = $1 for update`,
           [fixture.scopeId],
@@ -1824,11 +1854,8 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         activationWaiterReleased = true;
       } finally {
         releaseFinishClock.resolve();
-        if (!activationWaiterReleased) {
-          await activationWaiter.query("rollback").catch(() => undefined);
-        }
-        activationWaiter.release();
-        await Promise.allSettled([finishFirst]);
+        activationWaiter?.release(!activationWaiterReleased);
+        await Promise.allSettled([finishFirst, activationLock]);
       }
 
       const staleUuid = relationFoldUuidSequence(71, 72, 73);
@@ -1892,20 +1919,23 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       });
       const activationFirst = await acquireScopeClockLock(fixture);
       let activationCommitted = false;
-      await activationFirst.client.query(
-        "delete from fx_system_application_active_head where scope_id = $1",
-        [fixture.scopeId],
-      );
-      const staleReplayPromise = runEffectFailure(
-        staleStore.runApplicationRelationIncomingReadEffect(
-          staleRelation,
-          staleOperation,
-        ),
-      );
-      const staleFinishPromise = runEffectFailure(
-        rollback.prove(retryCommand),
-      );
+      const stalePending: Promise<unknown>[] = [];
       try {
+        await activationFirst.client.query(
+          "delete from fx_system_application_active_head where scope_id = $1",
+          [fixture.scopeId],
+        );
+        const staleReplayPromise = runEffectFailure(
+          staleStore.runApplicationRelationIncomingReadEffect(
+            staleRelation,
+            staleOperation,
+          ),
+        );
+        stalePending.push(staleReplayPromise);
+        const staleFinishPromise = runEffectFailure(
+          rollback.prove(retryCommand),
+        );
+        stalePending.push(staleFinishPromise);
         await waitForBlockedScopeClockOperations(
           fixture.target,
           activationFirst.pid,
@@ -1913,27 +1943,23 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         );
         await activationFirst.client.query("commit");
         activationCommitted = true;
+        const [staleReplay, activationFirstFinish] = await Promise.all([
+          staleReplayPromise,
+          staleFinishPromise,
+        ]);
+        expect(staleReplay).toMatchObject({
+          _tag: "ApplicationActivationError",
+          operation: "validateSelection",
+          reason: "concurrentHead",
+        });
+        expect(activationFirstFinish).toMatchObject({
+          _tag: "PointCommitStaleAuthorityV1Error",
+          reason: "activeRelationSelectionChanged",
+        });
       } finally {
-        if (!activationCommitted) {
-          await activationFirst.client.query("rollback").catch(
-            () => undefined,
-          );
-        }
-        activationFirst.client.release();
+        activationFirst.client.release(!activationCommitted);
+        await Promise.allSettled(stalePending);
       }
-      const [staleReplay, activationFirstFinish] = await Promise.all([
-        staleReplayPromise,
-        staleFinishPromise,
-      ]);
-      expect(staleReplay).toMatchObject({
-        _tag: "ApplicationActivationError",
-        operation: "validateSelection",
-        reason: "concurrentHead",
-      });
-      expect(activationFirstFinish).toMatchObject({
-        _tag: "PointCommitStaleAuthorityV1Error",
-        reason: "activeRelationSelectionChanged",
-      });
       const staleRoot = await fixture.target.query<{
         last_syscall_sequence: string;
         relation_read_syscalls: number;
@@ -1949,7 +1975,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         relation_read_syscalls: 1,
         relation_dependency_count: 1,
       }]);
-    });
+    }));
   }, 300_000);
 });
 

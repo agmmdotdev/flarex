@@ -21,7 +21,9 @@ import {
 import { TransactionGrantDeploymentIdV1Schema } from
   "flarex-protocol/transaction-grant";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../../support/pgliteTestFixture";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../../../src/installation/installationLifecycle";
 
 import {
   type ApplicationRelationBindingRepository,
@@ -66,7 +68,6 @@ import { AppRelationEdgeBuildCorruptionError } from
 import {
   createPGliteLocatedIndexBuildReconciliationTargetV1,
   createPGliteLocatedPointMutationSessionActivationTargetV1,
-  createPGlitePersistence,
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
 import {
@@ -102,6 +103,8 @@ const LOCATOR = Object.freeze({
 let fixtureOrdinal = 0;
 
 describe("E01-A private application relation builder", () => {
+  beforeAll(async () => { await migratedPGliteDataDir(); });
+
   it("builds the selected scope after another scope joins its deployment", async () => {
     const fixture = await fixtureFor("shared_deployment");
     await fixture.control.insertScopeMetadata({
@@ -943,8 +946,7 @@ async function fixtureFor(
 ): Promise<Fixture> {
   ensureRelationBuildTestWebCrypto();
   fixtureOrdinal += 1;
-  const control = await createPGlitePersistence();
-  await control.migrate();
+  const control = await createMigratedPGlitePersistence();
   const target = control;
   const uuidSuffix = fixtureOrdinal.toString(16).padStart(12, "0");
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
@@ -1176,35 +1178,41 @@ async function seedRows(
 ): Promise<void> {
   const commitSeq = CommitSeqSchema.make(commitSeqValue);
   await fixture.target.drizzle.transaction(async (tx) => {
-    for (const row of rows) {
-      const tableId = decodeCatalogTableId(row.tableId);
-      const rowIdentity = relationBuildRowId(row.ordinal);
-      const creationTime = decodeAppCreationTimeV1(row.ordinal);
-      const value = await canonicalizeFlarexValueV1({
-        _id: appDocumentIdV1FromRowIdentity({ tableId, rowId: rowIdentity }),
-        _creationTime: creationTime,
-        ...row.fields,
-      }, "appDocument");
-      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-        kind: "live",
-        scopeId: fixture.scopeId,
-        tableId,
-        rowId: rowIdentity,
-        writeEpoch: fixture.epoch,
-        commitSeq,
-        prevCommitSeq: options.prevCommitSeq === undefined ||
-            options.prevCommitSeq === null
-          ? null
-          : CommitSeqSchema.make(options.prevCommitSeq),
-        schemaVersionId: options.schemaVersionId ?? fixture.schemaVersionId,
-        creationTime,
-        value: {
-          codecVersion: value.codecVersion,
-          valueJson: value.valueJson,
-          canonicalBytes: value.canonicalBytes,
-          sha256: value.sha256,
-        },
-      });
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId));
+      for (const row of rows) {
+        const tableId = decodeCatalogTableId(row.tableId);
+        const rowIdentity = relationBuildRowId(row.ordinal);
+        const creationTime = decodeAppCreationTimeV1(row.ordinal);
+        const value = await canonicalizeFlarexValueV1({
+          _id: appDocumentIdV1FromRowIdentity({ tableId, rowId: rowIdentity }),
+          _creationTime: creationTime,
+          ...row.fields,
+        }, "appDocument");
+        await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+          kind: "live",
+          scopeId: fixture.scopeId,
+          tableId,
+          rowId: rowIdentity,
+          writeEpoch: fixture.epoch,
+          commitSeq,
+          prevCommitSeq: options.prevCommitSeq === undefined ||
+              options.prevCommitSeq === null
+            ? null
+            : CommitSeqSchema.make(options.prevCommitSeq),
+          schemaVersionId: options.schemaVersionId ?? fixture.schemaVersionId,
+          creationTime,
+          value: {
+            codecVersion: value.codecVersion,
+            valueJson: value.valueJson,
+            canonicalBytes: value.canonicalBytes,
+            sha256: value.sha256,
+          },
+        });
+      }
+    } finally {
+      closeInstallationAdmission(tx);
     }
   });
 }

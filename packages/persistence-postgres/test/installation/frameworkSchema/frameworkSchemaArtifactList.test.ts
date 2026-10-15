@@ -41,7 +41,7 @@ import {
 const DEFAULT_TIMEOUT_MILLISECONDS = 5_000;
 
 describe("private framework schema artifact identity listing", () => {
-  it("has the exact private Effect contract and no package export", async () => {
+  it("has the exact private Effect contract", () => {
     expectTypeOf<ReturnType<
       typeof listFrameworkSchemaArtifactIdentitiesEffect
     >>().toEqualTypeOf<Effect.Effect<
@@ -50,12 +50,6 @@ describe("private framework schema artifact identity listing", () => {
       never
     >>();
 
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/frameworkSchema/artifact/list.ts",
-    );
   });
 
   it("authenticates authority first and rejects every malformed request before acquisition", async () => {

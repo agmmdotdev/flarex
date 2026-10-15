@@ -267,11 +267,14 @@ describe("Application activation/bindingPreparation", { timeout: 30_000 }, () =>
     if (mode === "missing") {
       // A disposable privileged fixture withdraws the binding before removal;
       // ordinary maintained deletion is separately refused by the native guard.
-      await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({ maintenanceActivationSequence: null });
+      await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({
+        maintenanceActivationSequence: null,
+        maintenanceAuthorityKind: null,
+      });
       await fixture.target.drizzle.delete(fxSystemIndexBuildStates);
     }
     else if (mode === "not-enabled") await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({ lifecycle: "validating",
-      maintenanceActivationSequence: null, });
+      maintenanceActivationSequence: null, maintenanceAuthorityKind: null });
     else {
       const requirements = await runEffect(loadPublishedPhysicalRequirementSnapshotV1(fixture.control.drizzle,
         { deploymentId: fixture.input.deploymentId, schemaVersionId }));
