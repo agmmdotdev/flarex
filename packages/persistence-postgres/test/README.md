@@ -176,11 +176,22 @@ bounded contract lane. C08-I1 aliases keep their connected system-test step in
 that package rather than referring to removed local files.
 
 The PGlite lane builds a fresh schema-only image once per invocation using
-`vitest.pglite.config.ts`. Every fixture restores an independent database;
+`vitest.pglite.config.ts`. Fresh fixtures restore independent databases;
 file-backed Worker restarts reopen their modified data, never the baseline.
 Direct focused invocations without that config retain per-file image creation.
 Historical/upgrade migration tests still create their own fresh databases.
 Migration-copy fixtures retain SQL and the journal, omitting generator snapshots.
+
+The row-only legacy runtime/sync suite uses
+`useFileScopedPGliteRuntimePersistence` to retain one backend per file. Each
+serialized borrow receives a fresh persistence wrapper and prepared runtime.
+Reset clears only its runtime/sync rows and preserves installation, protected
+metadata and scheduler seed rows. A failed callback or reset rebuilds the backend
+from the immutable image. Modern catalog, migration, DDL, session-configuration
+and restart cases keep independent fixtures. The shared
+`fileScopedPersistenceFixture` owns queueing, drainage and failure rebuilds for
+both drivers; each driver retains its own reset/disposal owner. Their lifecycle
+contract scenarios are shared too.
 
 Ordinary PostgreSQL suites reuse `useFileScopedPostgresPersistence` where row
 reset preserves the required baseline. It drains an outstanding callback and

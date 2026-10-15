@@ -6,7 +6,7 @@ import { Client, Pool, type PoolClient, type PoolConfig } from "pg";
 import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { trimToNonBlankOrNull } from "@flarex/utils/strings";
-import { afterAll, afterEach, beforeAll } from "vitest";
+import { useFileScopedPersistence, type FileScopedPersistenceFixture, type WithFileScopedPersistence } from "./fileScopedPersistenceFixture";
 import { registerFrameworkMaintenanceFixture } from "../installation/frameworkSchema/frameworkMigrationPostgresFixture";
 
 import {
@@ -55,9 +55,7 @@ export interface TemporaryPostgresSchemaOptions {
   readonly poolConfig: PoolConfig;
 }
 
-export type WithFileScopedPostgresPersistence = (
-  fn: (persistence: PostgresFlarexPersistence) => Promise<void>,
-) => Promise<void>;
+export type WithFileScopedPostgresPersistence = WithFileScopedPersistence<PostgresFlarexPersistence>;
 
 export async function acquirePostgresDeploymentLock(
   persistence: PostgresFlarexPersistence,
@@ -292,56 +290,7 @@ export async function withTemporaryPostgresPersistence(
  * callback or test can borrow the fixture, even if its caller timed out.
  */
 export function useFileScopedPostgresPersistence(): WithFileScopedPostgresPersistence {
-  let fixture: FileScopedPostgresFixture | undefined;
-  let rebuildRequired = false;
-  let settled = Promise.resolve();
-
-  beforeAll(async () => {
-    if (postgresUrl === null) return;
-    fixture = await createFileScopedPostgresFixture();
-  }, 120_000);
-
-  afterEach(async () => { await settled; }, 120_000);
-  afterAll(async () => {
-    await settled;
-    const fixtureToDispose = fixture;
-    fixture = undefined;
-    if (fixtureToDispose !== undefined) await fixtureToDispose.dispose();
-  }, 120_000);
-
-  const run: WithFileScopedPostgresPersistence = async fn => {
-    if (fixture === undefined || rebuildRequired) {
-      const staleFixture = fixture;
-      fixture = undefined;
-      rebuildRequired = false;
-      if (staleFixture !== undefined) await staleFixture.dispose();
-      fixture = await createFileScopedPostgresFixture();
-    }
-
-    const activeFixture = fixture;
-    try {
-      await fn(activeFixture.persistence);
-    } catch (error: unknown) {
-      rebuildRequired = true;
-      throw error;
-    }
-
-    try {
-      await activeFixture.reset();
-    } catch (error: unknown) {
-      rebuildRequired = true;
-      throw error;
-    }
-  };
-
-  return fn => {
-    const operation = settled.then(() => run(fn));
-    // This tail owns drainage only. The returned operation preserves the exact
-    // callback/reset rejection for its caller without poisoning later borrows.
-    settled = operation.then(() => undefined, () => undefined);
-    // Keep caller rejection observation separate from the handled drain tail.
-    return operation.then(() => undefined);
-  };
+  return useFileScopedPersistence(createFileScopedPostgresFixture, postgresUrl !== null);
 }
 
 export async function withTemporaryPostgresSchema(
@@ -539,14 +488,11 @@ export async function withTemporaryPostgresPersistencePair(
   }
 }
 
-export interface FileScopedPostgresFixture {
-  readonly persistence: PostgresFlarexPersistence;
+export interface FileScopedPostgresFixture extends FileScopedPersistenceFixture<PostgresFlarexPersistence> {
   readonly schemaName: string;
   readonly migrationsSchema: string;
   readonly migrationsTable: string;
   readonly installationTiming: Readonly<{ baseMigration: Readonly<{ migrationMs: number }> }>;
-  readonly reset: () => Promise<void>;
-  readonly dispose: () => Promise<void>;
 }
 
 export async function createFileScopedPostgresFixture(

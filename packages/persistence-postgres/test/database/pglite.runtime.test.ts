@@ -22,13 +22,14 @@ import {
   upsertLiveQuerySubscription,
 } from "../../src";
 import { deployments } from "../../src/database/schema";
-import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
+import { useFileScopedPGliteRuntimePersistence } from "../support/pgliteTestFixture";
+
+const withPersistence = useFileScopedPGliteRuntimePersistence();
 
 const anonymousIdentityFingerprint = executionIdentityFingerprint({ kind: "anonymous" });
 
 describe("createPGlitePersistence runtime", () => {
-  it("rolls back failed transactions", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rolls back failed transactions", async () => withPersistence(async persistence => {
 
     await expect(
       persistence.transaction(async (tx) => {
@@ -45,10 +46,9 @@ describe("createPGlitePersistence runtime", () => {
       ["deployment_a"],
     );
     expect(rows.rows).toEqual([]);
-  });
+  }));
 
-  it("executes Drizzle raw SQL on persistence and transaction clients", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("executes Drizzle raw SQL on persistence and transaction clients", async () => withPersistence(async persistence => {
 
     await persistence.execute(sql`
       insert into deployments (deployment_id, project_id)
@@ -74,10 +74,9 @@ describe("createPGlitePersistence runtime", () => {
         { deployment_id: "deployment_d" },
       ],
     });
-  });
+  }));
 
-  it("exposes Drizzle for typed metadata access", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("exposes Drizzle for typed metadata access", async () => withPersistence(async persistence => {
 
     await persistence.drizzle.insert(deployments).values({
       deploymentId: "deployment_b",
@@ -93,10 +92,9 @@ describe("createPGlitePersistence runtime", () => {
         activeSchemaVersion: 0,
       },
     ]);
-  });
+  }));
 
-  it("inserts and reads deployment metadata", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("inserts and reads deployment metadata", async () => withPersistence(async persistence => {
 
     const created = await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_meta",
@@ -121,18 +119,16 @@ describe("createPGlitePersistence runtime", () => {
       activePackageId: "package_meta",
       activeSchemaVersion: 2,
     });
-  });
+  }));
 
-  it("returns null for missing deployment metadata", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("returns null for missing deployment metadata", async () => withPersistence(async persistence => {
 
     await expect(
       persistence.getDeploymentMetadata("missing"),
     ).resolves.toBeNull();
-  });
+  }));
 
-  it("lists deployment metadata in stable cursor batches", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("lists deployment metadata in stable cursor batches", async () => withPersistence(async persistence => {
 
     for (const deploymentId of [
       "deployment_b",
@@ -185,10 +181,9 @@ describe("createPGlitePersistence runtime", () => {
       nextCursor: null,
       hasMore: false,
     });
-  });
+  }));
 
-  it("updates deployment activation metadata", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("updates deployment activation metadata", async () => withPersistence(async persistence => {
 
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_activate",
@@ -207,10 +202,9 @@ describe("createPGlitePersistence runtime", () => {
       activePackageId: "package_activate",
       activeSchemaVersion: 3,
     });
-  });
+  }));
 
-  it("returns null when updating activation for missing deployment metadata", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("returns null when updating activation for missing deployment metadata", async () => withPersistence(async persistence => {
 
     await expect(
       persistence.updateDeploymentMetadataActivation({
@@ -219,10 +213,9 @@ describe("createPGlitePersistence runtime", () => {
         activeSchemaVersion: 1,
       }),
     ).resolves.toBeNull();
-  });
+  }));
 
-  it("rejects duplicate deployment metadata clearly", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects duplicate deployment metadata clearly", async () => withPersistence(async persistence => {
 
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_dup",
@@ -235,10 +228,9 @@ describe("createPGlitePersistence runtime", () => {
         projectId: "project_dup",
       }),
     ).rejects.toThrow(DeploymentMetadataAlreadyExistsError);
-  });
+  }));
 
-  it("inserts and reads deployment package metadata", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("inserts and reads deployment package metadata", async () => withPersistence(async persistence => {
 
     const created = await persistence.insertDeploymentPackageMetadata({
       deploymentId: "deployment_package",
@@ -306,18 +298,16 @@ describe("createPGlitePersistence runtime", () => {
         authConfigModule: "flarex/auth.config.ts",
       },
     });
-  });
+  }));
 
-  it("returns null for missing deployment package metadata", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("returns null for missing deployment package metadata", async () => withPersistence(async persistence => {
 
     await expect(
       persistence.getDeploymentPackageMetadata("deployment_package", "missing"),
     ).resolves.toBeNull();
-  });
+  }));
 
-  it("rejects duplicate deployment package metadata clearly", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects duplicate deployment package metadata clearly", async () => withPersistence(async persistence => {
 
     const input = {
       deploymentId: "deployment_package_dup",
@@ -336,10 +326,9 @@ describe("createPGlitePersistence runtime", () => {
     await expect(
       persistence.insertDeploymentPackageMetadata(input),
     ).rejects.toThrow(DeploymentPackageMetadataAlreadyExistsError);
-  });
+  }));
 
-  it("inserts and reads invoke session metadata", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("inserts and reads invoke session metadata", async () => withPersistence(async persistence => {
 
     const created = await persistence.insertInvokeSessionMetadata({
       deploymentId: "deployment_invoke",
@@ -431,18 +420,16 @@ describe("createPGlitePersistence runtime", () => {
       sessionId: "session_user",
       identityJson: userIdentity,
     });
-  });
+  }));
 
-  it("returns null for missing invoke session metadata", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("returns null for missing invoke session metadata", async () => withPersistence(async persistence => {
 
     await expect(
       persistence.getInvokeSessionMetadata("deployment_invoke", "missing"),
     ).resolves.toBeNull();
-  });
+  }));
 
-  it("marks invoke session metadata as finished", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("marks invoke session metadata as finished", async () => withPersistence(async persistence => {
 
     await persistence.insertInvokeSessionMetadata({
       deploymentId: "deployment_invoke_finish",
@@ -475,10 +462,9 @@ describe("createPGlitePersistence runtime", () => {
       state: "finished",
       finishedAt,
     });
-  });
+  }));
 
-  it("aborts only stale active invoke session metadata", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("aborts only stale active invoke session metadata", async () => withPersistence(async persistence => {
 
     const baseInput = {
       deploymentId: "deployment_invoke_stale",
@@ -555,10 +541,9 @@ describe("createPGlitePersistence runtime", () => {
         "session_old_finished",
       ),
     ).resolves.toMatchObject({ state: "finished" });
-  });
+  }));
 
-  it("aborts stale invoke session metadata in oldest-first batches", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("aborts stale invoke session metadata in oldest-first batches", async () => withPersistence(async persistence => {
 
     const baseInput = {
       deploymentId: "deployment_invoke_stale_batch",
@@ -617,10 +602,9 @@ describe("createPGlitePersistence runtime", () => {
         "session_c",
       ),
     ).resolves.toMatchObject({ state: "active" });
-  });
+  }));
 
-  it("rejects duplicate invoke session metadata clearly", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects duplicate invoke session metadata clearly", async () => withPersistence(async persistence => {
 
     const input = {
       deploymentId: "deployment_invoke_dup",
@@ -645,10 +629,9 @@ describe("createPGlitePersistence runtime", () => {
     await expect(
       persistence.insertInvokeSessionMetadata(input),
     ).rejects.toThrow(InvokeSessionMetadataAlreadyExistsError);
-  });
+  }));
 
-  it("inserts and reads document revisions at a timestamp", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("inserts and reads document revisions at a timestamp", async () => withPersistence(async persistence => {
 
     await persistence.insertDocumentRevision({
       deploymentId: "deployment_docs",
@@ -684,10 +667,9 @@ describe("createPGlitePersistence runtime", () => {
       value: { text: "new" },
       prevTs: 10,
     });
-  });
+  }));
 
-  it("returns deleted document revisions so callers can record the read", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("returns deleted document revisions so callers can record the read", async () => withPersistence(async persistence => {
 
     await persistence.insertDocumentRevision({
       deploymentId: "deployment_docs_deleted",
@@ -717,10 +699,9 @@ describe("createPGlitePersistence runtime", () => {
       deleted: true,
       prevTs: 10,
     });
-  });
+  }));
 
-  it("rejects malformed document ids in document persistence helpers", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects malformed document ids in document persistence helpers", async () => withPersistence(async persistence => {
 
     await expect(
       persistence.insertDocumentRevision({
@@ -730,10 +711,9 @@ describe("createPGlitePersistence runtime", () => {
         value: null,
       }),
     ).rejects.toThrow(FlarexDocumentIdFormatError);
-  });
+  }));
 
-  it("dedupes and lists invoke session document reads", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("dedupes and lists invoke session document reads", async () => withPersistence(async persistence => {
 
     await persistence.insertInvokeSessionDocumentRead({
       deploymentId: "deployment_reads",
@@ -778,10 +758,9 @@ describe("createPGlitePersistence runtime", () => {
         observedTs: null,
       },
     ]);
-  });
+  }));
 
-  it("lists latest visible documents in a table at a snapshot", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("lists latest visible documents in a table at a snapshot", async () => withPersistence(async persistence => {
 
     await persistence.insertDocumentRevision({
       deploymentId: "deployment_table_scan",
@@ -828,10 +807,9 @@ describe("createPGlitePersistence runtime", () => {
     ).resolves.toMatchObject([
       { id: "1:a", ts: 20, value: { text: "updated" } },
     ]);
-  });
+  }));
 
-  it("dedupes and lists invoke session table reads", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("dedupes and lists invoke session table reads", async () => withPersistence(async persistence => {
 
     await persistence.insertInvokeSessionTableRead({
       deploymentId: "deployment_table_reads",
@@ -871,10 +849,9 @@ describe("createPGlitePersistence runtime", () => {
         observedTs: 10,
       },
     ]);
-  });
+  }));
 
-  it("stages and lists invoke session document writes", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("stages and lists invoke session document writes", async () => withPersistence(async persistence => {
 
     const first = await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_writes",
@@ -923,10 +900,9 @@ describe("createPGlitePersistence runtime", () => {
         valueJson: { title: "Intro" },
       },
     ]);
-  });
+  }));
 
-  it("rejects duplicate invoke session document inserts clearly", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects duplicate invoke session document inserts clearly", async () => withPersistence(async persistence => {
 
     const input = {
       deploymentId: "deployment_writes_dup",
@@ -942,10 +918,9 @@ describe("createPGlitePersistence runtime", () => {
     await expect(
       persistence.stageInvokeSessionDocumentWrite(input),
     ).rejects.toThrow(InvokeSessionDocumentWriteAlreadyExistsError);
-  });
+  }));
 
-  it("rejects invalid staged write values before changing storage", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects invalid staged write values before changing storage", async () => withPersistence(async persistence => {
     const identity = {
       deploymentId: "deployment_invalid_writes",
       sessionId: "session_invalid_writes",
@@ -1003,10 +978,9 @@ describe("createPGlitePersistence runtime", () => {
     ).resolves.toMatchObject([
       { op: "patch", valueJson: { count: 1 } },
     ]);
-  });
+  }));
 
-  it("coalesces repeated staged writes for one document", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("coalesces repeated staged writes for one document", async () => withPersistence(async persistence => {
 
     await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_writes_coalesce",
@@ -1262,10 +1236,9 @@ describe("createPGlitePersistence runtime", () => {
         valueJson: { text: "bad" },
       }),
     ).rejects.toThrow(InvokeSessionDocumentWriteConflictError);
-  });
+  }));
 
-  it("commits staged invoke session inserts atomically", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("commits staged invoke session inserts atomically", async () => withPersistence(async persistence => {
 
     await persistence.insertInvokeSessionMetadata({
       deploymentId: "deployment_commit",
@@ -1367,10 +1340,9 @@ describe("createPGlitePersistence runtime", () => {
       nextCursor: null,
       hasMore: false,
     });
-  });
+  }));
 
-  it("maintains enabled index entries for staged inserts", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("maintains enabled index entries for staged inserts", async () => withPersistence(async persistence => {
 
     await insertIndexedPackageAndSession(persistence, {
       deploymentId: "deployment_index_insert",
@@ -1408,10 +1380,9 @@ describe("createPGlitePersistence runtime", () => {
     ).resolves.toMatchObject({
       rows: [{ ts: 101, deleted: false, rows: 1 }],
     });
-  });
+  }));
 
-  it("lists documents through maintained index entries at a snapshot", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("lists documents through maintained index entries at a snapshot", async () => withPersistence(async persistence => {
 
     await insertIndexedPackageAndSession(persistence, {
       deploymentId: "deployment_index_query",
@@ -1455,10 +1426,9 @@ describe("createPGlitePersistence runtime", () => {
       ],
       isDone: true,
     });
-  });
+  }));
 
-  it("rejects mutation commits when an index read range changed", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects mutation commits when an index read range changed", async () => withPersistence(async persistence => {
     const bounds = indexBoundsForExpressions(["text"], [
       { op: "eq", field: "text", value: "new" },
     ]);
@@ -1518,10 +1488,9 @@ describe("createPGlitePersistence runtime", () => {
     await expect(
       persistence.getDocumentRevisionAtTs("deployment_index_occ", "1:other", 103),
     ).resolves.toBeNull();
-  });
+  }));
 
-  it("checks changed index entries with timestamp and key range predicates", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("checks changed index entries with timestamp and key range predicates", async () => withPersistence(async persistence => {
     const helloBounds = indexBoundsForExpressions(["text"], [
       { op: "eq", field: "text", value: "hello" },
     ]);
@@ -1646,10 +1615,9 @@ describe("createPGlitePersistence runtime", () => {
         ...helloBounds,
       }),
     ).resolves.toBe(false);
-  });
+  }));
 
-  it("maintains enabled index tombstones and replacement entries for staged patches", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("maintains enabled index tombstones and replacement entries for staged patches", async () => withPersistence(async persistence => {
 
     await insertIndexedPackageAndSession(persistence, {
       deploymentId: "deployment_index_patch",
@@ -1719,10 +1687,9 @@ describe("createPGlitePersistence runtime", () => {
         { ts: 102, deleted: true, rows: 1 },
       ],
     });
-  });
+  }));
 
-  it("maintains enabled index tombstones for staged deletes", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("maintains enabled index tombstones for staged deletes", async () => withPersistence(async persistence => {
 
     await insertIndexedPackageAndSession(persistence, {
       deploymentId: "deployment_index_delete",
@@ -1791,10 +1758,9 @@ describe("createPGlitePersistence runtime", () => {
         { ts: 102, deleted: true, rows: 1 },
       ],
     });
-  });
+  }));
 
-  it("commits staged invoke session patches after read validation", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("commits staged invoke session patches after read validation", async () => withPersistence(async persistence => {
 
     await persistence.insertDocumentRevision({
       deploymentId: "deployment_patch_commit",
@@ -1864,10 +1830,9 @@ describe("createPGlitePersistence runtime", () => {
       prevTs: 10,
       value: { text: "old", count: 2 },
     });
-  });
+  }));
 
-  it("commits staged invoke session replacements after read validation", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("commits staged invoke session replacements after read validation", async () => withPersistence(async persistence => {
 
     await persistence.insertDocumentRevision({
       deploymentId: "deployment_replace_commit",
@@ -1937,10 +1902,9 @@ describe("createPGlitePersistence runtime", () => {
       prevTs: 10,
       value: { text: "new", count: 2 },
     });
-  });
+  }));
 
-  it("rolls back staged replace commits when the target is missing", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rolls back staged replace commits when the target is missing", async () => withPersistence(async persistence => {
 
     await persistence.insertInvokeSessionMetadata({
       deploymentId: "deployment_replace_missing",
@@ -1983,10 +1947,9 @@ describe("createPGlitePersistence runtime", () => {
       state: "active",
       finishedAt: null,
     });
-  });
+  }));
 
-  it("validates staged inserts against package schema before commit", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("validates staged inserts against package schema before commit", async () => withPersistence(async persistence => {
 
     await insertValidatedPackageAndSession(persistence, {
       deploymentId: "deployment_validate_insert",
@@ -2019,10 +1982,9 @@ describe("createPGlitePersistence runtime", () => {
         },
       ],
     });
-  });
+  }));
 
-  it("rejects staged inserts that fail package schema validation", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects staged inserts that fail package schema validation", async () => withPersistence(async persistence => {
 
     await insertValidatedPackageAndSession(persistence, {
       deploymentId: "deployment_validate_bad_insert",
@@ -2059,10 +2021,9 @@ describe("createPGlitePersistence runtime", () => {
         "session_validate",
       ),
     ).resolves.toMatchObject({ state: "active", finishedAt: null });
-  });
+  }));
 
-  it("validates staged patches against the merged final document", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("validates staged patches against the merged final document", async () => withPersistence(async persistence => {
 
     await persistence.insertDocumentRevision({
       deploymentId: "deployment_validate_patch",
@@ -2103,10 +2064,9 @@ describe("createPGlitePersistence runtime", () => {
       committedTs: 16,
       writes: [{ id: "1:message", value: { text: "old", count: 2 } }],
     });
-  });
+  }));
 
-  it("rejects staged patches when the merged final document is invalid", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects staged patches when the merged final document is invalid", async () => withPersistence(async persistence => {
 
     await persistence.insertDocumentRevision({
       deploymentId: "deployment_validate_bad_patch",
@@ -2154,10 +2114,9 @@ describe("createPGlitePersistence runtime", () => {
       ts: 10,
       value: { text: "old", count: 1 },
     });
-  });
+  }));
 
-  it("rolls back staged patch commits when the target is not an object", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rolls back staged patch commits when the target is not an object", async () => withPersistence(async persistence => {
 
     await persistence.insertDocumentRevision({
       deploymentId: "deployment_patch_non_object",
@@ -2225,10 +2184,9 @@ describe("createPGlitePersistence runtime", () => {
         limit: 10,
       }),
     ).resolves.toMatchObject({ events: [] });
-  });
+  }));
 
-  it("lists and marks undelivered outbox events", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("lists and marks undelivered outbox events", async () => withPersistence(async persistence => {
 
     await persistence.insertOutboxEvent({
       deploymentId: "deployment_outbox_delivery",
@@ -2298,10 +2256,9 @@ describe("createPGlitePersistence runtime", () => {
         { ts: 11, sequence: 0, deliveredAt: null },
       ],
     });
-  });
+  }));
 
-  it("pages undelivered outbox events and ignores already delivered marks", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("pages undelivered outbox events and ignores already delivered marks", async () => withPersistence(async persistence => {
 
     for (const ts of [10, 11, 12]) {
       await persistence.insertOutboxEvent({
@@ -2355,10 +2312,9 @@ describe("createPGlitePersistence runtime", () => {
         deliveredAt: new Date("2026-06-20T02:00:00.000Z"),
       }),
     ).resolves.toEqual({ delivered: 0 });
-  });
+  }));
 
-  it("applies durable freshness commits idempotently", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("applies durable freshness commits idempotently", async () => withPersistence(async persistence => {
 
     await expect(
       persistence.applyFreshnessCommit({
@@ -2419,10 +2375,9 @@ describe("createPGlitePersistence runtime", () => {
       documentVersions: [],
       tableVersions: [],
     });
-  });
+  }));
 
-  it("does not regress durable freshness versions", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("does not regress durable freshness versions", async () => withPersistence(async persistence => {
 
     await persistence.applyFreshnessCommit({
       eventKey: {
@@ -2462,10 +2417,9 @@ describe("createPGlitePersistence runtime", () => {
       outboxTs: 20,
       outboxSequence: 0,
     });
-  });
+  }));
 
-  it("upserts and lists live query subscriptions", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("upserts and lists live query subscriptions", async () => withPersistence(async persistence => {
 
     await expect(
       persistence.upsertLiveQuerySubscription({
@@ -2571,10 +2525,9 @@ describe("createPGlitePersistence runtime", () => {
       { connectionId: "connection_a", queryId: 2, partitionKey: "team_a" },
       { connectionId: "connection_b", queryId: 1, partitionKey: "team_b" },
     ]);
-  });
+  }));
 
-  it("uses transaction time for an implicit live query subscription update timestamp", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("uses transaction time for an implicit live query subscription update timestamp", async () => withPersistence(async persistence => {
     const key = {
       deploymentId: "deployment_live_query_database_time",
       connectionId: "connection_database_time",
@@ -2616,10 +2569,9 @@ describe("createPGlitePersistence runtime", () => {
 
       expect(updated.updatedAt.getTime()).toBe(transactionNowMs);
     });
-  });
+  }));
 
-  it("preserves JSON null in live query jsonb columns", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("preserves JSON null in live query jsonb columns", async () => withPersistence(async persistence => {
 
     await persistence.upsertLiveQuerySubscription({
       deploymentId: "deployment_live_query_json_null",
@@ -2685,10 +2637,9 @@ describe("createPGlitePersistence runtime", () => {
       deliveries: [{ deliveryId: "delivery_json_null", payloadJson: null }],
       hasMore: false,
     });
-  });
+  }));
 
-  it("tracks active live query subscriptions through connection leases", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("tracks active live query subscriptions through connection leases", async () => withPersistence(async persistence => {
     const activeAt = new Date("2026-06-20T00:00:30.000Z");
 
     await persistence.upsertLiveQueryConnectionLease({
@@ -2772,10 +2723,9 @@ describe("createPGlitePersistence runtime", () => {
         ["deployment_live_query_leases"],
       ),
     ).resolves.toMatchObject({ rows: [{ count: 1 }] });
-  });
+  }));
 
-  it("lists deployments with expired live query connection leases", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("lists deployments with expired live query connection leases", async () => withPersistence(async persistence => {
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_expired_a",
       projectId: "project_a",
@@ -2848,10 +2798,9 @@ describe("createPGlitePersistence runtime", () => {
       ],
       hasMore: false,
     });
-  });
+  }));
 
-  it("uses deployment id as expired live query connection deployment cursor tie breaker", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("uses deployment id as expired live query connection deployment cursor tie breaker", async () => withPersistence(async persistence => {
 
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_tie_a",
@@ -2892,10 +2841,9 @@ describe("createPGlitePersistence runtime", () => {
       "deployment_tie_b",
     ]);
     expect(second.hasMore).toBe(false);
-  });
+  }));
 
-  it("replaces and deletes live query subscriptions by key", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("replaces and deletes live query subscriptions by key", async () => withPersistence(async persistence => {
 
     await persistence.upsertLiveQuerySubscription({
       deploymentId: "deployment_live_query_replace",
@@ -2960,10 +2908,9 @@ describe("createPGlitePersistence runtime", () => {
         deploymentId: "deployment_live_query_replace",
       }),
     ).resolves.toEqual([]);
-  });
+  }));
 
-  it("deletes all live query subscriptions for a connection", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("deletes all live query subscriptions for a connection", async () => withPersistence(async persistence => {
 
     await persistence.upsertLiveQuerySubscription({
       deploymentId: "deployment_live_query_connection_delete",
@@ -3025,10 +2972,9 @@ describe("createPGlitePersistence runtime", () => {
         resultHash: "hash_other",
       },
     ]);
-  });
+  }));
 
-  it("round-trips JSON null live query args and results", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("round-trips JSON null live query args and results", async () => withPersistence(async persistence => {
 
     await expect(
       persistence.upsertLiveQuerySubscription({
@@ -3073,10 +3019,9 @@ describe("createPGlitePersistence runtime", () => {
         ["deployment_live_query_null"],
       ),
     ).resolves.toMatchObject({ rows: [{ count: 0 }] });
-  });
+  }));
 
-  it("records live query rerun results with durable delivery rows", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("records live query rerun results with durable delivery rows", async () => withPersistence(async persistence => {
     const createdAt = new Date("2026-06-20T00:10:00.000Z");
 
     await expect(
@@ -3161,10 +3106,9 @@ describe("createPGlitePersistence runtime", () => {
       deliveries: [],
       hasMore: false,
     });
-  });
+  }));
 
-  it("records live query rerun failures by removing the subscription and keeping a delivery row", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("records live query rerun failures by removing the subscription and keeping a delivery row", async () => withPersistence(async persistence => {
     const createdAt = new Date("2026-06-20T00:20:00.000Z");
 
     await persistence.upsertLiveQuerySubscription({
@@ -3241,10 +3185,9 @@ describe("createPGlitePersistence runtime", () => {
       ],
       hasMore: false,
     });
-  });
+  }));
 
-  it("leases live query deliveries during claim and reclaims expired leases", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("leases live query deliveries during claim and reclaims expired leases", async () => withPersistence(async persistence => {
 
     await persistence.insertLiveQueryDelivery({
       deploymentId: "deployment_delivery_lease",
@@ -3360,10 +3303,9 @@ describe("createPGlitePersistence runtime", () => {
       ],
       hasMore: false,
     });
-  });
+  }));
 
-  it("returns a concrete cursor for live query delivery claim pages with more rows", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("returns a concrete cursor for live query delivery claim pages with more rows", async () => withPersistence(async persistence => {
 
     await persistence.insertLiveQueryDelivery({
       deploymentId: "deployment_claim_cursor",
@@ -3429,10 +3371,9 @@ describe("createPGlitePersistence runtime", () => {
       nextCursor: null,
       hasMore: false,
     });
-  });
+  }));
 
-  it("does not return the same live query delivery to concurrent claimers", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("does not return the same live query delivery to concurrent claimers", async () => withPersistence(async persistence => {
 
     await persistence.insertLiveQueryDelivery({
       deploymentId: "deployment_concurrent_claim",
@@ -3497,10 +3438,9 @@ describe("createPGlitePersistence runtime", () => {
         claimOwner: winner.claimOwner!,
       }),
     ).resolves.toEqual({ delivered: 1 });
-  });
+  }));
 
-  it("lists deployments with pending live query deliveries", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("lists deployments with pending live query deliveries", async () => withPersistence(async persistence => {
 
     await persistence.insertLiveQueryDelivery({
       deploymentId: "deployment_pending_b",
@@ -3574,10 +3514,9 @@ describe("createPGlitePersistence runtime", () => {
       nextCursor: null,
       hasMore: false,
     });
-  });
+  }));
 
-  it("records live query delivery failures without acking the row", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("records live query delivery failures without acking the row", async () => withPersistence(async persistence => {
 
     await persistence.insertLiveQueryDelivery({
       deploymentId: "deployment_delivery_failure",
@@ -3617,10 +3556,9 @@ describe("createPGlitePersistence runtime", () => {
       ],
       hasMore: false,
     });
-  });
+  }));
 
-  it("lists stuck live query delivery candidates", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("lists stuck live query delivery candidates", async () => withPersistence(async persistence => {
 
     await persistence.insertLiveQueryDelivery({
       deploymentId: "deployment_stuck_a",
@@ -3745,10 +3683,9 @@ describe("createPGlitePersistence runtime", () => {
       ],
       hasMore: false,
     });
-  });
+  }));
 
-  it("marks live query deliveries dead-lettered", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("marks live query deliveries dead-lettered", async () => withPersistence(async persistence => {
 
     await persistence.insertLiveQueryDelivery({
       deploymentId: "deployment_dead_letter",
@@ -3803,10 +3740,9 @@ describe("createPGlitePersistence runtime", () => {
       deliveries: [],
       hasMore: false,
     });
-  });
+  }));
 
-  it("commits staged invoke session deletes after read validation", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("commits staged invoke session deletes after read validation", async () => withPersistence(async persistence => {
 
     await persistence.insertDocumentRevision({
       deploymentId: "deployment_delete_commit",
@@ -3877,10 +3813,9 @@ describe("createPGlitePersistence runtime", () => {
       deleted: true,
       value: null,
     });
-  });
+  }));
 
-  it("rolls back staged delete commits when the target is missing", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rolls back staged delete commits when the target is missing", async () => withPersistence(async persistence => {
 
     await persistence.insertInvokeSessionMetadata({
       deploymentId: "deployment_delete_missing",
@@ -3929,10 +3864,9 @@ describe("createPGlitePersistence runtime", () => {
         ["deployment_delete_missing"],
       ),
     ).resolves.toMatchObject({ rows: [{ count: 0 }] });
-  });
+  }));
 
-  it("rejects staged delete commits when the target changed", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects staged delete commits when the target changed", async () => withPersistence(async persistence => {
 
     await persistence.insertDocumentRevision({
       deploymentId: "deployment_delete_occ",
@@ -3997,10 +3931,9 @@ describe("createPGlitePersistence runtime", () => {
       deleted: false,
       value: { text: "new" },
     });
-  });
+  }));
 
-  it("rolls back staged invoke insert commits on document id conflict", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rolls back staged invoke insert commits on document id conflict", async () => withPersistence(async persistence => {
 
     await persistence.insertDocumentRevision({
       deploymentId: "deployment_commit_conflict",
@@ -4055,10 +3988,9 @@ describe("createPGlitePersistence runtime", () => {
         ["deployment_commit_conflict"],
       ),
     ).resolves.toMatchObject({ rows: [{ count: 0 }] });
-  });
+  }));
 
-  it("rejects mutation commits when a read document changed", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects mutation commits when a read document changed", async () => withPersistence(async persistence => {
 
     await persistence.insertDocumentRevision({
       deploymentId: "deployment_occ",
@@ -4121,10 +4053,9 @@ describe("createPGlitePersistence runtime", () => {
     await expect(
       persistence.getDocumentRevisionAtTs("deployment_occ", "1:other", 100),
     ).resolves.toBeNull();
-  });
+  }));
 
-  it("rejects mutation commits when a missing read document appears", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects mutation commits when a missing read document appears", async () => withPersistence(async persistence => {
 
     await persistence.insertDocumentRevision({
       deploymentId: "deployment_occ_missing",
@@ -4163,10 +4094,9 @@ describe("createPGlitePersistence runtime", () => {
         minimumTs: 15,
       }),
     ).rejects.toThrow(InvokeSessionOccConflictError);
-  });
+  }));
 
-  it("rejects mutation commits when a table read changed", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects mutation commits when a table read changed", async () => withPersistence(async persistence => {
 
     await persistence.insertDocumentRevision({
       deploymentId: "deployment_table_occ",
@@ -4215,10 +4145,10 @@ describe("createPGlitePersistence runtime", () => {
     await expect(
       persistence.getDocumentRevisionAtTs("deployment_table_occ", "2:other", 30),
     ).resolves.toBeNull();
-  });
+  }));
 });
 
-type TestPersistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
+type TestPersistence = Parameters<Parameters<typeof withPersistence>[0]>[0];
 
 async function insertValidatedPackageAndSession(
   persistence: TestPersistence,
