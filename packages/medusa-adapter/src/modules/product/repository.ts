@@ -20,14 +20,14 @@ import { captureCategoryProjection } from "./category-projection";
 import { findCategoryRows, insertCategoryRows, updateCategoryRows } from "./category-repository";
 import { changeProductLifecycle } from "./lifecycle";
 
-export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct" | "deletion" | "typeWorkflow";
+export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct" | "deletion" | "typeWorkflow" | "collectionWorkflow";
 const decodeCollectionReplacement = commerceDecoder(Schema.Array(Schema.Struct({
   id: ProductRelationshipId, productIds: ProductRelationshipIds,
 })).check(Schema.isLengthBetween(1, 1)), "invalidInput");
 
 /** Request-owned DAL composition; all framework transaction methods borrow core. */
 export function productRepository(root: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata, profile: ProductRepositoryProfile = "public") {
-  const collectionMembership = profile === "collectionMembership";
+  const collectionMembership = profile === "collectionMembership" || profile === "collectionWorkflow";
   const categoryProjection = profile === "categoryProjection";
   const internalProduct = profile === "internalProduct";
   const bridge = commerceRepositoryContext(root, owner);
@@ -52,7 +52,8 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     })))));
   const lifecycle = (entity: ProductEntityMetadata, operation: "softDelete" | "restore"): DAL.RepositoryService["softDelete"] => (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
     const result = yield* changeProductLifecycle(ctx, metadata, entity, operation, input,
-      profile === "deletion" ? "product-deletions" : profile === "typeWorkflow" ? "type-workflows" : "standard");
+      profile === "deletion" ? "product-deletions" : profile === "typeWorkflow" ? "type-workflows"
+        : profile === "collectionWorkflow" ? "collection-workflows" : "standard");
     if (shared === undefined || (operation === "softDelete" && !events.isSubscribed(shared))) return yield* ctx.refuse(commerceError("unadmittedEvent"));
     // Preserve the pinned Drizzle subscriber's lifecycle callback convention,
     // including restored events for selected already-active rows. Core records
@@ -76,7 +77,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       return value as Output;
     })),
     find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, collectionMembership
-      ? findCollectionMembershipProducts(ctx, metadata, input) : findProducts(ctx, metadata, input, false, internalProduct).pipe(Effect.map(value => value.rows))).pipe(Effect.map(rows => structuredClone(rows)))),
+      ? findCollectionMembershipProducts(ctx, metadata, input, profile === "collectionWorkflow") : findProducts(ctx, metadata, input, false, internalProduct).pipe(Effect.map(value => value.rows))).pipe(Effect.map(rows => structuredClone(rows)))),
     findAndCount: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProducts(ctx, metadata, input, true, internalProduct)).pipe(Effect.flatMap(value =>
       bridge.checked(ctx, Effect.fromResult(decodeProductCount(value))).pipe(Effect.map(decoded =>
         [structuredClone([...decoded.rows]), decoded.count] satisfies [Array<typeof decoded.rows[number]>, number]))))),
@@ -91,7 +92,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       ["tags", "categories", "collection", "type"], metadata.queryRelations, new Map());
     }))),
     update: collectionMembership || internalProduct ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-      const rows = collectionMembership ? yield* updateCollectionMembershipProducts(ctx, metadata, input)
+      const rows = collectionMembership ? yield* updateCollectionMembershipProducts(ctx, metadata, input, profile === "collectionWorkflow")
         : yield* Effect.gen(function* () {
           const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
           const updates = yield* Effect.fromResult(metadata.valueProfile.decodeRelatedUpdatePairs(metadata.product.table.name, captured));
@@ -106,17 +107,18 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
   };
   /** Table-bound repositories share this request's bridge and subscriber set. */
   const findRelated = Effect.fn("ProductAdapter.findRelatedForProfile")((ctx: CommerceCommandContext, entity: ProductEntityMetadata, input: unknown, withCount: boolean) =>
-    findProductRelated(ctx, metadata, entity, input, withCount).pipe(Effect.flatMap(result => {
-      // Native Type selector update performs its own full list before keyed
+    findProductRelated(ctx, metadata, entity, input, withCount, profile === "collectionWorkflow" && entity === metadata.collection).pipe(Effect.flatMap(result => {
+      // Native selector update performs its own full list before keyed
       // writes. Refuse a fifth selected root instead of updating a page prefix.
-      if (profile === "typeWorkflow" && entity === metadata.type &&
+      if ((profile === "typeWorkflow" && entity === metadata.type || profile === "collectionWorkflow" && entity === metadata.collection) &&
         (result.rows.length > 4 || result.count !== undefined && result.count > 4))
         return ctx.refuse(commerceError("unsupportedProfile"));
       return Effect.succeed(result);
     })));
   const relatedRepository = (entity: ProductEntityMetadata): DAL.RepositoryService => ({
     ...repository,
-    delete: deleteRows(entity), softDelete: [metadata.variant, metadata.tag].includes(entity) || profile === "typeWorkflow" && entity === metadata.type
+    delete: deleteRows(entity), softDelete: [metadata.variant, metadata.tag].includes(entity) || profile === "typeWorkflow" && entity === metadata.type ||
+      profile === "collectionWorkflow" && entity === metadata.collection
       ? lifecycle(entity, "softDelete") : refuse, restore: refuse,
     update: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       if (![metadata.tag, metadata.type, metadata.collection, metadata.category, metadata.value].includes(entity)) return yield* ctx.refuse(commerceError("unsupportedProfile"));
@@ -183,10 +185,11 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
   return { repository, mutationPersistence, refuse, relatedRepository, categoryRepository,
     replaceCollectionMembership: (selections: readonly Readonly<{ id: string; productIds: readonly string[] }>[], shared: unknown) =>
       bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-        if (!collectionMembership || ctx.planReferenceReplacement === undefined ||
+        if (profile !== "collectionMembership" ||
           shared === null || typeof shared !== "object" || !events.isSubscribed(shared))
           return yield* ctx.refuse(commerceError("invalidAuthority"));
         const captured = yield* Effect.fromResult(captureCommerceInput(selections, ctx.resources));
+        if (ctx.planReferenceReplacement === undefined) return yield* ctx.refuse(commerceError("invalidAuthority"));
         const selected = (yield* Effect.fromResult(decodeCollectionReplacement(captured)))[0];
         if (selected === undefined) return yield* ctx.refuse(commerceError("invalidInput"));
         yield* ctx.planReferenceReplacement({ sourceTable: metadata.product.table.name,

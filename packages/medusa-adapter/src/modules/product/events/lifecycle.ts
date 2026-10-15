@@ -108,13 +108,13 @@ export function productLogicalInternalProductLifecycleEventPolicy(catalog: Produ
 /** Public native Product lifecycle admits the owned cascade and authenticates
  * an already-active restore without pretending that storage changed a row. */
 export function productLogicalLifecycleEventPolicy(catalog: ProductRuntimeMetadata,
-  operation: "softDelete" | "restore", target: "product" | "variant" | "type" = "product", namedCommand?: string) {
+  operation: "softDelete" | "restore", target: "product" | "variant" | "type" | "collection" = "product", namedCommand?: string) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const entities = target === "type" ? [catalog.type] : target === "variant" ? [catalog.variant]
+  const entities = target === "collection" ? [catalog.collection] : target === "type" ? [catalog.type] : target === "variant" ? [catalog.variant]
     : [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image];
   const byTable = new Map(entities.map(entity => [entity.table.name, entity]));
   const action = operation === "restore" ? CommonEvents.RESTORED : CommonEvents.DELETED;
-  const commandName = namedCommand ?? (target === "type" ? "productSoftDeleteTypesForWorkflow" : target === "variant" ? "productSoftDeleteVariant"
+  const commandName = namedCommand ?? (target === "collection" ? "productSoftDeleteCollectionsForWorkflow" : target === "type" ? "productSoftDeleteTypesForWorkflow" : target === "variant" ? "productSoftDeleteVariant"
     : operation === "restore" ? "productRestore" : "productSoftDelete");
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalLifecycle")(function* (call, activity) {
       const { mutations, lifecycle } = activity;
@@ -122,12 +122,13 @@ export function productLogicalLifecycleEventPolicy(catalog: ProductRuntimeMetada
     const requested = yield* Effect.fromResult(decodeProductLifecycleIds(call.input))
       .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
     const requestedIds = new Set(typeof requested === "string" ? [requested] : requested);
-    const rootTable = target === "type" ? catalog.type.table.name : target === "variant" ? catalog.variant.table.name : catalog.product.table.name;
+    const rootTable = target === "collection" ? catalog.collection.table.name : target === "type" ? catalog.type.table.name : target === "variant" ? catalog.variant.table.name : catalog.product.table.name;
     const evidence = lifecycleEvidence(activity);
     const pending = eligibleRoots(evidence, rootTable, requestedIds, operation);
     const selected = new Set(pending);
-    if (target === "type") {
-      const result = call.result, ids = isJsonObject(result) ? result.product_type_id : undefined;
+    if (target === "type" || target === "collection") {
+      const result = call.result, key = target === "type" ? "product_type_id" : "product_collection_id";
+      const ids = isJsonObject(result) ? result[key] : undefined;
       const empty = pending.size === 0 && isJsonObject(result) && Object.keys(result).length === 0;
       if (operation !== "softDelete" || !Array.isArray(call.input) || call.input.length > 4 || requestedIds.size > 4 ||
         activity.setNull.length !== 0 || activity.referenceReplacements.length !== 0 ||

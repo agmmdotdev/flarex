@@ -9,6 +9,8 @@ import { productDeletionWorkflowModule } from "./product-deletion-workflow";
 import { productBatchWorkflowModule } from "./product-batch-workflow";
 import { productTypeWorkflowModule } from "./product-type-workflow";
 import { productTypeCommands } from "./commands/type";
+import { productCollectionWorkflowModule } from "./product-collection-workflow";
+import { productCollectionCommands } from "./commands/collection";
 import { prepareProductCommandServices } from "./commands/services";
 import { productReadCommands } from "./commands/reads";
 import { productInternalCommands } from "./commands/internal";
@@ -29,6 +31,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
   const writes = productMutationCommands(services);
   const deletion = productDeletionCommands(services);
   const type = productTypeCommands(services);
+  const collection = productCollectionCommands(services);
   const commands = Object.freeze({
     internalProductList: internalProductRead("list"), internalProductRetrieve: internalProductRead("retrieve"),
     internalProductCreate: internalProductChange("create"), internalProductUpdate: internalProductChange("update"),
@@ -58,6 +61,8 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     countVariantsForDeletion: deletion.countVariants,
     createTypesForWorkflow: type.createTypes, listTypesForWorkflow: type.listTypes,
     updateTypesBySelector: type.updateTypesBySelector, softDeleteTypesForWorkflow: type.softDeleteTypes,
+    createCollectionsForWorkflow: collection.createCollections, listCollectionsForWorkflow: collection.listCollections,
+    updateCollectionsBySelector: collection.updateCollectionsBySelector, softDeleteCollectionsForWorkflow: collection.softDeleteCollections,
     countImages: reads.countImages, updateValues: writes.updateValues, updateCollections: writes.updateCollections,
     updateCategories: writes.updateCategories, upsertOptions: writes.upsertOptions, upsertVariants: writes.upsertVariants,
     upsertCollections: writes.upsertCollections, upsertCategories: writes.upsertCategories });
@@ -99,5 +104,8 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
   const productTypeWorkflow = yield* Effect.fromResult(productTypeWorkflowModule(description, type, graph,
     { created: metadata.type.createdEvent, updated: metadata.type.updatedEvent, deleted: metadata.type.deletedEvent },
     { ...logicalPolicy, commands: Object.values(commands) }));
-  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, productUpdateWorkflow, productDeletionWorkflow, productBatchWorkflow, productTypeWorkflow, logicalPolicy };
+  const productCollectionWorkflow = yield* Effect.fromResult(productCollectionWorkflowModule(description, collection, graph,
+    { created: metadata.collection.createdEvent, updated: metadata.collection.updatedEvent, deleted: metadata.collection.deletedEvent,
+      productUpdated: metadata.product.updatedEvent }, { ...logicalPolicy, commands: Object.values(commands) }));
+  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, productUpdateWorkflow, productDeletionWorkflow, productBatchWorkflow, productTypeWorkflow, productCollectionWorkflow, logicalPolicy };
 });

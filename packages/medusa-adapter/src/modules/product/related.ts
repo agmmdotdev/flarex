@@ -10,6 +10,7 @@ import { decodeGraphArray } from "./value-profile";
 import { compileProjection } from "../../query/projection";
 import { compileWhere } from "../../query/predicate";
 import { executeRead, orderedCatalog } from "../../query/read";
+import { preservePrimaryKeyOrFilterOrder } from "@medusajs/drizzle/relation-query";
 
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const decodeRelatedWhere = commerceDecoder(Schema.JsonObject, "unsupportedProfile");
@@ -24,6 +25,7 @@ const decodeOptions = commerceDecoder(Schema.Struct({
 /** Internal service reads share the command's manager; this is no public DAL. */
 export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(function* (
   ctx: Pick<CommerceCommandContext, "manager" | "table" | "resources">, metadata: ProductRuntimeMetadata, entity: ProductEntityMetadata, input: unknown, withCount: boolean,
+  nativeFilterOrder = false,
 ) {
   const captured = yield* Effect.fromResult(captureCommerceInput(input));
   const envelope = yield* Effect.fromResult(decodeEnvelope(captured));
@@ -41,7 +43,7 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
   if (decoded.kind === "and") children.push(...decoded.children);
   else children.push(decoded);
   const direction = options.orderBy?.id === "DESC" ? "desc" : "asc";
-  return yield* executeRead(ctx, metadata.readCatalog, {
+  const result = yield* executeRead(ctx, metadata.readCatalog, {
     table: entity.table.name, projection, paths: relations, withDeleted, relationFilters: [], ordering: new Map(),
     query: { fields: projection.storageFields, take: options.limit ?? 15, skip: options.offset ?? 0,
       order: { column: "id", direction }, predicate: { kind: "and", children } },
@@ -49,6 +51,9 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
       ? { kind: "catalog", order: "id", select: orderedCatalog(direction) }
       : { kind: "database", countAt: "afterPopulation" },
   }, withCount);
+  return nativeFilterOrder ? { ...result, rows: preservePrimaryKeyOrFilterOrder(result.rows, where,
+    entity.table.columns.filter(column => column.primaryKey).map(column => column.name),
+    [["id", direction === "desc" ? "DESC" : "ASC"]]) } : result;
 });
 
 export const updateProductRelated = Effect.fn("ProductAdapter.updateRelated")(function* (

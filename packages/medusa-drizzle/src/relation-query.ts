@@ -136,3 +136,49 @@ export function projectRowFields<Value>(
   }
   return projected
 }
+
+/** Pinned preservePrimaryKeyOrFilterOrder and its two selector helpers from
+ * medusa.ts. Only the row generic and explicit key guard adapt their types;
+ * default/id-ASC filter ordering retains the native in-place algorithm. */
+export function preservePrimaryKeyOrFilterOrder<Row extends Record<string, unknown>>(
+  rows: Row[],
+  where: unknown,
+  primaryKeys: readonly string[],
+  ordering: ReadonlyArray<readonly [string, "ASC" | "DESC"]>
+): Row[] {
+  const primaryKey = primaryKeys[0]
+  if (primaryKeys.length !== 1 || primaryKey === undefined ||
+    !canPreservePrimaryKeyOrFilterOrder(ordering, primaryKey)) {
+    return rows
+  }
+  const orderedPrimaryKeys = primaryKeyOrderFromFilter(where, primaryKey)
+  if (!orderedPrimaryKeys.length) return rows
+  const orderByPrimaryKey = new Map(
+    orderedPrimaryKeys.map((key, index) => [key, index])
+  )
+  return rows.sort((left, right) => {
+    const leftOrder = orderByPrimaryKey.get(String(left[primaryKey]))
+    const rightOrder = orderByPrimaryKey.get(String(right[primaryKey]))
+    if (leftOrder === undefined && rightOrder === undefined) return 0
+    if (leftOrder === undefined) return 1
+    if (rightOrder === undefined) return -1
+    return leftOrder - rightOrder
+  })
+}
+
+function canPreservePrimaryKeyOrFilterOrder(
+  ordering: ReadonlyArray<readonly [string, "ASC" | "DESC"]>, primaryKey: string
+): boolean {
+  return !ordering.length || (ordering.length === 1 &&
+    ordering[0]?.[0] === primaryKey && ordering[0][1] === "ASC")
+}
+
+function primaryKeyOrderFromFilter(where: unknown, primaryKey: string): string[] {
+  if (!where || typeof where !== "object" || Array.isArray(where)) return []
+  const orFilter = Reflect.get(where, "$or")
+  if (Array.isArray(orFilter)) return orFilter.flatMap(entry => primaryKeyOrderFromFilter(entry, primaryKey))
+  const value = Reflect.get(where, primaryKey)
+  if (Array.isArray(value)) return value.filter(entry => typeof entry === "string" || typeof entry === "number").map(String)
+  if (typeof value === "string" || typeof value === "number") return [String(value)]
+  return []
+}

@@ -3,7 +3,8 @@ import { Effect } from "effect";
 import { jsonEqual } from "flarex-protocol/json";
 import { commerceError, isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
-import { CommonEvents } from "@medusajs/framework/utils/portable";
+import { CommonEvents, isPresent, kebabCase } from "@medusajs/framework/utils/portable";
+import { mergeMetadata } from "@medusajs/utils/common/merge-metadata";
 import type { ProductRuntimeMetadata } from "../runtime-metadata";
 import { matchesPublicRow } from "./result";
 import { decodeProductLifecycleIds } from "../lifecycle";
@@ -26,25 +27,16 @@ export function collectionDeleteEventPolicy(catalog: ProductRuntimeMetadata): Lo
 import { productModuleEventCapture } from "./capture";
 
 /** Native Collection update returns requested Product ID stubs, not a loaded relation. */
-function matchesCollectionUpdateRow(before: JsonObject, stored: JsonObject, returned: Json, input: Json | undefined): boolean {
+export function matchesCollectionUpdateRow(before: JsonObject, stored: JsonObject, returned: Json, input: Json | undefined): boolean {
   if (!isJsonObject(returned) || input === undefined || !isJsonObject(input)) return false;
   for (const field of ["title", "handle", "metadata"] as const) {
     const supplied = input[field];
     if (supplied === undefined) continue;
     const persisted = stored[field];
-    // Pinned internal-service metadata merges nonempty objects, deleting keys
-    // whose requested value is an empty string. Empty objects/null replace it.
-    if (field === "metadata" && isJsonObject(supplied) && Object.keys(supplied).length > 0) {
-      if (persisted === undefined || !isJsonObject(persisted)) return false;
-      const prior = before.metadata !== undefined && isJsonObject(before.metadata) ? before.metadata : {};
-      const keys = new Set([...Object.keys(prior), ...Object.keys(supplied), ...Object.keys(persisted)]);
-      for (const key of keys) {
-        const expected = Object.hasOwn(supplied, key) ? supplied[key] : prior[key];
-        const actual = persisted[key];
-        if (Object.hasOwn(supplied, key) && expected === "") {
-          if (actual !== undefined) return false;
-        } else if (expected === undefined || actual === undefined || !jsonEqual(expected, actual)) return false;
-      }
+    if (field === "metadata" && isPresent(supplied)) {
+      const prior = before.metadata;
+      if (!isJsonObject(supplied) || prior !== undefined && prior !== null && !isJsonObject(prior) || persisted === undefined ||
+        !jsonEqual(mergeMetadata(prior ?? {}, supplied), persisted)) return false;
     } else if (persisted === undefined || !jsonEqual(supplied, persisted)) return false;
   }
   const { products, ...scalars } = returned;
@@ -234,8 +226,11 @@ export function collectionWriteEventPolicy(catalog: ProductRuntimeMetadata,
         if (!isJsonObject(input) || !isJsonObject(returned) || stored === undefined ||
           returned.id !== stored.id) return yield* Effect.fail(mismatch());
         for (const field of ["title", "handle", "metadata"] as const) {
-          if (!Object.hasOwn(input, field)) continue;
-          const supplied = input[field], persisted = stored[field];
+          // normalizeCreateProductCollectionInput generates a missing/falsy
+          // handle from a truthy title, including an explicit empty handle.
+          const generated = field === "handle" && !input.handle && typeof input.title === "string" && input.title;
+          if (!generated && !Object.hasOwn(input, field)) continue;
+          const supplied = generated ? kebabCase(generated) : input[field], persisted = stored[field];
           if (supplied === undefined || persisted === undefined || !jsonEqual(supplied, persisted))
             return yield* Effect.fail(mismatch());
         }

@@ -12,6 +12,7 @@ import { productLogicalCreateEventPolicy, productLogicalUpdateEventPolicy, produ
 import { productRelationshipCallReceipt } from "./memberships";
 import { productLogicalInternalProductLifecycleEventPolicy, productLogicalLifecycleEventPolicy } from "./lifecycle";
 import { productLogicalTypeWorkflowCreatePolicy, productLogicalTypeSelectorUpdatePolicy } from "./type";
+import { collectionWorkflowSelectorUpdatePolicy } from "./collection-workflow";
 
 /** Selected Product commands validate at the same native call boundary. Selection
  * of callable methods stays with the host; unsupported writes fail closed here. */
@@ -41,6 +42,9 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
     ["productupdatecollection", collectionUpdate.validateLogicalCall],
     ["productupsertcollection", collectionUpsert.validateLogicalCall],
     ["productDeletecollection", collectionDelete],
+    ["productCreateCollectionsForWorkflow", collectionCreate.validateLogicalCall],
+    ["productUpdateCollectionsBySelector", collectionWorkflowSelectorUpdatePolicy(catalog)],
+    ["productSoftDeleteCollectionsForWorkflow", productLogicalLifecycleEventPolicy(catalog, "softDelete", "collection").validateLogicalCall],
     ...["productCreatetag", "productupdatetag", "productupserttag",
       "productUpdateTagsBySelector", "productSoftDeleteTag"].map(name => [name, tags.validateLogicalCall] as const),
     ["productCreate", productLogicalCreateEventPolicy(catalog).validateLogicalCall],
@@ -98,6 +102,7 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
         activity.setNull.length !== 0 && !["productDeletetype", "productDeletecollection"].includes(call.commandName) ||
         activity.lifecycle.length !== 0 && !["productSoftDelete", "productRestore", "productSoftDeleteTag", "productSoftDeleteVariant",
           "productSoftDeleteTypesForWorkflow",
+          "productSoftDeleteCollectionsForWorkflow",
           "productSoftDeleteProductsForWorkflow", "productSoftDeleteVariantsForWorkflow",
           "productInternalProductsoftDelete", "productInternalProductrestore"].includes(call.commandName))
         return yield* Effect.fail(commerceError("receiptMismatch", { commandName: call.commandName,

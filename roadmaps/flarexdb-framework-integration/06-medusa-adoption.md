@@ -137,6 +137,17 @@ with ordinary 128-identity working sets and one authentic native write per
 root. Type soft deletion preserves Product references and uses the genuine
 empty native Link route. General restoration, custom Type Links and hosted
 activation remain unadmitted.
+The [native Product Collection slice](./preflight/105-native-product-collection-workflows.md)
+implements creation, complete selector updates and soft deletion through the
+real native composers. Creation admits four Collections and four total Product
+references; updates admit four selected Collections, four requested Product
+entries and four prior members per Collection. Genuine ordered native Product
+updates preserve last-target membership, hook-visible pending reads and
+first-touch events. Creation/deletion retain 64 calls; updates select a named
+128-call allowance. Each retains 64 events and ordinary 128-identity working
+sets under default OCC. Soft deletion preserves Product references and uses
+the genuine empty native Link route. General restoration, larger membership
+graphs, custom Collection Links and hosted activation remain unadmitted.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a

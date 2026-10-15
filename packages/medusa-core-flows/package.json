@@ -39,7 +39,10 @@
     "./product/batch-product-variants": "./src/product/workflows/batch-product-variants.ts",
     "./product/create-product-types": "./src/product/workflows/create-product-types.ts",
     "./product/update-product-types": "./src/product/workflows/update-product-types.ts",
-    "./product/delete-product-types": "./src/product/workflows/delete-product-types.ts"
+    "./product/delete-product-types": "./src/product/workflows/delete-product-types.ts",
+    "./product/create-collections": "./src/product/workflows/create-collections.ts",
+    "./product/update-collections": "./src/product/workflows/update-collections.ts",
+    "./product/delete-collections": "./src/product/workflows/delete-collections.ts"
   },
   "dependencies": {
     "@medusajs/modules-sdk": "workspace:*",

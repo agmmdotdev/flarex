@@ -7,6 +7,10 @@ export const productRelationshipsPolicy = Object.freeze({ calls: 128, queryRows:
 export const productReferenceReplacementEventLimit = 256;
 /** Four native Product Type roots, including hooks and empty native Link routing. */
 export const productTypeResources = Object.freeze({ ...defaultCommerceResources, calls: 64, eventMessages: 64 });
+/** Four Collection roots with ordered membership replacement and native hooks. */
+export const productCollectionResources = Object.freeze({ ...defaultCommerceResources, calls: 64, eventMessages: 64 });
+/** Native four-target membership updates retain repeated ordered Product writes. */
+export const productCollectionUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 128, eventMessages: 64 });
 export const productShippingProfileResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 export const productVariantPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Complete finite Variant graph, including Inventory children and both Link families. */
