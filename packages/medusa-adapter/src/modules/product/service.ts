@@ -4,6 +4,8 @@ import { productWorkflowModule } from "./workflow";
 import { productVariantUpdateWorkflowModule } from "./variant-update-workflow";
 import { productUpdateWorkflowModule } from "./product-update-workflow";
 import { productUpdateGraphReceipt } from "./product-update-receipt";
+import { productDeletionCommands } from "./commands/deletion";
+import { productDeletionWorkflowModule } from "./product-deletion-workflow";
 import { prepareProductCommandServices } from "./commands/services";
 import { productReadCommands } from "./commands/reads";
 import { productInternalCommands } from "./commands/internal";
@@ -22,6 +24,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
   const { internalProductRead, internalProductChange, internalCategoryRead, internalCategoryChange } = productInternalCommands(services);
   const reads = productReadCommands(services);
   const writes = productMutationCommands(services);
+  const deletion = productDeletionCommands(services);
   const commands = Object.freeze({
     internalProductList: internalProductRead("list"), internalProductRetrieve: internalProductRead("retrieve"),
     internalProductCreate: internalProductChange("create"), internalProductUpdate: internalProductChange("update"),
@@ -47,6 +50,8 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     updateOptions: writes.updateOptions, updateVariants: writes.updateVariants, updateVariantsBySelector: writes.updateVariantsBySelector,
     updateVariantsForWorkflow: writes.updateVariantsForWorkflow,
     updateProductsForWorkflow: writes.updateProductsForWorkflow,
+    softDeleteProductsForWorkflow: deletion.softDeleteProducts, softDeleteVariantsForWorkflow: deletion.softDeleteVariants,
+    countVariantsForDeletion: deletion.countVariants,
     countImages: reads.countImages, updateValues: writes.updateValues, updateCollections: writes.updateCollections,
     updateCategories: writes.updateCategories, upsertOptions: writes.upsertOptions, upsertVariants: writes.upsertVariants,
     upsertCollections: writes.upsertCollections, upsertCategories: writes.upsertCategories });
@@ -78,5 +83,9 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     [metadata.product.updatedEvent, ...[metadata.option, metadata.value, metadata.variant, metadata.image]
       .flatMap(entity => [entity.createdEvent, entity.updatedEvent, entity.deletedEvent])],
     { ...logicalPolicy, validateLogicalCall: productUpdateGraphReceipt(metadata, validateLogicalCall), commands: Object.values(commands) }));
-  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, productUpdateWorkflow, logicalPolicy };
+  const productDeletionWorkflow = yield* Effect.fromResult(productDeletionWorkflowModule(description,
+    { list: commands.list, softDeleteProducts: deletion.softDeleteProducts, softDeleteVariants: deletion.softDeleteVariants, countVariants: deletion.countVariants }, graph,
+    { product: [metadata.product, metadata.image, metadata.option, metadata.value, metadata.variant].map(entity => entity.deletedEvent), variant: metadata.variant.deletedEvent },
+    { ...logicalPolicy, commands: Object.values(commands) }));
+  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, productUpdateWorkflow, productDeletionWorkflow, logicalPolicy };
 });

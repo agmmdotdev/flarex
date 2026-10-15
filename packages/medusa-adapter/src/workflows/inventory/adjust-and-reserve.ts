@@ -21,7 +21,7 @@ type InventoryModule = Effect.Success<ReturnType<typeof makeLocalInventoryComman
 type Options = { readonly execution: AtomicWorkflowExecution; readonly inventory: InstalledWorkflowModule<InventoryModule>;
   readonly revision: string; readonly subscribers: AtomicCommerceEvents["subscribers"] };
 export const StockAdjustmentsInput = Schema.Array(Schema.Struct({ inventory_item_id: ScalarId, location_id: ScalarId,
-  adjustment: Schema.Number.check(Schema.isFinite()) })).check(Schema.isMaxLength(4)).pipe(Schema.mutable);
+  adjustment: Schema.Number.check(Schema.isFinite()) })).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 const stockAdjustmentsWorkflow = createWorkflow("adjust-inventory-stock", (input: WorkflowData<typeof StockAdjustmentsInput.Type>) => new WorkflowResponse(adjustInventoryLevelsStep(input)));
 
 const prepare = Effect.fn("InventoryStockWorkflow.prepare")(function* <Input extends Json, Output extends Json>(

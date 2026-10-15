@@ -6,7 +6,8 @@ import { QueryLimit, QueryOffset } from "../query/decoder";
 import { makeReadCatalog } from "../query/catalog";
 import { isGraphReadCommand } from "./commands";
 import { planGraphFields, type GraphFieldPlan } from "./fields";
-import type { GraphParticipant, GraphReadDefinition, LocalGraphQuery, PreparedLocalGraph } from "./model";
+import type { GraphParticipant, GraphReadDefinition, GraphReadSelection, LocalGraphQuery, PreparedLocalGraph } from "./model";
+import { populateGraphRemotePaths, prepareGraphRemotePaths } from "./remote-paths";
 
 const decodeInput = commerceDecoder(Schema.Struct({
   entity: Schema.String.check(Schema.isLengthBetween(1, 256)),
@@ -39,8 +40,7 @@ function graphOrder(read: GraphReadDefinition, supplied: Readonly<Record<string,
   return Result.succeed(order);
 }
 
-interface GraphEntry { readonly participant: GraphParticipant["participant"]; readonly read: GraphReadDefinition }
-function planQuery(input: unknown, entries: ReadonlyMap<string, GraphEntry>) {
+function planQuery(input: unknown, entries: ReadonlyMap<string, GraphReadSelection>) {
   return Result.gen(function* () {
     const captured = yield* capturePrivateJsonData(input, commerceLimits.commandBytes, commerceError);
     const args = yield* decodeInput(captured.value);
@@ -51,9 +51,8 @@ function planQuery(input: unknown, entries: ReadonlyMap<string, GraphEntry>) {
   });
 }
 
-function graphResult(value: Json, read: GraphReadDefinition, fields: GraphFieldPlan, skip: number, take: number) {
+function graphResult(rows: readonly JsonObject[], count: number, fields: GraphFieldPlan, skip: number, take: number) {
   return Result.gen(function* () {
-    const [rows, count] = yield* read.decode(value);
     if (rows.length > take || rows.length !== Math.min(take, Math.max(0, count - skip))) return yield* Result.fail(commerceError("storedCorruption"));
     return { data: yield* fields.project(rows), metadata: { count, skip, take } };
   });
@@ -63,7 +62,8 @@ function graphResult(value: Json, read: GraphReadDefinition, fields: GraphFieldP
  * remains with core; this registry only restricts graph dispatch and projection. */
 export function prepareLocalGraph(participants: readonly GraphParticipant[]): Result.Result<PreparedLocalGraph, CommerceTransactionError> {
   return Result.gen(function* () {
-    const entries = new Map<string, GraphEntry>();
+    const entries = new Map<string, GraphReadSelection>();
+    const allModels = new Map<string, GraphReadSelection[]>();
     for (const { participant, module } of participants) {
       const models = new Map<string, GraphReadDefinition>();
       for (const input of module.reads) {
@@ -90,6 +90,8 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         const read = Object.freeze({ ...input, table, paths: Object.freeze(paths),
           orderable: Object.freeze([...input.orderable]), uniqueOrder: Object.freeze([...input.uniqueOrder]), decode: input.decode });
         models.set(read.model, read);
+        const existing = allModels.get(read.model) ?? [];
+        existing.push({ participant, read }); allModels.set(read.model, existing);
       }
       const selected = new Set<string>();
       for (const alias of module.aliases) {
@@ -102,16 +104,34 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
       if (selected.size !== models.size) return yield* Result.fail(commerceError("unsupportedProfile"));
     }
     if (entries.size === 0) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const remotePaths = yield* prepareGraphRemotePaths(participants, allModels);
+    for (const [alias, entry] of entries) {
+      const paths = remotePaths.get(entry.read.model);
+      if (paths === undefined) continue;
+      entries.set(alias, { ...entry, read: Object.freeze({ ...entry.read, paths: Object.freeze([...entry.read.paths,
+        ...[...paths.values()].map(path => Object.freeze({ path: path.path, table: path.target.read.table, many: true })),
+      ]) }) });
+    }
     return Object.freeze({ entities: Object.freeze([...entries.keys()]), bind: (context): LocalGraphQuery => {
       // Only newly originated planner/result failures enter refusal here. A
       // participant call already owns its full failure Cause and must propagate.
       const graph: LocalGraphQuery["graph"] = Effect.fn("LocalGraph.query")(function* (input: unknown) {
         const { entry, args, fields, order } = yield* checkedCommerceValue(context, () => planQuery(input, entries));
         const skip = args.pagination.skip ?? 0, take = args.pagination.take;
+        const remote = remotePaths.get(entry.read.model);
+        const selectedRemote = fields.relations.filter(path => remote?.has(path));
+        const relations = fields.relations.filter(path => !remote?.has(path));
+        const select = selectedRemote.length !== 0 && relations.length === 0
+          ? [...new Set([...fields.node.fields, ...entry.read.table.primaryKeys])] : fields.select;
         const value = yield* context.call(entry.participant, entry.read.command, {
-          filters: args.filters ?? {}, config: { select: fields.select, relations: fields.relations, order, skip, take },
+          filters: args.filters ?? {}, config: { select, relations, order, skip, take },
         });
-        return yield* checkedCommerceValue(context, () => graphResult(value, entry.read, fields, skip, take));
+        const [rows, count] = yield* checkedCommerceValue(context, () => entry.read.decode(value));
+        if (rows.length > take || rows.length !== Math.min(take, Math.max(0, count - skip)))
+          return yield* context.refuse(commerceError("storedCorruption"));
+        const populated = selectedRemote.length === 0 || remote === undefined ? rows
+          : yield* populateGraphRemotePaths(context, rows, fields.node, remote);
+        return yield* checkedCommerceValue(context, () => graphResult(populated, count, fields, skip, take));
       });
       return Object.freeze({ graph });
     } } satisfies PreparedLocalGraph);

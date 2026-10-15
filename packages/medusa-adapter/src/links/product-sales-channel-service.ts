@@ -14,13 +14,13 @@ import { QueryLimit, QueryOffset } from "../query/decoder";
 import { defineWorkflowMethod, defineWorkflowModule } from "../workflow/module";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
-const Ids = Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(256)).pipe(Schema.mutable)]);
+const Ids = Schema.Union([Id, Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(256))]);
 const IdFilter = Schema.Union([Ids, Schema.Struct({ $ne: Id })]);
 const LinkInput = Schema.Struct({
   product: Schema.Struct({ product_id: Id }), sales_channel: Schema.Struct({ sales_channel_id: Id }),
   data: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Id) })),
 });
-const decodeLinks = commerceDecoder(Schema.Union([LinkInput, Schema.Array(LinkInput).check(Schema.isMaxLength(256)).pipe(Schema.mutable)]), "invalidInput");
+const decodeLinks = commerceDecoder(Schema.Union([LinkInput, Schema.Array(LinkInput).pipe(Schema.mutable).check(Schema.isMaxLength(256))]), "invalidInput");
 const decodeCreateArguments = commerceDecoder(Schema.Tuple([
   Schema.Array(LinkInput).check(Schema.isMaxLength(256)),
 ]), "invalidInput");

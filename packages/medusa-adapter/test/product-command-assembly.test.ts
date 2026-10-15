@@ -5,7 +5,7 @@ import { makeLocalProductCommands } from "../src/modules/product/service";
 import { isGraphReadCommand } from "../src/local-graph/commands";
 import { workflowMethodDefinition, workflowModuleDefinition } from "../src/workflow/module";
 
-// The pre-extraction private command contract, including registration order.
+// The current private command contract, including registration order.
 // Names and modes participate in host admission and replay identity.
 const expected = [
   ["internalProductList","productInternalProductlist","read",false],
@@ -64,6 +64,7 @@ const expected = [
   ["upsertTypes","productupserttype","write",false],
   ["update","productUpdate","write",false],
   ["upsert","productUpsert","write",false],
+  ["upsertRelationships","productUpsertRelationships","write",false],
   ["createOptions","productCreateoption","write",false],
   ["createVariants","productCreatevariant","write",false],
   ["createCategories","productCreatecategory","write",false],
@@ -71,6 +72,11 @@ const expected = [
   ["updateOptions","productupdateoption","write",false],
   ["updateVariants","productupdatevariant","write",false],
   ["updateVariantsBySelector","productUpdateVariantsBySelector","write",false],
+  ["updateVariantsForWorkflow","productUpdateVariantsForWorkflow","write",false],
+  ["updateProductsForWorkflow","productUpdateProductsForWorkflow","write",false],
+  ["softDeleteProductsForWorkflow","productSoftDeleteProductsForWorkflow","write",false],
+  ["softDeleteVariantsForWorkflow","productSoftDeleteVariantsForWorkflow","write",false],
+  ["countVariantsForDeletion","productVariantDeletionCount","read",true],
   ["countImages","productImagecount","read",true],
   ["updateValues","productupdatevalue","write",false],
   ["updateCollections","productupdatecollection","write",false],
@@ -87,7 +93,8 @@ beforeAll(async () => { product = await Effect.runPromise(makeLocalProductComman
 
 describe("prepared Product command assembly", () => {
   it("preserves every registered command name, mode, order and graph marker", () => {
-    expect(Object.keys(product)).toEqual(["commands", "withService", "graph", "workflow"]);
+    expect(Object.keys(product)).toEqual(["metadata", "commands", "withService", "graph", "workflow",
+      "variantUpdateWorkflow", "productUpdateWorkflow", "productDeletionWorkflow", "logicalPolicy"]);
     expect(Object.isFrozen(product.commands)).toBe(true);
     expect(Object.entries(product.commands).map(([key, command]) => {
       const identity = commerceCommandIdentity(command);
@@ -110,8 +117,29 @@ describe("prepared Product command assembly", () => {
     expect(workflowMethodDefinition(methods.softDeleteProductTags)?.command).toBe(commands.softDeleteTags);
     expect(workflowMethodDefinition(methods.updateProductTags)?.command).toBe(commands.updateTagsBySelector);
     expect(workflowMethodDefinition(methods.addImageToVariant)?.command).toBe(commands.addImageToVariant);
-    for (const method of Object.values(methods)) {
-      expect(Object.values(commands)).toContain(workflowMethodDefinition(method)?.command);
+    expect(workflowModuleDefinition(product.variantUpdateWorkflow)?.source).toEqual({ name: "flarex-product-local", profile: "public.variant-update" });
+    expect(workflowModuleDefinition(product.productUpdateWorkflow)?.source).toEqual({ name: "flarex-product-local", profile: "public.product-update" });
+    expect(workflowModuleDefinition(product.productDeletionWorkflow)?.source).toEqual({ name: "flarex-product-local", profile: "public.product-deletion" });
+    for (const module of [product.variantUpdateWorkflow, product.productUpdateWorkflow])
+      expect(workflowModuleDefinition(module)?.graph.reads.map(read => read.command)).toEqual(product.graph.reads.map(read => read.command));
+    expect(workflowModuleDefinition(product.productDeletionWorkflow)?.graph.reads.map(read => read.command))
+      .toEqual([commands.count, commands.countVariantsForDeletion]);
+    expect(workflowMethodDefinition(product.variantUpdateWorkflow.methods.listProductVariants)?.command).toBe(commands.listVariants);
+    expect(workflowMethodDefinition(product.variantUpdateWorkflow.methods.upsertProductVariants)?.command).toBe(commands.upsertVariants);
+    expect(workflowMethodDefinition(product.variantUpdateWorkflow.methods.updateProductVariants)?.command).toBe(commands.updateVariantsForWorkflow);
+    expect(workflowMethodDefinition(product.productUpdateWorkflow.methods.listProducts)?.command).toBe(commands.list);
+    expect(workflowMethodDefinition(product.productUpdateWorkflow.methods.upsertProducts)?.command).toBe(commands.upsert);
+    expect(workflowMethodDefinition(product.productUpdateWorkflow.methods.updateProducts)?.command).toBe(commands.updateProductsForWorkflow);
+    expect(workflowMethodDefinition(product.productDeletionWorkflow.methods.listProducts)?.command).toBe(commands.list);
+    expect(workflowMethodDefinition(product.productDeletionWorkflow.methods.softDeleteProducts)?.command).toBe(commands.softDeleteProductsForWorkflow);
+    expect(workflowMethodDefinition(product.productDeletionWorkflow.methods.softDeleteProductVariants)?.command).toBe(commands.softDeleteVariantsForWorkflow);
+    expect(workflowMethodDefinition(product.productDeletionWorkflow.methods.softDeleteProducts)?.moduleEvents).toEqual([
+      product.metadata.product, product.metadata.image, product.metadata.option, product.metadata.value, product.metadata.variant,
+    ].map(entity => entity.deletedEvent).sort());
+    expect(workflowMethodDefinition(product.productDeletionWorkflow.methods.softDeleteProductVariants)?.moduleEvents).toEqual([product.metadata.variant.deletedEvent]);
+    for (const module of [product.workflow, product.variantUpdateWorkflow, product.productUpdateWorkflow, product.productDeletionWorkflow]) {
+      for (const method of Object.values(module.methods))
+        expect(Object.values(commands)).toContain(workflowMethodDefinition(method)?.command);
     }
   });
 
@@ -120,11 +148,17 @@ describe("prepared Product command assembly", () => {
     const firstTokens = new Set(Object.values(product.commands));
     for (const command of Object.values(second.commands)) expect(firstTokens.has(command)).toBe(false);
     for (const read of second.graph.reads) expect(firstTokens.has(read.command)).toBe(false);
-    for (const method of Object.values(second.workflow.methods)) {
-      const definition = workflowMethodDefinition(method);
-      if (definition === undefined) throw new Error("Expected an authentic workflow method");
-      expect(Object.values(second.commands)).toContain(definition.command);
-      expect(firstTokens.has(definition.command)).toBe(false);
+    for (const module of [second.workflow, second.variantUpdateWorkflow, second.productUpdateWorkflow, second.productDeletionWorkflow]) {
+      for (const method of Object.values(module.methods)) {
+        const definition = workflowMethodDefinition(method);
+        if (definition === undefined) throw new Error("Expected an authentic workflow method");
+        expect(Object.values(second.commands)).toContain(definition.command);
+        expect(firstTokens.has(definition.command)).toBe(false);
+      }
+      for (const read of workflowModuleDefinition(module)?.graph.reads ?? []) {
+        expect(Object.values(second.commands)).toContain(read.command);
+        expect(firstTokens.has(read.command)).toBe(false);
+      }
     }
     expect(second.withService).not.toBe(product.withService);
   });

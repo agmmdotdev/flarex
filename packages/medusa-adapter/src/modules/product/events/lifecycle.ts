@@ -1,11 +1,51 @@
 import type { LogicalCallReceiptValidation } from "../../../repository/call-receipt";
 import { Effect } from "effect";
-import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeProductLifecycleIds } from "../lifecycle";
 import { CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductRuntimeMetadata } from "../runtime-metadata";
 import { productModuleEventCapture } from "./capture";
+
+type Activity = Parameters<LogicalCallReceiptValidation>[1];
+
+/** Observations contain final rows. A command's first mutation preimage owns
+ * its earlier state when deciding which requested roots needed a transition. */
+function lifecycleEvidence(activity: Activity) {
+  const rows = new Map<string, Map<string, JsonObject>>();
+  const record = (table: string, row: JsonObject) => {
+    if (typeof row.id !== "string") return;
+    const selected = rows.get(table) ?? new Map<string, JsonObject>();
+    selected.set(row.id, row); rows.set(table, selected);
+  };
+  for (const observation of activity.observedRows) record(observation.table, observation.row);
+  // A cached unchanged restore may add no fresh read dependency. Core retains
+  // its complete row at the operation separately from the lifecycle key.
+  for (const observation of activity.lifecycle)
+    if (observation.rowAtOperation !== null) record(observation.table, observation.rowAtOperation);
+  const before = new Set<string>();
+  for (const mutation of activity.mutations) {
+    if (mutation.before === null || typeof mutation.before.id !== "string") continue;
+    const key = JSON.stringify([mutation.table, mutation.before.id]);
+    if (before.has(key)) continue;
+    before.add(key); record(mutation.table, mutation.before);
+  }
+  return rows;
+}
+
+function eligibleRoots(rows: ReturnType<typeof lifecycleEvidence>, table: string, requested: ReadonlySet<string>, operation: "softDelete" | "restore") {
+  return new Set([...(rows.get(table)?.values() ?? [])].flatMap(row => typeof row.id === "string" && requested.has(row.id) &&
+    (row.deleted_at === null || operation === "restore" && typeof row.deleted_at === "string") ? [row.id] : []));
+}
+
+function descendantRoot(catalog: ProductRuntimeMetadata, entity: ProductRuntimeMetadata["product"], row: JsonObject,
+  rows: ReturnType<typeof lifecycleEvidence>) {
+  if (entity === catalog.value) {
+    const option = row[catalog.foreignKeys.value];
+    return typeof option === "string" ? rows.get(catalog.option.table.name)?.get(option)?.[catalog.foreignKeys.option] : undefined;
+  }
+  return row[entity === catalog.image ? catalog.foreignKeys.image : entity === catalog.option ? catalog.foreignKeys.option : catalog.foreignKeys.variant];
+}
 
 /** The internal DAL has no public event aggregator. Its lifecycle result still
  * owns exactly the requested Product roots and their source-local children. */
@@ -20,58 +60,47 @@ export function productLogicalInternalProductLifecycleEventPolicy(catalog: Produ
       .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
     const ids = typeof decoded === "string" ? [decoded] : decoded;
     const requested = new Set(ids);
+    const evidence = lifecycleEvidence(activity);
+    const pending = eligibleRoots(evidence, catalog.product.table.name, requested, operation);
+    const selected = new Set(pending);
     if (call.commandName !== commandName || call.mode !== "write" || call.events.length !== 0 ||
-      activity.setNull.length !== 0 || activity.referenceReplacements.length !== 0 ||
-      ids.length === 0 || requested.size !== ids.length) return yield* Effect.fail(mismatch());
-    const optionOwners = new Map<string, string>();
-    for (const observation of activity.observedRows) {
-      const id = observation.row.id, owner = observation.row[catalog.foreignKeys.option];
-      if (observation.table !== catalog.option.table.name || typeof id !== "string" ||
-        typeof owner !== "string") continue;
-      optionOwners.set(id, owner);
-    }
-    for (const mutation of activity.mutations) {
-      if (mutation.table !== catalog.option.table.name) continue;
-      const row = mutation.after ?? mutation.before;
-      const id = row?.id, owner = row?.[catalog.foreignKeys.option];
-      if (typeof id === "string" && typeof owner === "string") optionOwners.set(id, owner);
-    }
-    const roots = new Set<string>(), matched = new Set<number>();
+      activity.setNull.length !== 0 || activity.referenceReplacements.length !== 0) return yield* Effect.fail(mismatch());
+    const matched = new Set<number>(), identities = new Set<string>();
     for (const observation of activity.lifecycle) {
       const entity = byTable.get(observation.table), id = observation.key.id;
       if (entity === undefined || Object.keys(observation.key).length !== 1 ||
         typeof id !== "string" || observation.operation !== operation ||
         (operation === "softDelete" ? typeof observation.afterDeletedAt !== "string"
           : observation.afterDeletedAt !== null)) return yield* Effect.fail(mismatch());
+      const identity = JSON.stringify([observation.table, id]);
+      if (identities.has(identity)) return yield* Effect.fail(mismatch());
+      identities.add(identity);
       if (entity === catalog.product) {
-        if (!requested.has(id) || roots.has(id)) return yield* Effect.fail(mismatch());
-        roots.add(id);
+        if (!pending.delete(id)) return yield* Effect.fail(mismatch());
       }
+      let row: JsonObject;
       if (observation.attemptOrdinal === null) {
         if (operation !== "restore" || observation.beforeDeletedAt !== null ||
-          observation.afterDeletedAt !== null || entity !== catalog.product)
+          observation.afterDeletedAt !== null || observation.rowAtOperation?.id !== id || observation.rowAtOperation.deleted_at !== null)
           return yield* Effect.fail(mismatch());
-        continue;
+        row = observation.rowAtOperation;
+      } else {
+        const mutation = activity.mutations[observation.attemptOrdinal];
+        if (mutation === undefined || matched.has(observation.attemptOrdinal) ||
+          mutation.table !== observation.table || mutation.operation !== "patch" ||
+          mutation.before?.id !== id || mutation.after?.id !== id ||
+          mutation.before.deleted_at !== observation.beforeDeletedAt ||
+          mutation.after.deleted_at !== observation.afterDeletedAt || operation === "restore" && observation.beforeDeletedAt === null)
+          return yield* Effect.fail(mismatch());
+        matched.add(observation.attemptOrdinal);
+        row = mutation.before;
       }
-      const mutation = activity.mutations[observation.attemptOrdinal];
-      if (mutation === undefined || matched.has(observation.attemptOrdinal) ||
-        mutation.table !== observation.table || mutation.operation !== "patch" ||
-        mutation.before?.id !== id || mutation.after?.id !== id ||
-        mutation.before.deleted_at !== observation.beforeDeletedAt ||
-        mutation.after.deleted_at !== observation.afterDeletedAt)
-        return yield* Effect.fail(mismatch());
-      matched.add(observation.attemptOrdinal);
       if (entity !== catalog.product) {
-        const row = mutation.before;
-        const optionId = row[catalog.foreignKeys.value];
-        const root = entity === catalog.value
-          ? typeof optionId === "string" ? optionOwners.get(optionId) : undefined
-          : row[entity === catalog.image ? catalog.foreignKeys.image
-            : entity === catalog.option ? catalog.foreignKeys.option : catalog.foreignKeys.variant];
-        if (typeof root !== "string" || !requested.has(root)) return yield* Effect.fail(mismatch());
+        const root = descendantRoot(catalog, entity, row, evidence);
+        if (typeof root !== "string" || !selected.has(root)) return yield* Effect.fail(mismatch());
       }
     }
-    if (roots.size !== requested.size || matched.size !== activity.mutations.length)
+    if (pending.size !== 0 || matched.size !== activity.mutations.length)
       return yield* Effect.fail(mismatch());
   });
 }
@@ -79,31 +108,34 @@ export function productLogicalInternalProductLifecycleEventPolicy(catalog: Produ
 /** Public native Product lifecycle admits the owned cascade and authenticates
  * an already-active restore without pretending that storage changed a row. */
 export function productLogicalLifecycleEventPolicy(catalog: ProductRuntimeMetadata,
-  operation: "softDelete" | "restore", target: "product" | "variant" = "product") {
+  operation: "softDelete" | "restore", target: "product" | "variant" = "product", namedCommand?: string) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const entities = target === "variant" ? [catalog.variant]
     : [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image];
   const byTable = new Map(entities.map(entity => [entity.table.name, entity]));
   const action = operation === "restore" ? CommonEvents.RESTORED : CommonEvents.DELETED;
-  const commandName = target === "variant" ? "productSoftDeleteVariant"
-    : operation === "restore" ? "productRestore" : "productSoftDelete";
+  const commandName = namedCommand ?? (target === "variant" ? "productSoftDeleteVariant"
+    : operation === "restore" ? "productRestore" : "productSoftDelete");
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalLifecycle")(function* (call, activity) {
       const { mutations, lifecycle } = activity;
-    if (call.commandName !== commandName) return yield* Effect.fail(commerceError("receiptMismatch"));
-    const requested = target === "variant"
-      ? yield* Effect.fromResult(decodeProductLifecycleIds(call.input))
-        .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause))) : undefined;
-    const pending = requested === undefined ? undefined
-      : new Set(typeof requested === "string" ? [requested] : requested);
-    if (pending !== undefined) {
+    if (call.commandName !== commandName || call.mode !== "write") return yield* Effect.fail(commerceError("receiptMismatch"));
+    const requested = yield* Effect.fromResult(decodeProductLifecycleIds(call.input))
+      .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+    const requestedIds = new Set(typeof requested === "string" ? [requested] : requested);
+    const rootTable = target === "variant" ? catalog.variant.table.name : catalog.product.table.name;
+    const evidence = lifecycleEvidence(activity);
+    const pending = eligibleRoots(evidence, rootTable, requestedIds, operation);
+    const selected = new Set(pending);
+    if (target === "variant") {
       const result = call.result;
       const ids = isJsonObject(result) ? result.variant_id : undefined;
       const productIds = isJsonObject(result) ? result.product_variant_id : undefined;
-      if (pending.size === 0 || activity.setNull.length !== 0 || activity.referenceReplacements.length !== 0 ||
-        !isJsonObject(result) || Object.keys(result).length !== 2 ||
+      const empty = pending.size === 0 && isJsonObject(result) && Object.keys(result).length === 0;
+      if (activity.setNull.length !== 0 || activity.referenceReplacements.length !== 0 ||
+        !empty && (!isJsonObject(result) || Object.keys(result).length !== 2 ||
         !Array.isArray(ids) || !Array.isArray(productIds) || ids.length !== pending.size ||
-        ids.some(id => typeof id !== "string" || !pending.has(id)) ||
-        productIds.length !== ids.length || productIds.some((id, index) => id !== ids[index]))
+        new Set(ids).size !== ids.length || ids.some(id => typeof id !== "string" || !pending.has(id)) ||
+        productIds.length !== ids.length || productIds.some((id, index) => id !== ids[index])))
         return yield* Effect.fail(commerceError("receiptMismatch"));
     }
       const emitted = call.events;
@@ -114,26 +146,34 @@ export function productLogicalLifecycleEventPolicy(catalog: ProductRuntimeMetada
       const id = observation.key.id;
       if (entity === undefined || observation.operation !== operation || Object.keys(observation.key).length !== 1 ||
         typeof id !== "string" || id.length === 0 ||
-        (pending !== undefined && !pending.delete(id)) ||
+        (observation.table === rootTable && !pending.delete(id)) ||
         (operation === "restore" ? observation.afterDeletedAt !== null : typeof observation.afterDeletedAt !== "string"))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       const identity = entity.eventObject + ":" + id;
       if (expected.has(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));
       expected.add(identity);
+      let row: JsonObject;
       if (observation.attemptOrdinal === null) {
-        if (operation !== "restore" || observation.beforeDeletedAt !== null || observation.afterDeletedAt !== null)
+        if (operation !== "restore" || observation.beforeDeletedAt !== null || observation.afterDeletedAt !== null ||
+          observation.rowAtOperation?.id !== id || observation.rowAtOperation.deleted_at !== null)
           return yield* Effect.fail(commerceError("receiptMismatch"));
-        continue;
+        row = observation.rowAtOperation;
+      } else {
+        const mutation = mutations[observation.attemptOrdinal];
+        if (mutation === undefined || matchedAttempts.has(observation.attemptOrdinal) || mutation.ordinal !== observation.attemptOrdinal ||
+          mutation.table !== observation.table || mutation.operation !== "patch" || mutation.before?.id !== id || mutation.after?.id !== id ||
+          mutation.before.deleted_at !== observation.beforeDeletedAt || mutation.after.deleted_at !== observation.afterDeletedAt ||
+          (operation === "restore" && observation.beforeDeletedAt === null)) return yield* Effect.fail(commerceError("receiptMismatch"));
+        matchedAttempts.add(observation.attemptOrdinal);
+        row = mutation.before;
       }
-      const mutation = mutations[observation.attemptOrdinal];
-      if (mutation === undefined || matchedAttempts.has(observation.attemptOrdinal) || mutation.ordinal !== observation.attemptOrdinal ||
-        mutation.table !== observation.table || mutation.operation !== "patch" || mutation.before?.id !== id || mutation.after?.id !== id ||
-        mutation.before.deleted_at !== observation.beforeDeletedAt || mutation.after.deleted_at !== observation.afterDeletedAt ||
-        (operation === "restore" && observation.beforeDeletedAt === null)) return yield* Effect.fail(commerceError("receiptMismatch"));
-      matchedAttempts.add(observation.attemptOrdinal);
+      if (target === "product" && entity !== catalog.product) {
+        const root = descendantRoot(catalog, entity, row, evidence);
+        if (typeof root !== "string" || !selected.has(root)) return yield* Effect.fail(commerceError("receiptMismatch"));
+      }
     }
     if (matchedAttempts.size !== mutations.length) return yield* Effect.fail(commerceError("receiptMismatch"));
-    if (pending?.size) return yield* Effect.fail(commerceError("receiptMismatch"));
+    if (pending.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     for (const event of emitted) {
       const message = yield* capture(event);
       if (message.metadata.action !== action) return yield* Effect.fail(commerceError("receiptMismatch"));

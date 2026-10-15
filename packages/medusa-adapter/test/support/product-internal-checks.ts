@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
 import { getLogicalProductRunnerFixture, productIntegrationTestRunner, runLogicalProductCommand } from "./logical-product-runner";
 const run = Effect.runPromise;
@@ -89,5 +89,34 @@ productIntegrationTestRunner({ moduleName: "product", testSuite: () => describe(
     const restored = await run(runLogicalProductCommand(runtime.commands.internalProductRestore, "root"));
     expect(restored).toMatchObject([[{ id: "root", deleted_at: null }], { ProductVariant: [{ id: "variant", deleted_at: null }] }]);
     expect((await logicalCurrencyInventory(currency)).events).toEqual(before.events);
+  });
+  it("coalesces duplicate internal lifecycle roots and preserves empty and missing native results", async () => {
+    const { currency, product: { runtime } } = getLogicalProductRunnerFixture();
+    const decode = Schema.decodeUnknownSync(Schema.Tuple([Schema.Array(Schema.JsonObject),
+      Schema.Record(Schema.String, Schema.Array(Schema.JsonObject))]));
+    await run(runLogicalProductCommand(runtime.commands.create, {
+      id: "root", title: "root", options: [{ title: "size", values: ["S"] }],
+      variants: [{ id: "variant", title: "small", options: { size: "S" } }],
+    }));
+    const before = await logicalCurrencyInventory(currency);
+    for (const command of [runtime.commands.internalProductSoftDelete, runtime.commands.internalProductRestore]) {
+      expect(await run(runLogicalProductCommand(command, []))).toEqual([[], {}]);
+      expect(await run(runLogicalProductCommand(command, ["missing"]))).toEqual([[], {}]);
+    }
+    const unchanged = await logicalCurrencyInventory(currency);
+    expect(unchanged.rows).toEqual(before.rows); expect(unchanged.rowChanges).toEqual(before.rowChanges);
+    expect(unchanged.events).toEqual(before.events);
+    const deleted = decode(await run(runLogicalProductCommand(runtime.commands.internalProductSoftDelete, ["missing", "root", "root"])));
+    expect(deleted[0]).toMatchObject([{ id: "root", deleted_at: expect.any(String) }]);
+    expect(deleted[0]).toHaveLength(1);
+    expect(deleted[1].ProductVariant).toMatchObject([{ id: "variant", deleted_at: expect.any(String) }]);
+    const afterDelete = await logicalCurrencyInventory(currency);
+    expect(afterDelete.rowChanges.length - before.rowChanges.length).toBe(4);
+    const restored = decode(await run(runLogicalProductCommand(runtime.commands.internalProductRestore, ["missing", "root", "root"])));
+    expect(restored[0]).toMatchObject([{ id: "root", deleted_at: null }]); expect(restored[0]).toHaveLength(1);
+    expect(restored[1].ProductVariant).toMatchObject([{ id: "variant", deleted_at: null }]);
+    const afterRestore = await logicalCurrencyInventory(currency);
+    expect(afterRestore.rowChanges.length - afterDelete.rowChanges.length).toBe(4);
+    expect(afterRestore.events).toEqual(before.events);
   });
 }) });

@@ -17,9 +17,9 @@ import { QueryLimit, QueryOffset } from "../query/decoder";
 import { defineWorkflowMethod, defineWorkflowModule } from "../workflow/module";
 import { PricingId as Id } from "../modules/pricing/input";
 
-const Ids = Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(4)).pipe(Schema.mutable)]);
+const Ids = Schema.Union([Id, Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4))]);
 const Pair = Schema.Struct({ product: Schema.Struct({ variant_id: Id }), pricing: Schema.Struct({ price_set_id: Id }), data: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Id) })) });
-const Batch = Schema.Array(Pair).check(Schema.isMaxLength(4)).pipe(Schema.mutable);
+const Batch = Schema.Array(Pair).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 const Restore = Schema.Struct({ price_set_id: Id });
 const decodeLinks = commerceDecoder(Schema.Union([Pair, Batch]), "invalidInput");
 const decodeRestore = commerceDecoder(Restore, "invalidInput");

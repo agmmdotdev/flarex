@@ -207,7 +207,9 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
     });
     identities.push({ name: member.name, module: member.module.name, profile: definition.source.profile, methods: methodIdentities,
       ...(member.expose === false ? { expose: false } : {}),
-      graph: member.graph ? { aliases: definition.graph.aliases, reads: graphIdentities } : null,
+      graph: member.graph ? { aliases: definition.graph.aliases, reads: graphIdentities,
+        ...(definition.graph.remotePaths === undefined ? {} : { remotePaths: definition.graph.remotePaths }),
+      } : null,
     });
   }
   const composedIdentities = [];

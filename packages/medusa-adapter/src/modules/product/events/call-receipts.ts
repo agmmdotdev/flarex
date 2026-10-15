@@ -58,6 +58,8 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
     ["productDeleteproduct", productLogicalDeleteEventPolicy(catalog).validateLogicalCall],
     ["productSoftDelete", productLogicalLifecycleEventPolicy(catalog, "softDelete").validateLogicalCall],
     ["productSoftDeleteVariant", productLogicalLifecycleEventPolicy(catalog, "softDelete", "variant").validateLogicalCall],
+    ["productSoftDeleteProductsForWorkflow", productLogicalLifecycleEventPolicy(catalog, "softDelete", "product", "productSoftDeleteProductsForWorkflow").validateLogicalCall],
+    ["productSoftDeleteVariantsForWorkflow", productLogicalLifecycleEventPolicy(catalog, "softDelete", "variant", "productSoftDeleteVariantsForWorkflow").validateLogicalCall],
     ["productRestore", productLogicalLifecycleEventPolicy(catalog, "restore").validateLogicalCall],
     ["productCreatetype", productLogicalTypeEventPolicy(catalog, "create").validateLogicalCall],
     ["productupdatetype", productLogicalTypeEventPolicy(catalog, "update").validateLogicalCall],
@@ -91,6 +93,7 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
         !["productupdatecollection", "productupsertcollection"].includes(call.commandName) ||
         activity.setNull.length !== 0 && !["productDeletetype", "productDeletecollection"].includes(call.commandName) ||
         activity.lifecycle.length !== 0 && !["productSoftDelete", "productRestore", "productSoftDeleteTag", "productSoftDeleteVariant",
+          "productSoftDeleteProductsForWorkflow", "productSoftDeleteVariantsForWorkflow",
           "productInternalProductsoftDelete", "productInternalProductrestore"].includes(call.commandName))
         return yield* Effect.fail(commerceError("receiptMismatch", { commandName: call.commandName,
           referenceReplacements: activity.referenceReplacements.length, setNull: activity.setNull.length,

@@ -20,7 +20,7 @@ import { captureCategoryProjection } from "./category-projection";
 import { findCategoryRows, insertCategoryRows, updateCategoryRows } from "./category-repository";
 import { changeProductLifecycle } from "./lifecycle";
 
-export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct";
+export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct" | "deletion";
 const decodeCollectionReplacement = commerceDecoder(Schema.Array(Schema.Struct({
   id: ProductRelationshipId, productIds: ProductRelationshipIds,
 })).check(Schema.isLengthBetween(1, 1)), "invalidInput");
@@ -51,7 +51,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       return ids;
     })))));
   const lifecycle = (entity: ProductEntityMetadata, operation: "softDelete" | "restore"): DAL.RepositoryService["softDelete"] => (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-    const result = yield* changeProductLifecycle(ctx, metadata, entity, operation, input);
+    const result = yield* changeProductLifecycle(ctx, metadata, entity, operation, input, profile === "deletion" ? "product-deletions" : "standard");
     if (shared === undefined || (operation === "softDelete" && !events.isSubscribed(shared))) return yield* ctx.refuse(commerceError("unadmittedEvent"));
     // Preserve the pinned Drizzle subscriber's lifecycle callback convention,
     // including restored events for selected already-active rows. Core records

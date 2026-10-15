@@ -12,6 +12,7 @@ import { commerceServiceCommands } from "../module/commands";
 import { commerceDecoder } from "../value/decoder";
 import { captureCommerceInput } from "../value/input";
 import { moduleAliases } from "../local-graph/module";
+import { nativeLinkGraphPaths } from "../local-graph/links";
 import { decodeGraphCount } from "../local-graph/query";
 import type { GraphModuleDefinition } from "../local-graph/model";
 import { QueryLimit, QueryOffset } from "../query/decoder";
@@ -19,14 +20,14 @@ import { defineWorkflowMethod, defineWorkflowModule } from "../workflow/module";
 import { prepareLinkWorkflowService } from "./workflow-service";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
-const Ids = Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(8)).pipe(Schema.mutable)]);
+const Ids = Schema.Union([Id, Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(8))]);
 const IdFilter = Schema.Union([Ids, Schema.Struct({ $ne: Id })]);
 const Data = Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Id) }));
 const InventoryPair = Schema.Struct({ product: Schema.Struct({ variant_id: Id }), inventory: Schema.Struct({ inventory_item_id: Id }), data: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Id), required_quantity: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: -2147483648, maximum: 2147483647 }))) })) });
 const PricingPair = Schema.Struct({ product: Schema.Struct({ variant_id: Id }), pricing: Schema.Struct({ price_set_id: Id }), data: Data });
 // Each array is homogeneous before the native router can fan out with promiseAll.
-export const VariantInventoryLinkBatch = Schema.Array(InventoryPair).check(Schema.isMaxLength(8)).pipe(Schema.mutable);
-export const VariantPricingLinkBatch = Schema.Array(PricingPair).check(Schema.isMaxLength(8)).pipe(Schema.mutable);
+export const VariantInventoryLinkBatch = Schema.Array(InventoryPair).pipe(Schema.mutable).check(Schema.isMaxLength(8));
+export const VariantPricingLinkBatch = Schema.Array(PricingPair).pipe(Schema.mutable).check(Schema.isMaxLength(8));
 const Batch = Schema.Union([VariantInventoryLinkBatch, VariantPricingLinkBatch]);
 export const VariantLinkBatch = Batch;
 const decodeLinks = commerceDecoder(Schema.Union([InventoryPair, PricingPair, Batch]), "invalidInput");
@@ -50,13 +51,14 @@ const decodePricingRead = commerceDecoder(Schema.Struct({ filters: Schema.option
 })), config: Schema.optionalKey(Config) }), "invalidInput");
 /** One native Link router and borrowed owner for the two named Product links.
  * Native routing owns associations; callers never register tables or services. */
-export const prepareLocalVariantLinks = Effect.fn("VariantLinks.prepare")(function* (admission: "create" | "variant-updates" | "product-updates" = "create") {
-  if (admission !== "create" && admission !== "variant-updates" && admission !== "product-updates") return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const inventory = yield* prepareLinkService(yield* captureVariantInventoryLinkMetadata());
-  const pricing = yield* prepareLinkService(yield* captureVariantPricingLinkMetadata());
+export const prepareLocalVariantLinks = Effect.fn("VariantLinks.prepare")(function* (admission: "create" | "variant-updates" | "product-updates" | "product-deletions" = "create") {
+  if (admission !== "create" && admission !== "variant-updates" && admission !== "product-updates" && admission !== "product-deletions") return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const deletions = admission === "product-deletions";
+  const inventory = yield* prepareLinkService(yield* captureVariantInventoryLinkMetadata(), deletions ? 8 : undefined);
+  const pricing = yield* prepareLinkService(yield* captureVariantPricingLinkMetadata(), deletions ? 8 : undefined);
   const inventoryNative = yield* Effect.fromResult(prepareLinkWorkflowService(inventory, "inventoryLink",
-    admission === "product-updates" ? "cascade" : admission === "variant-updates" ? "dismiss" : "create"));
-  const pricingNative = yield* Effect.fromResult(prepareLinkWorkflowService(pricing, "pricingLink", admission === "product-updates" ? "cascade" : "create"));
+    deletions ? "inventory-deletions" : admission === "product-updates" ? "cascade" : admission === "variant-updates" ? "dismiss" : "create"));
+  const pricingNative = yield* Effect.fromResult(prepareLinkWorkflowService(pricing, "pricingLink", deletions ? "product-deletions" : admission === "product-updates" ? "cascade" : "create"));
   const compose = (ctx: CommerceCommandContext, owner: Parameters<typeof inventory.bind>[1]) => {
     const inventoryBinding = inventory.bind(ctx, owner), pricingBinding = pricing.bind(ctx, owner);
     const router = new Link([inventoryBinding.loaded, pricingBinding.loaded]);
@@ -86,6 +88,10 @@ export const prepareLocalVariantLinks = Effect.fn("VariantLinks.prepare")(functi
       { model: inventory.entityName, command: countInventory, table: inventory.prepared.table, paths: [], orderable: ["variant_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount },
       { model: pricing.entityName, command: countPricing, table: pricing.prepared.table, paths: [], orderable: ["variant_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount },
     ],
+    ...(deletions ? { remotePaths: yield* Effect.fromResult(nativeLinkGraphPaths(inventory.joiner, [
+      { root: "ProductVariant", path: "inventory", maximumSources: 4, maximumLinks: 8, maximumTargets: 8, maximumPerSource: 2 },
+      { root: "ProductVariant", path: "inventory.variants", maximumSources: 8, maximumLinks: 32, maximumTargets: 32, maximumPerSource: 4 },
+    ])) } : {}),
   };
   const logicalEventPolicy = () => selectedLinkLogicalEventPolicy([
     { tableName: "product_variant_inventory_item", serviceName: inventory.serviceName, entityName: inventory.entityName,
@@ -98,7 +104,7 @@ export const prepareLocalVariantLinks = Effect.fn("VariantLinks.prepare")(functi
   ]);
   const method = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeArguments, encode: ([links]) => links,
     output: decodeCreated, moduleEvents: [inventory.entityName + ".attached", pricing.entityName + ".attached"] }));
-  const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: "flarex-variant-links", profile: "medusa.variant.links" },
+  const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: "flarex-variant-links", profile: deletions ? "medusa.variant.links.deletions" : "medusa.variant.links" },
     methods: { create: method, inventoryNativeCreate: inventoryNative.createMethod, inventoryNativeList: inventoryNative.listMethod,
       pricingNativeCreate: pricingNative.createMethod, pricingNativeList: pricingNative.listMethod,
       ...(inventoryNative.dismissMethod === undefined ? {} : { inventoryNativeDismiss: inventoryNative.dismissMethod }),

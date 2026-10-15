@@ -6,6 +6,7 @@ import { projectRows, type ProjectionNode } from "../query/projection";
 import type { GraphReadDefinition, GraphRelationPath } from "./model";
 
 export interface GraphFieldPlan {
+  readonly node: ProjectionNode;
   readonly select: readonly string[];
   readonly relations: readonly string[];
   readonly project: (rows: readonly JsonObject[]) => Result.Result<JsonObject[], CommerceTransactionError>;
@@ -29,7 +30,7 @@ export function planGraphFields(read: GraphReadDefinition, fields: readonly stri
     // Hydration may need root keys not selected by the caller. Fetch all root
     // columns for relation reads, then mask them; all intermediate budgets apply.
     const select = root.children.length === 0 ? [...root.fields] : [...read.table.columns];
-    return { select, relations: read.paths.filter(relation => requested.has(relation.path)).map(relation => relation.path),
+    return { node: root, select, relations: read.paths.filter(relation => requested.has(relation.path)).map(relation => relation.path),
       project: rows => projectRows(rows, root) };
   });
 }

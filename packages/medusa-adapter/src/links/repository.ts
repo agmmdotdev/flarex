@@ -37,7 +37,7 @@ const readOptions = (primary: string) => commerceDecoder(Schema.Struct({
 
 /** Several prepared Links may coexist. Each bind borrows only its command's
  * transaction; no global service, raw database or second lifetime. */
-export function prepareLinkRepository(metadata: Effect.Success<ReturnType<typeof captureLinkMetadata>>["frame"], idPrefix: string) {
+export function prepareLinkRepository(metadata: Effect.Success<ReturnType<typeof captureLinkMetadata>>["frame"], idPrefix: string, maximumLifecycleRows?: 8) {
   return Result.gen(function* () {
     const table = { name: metadata.name, columns: metadata.columns.map(column => column.name),
       primaryKeys: metadata.columns.filter(column => column.primaryKey).map(column => column.name), foreignKeys: [], companions: {} };
@@ -76,7 +76,9 @@ export function prepareLinkRepository(metadata: Effect.Success<ReturnType<typeof
       });
       const lifecycle = (operation: "softDelete" | "restore", input: unknown, shared: unknown) =>
         bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-          const selected = yield* find(ctx, { where: input, options: { filters: { softDeletable: { withDeleted: operation === "restore" } } } }, false);
+          const selected = yield* find(ctx, { where: input, options: { filters: { softDeletable: { withDeleted: operation === "restore" } } } }, maximumLifecycleRows !== undefined);
+          if (maximumLifecycleRows !== undefined && (selected.count === undefined || selected.count > maximumLifecycleRows || selected.count !== selected.rows.length))
+            return yield* ctx.refuse(commerceError(selected.count === undefined ? "storedCorruption" : "limitExceeded"));
           const store = yield* ctx.table(table.name);
           const rows = [...yield* store.lifecycle(ctx.manager, operation, selected.rows.map(row => ({
             [primary]: row[primary], [foreign]: row[foreign],

@@ -11,6 +11,6 @@ export const StockLocationInput = Schema.Struct({ id: Schema.optionalKey(ScalarI
   address_id: Schema.optionalKey(Schema.NullOr(ScalarId)), address: Schema.optionalKey(StockLocationAddressInput),
   metadata: Schema.optionalKey(Schema.NullOr(Schema.JsonObject)),
 });
-export const StockLocationsInput = Schema.Array(StockLocationInput).check(Schema.isMaxLength(4)).pipe(Schema.mutable);
+export const StockLocationsInput = Schema.Array(StockLocationInput).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 export const StockLocationsOutput = Schema.Array(Schema.StructWithRest(Schema.Struct({ id: ScalarId, name: Schema.String }),
   [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(4));

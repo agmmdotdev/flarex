@@ -19,14 +19,14 @@ import { defineWorkflowMethod, defineWorkflowModule } from "../workflow/module";
 import { prepareLinkWorkflowService } from "./workflow-service";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
-const Ids = Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(256)).pipe(Schema.mutable)]);
+const Ids = Schema.Union([Id, Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(256))]);
 const IdFilter = Schema.Union([Ids, Schema.Struct({ $ne: Id })]);
 const Data = Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Id) }));
 const SalesPair = Schema.Struct({ product: Schema.Struct({ product_id: Id }), sales_channel: Schema.Struct({ sales_channel_id: Id }), data: Data });
 const ShippingPair = Schema.Struct({ product: Schema.Struct({ product_id: Id }), fulfillment: Schema.Struct({ shipping_profile_id: Id }), data: Data });
 // Each array is homogeneous before the native router can fan out with promiseAll.
-const Batch = Schema.Union([Schema.Array(SalesPair).check(Schema.isMaxLength(256)).pipe(Schema.mutable),
-  Schema.Array(ShippingPair).check(Schema.isMaxLength(256)).pipe(Schema.mutable)]);
+const Batch = Schema.Union([Schema.Array(SalesPair).pipe(Schema.mutable).check(Schema.isMaxLength(256)),
+  Schema.Array(ShippingPair).pipe(Schema.mutable).check(Schema.isMaxLength(256))]);
 export const ProductLinkBatch = Batch;
 const decodeLinks = commerceDecoder(Schema.Union([SalesPair, ShippingPair, Batch]), "invalidInput");
 const decodeArguments = commerceDecoder(Schema.Tuple([Batch]), "invalidInput");
@@ -54,12 +54,13 @@ const decodeShippingEndpoint = commerceDecoder(Schema.Union([
 
 /** One native Link router and borrowed owner for the two named Product links.
  * Native routing owns associations; callers never register tables or services. */
-export const prepareLocalProductLinks = Effect.fn("ProductLinks.prepare")(function* (admission: "create" | "product-updates" = "create") {
-  if (admission !== "create" && admission !== "product-updates") return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const sales = yield* prepareLinkService(yield* captureProductSalesChannelLinkMetadata());
-  const shipping = yield* prepareLinkService(yield* captureProductShippingProfileLinkMetadata());
-  const salesNative = yield* Effect.fromResult(prepareLinkWorkflowService(sales, "salesLink", admission === "product-updates" ? "dismiss" : "create"));
-  const shippingNative = yield* Effect.fromResult(prepareLinkWorkflowService(shipping, "shippingLink", admission === "product-updates" ? "dismiss" : "create"));
+export const prepareLocalProductLinks = Effect.fn("ProductLinks.prepare")(function* (admission: "create" | "product-updates" | "product-deletions" = "create") {
+  if (admission !== "create" && admission !== "product-updates" && admission !== "product-deletions") return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const deletions = admission === "product-deletions";
+  const sales = yield* prepareLinkService(yield* captureProductSalesChannelLinkMetadata(), deletions ? 8 : undefined);
+  const shipping = yield* prepareLinkService(yield* captureProductShippingProfileLinkMetadata(), deletions ? 8 : undefined);
+  const salesNative = yield* Effect.fromResult(prepareLinkWorkflowService(sales, "salesLink", deletions ? "product-deletions" : admission === "product-updates" ? "dismiss" : "create"));
+  const shippingNative = yield* Effect.fromResult(prepareLinkWorkflowService(shipping, "shippingLink", deletions ? "product-deletions" : admission === "product-updates" ? "dismiss" : "create"));
   const compose = (ctx: CommerceCommandContext, owner: Parameters<typeof sales.bind>[1]) => {
     const salesBinding = sales.bind(ctx, owner), shippingBinding = shipping.bind(ctx, owner);
     const router = new Link([salesBinding.loaded, shippingBinding.loaded]);
@@ -97,26 +98,34 @@ export const prepareLocalProductLinks = Effect.fn("ProductLinks.prepare")(functi
   const logicalEventPolicy = () => selectedLinkLogicalEventPolicy([
     { tableName: "product_sales_channel", serviceName: sales.serviceName, entityName: sales.entityName,
       endpoints: ["product_id", "sales_channel_id"], createCommands: [salesNative.createName],
-      dismissCommands: salesNative.dismissName === undefined ? [] : [salesNative.dismissName] },
+      dismissCommands: salesNative.dismissName === undefined ? [] : [salesNative.dismissName],
+      deleteCommands: salesNative.softDeleteName === undefined ? [] : [salesNative.softDeleteName] },
     { tableName: "product_shipping_profile", serviceName: shipping.serviceName, entityName: shipping.entityName,
       endpoints: ["product_id", "shipping_profile_id"], createCommands: [shippingNative.createName],
-      dismissCommands: shippingNative.dismissName === undefined ? [] : [shippingNative.dismissName] },
+      dismissCommands: shippingNative.dismissName === undefined ? [] : [shippingNative.dismissName],
+      deleteCommands: shippingNative.softDeleteName === undefined ? [] : [shippingNative.softDeleteName] },
   ]);
   const method = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeArguments, encode: ([links]) => links,
     output: decodeCreated, moduleEvents: [sales.entityName + ".attached", shipping.entityName + ".attached"] }));
-  const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: "flarex-product-links", profile: "medusa.product.links" },
+  const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: "flarex-product-links", profile: deletions ? "medusa.product.links.deletions" : "medusa.product.links" },
     methods: { create: method, salesNativeCreate: salesNative.createMethod, salesNativeList: salesNative.listMethod,
       shippingNativeCreate: shippingNative.createMethod, shippingNativeList: shippingNative.listMethod,
       ...(salesNative.dismissMethod === undefined ? {} : { salesNativeDismiss: salesNative.dismissMethod }),
-      ...(shippingNative.dismissMethod === undefined ? {} : { shippingNativeDismiss: shippingNative.dismissMethod }) }, graph,
+      ...(shippingNative.dismissMethod === undefined ? {} : { shippingNativeDismiss: shippingNative.dismissMethod }),
+      ...(salesNative.softDeleteMethod === undefined ? {} : { salesNativeSoftDelete: salesNative.softDeleteMethod }),
+      ...(shippingNative.softDeleteMethod === undefined ? {} : { shippingNativeSoftDelete: shippingNative.softDeleteMethod }) }, graph,
     logical: { ...logicalEventPolicy(), commands: [create, dismiss, restoreShipping, countSales, countShipping,
       salesNative.create, salesNative.list, shippingNative.create, shippingNative.list,
       ...(salesNative.dismiss === undefined ? [] : [salesNative.dismiss]),
-      ...(shippingNative.dismiss === undefined ? [] : [shippingNative.dismiss])] } }));
+      ...(shippingNative.dismiss === undefined ? [] : [shippingNative.dismiss]),
+      ...(salesNative.softDelete === undefined ? [] : [salesNative.softDelete]),
+      ...(shippingNative.softDelete === undefined ? [] : [shippingNative.softDelete])] } }));
   return { create, dismiss, restoreShipping, countSales, countShipping,
     commands: [create, dismiss, restoreShipping, countSales, countShipping, salesNative.create, salesNative.list, shippingNative.create, shippingNative.list,
       ...(salesNative.dismiss === undefined ? [] : [salesNative.dismiss]),
-      ...(shippingNative.dismiss === undefined ? [] : [shippingNative.dismiss])],
+      ...(shippingNative.dismiss === undefined ? [] : [shippingNative.dismiss]),
+      ...(salesNative.softDelete === undefined ? [] : [salesNative.softDelete]),
+      ...(shippingNative.softDelete === undefined ? [] : [shippingNative.softDelete])],
     nativeServices: { sales: salesNative, shipping: shippingNative },
     workflow, graph, logicalEventPolicy, withService: use };
 });

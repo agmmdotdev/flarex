@@ -7,5 +7,6 @@ export default defineConfig({ ...upstream, test: { ...upstream.test,
     "Product service > Internal Product boundary > updates every selected internal batch member beyond the public default page",
     "Product service > Internal Product boundary > retains internal facts and replay with scalar and array results and no publication",
     "Product service > Internal Product boundary > rolls back invalid arrays and authenticates internal lifecycle cascades",
+    "Product service > Internal Product boundary > coalesces duplicate internal lifecycle roots and preserves empty and missing native results",
   ])],
 } });

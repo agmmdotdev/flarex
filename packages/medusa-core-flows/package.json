@@ -32,7 +32,9 @@
     "./product/update-product-variants": "./src/product/workflows/update-product-variants.ts",
     "./pricing/update-price-sets-step": "./src/pricing/steps/update-price-sets.ts",
     "./product/update-products": "./src/product/workflows/update-products.ts",
-    "./product/upsert-variant-prices": "./src/product/workflows/upsert-variant-prices.ts"
+    "./product/upsert-variant-prices": "./src/product/workflows/upsert-variant-prices.ts",
+    "./product/delete-products": "./src/product/workflows/delete-products.ts",
+    "./product/delete-product-variants": "./src/product/workflows/delete-product-variants.ts"
   },
   "dependencies": {
     "@medusajs/modules-sdk": "workspace:*",

@@ -15,7 +15,7 @@ import { commerceDecoder } from "../value/decoder";
 import { captureCommerceInput } from "../value/input";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
-const Ids = Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(256)).pipe(Schema.mutable)]);
+const Ids = Schema.Union([Id, Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(256))]);
 const decodeCascade = commerceDecoder(Schema.Tuple([Schema.Null,
   Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Array(Id)))]), "adapterFailure");
 
@@ -27,12 +27,13 @@ export interface BoundLink { readonly link: Readonly<Pick<Link, "create" | "dism
  * and borrowed context. Host assembly still explicitly selects all participants. */
 export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(function* (
   metadata: Effect.Success<ReturnType<typeof captureLinkMetadata>>,
+  maximumLifecycleRows?: 8,
 ) {
   const joiner = structuredClone(metadata.joiner);
   const [primary, foreign] = joiner.relationships ?? [];
   const idPrefix = joiner.databaseConfig?.idPrefix;
   if (primary === undefined || foreign === undefined || idPrefix === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const prepared = yield* Effect.fromResult(prepareLinkRepository(metadata.frame, idPrefix));
+  const prepared = yield* Effect.fromResult(prepareLinkRepository(metadata.frame, idPrefix, maximumLifecycleRows));
   const decodeEndpoint = commerceDecoder(Schema.Union([
     Schema.Struct({ [primary.serviceName]: Schema.Struct({ [primary.foreignKey]: Ids }) }),
     Schema.Struct({ [foreign.serviceName]: Schema.Struct({ [foreign.foreignKey]: Ids }) }),

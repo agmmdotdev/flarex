@@ -17,6 +17,7 @@ const decodeDelete = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.St
 export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(function* (
   ctx: CommerceCommandContext, catalog: ProductRuntimeMetadata, entity: ProductEntityMetadata,
   operation: "delete" | "softDelete" | "restore", input: unknown,
+  admission: "standard" | "product-deletions" = "standard",
 ) {
   if (operation !== "delete" && entity !== catalog.product && !(operation === "softDelete" && [catalog.variant, catalog.tag].includes(entity))) return yield* Effect.fail(commerceError("unsupportedProfile"));
   if (operation === "delete" && ![catalog.product, catalog.tag, catalog.type, catalog.collection, catalog.category, catalog.option, catalog.assignment].includes(entity)) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -24,7 +25,6 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
   const selected = operation === "delete" ? (yield* Effect.fromResult(decodeDelete(captured))).$or.map(row => row.id)
     : yield* Effect.fromResult(decodeProductLifecycleIds(captured));
   const ids = typeof selected === "string" ? [selected] : selected;
-  if (new Set(ids).size !== ids.length) return yield* Effect.fail(commerceError("invalidInput"));
   const { roots: loadRoots, plan, getStore, loadReferencing } = medusaLifecycle(ctx, catalog, operation);
   const roots = yield* loadRoots(entity.table, ids);
   if (entity === catalog.category) {
@@ -34,6 +34,29 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
       return yield* Effect.fail(commerceError("unsupportedProfile"));
   }
   const planned = yield* plan(entity.table, roots);
+  if (admission === "product-deletions") {
+    if (operation !== "softDelete" || ![catalog.product, catalog.variant].includes(entity) || ids.length > 4 || roots.length > 4)
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const variants = planned.rows(catalog.variant.table);
+    if (variants.length > 4) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    if (entity === catalog.product) for (const root of roots) {
+      for (const [child, owner, maximum] of [[catalog.image, catalog.foreignKeys.image, 2],
+        [catalog.option, catalog.foreignKeys.option, 1]] as const) {
+        const children = planned.rows(child.table).filter(row => row[owner] === root.id);
+        if (children.length > maximum) return yield* Effect.fail(commerceError("unsupportedProfile"));
+        if (child === catalog.option) for (const option of children)
+          if (planned.rows(catalog.value.table).filter(row => row[catalog.foreignKeys.value] === option.id).length > 4)
+            return yield* Effect.fail(commerceError("unsupportedProfile"));
+      }
+      for (const name of ["tags", "categories"]) {
+        const join = catalog.queryRelations.get(catalog.product.table.name)?.get(name)?.join;
+        const table = join?.type === "manyToMany" ? catalog.tables.find(table => table.name === join.pivotTable) : undefined;
+        if (join?.type !== "manyToMany" || table === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+        if ((yield* loadReferencing(table, join.sourceColumns, root, ["id"])).length > 4)
+          return yield* Effect.fail(commerceError("unsupportedProfile"));
+      }
+    }
+  }
   const planSetNull = operation === "delete" && [catalog.type, catalog.collection].includes(entity)
     ? ctx.planSetNull : undefined;
   const plannedDetach: Array<Parameters<NonNullable<CommerceCommandContext["planSetNull"]>>[0]> = [];

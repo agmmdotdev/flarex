@@ -4,6 +4,7 @@ import { commerceError, type CommerceTransactionError, type Json } from "@flarex
 import type { CommerceModuleDescription } from "../module/definition";
 import type { GraphModuleDefinition } from "../local-graph/model";
 import { prepareLocalGraph } from "../local-graph/query";
+import { decodeGraphRemotePaths } from "../local-graph/links";
 import { defineAtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { captureCommerceInput } from "../value/input";
 import { commerceDecoder } from "../value/decoder";
@@ -125,7 +126,10 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
         metadata: yield* captureCommerceInput(replacement.metadata),
       }) }),
     });
-    yield* prepareLocalGraph([{ participant: defineAtomicCommerceParticipant(definition.name), module: graph }]);
+    // Cross-module Link endpoints are resolved against the complete host union.
+    // This constructor validates only the module-local executable read graph.
+    yield* prepareLocalGraph([{ participant: defineAtomicCommerceParticipant(definition.name),
+      module: { aliases: graph.aliases, reads: graph.reads } }]);
     const token = Object.freeze({ name: definition.name, methods: selected });
     modules.set(token, Object.freeze({ source: Object.freeze({ name: source.name, profile: source.profile }), graph, ...(logical === undefined ? {} : { logical }),
     }));
@@ -146,7 +150,10 @@ function captureGraphDefinition(input: GraphModuleDefinition) {
       if (typeof read.model !== "string" || typeof read.decode !== "function" || typeof read.multipleOrder !== "boolean") return yield* Result.fail(commerceError("unsupportedProfile"));
       reads.push(Object.freeze({ ...read, ...metadata }));
     }
-    return Object.freeze({ aliases, reads: Object.freeze(reads) });
+    const remotePaths = definition.remotePaths === undefined ? undefined : yield* captureCommerceInput(definition.remotePaths).pipe(Result.flatMap(decodeGraphRemotePaths));
+    return Object.freeze({ aliases, reads: Object.freeze(reads),
+      ...(remotePaths === undefined ? {} : { remotePaths: Object.freeze(remotePaths.map(path => Object.freeze(path))) }),
+    });
   });
 }
 export const workflowModuleDefinition = (module: WorkflowModule) => modules.get(module);

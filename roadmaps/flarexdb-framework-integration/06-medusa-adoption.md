@@ -115,7 +115,12 @@ four-Product/four-Variant root selects 512 calls, 2 MiB and 256 events under
 default OCC. Explicit queued root operations preserve native Link concurrency;
 identity-bound mixed publication supports Product and Pricing while retaining
 their 256/128 identity allowances and the existing commit packet limits.
-General Product/Variant deletion and its Inventory ownership graph follow.
+The [native Product deletion slice](./preflight/102-native-product-deletion-workflows.md)
+implements native Product and Variant soft-deletion roots, complete
+Inventory ownership reads, the native reservation guard and Link/Pricing
+cascades. Its named four-target/four-Variant profile retains 512 calls,
+128 events, 2 MiB and ordinary participant working sets under default OCC.
+General deletion, restoration and hosted activation remain unadmitted.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a
