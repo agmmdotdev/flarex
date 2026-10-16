@@ -92,8 +92,9 @@ implemented or activated. Exact breaks and implementation gates are recorded in
     as a shared primitive for Application, Payload and Medusa. Adapt its store
     to reserved Flarex logical schemas, remove active Prisma/Redis dependencies,
     and retire the displaced task engine. Defines source reuse, transaction,
-    enqueue, migration and connected validation gates. Implementation requires
-    a focused preflight.
+    enqueue, migration and connected validation gates, including trusted-workflow
+    identity and continuation cutover. The [focused replacement preflight](../roadmaps/durable-task-engine/preflight/72-shared-trigger-engine-replacement.md)
+    is prepared for design review; implementation remains unapproved.
 
 - [Existing durable task engine](./flarex-durable-task-engine.md)
   - Implemented-baseline architecture for the private Flarex lifecycle, Task

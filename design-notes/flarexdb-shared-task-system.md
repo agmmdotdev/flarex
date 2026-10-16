@@ -3,9 +3,11 @@
 ## Status And Authority
 
 Status: owner-selected replacement direction recorded for design and planning.
-Implementation contracts and the first connected migration remain subject to a
-focused preflight. Creating this note does not authorize runtime changes, a
-storage migration, data deletion, public APIs or production activation.
+The [focused replacement preflight](../roadmaps/durable-task-engine/preflight/72-shared-trigger-engine-replacement.md)
+records the proposed connected source closure, store contract, trusted-workflow
+cutover and acceptance gates. This is documentation-only planning; implementation
+is not authorized yet. Neither document authorizes runtime changes, storage
+migration, data deletion, public APIs or production activation.
 
 The owner wants one task primitive that Flarex Application, Payload and Medusa
 can build on. Preserve actual Trigger.dev task implementations in maintained
@@ -26,10 +28,47 @@ preflight; do not silently treat the old policy as permission to recreate the
 engine again, or this note as permission to bypass current admission checks.
 
 This work is distinct from the
-[mixed mutation proposal](./flarexdb-mixed-mutation-execution.md). Sharing a task
+[mixed mutation core](../roadmaps/mixed-mutation-core/README.md). Sharing a task
 engine does not make independently committed framework operations atomic or
-start that separately gated core redesign. Coordinate with active shared-storage
-work before selecting implementation ownership and a stable core checkpoint.
+extend an admitted mixed execution profile. Coordinate with active shared-storage
+and native workflow work before selecting implementation ownership and a stable
+core checkpoint.
+
+## Current Implementation And Concurrent Workflow Work
+
+The replacement has not been implemented. Active task construction still calls
+the custom decisions in `RunAttemptLifecycleLive.ts` and retry rules in
+`Policy.ts`. Its store takes a synchronous pure decision callback over a loaded
+aggregate. The Postgres adapter locks the run, reads database time after the
+lock, validates the next aggregate and atomically persists its projections,
+attempt identity and requested effects. Physical `fx_system_durable_task_*`
+tables remain the task representation; retained Trigger engine methods do not
+execute through shared logical storage.
+
+The framework-neutral starting point has advanced beyond the original
+Application/Legacy-only inventory. The implemented
+[trusted workflow binding](../packages/durable-task/src/runCreation/TrustedWorkflowBinding.ts)
+pins scope, workflow and adapter revisions, execution profile/policy, principal
+digest and attempt policy. Its
+[run creation](../packages/persistence-postgres/src/tasks/trustedWorkflowTaskRunCreation.ts)
+and `trusted_workflow` lifecycle generation reuse existing Task persistence.
+[Execution subjects](../packages/persistence-postgres/src/tasks/trustedWorkflowExecutionSubject.ts)
+and the [finite commerce child contract](../roadmaps/workflow-foundations/05-task-command-integration.md)
+preserve live attempt fencing, stable child occurrences, exact replay and event
+eligibility without fabricated Application metadata. This is useful admission
+and authority infrastructure, not retained Trigger execution or complete native
+workflow support. Existing compute/due-discovery admission remains separately
+gated for this generation.
+
+Concurrent working-tree changes add continuation waiting/ready states,
+confirmation/timeout/cancellation resolution, checkpoint persistence and native
+Medusa orchestration/SDK sources. These are pending implementation inputs, not
+accepted replacement contracts or proof of a complete workflow. The
+[inline import owner](../roadmaps/flarexdb-framework-integration/preflight/109-native-inline-product-import-workflow.md)
+owns their native semantics and status. Before replacement implementation,
+refresh which changes landed, identify their real callers and durable records,
+and include admitted behavior in the cutover. Do not freeze a moving worktree
+into the architecture or discard new consumers using the older inventory.
 
 ## Intended Outcome
 
@@ -140,6 +179,15 @@ The selected destination is a Flarex implementation of Trigger's repository
 boundary over logical storage. Remove Prisma from the active dependency graph
 of each migrated capability. Preserve useful `RunStore` operations and result
 contracts where possible; change Prisma-specific portions deliberately.
+
+The current `TaskSystemRunAttemptStore.transactRunAttempt({ decide })` contract
+is a replacement target. It assumes one loaded Flarex aggregate and a synchronous
+pure decision. Retained Trigger methods need multiple awaited repository
+operations under a borrowed, scoped transaction. Provide that semantic store
+boundary; do not simulate the engine by calling the old decision functions from
+a renamed RunStore. The trusted transaction owner still controls settlement,
+rollback, interruption, deadlines and uncertain-outcome reconciliation. The
+borrowed handle stays private to trusted engine/store code.
 
 Current `RunStore` types expose `PrismaClientOrTransaction`, generated payloads,
 `where`, `select`, `include`, and broad waitpoint query arguments. Keeping that
@@ -299,22 +347,49 @@ they do not receive raw Task tables, database handles or settlement capabilities
 | --- | --- |
 | Application | Preserve analyzed definitions, active-revision validation, execution principal and query/mutation callbacks. Move Application-specific selection above the shared primitive. |
 | Payload | Bind admitted native task/job definitions and execute through Payload context and Local API semantics. Jobs are currently disabled in the admitted adapter; this integration is new work. |
-| Medusa | Bind admitted subscriber/job/workflow requests and invoke native services or workflows with their container/context. Preserve native business behavior and compensation meaning. |
+| Medusa | Reuse the implemented trusted-workflow binding and finite commerce-child authority where applicable. Bind admitted subscriber/job/workflow requests and invoke native services or workflows with their container/context. Preserve native retry, wait, business and compensation meaning. |
 
 The current [ApplicationTaskSystem](../packages/standard-application-invocation/src/ApplicationTaskSystem.ts)
-and [definition references](../packages/durable-task/src/runAttempt/DefinitionReference.ts)
-are tied to Application or retained Legacy generations. Replace that shared
-contract where necessary; Payload and Medusa should not manufacture Application
-identities. Keep backend analysis and immutable runtime authority intact.
+remains Application-specific. Shared
+[definition references](../packages/durable-task/src/runCreation/Model.ts) now
+also represent `trusted_workflow`. Preserve the immutable identity and principal
+obligations of actual consumers while adapting that contract to the retained
+engine. Payload and Medusa must not manufacture Application identities. A
+trusted-workflow binding is not automatic admission of arbitrary framework
+handlers. Keep backend analysis and immutable runtime authority intact.
 
 [Payload configuration](../packages/payload-adapter/src/configuration.ts) currently
 has no admitted job tasks/workflows. The
 [Medusa workflow runtime](../packages/medusa-adapter/src/workflow/runtime.ts)
-executes an admitted atomic workflow profile. A durable task may invoke that
-profile as one committed operation. Do not silently reinterpret it as a workflow
-with durable suspension or rollback across earlier commits. Assign task-attempt
-retry and framework/workflow retry responsibilities explicitly to avoid duplicate
-or multiplied retries.
+executes an admitted atomic workflow profile. The finite commerce-child boundary
+can invoke a selected admitted command under authentic Task authority. The
+native durable interpreter under development is a separate execution profile;
+it does not enlarge the atomic profile or roll back earlier commits. Medusa owns
+its step graph, checkpoint contents, step retries and compensation. The retained
+Trigger engine owns shared run/attempt policy and admitted blocking/resume
+mechanics. Assign every retry and cancellation decision to one owner.
+
+### Trusted Workflow Continuation Cutover
+
+Continuation support must be accounted for before removing a lifecycle used by
+an admitted durable workflow. The proposed mapping uses retained Trigger
+waitpoint/block/unblock methods for shared suspension, with Flarex-owned atomic
+checkpoint-reference publication, resolution identity, fencing and wake repair.
+Native Medusa confirmation, timeout and compensation decisions remain with its
+interpreter. Do not run independent custom continuation and Trigger waitpoint
+lifecycles for the same run.
+
+The inline import's recorded native timeout is eligible strictly after its
+deadline; confirmation can win until the native timeout transition has actually
+won. A generic date-time waitpoint must not silently change that race to a
+confirmation deadline check. The preflight requires exact-deadline, competing
+resolution, lost-response and fresh-host witnesses. It also requires a single
+transaction to couple the accepted checkpoint descriptor and blocking state,
+fresh execution authority on resume, and stable commerce-child identities
+across attempts. No live SQL transaction, connection or execution lease is kept
+across the wait. Checkpoint bytes are framework state, distinct from task
+input/result bodies; their final storage and retention contract needs explicit
+admission and migration disposition.
 
 For task requests originating in business transactions:
 
@@ -330,10 +405,13 @@ after-commit callback leaves a crash gap. Cross-database placement requires a
 durable handoff, not an implied distributed transaction.
 
 Current [Application run creation](../packages/persistence-postgres/src/application/tasks/applicationTaskSystemRunCreation.ts)
-owns a separate transaction; atomic business mutation plus task enqueue is not
-already established. Medusa's committed event/delivery machinery is a candidate
-handoff owner. Prove and extend the shared publication capability rather than
-creating a separate outbox per framework.
+owns a separate transaction, as does trusted-workflow run creation; atomic
+business mutation plus task enqueue is not already established by those APIs.
+The implemented fenced commerce child handles the opposite direction, Task to
+business command, and does not itself prove business-to-Task enqueue. Medusa's
+committed event/delivery machinery is a candidate handoff owner. Prove and
+extend the shared publication capability rather than creating a separate outbox
+per framework.
 
 ## Source And Package Admission
 
@@ -379,6 +457,9 @@ changes remain traceable, with all required Flarex guarantees preserved.
 | Scope authority, database time, fencing, idempotency and uncertain-outcome recovery | Retain guarantees; adapt implementation coherently at their real owners. |
 | Worker Loader, immutable artifact/input/result storage and execution principals | Reuse existing owners and adapt task contracts. |
 | Application-specific definition/admission | Retain as an Application adapter; move shared task identity below framework-specific admission. |
+| Trusted-workflow binding, principal, execution subject and finite commerce child | Retain their authority and exact replay obligations; adapt live run/attempt checks to the replacement representation. Preserve child occurrence keys, committed outcomes and event eligibility across retries/resume. |
+| Pending custom continuation decisions and checkpoint storage | Reconcile with the workflow owner before cutover. Migrate admitted waits/checkpoints/receipts to retained waitpoint orchestration and one authoritative representation; do not preserve a parallel continuation engine. |
+| Native Medusa orchestration/SDK source promotion | Keep framework-owned graph, step retry and compensation methods. Connect their persistence/wake ports to shared Task authority without replacing native business decisions with Trigger task policy. |
 | Prisma/Redis runtime dependencies and product-control lookups | Remove from migrated executable closures. Preserve isolated reference sources as evidence. |
 | Old tests, source maps, exports, fixtures and documentation | Move behavioral coverage to the replacement and remove obsolete scaffolding in the same slice. |
 
@@ -457,12 +538,13 @@ justify preserving an old engine for hypothetical compatibility.
 
 ### 1. Agree The Connected Fork And Core Contract
 
-Write one focused preflight covering the admitted lifecycle source closure,
-store/read operations, logical definitions/indexes, transaction/claim semantics,
-task-definition boundary, deliberate upstream differences and retirement plan.
-Reconcile the old source-admission policy and package guards. Identify required
-core corrections and active ownership before edits. Do not make a helper-only
-extraction or a general Prisma emulator the first deliverable.
+Use the [focused replacement preflight](../roadmaps/durable-task-engine/preflight/72-shared-trigger-engine-replacement.md)
+for the proposed lifecycle source closure, store/read operations, logical
+definitions/indexes, transaction/claim semantics, trusted-workflow contract,
+deliberate upstream differences and retirement plan. Resolve its open admission
+decisions before implementation. Reconcile old source-admission policy and
+package guards, required core corrections and active ownership. Do not make a
+helper-only extraction or a general Prisma emulator the first deliverable.
 
 ### 2. Prove The Retained Lifecycle On Flarex
 

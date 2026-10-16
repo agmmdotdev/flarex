@@ -2,6 +2,12 @@
 
 ## Status And Scope
 
+For the selected replacement direction, read
+[Shared Task System From The Trigger.dev Fork](./flarexdb-shared-task-system.md)
+and its [focused preflight](../roadmaps/durable-task-engine/preflight/72-shared-trigger-engine-replacement.md).
+This document describes the existing custom-engine baseline. Replacement
+planning does not activate Trigger sources or authorize implementation.
+
 **Status:** Accepted architecture direction. Implementation authority now lives
 in [`../roadmaps/durable-task-engine/README.md`](../roadmaps/durable-task-engine/README.md).
 The private lifecycle, Task System Postgres, scheduling/repair, provider, and

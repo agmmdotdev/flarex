@@ -2,6 +2,15 @@
 
 ## Status And Scope
 
+The [shared Trigger-engine replacement design](../../design-notes/flarexdb-shared-task-system.md)
+and [focused replacement preflight](./preflight/72-shared-trigger-engine-replacement.md)
+own the proposed transition from the custom lifecycle to retained Trigger
+implementations over logical storage, including trusted-workflow consumers.
+The preflight is documentation-only and does not authorize implementation.
+Existing admission records below describe the implemented baseline, not proof
+that this replacement has happened. Current package/source guards remain in force
+until an approved cutover reconciles them.
+
 **Status:** Vision authority. DTE01 source reuse/package admission, DTE02 task
 identity/scope admission, and Roadmap 03 lifecycle admission are complete.
 DTE03-A's
