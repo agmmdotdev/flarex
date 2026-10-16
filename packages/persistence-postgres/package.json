@@ -168,7 +168,8 @@
     "./internal/session": "./src/execution/session/api.ts",
     "./internal/session-construction": "./src/execution/session/construction.ts",
     "./internal/located-read-committed-runner": "./src/database/locatedReadCommittedRunner.ts",
-    "./internal/system-test/session-kernel": "./src/execution/session/kernelTestApi.ts"
+    "./internal/system-test/session-kernel": "./src/execution/session/kernelTestApi.ts",
+    "./internal/trusted-workflow-task-run-creation": "./src/tasks/trustedWorkflowTaskRunCreation.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

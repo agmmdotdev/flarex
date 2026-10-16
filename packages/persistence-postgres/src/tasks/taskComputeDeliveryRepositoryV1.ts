@@ -4070,6 +4070,7 @@ function decodeRun(
     decodeAndCorrelateTaskSystemRunRowV1(row),
     () => rollback(corruption(operation, runId, "aggregate_invalid")),
   );
+  if (decoded.generation === "trusted_workflow") throw rollback(corruption(operation, runId, "aggregate_invalid"));
   return decoded;
 }
 

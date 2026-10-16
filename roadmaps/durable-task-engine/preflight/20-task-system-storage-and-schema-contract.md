@@ -9,6 +9,11 @@ scope-bound lifecycle, creation, discovery, and requested-effect-ledger
 capabilities. This file still does not admit registration, effect delivery,
 host composition, or routing.
 
+The [trusted workflow binding prerequisite](#trusted-workflow-binding-prerequisite)
+adds a distinct private definition reference and binding table for framework
+workflows. It preserves the original generations and does not admit execution
+delivery, continuation waits or commerce effects.
+
 ## Objective
 
 Define the minimum durable representation needed for idempotent run creation,
@@ -449,3 +454,37 @@ run plus request-identity insertion, stable replay/conflict handling, and
 stored immutable binding/input/authority correlation. It creates no attempt or
 requested-effect row. Definition registration, discovery, effect delivery,
 host composition, and activation remain closed until their own checkpoints.
+
+## Trusted Workflow Binding Prerequisite
+
+The closed `trusted_workflow` definition reference identifies a scoped immutable
+binding by SHA-256. Its canonical definition pins reviewed workflow and adapter
+revisions, execution profile/policy, the existing bound attempt policy and one
+authenticated-user principal digest. Trusted construction owns bounded capture
+and the authentic in-process handle. A supplied digest or decoded definition
+alone grants no execution authority.
+
+`fx_system_trusted_workflow_task_binding` stores bounded canonical bytes and
+their identity. Runs have an optional binding digest constrained to this
+generation and a restrictive scoped foreign key. The additive migration enrolls
+the table in installation writer protection. Existing generations and rows keep
+their prior meaning; there is no reset or synthetic Application artifact.
+
+The trusted creation store binds the request key, input/principal references,
+scope authority and exact immutable binding. It inserts the initial aggregate
+and request identity atomically, and correlates retained evidence on replay.
+The existing Task attempt, lease, fence, heartbeat, completion and cancellation
+owners operate on its current-reference envelope. Retained Application and
+legacy persistence codecs remain separate.
+
+This prerequisite has no compute delivery or due-discovery admission. Those
+existing profiles explicitly refuse trusted workflow runs. A future execution
+subject issuer must validate the persisted canonical binding, policy and
+principal against authentic construction evidence as well as the current
+attempt and live lease. Lifecycle row/digest correlation alone is insufficient.
+
+The concrete consumer is the
+[inline Product import preflight](../../flarexdb-framework-integration/preflight/109-native-inline-product-import-workflow.md).
+Confirmation, durable checkpoints, commerce child effects, provider recovery and
+event eligibility remain separate connected gates; this table is not an
+independent workflow engine or scheduler.

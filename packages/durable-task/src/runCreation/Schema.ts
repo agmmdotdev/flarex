@@ -1,3 +1,4 @@
+import { TrustedWorkflowBindingSha256Schema } from "./TrustedWorkflowBindingDigest.js";
 import {
   copyBytes,
   encodeBytesToLowercaseHex,
@@ -50,6 +51,7 @@ const STRICT_STRUCT_OPTIONS = {
 } as const;
 const STRICT_PARSE_OPTIONS = { onExcessProperty: "error" } as const;
 const UTF8 = new TextEncoder();
+const decodeTrustedWorkflowBindingSha256 = Schema.decodeUnknownResult(TrustedWorkflowBindingSha256Schema);
 
 function validOpaqueKey(value: string): boolean {
   if (
@@ -487,7 +489,15 @@ export function decodeTaskDefinitionReference(
     "generation", "taskDefinitionRevisionId",
   ], [
     "generation", "applicationTaskRuntimeTargetSha256",
-  ]]);
+  ], ["generation", "trustedWorkflowBindingSha256"]]);
+  if (captured?.generation === "trusted_workflow") {
+    const digest = captureSha256(captured.trustedWorkflowBindingSha256);
+    if (digest === undefined) return Result.fail(invalid("decode_definition_reference", "invalid_digest"));
+    return decodeTrustedWorkflowBindingSha256(digest).pipe(
+      Result.map(trustedWorkflowBindingSha256 => Object.freeze({ generation: "trusted_workflow" as const, trustedWorkflowBindingSha256 })),
+      Result.mapError(() => invalid("decode_definition_reference", "invalid_digest")),
+    );
+  }
   const legacy = captured?.generation === "legacy_definition_v1"
     ? captured
     : undefined;

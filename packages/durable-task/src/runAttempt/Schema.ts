@@ -1,3 +1,5 @@
+import type { CurrentTaskRunAttemptAggregate, CurrentTaskRunAttemptEvidence, CurrentTaskRunAttemptMutationAcceptance, CurrentTaskAttemptCompletionReplay } from "./Model.js";
+import { TrustedWorkflowBindingSha256Schema } from "../runCreation/TrustedWorkflowBindingDigest.js";
 // Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
 // upstream/packages/core/src/v3/schemas/schemas.ts. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
 import { isNonArrayRecord } from "@flarex/utils/records";
@@ -71,16 +73,20 @@ import {
 
 type PersistedTaskRunAttemptAggregate =
   | TaskRunAttemptAggregateV1
-  | ApplicationTaskRunAttemptAggregateV1;
+  | ApplicationTaskRunAttemptAggregateV1
+  | CurrentTaskRunAttemptAggregate;
 type PersistedTaskRunAttemptEvidence =
   | TaskRunAttemptEvidenceV1
-  | ApplicationTaskRunAttemptEvidenceV1;
+  | ApplicationTaskRunAttemptEvidenceV1
+  | CurrentTaskRunAttemptEvidence;
 type PersistedTaskRunAttemptMutationAcceptance =
   | TaskRunAttemptMutationAcceptanceV1
-  | ApplicationTaskRunAttemptMutationAcceptanceV1;
+  | ApplicationTaskRunAttemptMutationAcceptanceV1
+  | CurrentTaskRunAttemptMutationAcceptance;
 type PersistedTaskAttemptCompletionReplay =
   | TaskAttemptCompletionReplayV1
-  | ApplicationTaskAttemptCompletionReplayV1;
+  | ApplicationTaskAttemptCompletionReplayV1
+  | CurrentTaskAttemptCompletionReplay;
 
 const STRICT_STRUCT_OPTIONS = {
   parseOptions: { onExcessProperty: "error" },
@@ -124,18 +130,20 @@ function definitionIdentityEqualV1(
     readonly taskDefinitionRevisionId: string;
   } | {
     readonly applicationTaskRuntimeTargetSha256: Uint8Array;
-  },
+  } | { readonly definitionReference: import("../runCreation/Model.js").TaskDefinitionReference },
   right: {
     readonly taskDefinitionRevisionId: string;
   } | {
     readonly applicationTaskRuntimeTargetSha256: Uint8Array;
-  },
+  } | { readonly definitionReference: import("../runCreation/Model.js").TaskDefinitionReference },
 ): boolean {
+  if ("definitionReference" in left) return "definitionReference" in right &&
+    persistedValueEqualV1(left.definitionReference, right.definitionReference);
   if ("taskDefinitionRevisionId" in left) {
     return "taskDefinitionRevisionId" in right &&
       left.taskDefinitionRevisionId === right.taskDefinitionRevisionId;
   }
-  return "applicationTaskRuntimeTargetSha256" in right &&
+  return "applicationTaskRuntimeTargetSha256" in left && "applicationTaskRuntimeTargetSha256" in right &&
     persistedValueEqualV1(
       left.applicationTaskRuntimeTargetSha256,
       right.applicationTaskRuntimeTargetSha256,
@@ -675,6 +683,10 @@ const LegacyDefinitionIdentityFieldsV1 = makeDefinitionIdentityFields(
 const ApplicationDefinitionIdentityFieldsV1 = makeDefinitionIdentityFields(
   "application_v1",
 );
+export const TrustedWorkflowDefinitionReferenceSchema = Schema.Struct({
+  generation: Schema.Literal("trusted_workflow"), trustedWorkflowBindingSha256: TrustedWorkflowBindingSha256Schema,
+}).annotate(STRICT_STRUCT_OPTIONS);
+const TrustedWorkflowIdentityFields = { definitionReference: TrustedWorkflowDefinitionReferenceSchema };
 const TaskActiveAttemptProjectionV1Schema = Schema.Struct({
   attempt: TaskTerminalAttemptRefV1Schema,
   computeProfile: TaskComputeProfileRefV1Schema,
@@ -2354,3 +2366,17 @@ export type {
   TaskRunIdV1,
   TaskRunVersionV1,
 };
+
+/** The new persisted generation retains the current definition-reference envelope.
+ * The lifecycle schema factories and invariant validator remain the single owners. */
+export const TrustedWorkflowTaskRunAttemptAggregateSchema: Schema.Codec<CurrentTaskRunAttemptAggregate, unknown> = makeTaskRunAttemptAggregateSchema(TrustedWorkflowIdentityFields)
+  .check(Schema.makeFilter(aggregate => taskRunAttemptAggregateFailureV1(aggregate)));
+const decodeTrustedWorkflowAggregateSchema = Schema.decodeUnknownResult(TrustedWorkflowTaskRunAttemptAggregateSchema, STRICT_PARSE_OPTIONS);
+export const decodeTrustedWorkflowTaskRunAttemptAggregate = (input: unknown): Result.Result<CurrentTaskRunAttemptAggregate, Schema.SchemaError> => decodeTrustedWorkflowAggregateSchema(input).pipe(
+  Result.map(aggregate => toCurrentTaskRunAttemptAggregate({ generation: "trusted_workflow", aggregate })),
+);
+export const encodeTrustedWorkflowTaskRunAttemptAggregate: (input: unknown) => Result.Result<unknown, Schema.SchemaError> = Schema.encodeUnknownResult(TrustedWorkflowTaskRunAttemptAggregateSchema, STRICT_PARSE_OPTIONS);
+export const TrustedWorkflowPersistedTaskRequestedEffectSchema = Schema.Struct({
+  sequence: TaskRequestedEffectSequenceV1Schema,
+  effect: makeTaskRequestedEffectSchema(TrustedWorkflowIdentityFields),
+}).annotate(STRICT_STRUCT_OPTIONS);

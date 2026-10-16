@@ -65,9 +65,17 @@ export type ApplicationTaskRuntimeTargetSha256V1 = Brand.Branded<
   Uint8Array,
   "FlarexDurableTask/ApplicationTaskRuntimeTargetSha256V1"
 >;
+export type TrustedWorkflowBindingSha256 = Brand.Branded<
+  Uint8Array,
+  "FlarexDurableTask/TrustedWorkflowBindingSha256"
+>;
 
 /** Current in-memory definition identity; persisted V1 contracts remain exact. */
 export type TaskDefinitionReference =
+  | Readonly<{
+      readonly generation: "trusted_workflow";
+      readonly trustedWorkflowBindingSha256: TrustedWorkflowBindingSha256;
+    }>
   | Readonly<{
       readonly generation: "legacy_definition_v1";
       readonly taskDefinitionRevisionId: TaskDefinitionRevisionIdV1;

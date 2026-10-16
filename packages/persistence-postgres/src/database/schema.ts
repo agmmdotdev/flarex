@@ -69,6 +69,7 @@ import {
 import {
   fxSystemDurableTaskRepairSchedulerV1,
   fxSystemDurableTaskDefinitionRevisionsV1,
+  fxSystemTrustedWorkflowTaskBindings,
   fxSystemDurableTaskRunsV1,
   fxSystemDurableTaskRunRequestsV1,
   fxSystemDurableTaskAttemptIdentitiesV1,
@@ -214,6 +215,7 @@ export {
 export {
   fxSystemDurableTaskRepairSchedulerV1,
   fxSystemDurableTaskDefinitionRevisionsV1,
+  fxSystemTrustedWorkflowTaskBindings,
   fxSystemDurableTaskRunsV1,
   fxSystemDurableTaskRunRequestsV1,
   fxSystemDurableTaskAttemptIdentitiesV1,
@@ -319,6 +321,7 @@ export const flarexSchema = {
   fxSystemDurableTaskComputeDispatchesV1,
   fxSystemDurableTaskComputePendingV1,
   fxSystemDurableTaskDefinitionRevisionsV1,
+  fxSystemTrustedWorkflowTaskBindings,
   fxSystemDurableTaskRequestedEffectsV1,
   fxSystemDurableTaskRunRequestsV1,
   fxSystemDurableTaskRunsV1,

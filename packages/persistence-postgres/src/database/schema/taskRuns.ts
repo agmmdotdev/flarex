@@ -1,3 +1,4 @@
+import type { TrustedWorkflowBindingSha256 } from "@flarex/durable-task/internal/run-creation-v1";
 import { sql } from "drizzle-orm";
 import {
   bigint,
@@ -274,13 +275,27 @@ export const fxSystemDurableTaskDefinitionRevisionsV1 = pgTable(
 );
 
 /** Authoritative lifecycle aggregate plus relational discovery projections. */
+/** Immutable trusted workflow binding; no Application deployment metadata. */
+export const fxSystemTrustedWorkflowTaskBindings = pgTable("fx_system_trusted_workflow_task_binding", {
+  scopeId: text("scope_id").$type<ScopeId>().notNull(),
+  bindingSha256: bytea("binding_sha256").$type<TrustedWorkflowBindingSha256>().notNull(),
+  codecVersion: integer("codec_version").notNull(),
+  byteLength: integer("byte_length").notNull(),
+  canonicalBytes: bytea("canonical_bytes").notNull(),
+}, table => [
+  primaryKey({ name: "fx_trusted_workflow_task_binding_pk", columns: [table.scopeId, table.bindingSha256] }),
+  foreignKey({ name: "fx_trusted_workflow_task_binding_scope_fk", columns: [table.scopeId], foreignColumns: [fxSystemScopeClocks.scopeId] }).onDelete("restrict"),
+  check("fx_trusted_workflow_task_binding_values", sql`${table.codecVersion} = 1 and octet_length(${table.bindingSha256}) = 32
+    and ${table.byteLength} between 1 and 65536 and octet_length(${table.canonicalBytes}) = ${table.byteLength}`),
+]);
+
 export const fxSystemDurableTaskRunsV1 = pgTable(
   "fx_system_durable_task_run_v1",
   {
     scopeId: text("scope_id").$type<ScopeId>().notNull(),
     runId: text("run_id").$type<TaskRunIdV1>().notNull(),
     definitionGeneration: text("definition_generation")
-      .$type<"legacy_definition_v1" | "application_v1">()
+      .$type<"legacy_definition_v1" | "application_v1" | "trusted_workflow">()
       .notNull(),
     taskDefinitionRevisionId: text("task_definition_revision_id")
       .$type<TaskDefinitionRevisionIdV1>(),
@@ -288,6 +303,7 @@ export const fxSystemDurableTaskRunsV1 = pgTable(
     applicationTaskRuntimeTargetSha256: bytea(
       "application_task_runtime_target_sha256",
     ).$type<ApplicationTaskRuntimeTargetSha256V1>(),
+    trustedWorkflowBindingSha256: bytea("trusted_workflow_binding_sha256").$type<TrustedWorkflowBindingSha256>(),
     createdAtMs: bigint("created_at_ms", { mode: "bigint" }).notNull(),
     inputCodec: text("input_codec").notNull(),
     inputStore: text("input_store").notNull(),
@@ -357,6 +373,13 @@ export const fxSystemDurableTaskRunsV1 = pgTable(
       columns: [table.scopeId, table.runId],
       name: "fx_task_run_v1_pk",
     }),
+    foreignKey({ name: "fx_task_run_trusted_workflow_binding_fk",
+      columns: [table.scopeId, table.trustedWorkflowBindingSha256],
+      foreignColumns: [fxSystemTrustedWorkflowTaskBindings.scopeId, fxSystemTrustedWorkflowTaskBindings.bindingSha256],
+    }).onDelete("restrict"),
+    check("fx_task_run_trusted_workflow_binding_check", sql`((${table.definitionGeneration} = 'trusted_workflow'
+      and ${table.trustedWorkflowBindingSha256} is not null and octet_length(${table.trustedWorkflowBindingSha256}) = 32)
+      or (${table.definitionGeneration} <> 'trusted_workflow' and ${table.trustedWorkflowBindingSha256} is null))`),
     foreignKey({
       name: "fx_task_run_v1_definition_fk",
       columns: [table.scopeId, table.taskDefinitionRevisionId],
@@ -444,7 +467,28 @@ export const fxSystemDurableTaskRunsV1 = pgTable(
                     and octet_length(${table.executionPrincipalSha256}) = 32
                     and right(${table.executionPrincipalObjectKey}, 64) =
                       encode(${table.executionPrincipalSha256}, 'hex')
-                    and ${table.executionPrincipalRetention} = 'run_lifetime'))))
+                    and ${table.executionPrincipalRetention} = 'run_lifetime')))
+          or (${table.definitionGeneration} = 'trusted_workflow'
+            and ${table.taskDefinitionRevisionId} is null and ${table.applicationRevisionId} is null
+            and ${table.applicationTaskRuntimeTargetSha256} is null
+            and ${table.executionPrincipalGeneration} = 'present_v1'
+            and ${table.executionPrincipalKind} is not null
+            and ${table.executionPrincipalCodec} is not null
+            and ${table.executionPrincipalStore} is not null
+            and ${table.executionPrincipalValueCodec} is not null
+            and ${table.executionPrincipalObjectKey} is not null
+            and ${table.executionPrincipalByteLength} is not null
+            and ${table.executionPrincipalSha256} is not null
+            and ${table.executionPrincipalRetention} is not null
+            and ${table.executionPrincipalKind} = 'authenticated_user'
+            and ${table.executionPrincipalCodec} = 'flarex.task-execution-principal-reference.v1'
+            and ${table.executionPrincipalStore} = 'flarex.task-execution-principal-object-store.v1'
+            and ${table.executionPrincipalValueCodec} = 'flarex-value/v1'
+            and ${table.executionPrincipalObjectKey} ~ '^durable-task-principal/v1/sha256/[0-9a-f]{64}$'
+            and ${table.executionPrincipalByteLength} between 1 and ${sql.raw(String(MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1))}
+            and octet_length(${table.executionPrincipalSha256}) = 32
+            and right(${table.executionPrincipalObjectKey},64) = encode(${table.executionPrincipalSha256},'hex')
+            and ${table.executionPrincipalRetention} = 'run_lifetime'))
         and ${table.createdAtMs} between 0 and 9007199254740991`,
     ),
     check(

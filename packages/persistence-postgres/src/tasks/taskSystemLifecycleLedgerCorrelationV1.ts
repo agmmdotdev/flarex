@@ -1,3 +1,4 @@
+import { decodeAndCorrelateTrustedWorkflowTaskSystemRequestedEffectRow } from "./taskSystemRequestedEffectRowV1";
 import {
   type ApplicationTaskRunAttemptAggregateV1,
   toCurrentTaskRequestedEffect,
@@ -73,7 +74,7 @@ export async function correlateApplicationTaskSystemLifecycleLedgerV1(
   );
 }
 
-async function correlateLifecycleLedgerCurrent(
+export async function correlateLifecycleLedgerCurrent(
   tx: AppRowTransaction,
   scopeId: ScopeId,
   runId: TaskRunIdV1,
@@ -148,7 +149,9 @@ function requestedEffectRowMatches(
   expected: CurrentPersistedTaskRequestedEffect,
   generation: PersistedTaskRunAttemptAggregate["generation"],
 ): boolean {
-  const decoded = generation === "legacy_definition_v1"
+  const decoded = generation === "trusted_workflow"
+    ? decodeAndCorrelateTrustedWorkflowTaskSystemRequestedEffectRow(row).pipe(Result.map(effect => effect.effect))
+    : generation === "legacy_definition_v1"
     ? decodeAndCorrelateTaskSystemRequestedEffectRowV1(row).pipe(
         Result.map(effect => toCurrentTaskRequestedEffect({ generation, effect: effect.effect })),
       )
@@ -237,7 +240,9 @@ async function correlateAttemptIdentities(
       || dispatchRow.sequence > effectCursor
     ) throw onCorruption("acceptance_invalid");
     const decoded = Result.getOrThrowWith(
-      generation === "legacy_definition_v1"
+      generation === "trusted_workflow"
+        ? decodeAndCorrelateTrustedWorkflowTaskSystemRequestedEffectRow(dispatchRow).pipe(Result.map(effect => effect.effect))
+        : generation === "legacy_definition_v1"
         ? decodeAndCorrelateTaskSystemRequestedEffectRowV1(dispatchRow).pipe(
             Result.map(effect => toCurrentTaskRequestedEffect({ generation, effect: effect.effect })),
           )

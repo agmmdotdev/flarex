@@ -1,3 +1,5 @@
+import type { CurrentTaskRunAttemptAggregate, CurrentPersistedTaskRequestedEffect } from "./Model.js";
+import { encodeTrustedWorkflowTaskRunAttemptAggregate, decodeTrustedWorkflowTaskRunAttemptAggregate, TrustedWorkflowPersistedTaskRequestedEffectSchema } from "./Schema.js";
 import type { Json, JsonObject } from "flarex-protocol/json";
 import { measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
 import { Data, Encoding, Result, Schema } from "effect";
@@ -453,6 +455,7 @@ function captureJsonObjectContainerV1(
 function encodeOwnedPersistenceJsonValueV1(
   input: unknown,
   bytePosition: boolean,
+  trustedWorkflowIdentity = false,
 ): Result.Result<Json, JsonConversionIssueV1> {
   if (
     input === null ||
@@ -496,6 +499,7 @@ function encodeOwnedPersistenceJsonValueV1(
         owned.push(yield* encodeOwnedPersistenceJsonValueV1(
           descriptor.value,
           false,
+          trustedWorkflowIdentity,
         ));
       }
       return Object.freeze(owned);
@@ -534,7 +538,9 @@ function encodeOwnedPersistenceJsonValueV1(
       entries.push([key, yield* encodeOwnedPersistenceJsonValueV1(
         descriptor.value,
         (commitment && key === "sha256")
-          || key === "applicationTaskRuntimeTargetSha256",
+          || key === "applicationTaskRuntimeTargetSha256"
+          || (trustedWorkflowIdentity && key === "trustedWorkflowBindingSha256"),
+        trustedWorkflowIdentity,
       )]);
     }
     return freezeOwnedJsonObject(entries);
@@ -570,6 +576,7 @@ function decodeTaskResultSha256WrapperV1(
 
 function decodeOwnedPersistenceJsonValueV1(
   input: Json,
+  trustedWorkflowIdentity = false,
 ): Result.Result<unknown, JsonConversionIssueV1> {
   if (
     input === null ||
@@ -595,6 +602,7 @@ function decodeOwnedPersistenceJsonValueV1(
         }
         owned.push(yield* decodeOwnedPersistenceJsonValueV1(
           descriptor.value as Json,
+          trustedWorkflowIdentity,
         ));
       }
       return owned;
@@ -626,8 +634,9 @@ function decodeOwnedPersistenceJsonValueV1(
       }
       owned[key] = (commitment && key === "sha256")
         || key === "applicationTaskRuntimeTargetSha256"
+        || (trustedWorkflowIdentity && key === "trustedWorkflowBindingSha256")
         ? yield* decodeTaskResultSha256WrapperV1(descriptor.value)
-        : yield* decodeOwnedPersistenceJsonValueV1(descriptor.value as Json);
+        : yield* decodeOwnedPersistenceJsonValueV1(descriptor.value as Json, trustedWorkflowIdentity);
     }
     return owned;
   });
@@ -661,6 +670,7 @@ function decodeEnvelopePayloadV1(
   codec: string,
   payloadKey: "aggregate" | "effect",
   maximumBytes: number,
+  trustedWorkflowIdentity = false,
 ): Result.Result<unknown, TaskPersistenceCodecErrorV1> {
   return Result.gen(function* () {
     const captured = yield* captureOwnedJsonValueV1(
@@ -691,7 +701,7 @@ function decodeEnvelopePayloadV1(
         kind: "invalid_envelope",
       }));
     }
-    return yield* decodeOwnedPersistenceJsonValueV1(payload as JsonObject).pipe(
+    return yield* decodeOwnedPersistenceJsonValueV1(payload as JsonObject, trustedWorkflowIdentity).pipe(
       Result.mapError((issue) => persistenceCodecError(operation, issue)),
     );
   });
@@ -700,6 +710,7 @@ function decodeEnvelopePayloadV1(
 function encodeDomainPayloadV1(
   encoded: Result.Result<unknown, Schema.SchemaError>,
   operation: TaskPersistenceCodecOperationV1,
+  trustedWorkflowIdentity = false,
 ): Result.Result<JsonObject, TaskPersistenceCodecErrorV1> {
   return Result.gen(function* () {
     const domainValue = yield* encoded.pipe(
@@ -711,6 +722,7 @@ function encodeDomainPayloadV1(
     const json = yield* encodeOwnedPersistenceJsonValueV1(
       domainValue,
       false,
+      trustedWorkflowIdentity,
     ).pipe(Result.mapError((issue) => persistenceCodecError(operation, issue)));
     if (!isPlainRecord(json)) {
       return yield* Result.fail(persistenceCodecError(operation, {
@@ -896,5 +908,40 @@ export function decodeApplicationPersistedTaskRequestedEffectJsonV1(
         cause,
       })),
     );
+  });
+}
+
+export function encodeTrustedWorkflowTaskRunAttemptAggregateJson(aggregate: CurrentTaskRunAttemptAggregate): Result.Result<PersistedTaskRunAttemptAggregateJsonV1, TaskPersistenceCodecErrorV1> {
+  const operation = "encode_aggregate" as const;
+  return Result.gen(function* () {
+    const payload = yield* encodeDomainPayloadV1(encodeTrustedWorkflowTaskRunAttemptAggregate(aggregate), operation, true);
+    const envelope = Object.freeze({ codec: TASK_RUN_ATTEMPT_PERSISTED_JSON_CODEC_V1, aggregate: payload });
+    yield* measureEnvelopeV1(envelope, MAX_TASK_RUN_ATTEMPT_PERSISTED_JSON_BYTES_V1, operation);
+    return envelope;
+  });
+}
+export function decodeTrustedWorkflowTaskRunAttemptAggregateJson(input: unknown): Result.Result<CurrentTaskRunAttemptAggregate, TaskPersistenceCodecErrorV1> {
+  const operation = "decode_aggregate" as const;
+  return Result.gen(function* () {
+    const payload = yield* decodeEnvelopePayloadV1(input, operation, TASK_RUN_ATTEMPT_PERSISTED_JSON_CODEC_V1, "aggregate", MAX_TASK_RUN_ATTEMPT_PERSISTED_JSON_BYTES_V1, true);
+    return yield* decodeTrustedWorkflowTaskRunAttemptAggregate(payload).pipe(Result.mapError(cause => persistenceCodecError(operation, { kind: "domain_value_invalid", cause })));
+  });
+}
+const encodeTrustedEffect = Schema.encodeUnknownResult(TrustedWorkflowPersistedTaskRequestedEffectSchema, STRICT_PARSE_OPTIONS);
+const decodeTrustedEffect = Schema.decodeUnknownResult(TrustedWorkflowPersistedTaskRequestedEffectSchema, STRICT_PARSE_OPTIONS);
+export function encodeTrustedWorkflowPersistedTaskRequestedEffectJson(effect: CurrentPersistedTaskRequestedEffect): Result.Result<PersistedTaskRequestedEffectJsonV1, TaskPersistenceCodecErrorV1> {
+  const operation = "encode_requested_effect" as const;
+  return Result.gen(function* () {
+    const payload = yield* encodeDomainPayloadV1(encodeTrustedEffect(effect), operation, true);
+    const envelope = Object.freeze({ codec: TASK_REQUESTED_EFFECT_PERSISTED_JSON_CODEC_V1, effect: payload });
+    yield* measureEnvelopeV1(envelope, MAX_TASK_REQUESTED_EFFECT_PERSISTED_JSON_BYTES_V1, operation);
+    return envelope;
+  });
+}
+export function decodeTrustedWorkflowPersistedTaskRequestedEffectJson(input: unknown): Result.Result<CurrentPersistedTaskRequestedEffect, TaskPersistenceCodecErrorV1> {
+  const operation = "decode_requested_effect" as const;
+  return Result.gen(function* () {
+    const payload = yield* decodeEnvelopePayloadV1(input, operation, TASK_REQUESTED_EFFECT_PERSISTED_JSON_CODEC_V1, "effect", MAX_TASK_REQUESTED_EFFECT_PERSISTED_JSON_BYTES_V1, true);
+    return yield* decodeTrustedEffect(payload).pipe(Result.mapError(cause => persistenceCodecError(operation, { kind: "domain_value_invalid", cause })));
   });
 }

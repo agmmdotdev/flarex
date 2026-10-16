@@ -1,3 +1,4 @@
+import type { CurrentTaskRunAttemptAggregate } from "./Model.js";
 import { Brand } from "effect";
 import type {
   ApplicationTaskRunAttemptAggregateV1,
@@ -71,8 +72,8 @@ export function projectApplicationTaskRunAttemptPersistenceV1(
   });
 }
 
-function projectCurrentTaskRunAttemptPersistence(
-  aggregate: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
+export function projectCurrentTaskRunAttemptPersistence(
+  aggregate: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
 ): Omit<TaskRunAttemptPersistenceProjectionV1, "taskDefinitionRevisionId"> {
   const requestedEffectSequence = taskRequestedEffectPersistenceCursor(
     aggregate.requestedEffectCursor.kind === "none"

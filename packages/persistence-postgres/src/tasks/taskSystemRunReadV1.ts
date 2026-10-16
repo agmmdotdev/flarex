@@ -318,7 +318,7 @@ async function discoverDueRunsOnce(
       "run_row_invalid",
       )),
     );
-    if (decodedRow.generation !== generation) {
+    if (decodedRow.generation === "trusted_workflow" || decodedRow.generation !== generation) {
       throw readRollback(corruption(
         "discover_due_runs",
         row.runId,

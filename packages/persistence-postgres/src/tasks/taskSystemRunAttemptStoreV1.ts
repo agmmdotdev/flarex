@@ -1,3 +1,11 @@
+import { encodeTrustedWorkflowTaskRunAttemptAggregateJson, decodeTrustedWorkflowTaskRunAttemptAggregateJson,
+  encodeTrustedWorkflowPersistedTaskRequestedEffectJson, projectCurrentTaskRunAttemptPersistence,
+  toCurrentApplicationTaskRunAttemptDecision, fromCurrentTaskRunAttemptAggregate, fromCurrentTaskRequestedEffect,
+  type CurrentTaskRunAttemptAggregate, type CurrentTaskRunAttemptDecision,
+  type CurrentTaskSystemRunAttemptDecisionInput, type TaskSystemRunAttemptInspectionRequestV1,
+  type TrustedWorkflowTaskSystemRunAttemptTransaction, type TrustedWorkflowTaskSystemRunAttemptStoreShape,
+} from "@flarex/durable-task/internal/run-attempt-v1";
+import { correlateLifecycleLedgerCurrent } from "./taskSystemLifecycleLedgerCorrelationV1";
 import {
   InvalidRunAttemptTransitionError,
   StaleTaskRunVersionError,
@@ -348,10 +356,14 @@ const inspectApplicationRunAttempt = Effect.fn(
   ApplicationTaskSystemRunAttemptInspectionSnapshotV1,
   TaskSystemRunAttemptStoreErrorV1
 > {
+  return yield* inspectGeneration(target, tx => inspectApplicationOnce(tx, authority, target, operation, runId), operation, runId);
+});
+const inspectGeneration = Effect.fn("TaskSystem.inspectGeneration")(function* <Receipt>(
+  target: LocatedTaskSystemRunAttemptTargetV1, transaction: (tx: AppRowTransaction) => Promise<Receipt>,
+  operation: "inspect_current_attempt", runId: TaskRunIdV1,
+): Effect.fn.Return<Receipt, TaskSystemRunAttemptStoreErrorV1> {
   const settled = yield* Effect.exit(awaitLocatedTransaction(
-    target[RUN_LOCATED_READ_COMMITTED_V1](tx => inspectApplicationOnce(
-      tx, authority, target, operation, runId,
-    )),
+    target[RUN_LOCATED_READ_COMMITTED_V1](transaction),
   ));
   if (Exit.isSuccess(settled)) return settled.value;
   const failure = yield* Result.match(Cause.findError(settled.cause), {
@@ -483,7 +495,7 @@ interface TransactionGenerationAdapter<
 }
 
 async function transactOnceCore<
-  Current extends TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
+  Current extends TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
   DecisionInput,
   Decision,
   Receipt,
@@ -723,7 +735,7 @@ async function correlateLifecycleLedger(
 }
 
 function allocateAttemptCandidate(
-  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
+  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
   randomUuid: () => string,
   operation: "start_attempt",
   runId: TaskRunIdV1,
@@ -854,12 +866,13 @@ async function applyApplicationDecision<Outcome>(
 
 async function applyDecisionCore<
   Outcome,
-  Aggregate extends TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
+  Aggregate extends TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
   Evidence,
   RequestedEffect,
   Prepared extends PreparedPersistenceCommit,
   Request extends TaskSystemRunAttemptTransactionV1<Outcome>
-    | ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+    | ApplicationTaskSystemRunAttemptTransactionV1<Outcome>
+    | TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>,
 >(
   request: Request,
   current: Aggregate,
@@ -926,6 +939,7 @@ type PreparedPersistenceCommit =
   | LegacyPreparedPersistenceCommit
   | ApplicationPreparedPersistenceCommit;
 type PreparedPersistenceInput<Outcome> =
+  | Readonly<{ readonly generation: "trusted_workflow"; readonly request: TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>; readonly prepared: ReturnType<typeof prepareCurrentDefinitionCommit<Outcome>> }>
   | Readonly<{
       readonly generation: "legacy_definition_v1";
       readonly request: TaskSystemRunAttemptTransactionV1<Outcome>;
@@ -1144,6 +1158,18 @@ function prepareApplicationCommit<Outcome>(
     readonly kind: "commit";
   }>,
 ) {
+  return prepareCurrentDefinitionCommit(request,
+    toCurrentTaskRunAttemptAggregate({ generation: "application_v1", aggregate: current }), databaseNowMs, candidate,
+    toCurrentApplicationTaskRunAttemptDecision(request.operation, decision), "application_v1");
+}
+
+function prepareCurrentDefinitionCommit<Outcome>(
+  request: Pick<TaskSystemRunAttemptTransactionV1<Outcome>, "operation" | "runId">,
+  current: CurrentTaskRunAttemptAggregate, databaseNowMs: TaskDatabaseTimeMsV1,
+  candidate: TaskAttemptGrantCandidateV1 | null,
+  decision: CurrentTaskRunAttemptDecision<Outcome>, generation: "application_v1" | "trusted_workflow",
+) {
+  if (decision.kind !== "commit") throw rollbackDecisionError(invalidDecision(request, current, "next_state_invalid"));
   if (decision.expectedRunVersion !== current.runVersion) {
     throw rollbackDecisionError(new StaleTaskRunVersionError({
       operation: request.operation,
@@ -1159,14 +1185,8 @@ function prepareApplicationCommit<Outcome>(
       cause: null,
     }));
   }
-  const currentModel = toCurrentTaskRunAttemptAggregate({
-    generation: "application_v1",
-    aggregate: current,
-  });
-  const nextModel = toCurrentTaskRunAttemptAggregate({
-    generation: "application_v1",
-    aggregate: decision.next,
-  });
+  const currentModel = current;
+  const nextModel = decision.next;
   if (
     decision.next.runVersion !== current.runVersion + 1n
     || decision.next.runId !== current.runId
@@ -1180,12 +1200,8 @@ function prepareApplicationCommit<Outcome>(
     request, current, "next_state_invalid",
   ));
   const preparedAggregate = Result.getOrThrowWith(Result.gen(function* () {
-    const aggregateJson = yield* encodeApplicationTaskRunAttemptAggregateJsonV1(
-      decision.next,
-    );
-    const next = yield* decodeApplicationTaskRunAttemptAggregateJsonV1(
-      aggregateJson,
-    );
+    const aggregateJson = yield* encodeCurrentAggregate(decision.next, generation);
+    const next = yield* decodeCurrentAggregate(aggregateJson, generation);
     return { aggregateJson, next };
   }), () => rollbackDecisionError(
     invalidDecision(request, current, "next_state_invalid"),
@@ -1223,7 +1239,7 @@ function prepareApplicationCommit<Outcome>(
       request, current, "effect_order_invalid",
     ));
     const payloadJson = Result.getOrThrowWith(
-      encodeApplicationPersistedTaskRequestedEffectJsonV1(persisted),
+      encodeCurrentEffect(persisted, generation),
       () => rollbackDecisionError(invalidDecision(
         request, current, "effect_order_invalid",
       )),
@@ -1234,7 +1250,7 @@ function prepareApplicationCommit<Outcome>(
       payloadByteLength: encodedJsonByteLength(payloadJson),
     });
   });
-  const projection = projectApplicationTaskRunAttemptPersistenceV1(next);
+  const projection = projectCurrentTaskRunAttemptPersistence(next);
   const lastSequence = effects.at(-1)?.persisted.sequence;
   if (lastSequence === undefined
     || BigInt(projection.requestedEffectSequence) !== BigInt(lastSequence)) {
@@ -1256,10 +1272,9 @@ function prepareApplicationCommit<Outcome>(
 }
 
 function requireAcceptedAttemptIdentity<Outcome>(
-  request: TaskSystemRunAttemptTransactionV1<Outcome>
-    | ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
-  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
-  next: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
+  request: Pick<TaskSystemRunAttemptTransactionV1<Outcome>, "operation" | "runId">,
+  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
+  next: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
   candidate: TaskAttemptGrantCandidateV1 | null,
 ): TaskAttemptGrantCandidateV1 {
   if (
@@ -1275,7 +1290,7 @@ function requireAcceptedAttemptIdentity<Outcome>(
 }
 
 function isStoredAcceptanceReplay<_Outcome>(
-  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
+  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
   replay: unknown,
 ): boolean {
   if (
@@ -1288,9 +1303,8 @@ function isStoredAcceptanceReplay<_Outcome>(
 }
 
 function invalidDecision<Outcome>(
-  request: TaskSystemRunAttemptTransactionV1<Outcome>
-    | ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
-  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
+  request: Pick<TaskSystemRunAttemptTransactionV1<Outcome>, "operation" | "runId">,
+  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
   reason: InvalidRunAttemptTransitionError["reason"],
 ): InvalidRunAttemptTransitionError {
   return new InvalidRunAttemptTransitionError({
@@ -1647,4 +1661,61 @@ function corruption(
   reason: TaskSystemRunAttemptCorruptionError["reason"],
 ): TaskSystemRunAttemptCorruptionError {
   return new TaskSystemRunAttemptCorruptionError({ operation, runId, reason });
+}
+
+function encodeCurrentAggregate(aggregate: CurrentTaskRunAttemptAggregate, generation: "application_v1" | "trusted_workflow") {
+  if (generation === "trusted_workflow") return encodeTrustedWorkflowTaskRunAttemptAggregateJson(aggregate);
+  return fromCurrentTaskRunAttemptAggregate(aggregate, generation).pipe(Result.flatMap(persisted =>
+    persisted.generation === "application_v1" ? encodeApplicationTaskRunAttemptAggregateJsonV1(persisted.aggregate) : Result.fail(new Error("Current aggregate adapter changed definition generation"))));
+}
+function decodeCurrentAggregate(value: unknown, generation: "application_v1" | "trusted_workflow") {
+  return generation === "trusted_workflow" ? decodeTrustedWorkflowTaskRunAttemptAggregateJson(value)
+    : decodeApplicationTaskRunAttemptAggregateJsonV1(value).pipe(Result.map(aggregate => toCurrentTaskRunAttemptAggregate({ generation, aggregate })));
+}
+function encodeCurrentEffect(persisted: import("@flarex/durable-task/internal/run-attempt-v1").CurrentPersistedTaskRequestedEffect, generation: "application_v1" | "trusted_workflow") {
+  if (generation === "trusted_workflow") return encodeTrustedWorkflowPersistedTaskRequestedEffectJson(persisted);
+  return fromCurrentTaskRequestedEffect(persisted.effect, generation).pipe(Result.flatMap(effect =>
+    effect.generation === "application_v1" ? encodeApplicationPersistedTaskRequestedEffectJsonV1({ sequence: persisted.sequence, effect: effect.effect }) : Result.fail(new Error("Current effect adapter changed definition generation"))));
+}
+
+/** Genuine trusted workflow generation, sharing Task locks/decisions/ledger persistence. */
+export function makeTrustedWorkflowTaskSystemRunAttemptStore(
+  located: LocatedTrustedScopeAuthority<LocatedTaskSystemRunAttemptTargetV1>,
+  options: TaskSystemRunAttemptStoreOptionsV1 = {},
+): TrustedWorkflowTaskSystemRunAttemptStoreShape {
+  const authority = captureTaskSystemTrustedScopeAuthorityV1(located.authority);
+  const target = located.target, randomUuid = options.randomUuid ?? (() => crypto.randomUUID());
+  return Object.freeze({
+    transactRunAttempt: <Outcome>(request: TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>) => transactGeneration(
+      authority, target, request,
+      tx => transactOnceCore(tx, authority, target, randomUuid, request, {
+        decode: decodeTrustedWorkflowRunRow,
+        correlate: (innerTx, scopeId, operation, runId, current) => correlateLifecycleLedgerCurrent(innerTx, scopeId, runId,
+          { generation: "trusted_workflow", aggregate: current }, reason => rollbackStoreError(corruption(operation, runId, reason))),
+        makeDecisionInput: (databaseNowMs, current, candidate): CurrentTaskSystemRunAttemptDecisionInput => ({ databaseNowMs, current, get attemptGrantCandidate() { return candidate(); } }),
+        decide: (innerRequest, value) => innerRequest.decide(value),
+        apply: (innerTx, scopeId, innerRequest, current, databaseNowMs, candidate, decision) => applyDecisionCore(
+          innerRequest, current, databaseNowMs, candidate, decision,
+          (selectedCandidate, commit) => prepareCurrentDefinitionCommit(innerRequest, current, databaseNowMs, selectedCandidate, commit, "trusted_workflow"),
+          prepared => persistPreparedCommit(innerTx, scopeId, current.runVersion, databaseNowMs, { generation: "trusted_workflow", request: innerRequest, prepared })),
+      }),
+      (receipt, innerRequest) => {
+        try { return Result.succeed(snapshotOwned(receipt)); }
+        catch (cause) { return Result.fail(new TaskSystemRunAttemptTerminalStoreError({ operation: innerRequest.operation, runId: innerRequest.runId, reason: "serialization_unsupported", cause })); }
+      },
+    ),
+    inspectRunAttempt: (request: TaskSystemRunAttemptInspectionRequestV1) => inspectGeneration(target, async tx => {
+      await requireLockedScopeAuthority(tx, authority, target, request.operation, request.runId);
+      const row = await loadRun(tx, authority.scopeId, request.runId, true);
+      if (row === null) throw rollbackStoreError(new TaskSystemRunAttemptUnavailableError({ operation: request.operation, runId: request.runId, reason: "unavailable" }));
+      const current = decodeTrustedWorkflowRunRow(row, request.operation, request.runId);
+      await correlateLifecycleLedgerCurrent(tx, authority.scopeId, request.runId, { generation: "trusted_workflow", aggregate: current }, reason => rollbackStoreError(corruption(request.operation, request.runId, reason)));
+      return snapshotOwned({ current, observedAtMs: await target[READ_TASK_SYSTEM_DATABASE_NOW_V1](tx, authority.scopeId, request.operation, request.runId) });
+    }, request.operation, request.runId),
+  });
+}
+function decodeTrustedWorkflowRunRow(row: TaskRunRow, operation: RunAttemptOperationV1, runId: TaskRunIdV1): CurrentTaskRunAttemptAggregate {
+  const decoded = Result.getOrThrowWith(decodeAndCorrelateTaskSystemRunRowV1(row), reason => rollbackStoreError(corruption(operation, runId, reason)));
+  if (decoded.generation !== "trusted_workflow") throw rollbackStoreError(corruption(operation, runId, "binding_reference_invalid"));
+  return decoded.aggregate;
 }

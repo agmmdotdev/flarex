@@ -3,6 +3,13 @@
 import { Context, type Effect, type Result } from "effect";
 import type { RunAttemptDecisionErrorV1, TaskSystemRunAttemptStoreErrorV1 } from "../Errors.js";
 import type {
+  CurrentTaskSystemRunAttemptDecisionInput,
+  CurrentTaskRunAttemptDecision,
+  CurrentTaskRunAttemptAggregate,
+  CurrentTaskRunAttemptEvidence,
+  CurrentTaskRequestedEffect,
+  CurrentPersistedTaskRequestedEffect,
+  RunAttemptServiceReceiptFor,
   ApplicationTaskRunAttemptDecisionV1,
   ApplicationTaskSystemRunAttemptDecisionInputV1,
   ApplicationTaskSystemRunAttemptInspectionSnapshotV1,
@@ -15,6 +22,24 @@ import type {
   TaskRunIdV1,
   TaskSystemRunAttemptTransactionReceiptV1,
 } from "../Model.js";
+
+export interface TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome> {
+  readonly operation: RunAttemptMutationOperationV1;
+  readonly runId: TaskRunIdV1;
+  readonly decide: (input: CurrentTaskSystemRunAttemptDecisionInput) => Result.Result<
+    CurrentTaskRunAttemptDecision<Outcome>, RunAttemptDecisionErrorV1
+  >;
+}
+export interface TrustedWorkflowTaskSystemRunAttemptStoreShape {
+  readonly transactRunAttempt: <Outcome>(request: TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>) => Effect.Effect<
+    RunAttemptServiceReceiptFor<Outcome, CurrentTaskRunAttemptEvidence, CurrentPersistedTaskRequestedEffect>,
+    RunAttemptDecisionErrorV1 | TaskSystemRunAttemptStoreErrorV1
+  >;
+  readonly inspectRunAttempt: (request: TaskSystemRunAttemptInspectionRequestV1) => Effect.Effect<
+    Readonly<{ readonly observedAtMs: import("../Model.js").TaskDatabaseTimeMsV1; readonly current: CurrentTaskRunAttemptAggregate }>,
+    TaskSystemRunAttemptStoreErrorV1
+  >;
+}
 
 export interface ApplicationTaskSystemRunAttemptTransactionV1<Outcome> {
   readonly operation: RunAttemptMutationOperationV1;

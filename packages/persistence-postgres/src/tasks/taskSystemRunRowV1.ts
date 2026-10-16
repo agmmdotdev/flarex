@@ -1,3 +1,4 @@
+import { decodeTrustedWorkflowTaskRunAttemptAggregateJson, encodeTrustedWorkflowTaskRunAttemptAggregateJson, projectCurrentTaskRunAttemptPersistence, type CurrentTaskRunAttemptAggregate } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
   decodeApplicationTaskRunAttemptAggregateJsonV1,
   decodePersistedTaskRunAttemptAggregateJsonV1,
@@ -23,6 +24,7 @@ export type TaskSystemRunRowCorruptionReasonV1 =
   TaskSystemRunAttemptCorruptionError["reason"];
 
 export type DecodedTaskSystemRunRowV1 =
+  | Readonly<{ readonly generation: "trusted_workflow"; readonly aggregate: CurrentTaskRunAttemptAggregate }>
   | Readonly<{
       readonly generation: "legacy_definition_v1";
       readonly aggregate: TaskRunAttemptAggregateV1;
@@ -39,6 +41,7 @@ export function decodeAndCorrelateTaskSystemRunRowV1(
   TaskSystemRunRowCorruptionReasonV1
 > {
   if (row.aggregateCodecVersion !== 1) return Result.fail("aggregate_invalid");
+  if (row.definitionGeneration === "trusted_workflow") return decodeAndCorrelateTrustedWorkflowRunRow(row);
   if (row.definitionGeneration === "application_v1") {
     return decodeAndCorrelateApplicationRunRow(row);
   }
@@ -157,4 +160,25 @@ function encodedJsonByteLength(value: unknown): bigint {
 
 function nullableNumberAsBigInt(value: number | null): bigint | null {
   return value === null ? null : BigInt(value);
+}
+
+function decodeAndCorrelateTrustedWorkflowRunRow(row: TaskSystemDurableTaskRunRowV1): Result.Result<DecodedTaskSystemRunRowV1, TaskSystemRunRowCorruptionReasonV1> {
+  return Result.gen(function* () {
+    if (row.trustedWorkflowBindingSha256 === null || row.taskDefinitionRevisionId !== null ||
+      row.applicationRevisionId !== null || row.applicationTaskRuntimeTargetSha256 !== null || row.executionPrincipalGeneration !== "present_v1")
+      return yield* Result.fail("binding_reference_invalid" as const);
+    const aggregate = yield* decodeTrustedWorkflowTaskRunAttemptAggregateJson(row.aggregateJson).pipe(Result.mapError(classifyAggregateDecodeCorruption));
+    const encoded = yield* encodeTrustedWorkflowTaskRunAttemptAggregateJson(aggregate).pipe(Result.mapError(() => "aggregate_invalid" as const));
+    const projection = projectCurrentTaskRunAttemptPersistence(aggregate);
+    if (aggregate.definitionReference.generation !== "trusted_workflow" ||
+      !bytesEqualFullScan(aggregate.definitionReference.trustedWorkflowBindingSha256, row.trustedWorkflowBindingSha256) ||
+      row.aggregateByteLength !== encodedJsonByteLength(encoded) || aggregate.runId !== row.runId ||
+      BigInt(aggregate.createdAtMs) !== row.createdAtMs || projection.runVersion !== row.runVersion || projection.phase !== row.phase ||
+      projection.dueKind !== row.dueKind || nullableNumberAsBigInt(projection.dueAtMs) !== row.dueAtMs ||
+      projection.currentAttemptId !== row.currentAttemptId || projection.executionFenceBasis !== row.executionFenceBasis ||
+      projection.currentLeaseVersion !== row.currentLeaseVersion || nullableNumberAsBigInt(projection.currentLeaseExpiresAtMs) !== row.currentLeaseExpiresAtMs ||
+      projection.cancellationGeneration !== row.cancellationGeneration || projection.requestedEffectSequence !== row.requestedEffectSequence)
+      return yield* Result.fail("binding_reference_invalid" as const);
+    return Object.freeze({ generation: "trusted_workflow" as const, aggregate });
+  });
 }

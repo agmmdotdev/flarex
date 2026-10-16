@@ -1,3 +1,4 @@
+import { decodeTrustedWorkflowTaskRunAttemptAggregate, encodeTrustedWorkflowTaskRunAttemptAggregate } from "../Schema.js";
 // Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
 // multiple mapped upstream paths. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
 import { Brand, Effect, Layer, Result } from "effect";
@@ -1347,3 +1348,16 @@ export const RunAttemptLifecycleLive = Layer.effect(
     return makeRunAttemptLifecycleV1(yield* TaskSystemRunAttemptStore);
   }),
 );
+
+/** The trusted generation borrows the same lifecycle decisions and validates the
+ * current-reference schema. No Application launch identity is synthesized. */
+function trustedDecisionInput(input: CurrentTaskSystemRunAttemptDecisionInput, operation: RunAttemptMutationOperationV1): CurrentDecisionInput {
+  return { databaseNowMs: input.databaseNowMs, get attemptGrantCandidate() { return input.attemptGrantCandidate; }, current: input.current,
+    validateCandidate: candidate => encodeTrustedWorkflowTaskRunAttemptAggregate(candidate).pipe(Result.flatMap(decodeTrustedWorkflowTaskRunAttemptAggregate), Result.mapError(() => new InvalidRunAttemptTransitionError({ operation, runId: candidate.runId, phase: candidate.phase, reason: "next_state_invalid" }))),
+  };
+}
+export const decideTrustedWorkflowStartAttempt = (command: StartAttemptCommandV1, input: CurrentTaskSystemRunAttemptDecisionInput) => decideStartAttemptCore(command, trustedDecisionInput(input, "start_attempt"));
+export const decideTrustedWorkflowHeartbeatAttempt = (command: HeartbeatAttemptCommandV1, input: CurrentTaskSystemRunAttemptDecisionInput) => decideHeartbeatAttemptCore(command, trustedDecisionInput(input, "heartbeat_attempt"));
+export const decideTrustedWorkflowCompleteAttempt = (command: CompleteAttemptCommandV1, input: CurrentTaskSystemRunAttemptDecisionInput) => decideCompleteAttemptCore(command, trustedDecisionInput(input, "complete_attempt"));
+export const decideTrustedWorkflowRequestCancellation = (command: RequestCancellationCommandV1, input: CurrentTaskSystemRunAttemptDecisionInput) => decideRequestCancellationCore(command, trustedDecisionInput(input, "request_cancellation"));
+export const decideTrustedWorkflowHandleLeaseExpiry = (command: HandleLeaseExpiryCommandV1, input: CurrentTaskSystemRunAttemptDecisionInput) => decideHandleLeaseExpiryCore(command, trustedDecisionInput(input, "handle_lease_expiry"));

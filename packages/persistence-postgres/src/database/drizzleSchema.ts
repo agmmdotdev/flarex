@@ -66,6 +66,7 @@ export {
   fxSystemDurableTaskComputeDispatchesV1,
   fxSystemDurableTaskComputePendingV1,
   fxSystemDurableTaskDefinitionRevisionsV1,
+  fxSystemTrustedWorkflowTaskBindings,
   fxSystemDurableTaskRepairSchedulerV1,
   fxSystemDurableTaskRequestedEffectsV1,
   fxSystemDurableTaskRunRequestsV1,

@@ -1,3 +1,4 @@
+import { decodeTrustedWorkflowPersistedTaskRequestedEffectJson, encodeTrustedWorkflowPersistedTaskRequestedEffectJson, type CurrentPersistedTaskRequestedEffect } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
   decodeApplicationPersistedTaskRequestedEffectJsonV1,
   decodePersistedTaskRequestedEffectJsonV1,
@@ -71,7 +72,7 @@ export function decodeAndCorrelateApplicationTaskSystemRequestedEffectRowV1(
 }
 
 export function taskSystemRequestedEffectNotBeforeMsV1(
-  effect: PersistedTaskRequestedEffectV1 | ApplicationPersistedTaskRequestedEffectV1,
+  effect: PersistedTaskRequestedEffectV1 | ApplicationPersistedTaskRequestedEffectV1 | CurrentPersistedTaskRequestedEffect,
 ): bigint | null {
   switch (effect.effect.kind) {
     case "continue_retry":
@@ -96,4 +97,16 @@ function assertUnreachableRequestedEffect(value: never): never {
 
 function encodedJsonByteLength(value: unknown): bigint {
   return BigInt(UTF8.encode(JSON.stringify(value)).byteLength);
+}
+
+export function decodeAndCorrelateTrustedWorkflowTaskSystemRequestedEffectRow(row: TaskSystemRequestedEffectRowV1): Result.Result<CurrentPersistedTaskRequestedEffect, "effect_sequence_invalid"> {
+  return Result.gen(function* () {
+    if (row.payloadCodecVersion !== 1) return yield* Result.fail("effect_sequence_invalid" as const);
+    const effect = yield* decodeTrustedWorkflowPersistedTaskRequestedEffectJson(row.payloadJson).pipe(Result.mapError(() => "effect_sequence_invalid" as const));
+    const canonical = yield* encodeTrustedWorkflowPersistedTaskRequestedEffectJson(effect).pipe(Result.mapError(() => "effect_sequence_invalid" as const));
+    if (row.sequence !== effect.sequence || row.runId !== effect.effect.runId || row.acceptedRunVersion !== effect.effect.acceptedRunVersion ||
+      row.kind !== effect.effect.kind || row.notBeforeMs !== taskSystemRequestedEffectNotBeforeMsV1(effect) || row.payloadByteLength !== encodedJsonByteLength(canonical))
+      return yield* Result.fail("effect_sequence_invalid" as const);
+    return effect;
+  });
 }

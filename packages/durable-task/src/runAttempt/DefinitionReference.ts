@@ -44,17 +44,21 @@ import {
 
 export type PersistedRunAttemptState =
   | Readonly<{ readonly generation: "legacy_definition_v1"; readonly state: RunAttemptStateV1 }>
-  | Readonly<{ readonly generation: "application_v1"; readonly state: ApplicationRunAttemptStateV1 }>;
+  | Readonly<{ readonly generation: "application_v1"; readonly state: ApplicationRunAttemptStateV1 }>
+  | Readonly<{ readonly generation: "trusted_workflow"; readonly state: CurrentRunAttemptState }>;
 
 export type PersistedTaskAttemptGrant =
   | Readonly<{ readonly generation: "legacy_definition_v1"; readonly grant: TaskAttemptGrantV1 }>
-  | Readonly<{ readonly generation: "application_v1"; readonly grant: ApplicationTaskAttemptGrantV1 }>;
+  | Readonly<{ readonly generation: "application_v1"; readonly grant: ApplicationTaskAttemptGrantV1 }>
+  | Readonly<{ readonly generation: "trusted_workflow"; readonly grant: CurrentTaskAttemptGrant }>;
 
 export type PersistedTaskRequestedEffect =
   | Readonly<{ readonly generation: "legacy_definition_v1"; readonly effect: TaskRequestedEffectV1 }>
-  | Readonly<{ readonly generation: "application_v1"; readonly effect: ApplicationTaskRequestedEffectV1 }>;
+  | Readonly<{ readonly generation: "application_v1"; readonly effect: ApplicationTaskRequestedEffectV1 }>
+  | Readonly<{ readonly generation: "trusted_workflow"; readonly effect: CurrentTaskRequestedEffect }>;
 
 export type PersistedTaskRunAttemptAggregate =
+  | Readonly<{ readonly generation: "trusted_workflow"; readonly aggregate: CurrentTaskRunAttemptAggregate }>
   | Readonly<{
       readonly generation: "legacy_definition_v1";
       readonly aggregate: TaskRunAttemptAggregateV1;
@@ -94,6 +98,7 @@ export type TaskLifecycleDecisionOperation =
 export function toCurrentTaskRunAttemptAggregate(
   input: PersistedTaskRunAttemptAggregate,
 ): CurrentTaskRunAttemptAggregate {
+  if (input.generation === "trusted_workflow") return snapshot(input.aggregate);
   return snapshot(Result.getOrThrow(transformDefinitionIdentity(
     input.aggregate,
     input.generation,
@@ -112,6 +117,7 @@ export function fromCurrentTaskRunAttemptAggregate(
   return Result.gen(function* () {
     const owned = snapshot(aggregate);
     yield* validateCurrentDefinitionReferences(owned, generation);
+    if (generation === "trusted_workflow") return Object.freeze({ generation, aggregate: owned });
     const transformed = yield* transformDefinitionIdentity(
       owned,
       generation,
@@ -159,15 +165,17 @@ export function toCurrentApplicationTaskRunAttemptDecision<
   >,
 ): CurrentTaskRunAttemptDecision<
   CurrentTaskLifecycleOutcomeByOperation[Operation]
-> {
+>;
+export function toCurrentApplicationTaskRunAttemptDecision(
+  operation: TaskLifecycleDecisionOperation, decision: ApplicationTaskRunAttemptDecisionV1<unknown>,
+): CurrentTaskRunAttemptDecision<unknown>;
+export function toCurrentApplicationTaskRunAttemptDecision(
+  operation: TaskLifecycleDecisionOperation, decision: ApplicationTaskRunAttemptDecisionV1<unknown>,
+): CurrentTaskRunAttemptDecision<unknown> {
   void operation;
-  return snapshot(Result.getOrThrow(transformDefinitionIdentity(
-    decision,
-    "application_v1",
-    "to_current",
-  ))) as CurrentTaskRunAttemptDecision<
-    CurrentTaskLifecycleOutcomeByOperation[Operation]
-  >;
+  // SAFETY: this owner recursively substitutes only the authenticated identity
+  // representation; all outcome/aggregate validation remains with its codec.
+  return snapshot(Result.getOrThrow(transformDefinitionIdentity(decision, "application_v1", "to_current"))) as CurrentTaskRunAttemptDecision<unknown>;
 }
 
 export function fromCurrentTaskRunAttemptDecisionToLegacy<
@@ -280,6 +288,8 @@ function definitionReferencesEqual(
   left: TaskDefinitionReference,
   right: TaskDefinitionReference,
 ): boolean {
+  if (left.generation === "trusted_workflow") return right.generation === "trusted_workflow" &&
+    bytesEqual(left.trustedWorkflowBindingSha256, right.trustedWorkflowBindingSha256);
   if (left.generation === "legacy_definition_v1") {
     return right.generation === "legacy_definition_v1" &&
       left.taskDefinitionRevisionId === right.taskDefinitionRevisionId;
@@ -293,6 +303,7 @@ function definitionReferencesEqual(
 export function toCurrentRunAttemptState(
   input: PersistedRunAttemptState,
 ): CurrentRunAttemptState {
+  if (input.generation === "trusted_workflow") return snapshot(input.state);
   if (input.generation === "legacy_definition_v1") {
     const state = input.state;
     const { taskDefinitionRevisionId, ...rest } = state;
@@ -317,6 +328,7 @@ export function toCurrentRunAttemptState(
 export function fromCurrentRunAttemptState(
   state: CurrentRunAttemptState,
 ): PersistedRunAttemptState {
+  if (state.definitionReference.generation === "trusted_workflow") return Object.freeze({ generation: "trusted_workflow", state: snapshot(state) });
   const { definitionReference, ...rest } = state;
   return definitionReference.generation === "legacy_definition_v1"
     ? Object.freeze({
@@ -340,6 +352,7 @@ export function fromCurrentRunAttemptState(
 export function toCurrentTaskAttemptGrant(
   input: PersistedTaskAttemptGrant,
 ): CurrentTaskAttemptGrant {
+  if (input.generation === "trusted_workflow") return snapshot(input.grant);
   if (input.generation === "legacy_definition_v1") {
     const grant = input.grant;
     const { taskDefinitionRevisionId, ...rest } = grant;
@@ -364,6 +377,7 @@ export function toCurrentTaskAttemptGrant(
 export function fromCurrentTaskAttemptGrant(
   grant: CurrentTaskAttemptGrant,
 ): PersistedTaskAttemptGrant {
+  if (grant.definitionReference.generation === "trusted_workflow") return Object.freeze({ generation: "trusted_workflow", grant: snapshot(grant) });
   const { definitionReference, ...rest } = grant;
   return definitionReference.generation === "legacy_definition_v1"
     ? Object.freeze({
@@ -387,6 +401,7 @@ export function fromCurrentTaskAttemptGrant(
 export function toCurrentTaskRequestedEffect(
   input: PersistedTaskRequestedEffect,
 ): CurrentTaskRequestedEffect {
+  if (input.generation === "trusted_workflow") return snapshot(input.effect);
   if (input.generation === "legacy_definition_v1") {
     const effect = input.effect;
     if (effect.kind !== "dispatch_attempt") return snapshot(effect);
@@ -417,6 +432,11 @@ export function fromCurrentTaskRequestedEffect(
   PersistedTaskRequestedEffect,
   TaskDefinitionReferenceGenerationMismatchError
 > {
+  if (generation === "trusted_workflow") {
+    if (effect.kind === "dispatch_attempt" && effect.definitionReference.generation !== generation)
+      return Result.fail(new TaskDefinitionReferenceGenerationMismatchError({ operation: "persist_requested_effect", expectedGeneration: generation, receivedGeneration: effect.definitionReference.generation }));
+    return Result.succeed(Object.freeze({ generation, effect: snapshot(effect) }));
+  }
   if (effect.kind !== "dispatch_attempt") {
     return Result.succeed(Object.freeze({ generation, effect: snapshot(effect) }));
   }
@@ -465,6 +485,7 @@ function transformDefinitionIdentity(
   unknown,
   TaskDefinitionReferenceGenerationMismatchError
 > {
+  if (generation === "trusted_workflow") return Result.succeed(snapshot(value));
   if (isUint8Array(value)) return Result.succeed(copyBytes(value));
   if (Array.isArray(value)) {
     return Result.gen(function* () {
