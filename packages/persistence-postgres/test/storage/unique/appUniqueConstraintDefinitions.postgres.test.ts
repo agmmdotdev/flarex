@@ -28,23 +28,29 @@ import {
 import { runEffect } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
-describePostgres("real Postgres immutable unique-constraint definitions", () => {
+describePostgres("real Postgres immutable unique-constraint definitions", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPostgresPersistence();
+
   it("serializes concurrent exact replay to one identity, definition, and binding", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const registered = await registerSchema(
         persistence,
         "deployment_unique_definition_pg_replay",
       );
       const prepared = await prepare(persistence, registered);
-      const results = await Promise.all([
+      const settled = await Promise.allSettled([
         ensurePrepared(persistence, prepared),
         ensurePrepared(persistence, prepared),
       ]);
+      const results = settled.map(result => {
+        if (result.status === "rejected") throw result.reason;
+        return result.value;
+      });
 
       expect(results.map((result) => result.identityStatus).sort()).toEqual([
         "created",
@@ -67,7 +73,7 @@ describePostgres("real Postgres immutable unique-constraint definitions", () => 
   }, 60_000);
 
   it("rolls back all three authority rows together", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const registered = await registerSchema(
         persistence,
         "deployment_unique_definition_pg_rollback",

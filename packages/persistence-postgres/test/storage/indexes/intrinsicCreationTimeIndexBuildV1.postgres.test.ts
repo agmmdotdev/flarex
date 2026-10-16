@@ -1,3 +1,4 @@
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
@@ -35,7 +36,7 @@ import { fxSystemScopeClocks } from "../../../src/database/schema";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
@@ -54,9 +55,11 @@ describe("C08-I1 PostgreSQL acceptance environment", () => {
   });
 });
 
-describePostgres("real PostgreSQL C08-I1 intrinsic index builder", () => {
+describePostgres("real PostgreSQL C08-I1 intrinsic index builder", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPostgresPersistence();
+
   it("proves rollback, concurrent bounded progress, replay, and exact contents", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const fixture = await makeFixture(persistence);
       const version = await persistence.query<{ server_version: string }>(
         "show server_version",
@@ -83,9 +86,13 @@ describePostgres("real PostgreSQL C08-I1 intrinsic index builder", () => {
         lifecycle: "backfilling",
       });
 
-      const concurrent = await Promise.all(
+      const settled = await Promise.allSettled(
         Array.from({ length: 8 }, () => buildStep(fixture)),
       );
+      const concurrent = settled.map(result => {
+        if (result.status === "rejected") throw result.reason;
+        return result.value;
+      });
       expect(concurrent.some((result) => result.lifecycle === "enabled")).toBe(
         true,
       );
@@ -99,7 +106,7 @@ describePostgres("real PostgreSQL C08-I1 intrinsic index builder", () => {
   }, 180_000);
 
   it("uses the row-validation index for large bounded pages without planner overrides", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const fixture = await makeFixture(persistence);
       for (let step = 0; step < 8; step += 1) {
         if ((await buildStep(fixture)).lifecycle === "enabled") break;
@@ -334,27 +341,32 @@ async function insertRow(
   if (clock === null) throw new Error("PostgreSQL C08 scope clock missing");
   const commitSeq = CommitSeqSchema.make(commitSeqValue);
   await persistence.drizzle.transaction(async (tx) => {
-    await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-      kind: "live",
-      scopeId,
-      tableId,
-      rowId,
-      writeEpoch: clock.epoch,
-      commitSeq,
-      prevCommitSeq: null,
-      schemaVersionId,
-      creationTime,
-      value: {
-        codecVersion: document.codecVersion,
-        valueJson: document.valueJson,
-        canonicalBytes: document.canonicalBytes,
-        sha256: document.sha256,
-      },
-    });
-    await tx
-      .update(fxSystemScopeClocks)
-      .set({ lastCommitSeq: commitSeq })
-      .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId,
+        tableId,
+        rowId,
+        writeEpoch: clock.epoch,
+        commitSeq,
+        prevCommitSeq: null,
+        schemaVersionId,
+        creationTime,
+        value: {
+          codecVersion: document.codecVersion,
+          valueJson: document.valueJson,
+          canonicalBytes: document.canonicalBytes,
+          sha256: document.sha256,
+        },
+      });
+      await tx
+        .update(fxSystemScopeClocks)
+        .set({ lastCommitSeq: commitSeq })
+        .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+    } finally {
+      closeInstallationAdmission(tx);
+    }
   });
 }
 

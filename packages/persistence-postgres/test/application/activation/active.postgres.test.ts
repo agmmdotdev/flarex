@@ -20,7 +20,7 @@ import {
   makeApplicationActivationRepository,
 } from "../../../src/application/activation/repository";
 import { runEffect } from "../../support/effectTestRuntime";
-import { postgresUrl, withTemporaryPostgresPersistencePair } from "../../support/postgresHelpers";
+import { postgresUrl, rollbackAndReleasePostgresClient, useFileScopedPostgresPersistence } from "../../support/postgresHelpers";
 import {
   RUNTIME_HOST_IDENTITY,
   COMPATIBILITY_DATE,
@@ -42,9 +42,12 @@ beforeAll(() => {
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
-describePostgres("Application activation/active.postgres", { timeout: 30_000 }, () => {
+describePostgres("Application activation/active.postgres", { timeout: 30_000, concurrent: false }, () => {
+  const withControl = useFileScopedPostgresPersistence();
+  const withTarget = useFileScopedPostgresPersistence();
+
   it("serializes concurrent Application activation behind the target scope clock", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const fixture = await readinessFixture(control, target);
       const schemaVersionId = await prepareReadinessAuthorities(fixture);
       await enablePhysicalBuilds(fixture, schemaVersionId);
@@ -55,8 +58,9 @@ describePostgres("Application activation/active.postgres", { timeout: 30_000 }, 
         authority: fixture.authorityPorts,
       });
       const blocker = await target.pool.connect();
-      let released = false;
-      try {
+      const pending: Promise<ReadonlyArray<PromiseSettledResult<unknown>>>[] = [];
+      let readTimer: ReturnType<typeof setTimeout> | undefined;
+      const [outcome] = await Promise.allSettled([(async () => {
         await blocker.query("begin");
         const pid = await blocker.query<{ pid: number }>(
           "select pg_backend_pid()::int as pid",
@@ -73,13 +77,14 @@ describePostgres("Application activation/active.postgres", { timeout: 30_000 }, 
           revisionId: fixture.input.revisionId,
           expectedActiveHead: null,
         }));
+        pending.push(Promise.allSettled([first]));
         const second = runEffect(activation.activate({
           revisionId: fixture.input.revisionId,
           expectedActiveHead: null,
         }));
+        pending.push(Promise.allSettled([second]));
         await waitForBlockedBy(target, blockerPid, 2);
         await blocker.query("commit");
-        released = true;
         const settled = await Promise.all([first, second]);
         expect(settled.map(result => result.disposition).sort()).toEqual([
           "inserted",
@@ -109,12 +114,15 @@ describePostgres("Application activation/active.postgres", { timeout: 30_000 }, 
           [fixture.authority.scopeId],
         );
         const shareCompatibleRead = runEffect(activation.readActive());
+        pending.push(Promise.allSettled([shareCompatibleRead]));
         const readOutcome = await Promise.race([
           shareCompatibleRead.then(value => ({ kind: "read" as const, value })),
           new Promise<{ readonly kind: "timeout" }>(resolve => {
-            setTimeout(() => resolve({ kind: "timeout" }), 10_000);
+            readTimer = setTimeout(() => resolve({ kind: "timeout" }), 10_000);
           }),
         ]);
+        clearTimeout(readTimer);
+        readTimer = undefined;
         await blocker.query("rollback");
         if (readOutcome.kind === "timeout") {
           await shareCompatibleRead;
@@ -125,15 +133,26 @@ describePostgres("Application activation/active.postgres", { timeout: 30_000 }, 
         expect(readOutcome.value.basis.revisionId).toBe(
           fixture.input.revisionId,
         );
-      } finally {
-        if (!released) await blocker.query("rollback").catch(() => undefined);
-        blocker.release();
+      })()]);
+      clearTimeout(readTimer);
+      const failures: unknown[] = [];
+      if (outcome.status === "rejected") failures.push(outcome.reason);
+      try { await rollbackAndReleasePostgresClient(blocker); }
+      catch (cause: unknown) { failures.push(cause); }
+      for (const results of await Promise.all(pending)) {
+        for (const result of results) {
+          if (result.status === "rejected" && !failures.includes(result.reason)) {
+            failures.push(result.reason);
+          }
+        }
       }
-    });
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) throw new AggregateError(failures, "Activation fixture and cleanup failed");
+    }));
   }, 240_000)
 
   it("keeps an active Application readable after a second scope joins its deployment", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const fixture = await readinessFixture(control, target);
       const schemaVersionId = await prepareReadinessAuthorities(fixture);
       await enablePhysicalBuilds(fixture, schemaVersionId);
@@ -157,11 +176,11 @@ describePostgres("Application activation/active.postgres", { timeout: 30_000 }, 
         .toMatchObject({ status: "ready", scopeId: fixture.input.scopeId });
       expect(await runEffect(activation.readActive()))
         .toMatchObject({ expectedActiveHead: first.expectedActiveHead, basis: { authority: { scopeId: fixture.input.scopeId } } });
-    });
+    }));
   }, 240_000)
 
   it("keeps an active Application with an enabled unique definition readable after a peer shop joins", async () => {
-    await withTemporaryPostgresPersistencePair(async (control, target) => {
+    await withControl(control => withTarget(async target => {
       const fixture = await readinessFixture(control, target);
       const schemaVersionId = await prepareReadinessAuthorities(fixture, async selectedSchemaVersionId => {
         const prepared = await runEffect(prepareAppUniqueConstraintDefinitionBindingV1Effect(
@@ -211,6 +230,6 @@ describePostgres("Application activation/active.postgres", { timeout: 30_000 }, 
 
       expect(await runEffect(activation.readActive()))
         .toMatchObject({ expectedActiveHead: first.expectedActiveHead, basis: { authority: { scopeId: fixture.input.scopeId } } });
-    });
+    }));
   }, 240_000)
 });

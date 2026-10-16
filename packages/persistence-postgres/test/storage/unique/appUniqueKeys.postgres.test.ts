@@ -32,7 +32,7 @@ import {
 import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { verifyUniqueBatches } from "./uniqueBatchScenario";
@@ -62,9 +62,11 @@ const rowB = decodeAppRowIdHexV1("5500000000000000000000000000000b");
 const rowC = decodeAppRowIdHexV1("5500000000000000000000000000000c");
 const key = projection("same-key");
 
-describePostgres("real PostgreSQL S11 unique-key storage", () => {
+describePostgres("real PostgreSQL S11 unique-key storage", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPostgresPersistence();
+
   it("applies bounded unique sets and rolls back later-batch failures", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       await insertClocks(persistence);
       await verifyUniqueBatches(persistence, persistence.drizzle, scopeId, epoch, async run => {
         const measured = await withPostgresExecutionObservation(persistence.pool, run, { returnedCommands: true });
@@ -77,7 +79,7 @@ describePostgres("real PostgreSQL S11 unique-key storage", () => {
     });
   }, 60_000);
   it("preserves exact ownership, rejects overwrite, and permits another scope", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertClocks(persistence);
       await appendRow(persistence, await liveRow(
         scopeId,

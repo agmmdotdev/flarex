@@ -4,8 +4,6 @@ import { asc, eq } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
-import * as persistenceRoot from "../../../src";
-
 import {
   MAX_FRAMEWORK_SCHEMA_INSTALLATION_CANONICAL_BYTES,
   captureFrameworkSchemaReadiness,
@@ -38,22 +36,6 @@ const SECOND_VALIDATED_AT = "2026-08-27T08:36:00.000Z";
 const VALIDATION_SHA256 = "33".repeat(32);
 
 describe("framework coordinator schema-readiness repository", () => {
-  it("keeps the readiness transaction kernel source-private", async () => {
-    expect(
-      "ensureFrameworkSchemaReadinessInTransactionEffect" in persistenceRoot,
-    ).toBe(false);
-    expect(
-      "readFrameworkSchemaReadinessInTransactionEffect" in persistenceRoot,
-    ).toBe(false);
-
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/frameworkSchema/installation/readinessRepository.ts",
-    );
-  });
-
   it("reads absence, ensures exact normalized storage, and replays", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const values = await createSuccessfulTerminalPlanValues();

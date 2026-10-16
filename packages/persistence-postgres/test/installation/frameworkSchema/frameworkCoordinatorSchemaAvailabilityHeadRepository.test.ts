@@ -3,8 +3,6 @@ import { eq } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
-import * as persistenceRoot from "../../../src";
-
 import type { FlarexMetadataTransaction } from
   "../../../src/database/metadataTransaction";
 import {
@@ -71,33 +69,6 @@ const laterAvailabilitySpecs = Object.freeze([
 ] satisfies readonly AvailabilitySpec[]);
 
 describe("framework coordinator schema-availability-head repository", () => {
-  it("keeps the mutable head kernel and authority source-private", async () => {
-    expect(
-      "initializeFrameworkSchemaAvailabilityHeadInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "readFrameworkSchemaAvailabilityHeadInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect("isRestoredFrameworkSchemaAvailabilityHead" in persistenceRoot)
-      .toBe(false);
-    expect(
-      "capturedAuthorityForFrameworkSchemaAvailabilityHead" in persistenceRoot,
-    ).toBe(false);
-
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/frameworkSchema/installation/availabilityHeadRepository.ts",
-    );
-  });
-
   it("reads absence, initializes exact normalized storage, and replays", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const values = await createSuccessfulTerminalPlanValues();

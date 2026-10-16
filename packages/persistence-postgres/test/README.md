@@ -275,8 +275,10 @@ PGlite fixture dependency loads only in that allocating path; caller-supplied,
 mixed and native fixtures retain their own resource owners.
 Point finishing, replacement and relation suites retain their file lifetime
 and register the migrated fixture disposer with a static `afterAll` hook.
-Current commit-feed, wake-outbox and metadata-epoch contract cases reuse the
-image; their fresh-install and predecessor upgrade/failure cases still execute
+Commit-feed row cases share one serial image-backed database with distinct
+scopes; its two constraint-removal witnesses keep independent backends.
+Wake-outbox cases share one database with distinct live scope identities.
+Metadata-epoch contract cases reuse the image; their fresh-install and predecessor upgrade/failure cases still execute
 the original migration chain from their own empty databases.
 Bootstrap and split-provisioning PGlite cases use the same fixture and registered
 cleanup, retaining independent databases for stored-authority corruption,
@@ -352,6 +354,12 @@ Application readiness and relation build/readiness suites also borrow independen
 control/target file fixtures. Their concurrent writers and lock witnesses drain
 before reset, and failed callbacks rebuild both stores. Gate waits race unexpected
 operation settlement so a setup failure can release and drain the other work.
+Native activation borrows separate control/target file owners. Its scope-clock
+blocker always releases before activation/read drainage; its read timer closes
+with the race. Unique-definition, unique-key and intrinsic creation-time build
+cases also borrow the existing file owner, draining concurrent builders before
+reset. Intrinsic row seeding acquires genuine installation admission in both
+drivers and closes that admission with its transaction.
 Row-only native artifact admission/listing, journal validation and schema-artifact
 replay/size-gate cases reuse the same file owner. Dedicated backend, DDL, deadline,
 uncertain COMMIT and session-configuration witnesses keep separate fixtures.
@@ -380,7 +388,9 @@ bounded authority pool still has its own lifetime and closes before reset.
 on its test-owned connection while injecting only transaction-command failures.
 
 API export exclusions, constructor surface guards and published type aliases
-belong in `api/publicApi.test.ts`. Domain suites retain their operation-specific
+belong in `api/publicApi.test.ts`. Coordinator installation, readiness and
+availability privacy checks use its shared current-subtree guard and runtime
+symbol list. Domain suites retain their operation-specific
 Effect contracts. Prefer assertions in
 existing consumer scenarios over separate tests of fixed fixture contents or
 helper allocation details. Preserve behavioral, durable-data, rollback and

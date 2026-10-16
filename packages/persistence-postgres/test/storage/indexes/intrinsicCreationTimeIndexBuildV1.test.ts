@@ -1,3 +1,4 @@
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { eq } from "drizzle-orm";
 import { Result } from "effect";
@@ -345,27 +346,32 @@ async function insertRow(
   if (clock === null) throw new Error("C08 fixture scope clock missing");
   const commitSeq = CommitSeqSchema.make(commitSeqValue);
   await persistence.drizzle.transaction(async (tx) => {
-    await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-      kind: "live",
-      scopeId,
-      tableId,
-      rowId,
-      writeEpoch: clock.epoch,
-      commitSeq,
-      prevCommitSeq: null,
-      schemaVersionId,
-      creationTime,
-      value: {
-        codecVersion: document.codecVersion,
-        valueJson: document.valueJson,
-        canonicalBytes: document.canonicalBytes,
-        sha256: document.sha256,
-      },
-    });
-    await tx
-      .update(fxSystemScopeClocks)
-      .set({ lastCommitSeq: commitSeq })
-      .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId,
+        tableId,
+        rowId,
+        writeEpoch: clock.epoch,
+        commitSeq,
+        prevCommitSeq: null,
+        schemaVersionId,
+        creationTime,
+        value: {
+          codecVersion: document.codecVersion,
+          valueJson: document.valueJson,
+          canonicalBytes: document.canonicalBytes,
+          sha256: document.sha256,
+        },
+      });
+      await tx
+        .update(fxSystemScopeClocks)
+        .set({ lastCommitSeq: commitSeq })
+        .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+    } finally {
+      closeInstallationAdmission(tx);
+    }
   });
 }
 
@@ -380,23 +386,28 @@ async function deleteWithoutPriorIndexEntry(
   if (clock === null) throw new Error("C08 fixture scope clock missing");
   const commitSeq = CommitSeqSchema.make(commitSeqValue);
   await fixture.persistence.drizzle.transaction(async (tx) => {
-    await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-      kind: "tombstone",
-      scopeId: fixture.scopeId,
-      tableId: decodeCatalogTableId(1),
-      rowId: decodeAppRowIdHexV1(
-        rowByte.toString(16).padStart(2, "0").repeat(16),
-      ),
-      writeEpoch: clock.epoch,
-      commitSeq,
-      prevCommitSeq: CommitSeqSchema.make(prevCommitSeqValue),
-      schemaVersionId: fixture.schemaVersionId,
-      creationTime: decodeAppCreationTimeV1(creationTimeValue),
-    });
-    await tx
-      .update(fxSystemScopeClocks)
-      .set({ lastCommitSeq: commitSeq })
-      .where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId));
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "tombstone",
+        scopeId: fixture.scopeId,
+        tableId: decodeCatalogTableId(1),
+        rowId: decodeAppRowIdHexV1(
+          rowByte.toString(16).padStart(2, "0").repeat(16),
+        ),
+        writeEpoch: clock.epoch,
+        commitSeq,
+        prevCommitSeq: CommitSeqSchema.make(prevCommitSeqValue),
+        schemaVersionId: fixture.schemaVersionId,
+        creationTime: decodeAppCreationTimeV1(creationTimeValue),
+      });
+      await tx
+        .update(fxSystemScopeClocks)
+        .set({ lastCommitSeq: commitSeq })
+        .where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId));
+    } finally {
+      closeInstallationAdmission(tx);
+    }
   });
 }
 
@@ -432,42 +443,47 @@ async function insertWithOnlineIndexMaintenance(
     "appDocument",
   );
   await fixture.persistence.drizzle.transaction(async (tx) => {
-    await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-      kind: "live",
-      scopeId: fixture.scopeId,
-      tableId,
-      rowId,
-      writeEpoch: clock.epoch,
-      commitSeq,
-      prevCommitSeq: null,
-      schemaVersionId: fixture.schemaVersionId,
-      creationTime,
-      value: {
-        codecVersion: document.codecVersion,
-        valueJson: document.valueJson,
-        canonicalBytes: document.canonicalBytes,
-        sha256: document.sha256,
-      },
-    });
-    const indexRowId = Result.getOrThrow(
-      orderedIndexRowIdHexV1FromBytesResult(appRowIdHexV1ToBytes(rowId)),
-    );
-    await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
-          kind: "live",
-          scopeId: fixture.scopeId,
-          definition,
-          encodedKey: encodeAppOrderedIndexKeyV1({
-            spec: definition.physicalSpec,
-            values: [orderedIndexCreationTimeV1(creationTime)],
-          }),
-          rowId: indexRowId,
-          writeEpoch: clock.epoch,
-          commitSeq,
-        }]));
-    await tx
-      .update(fxSystemScopeClocks)
-      .set({ lastCommitSeq: commitSeq })
-      .where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId));
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId: fixture.scopeId,
+        tableId,
+        rowId,
+        writeEpoch: clock.epoch,
+        commitSeq,
+        prevCommitSeq: null,
+        schemaVersionId: fixture.schemaVersionId,
+        creationTime,
+        value: {
+          codecVersion: document.codecVersion,
+          valueJson: document.valueJson,
+          canonicalBytes: document.canonicalBytes,
+          sha256: document.sha256,
+        },
+      });
+      const indexRowId = Result.getOrThrow(
+        orderedIndexRowIdHexV1FromBytesResult(appRowIdHexV1ToBytes(rowId)),
+      );
+      await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
+            kind: "live",
+            scopeId: fixture.scopeId,
+            definition,
+            encodedKey: encodeAppOrderedIndexKeyV1({
+              spec: definition.physicalSpec,
+              values: [orderedIndexCreationTimeV1(creationTime)],
+            }),
+            rowId: indexRowId,
+            writeEpoch: clock.epoch,
+            commitSeq,
+          }]));
+      await tx
+        .update(fxSystemScopeClocks)
+        .set({ lastCommitSeq: commitSeq })
+        .where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId));
+    } finally {
+      closeInstallationAdmission(tx);
+    }
   });
 }
 

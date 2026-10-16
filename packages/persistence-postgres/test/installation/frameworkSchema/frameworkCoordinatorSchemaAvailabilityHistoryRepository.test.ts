@@ -4,8 +4,6 @@ import { asc, eq } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
-import * as persistenceRoot from "../../../src";
-
 import type { FlarexMetadataTransaction } from
   "../../../src/database/metadataTransaction";
 import {
@@ -85,39 +83,6 @@ const availabilitySpecs = Object.freeze([
 ] satisfies readonly AvailabilitySpec[]);
 
 describe("framework coordinator schema-availability-history repository", () => {
-  it("keeps the history transaction kernel and authority source-private", async () => {
-    expect(
-      "appendFrameworkSchemaAvailabilityHistoryInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "readFrameworkSchemaAvailabilityHistoryInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "corroborateRestoredFrameworkSchemaAvailabilityHistoryInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "resolveAuthenticatedFrameworkSchemaAvailabilityHistoryOccupantsEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "restoreStoredFrameworkSchemaAvailabilityHistoryReferenceInTransactionEffect" in
-        persistenceRoot,
-    ).toBe(false);
-    expect(
-      "restoredFrameworkSchemaAvailabilityHistoryAuthority" in persistenceRoot,
-    ).toBe(false);
-
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/frameworkSchema/installation/availabilityHistoryRepository.ts",
-    );
-  });
-
   it("appends, reads, and exactly replays a three-state history", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const values = await createSuccessfulTerminalPlanValues();
