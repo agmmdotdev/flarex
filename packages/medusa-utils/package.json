@@ -522,6 +522,11 @@
       "types": "./dist/common/parse-stringify-if-necessary.d.ts",
       "source": "./src/common/parse-stringify-if-necessary.ts",
       "default": "./dist/common/parse-stringify-if-necessary.js"
+    },
+    "./common/get-duplicates": {
+      "types": "./dist/common/get-duplicates.d.ts",
+      "source": "./src/common/get-duplicates.ts",
+      "default": "./dist/common/get-duplicates.js"
     }
   },
   "license": "MIT",

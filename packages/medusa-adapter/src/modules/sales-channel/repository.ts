@@ -11,6 +11,8 @@ import { compileKeyedUpdates } from "../../write/keyed";
 import { prepareScalarRepository } from "../../repository/scalar";
 import type { captureSalesChannelMetadata } from "./schema";
 import { QueryEnvelope } from "../../query/decoder";
+import { medusaLifecycle } from "../../repository/lifecycle";
+import { compileSalesChannelDeletionContracts, decodeSalesChannelDeletionIds } from "./delete-input";
 
 type Metadata = Effect.Success<ReturnType<typeof captureSalesChannelMetadata>>["frame"];
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
@@ -36,13 +38,31 @@ export function prepareSalesChannelRepository(metadata: Metadata) {
     const table = metadata.tables[0];
     if (metadata.tables.length !== 1 || table?.name !== "sales_channel") return yield* Result.fail(commerceError("unsupportedProfile"));
     const base = yield* prepareScalarRepository(table, "SalesChannel", wherePolicy);
+    const lifecycleContracts = yield* compileSalesChannelDeletionContracts(table);
     const decodeUpdate = commerceRowDecoder(table.columns.map(column => column.name)
       .filter(name => !["id", "created_at", "updated_at", "deleted_at"].includes(name)), "unsupportedProfile");
     const updates = compileKeyedUpdates({ keyColumn: "id", repeatedKeys: "reject", decodeEntries: decodePairs,
       readEntry: pair => decodeId(pair.entity.id).pipe(Result.map(key => ({ key, update: pair.update }))), validateData: decodeUpdate });
-    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner, profile: "standard" | "updateWorkflow" = "standard") => {
+    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner, profile: "standard" | "updateWorkflow" | "deleteWorkflow" = "standard") => {
       const bound = base.bind(root, owner);
       const { bridge, events } = bound;
+      const lifecycle = (operation: "softDelete" | "restore"): DAL.RepositoryService["softDelete"] => (input, shared) =>
+        bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+          if (profile !== "deleteWorkflow") return yield* ctx.refuse(commerceError("unsupportedProfile"));
+          const ids = yield* Effect.fromResult(decodeSalesChannelDeletionIds(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));
+          const owner = medusaLifecycle(ctx, { tables: [table], entities: [{ table, model: "SalesChannel" }] }, operation);
+          const roots = yield* owner.roots(table, ids);
+          for (const row of roots) yield* Effect.fromResult(lifecycleContracts.decodeRow(row));
+          const result = yield* (yield* owner.plan(table, roots)).apply();
+          for (const row of result.roots) yield* Effect.fromResult(lifecycleContracts.decodeRow(row));
+          if (shared === undefined || operation === "softDelete" && !events.isSubscribed(shared))
+            return yield* ctx.refuse(commerceError("unadmittedEvent"));
+          // Pinned restore uses the conventional aggregator without registering
+          // an internal subscriber, including selected already-active rows.
+          yield* events.cascades(result.cascades, shared, row => ({ entity: row,
+            originalEntity: { deleted_at: operation === "softDelete" ? null : row.updated_at } }));
+          return [result.roots, result.cascades] satisfies [object[], Record<string, unknown[]>];
+        })));
       const find = Effect.fn("SalesChannelRepository.findForProfile")(function* (ctx: CommerceCommandContext, input: unknown, withCount: boolean) {
         const result = yield* bound.find(ctx, input, withCount);
         if (profile !== "updateWorkflow") return result;
@@ -57,6 +77,7 @@ export function prepareSalesChannelRepository(metadata: Metadata) {
       });
       const repository: DAL.RepositoryService = {
         ...bound.repository,
+        softDelete: lifecycle("softDelete"), restore: lifecycle("restore"),
         find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, find(ctx, input, false)).pipe(Effect.map(value => structuredClone(value.rows)))),
         findAndCount: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, find(ctx, input, true)).pipe(Effect.flatMap(value =>
           value.count === undefined ? ctx.refuse(commerceError("storedCorruption")) : Effect.succeed(

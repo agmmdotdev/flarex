@@ -29,6 +29,7 @@ const owners = new Map([
   ["packages/medusa-currency", "@medusajs/currency"],
   ["packages/medusa-product", "@medusajs/product"],
   ["packages/medusa-sales-channel", "@medusajs/sales-channel"],
+  ["packages/medusa-store", "@medusajs/store"],
   ["packages/medusa-fulfillment", "@medusajs/fulfillment"],
   ["packages/medusa-pricing", "@medusajs/pricing"],
   ["packages/medusa-inventory", "@medusajs/inventory"],

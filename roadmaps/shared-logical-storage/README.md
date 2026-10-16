@@ -50,6 +50,10 @@ index/constraint/relation replacement, connected migration and retirement. It
 does not create a universal transaction API or move framework business semantics
 into core. Runtime optimization follows this storage decision.
 
+[Explicit logical Commerce initialization](./58-logical-commerce-initialization.md)
+retains source-scoped canonical bootstrap for multi-table framework sources,
+with digest-bound table targets and the existing first-data and settlement owners.
+
 ## Current Sources Of Truth
 
 - [Accepted database design](../../design-notes/flarex-db-accepted-design.md) and

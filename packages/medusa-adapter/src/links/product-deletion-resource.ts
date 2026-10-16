@@ -1,10 +1,11 @@
+import { decodeLinkCascade } from "./cascade-result";
 import { Result, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../value/decoder";
 import { defineComposedWorkflowResource } from "../workflow/composed-resource";
 import type { WorkflowModule } from "../workflow/module";
-import { captureProductLinkCascade, decodeLinkCascade, nativePricingCascadeModule } from "./product-cascade";
+import { captureProductLinkCascade, nativePricingCascadeModule } from "./product-cascade";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const ProductIds = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4));

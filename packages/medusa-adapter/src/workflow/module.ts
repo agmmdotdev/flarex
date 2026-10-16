@@ -130,10 +130,15 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
         metadata: yield* captureCommerceInput(replacement.metadata),
       }) }),
     });
-    // Cross-module Link endpoints are resolved against the complete host union.
-    // This constructor validates only the module-local executable read graph.
-    yield* prepareLocalGraph([{ participant: defineAtomicCommerceParticipant(definition.name),
-      module: { aliases: graph.aliases, reads: graph.reads } }]);
+    // A native method-only module has no query surface. Nonempty graphs still
+    // require the graph owner's complete local alias/read validation; remote
+    // Link endpoints are resolved against the complete host union.
+    if (graph.aliases.length !== 0 || graph.reads.length !== 0) {
+      yield* prepareLocalGraph([{ participant: defineAtomicCommerceParticipant(definition.name),
+        module: { aliases: graph.aliases, reads: graph.reads } }]);
+    } else if (graph.remotePaths !== undefined && graph.remotePaths.length !== 0) {
+      return yield* Result.fail(commerceError("unsupportedProfile"));
+    }
     const token = Object.freeze({ name: definition.name, methods: selected });
     modules.set(token, Object.freeze({ source: Object.freeze({ name: source.name, profile: source.profile }), graph, ...(logical === undefined ? {} : { logical }),
     }));

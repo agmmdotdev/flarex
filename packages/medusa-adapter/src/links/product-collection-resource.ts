@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
 import { commerceDecoder } from "../value/decoder";
 import { defineComposedWorkflowResource } from "../workflow/composed-resource";
-import { decodeLinkCascade } from "./product-cascade";
+import { decodeLinkCascade } from "./cascade-result";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const Ids = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4));

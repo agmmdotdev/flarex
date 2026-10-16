@@ -63,3 +63,4 @@ export { HasOne } from "@medusajs/utils/dml/relations/has-one";
 
 export { convertItemResponseToUpdateRequest } from "@medusajs/utils/common/convert-item-response-to-update-request";
 export { getSelectsAndRelationsFromObjectArray } from "@medusajs/utils/common/get-selects-and-relations-from-object-array";
+export { getDuplicates } from "@medusajs/utils/common/get-duplicates";

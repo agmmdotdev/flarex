@@ -64,6 +64,7 @@ import {
 } from "./store";
 import { makeLogicalCommerceParticipant } from "./logicalParticipant";
 import { hasLiveLogicalCommerceRows, requireLogicalCommerceInitialization } from "./logicalInitialization";
+import { planLogicalInitializationBatches } from "./initializationRows";
 import {
   prepareLogicalRelationalAdmission,
   requireLogicalRelationalAdmission,
@@ -212,9 +213,10 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
           const admitted = member.kind === "physical"
             ? { kind: "physical" as const, state: yield* requireCommerceAdmission(member.admission) }
             : { kind: "logical" as const, state: yield* requireLogicalRelationalAdmission(member.admission, tx).pipe(Effect.mapError(projectFailure)) };
-          if (bootstrap && admitted.kind === "logical" && admitted.state.tables.length > 1 &&
-            descriptor.initialization !== null && descriptor.initialization.expectedRowCount > 0)
-            return yield* Effect.fail(commerceError("unsupportedProfile"));
+          const initializationBatches = bootstrap && admitted.kind === "logical" && admitted.state.tables.length > 1 &&
+            descriptor.initialization !== null && descriptor.initialization.expectedRowCount > 0
+            ? yield* Effect.fromResult(planLogicalInitializationBatches(captured.value, admitted.state.tables.map(table => table.localName)))
+            : undefined;
           const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(entryAuthority.scopeId)).pipe(Effect.mapError(projectFailure));
           if (member.kind === "logical" && !bootstrap) {
             const initialization = descriptor.initialization;
@@ -282,8 +284,17 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
                 if ((yield* working.store.count(lifetime.context, { order: { column: keyColumnId, direction: "asc" } })) !== 0)
                   return yield* Effect.fail(commerceError("seedMismatch"));
               }
-              const rows = yield* working.store.write(lifetime.context, "insert", captured.value);
-              value = { rowCount: rows.length };
+              if (selected.kind === "logical" && initializationBatches !== undefined) {
+                let rowCount = 0;
+                for (const batch of initializationBatches) {
+                  const table = yield* selected.working.table(lifetime.context, batch.table);
+                  rowCount += (yield* table.write(lifetime.context, "insert", batch.rows)).length;
+                }
+                value = { rowCount };
+              } else {
+                const rows = yield* working.store.write(lifetime.context, "insert", captured.value);
+                value = { rowCount: rows.length };
+              }
             } else {
               if (token === null) return yield* Effect.fail(commerceError("invalidAuthority"));
               value = yield* invoke(lifetime.context, token, captured.value, true);

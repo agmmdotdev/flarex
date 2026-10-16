@@ -903,6 +903,9 @@ importers:
       '@medusajs/stock-location':
         specifier: workspace:*
         version: link:../medusa-stock-location
+      '@medusajs/store':
+        specifier: workspace:*
+        version: link:../medusa-store
       '@medusajs/utils':
         specifier: workspace:*
         version: link:../medusa-utils
@@ -1161,6 +1164,21 @@ importers:
         version: link:../medusa-utils
 
   packages/medusa-stock-location:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
+      '@medusajs/modules-sdk':
+        specifier: workspace:*
+        version: link:../medusa-modules-sdk
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+
+  packages/medusa-store:
     dependencies:
       '@medusajs/framework':
         specifier: workspace:*

@@ -11,12 +11,13 @@ const decodeRows = commerceDecoder(Rows, "storedCorruption");
 const decodeRead = commerceDecoder(Schema.Struct({ filters: Schema.JsonObject, config: Schema.JsonObject }), "invalidInput");
 const decodeReadArguments = commerceDecoder(Schema.Tuple([Schema.JsonObject, Schema.JsonObject]), "invalidInput");
 interface LinkWorkflowServiceDefinition {
-  readonly admission: "create" | "dismiss" | "cascade" | "product-deletions" | "inventory-deletions";
+  readonly admission: "create" | "dismiss" | "cascade" | "product-deletions" | "inventory-deletions" | "sales-channel-deletions";
   readonly routing: Effect.Success<ReturnType<typeof prepareLinkService>>["routing"];
   readonly createMethod: WorkflowMethod<readonly unknown[], readonly JsonObject[]>;
   readonly listMethod: WorkflowMethod<readonly unknown[], readonly JsonObject[]>;
   readonly dismissMethod?: WorkflowMethod<readonly unknown[], readonly JsonObject[]>;
   readonly softDeleteMethod?: WorkflowMethod;
+  readonly restoreMethod?: WorkflowMethod;
 }
 const preparedServices = new WeakMap<object, LinkWorkflowServiceDefinition>();
 export function linkWorkflowServiceDefinition(input: unknown) {
@@ -64,17 +65,29 @@ export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<t
     const softDeleteName = prefix + "NativeSoftDelete";
     const softDelete = commands.write(softDeleteName, prepare(decodeSoftDelete), ({ service, context }, input) =>
       service.softDelete(input.selector, { returnLinkableKeys: [...input.config.returnLinkableKeys] }, context));
+    const decodeLifecycle = commerceDecoder(Schema.Struct({ [primary.foreignKey]: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(8))),
+      [foreign.foreignKey]: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(8))) }), "storedCorruption");
     const softDeleteMethod = yield* defineWorkflowMethod({ command: softDelete, arguments: decodeSoftDeleteArguments,
       encode: ([selector, config]) => ({ selector, config }),
-      output: commerceDecoder(Schema.Struct({ [primary.foreignKey]: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(8))),
-        [foreign.foreignKey]: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(8))) }), "storedCorruption"),
+      output: decodeLifecycle,
       moduleEvents: [prepared.entityName + ".detached"] });
-    const deletes = admission === "cascade" || admission === "product-deletions" || admission === "inventory-deletions";
+    // Restoration is admitted only by the connected Sales Channel deletion
+    // profile, whose retained native compensator supplies the same endpoint.
+    const restoration = admission === "sales-channel-deletions" ? yield* Result.gen(function* () {
+      const restoreName = prefix + "NativeRestore";
+      const restore = commands.write(restoreName, prepare(decodeSoftDelete), ({ service, context }, input) =>
+        service.restore(input.selector, { returnLinkableKeys: [...input.config.returnLinkableKeys] }, context));
+      const restoreMethod = yield* defineWorkflowMethod({ command: restore, arguments: decodeSoftDeleteArguments,
+        encode: ([selector, config]) => ({ selector, config }), output: decodeLifecycle,
+        moduleEvents: [prepared.entityName + ".attached"] });
+      return { restore, restoreName, restoreMethod };
+    }) : undefined;
+    const deletes = admission === "cascade" || admission === "product-deletions" || admission === "inventory-deletions" || admission === "sales-channel-deletions";
     const result = Object.freeze({ create, list, createName, createMethod, listMethod, routing: structuredClone(prepared.routing),
       ...(admission === "create" ? {} : { dismiss, dismissName, dismissMethod }),
-      ...(deletes ? { softDelete, softDeleteName, softDeleteMethod } : {}) });
+      ...(deletes ? { softDelete, softDeleteName, softDeleteMethod } : {}), ...restoration });
     preparedServices.set(result, { admission, routing: structuredClone(prepared.routing), createMethod, listMethod,
-      ...(admission === "create" ? {} : { dismissMethod }), ...(deletes ? { softDeleteMethod } : {}) });
+      ...(admission === "create" ? {} : { dismissMethod }), ...(deletes ? { softDeleteMethod } : {}), ...(restoration === undefined ? {} : { restoreMethod: restoration.restoreMethod }) });
     return result;
   });
 }

@@ -85,3 +85,6 @@ export * as NotificationTypes from "./notification/index";
 export { INotificationModuleService, INotificationProvider, LocalNotificationServiceOptions } from "./notification/index";
 export { Logger } from "./logger/index";
 export { InternalModuleDeclaration } from "./modules-sdk/index";
+
+export * as StoreTypes from "./store/index";
+export * from "./store/index";

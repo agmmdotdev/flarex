@@ -1,19 +1,11 @@
-import { Result, Schema } from "effect";
+import { Result } from "effect";
 import { ProductSalesChannel, ProductShippingProfile, ProductVariantInventoryItem, ProductVariantPriceSet } from "@medusajs/link-modules";
 import { Modules } from "@medusajs/framework/utils/portable";
 import { pricingStaticResources } from "@medusajs/pricing/static-manifest";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { commerceDecoder } from "../value/decoder";
 import type { InvokeWorkflowMethod } from "../workflow/composed-resource";
 import { workflowModuleDefinition, type WorkflowModule } from "../workflow/module";
 import { linkWorkflowServiceDefinition } from "./workflow-service";
-
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
-export const decodeLinkCascade = commerceDecoder(Schema.Tuple([
-  Schema.Union([Schema.Null, Schema.Array(Schema.Struct({ serviceName: Schema.String, method: Schema.String,
-    args: Schema.Json, error: Schema.JsonObject })).check(Schema.isLengthBetween(1, 8))]),
-  Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Array(Id).check(Schema.isMaxLength(16)))),
-]), "storedCorruption");
 
 type Admission = NonNullable<ReturnType<typeof linkWorkflowServiceDefinition>>["admission"];
 /** Capture only issuer-authenticated native families and the named Pricing

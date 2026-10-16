@@ -51,3 +51,5 @@ export { CreateProductWorkflowInputDTO, CreateProductVariantWorkflowInputDTO, Up
 export { BatchWorkflowInput, BatchWorkflowOutput } from "@medusajs/types";
 
 export { ReservationWorkflow } from "@medusajs/types";
+
+export { StoreTypes, IStoreModuleService } from "@medusajs/types";

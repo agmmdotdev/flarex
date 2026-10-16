@@ -12,6 +12,7 @@ import { compileCurrencyDefinition } from "../modules/currency/schema";
 import { compilePricingDefinition } from "../modules/pricing/schema";
 import { compileVariantPricingLinkDefinition } from "./product-variant-pricing-schema";
 import { compileSalesChannelDefinition } from "../modules/sales-channel/schema";
+import { compileStoreDefinition } from "../modules/store/schema";
 import { compileProductLinksDefinition } from "../links/product-definition";
 import { compileShippingProfileDefinition } from "../modules/fulfillment/shipping-profile-schema";
 import { compileSalesChannelLocationLinkDefinition } from "../links/sales-channel-location-schema";
@@ -30,7 +31,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
-const MedusaModule = Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "productSalesChannelLink", "shippingProfile", "productShippingProfileLink", "inventory", "stockLocation", "variantLinks", "salesChannelLocationLink"]);
+const MedusaModule = Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "store", "productSalesChannelLink", "shippingProfile", "productShippingProfileLink", "inventory", "stockLocation", "variantLinks", "salesChannelLocationLink"]);
 const decodeModules = Schema.decodeUnknownResult(Schema.Array(MedusaModule));
 const Request = Schema.Struct({
   applicationCandidateId: Schema.NonEmptyString,
@@ -194,6 +195,7 @@ export function makeSchemaComposer(configuration: {
     for (const [selected, key, compile] of [
       ["inventory", "medusa.inventory", compileInventoryDefinition],
       ["stockLocation", "medusa.stockLocation", compileStockLocationDefinition],
+      ["store", "medusa.store", compileStoreDefinition],
       ["variantLinks", "medusa.variantLinks", compileVariantLinksDefinition],
       ["salesChannelLocationLink", "medusa.link.salesChannelLocation", compileSalesChannelLocationLinkDefinition],
     ] as const) {

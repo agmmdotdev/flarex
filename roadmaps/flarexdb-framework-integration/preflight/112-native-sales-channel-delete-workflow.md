@@ -2,7 +2,7 @@
 
 ## Status And Authority
 
-Status: source preflight complete; implementation pending.
+Status: implemented private bounded deletion profile.
 This follows selector updates. Chunked File import and Product export remain
 deferred. Authority is the accepted Flarex design, package boundaries, Medusa
 adoption roadmap and Medusa 2.13.4 pinned at
@@ -13,14 +13,14 @@ adoption roadmap and Medusa 2.13.4 pinned at
 The pinned deletion composer calls the Store default-channel guard, soft-deletes
 Sales Channels, removes their remote Links and emits `sales-channel.deleted`
 messages in requested-ID order. It returns native undefined; the finite fork
-can follow its existing `WorkflowResponse(void 0)` convention and atomic public
+follows its existing `WorkflowResponse(void 0)` convention and atomic public
 null completion. Physical Sales Channel deletion is not a substitute.
 
 The guard invokes genuine `Store.listStores` with
 `{ default_sales_channel_id: ids }` and selects `default_sales_channel_id`.
-Every matching Store contributes to the native refusal message. There is no
-executing Store service/profile yet: a fabricated empty service or first-match
-read would bypass the native guard.
+Every matching Store contributes to the native refusal message. The genuine
+Store service executes the named guard profile over the complete bounded
+catalog; a fabricated empty service or first-match read would bypass the guard.
 
 The remote Link call is the grouped endpoint
 `{ sales_channel: { sales_channel_id: ids } }`. Both supported families apply:
@@ -28,11 +28,11 @@ The remote Link call is the grouped endpoint
 sets `deleteCascade`. Soft-delete their pivots while preserving identities for
 restoration; Products and Stock Locations remain unchanged.
 
-## Proposed Admission And Owners
+## Admitted Profile And Owners
 
 Admit zero to four requested Sales Channel IDs and a bounded closure of at most
 eight affected pivots in each existing family. Keep existing call, byte, event,
-catalog and identity limits pending connected maximum-graph validation. Refuse
+catalog and identity limits. Refuse
 closure overflow before settlement rather than truncate native behavior.
 
 1. Promote the genuine Store service, `Store`, `StoreCurrency`, `StoreLocale`
@@ -85,14 +85,31 @@ it. Link compensation restores the original grouped endpoint, including its
 empty-array form. The guard has no compensation. The existing atomic owner
 settles failures; this does not admit independently durable compensation.
 
-## Validation And Closure
+## Construction And Initialization Boundaries
 
-Prove positive Store refusal before mutations and complete empty dependencies;
-both pivot families and endpoint preservation; missing, repeated and already
-deleted IDs; closure overflow rollback; requested-order workflow events and
-distinct internal events; late failure, replay/conflicts and scope isolation.
-Use pure witnesses for retained compensation and both PGlite and ordinary-role
-PostgreSQL for connected lifecycle behavior. Run affected owner/consumer
-regressions, types/builds, provenance, portability and lint; obtain both required
-read-only reviews, clean owned resources and commit separately. Hosted activation
-and arbitrary Link or Store capabilities remain outside this profile.
+The genuine Store guard and the two Link participants use named methods without
+query graphs. The workflow-module owner now accepts an explicitly empty graph;
+selecting query access for that module still fails, including beside another
+module with a valid graph. Partially specified graphs and dangling remote paths
+remain refused. No fabricated graph read is needed to construct these services.
+
+The original shared Commerce initializer refuses nonempty logical sources with
+multiple tables and otherwise writes to the default table. That prevents a
+positive Store guard fixture from retaining the complete three-model Store
+schema. The correct-owner extension is
+[explicit logical Commerce initialization](../../shared-logical-storage/58-logical-commerce-initialization.md):
+strict `{ table, row }` entries inside the existing canonical dataset bind each
+target to the dataset digest. The existing source admission, first-data gate,
+working-set constraints, receipt and atomic settlement remain authoritative.
+Flat single-table and empty initialization retain their current contracts.
+
+## Compatibility Boundary
+
+The profile covers positive Store refusal before mutations, complete empty
+dependencies, both pivot families with endpoint preservation, missing/repeated/
+already deleted IDs, closure overflow rollback, requested-order workflow events,
+distinct internal events, late failure, replay/conflicts and scope isolation.
+Retained native compensation callbacks are exercised through the real module
+methods in a separate test-only atomic probe. This does not admit independently
+durable compensation. Hosted activation and arbitrary Link or Store capabilities
+remain outside this profile.

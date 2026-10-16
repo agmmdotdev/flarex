@@ -26,6 +26,7 @@
     "@medusajs/pricing": "workspace:*",
     "@medusajs/product": "workspace:*",
     "@medusajs/sales-channel": "workspace:*",
+    "@medusajs/store": "workspace:*",
     "@medusajs/utils": "workspace:*",
     "@medusajs/workflows-sdk": "workspace:*",
     "effect": "catalog:",

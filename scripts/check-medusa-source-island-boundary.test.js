@@ -344,7 +344,8 @@ describe("Medusa source-island boundary checker", () => {
       { importer: "packages/flarex-backend/test/mixedMutationFiniteRetirement.workerd.test.ts",
         specifier: "../../medusa-adapter/src/modules/currency/service", target: "packages/medusa-adapter/src/modules/currency/service.ts" },
       ...["application/applicationFiniteBindingCorrelation.test.ts", "application/bindingMetadataBackfillScenario.ts", "execution/finiteSourceCommitClosure.test.ts",
-        "storage/catalog/appSchemaCandidateValidation.postgres.test.ts", "execution/journal/sessionJournalMultiSource.test.ts"]
+        "storage/catalog/appSchemaCandidateValidation.postgres.test.ts", "execution/journal/sessionJournalMultiSource.test.ts",
+        "frameworks/commerceTransaction/commerceLogicalInitialization.test.ts"]
         .map(file => ({ importer: `packages/persistence-postgres/test/${file}`,
           specifier: posix.relative(posix.dirname(`packages/persistence-postgres/test/${file}`),
             "packages/medusa-adapter/test/support/logical-currency-fixture.ts").replace(/\.ts$/u, ""),

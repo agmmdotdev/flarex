@@ -64,6 +64,9 @@ export function prepareWorkflowResources<const Selections extends WorkflowSelect
       if (!isWorkflowResourceName(name) || ["query", "event_bus"].includes(name) || typeof selected.graph !== "boolean"
         || selected.expose !== undefined && typeof selected.expose !== "boolean"
         || workflowModuleDefinition(selected.module) === undefined || seen.has(selected.module)) return yield* Result.fail(commerceError("unsupportedProfile"));
+      const graph = workflowModuleDefinition(selected.module)?.graph;
+      if (selected.graph && (graph === undefined || graph.aliases.length === 0 || graph.reads.length === 0))
+        return yield* Result.fail(commerceError("unsupportedProfile"));
       seen.add(selected.module);
       const names = yield* captureCommerceInput(selected.methods);
       if (!Array.isArray(names) || names.some(key => typeof key !== "string" || !Object.hasOwn(selected.module.methods, key))

@@ -137,6 +137,7 @@ import { compileProductDefinition } from "../../src/modules/product/definition";
 import { compilePricingDefinition } from "../../src/modules/pricing/schema";
 import { compileVariantPricingLinkDefinition } from "../../src/composition/product-variant-pricing-schema";
 import { compileSalesChannelDefinition } from "../../src/modules/sales-channel/schema";
+import { compileStoreDefinition } from "../../src/modules/store/schema";
 import { compileProductLinksDefinition } from "../../src/links/product-definition";
 import { compileStockLocationDefinition } from "../../src/modules/stock-location/schema";
 import { compileSalesChannelLocationLinkDefinition } from "../../src/links/sales-channel-location-schema";
@@ -183,6 +184,7 @@ type LogicalCurrencyFixtureOptions = Readonly<{
   extensions?: readonly LogicalSchemaExtension[]; additionalSources?: readonly LogicalSchemaSource[];
   includeVariantPricingLink?: boolean;
   includeSalesChannel?: boolean;
+  includeStore?: boolean;
   includeStockLocation?: boolean;
   includeSalesChannelLocationLink?: boolean;
   includeProductSalesChannelLink?: boolean;
@@ -231,6 +233,7 @@ export interface LogicalCurrencyFixture {
   readonly pricingDefinition: Effect.Success<ReturnType<typeof compilePricingDefinition>> | undefined;
   readonly variantPricingLinkDefinition: Effect.Success<ReturnType<typeof compileVariantPricingLinkDefinition>> | undefined;
   readonly salesChannelDefinition: Effect.Success<ReturnType<typeof compileSalesChannelDefinition>> | undefined;
+  readonly storeDefinition: Effect.Success<ReturnType<typeof compileStoreDefinition>> | undefined;
   readonly stockLocationDefinition: Effect.Success<ReturnType<typeof compileStockLocationDefinition>> | undefined;
   readonly salesChannelLocationLinkDefinition: Effect.Success<ReturnType<typeof compileSalesChannelLocationLinkDefinition>> | undefined;
   readonly productLinksDefinition: Effect.Success<ReturnType<typeof compileProductLinksDefinition>> | undefined;
@@ -371,6 +374,7 @@ export async function logicalCurrencyFixture(
         ...(options?.includeStockLocation === true && options?.includeVariantInventory !== true ? ["stockLocation" as const] : []),
         ...(options?.includeVariantPricingLink === true ? ["variantPricingLink" as const] : []),
         ...(options?.includeSalesChannel === true ? ["salesChannel" as const] : []),
+        ...(options?.includeStore === true ? ["store" as const] : []),
         ...(options?.includeSalesChannelLocationLink === true ? ["salesChannelLocationLink" as const] : []),
         ...(options?.includeProductSalesChannelLink === true ? ["productSalesChannelLink" as const] : []),
         ...(options?.includeShippingProfile === true ? ["shippingProfile" as const] : []),
@@ -400,6 +404,7 @@ export async function logicalCurrencyFixture(
     const pricingDefinition = options?.includePricing === true ? yield* compilePricingDefinition() : undefined;
     const variantPricingLinkDefinition = options?.includeVariantPricingLink === true ? yield* compileVariantPricingLinkDefinition() : undefined;
     const salesChannelDefinition = options?.includeSalesChannel === true ? yield* compileSalesChannelDefinition() : undefined;
+    const storeDefinition = options?.includeStore === true ? yield* compileStoreDefinition() : undefined;
     const stockLocationDefinition = options?.includeVariantInventory === true || options?.includeStockLocation === true
       ? yield* compileStockLocationDefinition() : undefined;
     const salesChannelLocationLinkDefinition = options?.includeSalesChannelLocationLink === true
@@ -528,7 +533,7 @@ export async function logicalCurrencyFixture(
       metadataCounts: logicalReadMetadataCounts(candidate.sources),
       metadataScaling: metadataScaling === undefined ? undefined : {
         scale: metadataScaling.scale, counts: metadataScaling.counts, added: metadataScaling.added },
-      pricingDefinition, variantPricingLinkDefinition, salesChannelDefinition, stockLocationDefinition, salesChannelLocationLinkDefinition, productLinksDefinition,
+      pricingDefinition, variantPricingLinkDefinition, salesChannelDefinition, storeDefinition, stockLocationDefinition, salesChannelLocationLinkDefinition, productLinksDefinition,
       shippingProfileDefinition, physicalTablesBeforeCandidate,
       ...(pair.kind === "pglite" ? { observeSql: pair.observeSql } : {}) };
   })());

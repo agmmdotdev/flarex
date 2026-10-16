@@ -51,6 +51,46 @@ function logicalComposition(logical: WorkflowLogicalPolicy) {
 }
 
 describe("workflow registration and scoped resource composition", () => {
+  it("admits authenticated native methods without exposing a query graph", async () => {
+    const graphless = Result.getOrThrow(defineWorkflowModule({ name: "method_only", source,
+      methods: { echo: method }, graph: { aliases: [], reads: [] } }));
+    expect(workflowModuleDefinition(graphless)?.graph).toEqual({ aliases: [], reads: [] });
+    expect(workflowMethodDefinition(graphless.methods.echo)?.command).toBe(command);
+    expect(defineWorkflowModule({ name: "forged_method", source, methods: { echo: { ...method } },
+      graph: { aliases: [], reads: [] } })).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    const selected = Result.getOrThrow(prepareWorkflowResources({ method_only: { module: graphless, methods: ["echo"], graph: false } }, false));
+    const flow = createWorkflow("method-only-composition-unit", () => new WorkflowResponse(null));
+    const modules: Record<string, InstalledWorkflowModule> = {};
+    // The existing pure composition port supplies no storage authority and
+    // performs no SQL; the trusted atomic host authenticates real admissions.
+    Object.defineProperty(modules, "method_only", { enumerable: true, value: { module: graphless, logicalStorage: {} } });
+    const prepared = await Effect.runPromise(prepareWorkflowComposition({ modules, identityAndAccessPolicy: {},
+      revision: "a".repeat(64), workflow: { name: "method-only-composition-unit", resources: selected,
+        prepared: Result.getOrThrow(flow.prepare()), input: Schema.Json, output: Schema.Json } }));
+    expect(prepared.composition.participants).toHaveLength(1);
+    expect(prepared.composition.participants[0]?.commands).toEqual([command]);
+  });
+
+  it("refuses graph selection for a method-only module alone or beside a genuine graph", () => {
+    const graphless = Result.getOrThrow(defineWorkflowModule({ name: "method_only", source,
+      methods: { echo: method }, graph: { aliases: [], reads: [] } }));
+    expect(prepareWorkflowResources({ method_only: { module: graphless, methods: ["echo"], graph: true } }, false))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(prepareWorkflowResources({ method_only: { module: graphless, methods: ["echo"], graph: true },
+      sample: { module, methods: ["echo"], graph: true } }, false))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
+
+  it("retains graph-owner refusals for incomplete aliases/reads and dangling remote paths", () => {
+    const graph = graphDefinition();
+    for (const incomplete of [{ aliases: [], reads: graph.reads }, { aliases: graph.aliases, reads: [] },
+      { aliases: [], reads: [], remotePaths: [{ root: "Sample", path: "children", maximumSources: 1, maximumLinks: 1,
+        maximumTargets: 1, maximumPerSource: 1, sourceModel: "Sample", sourceKey: "id", linkModel: "SampleChild",
+        sourceColumn: "sample_id", targetColumn: "child_id", targetModel: "Child", targetKey: "id" }] }])
+      expect(defineWorkflowModule({ name: "incomplete_graph", source, methods: { echo: method }, graph: incomplete }))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
+
   it("captures and forwards aggregate and per-call logical validation together", async () => {
     const refusal = commerceError("unsupportedProfile");
     const aggregate = vi.fn<LogicalCommerceEventValidation>(() => Effect.fail(refusal));

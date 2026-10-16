@@ -24,6 +24,8 @@ import { NativePreimageConfig, nativePreimageSelection } from "../../workflow/pr
 import { encodeOptionalServiceResult } from "../../module/result";
 import { SalesChannelUpdateSelector, SalesChannelUpdateData, SalesChannelUpdateReadInput,
   compileSalesChannelUpdateContracts, decodeSalesChannelUpdateInput } from "./update-input";
+import { compileSalesChannelDeletionContracts, decodeSalesChannelDeletionArguments, decodeSalesChannelDeletionIds } from "./delete-input";
+import { salesChannelDeletionPolicy } from "./delete-receipt";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 export const SimpleSalesChannelInput = Schema.Struct({ id: Schema.optionalKey(Id), name: Schema.String });
@@ -69,10 +71,12 @@ export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.comm
     if (sourceTable === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const createContracts = yield* compileSalesChannelCreateContracts(sourceTable);
     const updateContracts = yield* compileSalesChannelUpdateContracts(sourceTable);
-    const defineModule = (profile: "sales-channel" | "sales-channel.update-workflows") => defineCommerceModule({
+    const deletionContracts = yield* compileSalesChannelDeletionContracts(sourceTable);
+    const defineModule = (profile: "sales-channel" | "sales-channel.update-workflows" | "sales-channel.delete-workflows") => defineCommerceModule({
       name: "flarex-sales-channel-local", models: [SalesChannel],
       profile: { name: profile, capabilities: [], bind: (ctx, owner) => {
-        const bound = bind(ctx, owner, profile === "sales-channel.update-workflows" ? "updateWorkflow" : "standard");
+        const bound = bind(ctx, owner, profile === "sales-channel.update-workflows" ? "updateWorkflow"
+          : profile === "sales-channel.delete-workflows" ? "deleteWorkflow" : "standard");
         const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
           capture: message => bound.bridge.current().captureLocalEvent(message),
           check: work => work.pipe(Effect.catchTag("CommerceTransactionError", error => bound.bridge.current().refuse(error))), refuse: bound.refuse,
@@ -89,6 +93,7 @@ export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.comm
     }).pipe(Result.mapError(error => commerceError("unsupportedProfile", error)));
     const module = yield* defineModule("sales-channel");
     const updateModule = yield* defineModule("sales-channel.update-workflows");
+    const deletionModule = yield* defineModule("sales-channel.delete-workflows");
     const commands = commerceServiceCommands(module.use);
     const prepare = commerceCommandPreparation("SalesChannelCommand.prepare");
     // SAFETY: framework DTOs/configuration are compile-time interfaces; the
@@ -128,11 +133,27 @@ export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.comm
     const updateWorkflow = yield* defineWorkflowModule({ name: Modules.SALES_CHANNEL, source: updateModule.description,
       methods: { listSalesChannels, updateSalesChannels }, graph,
       logical: { ...salesChannelSelectorUpdatePolicy(), commands: [listForWorkflow, updateBySelector] } });
+    const deletionCommands = commerceServiceCommands(deletionModule.use);
+    const softDeleteForWorkflow = deletionCommands.write("salesChannelSoftDeleteForWorkflow", prepare(decodeSalesChannelDeletionIds),
+      ({ service, context }, ids) => service.softDeleteSalesChannels([...ids], {}, context));
+    const restoreForWorkflow = deletionCommands.write("salesChannelRestoreForWorkflow", prepare(decodeSalesChannelDeletionIds),
+      ({ service, context }, ids) => service.restoreSalesChannels([...ids], {}, context));
+    const softDeleteSalesChannels = yield* defineWorkflowMethod({ command: softDeleteForWorkflow, arguments: decodeSalesChannelDeletionArguments,
+      encode: ([ids]) => ids, output: deletionContracts.decodeOutput,
+      moduleEvents: [buildModuleResourceEventName({ prefix: Modules.SALES_CHANNEL, objectName: "sales_channel", action: "deleted" })] });
+    const restoreSalesChannels = yield* defineWorkflowMethod({ command: restoreForWorkflow, arguments: decodeSalesChannelDeletionArguments,
+      encode: ([ids]) => ids, output: deletionContracts.decodeOutput,
+      moduleEvents: [buildModuleResourceEventName({ prefix: Modules.SALES_CHANNEL, objectName: "sales_channel", action: "restored" })] });
+    const deletionPolicy = salesChannelDeletionPolicy(deletionContracts);
+    const deleteWorkflow = yield* defineWorkflowModule({ name: Modules.SALES_CHANNEL, source: deletionModule.description,
+      methods: { softDeleteSalesChannels, restoreSalesChannels }, graph,
+      logical: { ...deletionPolicy, commands: [softDeleteForWorkflow, restoreForWorkflow] } });
     const createSalesChannels = yield* defineWorkflowMethod({ command: create, arguments: createContracts.decodeArguments,
       encode: ([channels]) => channels, output: createContracts.decodeRows,
       moduleEvents: [buildModuleResourceEventName({ prefix: Modules.SALES_CHANNEL, objectName: "sales_channel", action: "created" })] });
     const workflow = yield* defineWorkflowModule({ name: Modules.SALES_CHANNEL, source: module.description, methods: { createSalesChannels }, graph, logical: { ...salesChannelLogicalEventPolicy(), commands: [create, update, remove, list, count, retrieve] } });
-    return { create, update, delete: remove, list, count, retrieve, graph, workflow, updateWorkflow, listForWorkflow, updateBySelector,
+    return { create, update, delete: remove, list, count, retrieve, graph, workflow, updateWorkflow, deleteWorkflow,
+      listForWorkflow, updateBySelector, softDeleteForWorkflow, restoreForWorkflow,
       commands: [create, update, remove, list, count, retrieve],
       withService: module.use,
       logicalEventPolicy: salesChannelLogicalEventPolicy,
