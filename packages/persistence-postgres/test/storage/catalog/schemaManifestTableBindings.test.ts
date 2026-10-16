@@ -1,6 +1,5 @@
 import {
   createMigratedPGlitePersistence,
-  migratedPGliteDataDir,
 } from "../../support/pgliteTestFixture";
 import {
   decodeCatalogTableId,
@@ -14,7 +13,7 @@ import {
   type SchemaManifestTableDefinitionsV1,
 } from "flarex-protocol/schema-manifest";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
-import { beforeAll, describe, expect, expectTypeOf, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, expectTypeOf, it } from "vitest";
 
 import type {
   FlarexMetadataDatabase,
@@ -74,9 +73,16 @@ type ThrowingPreparedStateExport = Extract<
   "getPreparedSchemaManifestAppTableBindingsState"
 >;
 
-beforeAll(() => migratedPGliteDataDir(), 120_000);
+let persistence: PGlitePersistence;
+let dispose: (() => Promise<void>) | undefined;
 
-describe("schema manifest app table bindings", () => {
+beforeAll(async () => {
+  persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
+}, 120_000);
+
+afterAll(async () => { await dispose?.(); }, 120_000);
+
+describe("schema manifest app table bindings", { concurrent: false }, () => {
   it("keeps optimistic planning and allocation behind concrete boundaries", () => {
     expectTypeOf<PublicBindingMethod>().toEqualTypeOf<never>();
     expectTypeOf<PublicBindingExport>().toEqualTypeOf<never>();
@@ -429,7 +435,6 @@ describe("schema manifest app table bindings", () => {
   });
 
   it("plans name-order candidates and replays the exact committed bindings", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_binding_deterministic";
     await insertDeployment(persistence, deploymentId);
 
@@ -475,7 +480,6 @@ describe("schema manifest app table bindings", () => {
   });
 
   it("keeps existing IDs and emits the final section in numeric ID order", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_binding_existing";
     await insertDeployment(persistence, deploymentId);
 
@@ -513,7 +517,6 @@ describe("schema manifest app table bindings", () => {
   });
 
   it("rejects malformed and duplicate declarations before allocating", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_binding_invalid";
     await insertDeployment(persistence, deploymentId);
 
@@ -544,7 +547,6 @@ describe("schema manifest app table bindings", () => {
   });
 
   it("fails stale when an unrelated allocation changes the observed frontier", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_binding_stale_frontier";
     await insertDeployment(persistence, deploymentId);
     const plan = await prepareSchemaManifestAppTableBindingsV1(
@@ -572,7 +574,6 @@ describe("schema manifest app table bindings", () => {
   });
 
   it("fails stale when a planned logical name is bound to another ID", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_binding_changed";
     await insertDeployment(persistence, deploymentId);
     const plan = await prepareSchemaManifestAppTableBindingsV1(
@@ -603,7 +604,6 @@ describe("schema manifest app table bindings", () => {
   });
 
   it("fails stale rather than completing a partially applied plan", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_binding_partial";
     await insertDeployment(persistence, deploymentId);
     const plan = await prepareSchemaManifestAppTableBindingsV1(
@@ -634,7 +634,6 @@ describe("schema manifest app table bindings", () => {
   });
 
   it("rolls planned IDs back with the caller-owned transaction", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_binding_rollback";
     await insertDeployment(persistence, deploymentId);
     const plan = await prepareSchemaManifestAppTableBindingsV1(
@@ -704,7 +703,6 @@ describe("schema manifest app table bindings", () => {
   });
 
   it("supports empty schemas, rejects missing deployments, and authenticates plans", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_binding_empty";
     await expect(
       prepareSchemaManifestAppTableBindingsV1(persistence.drizzle, {

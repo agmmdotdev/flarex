@@ -1,6 +1,5 @@
 import {
   createMigratedPGlitePersistence,
-  migratedPGliteDataDir,
 } from "../../support/pgliteTestFixture";
 import {
   canonicalizeSchemaManifestV1,
@@ -13,7 +12,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { Cause, Effect, Exit, Fiber } from "effect";
-import { beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import type {
   EnsureAppTableDefinitionsArtifactV1Input,
@@ -85,9 +84,16 @@ type CallerComputedManifestAccepted = CallerComputedManifest extends
   ? true
   : false;
 
-beforeAll(() => migratedPGliteDataDir(), 120_000);
+let persistence: PGlitePersistence;
+let dispose: (() => Promise<void>) | undefined;
 
-describe("table-only app definitions artifact compatibility", () => {
+beforeAll(async () => {
+  persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
+}, 120_000);
+
+afterAll(async () => { await dispose?.(); }, 120_000);
+
+describe("table-only app definitions artifact compatibility", { concurrent: false }, () => {
   it("keeps one high-level facade and hides every swappable child boundary", () => {
     expectTypeOf<PublicInternalCompatibilityExport>().toEqualTypeOf<never>();
     expectTypeOf<PublicCompatibilityMethod>()
@@ -115,7 +121,6 @@ describe("table-only app definitions artifact compatibility", () => {
   });
 
   it("maps transaction infrastructure rejection once to its tagged failure", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_table_artifact_transaction_rejection";
     await insertDeployment(persistence, deploymentId);
     const rejection = new Error("table artifact transaction rejected");
@@ -140,7 +145,6 @@ describe("table-only app definitions artifact compatibility", () => {
   });
 
   it("keeps table-only schema-owned field failures typed", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const valid = appSchemaInput(
       "deployment_table_artifact_invalid_fields",
       "schema_table_artifact_invalid_fields",
@@ -167,7 +171,6 @@ describe("table-only app definitions artifact compatibility", () => {
   });
 
   it("preserves input reflection and field-access failures as defects", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const reflectionDefect = new Error("table artifact input ownKeys defect");
     const fieldDefect = new Error("table artifact input field defect");
     const declarationDefect = new Error(
@@ -219,7 +222,6 @@ describe("table-only app definitions artifact compatibility", () => {
   });
 
   it("preserves schema snapshot failures as defects", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const defect = new Error("table artifact schema snapshot defect");
     const snapshot = vi.spyOn(globalThis, "structuredClone")
       .mockImplementation((): never => {
@@ -295,7 +297,6 @@ describe("table-only app definitions artifact compatibility", () => {
   });
 
   it("atomically ensures coherent mappings and replays the exact artifact", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_app_schema_publish";
     await insertDeployment(persistence, deploymentId);
     const input = appSchemaInput(
@@ -353,7 +354,6 @@ describe("table-only app definitions artifact compatibility", () => {
   });
 
   it("rolls planned mappings back when immutable artifact replay conflicts", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_app_schema_conflict";
     await insertDeployment(persistence, deploymentId);
     const schemaVersionId = CatalogSchemaVersionIdSchema.make(
@@ -404,7 +404,6 @@ describe("table-only app definitions artifact compatibility", () => {
   });
 
   it("rebuilds and rehashes the whole publication after one stale plan", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_app_schema_retry";
     await insertDeployment(persistence, deploymentId);
     const input = appSchemaInput(
@@ -507,7 +506,6 @@ describe("table-only app definitions artifact compatibility", () => {
   });
 
   it("rejects caller-computed fields, child tokens, and structural forgeries", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_app_schema_tokens";
     await insertDeployment(persistence, deploymentId);
     const input = appSchemaInput(

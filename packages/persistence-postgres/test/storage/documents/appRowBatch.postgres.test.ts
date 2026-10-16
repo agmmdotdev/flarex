@@ -21,14 +21,15 @@ import { runEffect } from "../../support/effectTestRuntime";
 import { withPostgresExecutionObservation } from "../../performance/postgresExecutionObservation";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 import { verifyAppRowBatches, verifyAppRowBatchBindings } from "./appRowBatchScenario";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
-describePostgres("ordinary-role PostgreSQL prepared row batches", () => {
+describePostgres("ordinary-role PostgreSQL prepared row batches", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPostgresPersistence();
   it("preserves exact identities, predecessors and complete rollback", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await verifyAppRowBatches(persistence, persistence.drizzle, async run => {
         const measured = await withPostgresExecutionObservation(persistence.pool, run, { returnedCommands: true });
         expect(measured.observation.checkouts).toBe(1);
@@ -46,7 +47,7 @@ describePostgres("ordinary-role PostgreSQL prepared row batches", () => {
     });
   }, 120_000);
   it("splits row writes by encoded bytes before the row-count limit", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const scopeId = ScopeIdSchema.make(
         "scope_50191000-0000-0000-0000-000000000001",
       );

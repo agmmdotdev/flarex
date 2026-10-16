@@ -21,7 +21,7 @@ import type { ExactTrustedScopeAuthorityResolutionPorts } from "../../../src/sco
 import type { SharedDatabaseScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 import { runEffect } from "../../support/effectTestRuntime";
 
@@ -36,9 +36,10 @@ const sharedLocator = Object.freeze({
 const firstCommitSeq = 9_007_199_254_740_993n;
 const secondCommitSeq = firstCommitSeq + 1n;
 
-describePostgres("real Postgres app-data snapshot resolution", () => {
+describePostgres("real Postgres app-data snapshot resolution", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPostgresPersistence();
   it("captures exact committed scope authority without pinning or mutation", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const provisioned =
         await createPostgresSharedScopeAuthorityProvisioner(persistence, {
           physicalLocator: sharedLocator,
@@ -92,7 +93,7 @@ describePostgres("real Postgres app-data snapshot resolution", () => {
   });
 
   it("resolves exact snapshots for two shops sharing one deployment", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const first = await createPostgresSharedScopeAuthorityProvisioner(persistence, {
         physicalLocator: sharedLocator,
         randomUuid: uuidSequence(

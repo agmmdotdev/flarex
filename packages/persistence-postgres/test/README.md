@@ -233,10 +233,20 @@ Document revision and relation-edge storage suites use the same lifecycle with
 edge and scope-clock/authority state, preserving foreign keys, deferred pairing
 checks and system seeds. Each case still commits and rolls back through the real
 transaction owners. Persistent trigger/constraint corruption cases keep separate
-backends. Catalog and commit suites restore fresh databases from the shared
+backends. Row-only scope-clock cases borrow this same lifecycle; their two
+constraint-corruption cases retain independent backends. Other catalog and commit
+suites restore fresh databases from the shared
 image through `createMigratedPGlitePersistence`; they retain foreign-database
 identity witnesses and register runtime/database cleanup rather than migrating
 or leaving a backend open for each case.
+Publication preparation, table-only artifact compatibility and table-binding
+cases share one serial file-owned migrated backend, with distinct deployments
+and deployment-local allocation frontiers. The table-wide RETURNING-corruption
+trigger and suspended table-artifact transaction owner keep independent backends.
+The native-time and historical-read logical working-set scenarios retain separate
+scope/deployment identities within one file-owned backend. Their budget cases
+keep independent backends for suspended driver calls. Transaction observations,
+spies and host lifetimes still settle inside each case.
 
 Scope, catalog and index fixtures also restore independent migrated images.
 Application analysis/relation/task-binding repositories use the same owner,
@@ -339,6 +349,11 @@ Finite terminalization barriers borrow that same lifecycle with the existing
 releases its gate, drains both operations and cancels its losing timer before
 reuse. App-row plan probes use the existing scoped
 planner-setting helper so pooled sessions return with their original settings.
+Native row-batch and snapshot-resolution cases borrow the existing file owner.
+Unique-workspace reclamation borrows separate control/target file owners and
+resets target rows before control rows. Scheduler checkpoint cases retain
+independent fixtures because the ordinary row reset does not restore their
+migration-created singleton.
 `database/postgresRuntime.postgres.test.ts` keeps real installation admission
 on its test-owned connection while injecting only transaction-command failures.
 

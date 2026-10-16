@@ -1,4 +1,4 @@
-import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
+import { createMigratedPGlitePersistence, useFileScopedPGliteStoragePersistence } from "../support/pgliteTestFixture";
 import { MetadataSequenceSchema, type MetadataSequence } from "flarex-protocol/commit-protocol";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -31,7 +31,6 @@ import {
 } from "../../src";
 import type { FlarexMetadataDatabase } from "../../src/application/deployments";
 import type { FlarexMetadataTransaction } from "../../src/database/metadataTransaction";
-import { createPGlitePersistence } from "../../src/database/pglite";
 import {
   advanceScopeAuthorizationRevocationEpochInTransactionEffect,
   decodeScopeClockRecord,
@@ -66,7 +65,6 @@ import {
 } from "../../src/scope/scopeClockInitialization";
 import { flarexSchema, fxSystemScopeClocks, fxSystemScopeExecutionAuthorities } from "../../src/database/schema";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
-import { newTestPGlite } from "../support/pgliteSearchExtensions";
 
 type ForbiddenScopeClockMethod = Extract<
   keyof FlarexPersistence,
@@ -81,7 +79,8 @@ type ForbiddenScopeClockMethod = Extract<
   | "updateScopeClock"
 >;
 
-describe("scope clock", () => {
+describe("scope clock", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPGliteStoragePersistence();
   it("keeps authority values branded and exposes no production allocator", () => {
     expectTypeOf<ScopeClockRecord["scopeId"]>().toEqualTypeOf<ScopeId>();
     expectTypeOf<ScopeClockRecord["epoch"]>().toEqualTypeOf<ScopeEpoch>();
@@ -130,252 +129,226 @@ describe("scope clock", () => {
       >();
   });
 
-  it("reuses only the held exact clock, owns its Date, and refreshes after revocation", async () => {
-    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
-    const persistence = await createPGlitePersistence({ db });
+  it("reuses only the held exact clock, owns its Date, and refreshes after revocation", async () => withPersistence(async persistence => {
     const scopeId = ScopeIdSchema.make("scope_exact_clock_observation");
     const independent = ScopeIdSchema.make("scope_exact_clock_independent");
-    try {
-      for (const selectedScope of [scopeId, independent]) await insertDefaultScopeClock(persistence, {
-        scopeId: selectedScope,
-        storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
-        epoch: ScopeEpochSchema.make(`epoch-${selectedScope}`),
-      });
-      await persistence.drizzle.transaction(async tx => {
-        const held = await runEffect(lockScopeClockForShareInTransactionEffect(tx, scopeId));
-        const originalTime = held.updatedAt.getTime();
-        openExactAttemptScopeClockObservation(tx, held, TransactionAuthorizationRevocationEpochSchema.make(0n), "share");
-        try {
-          held.updatedAt.setTime(0);
-          const first = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
-          expect(first.updatedAt.getTime()).toBe(originalTime);
-          first.updatedAt.setTime(1);
-          const next = await runEffect(lockScopeClockForShareInTransactionEffect(tx, scopeId));
-          expect(next.updatedAt.getTime()).toBe(originalTime);
-          expect(await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, independent)))
-            .toMatchObject({ scopeId: independent });
-          expect(await runEffect(requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, scopeId))).toBe(0n);
-          await runEffect(advanceScopeAuthorizationRevocationEpochInTransactionEffect(tx, scopeId));
-          expect(await runEffect(requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, scopeId))).toBe(1n);
-          expect((await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId))).updatedAt.getTime())
-            .toBeGreaterThanOrEqual(originalTime);
-        } finally {
-          closeExactAttemptScopeClockObservation(tx);
-        }
-      });
-      await persistence.drizzle.transaction(async tx => {
+    for (const selectedScope of [scopeId, independent]) await insertDefaultScopeClock(persistence, {
+      scopeId: selectedScope,
+      storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
+      epoch: ScopeEpochSchema.make(`epoch-${selectedScope}`),
+    });
+    await persistence.drizzle.transaction(async tx => {
+      const held = await runEffect(lockScopeClockForShareInTransactionEffect(tx, scopeId));
+      const originalTime = held.updatedAt.getTime();
+      openExactAttemptScopeClockObservation(tx, held, TransactionAuthorizationRevocationEpochSchema.make(0n), "share");
+      try {
+        held.updatedAt.setTime(0);
+        const first = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
+        expect(first.updatedAt.getTime()).toBe(originalTime);
+        first.updatedAt.setTime(1);
+        const next = await runEffect(lockScopeClockForShareInTransactionEffect(tx, scopeId));
+        expect(next.updatedAt.getTime()).toBe(originalTime);
+        expect(await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, independent)))
+          .toMatchObject({ scopeId: independent });
+        expect(await runEffect(requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, scopeId))).toBe(0n);
+        await runEffect(advanceScopeAuthorizationRevocationEpochInTransactionEffect(tx, scopeId));
         expect(await runEffect(requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, scopeId))).toBe(1n);
-      });
-    } finally {
-      await db.close();
-    }
-  });
+        expect((await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId))).updatedAt.getTime())
+          .toBeGreaterThanOrEqual(originalTime);
+      } finally {
+        closeExactAttemptScopeClockObservation(tx);
+      }
+    });
+    await persistence.drizzle.transaction(async tx => {
+      expect(await runEffect(requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, scopeId))).toBe(1n);
+    });
+  }));
 
-  it.each(["snapshot", "share", "attempt"] as const)("lends native identity only for the current protected %s lifetime", async lock => {
-    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
-    const persistence = await createPGlitePersistence({ db });
+  it.each(["snapshot", "share", "attempt"] as const)("lends native identity only for the current protected %s lifetime", async lock => withPersistence(async persistence => {
     const ordinal = lock === "snapshot" ? "1" : lock === "share" ? "2" : "3";
     const scopeId = ScopeIdSchema.make(`scope_5b000000-0000-0000-0000-00000000000${ordinal}`);
-    try {
-      await persistence.drizzle.transaction(async tx => {
-        Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx, {
-          scopeId, initialEpoch: ScopeEpochSchema.make("epoch-protected-read"),
-        }));
-        const clock = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
-        const priorIdentity = readProtectedScopeReadIdentity(tx, scopeId);
-        if (priorIdentity === undefined) throw new Error("Native identity loan was not issued");
-        const priorTime = Result.getOrThrow(protectedScopeTransactionTimestampObservationIdentity(tx, scopeId));
-        openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), lock);
-        expect(Result.isFailure(requireProtectedScopeReadIdentity(tx, priorIdentity))).toBe(true);
-        expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId, priorTime))).toBe(true);
+    await persistence.drizzle.transaction(async tx => {
+      Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx, {
+        scopeId, initialEpoch: ScopeEpochSchema.make("epoch-protected-read"),
+      }));
+      const clock = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
+      const priorIdentity = readProtectedScopeReadIdentity(tx, scopeId);
+      if (priorIdentity === undefined) throw new Error("Native identity loan was not issued");
+      const priorTime = Result.getOrThrow(protectedScopeTransactionTimestampObservationIdentity(tx, scopeId));
+      openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), lock);
+      expect(Result.isFailure(requireProtectedScopeReadIdentity(tx, priorIdentity))).toBe(true);
+      expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId, priorTime))).toBe(true);
+      expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId))).toBe(true);
+      expect(() => openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), lock))
+        .toThrow("Exact attempt clock scope already opened");
+      const identity = readProtectedScopeReadIdentity(tx, scopeId);
+      if (identity === undefined) throw new Error("Native identity was not issued");
+      expect(Object.isFrozen(identity)).toBe(true);
+      expect(Result.getOrThrow(requireProtectedScopeReadIdentity(tx, identity))).toBe(identity);
+      expect(Result.isFailure(requireProtectedScopeReadIdentity(scopeClockReadTransaction(async () => []), identity))).toBe(true);
+      expect(Result.isFailure(requireProtectedScopeReadIdentity(tx, { ...identity }))).toBe(true);
+      expect(readProtectedScopeReadIdentity(tx, ScopeIdSchema.make("scope_other_identity"))).toBeUndefined();
+      if (lock !== "attempt") expect(readExactScopeWriteClockObservation(tx, scopeId)).toBeUndefined();
+      closeExactAttemptScopeClockObservation(tx);
+      expect(Result.isFailure(requireProtectedScopeReadIdentity(tx, identity))).toBe(true);
+      openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), lock);
+      expect(Result.isFailure(requireProtectedScopeReadIdentity(tx, identity))).toBe(true);
+      expect(readProtectedScopeReadIdentity(tx, scopeId)).not.toBe(identity);
+      closeExactAttemptScopeClockObservation(tx);
+    });
+  }));
+
+  it("retains actual native transaction time only through its snapshot admission lifetime", async () => withPersistence(async persistence => {
+    const scopeId = ScopeIdSchema.make("scope_native_transaction_time");
+    await persistence.drizzle.transaction(async tx => {
+      Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx, {
+        scopeId, initialEpoch: ScopeEpochSchema.make("epoch-native-time"),
+      }));
+      const clock = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
+      const rows = await tx.select({ timestamp: sql<unknown>`current_timestamp::text` }).from(fxSystemScopeClocks)
+        .where(eq(fxSystemScopeClocks.scopeId, scopeId)).limit(1);
+      const timestamp = rows[0]?.timestamp;
+      closeExactAttemptScopeClockObservation(tx);
+      openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "snapshot", { timestamp });
+      const identity = Result.getOrThrow(protectedScopeTransactionTimestampObservationIdentity(tx, scopeId));
+      const prepare = vi.spyOn(tx._.session, "prepareQuery");
+      try {
+        expect(Result.getOrThrow(readProtectedScopeTransactionTimestamp(tx, scopeId, identity))).toBe(timestamp);
+        expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, ScopeIdSchema.make("scope_foreign_time"), identity))).toBe(true);
+        const foreign = scopeClockReadTransaction(async () => []);
+        openExactAttemptScopeClockObservation(foreign, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "snapshot", { timestamp });
+        expect(Result.getOrThrow(readProtectedScopeTransactionTimestamp(foreign, scopeId))).toBe(timestamp);
+        expect(Result.isFailure(readProtectedScopeTransactionTimestamp(foreign, scopeId, identity))).toBe(true);
+        closeExactAttemptScopeClockObservation(foreign);
+        closeExactAttemptScopeClockObservation(tx);
+        expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId, identity))).toBe(true);
+        openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "snapshot", { timestamp });
+        expect(Result.getOrThrow(readProtectedScopeTransactionTimestamp(tx, scopeId))).toBe(timestamp);
+        expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId, identity))).toBe(true);
+        closeExactAttemptScopeClockObservation(tx);
+        expect(() => openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "share", { timestamp }))
+          .toThrow("Native transaction time requires protected native admission");
+        openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "snapshot");
         expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId))).toBe(true);
-        expect(() => openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), lock))
-          .toThrow("Exact attempt clock scope already opened");
+        expect(prepare).not.toHaveBeenCalled();
+      } finally { prepare.mockRestore(); closeExactAttemptScopeClockObservation(tx); }
+    });
+  }));
+
+  it("refreshes native clocks while lending only immutable identity and transaction time", async () => withPersistence(async persistence => {
+    const scopeId = ScopeIdSchema.make("scope_5b000000-0000-0000-0000-000000000005");
+    await persistence.drizzle.transaction(async tx => {
+      Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx, {
+        scopeId, initialEpoch: ScopeEpochSchema.make("epoch_5b000000-0000-0000-0000-000000000005"),
+      }));
+      try {
+        const first = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
         const identity = readProtectedScopeReadIdentity(tx, scopeId);
         if (identity === undefined) throw new Error("Native identity was not issued");
+        const lifetime = Result.getOrThrow(protectedScopeTransactionTimestampObservationIdentity(tx, scopeId));
+        const timestamp = Result.getOrThrow(readProtectedScopeTransactionTimestamp(tx, scopeId, lifetime));
+        expect(typeof timestamp).toBe("string");
+        expect(first.lastCommitSeq).toBe(0n);
         expect(Object.isFrozen(identity)).toBe(true);
-        expect(Result.getOrThrow(requireProtectedScopeReadIdentity(tx, identity))).toBe(identity);
-        expect(Result.isFailure(requireProtectedScopeReadIdentity(scopeClockReadTransaction(async () => []), identity))).toBe(true);
+        expect(readExactScopeWriteClockObservation(tx, scopeId)).toBeUndefined();
+        const foreign = scopeClockReadTransaction(async () => []);
+        expect(Result.isFailure(requireProtectedScopeReadIdentity(foreign, identity))).toBe(true);
         expect(Result.isFailure(requireProtectedScopeReadIdentity(tx, { ...identity }))).toBe(true);
-        expect(readProtectedScopeReadIdentity(tx, ScopeIdSchema.make("scope_other_identity"))).toBeUndefined();
-        if (lock !== "attempt") expect(readExactScopeWriteClockObservation(tx, scopeId)).toBeUndefined();
-        closeExactAttemptScopeClockObservation(tx);
-        expect(Result.isFailure(requireProtectedScopeReadIdentity(tx, identity))).toBe(true);
-        openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), lock);
-        expect(Result.isFailure(requireProtectedScopeReadIdentity(tx, identity))).toBe(true);
-        expect(readProtectedScopeReadIdentity(tx, scopeId)).not.toBe(identity);
-        closeExactAttemptScopeClockObservation(tx);
-      });
-    } finally { await db.close(); }
-  });
-
-  it("retains actual native transaction time only through its snapshot admission lifetime", async () => {
-    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
-    const persistence = await createPGlitePersistence({ db });
-    const scopeId = ScopeIdSchema.make("scope_native_transaction_time");
-    try {
-      await persistence.drizzle.transaction(async tx => {
-        Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx, {
-          scopeId, initialEpoch: ScopeEpochSchema.make("epoch-native-time"),
-        }));
-        const clock = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
-        const rows = await tx.select({ timestamp: sql<unknown>`current_timestamp::text` }).from(fxSystemScopeClocks)
-          .where(eq(fxSystemScopeClocks.scopeId, scopeId)).limit(1);
-        const timestamp = rows[0]?.timestamp;
-        closeExactAttemptScopeClockObservation(tx);
-        openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "snapshot", { timestamp });
-        const identity = Result.getOrThrow(protectedScopeTransactionTimestampObservationIdentity(tx, scopeId));
+        expect(Result.isFailure(readProtectedScopeTransactionTimestamp(foreign, scopeId, lifetime))).toBe(true);
+        expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, ScopeIdSchema.make("scope_other"), lifetime))).toBe(true);
+        // PGlite has one backend; this real row update proves fresh SQL without
+        // claiming the independent-writer concurrency proof in the PG lane.
+        await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
+          .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+        await tx.update(fxSystemScopeExecutionAuthorities)
+          .set({ authorizationRevocationEpoch: TransactionAuthorizationRevocationEpochSchema.make(1n) })
+          .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
         const prepare = vi.spyOn(tx._.session, "prepareQuery");
         try {
-          expect(Result.getOrThrow(readProtectedScopeTransactionTimestamp(tx, scopeId, identity))).toBe(timestamp);
-          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, ScopeIdSchema.make("scope_foreign_time"), identity))).toBe(true);
-          const foreign = scopeClockReadTransaction(async () => []);
-          openExactAttemptScopeClockObservation(foreign, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "snapshot", { timestamp });
-          expect(Result.getOrThrow(readProtectedScopeTransactionTimestamp(foreign, scopeId))).toBe(timestamp);
-          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(foreign, scopeId, identity))).toBe(true);
-          closeExactAttemptScopeClockObservation(foreign);
-          closeExactAttemptScopeClockObservation(tx);
-          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId, identity))).toBe(true);
-          openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "snapshot", { timestamp });
-          expect(Result.getOrThrow(readProtectedScopeTransactionTimestamp(tx, scopeId))).toBe(timestamp);
-          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId, identity))).toBe(true);
-          closeExactAttemptScopeClockObservation(tx);
-          expect(() => openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "share", { timestamp }))
-            .toThrow("Native transaction time requires protected native admission");
-          openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "snapshot");
-          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId))).toBe(true);
-          expect(prepare).not.toHaveBeenCalled();
-        } finally { prepare.mockRestore(); closeExactAttemptScopeClockObservation(tx); }
-      });
-    } finally { await db.close(); }
-  });
+          expect((await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId))).lastCommitSeq).toBe(1n);
+          expect(readProtectedScopeReadIdentity(tx, scopeId)).toBe(identity);
+          expect(Result.getOrThrow(protectedScopeTransactionTimestampObservationIdentity(tx, scopeId))).toBe(lifetime);
+          expect(Result.getOrThrow(readProtectedScopeTransactionTimestamp(tx, scopeId, lifetime))).toBe(timestamp);
+          expect(prepare).toHaveBeenCalledTimes(2);
+          expect(await runEffect(requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, scopeId))).toBe(1n);
+          expect(prepare).toHaveBeenCalledTimes(3);
+        } finally { prepare.mockRestore(); }
+        // Strong publication acquisition replaces the loan, even though the
+        // database's transaction timestamp itself remains stable.
+        expect((await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId))).lastCommitSeq).toBe(1n);
+        expect(Result.isFailure(requireProtectedScopeReadIdentity(tx, identity))).toBe(true);
+        expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId, lifetime))).toBe(true);
+        expect(readExactScopeWriteClockObservation(tx, scopeId)?.lastCommitSeq).toBe(1n);
+        closeExactAttemptScopeClockObservation(tx);
+        expect(hasProtectedScopeTransactionTimestampIssuer(tx)).toBe(true);
+        expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId))).toBe(true);
+      } finally { closeExactAttemptScopeClockObservation(tx); }
+    }, { isolationLevel: "read committed" });
+  }));
 
-  it("refreshes native clocks while lending only immutable identity and transaction time", async () => {
-    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
-    const persistence = await createPGlitePersistence({ db });
-    const scopeId = ScopeIdSchema.make("scope_5b000000-0000-0000-0000-000000000005");
-    try {
-      await persistence.drizzle.transaction(async tx => {
-        Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx, {
-          scopeId, initialEpoch: ScopeEpochSchema.make("epoch_5b000000-0000-0000-0000-000000000005"),
-        }));
-        try {
-          const first = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
-          const identity = readProtectedScopeReadIdentity(tx, scopeId);
-          if (identity === undefined) throw new Error("Native identity was not issued");
-          const lifetime = Result.getOrThrow(protectedScopeTransactionTimestampObservationIdentity(tx, scopeId));
-          const timestamp = Result.getOrThrow(readProtectedScopeTransactionTimestamp(tx, scopeId, lifetime));
-          expect(typeof timestamp).toBe("string");
-          expect(first.lastCommitSeq).toBe(0n);
-          expect(Object.isFrozen(identity)).toBe(true);
-          expect(readExactScopeWriteClockObservation(tx, scopeId)).toBeUndefined();
-          const foreign = scopeClockReadTransaction(async () => []);
-          expect(Result.isFailure(requireProtectedScopeReadIdentity(foreign, identity))).toBe(true);
-          expect(Result.isFailure(requireProtectedScopeReadIdentity(tx, { ...identity }))).toBe(true);
-          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(foreign, scopeId, lifetime))).toBe(true);
-          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, ScopeIdSchema.make("scope_other"), lifetime))).toBe(true);
-          // PGlite has one backend; this real row update proves fresh SQL without
-          // claiming the independent-writer concurrency proof in the PG lane.
-          await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
-            .where(eq(fxSystemScopeClocks.scopeId, scopeId));
-          await tx.update(fxSystemScopeExecutionAuthorities)
-            .set({ authorizationRevocationEpoch: TransactionAuthorizationRevocationEpochSchema.make(1n) })
-            .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
-          const prepare = vi.spyOn(tx._.session, "prepareQuery");
-          try {
-            expect((await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId))).lastCommitSeq).toBe(1n);
-            expect(readProtectedScopeReadIdentity(tx, scopeId)).toBe(identity);
-            expect(Result.getOrThrow(protectedScopeTransactionTimestampObservationIdentity(tx, scopeId))).toBe(lifetime);
-            expect(Result.getOrThrow(readProtectedScopeTransactionTimestamp(tx, scopeId, lifetime))).toBe(timestamp);
-            expect(prepare).toHaveBeenCalledTimes(2);
-            expect(await runEffect(requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, scopeId))).toBe(1n);
-            expect(prepare).toHaveBeenCalledTimes(3);
-          } finally { prepare.mockRestore(); }
-          // Strong publication acquisition replaces the loan, even though the
-          // database's transaction timestamp itself remains stable.
-          expect((await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId))).lastCommitSeq).toBe(1n);
-          expect(Result.isFailure(requireProtectedScopeReadIdentity(tx, identity))).toBe(true);
-          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId, lifetime))).toBe(true);
-          expect(readExactScopeWriteClockObservation(tx, scopeId)?.lastCommitSeq).toBe(1n);
-          closeExactAttemptScopeClockObservation(tx);
-          expect(hasProtectedScopeTransactionTimestampIssuer(tx)).toBe(true);
-          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId))).toBe(true);
-        } finally { closeExactAttemptScopeClockObservation(tx); }
-      }, { isolationLevel: "read committed" });
-    } finally { await db.close(); }
-  });
-
-  it("revokes the native identity and time loan when a fresh snapshot read fails", async () => {
-    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
-    const persistence = await createPGlitePersistence({ db });
+  it("revokes the native identity and time loan when a fresh snapshot read fails", async () => withPersistence(async persistence => {
     const scopeId = ScopeIdSchema.make("scope_5b000000-0000-0000-0000-000000000006");
-    try {
-      await persistence.drizzle.transaction(async tx => {
-        Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx, {
-          scopeId, initialEpoch: ScopeEpochSchema.make("epoch_5b000000-0000-0000-0000-000000000006"),
-        }));
-        try {
-          await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
-          const identity = readProtectedScopeReadIdentity(tx, scopeId);
-          if (identity === undefined) throw new Error("Native identity was not issued");
-          const lifetime = Result.getOrThrow(protectedScopeTransactionTimestampObservationIdentity(tx, scopeId));
-          expect(await runEffectFailure(lockScopeClockForSnapshotReadInTransactionEffect(tx,
-            ScopeIdSchema.make("scope_5b000000-0000-0000-0000-000000000007")))).toBeInstanceOf(ScopeClockNotFoundError);
-          expect(Result.isFailure(requireProtectedScopeReadIdentity(tx, identity))).toBe(true);
-          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId, lifetime))).toBe(true);
-          expect(hasProtectedScopeTransactionTimestampIssuer(tx)).toBe(true);
-          await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
-          expect(readProtectedScopeReadIdentity(tx, scopeId)).not.toBe(identity);
-          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId, lifetime))).toBe(true);
-          closeExactAttemptScopeClockObservation(tx);
-        } finally { closeExactAttemptScopeClockObservation(tx); }
-      });
-    } finally { await db.close(); }
-  });
+    await persistence.drizzle.transaction(async tx => {
+      Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx, {
+        scopeId, initialEpoch: ScopeEpochSchema.make("epoch_5b000000-0000-0000-0000-000000000006"),
+      }));
+      try {
+        await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
+        const identity = readProtectedScopeReadIdentity(tx, scopeId);
+        if (identity === undefined) throw new Error("Native identity was not issued");
+        const lifetime = Result.getOrThrow(protectedScopeTransactionTimestampObservationIdentity(tx, scopeId));
+        expect(await runEffectFailure(lockScopeClockForSnapshotReadInTransactionEffect(tx,
+          ScopeIdSchema.make("scope_5b000000-0000-0000-0000-000000000007")))).toBeInstanceOf(ScopeClockNotFoundError);
+        expect(Result.isFailure(requireProtectedScopeReadIdentity(tx, identity))).toBe(true);
+        expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId, lifetime))).toBe(true);
+        expect(hasProtectedScopeTransactionTimestampIssuer(tx)).toBe(true);
+        await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
+        expect(readProtectedScopeReadIdentity(tx, scopeId)).not.toBe(identity);
+        expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId, lifetime))).toBe(true);
+        closeExactAttemptScopeClockObservation(tx);
+      } finally { closeExactAttemptScopeClockObservation(tx); }
+    });
+  }));
 
-  it("retains the native timestamp undecoded and never accesses it before a refused clock", async () => {
-    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
-    const persistence = await createPGlitePersistence({ db });
+  it("retains the native timestamp undecoded and never accesses it before a refused clock", async () => withPersistence(async persistence => {
     const scopeId = ScopeIdSchema.make("scope_5b000000-0000-0000-0000-00000000000a");
-    try {
-      await persistence.drizzle.transaction(async tx => {
-        Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx, {
-          scopeId, initialEpoch: ScopeEpochSchema.make("epoch_5b000000-0000-0000-0000-00000000000a"),
-        }));
-        const rows = await selectScopeClockRows(tx).where(eq(fxSystemScopeClocks.scopeId, scopeId));
-        const row = rows[0];
-        if (row === undefined) throw new Error("Native clock fixture is missing");
-        let timestampReads = 0;
-        let refuseClock = false;
-        const rawTimestamp = "invalid managed timestamp";
-        const captured = {
-          ...row,
-          get lastCommitSeq() { return refuseClock ? -1n : row.lastCommitSeq; },
-          get transactionTimestamp() { timestampReads++; return rawTimestamp; },
-        };
-        const nativePrepare = tx._.session.prepareQuery.bind(tx._.session);
-        const prepare = vi.spyOn(tx._.session, "prepareQuery").mockImplementation((...args) => {
-          const query = nativePrepare(...args);
-          // Deliberate foreign row outputs exercise ordering after native query
-          // construction. Other witnesses execute both real native row codecs.
-          vi.spyOn(query, "execute").mockResolvedValue([captured]);
-          return query;
-        });
-        try {
-          await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
-          expect(timestampReads).toBe(1);
-          expect(Result.getOrThrow(readProtectedScopeTransactionTimestamp(tx, scopeId))).toBe(rawTimestamp);
-          await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
-          expect(timestampReads).toBe(1);
-          refuseClock = true;
-          expect(await runEffectFailure(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId))).toBeInstanceOf(ScopeClockCorruptionError);
-          expect(timestampReads).toBe(1);
-          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId))).toBe(true);
-          expect(hasProtectedScopeTransactionTimestampIssuer(tx)).toBe(true);
-        } finally { prepare.mockRestore(); closeExactAttemptScopeClockObservation(tx); }
+    await persistence.drizzle.transaction(async tx => {
+      Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx, {
+        scopeId, initialEpoch: ScopeEpochSchema.make("epoch_5b000000-0000-0000-0000-00000000000a"),
+      }));
+      const rows = await selectScopeClockRows(tx).where(eq(fxSystemScopeClocks.scopeId, scopeId));
+      const row = rows[0];
+      if (row === undefined) throw new Error("Native clock fixture is missing");
+      let timestampReads = 0;
+      let refuseClock = false;
+      const rawTimestamp = "invalid managed timestamp";
+      const captured = {
+        ...row,
+        get lastCommitSeq() { return refuseClock ? -1n : row.lastCommitSeq; },
+        get transactionTimestamp() { timestampReads++; return rawTimestamp; },
+      };
+      const nativePrepare = tx._.session.prepareQuery.bind(tx._.session);
+      const prepare = vi.spyOn(tx._.session, "prepareQuery").mockImplementation((...args) => {
+        const query = nativePrepare(...args);
+        // Deliberate foreign row outputs exercise ordering after native query
+        // construction. Other witnesses execute both real native row codecs.
+        vi.spyOn(query, "execute").mockResolvedValue([captured]);
+        return query;
       });
-    } finally { await db.close(); }
-  });
+      try {
+        await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
+        expect(timestampReads).toBe(1);
+        expect(Result.getOrThrow(readProtectedScopeTransactionTimestamp(tx, scopeId))).toBe(rawTimestamp);
+        await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
+        expect(timestampReads).toBe(1);
+        refuseClock = true;
+        expect(await runEffectFailure(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId))).toBeInstanceOf(ScopeClockCorruptionError);
+        expect(timestampReads).toBe(1);
+        expect(Result.isFailure(readProtectedScopeTransactionTimestamp(tx, scopeId))).toBe(true);
+        expect(hasProtectedScopeTransactionTimestampIssuer(tx)).toBe(true);
+      } finally { prepare.mockRestore(); closeExactAttemptScopeClockObservation(tx); }
+    });
+  }));
 
   it("returns an owned Date without invoking stateful time methods", () => {
     class StatefulDate extends Date {
@@ -612,8 +585,7 @@ describe("scope clock", () => {
     >>();
   });
 
-  it("reads independent scope clocks with exact bigint values", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("reads independent scope clocks with exact bigint values", async () => withPersistence(async persistence => {
     const emptyScopeId = ScopeIdSchema.make("scope_clock_empty");
     const largeScopeId = ScopeIdSchema.make("scope_clock_large");
 
@@ -657,10 +629,9 @@ describe("scope clock", () => {
     await expect(
       persistence.getScopeClock(ScopeIdSchema.make("scope_clock_missing")),
     ).resolves.toBeNull();
-  });
+  }));
 
-  it("requires explicit generation and enforces clock constraints", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("requires explicit generation and enforces clock constraints", async () => withPersistence(async persistence => {
 
     await expect(
       persistence.query(
@@ -760,10 +731,9 @@ describe("scope clock", () => {
         ["scope_invalid_authorization_epoch", "epoch-a"],
       ),
     ).rejects.toThrow();
-  });
+  }));
 
-  it("reads exact private authorization epochs without widening the public clock", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("reads exact private authorization epochs without widening the public clock", async () => withPersistence(async persistence => {
     const defaultScopeId = ScopeIdSchema.make("scope_authorization_default");
     const maximumScopeId = ScopeIdSchema.make("scope_authorization_maximum");
     await insertDefaultScopeClock(persistence, {
@@ -809,7 +779,7 @@ describe("scope clock", () => {
         )
       ),
     ).rejects.toBeInstanceOf(ScopeClockNotFoundError);
-  });
+  }));
 
   it("fails closed on a corrupt persisted authorization epoch", async () => {
     const persistence = await createMigratedPGlitePersistence();
@@ -912,8 +882,7 @@ describe("scope clock", () => {
     }
   });
 
-  it("checked-increments only one scope with database time", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("checked-increments only one scope with database time", async () => withPersistence(async persistence => {
     const scopeId = ScopeIdSchema.make("scope_authorization_advance");
     const independentScopeId = ScopeIdSchema.make(
       "scope_authorization_independent",
@@ -954,10 +923,9 @@ describe("scope clock", () => {
     ).resolves.toBe(0n);
     const updated = await persistence.getScopeClock(scopeId);
     expect(updated?.updatedAt.getTime()).toBeGreaterThan(oldUpdatedAt.getTime());
-  });
+  }));
 
-  it("rolls back increments and rejects signed-bigint exhaustion", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rolls back increments and rejects signed-bigint exhaustion", async () => withPersistence(async persistence => {
     const rollbackScopeId = ScopeIdSchema.make("scope_authorization_rollback");
     const exhaustedScopeId = ScopeIdSchema.make("scope_authorization_exhausted");
     const oldUpdatedAt = new Date("2026-01-01T00:00:00.000Z");
@@ -1019,7 +987,7 @@ describe("scope clock", () => {
         ),
       ),
     ).resolves.toBe(MAX_TRANSACTION_AUTHORIZATION_REVOCATION_EPOCH);
-  });
+  }));
 
   it("fails closed when persisted authority is corrupt", async () => {
     const persistence = await createMigratedPGlitePersistence();
@@ -1092,8 +1060,7 @@ describe("scope clock", () => {
     }
   });
 
-  it("locks only inside a transaction and rolls test mutations back", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("locks only inside a transaction and rolls test mutations back", async () => withPersistence(async persistence => {
     const scopeId = ScopeIdSchema.make("scope_00000000-0000-5000-8000-000000000071");
     await insertDefaultScopeClock(persistence, {
       scopeId,
@@ -1135,7 +1102,7 @@ describe("scope clock", () => {
         ),
       ),
     ).rejects.toBeInstanceOf(ScopeClockNotFoundError);
-  });
+  }));
 });
 
 interface DefaultScopeClockFixture {

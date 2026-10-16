@@ -41,17 +41,19 @@ import {
 } from "../../application/applicationNativeMutationTestFixture";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistencePair,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres(
   "real PostgreSQL M05-A selected-schema refusal",
-  { timeout: 180_000 },
+  { timeout: 180_000, concurrent: false },
   () => {
+    const withControl = useFileScopedPostgresPersistence();
+    const withTarget = useFileScopedPostgresPersistence();
     it("retains shared physical work and releases only known private membership", async () => {
-      await withTemporaryPostgresPersistencePair(async (control, target) => {
+      await withControl(control => withTarget(async target => {
         const fixture = await createApplicationNativeMutationPostgresFixture({ runtimeHostIdentity: "flarex.test/unique-shared-pg", compatibilityDate: "2026-08-16" }, {control, target});
     const candidateA = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(manifestWithOptionalField(fixture.active.basis.manifest, "shared"), "onlyA"),
@@ -84,11 +86,11 @@ describePostgres(
     await closeCandidateSet(fixture, candidateC.schemaVersionId, []);
     await expect(runEffect(reclaimSupersededAppUniqueConstraintSetBuildEffect(fixture.uniqueConstraintEligibility, buildInput(fixture, candidateB.schemaVersionId))))
       .resolves.toMatchObject({ disposition: "deleted", deletedDefinitionIds: [sharedId], retainedDefinitionIds: [] });
-      });
+      }));
     });
 
     it("atomically installs the replacement and reclaims its displaced workspace", async () => {
-      await withTemporaryPostgresPersistencePair(async (control, target) => {
+      await withControl(control => withTarget(async target => {
         const fixture = await createApplicationNativeMutationPostgresFixture({
           runtimeHostIdentity: "flarex.test/m05-a2-postgres-runtime-host",
           compatibilityDate: "2026-08-16",
@@ -144,11 +146,11 @@ describePostgres(
           candidate_schema_version_id: candidateB.schemaVersionId,
           displaced_build_count: "0",
         }]);
-      });
+      }));
     });
 
     it("refuses active/current-candidate workspaces and reclaims superseded state", async () => {
-      await withTemporaryPostgresPersistencePair(async (control, target) => {
+      await withControl(control => withTarget(async target => {
         const fixture = await createApplicationNativeMutationPostgresFixture({
           runtimeHostIdentity: "flarex.test/m05-a-postgres-runtime-host",
           compatibilityDate: "2026-08-16",
@@ -257,7 +259,7 @@ describePostgres(
           disposition: "deleted",
           schemaVersionId: superseded.schemaVersionId,
             });
-      });
+      }));
     });
   },
 );
