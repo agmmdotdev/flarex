@@ -6,7 +6,7 @@ import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/
 import { CommonEvents, isPresent, kebabCase } from "@medusajs/framework/utils/portable";
 import { mergeMetadata } from "@medusajs/utils/common/merge-metadata";
 import type { ProductRuntimeMetadata } from "../runtime-metadata";
-import { matchesPublicRow } from "./result";
+import { matchesPublicRow } from "../../../repository/result";
 import { decodeProductLifecycleIds } from "../lifecycle";
 import { productLogicalNullableReferenceDeleteEventPolicy } from "./entity";
 

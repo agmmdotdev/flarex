@@ -6,7 +6,7 @@ import { decodeProductLifecycleIds } from "../lifecycle";
 import { CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductRuntimeMetadata } from "../runtime-metadata";
 import { productLogicalEntityEventPolicy, productLogicalDirectEntityUpdateEventPolicy } from "./entity";
-import { matchesPublicRow } from "./result";
+import { matchesPublicRow } from "../../../repository/result";
 import { productModuleEventCapture } from "./capture";
 import { productMembershipPivots } from "./memberships";
 

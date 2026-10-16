@@ -19,6 +19,11 @@ import { salesChannelLogicalEventPolicy } from "./events";
 import { captureSalesChannelMetadata } from "./schema";
 import { compileSalesChannelCreateContracts } from "./create-input";
 import { QueryLimit, QueryOffset } from "../../query/decoder";
+import { salesChannelSelectorUpdatePolicy } from "./update-receipt";
+import { NativePreimageConfig, nativePreimageSelection } from "../../workflow/preimage";
+import { encodeOptionalServiceResult } from "../../module/result";
+import { SalesChannelUpdateSelector, SalesChannelUpdateData, SalesChannelUpdateReadInput,
+  compileSalesChannelUpdateContracts, decodeSalesChannelUpdateInput } from "./update-input";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 export const SimpleSalesChannelInput = Schema.Struct({ id: Schema.optionalKey(Id), name: Schema.String });
@@ -50,6 +55,8 @@ const decodeRead = commerceDecoder(Schema.Struct({
   filters: Schema.optionalKey(Filters), config: Schema.optionalKey(Config),
 }), "invalidInput");
 const decodeRetrieve = commerceDecoder(Schema.Struct({ id: Id, config: Schema.optionalKey(Config) }), "invalidInput");
+const decodeWorkflowListArguments = commerceDecoder(Schema.Tuple([SalesChannelUpdateSelector, NativePreimageConfig]), "invalidInput");
+const decodeWorkflowUpdateArguments = commerceDecoder(Schema.Tuple([SalesChannelUpdateSelector, SalesChannelUpdateData]), "invalidInput");
 
 /** One definition per prepared model snapshot; each invocation borrows a fresh
  * command-owned service. There is no global container or second runtime owner.
@@ -61,10 +68,11 @@ export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.comm
     const sourceTable = metadata.frame.tables[0];
     if (sourceTable === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const createContracts = yield* compileSalesChannelCreateContracts(sourceTable);
-    const module = yield* defineCommerceModule({
+    const updateContracts = yield* compileSalesChannelUpdateContracts(sourceTable);
+    const defineModule = (profile: "sales-channel" | "sales-channel.update-workflows") => defineCommerceModule({
       name: "flarex-sales-channel-local", models: [SalesChannel],
-      profile: { name: "sales-channel", capabilities: [], bind: (ctx, owner) => {
-        const bound = bind(ctx, owner);
+      profile: { name: profile, capabilities: [], bind: (ctx, owner) => {
+        const bound = bind(ctx, owner, profile === "sales-channel.update-workflows" ? "updateWorkflow" : "standard");
         const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
           capture: message => bound.bridge.current().captureLocalEvent(message),
           check: work => work.pipe(Effect.catchTag("CommerceTransactionError", error => bound.bridge.current().refuse(error))), refuse: bound.refuse,
@@ -79,6 +87,8 @@ export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.comm
         return { service: new SalesChannelModuleService(container, { scope: "internal" }), context };
       },
     }).pipe(Result.mapError(error => commerceError("unsupportedProfile", error)));
+    const module = yield* defineModule("sales-channel");
+    const updateModule = yield* defineModule("sales-channel.update-workflows");
     const commands = commerceServiceCommands(module.use);
     const prepare = commerceCommandPreparation("SalesChannelCommand.prepare");
     // SAFETY: framework DTOs/configuration are compile-time interfaces; the
@@ -96,11 +106,33 @@ export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.comm
     const joiner = salesChannelStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const graph = yield* scalarGraphDefinition(yield* moduleAliases(joiner), "SalesChannel", count, table);
+    const workflowCommands = commerceServiceCommands(updateModule.use);
+    // SAFETY: the native preimage config permits metadata.* paths that
+    // FindConfig's DTO-key annotation cannot model. The workflow method
+    // normalizes those through nativePreimageSelection before DAL admission.
+    const listForWorkflow = workflowCommands.read("salesChannelListForWorkflow",
+      prepare(commerceDecoder(SalesChannelUpdateReadInput, "invalidInput")), ({ service, context }, args) =>
+        service.listSalesChannels(args.filters as FilterableSalesChannelProps, args.config as FindConfig<SalesChannelDTO>, context));
+    const updateBySelector = workflowCommands.write("salesChannelUpdateBySelector", prepare(decodeSalesChannelUpdateInput),
+      async ({ service, context }, args) => encodeOptionalServiceResult(await service.updateSalesChannels(
+        args.selector as FilterableSalesChannelProps, args.update as UpdateSalesChannelDTO, context)));
+    const read = graph.reads.find(candidate => candidate.model === "SalesChannel");
+    if (read === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const listSalesChannels = yield* defineWorkflowMethod({ command: listForWorkflow,
+      arguments: decodeWorkflowListArguments,
+      encode: ([filters, config]) => ({ filters, config: nativePreimageSelection(config, read) }), output: updateContracts.decodePreimages });
+    const updateSalesChannels = yield* defineWorkflowMethod({ command: updateBySelector,
+      arguments: decodeWorkflowUpdateArguments,
+      encode: ([selector, update]) => ({ selector, update }), output: updateContracts.decodeOutput,
+      moduleEvents: [buildModuleResourceEventName({ prefix: Modules.SALES_CHANNEL, objectName: "sales_channel", action: "updated" })] });
+    const updateWorkflow = yield* defineWorkflowModule({ name: Modules.SALES_CHANNEL, source: updateModule.description,
+      methods: { listSalesChannels, updateSalesChannels }, graph,
+      logical: { ...salesChannelSelectorUpdatePolicy(), commands: [listForWorkflow, updateBySelector] } });
     const createSalesChannels = yield* defineWorkflowMethod({ command: create, arguments: createContracts.decodeArguments,
       encode: ([channels]) => channels, output: createContracts.decodeRows,
       moduleEvents: [buildModuleResourceEventName({ prefix: Modules.SALES_CHANNEL, objectName: "sales_channel", action: "created" })] });
     const workflow = yield* defineWorkflowModule({ name: Modules.SALES_CHANNEL, source: module.description, methods: { createSalesChannels }, graph, logical: { ...salesChannelLogicalEventPolicy(), commands: [create, update, remove, list, count, retrieve] } });
-    return { create, update, delete: remove, list, count, retrieve, graph, workflow,
+    return { create, update, delete: remove, list, count, retrieve, graph, workflow, updateWorkflow, listForWorkflow, updateBySelector,
       commands: [create, update, remove, list, count, retrieve],
       withService: module.use,
       logicalEventPolicy: salesChannelLogicalEventPolicy,

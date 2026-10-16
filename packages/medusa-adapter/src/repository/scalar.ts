@@ -104,11 +104,13 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
         getFreshManager: bridge.getFreshManager, getActiveManager: bridge.getActiveManager, transaction: bridge.transaction,
         serialize: <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> => owner.run(bridge.checked(root, Effect.gen(function* () {
           if (options !== undefined) return yield* root.refuse(commerceError("unsupportedProfile"));
-          const value = yield* Effect.fromResult(captureCommerceInput(input, root.resources));
-          const decoded = yield* Effect.fromResult(decodeProjection(value));
-          // SAFETY: core-decoded rows and selected scalar projections. The native
-          // DAL promises a complete DTO even when the caller selects fewer fields.
-          return (normalizeProjection === undefined ? decoded : yield* normalizeProjection(decoded)) as Output;
+          const decoded = input === undefined ? undefined : yield* Effect.fromResult(
+            captureCommerceInput(input, root.resources).pipe(Result.flatMap(decodeProjection)));
+          // SAFETY: the native serializer is an identity operation and can
+          // receive undefined after a zero-match scalar update. Its DAL generic
+          // still declares a DTO, including for selected scalar projections.
+          return (decoded === undefined || normalizeProjection === undefined
+            ? decoded : yield* normalizeProjection(decoded)) as Output;
         }))),
         // Native internal services mutate entity metadata before writing. Keep
         // captured storage/projection evidence private and give DAL callers

@@ -100,7 +100,7 @@ export const projectExactNumericColumns = Effect.fn("MedusaAdapter.projectExactN
   const output: JsonObject[] = [];
   for (const stored of Array.isArray(value) ? value : [value]) {
     if (!isJsonObject(stored)) return yield* Effect.fail(commerceError("storedCorruption"));
-    const row = { ...stored };
+    let row: Record<string, Json> | undefined;
     for (const column of columns) if (Object.hasOwn(stored, column.name)) {
       const value = stored[column.name], raw = stored["raw_" + column.name];
       const decoded = yield* Effect.gen(function* () {
@@ -114,9 +114,13 @@ export const projectExactNumericColumns = Effect.fn("MedusaAdapter.projectExactN
         }
         return yield* decodeExactNumeric(value, raw, column.nullable);
       });
-      row[column.name] = mode === "exact" ? value! : decoded;
+      const replacement = mode === "exact" ? value! : decoded;
+      if (!Object.is(stored[column.name], replacement)) {
+        row ??= { ...stored };
+        row[column.name] = replacement;
+      }
     }
-    output.push(row);
+    output.push(row ?? stored);
   }
-  return Array.isArray(value) ? output : output[0]!;
+  return Array.isArray(value) ? output.every((row, index) => row === value[index]) ? value : output : output[0]!;
 });

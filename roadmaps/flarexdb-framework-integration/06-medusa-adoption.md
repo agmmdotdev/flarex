@@ -55,9 +55,11 @@ remain above the existing Flarex transaction and publication owners.
 
 The private inline Product import is complete for its bounded admitted profile.
 The bounded [native Sales Channel creation](./preflight/110-native-sales-channel-creation-workflow.md)
-profile is complete. The next integration outcome is
-[native Sales Channel selector update](./preflight/111-native-sales-channel-update-workflow.md),
-starting with its intermediate-result and empty-update boundary witnesses.
+profile and [native Sales Channel selector update](./preflight/111-native-sales-channel-update-workflow.md)
+are complete. The next integration outcome is
+[native Sales Channel deletion](./preflight/112-native-sales-channel-delete-workflow.md),
+including the genuine Store default-channel guard and both supported Link
+families with their native lifecycle and compensation behavior.
 Chunked File import and Product
 export are explicitly deferred; their File and Region dependencies are outside
 the current integration goal.

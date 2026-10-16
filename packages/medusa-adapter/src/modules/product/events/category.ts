@@ -7,7 +7,7 @@ import { captureCategoryProjection, decodeCategoryProjection } from "../category
 import { CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductRuntimeMetadata } from "../runtime-metadata";
 import { productModuleEventCapture, EventId } from "./capture";
-import { matchesPublicRow } from "./result";
+import { matchesPublicRow } from "../../../repository/result";
 import { categoryCreationFields, isValidCategoryIdentity } from "@medusajs/product/services";
 import { compareBytesLexicographically } from "@flarex/utils/bytes";
 

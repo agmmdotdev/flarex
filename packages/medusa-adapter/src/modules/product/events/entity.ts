@@ -6,7 +6,7 @@ import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/
 import { CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductEntityMetadata, ProductRuntimeMetadata } from "../runtime-metadata";
 import { productModuleEventCapture } from "./capture";
-import { matchesPublicRow } from "./result";
+import { matchesPublicRow } from "../../../repository/result";
 import { commerceDecoder } from "../../../value/decoder";
 import { decodeRelatedUpdate } from "../value-profile";
 import { decodeProductOptionCreateInput, decodeProductOptionUpdateInput, decodeProductOptionOutput } from "../option-input";

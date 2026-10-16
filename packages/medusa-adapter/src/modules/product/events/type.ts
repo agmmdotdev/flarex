@@ -11,7 +11,7 @@ import type { ProductRuntimeMetadata } from "../runtime-metadata";
 import { ProductTypeCreateInput, decodeProductTypeUpdateInput } from "../type-input";
 import { commerceDecoder } from "../../../value/decoder";
 import { productLogicalEntityEventPolicy } from "./entity";
-import { matchesPublicRow } from "./result";
+import { matchesPublicRow } from "../../../repository/result";
 
 const decodeCreate = commerceDecoder(ProductTypeCreateInput, "receiptMismatch");
 const mismatch = () => commerceError("receiptMismatch");

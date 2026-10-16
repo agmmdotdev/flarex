@@ -12,6 +12,8 @@ for (const entry of [
   "packages/medusa-core-flows/src/durable/product/workflows/import-products.ts",
   "packages/medusa-core-flows/src/sales-channel/workflows/create-sales-channels.ts",
   "packages/medusa-adapter/src/workflows/sales-channel/create.ts",
+  "packages/medusa-core-flows/src/sales-channel/workflows/update-sales-channels.ts",
+  "packages/medusa-adapter/src/workflows/sales-channel/update.ts",
   "packages/medusa-workflows-sdk/src/durable/index.ts",
   "packages/medusa-workflows-sdk/src/durable/engine/index.ts",
   "packages/medusa-core-flows/src/product/steps/normalize-products.ts",

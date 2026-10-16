@@ -120,6 +120,31 @@ describe("native SalesChannel service on shared logical storage", () => {
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
 
+  it("preserves native empty-update rows and timestamps without writes or update events", async () => {
+    const observations: Array<Parameters<LogicalCommerceCallValidation>[1]> = [];
+    const { host, create, update } = await prepareNativeHost(fixture, sales, undefined,
+      (_call, activity) => Effect.sync(() => { observations.push(activity); }));
+    try {
+      const created = await Effect.runPromise(host.run(host.newRequestKey(), create,
+        { id: "sales-native-empty-update", name: "Unchanged", metadata: { keep: true } }));
+      const beforeRows = await fixture.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeEvents = await events();
+      const key = host.newRequestKey();
+      const result = await Effect.runPromise(host.run(key, update,
+        { id: "sales-native-empty-update", data: {} }));
+      // Pinned Drizzle's update branch (medusa.ts:509) returns the existing
+      // entity when scalar updateData is empty and does not dispatch afterUpdate.
+      expect(result).toEqual(created);
+      expect(observations.at(-1)?.mutations).toEqual([]);
+      expect(await fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+      expect(await events()).toEqual(beforeEvents);
+      const replayed = await Effect.runPromise(host.run(key, update,
+        { id: "sales-native-empty-update", data: {} }));
+      expect(replayed).toEqual(created);
+      expect(await events()).toEqual(beforeEvents);
+    } finally { await Effect.runPromise(host.close); }
+  }, 120_000);
+
   it("rolls back earlier scalar calls when a caught second-call receipt fails", async () => {
     let calls = 0;
     const { host, compose, caught } = await prepareNativeHost(fixture, sales, emitted => ++calls === 2 ? [] : emitted);

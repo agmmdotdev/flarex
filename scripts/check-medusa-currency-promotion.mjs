@@ -4,10 +4,27 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "@typescript/typescript6";
 
 const manifestPath = "roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json";
 const sourcePrefix = "third_party/medusa/upstream/";
 const revision = "48d5cc675e4e8bc821e22c20c88a751acc66fb5f";
+
+/** Only the existing portable utility import and erased declarations may differ.
+ * @param {string} source @param {string} target */
+export function verifySalesChannelTypeFork(source, target) {
+  const emit = (/** @type {string} */ text) => {
+    const result = ts.transpileModule(text, { reportDiagnostics: true, compilerOptions: {
+      target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext,
+      experimentalDecorators: true, removeComments: true, newLine: ts.NewLineKind.LineFeed,
+    } });
+    if (result.diagnostics?.some(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error))
+      throw new Error("Invalid Sales Channel type adaptation syntax");
+    return result.outputText;
+  };
+  const portableSource = source.replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
+  if (emit(portableSource) !== emit(target)) throw new Error("Sales Channel type adaptation changes runtime behavior");
+}
 const owners = new Map([
   ["packages/medusa-currency", "@medusajs/currency"],
   ["packages/medusa-product", "@medusajs/product"],
@@ -141,7 +158,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, csvTarget, "csv-normalizer.spec.ts"), "utf8"),
     fixtureText(csvSource), fixtureText(csvTarget));
   for (const file of promotion.files) {
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "notificationServiceFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "notificationServiceFork", "salesChannelTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.classification === "workflowFork" && !(file.target.startsWith("packages/medusa-workflows-sdk/src/") || file.target.startsWith("packages/medusa-core-flows/src/") || file.target.startsWith("packages/medusa-orchestration/src/") || [
@@ -174,6 +191,10 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       "packages/medusa-notification/src/services/notification-module-service.ts",
       "packages/medusa-notification/src/services/notification-delivery.ts",
     ].includes(file.target)) throw new Error("Notification service adaptation outside its approved source files");
+    if (file.classification === "salesChannelTypeFork" && ![
+      "packages/medusa-types/src/sales-channel/service.ts",
+      "packages/medusa-sales-channel/src/services/sales-channel-module.ts",
+    ].includes(file.target)) throw new Error("Sales Channel type adaptation outside its approved source files");
     if (file.classification === "csvNormalizerFork" && file.target !== "packages/medusa-utils/src/product/csv-normalizer.ts")
       throw new Error("CSV normalizer adaptation outside its approved source file");
     if (file.classification === "schemaCompilerFork" && ![
@@ -192,6 +213,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       noSymlinks(root, file.source);
       const hash = sha256(readFileSync(path.join(root, file.source)));
       if (hash !== file.sourceSha256) throw new Error(`Changed promotion source: ${file.source}`);
+      if (file.classification === "salesChannelTypeFork")
+        verifySalesChannelTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "testPort" || file.classification === "testFixturePort") {
         if (!file.target.endsWith(".ts") || !(file.classification === "testPort" ? file.target.includes("/__tests__/") : file.target.includes("/integration-tests/__fixtures__/"))) throw new Error("Invalid test-port target");
         verifyTestPort(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), {

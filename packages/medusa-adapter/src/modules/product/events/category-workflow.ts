@@ -10,7 +10,7 @@ import type { ProductRuntimeMetadata } from "../runtime-metadata";
 import { ProductCategoryCreateInput, decodeProductCategoryOutput, decodeProductCategoryUpdateInput, decodeProductCategoryIds } from "../category-input";
 import { categoryCreateEventPolicy, internalCategoryPolicy } from "./category";
 import { productModuleEventCapture } from "./capture";
-import { matchesPublicRow } from "./result";
+import { matchesPublicRow } from "../../../repository/result";
 
 const mismatch = () => commerceError("receiptMismatch");
 const decodeCreate = commerceDecoder(ProductCategoryCreateInput, "receiptMismatch");

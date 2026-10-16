@@ -157,14 +157,15 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         if (!isJsonObject(input)) return yield* Effect.fail(commerceError("storedCorruption"));
         const projected = yield* projectExactNumericColumns(input, numeric, "reserialize");
         if (!isJsonObject(projected)) return yield* Effect.fail(commerceError("storedCorruption"));
-        const row = { ...projected };
+        let row = projected;
         if (input.prices !== undefined) {
           yield* Effect.fromResult(decodeStoredRows(input.prices));
-          row.prices = yield* projectExactNumericColumns(input.prices, numeric, "reserialize");
+          const prices = yield* projectExactNumericColumns(input.prices, numeric, "reserialize");
+          if (prices !== row.prices) row = { ...row, prices };
         }
         output.push(row);
       }
-      return Array.isArray(value) ? output : output[0]!;
+      return Array.isArray(value) ? output.every((row, index) => row === value[index]) ? value : output : output[0]!;
     });
     const listCatalog: GraphCatalog = { entities: [list, price, listRule, ...(lifecycle ? [rule] : [])],
       tables: [list.table, price.table, listRule.table, ...(lifecycle ? [rule.table] : [])], writablePivots: [], queryRelations: relations,

@@ -16,6 +16,9 @@ import { productRepository } from "../src/modules/product/repository";
 import { capturePricingMetadata } from "../src/modules/pricing/schema";
 import { preparePricingRepository } from "../src/modules/pricing/repository";
 import { projectRows } from "../src/query/projection";
+import { captureSalesChannelMetadata } from "../src/modules/sales-channel/schema";
+import { prepareSalesChannelRepository } from "../src/modules/sales-channel/repository";
+import { encodeOptionalServiceResult, decodeOptionalServiceResult } from "../src/module/result";
 
 const fixture = Effect.gen(function* () {
   const lifetime = yield* Effect.acquireRelease(
@@ -65,6 +68,75 @@ function bindings(label: string) {
 }
 
 describe("scoped Medusa service command construction", () => {
+  it("validates nested Pricing companions before retaining an unchanged captured graph", async () => {
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const metadata = yield* capturePricingMetadata();
+      const prepared = yield* Effect.fromResult(preparePricingRepository(metadata.frame));
+      const { ctx } = yield* fixture;
+      const compose = (owner: Parameters<typeof prepared.bind>[1]) => prepared.bind(ctx, owner).repository;
+      const source = [{ id: "set", metadata: { signed: -0 }, prices: [
+        { id: "price", amount: "1", raw_amount: { value: "1", precision: 20 } },
+      ] }];
+      const projected = yield* withCommerceService(ctx, compose, repository => repository.serialize(source));
+      expect(projected).toEqual([{ ...source[0], prices: [{ ...source[0]!.prices[0], amount: 1 }] }]);
+      expect(projected).not.toBe(source);
+      expect(source[0]!.prices[0]!.amount).toBe("1");
+      expect(yield* withCommerceService(ctx, compose, repository => repository.serialize(projected))).toBe(projected);
+      const corrupt = [{ id: "set", prices: [{ id: "price", amount: 1, raw_amount: { value: "2", precision: 20 } }] }];
+      expect(yield* Effect.flip(withCommerceService(ctx, compose, repository => repository.serialize(corrupt))))
+        .toMatchObject({ reason: "storedCorruption" });
+    })));
+  });
+  it("transports native optional results without changing ordinary JSON commands", async () => {
+    const nativeValues = [undefined, null, { id: "native", metadata: { value: true } }, { kind: "absent" }];
+    for (const value of nativeValues) {
+      await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const { ctx } = yield* fixture;
+        const use = (ctx: CommerceCommandContext, work: (service: object) => Promise<unknown>) =>
+          withCommerceService(ctx, () => ({}), work);
+        const commands = commerceServiceCommands(use);
+        const command = commands.write("nativeOptionalResult", prepare, async () => encodeOptionalServiceResult(value));
+        const definition = getCommerceCommand(command);
+        if (!definition) throw new Error("Missing optional command");
+        const wire = yield* definition.run(ctx, { code: "optional", values: [] });
+        expect(Result.getOrThrow(decodeOptionalServiceResult(wire))).toEqual(value);
+        expect(wire).toEqual(value === undefined ? { kind: "absent" } : { kind: "present", value });
+      })));
+    }
+    for (const malformed of [{ kind: "other" }, { kind: "present" }, { kind: "absent", value: null },
+      { kind: "present", value: null, extra: true }])
+      expect(decodeOptionalServiceResult(malformed)).toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+  });
+
+  it.each(["getter", "oversized"] as const)("captures the complete optional service result (%s)", async malformed => {
+    let getterCalls = 0;
+    const value = malformed === "oversized" ? { large: "x".repeat(defaultCommerceResources.commandBytes) }
+      : Object.defineProperty({}, "hidden", { enumerable: true, get() { getterCalls++; return "bad"; } });
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const { ctx, lifetime } = yield* fixture;
+      const use = (ctx: CommerceCommandContext, work: (service: object) => Promise<unknown>) =>
+        withCommerceService(ctx, () => ({}), work);
+      const command = commerceServiceCommands(use).write("nativeOptionalMalformed", prepare,
+        async () => encodeOptionalServiceResult(value));
+      const definition = getCommerceCommand(command);
+      if (!definition) throw new Error("Missing optional command");
+      expect(yield* Effect.flip(definition.run(ctx, { code: "optional", values: [] })))
+        .toMatchObject({ reason: malformed === "oversized" ? "limitExceeded" : "invalidInput" });
+      expect(yield* Effect.flip(lifetime.seal)).toMatchObject({ reason: "rollbackOnly" });
+    })));
+    expect(getterCalls).toBe(0);
+  });
+
+  it("preserves native undefined serialization before private command capture", async () => {
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const metadata = yield* captureSalesChannelMetadata();
+      const repository = yield* Effect.fromResult(prepareSalesChannelRepository(metadata.frame));
+      const { ctx } = yield* fixture;
+      const result = yield* withCommerceService(ctx, owner => repository.bind(ctx, owner).repository,
+        async native => ({ serializedUndefined: await native.serialize(undefined) === undefined }));
+      expect(result).toEqual({ serializedUndefined: true });
+    })));
+  });
   it("retains genuine projections through actual Product and Pricing serializers and the native service return", async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const product = yield* captureProductSchema("serializer-handoff").pipe(Effect.flatMap(schema => productRuntimeMetadata(schema.metadata.frame)));
