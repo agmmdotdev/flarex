@@ -3,6 +3,7 @@ import {
   migratedPGliteDataDir,
 } from "../../support/pgliteTestFixture";
 import { fxSystemScopeExecutionAuthorities } from "../../../src/database/schema";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
   CatalogIndexDefinitionIdSchema,
@@ -30,7 +31,7 @@ import {
   type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
 import { Cause, Effect, Exit, Fiber } from "effect";
-import { beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   IndexBuildStateClockNotFoundError,
@@ -89,7 +90,7 @@ type ImpossibleDeclaredBuildCursor = Extract<
 
 beforeAll(() => migratedPGliteDataDir(), 120_000);
 
-describe("fenced index build-state reads", () => {
+describe("fenced index build-state reads", { concurrent: false }, () => {
   it("keeps lifecycle values branded and exposes no mutation/readiness API", () => {
     expectTypeOf<PublicBuildMutationMethod>().toEqualTypeOf<never>();
     expectTypeOf<PublicBuildMutationExport>().toEqualTypeOf<never>();
@@ -108,261 +109,293 @@ describe("fenced index build-state reads", () => {
     expectTypeOf<ImpossibleDeclaredBuildCursor>().toEqualTypeOf<never>();
   });
 
-  it("distinguishes absent, current, and every stale authority pin", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const scopeId = ScopeIdSchema.make("scope_index_build_fencing");
-    const definitionId = CatalogIndexDefinitionIdSchema.make(1);
-    await insertClock(persistence.drizzle, {
-      scopeId,
-      epoch: ScopeEpochSchema.make("epoch-a"),
-      fence: StorageGenerationFenceSchema.make(7n),
-      lastCommitSeq: CommitSeqSchema.make(10n),
-    });
+  describe("shared row fixtures", { concurrent: false }, () => {
+    let persistence: PGlitePersistence;
+    let dispose: (() => Promise<void>) | undefined;
+    beforeAll(async () => {
+      persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
+    }, 120_000);
+    afterAll(async () => { await dispose?.(); }, 120_000);
 
-    const absent = await readFencedIndexBuildState(persistence.drizzle, {
-      scopeId,
-      indexDefinitionId: definitionId,
-    });
-    expect(absent).toEqual({
-      status: "absent",
-      currentAuthority: {
+    it("distinguishes absent, current, and every stale authority pin", async () => {
+      const scopeId = ScopeIdSchema.make("scope_index_build_fencing");
+      const definitionId = CatalogIndexDefinitionIdSchema.make(1);
+      await insertClock(persistence.drizzle, {
         scopeId,
-        storageGeneration: "flarexdb_v1",
-        storageGenerationFence: 7n,
-        epoch: "epoch-a",
-      },
-    });
-    expect(Object.isFrozen(absent)).toBe(true);
-    if (absent.status !== "absent") throw new Error("Expected absent state.");
-    expect(Object.isFrozen(absent.currentAuthority)).toBe(true);
+        epoch: ScopeEpochSchema.make("epoch-a"),
+        fence: StorageGenerationFenceSchema.make(7n),
+        lastCommitSeq: CommitSeqSchema.make(10n),
+      });
 
-    await insertBuild(persistence.drizzle, {
-      scopeId,
-      indexDefinitionId: definitionId,
-      epoch: ScopeEpochSchema.make("epoch-a"),
-      fence: StorageGenerationFenceSchema.make(7n),
-      startCommitSeq: CommitSeqSchema.make(5n),
-      lifecycle: "declared",
-      cursor: null,
-      attemptFence: IndexBuildAttemptFenceSchema.make(
-        9_007_199_254_740_993n,
-      ),
-    });
-
-    const current = await readFencedIndexBuildState(persistence.drizzle, {
-      scopeId,
-      indexDefinitionId: definitionId,
-    });
-    expect(current).toMatchObject({
-      status: "current",
-      buildState: {
+      const absent = await readFencedIndexBuildState(persistence.drizzle, {
         scopeId,
         indexDefinitionId: definitionId,
-        storageGeneration: "flarexdb_v1",
-        storageGenerationFence: 7n,
-        epoch: "epoch-a",
-        startCommitSeq: 5n,
+      });
+      expect(absent).toEqual({
+        status: "absent",
+        currentAuthority: {
+          scopeId,
+          storageGeneration: "flarexdb_v1",
+          storageGenerationFence: 7n,
+          epoch: "epoch-a",
+        },
+      });
+      expect(Object.isFrozen(absent)).toBe(true);
+      if (absent.status !== "absent") throw new Error("Expected absent state.");
+      expect(Object.isFrozen(absent.currentAuthority)).toBe(true);
+
+      await insertBuild(persistence.drizzle, {
+        scopeId,
+        indexDefinitionId: definitionId,
+        epoch: ScopeEpochSchema.make("epoch-a"),
+        fence: StorageGenerationFenceSchema.make(7n),
+        startCommitSeq: CommitSeqSchema.make(5n),
         lifecycle: "declared",
-        backfillCursor: { codecVersion: 1, afterRowId: null },
-        attemptFence: 9_007_199_254_740_993n,
-      },
-    });
-    if (current.status !== "current") throw new Error("Expected current state.");
-    expect(Object.isFrozen(current)).toBe(true);
-    expect(Object.isFrozen(current.buildState)).toBe(true);
-    expect(Object.isFrozen(current.buildState.backfillCursor)).toBe(true);
+        cursor: null,
+        attemptFence: IndexBuildAttemptFenceSchema.make(
+          9_007_199_254_740_993n,
+        ),
+      });
 
-    await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({
-      storageGenerationFence: StorageGenerationFenceSchema.make(8n),
-    });
-    const fenceStale = await readFencedIndexBuildState(persistence.drizzle, {
-      scopeId,
-      indexDefinitionId: definitionId,
-    });
-    expect(fenceStale).toMatchObject({
-      status: "stale",
-      mismatches: ["storageGenerationFence"],
-      currentAuthority: { storageGenerationFence: 8n },
-    });
+      const current = await readFencedIndexBuildState(persistence.drizzle, {
+        scopeId,
+        indexDefinitionId: definitionId,
+      });
+      expect(current).toMatchObject({
+        status: "current",
+        buildState: {
+          scopeId,
+          indexDefinitionId: definitionId,
+          storageGeneration: "flarexdb_v1",
+          storageGenerationFence: 7n,
+          epoch: "epoch-a",
+          startCommitSeq: 5n,
+          lifecycle: "declared",
+          backfillCursor: { codecVersion: 1, afterRowId: null },
+          attemptFence: 9_007_199_254_740_993n,
+        },
+      });
+      if (current.status !== "current") throw new Error("Expected current state.");
+      expect(Object.isFrozen(current)).toBe(true);
+      expect(Object.isFrozen(current.buildState)).toBe(true);
+      expect(Object.isFrozen(current.buildState.backfillCursor)).toBe(true);
 
-    await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({
-      epoch: ScopeEpochSchema.make("epoch-b"),
-    });
-    const epochStale = await readFencedIndexBuildState(persistence.drizzle, {
-      scopeId,
-      indexDefinitionId: definitionId,
-    });
-    expect(epochStale).toMatchObject({
-      status: "stale",
-      mismatches: ["storageGenerationFence", "epoch"],
-    });
-    if (epochStale.status !== "stale") throw new Error("Expected stale state.");
-    expect(Object.isFrozen(epochStale.mismatches)).toBe(true);
+      await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({
+        storageGenerationFence: StorageGenerationFenceSchema.make(8n),
+      }).where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
+      const fenceStale = await readFencedIndexBuildState(persistence.drizzle, {
+        scopeId,
+        indexDefinitionId: definitionId,
+      });
+      expect(fenceStale).toMatchObject({
+        status: "stale",
+        mismatches: ["storageGenerationFence"],
+        currentAuthority: { storageGenerationFence: 8n },
+      });
 
-    await persistence.query(
-      `
+      await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({
+        epoch: ScopeEpochSchema.make("epoch-b"),
+      }).where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
+      const epochStale = await readFencedIndexBuildState(persistence.drizzle, {
+        scopeId,
+        indexDefinitionId: definitionId,
+      });
+      expect(epochStale).toMatchObject({
+        status: "stale",
+        mismatches: ["storageGenerationFence", "epoch"],
+      });
+      if (epochStale.status !== "stale") throw new Error("Expected stale state.");
+      expect(Object.isFrozen(epochStale.mismatches)).toBe(true);
+
+      await persistence.query(
+        `
         update fx_system_scope_execution_authority
         set storage_generation = 'legacy_v1'
         where scope_id = $1
       `,
-      [scopeId],
-    );
-    const generationStale = await readFencedIndexBuildState(
-      persistence.drizzle,
-      { scopeId, indexDefinitionId: definitionId },
-    );
-    expect(generationStale).toMatchObject({
-      status: "stale",
-      mismatches: ["storageGeneration", "storageGenerationFence", "epoch"],
+        [scopeId],
+      );
+      const generationStale = await readFencedIndexBuildState(
+        persistence.drizzle,
+        { scopeId, indexDefinitionId: definitionId },
+      );
+      expect(generationStale).toMatchObject({
+        status: "stale",
+        mismatches: ["storageGeneration", "storageGenerationFence", "epoch"],
+      });
     });
-  });
 
-  it("decodes every lifecycle and exact exclusive row cursor", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const scopeId = ScopeIdSchema.make("scope_index_build_lifecycle");
-    const epoch = ScopeEpochSchema.make("epoch-lifecycle");
-    await insertClock(persistence.drizzle, {
-      scopeId,
-      epoch,
-      fence: StorageGenerationFenceSchema.make(3n),
-      lastCommitSeq: CommitSeqSchema.make(20n),
-    });
-    const cursor = orderedIndexRowIdHexV1ToBytes(
-      decodeOrderedIndexRowIdHexV1("ab".repeat(16)),
-    );
-    const lifecycles = [
-      "declared",
-      "building",
-      "backfilling",
-      "validating",
-      "enabled",
-      "retiring",
-    ] as const;
-
-    for (const [offset, lifecycle] of lifecycles.entries()) {
-      const definitionId = CatalogIndexDefinitionIdSchema.make(offset + 1);
-      const storedCursor = lifecycle === "declared" || lifecycle === "building"
-        ? null
-        : cursor;
-      await insertBuild(persistence.drizzle, {
-        scopeId,
-        indexDefinitionId: definitionId,
-        epoch,
-        fence: StorageGenerationFenceSchema.make(3n),
-        startCommitSeq: CommitSeqSchema.make(10n),
-        lifecycle,
-        cursor: storedCursor,
-        attemptFence: IndexBuildAttemptFenceSchema.make(1n),
-      });
-      const result = await readFencedIndexBuildState(persistence.drizzle, {
-        scopeId,
-        indexDefinitionId: definitionId,
-      });
-      expect(result).toMatchObject({
-        status: "current",
-        buildState: {
-          lifecycle,
-          backfillCursor: {
-            codecVersion: 1,
-            afterRowId: storedCursor === null ? null : "ab".repeat(16),
-          },
-        },
-      });
-    }
-  });
-
-  it("enforces scope isolation and split-compatible local ownership", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const left = ScopeIdSchema.make("scope_index_build_left");
-    const right = ScopeIdSchema.make("scope_index_build_right");
-    const epoch = ScopeEpochSchema.make("epoch-isolation");
-    for (const scopeId of [left, right]) {
+    it("decodes every lifecycle and exact exclusive row cursor", async () => {
+      const scopeId = ScopeIdSchema.make("scope_index_build_lifecycle");
+      const epoch = ScopeEpochSchema.make("epoch-lifecycle");
       await insertClock(persistence.drizzle, {
         scopeId,
         epoch,
-        fence: StorageGenerationFenceSchema.make(1n),
-        lastCommitSeq: CommitSeqSchema.make(0n),
+        fence: StorageGenerationFenceSchema.make(3n),
+        lastCommitSeq: CommitSeqSchema.make(20n),
       });
-      await insertBuild(persistence.drizzle, {
-        scopeId,
-        indexDefinitionId: CatalogIndexDefinitionIdSchema.make(99),
-        epoch,
-        fence: StorageGenerationFenceSchema.make(1n),
-        startCommitSeq: CommitSeqSchema.make(0n),
-        lifecycle: "declared",
-        cursor: null,
-        attemptFence: IndexBuildAttemptFenceSchema.make(1n),
-      });
-    }
+      const cursor = orderedIndexRowIdHexV1ToBytes(
+        decodeOrderedIndexRowIdHexV1("ab".repeat(16)),
+      );
+      const lifecycles = [
+        "declared",
+        "building",
+        "backfilling",
+        "validating",
+        "enabled",
+        "retiring",
+      ] as const;
 
-    await expect(
-      readFencedIndexBuildState(persistence.drizzle, {
-        scopeId: left,
-        indexDefinitionId: CatalogIndexDefinitionIdSchema.make(99),
-      }),
-    ).resolves.toMatchObject({ status: "current", buildState: { scopeId: left } });
-    await expect(
-      readFencedIndexBuildState(persistence.drizzle, {
-        scopeId: left,
-        indexDefinitionId: CatalogIndexDefinitionIdSchema.make(100),
-      }),
-    ).resolves.toMatchObject({ status: "absent" });
-
-    await expect(
-      insertRawBuild(persistence, {
-        scopeId: "scope_without_local_clock",
-        indexDefinitionId: 1,
-      }),
-    ).rejects.toThrow();
-    await expect(
-      insertRawBuild(persistence, {
-        scopeId: left,
-        indexDefinitionId: 99,
-      }),
-    ).rejects.toThrow();
-  });
-
-  it("rejects every malformed physical build-state shape", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const scopeId = ScopeIdSchema.make("scope_index_build_constraints");
-    await insertClock(persistence.drizzle, {
-      scopeId,
-      epoch: ScopeEpochSchema.make("epoch-constraints"),
-      fence: StorageGenerationFenceSchema.make(2n),
-      lastCommitSeq: CommitSeqSchema.make(10n),
+      for (const [offset, lifecycle] of lifecycles.entries()) {
+        const definitionId = CatalogIndexDefinitionIdSchema.make(offset + 1);
+        const storedCursor = lifecycle === "declared" || lifecycle === "building"
+          ? null
+          : cursor;
+        await insertBuild(persistence.drizzle, {
+          scopeId,
+          indexDefinitionId: definitionId,
+          epoch,
+          fence: StorageGenerationFenceSchema.make(3n),
+          startCommitSeq: CommitSeqSchema.make(10n),
+          lifecycle,
+          cursor: storedCursor,
+          attemptFence: IndexBuildAttemptFenceSchema.make(1n),
+        });
+        const result = await readFencedIndexBuildState(persistence.drizzle, {
+          scopeId,
+          indexDefinitionId: definitionId,
+        });
+        expect(result).toMatchObject({
+          status: "current",
+          buildState: {
+            lifecycle,
+            backfillCursor: {
+              codecVersion: 1,
+              afterRowId: storedCursor === null ? null : "ab".repeat(16),
+            },
+          },
+        });
+      }
     });
-    const invalid: ReadonlyArray<RawBuildOverrides> = [
-      { indexDefinitionId: 0 },
-      { indexDefinitionId: 2, storageGeneration: "legacy_v1" },
-      { indexDefinitionId: 3, storageGenerationFence: 0n },
-      { indexDefinitionId: 4, epoch: " \t" },
-      { indexDefinitionId: 5, startCommitSeq: -1n },
-      { indexDefinitionId: 6, lifecycle: "failed" },
-      { indexDefinitionId: 7, cursorCodecVersion: 2 },
-      { indexDefinitionId: 8, backfillCursorRowId: new Uint8Array(15) },
-      {
-        indexDefinitionId: 9,
-        lifecycle: "declared",
-        backfillCursorRowId: new Uint8Array(16),
-      },
-      {
-        indexDefinitionId: 10,
-        lifecycle: "building",
-        backfillCursorRowId: new Uint8Array(16),
-      },
-      { indexDefinitionId: 11, attemptFence: 0n },
-      {
-        indexDefinitionId: 12,
-        createdAt: new Date("2026-07-12T00:00:01.000Z"),
-        updatedAt: new Date("2026-07-12T00:00:00.000Z"),
-      },
-    ];
 
-    for (const overrides of invalid) {
+    it("enforces scope isolation and split-compatible local ownership", async () => {
+      const left = ScopeIdSchema.make("scope_index_build_left");
+      const right = ScopeIdSchema.make("scope_index_build_right");
+      const epoch = ScopeEpochSchema.make("epoch-isolation");
+      for (const scopeId of [left, right]) {
+        await insertClock(persistence.drizzle, {
+          scopeId,
+          epoch,
+          fence: StorageGenerationFenceSchema.make(1n),
+          lastCommitSeq: CommitSeqSchema.make(0n),
+        });
+        await insertBuild(persistence.drizzle, {
+          scopeId,
+          indexDefinitionId: CatalogIndexDefinitionIdSchema.make(99),
+          epoch,
+          fence: StorageGenerationFenceSchema.make(1n),
+          startCommitSeq: CommitSeqSchema.make(0n),
+          lifecycle: "declared",
+          cursor: null,
+          attemptFence: IndexBuildAttemptFenceSchema.make(1n),
+        });
+      }
+
       await expect(
-        insertRawBuild(persistence, { scopeId, ...overrides }),
+        readFencedIndexBuildState(persistence.drizzle, {
+          scopeId: left,
+          indexDefinitionId: CatalogIndexDefinitionIdSchema.make(99),
+        }),
+      ).resolves.toMatchObject({ status: "current", buildState: { scopeId: left } });
+      await expect(
+        readFencedIndexBuildState(persistence.drizzle, {
+          scopeId: left,
+          indexDefinitionId: CatalogIndexDefinitionIdSchema.make(100),
+        }),
+      ).resolves.toMatchObject({ status: "absent" });
+
+      await expect(
+        insertRawBuild(persistence, {
+          scopeId: "scope_without_local_clock",
+          indexDefinitionId: 1,
+        }),
       ).rejects.toThrow();
-    }
+      await expect(
+        insertRawBuild(persistence, {
+          scopeId: left,
+          indexDefinitionId: 99,
+        }),
+      ).rejects.toThrow();
+    });
+
+    it("rejects every malformed physical build-state shape", async () => {
+      const scopeId = ScopeIdSchema.make("scope_index_build_constraints");
+      await insertClock(persistence.drizzle, {
+        scopeId,
+        epoch: ScopeEpochSchema.make("epoch-constraints"),
+        fence: StorageGenerationFenceSchema.make(2n),
+        lastCommitSeq: CommitSeqSchema.make(10n),
+      });
+      const invalid: ReadonlyArray<RawBuildOverrides> = [
+        { indexDefinitionId: 0 },
+        { indexDefinitionId: 2, storageGeneration: "legacy_v1" },
+        { indexDefinitionId: 3, storageGenerationFence: 0n },
+        { indexDefinitionId: 4, epoch: " \t" },
+        { indexDefinitionId: 5, startCommitSeq: -1n },
+        { indexDefinitionId: 6, lifecycle: "failed" },
+        { indexDefinitionId: 7, cursorCodecVersion: 2 },
+        { indexDefinitionId: 8, backfillCursorRowId: new Uint8Array(15) },
+        {
+          indexDefinitionId: 9,
+          lifecycle: "declared",
+          backfillCursorRowId: new Uint8Array(16),
+        },
+        {
+          indexDefinitionId: 10,
+          lifecycle: "building",
+          backfillCursorRowId: new Uint8Array(16),
+        },
+        { indexDefinitionId: 11, attemptFence: 0n },
+        {
+          indexDefinitionId: 12,
+          createdAt: new Date("2026-07-12T00:00:01.000Z"),
+          updatedAt: new Date("2026-07-12T00:00:00.000Z"),
+        },
+      ];
+
+      for (const overrides of invalid) {
+        await expect(
+          insertRawBuild(persistence, { scopeId, ...overrides }),
+        ).rejects.toThrow();
+      }
+    });
+
+    it("rejects malformed reads and missing clock authority", async () => {
+      const scopeId = ScopeIdSchema.make("scope_index_build_input");
+      const definitionId = CatalogIndexDefinitionIdSchema.make(1);
+      const invalid: ReadonlyArray<unknown> = [
+        null,
+        {},
+        { scopeId, indexDefinitionId: definitionId, extra: true },
+        { scopeId: "", indexDefinitionId: definitionId },
+        { scopeId, indexDefinitionId: 0 },
+        Object.create({ scopeId, indexDefinitionId: definitionId }),
+      ];
+      for (const input of invalid) {
+        await expect(
+          readFencedIndexBuildState(
+            persistence.drizzle,
+            input,
+          ),
+        ).rejects.toBeInstanceOf(InvalidIndexBuildStateReadInputError);
+      }
+      await expect(
+        readFencedIndexBuildState(persistence.drizzle, {
+          scopeId,
+          indexDefinitionId: definitionId,
+        }),
+      ).rejects.toBeInstanceOf(IndexBuildStateClockNotFoundError);
+    });
   });
 
   it("fails closed on an ahead-of-clock snapshot and stored corruption", async () => {
@@ -412,34 +445,6 @@ describe("fenced index build-state reads", () => {
         indexDefinitionId: CatalogIndexDefinitionIdSchema.make(1),
       }),
     ).rejects.toBeInstanceOf(IndexBuildStateCorruptionError);
-  });
-
-  it("rejects malformed reads and missing clock authority", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const scopeId = ScopeIdSchema.make("scope_index_build_input");
-    const definitionId = CatalogIndexDefinitionIdSchema.make(1);
-    const invalid: ReadonlyArray<unknown> = [
-      null,
-      {},
-      { scopeId, indexDefinitionId: definitionId, extra: true },
-      { scopeId: "", indexDefinitionId: definitionId },
-      { scopeId, indexDefinitionId: 0 },
-      Object.create({ scopeId, indexDefinitionId: definitionId }),
-    ];
-    for (const input of invalid) {
-      await expect(
-        readFencedIndexBuildState(
-          persistence.drizzle,
-          input,
-        ),
-      ).rejects.toBeInstanceOf(InvalidIndexBuildStateReadInputError);
-    }
-    await expect(
-      readFencedIndexBuildState(persistence.drizzle, {
-        scopeId,
-        indexDefinitionId: definitionId,
-      }),
-    ).rejects.toBeInstanceOf(IndexBuildStateClockNotFoundError);
   });
 
   it("maps the Drizzle read rejection at the persistence boundary", async () => {

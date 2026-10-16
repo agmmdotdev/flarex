@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PoolClient } from "pg";
 import { MAX_TRANSACTION_REQUEST_KEY_UTF8_BYTES_V1 } from "flarex-protocol/transaction-session";
 import type { FlarexSqlClient } from "../../../src";
-import { postgresUrl, withTemporaryPostgresPersistence } from "../../support/postgresHelpers";
+import { postgresUrl, useFileScopedPostgresPersistence, withPostgresSequentialScansDisabled } from "../../support/postgresHelpers";
 import {
   POSTGRES_SIGNED_BIGINT_MAX_TEXT,
   SESSION_TEST_HISTORICAL_EPOCH_UUID,
@@ -16,11 +16,11 @@ import {
 } from "./support/sessionStorage";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPostgresPersistence = useFileScopedPostgresPersistence();
 
-describePostgres("real Postgres S07 transaction-session authority", () => {
+describePostgres("real Postgres S07 transaction-session authority", { concurrent: false }, () => {
   it("proves bigint bounds, restrictive fencing, rollback, and lookup plans", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
-      await persistence.migrate();
+    await withPostgresPersistence(async (persistence) => {
       await insertSessionTestScope(persistence);
       const sessionId = transactionSessionIdAt(70);
       await insertTransactionSessionFixture(
@@ -117,9 +117,7 @@ describePostgres("real Postgres S07 transaction-session authority", () => {
         },
       ]);
 
-      const planner = await persistence.pool.connect();
-      try {
-        await planner.query("set enable_seqscan = off");
+      await withPostgresSequentialScansDisabled(persistence, async planner => {
         const plans = [
           await explain(
             planner,
@@ -162,14 +160,12 @@ describePostgres("real Postgres S07 transaction-session authority", () => {
         expect(plans[4]).toContain(
           "fx_system_snapshot_lease_scope_uuid_session_id_pk",
         );
-      } finally {
-        planner.release();
-      }
+      });
     });
   }, 30_000);
 
   it("allows exactly one concurrent lease winner for one session", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       await insertSessionTestScope(persistence);
       const sessionId = transactionSessionIdAt(80);
       await insertTransactionSessionFixture(
@@ -178,22 +174,25 @@ describePostgres("real Postgres S07 transaction-session authority", () => {
       );
 
       const first = await persistence.pool.connect();
-      const second = await persistence.pool.connect();
       let attempts: ReadonlyArray<PromiseSettledResult<void>>;
       try {
-        attempts = await Promise.allSettled([
-          insertSnapshotLeaseFixture(
-            postgresPoolClientAdapter(first),
-            snapshotLeaseFixture(sessionId, { snapshotCommitSeq: "1" }),
-          ),
-          insertSnapshotLeaseFixture(
-            postgresPoolClientAdapter(second),
-            snapshotLeaseFixture(sessionId, { snapshotCommitSeq: "2" }),
-          ),
-        ]);
+        const second = await persistence.pool.connect();
+        try {
+          attempts = await Promise.allSettled([
+            insertSnapshotLeaseFixture(
+              postgresPoolClientAdapter(first),
+              snapshotLeaseFixture(sessionId, { snapshotCommitSeq: "1" }),
+            ),
+            insertSnapshotLeaseFixture(
+              postgresPoolClientAdapter(second),
+              snapshotLeaseFixture(sessionId, { snapshotCommitSeq: "2" }),
+            ),
+          ]);
+        } finally {
+          second.release();
+        }
       } finally {
         first.release();
-        second.release();
       }
       expect(attempts.filter((attempt) => attempt.status === "fulfilled"))
         .toHaveLength(1);

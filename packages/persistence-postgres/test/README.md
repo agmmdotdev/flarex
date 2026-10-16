@@ -278,6 +278,9 @@ and register the migrated fixture disposer with a static `afterAll` hook.
 Commit-feed row cases share one serial image-backed database with distinct
 scopes; its two constraint-removal witnesses keep independent backends.
 Wake-outbox cases share one database with distinct live scope identities.
+Index reconciliation cases share one serial database with distinct canonical
+scope identities, including locator-identity cases. Build-state row cases share
+one database; constraint and table corruption witnesses keep separate backends.
 Metadata-epoch contract cases reuse the image; their fresh-install and predecessor upgrade/failure cases still execute
 the original migration chain from their own empty databases.
 Bootstrap and split-provisioning PGlite cases use the same fixture and registered
@@ -360,6 +363,9 @@ with the race. Unique-definition, unique-key and intrinsic creation-time build
 cases also borrow the existing file owner, draining concurrent builders before
 reset. Intrinsic row seeding acquires genuine installation admission in both
 drivers and closes that admission with its transaction.
+Retained-history maintenance, index-history compaction and session-schema cases
+also borrow the native file owner. Their parallel work drains before reset;
+session lookup-plan probes use the scoped planner-setting helper.
 Row-only native artifact admission/listing, journal validation and schema-artifact
 replay/size-gate cases reuse the same file owner. Dedicated backend, DDL, deadline,
 uncertain COMMIT and session-configuration witnesses keep separate fixtures.
@@ -390,7 +396,9 @@ on its test-owned connection while injecting only transaction-command failures.
 API export exclusions, constructor surface guards and published type aliases
 belong in `api/publicApi.test.ts`. Coordinator installation, readiness and
 availability privacy checks use its shared current-subtree guard and runtime
-symbol list. Domain suites retain their operation-specific
+symbol list. Installation and relational physical-value suites retain their
+type privacy checks; the API guard owns their current package subtrees.
+Domain suites retain their operation-specific
 Effect contracts. Prefer assertions in
 existing consumer scenarios over separate tests of fixed fixture contents or
 helper allocation details. Preserve behavioral, durable-data, rollback and

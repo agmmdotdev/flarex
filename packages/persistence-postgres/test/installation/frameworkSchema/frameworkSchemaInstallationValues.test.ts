@@ -42,14 +42,8 @@ const VALIDATION_SHA256 = "cd".repeat(32);
 const WITHDRAWAL_SHA256 = "12".repeat(32);
 
 describe("private framework schema installation values", () => {
-  it("keeps installation, readiness, and availability private", async () => {
+  it("keeps installation, readiness, and availability private", () => {
     expectTypeOf<PublicInstallationExport>().toEqualTypeOf<never>();
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/frameworkSchema/installation/canonical.ts",
-    );
   });
 
   it("captures installation and readiness with exact physical and residual evidence", async () => {

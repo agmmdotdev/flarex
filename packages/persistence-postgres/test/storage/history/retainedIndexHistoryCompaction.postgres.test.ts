@@ -24,19 +24,21 @@ import { runEffect } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
   withPostgresSequentialScansDisabled,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 import {
   setFlarexActivationClock,
 } from "../../execution/session/support/authorityClock";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPostgresPersistence = useFileScopedPostgresPersistence();
 
 describePostgres(
   "real PostgreSQL O11-D retained index-history compaction",
+  { concurrent: false },
   () => {
     it("prunes terminal membership and replays the exact final-page cursor", async () => {
-      await withTemporaryPostgresPersistence(async (persistence) => {
+      await withPostgresPersistence(async (persistence) => {
         const locator = sharedLocator("membership-terminal");
         const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
           "deployment_membership_terminal",
@@ -78,7 +80,7 @@ describePostgres(
     }, 120_000);
 
     it("pages the maximum exact identity and uses bounded owner indexes", async () => {
-      await withTemporaryPostgresPersistence(async (persistence) => {
+      await withPostgresPersistence(async (persistence) => {
         const locator = sharedLocator("o11d-index-history-postgres");
         const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
           "deployment_retained_index_compaction_postgres",

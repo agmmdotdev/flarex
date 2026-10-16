@@ -1,8 +1,5 @@
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
-import {
-  createMigratedPGlitePersistence,
-  migratedPGliteDataDir,
-} from "../../support/pgliteTestFixture";
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
@@ -16,7 +13,7 @@ import {
 } from "flarex-protocol/storage-authority";
 import { eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
-import { beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   createLocatedIndexBuildReconciliationTargetV1,
@@ -51,9 +48,16 @@ const LOCATOR = Object.freeze({
   schemaName: "public",
 } as const satisfies ScopePhysicalLocator);
 
-beforeAll(() => migratedPGliteDataDir(), 120_000);
+let persistence: PGliteFlarexPersistence;
+let dispose: (() => Promise<void>) | undefined;
+let nextScope = 10;
 
-describe("S03-D3 durable index-build reconciliation", () => {
+beforeAll(async () => {
+  persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
+}, 120_000);
+afterAll(async () => { await dispose?.(); }, 120_000);
+
+describe("S03-D3 durable index-build reconciliation", { concurrent: false }, () => {
   it("distinguishes Application digest outages from unexpected canonicalization defects", async () => {
     const fixture = await publishedFixture("digest_classification");
     const digest = crypto.subtle.digest.bind(crypto.subtle);
@@ -264,10 +268,14 @@ describe("S03-D3 durable index-build reconciliation", () => {
 
   it("serializes concurrent reconcilers and keeps one row per required definition", async () => {
     const fixture = await publishedFixture("concurrent");
-    const results = await Promise.all(Array.from(
+    const attempts = await Promise.allSettled(Array.from(
       { length: 8 },
       () => reconcile(fixture, fixture.schemaVersionId),
     ));
+    const results = attempts.map(attempt => {
+      if (attempt.status === "rejected") throw attempt.reason;
+      return attempt.value;
+    });
     expect(results.filter((result) =>
       result.status === "reconciled" && result.disposition === "created"
     )).toHaveLength(1);
@@ -392,11 +400,25 @@ describe("S03-D3 durable index-build reconciliation", () => {
       ports(fixture, target),
       input(fixture, fixture.schemaVersionId),
     ));
-    await completed;
-    const interruption = Effect.runPromise(Fiber.interrupt(fiber));
-    releaseCommit?.();
-    await interruption;
-    const exit = await Effect.runPromise(Fiber.await(fiber));
+    const completion = runEffect(Fiber.await(fiber));
+    try {
+      await Promise.race([
+        completed,
+        completion.then(exit => {
+          throw new Error("Reconciliation settled before reaching the transaction gate.", {
+            cause: Exit.isFailure(exit) ? exit.cause : undefined,
+          });
+        }),
+      ]);
+      const interruption = runEffect(Fiber.interrupt(fiber));
+      releaseCommit?.();
+      await interruption;
+    } finally {
+      releaseCommit?.();
+      await runEffect(Fiber.interrupt(fiber));
+      await completion;
+    }
+    const exit = await completion;
     expect(Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)).toBe(true);
     expect(await buildRows(fixture.persistence, fixture.scopeId)).toHaveLength(2);
     await expect(reconcile(fixture, fixture.schemaVersionId)).resolves
@@ -463,9 +485,10 @@ async function baseFixture(
   suffix: string,
   locator: ScopePhysicalLocator = LOCATOR,
 ): Promise<Fixture> {
-  const persistence = await createMigratedPGlitePersistence();
   const deploymentId = `deployment_reconcile_${suffix}`;
-  const scopeId = ScopeIdSchema.make("scope_63000000-0000-4000-8000-000000000001");
+  const scopeId = ScopeIdSchema.make(
+    `scope_63000000-0000-4000-8000-${(nextScope++).toString().padStart(12, "0")}`,
+  );
   const schemaVersionId = CatalogSchemaVersionIdSchema.make(
     `schema_reconcile_${suffix}`,
   );

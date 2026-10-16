@@ -93,6 +93,7 @@ describe("@flarex/persistence-postgres public API", () => {
       expect(source).not.toMatch(/^\.\/src\/installation\/migrationCoordination\//);
       expect(source).not.toMatch(/^\.\/src\/installation\/frameworkSchema\/(installation\/|privateMetadataSchemaSupport\.ts|target\.ts)/);
       expect(source).not.toMatch(/^\.\/src\/installation\/frameworkSchema\/artifact\//);
+      expect(source).not.toMatch(/^\.\/src\/storage\/relationalSchema\/physical\//);
       expect(source).not.toBe("./src/database/catalogControlSession.ts");
       expect(source).not.toBe("./src/database/readCommittedTransactionRunner.ts");
       expect(source).not.toBe("./test/installation/frameworkSchema/frameworkMigrationPGliteTarget.ts");

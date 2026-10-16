@@ -20,17 +20,18 @@ import type { SharedDatabaseScopePhysicalLocator } from
 import { runEffect } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 import {
   setFlarexActivationClock,
 } from "../../execution/session/support/authorityClock";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPostgresPersistence = useFileScopedPostgresPersistence();
 
-describePostgres("real PostgreSQL O11-E retained-history maintenance", () => {
+describePostgres("real PostgreSQL O11-E retained-history maintenance", { concurrent: false }, () => {
   it("completes all physical owners in foreign-key dependency order", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const locator = sharedLocator("o11e-maintenance-postgres");
       const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
         "deployment_retained_history_maintenance_postgres",
@@ -100,7 +101,7 @@ describePostgres("real PostgreSQL O11-E retained-history maintenance", () => {
   }, 120_000);
 
   it("compacts one selected shop without deleting its same-deployment peer", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPostgresPersistence(async persistence => {
       const locator = sharedLocator("o11e-maintenance-two-shops-postgres");
       const deploymentId = TransactionGrantDeploymentIdV1Schema.make("deployment_retained_history_two_shops_pg");
       const provisioned = await createPostgresSharedScopeAuthorityProvisioner(persistence,
@@ -237,15 +238,19 @@ async function readConnectedHistory(
     readonly appCurrent: ReadonlyArray<string>;
   }>
 > {
+  const reads = await Promise.allSettled([
+    readCommitSeqs(persistence, "fx_system_commit", scopeId),
+    readCommitSeqs(persistence, "fx_system_commit_app_row_change", scopeId),
+    readCommitSeqs(persistence, "fx_app_index_entry_rev", scopeId),
+    readCommitSeqs(persistence, "fx_app_index_entry_current", scopeId),
+    readCommitSeqs(persistence, "fx_app_row_rev", scopeId),
+    readCommitSeqs(persistence, "fx_app_row_current", scopeId),
+  ]);
   const [commits, changes, indexes, indexCurrent, appRows, appCurrent] =
-    await Promise.all([
-      readCommitSeqs(persistence, "fx_system_commit", scopeId),
-      readCommitSeqs(persistence, "fx_system_commit_app_row_change", scopeId),
-      readCommitSeqs(persistence, "fx_app_index_entry_rev", scopeId),
-      readCommitSeqs(persistence, "fx_app_index_entry_current", scopeId),
-      readCommitSeqs(persistence, "fx_app_row_rev", scopeId),
-      readCommitSeqs(persistence, "fx_app_row_current", scopeId),
-    ]);
+    reads.map(read => {
+      if (read.status === "rejected") throw read.reason;
+      return read.value;
+    });
   return Object.freeze({
     commits,
     changes,

@@ -81,14 +81,8 @@ describe("private relational physical values", () => {
     }))).toMatchObject({ reason: "storedStateCorrupt" });
   });
 
-  it("remains absent from root and package export surfaces", async () => {
+  it("remains absent from root exports", () => {
     expectTypeOf<PublicPhysicalExport>().toEqualTypeOf<never>();
-    const packageJson = await import("../../../package.json", {
-      with: { type: "json" },
-    });
-    expect(Object.values(packageJson.default.exports)).not.toContain(
-      "./src/relationalSchema/physical/canonical.ts",
-    );
   });
 
   it("pins the domain-owned lowercase unpadded RFC 4648 base32hex codec", () => {
