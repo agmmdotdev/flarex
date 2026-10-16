@@ -45,10 +45,14 @@ describePostgres("real Postgres split scope provisioning receipts", () => {
         "concurrent_reserve",
       );
 
-      const results = await Promise.all([
+      const attempts = await Promise.allSettled([
         reserveReceipt(persistence, scopeId, epochA),
         reserveReceipt(persistence, scopeId, epochB),
       ]);
+      const results = attempts.map(attempt => {
+        if (attempt.status === "rejected") throw attempt.reason;
+        return attempt.value;
+      });
 
       expect(results.map((result) => result.status).sort()).toEqual([
         "already_reserved",
@@ -71,6 +75,10 @@ describePostgres("real Postgres split scope provisioning receipts", () => {
         receipt: winner,
       });
       await expect(receiptCount(persistence)).resolves.toBe("1");
+      await expect(
+        getScopeAuthorityProvisioningReceipt(persistence.drizzle, scopeId),
+      ).resolves.toEqual(winner);
+      await expect(persistence.getScopeClock(scopeId)).resolves.toBeNull();
     });
   });
 
@@ -188,26 +196,6 @@ describePostgres("real Postgres split scope provisioning receipts", () => {
     });
   });
 
-  it("preserves a committed reservation across target failure and retry", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
-      const scopeId = await insertSplitScope(persistence, "target_failure");
-      const reserved = await reserveReceipt(persistence, scopeId, epochA);
-
-      await expect(
-        Promise.reject(new Error("injected-located-target-failure")),
-      ).rejects.toThrow("injected-located-target-failure");
-      const retry = await reserveReceipt(persistence, scopeId, epochB);
-
-      expect(retry).toEqual({
-        status: "already_reserved",
-        receipt: reserved.receipt,
-      });
-      await expect(
-        getScopeAuthorityProvisioningReceipt(persistence.drizzle, scopeId),
-      ).resolves.toEqual(reserved.receipt);
-      await expect(persistence.getScopeClock(scopeId)).resolves.toBeNull();
-    });
-  });
 });
 
 async function insertSplitScope(

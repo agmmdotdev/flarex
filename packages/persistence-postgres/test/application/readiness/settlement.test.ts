@@ -56,6 +56,19 @@ describe("Application readiness/settlement", { timeout: 30_000 }, () => {
       },
     });
     const fixture = await readinessFixture({ targetPersistence });
+    const result = await runEffect(Effect.result(fixture.repository.readReady({
+      deploymentId: "",
+      scopeId: fixture.input.scopeId,
+      revisionId: fixture.input.revisionId,
+    })));
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        _tag: "ApplicationReadinessError",
+        operation: "readReady",
+        reason: "invalidInput",
+      });
+    }
     await fixture.target.query(
       "update fx_system_application_analysis_v1 set manifest_bytes = decode('00', 'hex') where scope_id = $1",
       [fixture.authority.scopeId],
@@ -97,25 +110,6 @@ describe("Application readiness/settlement", { timeout: 30_000 }, () => {
       .toBe(true);
     expect(isRetryableApplicationMutationAdmissionCause({ code: "42P01" }))
       .toBe(false);
-  })
-
-  it("labels read-only readiness input failures with the read operation", async () => {
-    const fixture = await readinessFixture();
-
-    const result = await runEffect(Effect.result(fixture.repository.readReady({
-      deploymentId: "",
-      scopeId: fixture.input.scopeId,
-      revisionId: fixture.input.revisionId,
-    })));
-
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure).toMatchObject({
-        _tag: "ApplicationReadinessError",
-        operation: "readReady",
-        reason: "invalidInput",
-      });
-    }
   })
 
   it("fails before schema publication when the explicit task catalog is absent", async () => {

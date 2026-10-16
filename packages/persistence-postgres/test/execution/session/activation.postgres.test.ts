@@ -1,4 +1,3 @@
-import { setTimeout as delay } from "node:timers/promises";
 import {
   decodeReplacementScopeIdV1,
   FlarexDbV1StorageGenerationSchema,
@@ -16,7 +15,6 @@ import type {
 import {
   postgresUrl,
   useFileScopedPostgresPersistence,
-  withTemporaryPostgresPersistence,
 } from "../../support/postgresHelpers";
 import { runEffectFailure as runFailure } from "../../support/effectTestRuntime";
 import { activatePointMutationSession } from "./support/attemptFixture";
@@ -33,12 +31,12 @@ import { deferred } from "./support/postgresLocks";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
-describePostgres("real Postgres O03-B session authority", () => {
+describePostgres("real Postgres O03-B session authority", { concurrent: false }, () => {
   const withPostgresPersistence = useFileScopedPostgresPersistence();
 
 
   it("activates exact shops when a deployment has two scopes", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -94,10 +92,14 @@ describePostgres("real Postgres O03-B session authority", () => {
         context.scopeId,
       );
 
-      const results = await Promise.all([
+      const attempts = await Promise.allSettled([
         activatePointMutationSession(activation, input),
         activatePointMutationSession(activation, input),
       ]);
+      const results = attempts.map(attempt => {
+        if (attempt.status === "rejected") throw attempt.reason;
+        return attempt.value;
+      });
 
       expect(results.map((result) => result.status).sort()).toEqual([
         "busy",
@@ -188,7 +190,7 @@ describePostgres("real Postgres O03-B session authority", () => {
 
 
   it("allows an independent scope to activate while another scope transaction is paused", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const contextA = await provisionContext(
         persistence,
@@ -219,26 +221,42 @@ describePostgres("real Postgres O03-B session authority", () => {
           contextA.scopeId,
         ),
       );
-      await entered.promise;
-
+      const pending = [pendingA];
+      const firstSettled = Promise.allSettled([pendingA]);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let resultA: PointMutationSessionActivationResultV1;
       let resultB: PointMutationSessionActivationResultV1 | undefined;
       try {
-        resultB = await Promise.race([
-          activatePointMutationSession(
-            activationB,
-            pointMutationSessionActivationFixture(
-              contextB.deploymentId,
-              contextB.scopeId,
-            ),
-          ),
-          delay(5_000).then(() => {
-            throw new Error("Independent-scope activation timed out.");
+        await Promise.race([
+          entered.promise,
+          firstSettled.then(([attempt]) => {
+            if (attempt.status === "rejected") throw attempt.reason;
+            throw new Error("Paused-scope activation settled before entering its gate.");
           }),
         ]);
-      } finally {
+        const pendingB = activatePointMutationSession(
+          activationB,
+          pointMutationSessionActivationFixture(
+            contextB.deploymentId,
+            contextB.scopeId,
+          ),
+        );
+        pending.push(pendingB);
+        resultB = await Promise.race([
+          pendingB,
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error("Independent-scope activation timed out.")), 5_000);
+          }),
+        ]);
+        clearTimeout(timer);
+        timer = undefined;
         release.resolve();
+        resultA = await pendingA;
+      } finally {
+        clearTimeout(timer);
+        release.resolve();
+        await Promise.allSettled(pending);
       }
-      const resultA = await pendingA;
       if (resultB === undefined) {
         throw new Error("Independent-scope activation returned no result.");
       }

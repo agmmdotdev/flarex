@@ -300,6 +300,8 @@ admission with its transaction. The Application readiness fixture restores its
 owned control, target and foreign-control databases from the image. Supplied
 instrumented targets arrive migrated, and callers register their raw-driver
 cleanup before wrapping them for faults or observation.
+Readiness input-error labels are checked in the existing selected-row scenario
+before row corruption, reusing its control and target fixtures.
 Journal/session fixtures with raw-driver fault injection pass
 `loadDataDir: await migratedPGliteDataDir()` to their existing driver owner and
 retain its cleanup. Empty-schema admission witnesses and historical migration
@@ -376,6 +378,14 @@ query-plan witnesses retain their full row populations and original budgets.
 Row-only native artifact admission/listing, journal validation and schema-artifact
 replay/size-gate cases reuse the same file owner. Dedicated backend, DDL, deadline,
 uncertain COMMIT and session-configuration witnesses keep separate fixtures.
+Native journal race and seal cases also borrow that owner: gates release before
+work drains, digest spies restore, and seal triggers/functions disappear before
+reset. The 0028 rollback/recovery witness uses the existing copied-migration
+fixture capped at 0028; current journal tables are checked in a current fixture.
+Session activation shares its file owner and cancels the independent-scope timer.
+Artifact timezone probes keep their dedicated clients and drain before reuse.
+Reservation replay includes durable receipt/missing-clock checks; real target
+failure and recovery remain in the split-provisioning suites.
 Plan probes use `withPostgresSequentialScansDisabled` to bind `SET LOCAL` and
 EXPLAIN to one client and roll back the setting before reuse.
 Validate converted suites as whole files, including failure-triggered rebuilds.

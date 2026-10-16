@@ -1,5 +1,5 @@
 import { copyDrizzleMigrations } from "../../../src/testing/systemTestMigrationFiles";
-import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -85,9 +85,14 @@ import {
   rollbackAndReleasePostgresClient,
   useFileScopedPostgresPersistence,
   withPostgresSequentialScansDisabled,
-  withTemporaryPostgresPersistence,
   withTemporaryPostgresSchema,
 } from "../../support/postgresHelpers";
+import {
+  injectMigrationFailure,
+  makeDrizzleCopyFixture,
+  restoreMigrationFile,
+  writeJournalThrough,
+} from "../../support/migrationFixtureSupport";
 import {
   completeSessionJournalSeal as completeSeal,
   prepareSessionJournalSeal as prepareSeal,
@@ -171,11 +176,18 @@ interface AttemptLeaseAndSealState extends Record<string, unknown> {
   readonly root_xmin: string;
 }
 
-describePostgres("real Postgres C03 SessionJournalStore", () => {
+describePostgres("real Postgres C03 SessionJournalStore", { concurrent: false }, () => {
   const withPostgresPersistence = useFileScopedPostgresPersistence();
 
   it("authenticates canonical write bytes and scalar metadata without a JSON mirror", async () => {
     await withPostgresPersistence(async persistence => {
+      const tables = await persistence.query<{ count: number }>(`
+        select count(*)::int as count
+        from information_schema.tables
+        where table_schema = current_schema()
+          and table_name like 'fx_system_tx_journal%'
+      `);
+      expect(tables.rows).toEqual([{ count: 6 }]);
       await verifyJournalEventEvidence(persistence, await scenario(persistence, "canonical_event_only"));
     });
   });
@@ -293,32 +305,11 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
   }, 120_000);
 
   it("rolls back and recovers migration 0028 in a non-public schema", async () => {
-    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-c03-postgres-"));
-    const migrationsFolder = resolve(testRoot, "drizzle");
-    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
-    const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
-    const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
-    const migrationName = "0028_glossy_galactus.sql";
-    const copiedMigration = resolve(migrationsFolder, migrationName);
+    const fixture = await makeDrizzleCopyFixture("flarex-c03", "postgres", "0028_glossy_galactus.sql");
+    const migrationsFolder = fixture.migrationsFolder;
 
     try {
-      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
-      const parsedJournal = JSON.parse(
-        await readFile(currentJournal, "utf8"),
-      ) as { entries?: Array<{ idx?: number }> };
-      if (!Array.isArray(parsedJournal.entries)) {
-        throw new Error("Current Drizzle journal is missing its entries array.");
-      }
-      const currentMigrationCount = parsedJournal.entries.length;
-      parsedJournal.entries = parsedJournal.entries.filter(
-        (entry) => entry.idx !== undefined && entry.idx < 28,
-      );
-      await writeFile(
-        temporaryJournal,
-        `${JSON.stringify(parsedJournal, null, 2)}\n`,
-        "utf8",
-      );
+      await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 27);
 
       await withTemporaryPostgresSchema(async (databaseOptions) => {
         const previousPersistence = await createPostgresPersistence({
@@ -334,13 +325,8 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
             `select count(*) from fx_system_tx_journal`,
           )).rejects.toThrow();
 
-          await copyFile(currentJournal, temporaryJournal);
-          const realMigration = await readFile(copiedMigration, "utf8");
-          await writeFile(
-            copiedMigration,
-            `${realMigration}\n--> statement-breakpoint\nselect * from fx_c03_deliberate_missing_table;\n`,
-            "utf8",
-          );
+          await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 28);
+          await injectMigrationFailure(fixture.migrationPath, "fx_c03_deliberate_missing_table");
           currentPersistence = await createPostgresPersistence({
             ...databaseOptions,
             migrationsFolder,
@@ -354,10 +340,12 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
           `);
           expect(absent.rows).toEqual([{ count: 0 }]);
 
-          await copyFile(
-            resolve(currentMigrationsFolder, migrationName),
-            copiedMigration,
-          );
+          const failedReceipts = await currentPersistence.query<{ count: number }>(`
+            select count(*)::int as count
+            from ${quoteIdentifier(databaseOptions.migrationsSchema)}.__drizzle_migrations
+          `);
+          expect(failedReceipts.rows).toEqual([{ count: 28 }]);
+          await restoreMigrationFile(fixture.migrationPath, fixture.currentMigrationsFolder);
           await expect(currentPersistence.migrate()).resolves.toBeUndefined();
           await expect(currentPersistence.migrate()).resolves.toBeUndefined();
           const recovered = await currentPersistence.query<{ count: number }>(`
@@ -366,7 +354,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
             where table_schema = current_schema()
               and table_name like 'fx_system_tx_journal%'
           `);
-          expect(recovered.rows).toEqual([{ count: 6 }]);
+          expect(recovered.rows).toEqual([{ count: 4 }]);
           const eventEvidenceColumn = await currentPersistence.query<{
             column_default: string | null;
             is_nullable: string;
@@ -398,16 +386,18 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
             select count(*)::int as count
             from ${quoteIdentifier(databaseOptions.migrationsSchema)}.__drizzle_migrations
           `);
-          expect(receipts.rows).toEqual([{ count: currentMigrationCount }]);
+          expect(receipts.rows).toEqual([{ count: 29 }]);
         } finally {
-          await Promise.all([
+          const closing = [
             previousPersistence.close(),
             currentPersistence?.close(),
-          ]);
+          ];
+          await Promise.allSettled(closing);
+          await Promise.all(closing);
         }
       });
     } finally {
-      await rm(testRoot, { recursive: true, force: true });
+      await fixture.cleanup();
     }
   });
 
@@ -563,7 +553,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
   }, 120_000);
 
   it("serializes same-sequence and ordered adjacent-sequence races with one retained receipt per sequence", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const same = await scenario(persistence, "same_sequence");
       const sameRequest = Object.freeze({
         kind: "get",
@@ -571,10 +561,14 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         documentId: documentId(same.tableId, 1),
       } satisfies SessionJournalPointOperationV1);
 
-      const sameResults = await Promise.all([
+      const sameAttempts = await Promise.allSettled([
         runPointOperation(same.store, same.table, sameRequest),
         runPointOperation(same.store, same.table, sameRequest),
       ]);
+      const sameResults = sameAttempts.map(attempt => {
+        if (attempt.status === "rejected") throw attempt.reason;
+        return attempt.value;
+      });
 
       expect(sameResults.map(requireCompletedDelivery).sort()).toEqual([
         "executed",
@@ -610,9 +604,17 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         syscallSequence: syscallSequence(1n),
         documentId: documentId(adjacent.tableId, 2),
       });
+      const pending = [firstPromise];
+      const firstSettled = Promise.allSettled([firstPromise]);
       try {
         await within(
-          entered.promise,
+          Promise.race([
+            entered.promise,
+            firstSettled.then(([attempt]) => {
+              if (attempt.status === "rejected") throw attempt.reason;
+              throw new Error("First adjacent syscall settled before the root-lock gate.");
+            }),
+          ]),
           5_000,
           "First adjacent syscall did not acquire the journal root lock.",
         );
@@ -623,17 +625,20 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
             documentId: documentId(adjacent.tableId, 3),
           },
         );
+        pending.push(secondPromise);
+        const attempts = Promise.allSettled(pending);
         release.resolve(undefined);
-        const adjacentResults = await Promise.all([
-          firstPromise,
-          secondPromise,
-        ]);
+        const adjacentResults = (await attempts).map(attempt => {
+          if (attempt.status === "rejected") throw attempt.reason;
+          return attempt.value;
+        });
         expect(adjacentResults.map(requireCompletedDelivery)).toEqual([
           "executed",
           "executed",
         ]);
       } finally {
         release.resolve(undefined);
+        await Promise.allSettled(pending);
       }
 
       await expect(journalCounts(persistence, adjacent.anchor.sessionId))
@@ -821,7 +826,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         "schema_session_journal_pinned_manifest_v2",
       );
 
-      const [competingTable, nextPublication] = await Promise.all([
+      const publishing = [
         runEffect(
           current.store.resolvePointTableEffect(current.attempt, "users"),
         ),
@@ -832,7 +837,9 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
           tables: [appTable("users")],
           indexes: [],
         }),
-      ]);
+      ] as const;
+      await Promise.allSettled(publishing);
+      const [competingTable, nextPublication] = await Promise.all(publishing);
       expect(requirePublishedTableId(nextPublication.manifest, "users"))
         .toBe(current.tableId);
 
@@ -892,7 +899,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
   }, 120_000);
 
   it("prepares without retaining locks and canonicalizes near-limit result evidence before short seal revalidation", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const lockSteps: string[] = [];
       const current = await scenario(persistence, "two_phase_large_seal", {
         randomUuid: () => "95000000-0000-4000-8000-000000000001",
@@ -923,36 +930,46 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
           return originalDigest(algorithm, data);
         },
       );
-      const preparePromise = prepareSeal(current.store, current.attempt);
-      await digestEntered.promise;
-      const evidenceLocker = await persistence.pool.connect();
-      let evidenceLockOpen = false;
+      let preparePromise: ReturnType<typeof prepareSeal> | undefined;
+      let prepared: Awaited<ReturnType<typeof prepareSeal>>;
       try {
-        await evidenceLocker.query("begin");
-        evidenceLockOpen = true;
-        await evidenceLocker.query("set local lock_timeout = '2s'");
-        await evidenceLocker.query(`
+        const preparing = prepareSeal(current.store, current.attempt);
+        preparePromise = preparing;
+        const settled = Promise.allSettled([preparing]);
+        await Promise.race([
+          digestEntered.promise,
+          settled.then(([attempt]) => {
+            if (attempt.status === "rejected") throw attempt.reason;
+            throw new Error("Seal preparation settled before the digest gate.");
+          }),
+        ]);
+        const evidenceLocker = await persistence.pool.connect();
+        let evidenceLockOpen = false;
+        try {
+          await evidenceLocker.query("begin");
+          evidenceLockOpen = true;
+          await evidenceLocker.query("set local lock_timeout = '2s'");
+          await evidenceLocker.query(`
           lock table
             fx_system_tx_journal_receipt,
             fx_system_tx_journal_point,
             fx_system_tx_journal_write_event
           in access exclusive mode nowait
         `);
-        await evidenceLocker.query("rollback");
-        evidenceLockOpen = false;
-      } finally {
-        if (evidenceLockOpen) {
-          await rollbackAndReleasePostgresClient(evidenceLocker);
-        } else {
-          evidenceLocker.release();
+          await evidenceLocker.query("rollback");
+          evidenceLockOpen = false;
+        } finally {
+          if (evidenceLockOpen) {
+            await rollbackAndReleasePostgresClient(evidenceLocker);
+          } else {
+            evidenceLocker.release();
+          }
         }
         releaseDigest.resolve();
-      }
-      let prepared: Awaited<typeof preparePromise>;
-      try {
-        prepared = await preparePromise;
+        prepared = await preparing;
       } finally {
         releaseDigest.resolve();
+        if (preparePromise !== undefined) await Promise.allSettled([preparePromise]);
         digestSpy.mockRestore();
       }
       expect(lockSteps).toEqual([
@@ -972,51 +989,65 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         ),
       );
 
-      const locker = await persistence.pool.connect();
-      let transactionOpen = false;
+      const canonicalizing = Promise.allSettled([
+        canonicalJournalPromise,
+        successfulResultPromise,
+      ]);
+      const pendingReads: Promise<unknown>[] = [];
       let canonicalJournal: Awaited<typeof canonicalJournalPromise>;
       let successfulResult: Awaited<typeof successfulResultPromise>;
       try {
-        await locker.query("begin");
-        transactionOpen = true;
-        await locker.query("set local lock_timeout = '5s'");
-        const [locked, journalEvidence, resultEvidence] = await Promise.all([
-          locker.query(
+        const locker = await persistence.pool.connect();
+        let transactionOpen = false;
+        try {
+          await locker.query("begin");
+          transactionOpen = true;
+          await locker.query("set local lock_timeout = '5s'");
+          const preparing = [
+            locker.query(
             `select session_id
              from fx_system_tx_journal
              where session_id = $1
              for update`,
-            [current.anchor.sessionId],
-          ),
-          canonicalJournalPromise,
-          successfulResultPromise,
-        ]);
-        expect(locked.rowCount).toBe(1);
-        canonicalJournal = journalEvidence;
-        successfulResult = resultEvidence;
-        expect(successfulResult.semanticSizeBytes).toBe(
-          resultPayloadBytes + 2,
-        );
+              [current.anchor.sessionId],
+            ),
+            canonicalJournalPromise,
+            successfulResultPromise,
+          ] as const;
+          await Promise.allSettled(preparing);
+          const [locked, journalEvidence, resultEvidence] = await Promise.all(preparing);
+          expect(locked.rowCount).toBe(1);
+          canonicalJournal = journalEvidence;
+          successfulResult = resultEvidence;
+          expect(successfulResult.semanticSizeBytes).toBe(
+            resultPayloadBytes + 2,
+          );
 
-        await expect(within(
-          persistence.query(
+          const reading = persistence.query(
             `select state
              from fx_system_tx_journal
              where session_id = $1`,
             [current.anchor.sessionId],
-          ),
-          5_000,
-          "Independent journal read was blocked by seal preparation.",
-        )).resolves.toMatchObject({ rows: [{ state: "open" }] });
+          );
+          pendingReads.push(reading);
+          await expect(within(
+            reading,
+            5_000,
+            "Independent journal read was blocked by seal preparation.",
+          )).resolves.toMatchObject({ rows: [{ state: "open" }] });
 
-        await locker.query("rollback");
-        transactionOpen = false;
-      } finally {
-        if (transactionOpen) {
-          await rollbackAndReleasePostgresClient(locker);
-        } else {
-          locker.release();
+          await locker.query("rollback");
+          transactionOpen = false;
+        } finally {
+          if (transactionOpen) {
+            await rollbackAndReleasePostgresClient(locker);
+          } else {
+            locker.release();
+          }
         }
+      } finally {
+        await canonicalizing;
+        await Promise.allSettled(pendingReads);
       }
 
       lockSteps.length = 0;
@@ -1080,7 +1111,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
   }, 180_000);
 
   it("atomically promotes the exact lease, replays without writes, and rolls back every seal phase", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const concurrent = await scenario(
         persistence,
         "atomic_lease_promotion",
@@ -1106,13 +1137,15 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         concurrent.store,
         concurrent.attempt,
       );
-      const [firstJournal, secondJournal, successfulResult] = await Promise.all([
+      const canonicalizing = [
         runEffect(canonicalizeSessionJournalEffect(firstPrepared.journal)),
         runEffect(canonicalizeSessionJournalEffect(secondPrepared.journal)),
         runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true })),
-      ]);
+      ] as const;
+      await Promise.allSettled(canonicalizing);
+      const [firstJournal, secondJournal, successfulResult] = await Promise.all(canonicalizing);
 
-      const [firstEnvelope, secondEnvelope] = await Promise.all([
+      const completing = [
         completeSeal(
           concurrent.store,
           firstPrepared.preparation,
@@ -1125,7 +1158,9 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
           secondJournal,
           successfulResult,
         ),
-      ]);
+      ] as const;
+      await Promise.allSettled(completing);
+      const [firstEnvelope, secondEnvelope] = await Promise.all(completing);
       expect(secondEnvelope).toEqual(firstEnvelope);
       const sealed = await attemptLeaseAndSealState(
         persistence,
@@ -1284,7 +1319,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
   }, 180_000);
 
   it("holds interruption until the atomic lease promotion and seal settle", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const entered = deferredSignal();
       const release = deferredSignal();
       let pauseCompletion = false;
@@ -1316,19 +1351,31 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         successfulResult,
       ));
 
-      await entered.promise;
+      const completion = runEffect(Fiber.await(fiber));
       let interruptionSettled = false;
-      const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
-        interruptionSettled = true;
-        return exit;
-      });
       try {
-        await delay(25);
-        expect(interruptionSettled).toBe(false);
+        await Promise.race([
+          entered.promise,
+          completion.then(exit => {
+            throw new Error("Seal completion settled before the interruption gate.", { cause: exit });
+          }),
+        ]);
+        const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+          interruptionSettled = true;
+          return exit;
+        });
+        try {
+          await delay(25);
+          expect(interruptionSettled).toBe(false);
+        } finally {
+          release.resolve();
+          await interruption;
+        }
       } finally {
         release.resolve();
+        await runEffect(Fiber.interrupt(fiber));
+        await completion;
       }
-      await interruption;
       const settled = await attemptLeaseAndSealState(
         persistence,
         current.anchor.sessionId,
@@ -1930,12 +1977,17 @@ async function within<T>(
   milliseconds: number,
   message: string,
 ): Promise<T> {
-  return Promise.race([
-    promise,
-    delay(milliseconds).then(() => {
-      throw new Error(message);
-    }),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), milliseconds);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function deferredSignal(): Readonly<{

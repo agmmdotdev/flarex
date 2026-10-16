@@ -43,7 +43,7 @@ const getSchemaVersionArtifactByVersion = (
   ...args: Parameters<typeof getSchemaVersionArtifactByVersionEffect>
 ) => runEffect(getSchemaVersionArtifactByVersionEffect(...args));
 
-describePostgres("real Postgres schema version artifacts", () => {
+describePostgres("real Postgres schema version artifacts", { concurrent: false }, () => {
   const withPersistence = useFileScopedPostgresPersistence();
 
   it("converges concurrent exact artifact replays", async () => {
@@ -63,9 +63,13 @@ describePostgres("real Postgres schema version artifacts", () => {
         },
       } satisfies EnsureSchemaVersionArtifactInput;
 
-      const results = await Promise.all(
+      const attempts = await Promise.allSettled(
         Array.from({ length: 8 }, () => ensure(persistence, input)),
       );
+      const results = attempts.map(attempt => {
+        if (attempt.status === "rejected") throw attempt.reason;
+        return attempt.value;
+      });
 
       expect(results.filter((result) => result.status === "created"))
         .toHaveLength(1);
@@ -211,7 +215,7 @@ describePostgres("real Postgres schema version artifacts", () => {
   }, 60_000);
 
   it("corroborates timestamp microseconds across session time zones", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_schema_artifact_timestamp";
       await persistence.insertDeploymentMetadata({
         deploymentId,
@@ -248,15 +252,19 @@ describePostgres("real Postgres schema version artifacts", () => {
       const utc = new Client({ connectionString: postgresUrl });
       const yangon = new Client({ connectionString: postgresUrl });
       try {
-        await Promise.all([utc.connect(), yangon.connect()]);
-        await Promise.all([
+        const connecting = [utc.connect(), yangon.connect()];
+        await Promise.allSettled(connecting);
+        await Promise.all(connecting);
+        const configuring = [
           utc.query("select set_config('search_path', $1, false)", [
             schemaName,
           ]),
           yangon.query("select set_config('search_path', $1, false)", [
             schemaName,
           ]),
-        ]);
+        ];
+        await Promise.allSettled(configuring);
+        await Promise.all(configuring);
         await utc.query("set time zone 'UTC'");
         await yangon.query("set time zone 'Asia/Yangon'");
         const tokenQuery = `
@@ -266,13 +274,17 @@ describePostgres("real Postgres schema version artifacts", () => {
           from fx_control_schema_version
           where deployment_id = $1
         `;
-        const [utcToken, yangonToken] = await Promise.all([
+        const reading = [
           utc.query<{ token: string }>(tokenQuery, [deploymentId]),
           yangon.query<{ token: string }>(tokenQuery, [deploymentId]),
-        ]);
+        ];
+        await Promise.allSettled(reading);
+        const [utcToken, yangonToken] = await Promise.all(reading);
         expect(utcToken.rows[0]?.token).toBe(yangonToken.rows[0]?.token);
       } finally {
-        await Promise.all([utc.end(), yangon.end()]);
+        const closing = [utc.end(), yangon.end()];
+        await Promise.allSettled(closing);
+        await Promise.all(closing);
       }
 
       const read = await getSchemaVersionArtifactByVersion(
