@@ -113,9 +113,15 @@ receipts authenticate complete ordered DTOs before association; Stock Location
 read receipts authenticate IDs, projections and pagination counts against actual
 call-local observations. Retained physical Item compensation removes its complete
 bounded history while emitting only native root Item events. Existing resource
-limits remain unchanged. The next preflighted outcome is
+limits remain unchanged. The bounded
 [standalone Inventory Level creation](./preflight/121-native-inventory-level-create-workflow.md)
-for existing Items and Locations with a dedicated two-method Inventory profile.
+profile creates up to eight Levels for existing Items and Locations through a
+dedicated two-method Inventory profile. It retains the required empty Location
+query, complete native DTOs, physical creation inverse and existing resource
+limits. Shared Level event decoding preserves batch receipt error classification
+while each profile keeps its own publication actions. Reservation deletion by
+Line Item remains a subsequent admission with a native restore-preimage
+characterization gate.
 Chunked File import and Product
 export are explicitly deferred; their File and Region dependencies are outside
 the current integration goal.

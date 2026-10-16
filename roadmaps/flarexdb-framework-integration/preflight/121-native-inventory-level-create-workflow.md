@@ -2,17 +2,17 @@
 
 ## Status And Selection
 
-Status: source preflight complete; standalone implementation pending. Inventory
-maintenance 115–119 is implemented privately; standalone Item creation 120 is under
-validation. This document makes no 121 implementation or database-validation claim.
+Status: implemented for the bounded private standalone profile. Inventory
+maintenance 115–119 and standalone Item creation 120 remain implemented privately.
+This admission makes no deployment or arbitrary framework compatibility claim.
 Chunked File Product import, Product export and hosted activation remain deferred.
 
-The recommended next complete slice is the genuine
+The standalone admission uses the genuine
 createInventoryLevelsWorkflow for existing Items and existing Stock Locations.
 The root already executes under 97's combined Stock Location creation/stocking
-and 120's Item creation child. Its dedicated standalone facade/profile is absent:
-97 grants Location creation and 120 requires new Item creation. 119's direct
-create branch deliberately performs no Location existence validation. A narrow
+and 120's Item creation child. Its dedicated standalone facade/profile grants
+neither Location nor Item creation: 97 and 120 retain those distinct capabilities.
+119's direct create branch deliberately performs no Location existence validation. A narrow
 standalone admission supplies the native existing-endpoint operation without
 copying an algorithm or duplicating any of those composers.
 
@@ -72,8 +72,8 @@ Inventory FK obligation; no Item graph provider or adapter lookup is added.
 
 ## Narrow Owners And Bounds
 
-Propose one named inventory-level-creations module admission over the genuine
-InventoryModuleService and InventoryLevelService. Expose exactly
+The named inventory-level-creations module admission uses the genuine
+InventoryModuleService and InventoryLevelService. It exposes exactly
 createInventoryLevels plus retained-only deleteInventoryLevels, no Inventory
 graph/Item method, no update, quantity adjustment, Reservation or managed-delete
 method. Item and Reservation repositories stay denied. This is a dedicated
@@ -91,7 +91,7 @@ than copying their validators or admitting unrelated commands at the facade.
 
 Input is a required mutable array of at most eight InventoryLevelInput rows, with
 inventory_item_id, location_id, optional finite stocked_quantity and
-incoming_quantity. at most eight existing Items/Locations may be referenced. Do not
+incoming_quantity. At most eight existing Items/Locations may be referenced. Do not
 add 120's two-Levels-per-created-Item restriction to this existing-Item workflow.
 Build mutable arrays before applying collection checks: in the installed Effect
 version Schema.mutable rebuilds array schemas and drops earlier array checks.
@@ -113,16 +113,16 @@ unselected rows or invent an Item/Reservation/Link cascade.
 
 Use one existing default-OCC outer settlement with Inventory writes and Stock
 Location reads. Ordered composition needs no new scheduling or scope-exclusion
-resource. Start with existing 64-call/64-event, 128-identity and current byte/node
+resource. Retain the existing 64-call/64-event, 128-identity and current byte/node
 limits. Forward has at most eight new Level facts/events plus authentic endpoint
 observations; inverse at most eight physical removals/events. Measure complete forward
 and inverse roots on both drivers before claiming they fit. No broader allowance,
 schema/migration, shared-core or host change is established by this preflight.
 
-## Connected Plan And Required Validation
+## Connected Admission And Required Proofs
 
-1. Add the standalone facade over the existing native root and the exact narrow
-   profile above. Bind only Inventory and read-only Stock Location. Reuse 120's
+1. The standalone facade uses the existing native root and the exact narrow
+   profile above. It binds only Inventory and read-only Stock Location, reusing 120's
    callback/helper provenance guard and existing package export; no copied
    composer, helper or native source promotion is necessary.
 2. Reuse 120/119 fixture topology and native Item/Location seeds outside the tested
@@ -134,7 +134,7 @@ schema/migration, shared-core or host change is established by this preflight.
 3. Genuine pure callbacks prove exact node/provider order, required empty query
    and create calls, native missing-ID order, array result/order, captured inverse
    IDs and empty inverse skips. Observe mock calls outside replaceable scripted
-   mock implementations; ordered native prepared.parallel is omitted, not[].
+   mock implementations; ordered native prepared.parallel is omitted, not [].
 4. Both database lanes prove missing/deleted Location refusal before Level
    creation; missing Item FK and duplicate active tuple refusal with whole-root
    rollback; ninth raw input, managed/unknown fields and malformed quantities;

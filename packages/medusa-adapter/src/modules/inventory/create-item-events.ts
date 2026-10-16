@@ -9,7 +9,7 @@ import type { compileInventoryItemContracts } from "./item-contracts";
 import type { compileInventoryLevelContracts } from "./level-contracts";
 import type { compileInventoryDeletionContracts } from "./deletion-contracts";
 import { inventoryCreateEventPolicy } from "./events";
-import { inventoryLevelBatchEventPolicy } from "./batch-level-events";
+import { inventoryLevelCreationEventPolicy } from "./level-creation-events";
 import { validateInventoryItemLifecycleClosure } from "./deletion-lifecycle";
 import { decodeInventoryItemCreates, decodeInventoryItemPhysicalDeletionIds } from "./create-item-input";
 
@@ -26,7 +26,7 @@ const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
 /** This profile adds only Item creation/default authentication and its retained
  * physical cascade. The existing Level owner authenticates its own callbacks. */
 export function inventoryItemCreationEventPolicy(item: ItemContracts, level: LevelContracts, lifecycle: LifecycleContracts) {
-  const creation = inventoryCreateEventPolicy(), levels = inventoryLevelBatchEventPolicy(level);
+  const creation = inventoryCreateEventPolicy(), levels = inventoryLevelCreationEventPolicy(level);
   const capture = Effect.fn("InventoryItemCreation.captureEvent")(function* (input: unknown) {
     const message = yield* decodeEvent(input);
     if (message.name !== buildModuleResourceEventName({ prefix: Modules.INVENTORY, objectName: message.metadata.object, action: message.metadata.action }))

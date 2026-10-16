@@ -5543,7 +5543,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/inventory/service.ts",
       "classification": "authored",
-      "targetSha256": "750c075f56687b9bc582d1f3ef4e6f796f8ec80497fc696e4b7f8223210c397f"
+      "targetSha256": "23585d7e908d8b5a4e9d50fa48d9893face4074803702446ef4cde848061ef15"
     },
     {
       "target": "packages/medusa-adapter/src/composition/product-variant-inventory-schema.ts",
@@ -6114,7 +6114,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/inventory/quantity-repository.ts",
       "classification": "authored",
-      "targetSha256": "ca0208ba7fa838303bfc8495d9a3651f9d2db4496eb4996ad7b208aff4db1bbc"
+      "targetSha256": "8a24bf66ff0b0a63628495eeab19c6848b1ebcb5e42b248c6783ab33e2df9dbb"
     },
     {
       "target": "packages/medusa-adapter/src/modules/inventory/reservation-input.ts",
@@ -8796,7 +8796,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/inventory/batch-level-events.ts",
       "classification": "authored",
-      "targetSha256": "d4370ada57be75b4abab7f03da40f4bb4eb3a9b3afefebde9bb1ebea960fe304"
+      "targetSha256": "ddc0194fe5c83dfb6c49f13a717a1a7c29fe88b08d69d0b62137d8a7c0e7290b"
     },
     {
       "target": "packages/medusa-adapter/src/modules/inventory/batch-level-service.ts",
@@ -8843,7 +8843,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/inventory/create-item-events.ts",
       "classification": "authored",
-      "targetSha256": "4d315aec736368970e37e468c5eea5ea312228d315d34c9a77b3943a2809458e"
+      "targetSha256": "857ed56749ff50ccf8f244ea144c08a98946d5b2b99dbce241cba94e7ceb9a6b"
     },
     {
       "target": "packages/medusa-adapter/src/modules/inventory/create-item-input.ts",
@@ -8914,6 +8914,46 @@
       "target": "packages/medusa-adapter/test/logical-stock-location-read-results.test.ts",
       "classification": "authored",
       "targetSha256": "87963259074592acfa09823647ac3aa5b46baefc636954e37f6b03d5874acf21"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/inventory/create-level-service.ts",
+      "classification": "authored",
+      "targetSha256": "b86d958f219d58d046871680da53940bc2ea1d44015d5727516f3cb63d1959ff"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/inventory/level-creation-events.ts",
+      "classification": "authored",
+      "targetSha256": "7484cb886bd0cf3097fac0aac31a39d2663c526cbbc6784f56f3ae6f03755293"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/inventory/create-levels.ts",
+      "classification": "authored",
+      "targetSha256": "42d30d9bbe7465fbea125e2ccb52a42ed3dcb7d797b22658577e166834f9a672"
+    },
+    {
+      "target": "packages/medusa-adapter/test/inventory-level-create-composer.test.ts",
+      "classification": "authored",
+      "targetSha256": "50e6f652ea260c0a517a4c25ba1fa30d763ef4ca9817b721ea501f1c7f016d5e"
+    },
+    {
+      "target": "packages/medusa-adapter/test/inventory-level-create-profile.test.ts",
+      "classification": "authored",
+      "targetSha256": "42ede3cc49d119384380e61e52b850ca89203f5b9ea3b830b6fe297f3735e134"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-inventory-level-create-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "15cf084066278fc554a315b75440375f0d0b842e26acb531e34995a8613afedf"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-inventory-level-create-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "79f300fcf29aa3033fe24db655390c4b98e1ed869ad18b786d897b1f9f70466c"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/inventory/level-events.ts",
+      "classification": "authored",
+      "targetSha256": "bcbaf6e9507a9fe2e704d27839a95606fcaf009873ecbbf83c8c939836d13f85"
     }
   ],
   "dependencies": {

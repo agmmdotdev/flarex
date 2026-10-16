@@ -56,15 +56,15 @@ export function inventoryQuantityProjection(columns: readonly SchemaTable["colum
 /** Inventory's exact quantities extend shared scalar DAL mechanics. Native
  * services retain availability checks and reservation-to-level adjustments. */
 export function prepareInventoryQuantityRepository(table: SchemaTable, model: "InventoryLevel" | "ReservationItem",
-  profile: "read-only" | "stock-mutations" | "level-updates" | "level-batches") {
+  profile: "read-only" | "stock-mutations" | "level-updates" | "level-batches" | "level-creations") {
   return Result.gen(function* () {
-    if (!["read-only", "stock-mutations", "level-updates", "level-batches"].includes(profile) || (profile === "level-updates" || profile === "level-batches") && model !== "InventoryLevel")
+    if (!["read-only", "stock-mutations", "level-updates", "level-batches", "level-creations"].includes(profile) || (profile === "level-updates" || profile === "level-batches" || profile === "level-creations") && model !== "InventoryLevel")
       return yield* Result.fail(commerceError("unsupportedProfile"));
-    const levelUpdates = profile === "level-updates" || profile === "level-batches", mutable = profile !== "read-only";
+    const levelUpdates = profile === "level-updates" || profile === "level-batches", mutable = profile === "stock-mutations" || levelUpdates;
     const numeric = table.columns.filter(column => column.type === "bigNumber");
     const project = inventoryQuantityProjection(table.columns);
     const scalar = yield* prepareScalarRepository(table, model, model === "InventoryLevel" ? inventoryLevelWhere : scalarIdWhere,
-      levelUpdates ? project : undefined);
+      levelUpdates || profile === "level-creations" ? project : undefined);
     const exactProjection = inventoryQuantityProjection(table.columns, true);
     const updateNumeric = levelUpdates ? numeric.filter(column => ["stocked_quantity", "incoming_quantity"].includes(column.name)) : numeric;
     const updateFields = levelUpdates ? ["inventory_item_id", "location_id", ...updateNumeric.map(column => column.name)]
