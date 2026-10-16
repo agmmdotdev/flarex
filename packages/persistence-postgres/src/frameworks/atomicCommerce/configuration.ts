@@ -67,6 +67,9 @@ export interface AtomicCommerceHostInput<Failure> extends CommerceHostConfigurat
    * transaction. Omission retains immediate dispatch; explicit selection is
    * included in the request identity. This does not change OCC isolation. */
   readonly operationScheduling?: "queued";
+  /** Additional identity-bound FIFO for individual DAL operations within one
+   * command or borrowed manager. Requires the queued root profile. */
+  readonly borrowedOperationScheduling?: "queued";
   /** Explicit authentic Task definition admission. Omission refuses all Task
    * children, while preserving ordinary atomic command behavior and identity. */
   readonly taskBinding?: TrustedWorkflowTaskBinding;
@@ -99,6 +102,7 @@ export interface PreparedAtomicCommerceConfiguration<Failure> extends Omit<
   readonly owner: object;
   readonly executionIsolation: "scopeExclusive" | undefined;
   readonly operationScheduling: "queued" | undefined;
+  readonly borrowedOperationScheduling: "queued" | undefined;
   readonly taskBindingSha256: string | undefined;
   readonly taskControlAllowed: ReadonlySet<AtomicCommerceCommand>;
 }
@@ -123,6 +127,7 @@ export interface CapturedAtomicCommerceConfiguration<Failure> extends Omit<Comme
   readonly commandMs: number;
   readonly executionIsolation: "scopeExclusive" | undefined;
   readonly operationScheduling: "queued" | undefined;
+  readonly borrowedOperationScheduling: "queued" | undefined;
   readonly taskBindingSha256: string | undefined;
   readonly taskControlAllowed: ReadonlySet<AtomicCommerceCommand>;
   readonly taskControlNames: readonly string[] | undefined;
@@ -155,6 +160,10 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const operationScheduling = yield* decodeOperationScheduling(input.operationScheduling)
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const borrowedOperationScheduling = yield* decodeOperationScheduling(input.borrowedOperationScheduling)
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  if (borrowedOperationScheduling !== undefined && operationScheduling !== "queued")
+    return yield* commerceError("unsupportedProfile");
   const taskBinding = input.taskBinding === undefined ? undefined :
     yield* Effect.fromResult(inspectTrustedWorkflowTaskBinding(input.taskBinding))
       .pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
@@ -197,6 +206,7 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
     requestSelection: { selectedCallLimit: selectedCallLimit ?? null, selectedByteLimit: selectedByteLimit ?? null,
       selectedEventLimit: selectedEventLimit ?? null, selectedCommandMs: selectedCommandMs ?? null, executionIsolation: executionIsolation ?? null,
       ...(operationScheduling === undefined ? {} : { operationScheduling }),
+    ...(borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling }),
       ...(taskBindingSha256 === undefined ? {} : { taskBindingSha256 }),
       ...(taskControlNames === undefined ? {} : { taskControlCommands: taskControlNames }) },
     participants: capturedMembers.map(member => ({
@@ -215,7 +225,7 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
     } : null }).pipe(Effect.mapError(projectCommerceRequestFailure));
   return Object.freeze({ database, session, target, deploymentId, scopeId, application, authority, allowed,
     names: Object.freeze([...names]), capturedMembers, eventInput, policy,
-    selectedCallLimit, selectedByteLimit, selectedEventLimit, selectedCommandMs, callLimit, byteLimit, eventLimit, commandMs, executionIsolation, operationScheduling, taskBindingSha256,
+    selectedCallLimit, selectedByteLimit, selectedEventLimit, selectedCommandMs, callLimit, byteLimit, eventLimit, commandMs, executionIsolation, operationScheduling, borrowedOperationScheduling, taskBindingSha256,
     taskControlAllowed, taskControlNames: taskControlNames === undefined ? undefined : Object.freeze(taskControlNames) });
 });
 
@@ -226,7 +236,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
 ): Effect.fn.Return<PreparedAtomicCommerceConfiguration<Failure>, CommerceTransactionError> {
   const { database, session, target, deploymentId, scopeId, application, authority, allowed, names,
     capturedMembers, eventInput, policy, selectedCallLimit, selectedByteLimit, selectedEventLimit, selectedCommandMs,
-    callLimit, byteLimit, eventLimit, commandMs, executionIsolation, operationScheduling, taskBindingSha256, taskControlAllowed, taskControlNames } = captured;
+    callLimit, byteLimit, eventLimit, commandMs, executionIsolation, operationScheduling, borrowedOperationScheduling, taskBindingSha256, taskControlAllowed, taskControlNames } = captured;
   if (currentAuthority.deploymentId !== deploymentId || currentAuthority.scopeId !== scopeId)
     return yield* Effect.fail(commerceError("invalidAuthority"));
   const members = yield* prepareAtomicCommerceParticipants(database, target, capturedMembers,
@@ -282,6 +292,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     ...(selectedCommandMs === undefined ? {} : { requestCommandMs: commandMs }),
     ...(executionIsolation === undefined ? {} : { executionIsolation }),
     ...(operationScheduling === undefined ? {} : { operationScheduling }),
+    ...(borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling }),
     ...(taskBindingSha256 === undefined ? {} : { taskBindingSha256 }),
     ...(taskControlNames === undefined ? {} : { taskControlCommands: taskControlNames }),
   }, commerceLimits.commandBytes);
@@ -332,6 +343,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     owner,
     executionIsolation,
     operationScheduling,
+    borrowedOperationScheduling,
     taskBindingSha256,
     taskControlAllowed,
   };

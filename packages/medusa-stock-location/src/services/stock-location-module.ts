@@ -182,7 +182,7 @@ export default class StockLocationModuleService
     selector: FilterableStockLocationProps,
     input: UpdateStockLocationInput,
     context?: Context
-  ): Promise<StockLocationTypes.StockLocationDTO[]>
+  ): Promise<StockLocationTypes.StockLocationDTO | undefined>
 
   /**
    * Updates an existing stock location.
@@ -199,7 +199,7 @@ export default class StockLocationModuleService
     data: UpdateStockLocationInput | UpdateStockLocationInput[],
     @MedusaContext() context: Context = {}
   ): Promise<
-    StockLocationTypes.StockLocationDTO | StockLocationTypes.StockLocationDTO[]
+    StockLocationTypes.StockLocationDTO | StockLocationTypes.StockLocationDTO[] | undefined
   > {
     let normalizedInput:
       | (UpdateStockLocationInput & { id: string })[]

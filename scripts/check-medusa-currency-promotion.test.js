@@ -2,7 +2,7 @@
 import { verifyTestPort } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { admitsCurrencyImport, verifyCurrencyPromotion, verifySalesChannelTypeFork } from "./check-medusa-currency-promotion.mjs";
+import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork } from "./check-medusa-currency-promotion.mjs";
 import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
 
 const root = process.cwd();
@@ -32,6 +32,7 @@ describe("exact Currency promotion", () => {
     ["misclassified Product adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "productServiceFork" } : file) }],
     ["misclassified Notification adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "notificationServiceFork" } : file) }],
     ["misclassified Sales Channel type adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "salesChannelTypeFork" } : file) }],
+    ["misclassified Stock Location type adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "stockLocationTypeFork" } : file) }],
     ["misclassified CSV adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "csvNormalizerFork" } : file) }],
     ["misclassified schema compiler adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "schemaCompilerFork" } : file) }],
     ["unapproved transform", { ...promotion, files: promotion.files.map((file) => ({ ...file, classification: "anything" })) }],
@@ -55,15 +56,21 @@ describe("exact Currency promotion", () => {
   it.each([
     "packages/medusa-types/src/sales-channel/service.ts",
     "packages/medusa-sales-channel/src/services/sales-channel-module.ts",
-  ])("keeps Sales Channel type adaptations runtime-identical: %s", target => {
+    "packages/medusa-types/src/stock-location/common.ts",
+    "packages/medusa-types/src/stock-location/service.ts",
+    "packages/medusa-stock-location/src/services/stock-location-module.ts",
+  ])("keeps module type adaptations runtime-identical: %s", target => {
     const file = promotion.files.find(file => file.target === target);
-    if (file?.source === undefined) throw new Error("Missing pinned Sales Channel source");
+    if (file?.source === undefined) throw new Error("Missing pinned module source");
     const native = readFileSync(file.source, "utf8"), adapted = readFileSync(target, "utf8");
-    expect(() => verifySalesChannelTypeFork(native, adapted)).not.toThrow();
-    expect(() => verifySalesChannelTypeFork(native, adapted + "\nexport const changedRuntime = true;\n"))
+    expect(() => verifyModuleTypeFork(native, adapted)).not.toThrow();
+    expect(() => verifyModuleTypeFork(native, adapted + "\nexport const changedRuntime = true;\n"))
       .toThrow("changes runtime behavior");
     if (target.includes("medusa-sales-channel/"))
-      expect(() => verifySalesChannelTypeFork(native, adapted.replace("Array.isArray(data) ? result : result[0]", "result")))
+      expect(() => verifyModuleTypeFork(native, adapted.replace("Array.isArray(data) ? result : result[0]", "result")))
+        .toThrow("changes runtime behavior");
+    if (target.includes("medusa-stock-location/"))
+      expect(() => verifyModuleTypeFork(native, adapted.replace("Array.isArray(data) ? serialized : serialized[0]", "serialized")))
         .toThrow("changes runtime behavior");
   });
 

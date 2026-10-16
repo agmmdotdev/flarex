@@ -2,18 +2,18 @@ import { Cause, Context, Deferred, Effect, Exit, Fiber, Result } from "effect";
 import { TestClock } from "effect/testing";
 import { expect, it } from "vitest";
 import { makeBoundedRequestLifetime, type BoundedRequestLifetime, type RequestLimits } from "../src/execution/preparation/boundedRequestLifetime";
-import { makeAtomicCommerceOperations, type AtomicCommerceOperations } from "../src/frameworks/atomicCommerce/operations";
+import { makeCommerceOperations, type CommerceOperations } from "../src/frameworks/commerceTransaction/operations";
 import { commerceError, type CommerceTransactionError } from "../src/frameworks/commerceTransaction/model";
 import { captureCommerceJsonData } from "../src/frameworks/commerceTransaction/request";
 import { runEffect } from "./support/effectTestRuntime";
 
 const withOperations = <Value>(
-  body: (lifetime: BoundedRequestLifetime<CommerceTransactionError>, operations: AtomicCommerceOperations) => Effect.Effect<Value, CommerceTransactionError>,
+  body: (lifetime: BoundedRequestLifetime<CommerceTransactionError>, operations: CommerceOperations) => Effect.Effect<Value, CommerceTransactionError>,
   limits: Partial<RequestLimits> = {}, callLimit = 16,
 ) => Effect.gen(function* () {
   const lifetime = yield* makeBoundedRequestLifetime(commerceError,
     { calls: 128, commandBytes: 4096, commandMs: 10_000, ...limits }, {}, {}, "request", "write");
-  const operations = yield* makeAtomicCommerceOperations(lifetime, callLimit);
+  const operations = yield* makeCommerceOperations(lifetime, callLimit, lifetime.context);
   return yield* body(lifetime, operations).pipe(Effect.ensuring(operations.close.pipe(Effect.andThen(lifetime.close))));
 });
 const failure = <Value>(exit: Exit.Exit<Value, CommerceTransactionError>) => {
@@ -243,3 +243,73 @@ it("rejects an exhausted underlying call budget before another capture hook runs
   expect(lifetime.remainingBytes()).toBe(4096);
   expect(failure(yield* Effect.exit(operations.seal))).toEqual(refused);
 }), { calls: 3 }, 3)));
+
+
+it("binds a FIFO to a live borrowed manager without weakening overlapping operations", () => runEffect(withOperations((lifetime, _root) =>
+  lifetime.nested(lifetime.context, "request", child => Effect.acquireUseRelease(
+    makeCommerceOperations(lifetime, 16, child, true),
+    operations => Effect.gen(function* () {
+      const started = yield* Deferred.make<void>(), release = yield* Deferred.make<void>(), queued = Deferred.makeUnsafe<void>();
+      const trace: string[] = [];
+      const first = yield* Effect.forkChild(operations.submit(() => Result.succeed(undefined), () =>
+        lifetime.operation(child, "request", "write", Deferred.succeed(started, undefined).pipe(
+          Effect.andThen(Deferred.await(release)), Effect.andThen(Effect.sync(() => { trace.push("first"); }))))));
+      yield* Deferred.await(started);
+      const second = yield* Effect.forkChild(operations.submit(() => {
+        Deferred.doneUnsafe(queued, Effect.void); return Result.succeed(undefined);
+      }, () => lifetime.operation(child, "request", "write", Effect.sync(() => { trace.push("second"); }))));
+      yield* Deferred.await(queued); expect(trace).toEqual([]);
+      yield* Deferred.succeed(release, undefined); yield* Fiber.join(first); yield* Fiber.join(second);
+      expect(trace).toEqual(["first", "second"]); yield* operations.seal;
+    }),
+    operations => operations.close,
+  )).pipe(Effect.andThen(lifetime.seal)),
+)));
+
+it("refuses a foreign borrowed queue context before running its capture callback", () => runEffect(withOperations((lifetime, _root) => Effect.gen(function* () {
+  const foreign = yield* makeBoundedRequestLifetime(commerceError,
+    { calls: 16, commandBytes: 4096, commandMs: 10_000 }, {}, {}, "foreign", "write");
+  return yield* Effect.acquireUseRelease(makeCommerceOperations(lifetime, 16, foreign.context, true), operations => Effect.gen(function* () {
+    let prepared = false;
+    const refused = failure(yield* Effect.exit(operations.submit(() => { prepared = true; return Result.succeed(undefined); }, () => Effect.void)));
+    expect(hasReason(refused, "invalidAuthority")).toBe(true); expect(prepared).toBe(false);
+    expect(failure(yield* Effect.exit(operations.seal))).toEqual(refused);
+    // A foreign handle cannot poison the unrelated request that issued it.
+    yield* foreign.seal;
+  }), operations => operations.close.pipe(Effect.andThen(foreign.close)));
+}))));
+
+it("refuses a revoked borrowed manager before preparation after its nested owner exits", () => runEffect(withOperations((lifetime, _root) => Effect.gen(function* () {
+  let escaped: CommerceOperations | undefined;
+  yield* lifetime.nested(lifetime.context, "request", child => Effect.gen(function* () {
+    escaped = yield* makeCommerceOperations(lifetime, 16, child, true);
+  }));
+  if (escaped === undefined) throw new Error("Missing borrowed operations");
+  const operations = escaped;
+  yield* Effect.gen(function* () {
+    let prepared = false;
+    const refused = failure(yield* Effect.exit(operations.submit(() => { prepared = true; return Result.succeed(undefined); }, () => Effect.void)));
+    expect(hasReason(refused, "invalidAuthority")).toBe(true); expect(prepared).toBe(false);
+  }).pipe(Effect.ensuring(operations.close));
+}))));
+
+it("refuses a parent queue during a deeper borrowed context before preparation", () => runEffect(withOperations((lifetime, _root) =>
+  lifetime.nested(lifetime.context, "request", child => Effect.acquireUseRelease(
+    makeCommerceOperations(lifetime, 16, child, true), operations => lifetime.nested(child, "request", () => Effect.gen(function* () {
+      let prepared = false;
+      const refused = failure(yield* Effect.exit(operations.submit(() => { prepared = true; return Result.succeed(undefined); }, () => Effect.void)));
+      expect(hasReason(refused, "overlappingOperation")).toBe(true); expect(prepared).toBe(false);
+    })), operations => operations.close,
+  )),
+)));
+
+
+it("uses the root deadline when admitting work through a borrowed queue", () => runEffect(withOperations((lifetime, _root) =>
+  lifetime.nested(lifetime.context, "request", child => Effect.acquireUseRelease(
+    makeCommerceOperations(lifetime, 16, child, true), operations => Effect.gen(function* () {
+      yield* TestClock.adjust("10 millis");
+      let prepared = false;
+      const refused = failure(yield* Effect.exit(operations.submit(() => { prepared = true; return Result.succeed(undefined); }, () => Effect.void)));
+      expect(hasReason(refused, "deadlineExceeded")).toBe(true); expect(prepared).toBe(false);
+    }), operations => operations.close,
+  )), { commandMs: 10 }).pipe(Effect.provide(TestClock.layer()))));

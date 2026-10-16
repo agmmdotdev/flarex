@@ -587,7 +587,7 @@
     {
       "target": "packages/medusa-adapter/src/repository/context.ts",
       "classification": "authored",
-      "targetSha256": "07c6007b82b004d8dc8be109e417a2506a46bcd64b7807b3f1e40e2d1cb640e0"
+      "targetSha256": "8e4a8227bed54f109f081a7921d942c3e7bb7883d54d5a312510d84b9c056b48"
     },
     {
       "target": "packages/medusa-adapter/src/module/service-bridge.ts",
@@ -912,7 +912,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/host.ts",
       "classification": "authored",
-      "targetSha256": "34595899afa07f9ef9f96dbd168ebd00e6cb83ded6462eebe57b720d86a00ca5"
+      "targetSha256": "3b0dd53c7cb176683df5dcda08fe5957283b7c3fd51971c1362ebbd49ebff36d"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/module.ts",
@@ -1209,7 +1209,7 @@
     {
       "target": "packages/medusa-adapter/test/workflow-host.test.ts",
       "classification": "authored",
-      "targetSha256": "2f1dcd07f65fd6d7062356368657d6da1d4ab759b021d99024865c3fe9df154c"
+      "targetSha256": "628a956b592caf817dec49b8d0af50d79f9294ae810845ceb4a0a071f36e9e30"
     },
     {
       "target": "packages/medusa-adapter/test/workflow-query-graph.test.ts",
@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "21e015ead0aa01c2056533d3677e332a78f660edd6ad68c0220db4d19f8dc54e"
+      "targetSha256": "4858a412c0e82917fc4628366f04bc261d7257ceb5f1bb1eee80f177332f6784"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -3393,7 +3393,7 @@
     {
       "target": "packages/medusa-adapter/src/repository/scalar.ts",
       "classification": "authored",
-      "targetSha256": "e431a7a30da19e814b3a5f6cb8b7970ed8874f2f7473679f0bc2a3849e717a66"
+      "targetSha256": "a32914b71c10ae30500f9ff4cb980333335b919667d53b055c65b18036512bd3"
     },
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-profile-events.ts",
@@ -3935,8 +3935,8 @@
     },
     {
       "target": "packages/medusa-types/src/stock-location/common.ts",
-      "classification": "unchanged",
-      "targetSha256": "c668c8de870068877ab43a1f206340c7d5867f2419d72b2c42c1983400c2bfca",
+      "classification": "stockLocationTypeFork",
+      "targetSha256": "4749c32b9a201c47e1d6298ab144529d02cd81a2102033ae51d7e98c0567a4a2",
       "source": "third_party/medusa/upstream/packages/core/types/src/stock-location/common.ts",
       "sourceSha256": "c668c8de870068877ab43a1f206340c7d5867f2419d72b2c42c1983400c2bfca"
     },
@@ -5573,7 +5573,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/stock-location/service.ts",
       "classification": "authored",
-      "targetSha256": "f89d4c8b2777aff3026a213bfa54cf3086585927032e93683d89bb6f5055efc6"
+      "targetSha256": "360390bf37ef776b2989823ffe2a9398bb2939094607edbac2f5e356508a8380"
     },
     {
       "target": "packages/medusa-adapter/src/links/variant-definition.ts",
@@ -5828,10 +5828,10 @@
     },
     {
       "target": "packages/medusa-stock-location/src/services/stock-location-module.ts",
-      "classification": "importRelocation",
+      "classification": "stockLocationTypeFork",
       "source": "third_party/medusa/upstream/packages/modules/stock-location/src/services/stock-location-module.ts",
       "sourceSha256": "d2f6f18ae1ab03288943570f514b8122dffbeb3903abfd3fe23b113d6943eea5",
-      "targetSha256": "d77ef2815f79a463bc310bd113fd3ef28c05f90d9e9a5cf22fc7a53826fec747"
+      "targetSha256": "18891b0bfa79d6f1200044ebd6a047a01fb907497d460355ae4608a4611860be"
     },
     {
       "target": "packages/medusa-stock-location/src/static-manifest.ts",
@@ -5924,10 +5924,10 @@
     },
     {
       "target": "packages/medusa-types/src/stock-location/service.ts",
-      "classification": "unchanged",
+      "classification": "stockLocationTypeFork",
       "source": "third_party/medusa/upstream/packages/core/types/src/stock-location/service.ts",
       "sourceSha256": "517c425d7e9c939b227adc4310c27db4415ca0484c175f68d04eeb3999013193",
-      "targetSha256": "517c425d7e9c939b227adc4310c27db4415ca0484c175f68d04eeb3999013193"
+      "targetSha256": "f24f583bd72192b49bcf2af1e35280bf8c44d1e15af6a6d2a4bbdeaba01d3327"
     },
     {
       "target": "packages/medusa-utils/src/core-flows/events.ts",
@@ -6479,7 +6479,7 @@
     {
       "target": "packages/medusa-adapter/test/atomic-commerce-queued-operations.test.ts",
       "classification": "authored",
-      "targetSha256": "219092fe7cc65aed2b5bd2d7ddee42db587ea03e3ebf108700b27d64b2628782"
+      "targetSha256": "baa7dd836440762718084e2e76f2b199efca706ed827e69f2863d8f2fd336172"
     },
     {
       "target": "packages/medusa-adapter/test/logical-commerce-mixed-publication.test.ts",
@@ -8365,6 +8365,72 @@
       "target": "packages/medusa-store/tsconfig.json",
       "classification": "authored",
       "targetSha256": "a16960df41f800f425d7f60c2dc6092d1785d9a7ea0c553cce810544513a4b23"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/stock-location/workflows/update-stock-locations.ts",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/stock-location/workflows/update-stock-locations.ts",
+      "sourceSha256": "da07c3627ef108db80e41f53e7eefe6229fbb5bf4fb661e047538f75207419c0",
+      "targetSha256": "fdd44446ff4bf57e04e8f554d9ef88e75f35d7aaca5a85ede716bc487e42515e",
+      "classification": "workflowFork"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/stock-location/steps/update-stock-locations.ts",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/stock-location/steps/update-stock-locations.ts",
+      "sourceSha256": "45df05d3d640d174e16a402b73830a04658899aaa0522b10a6e70dd509daf0b1",
+      "targetSha256": "de29bf52c6fd4f9eac3458540b1c904ca18edacac6298716d7fa63f2383a8ea3",
+      "classification": "workflowFork"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/stock-location/steps/upsert-stock-location-addresses.ts",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/stock-location/steps/upsert-stock-location-addresses.ts",
+      "sourceSha256": "9a5e2befa4f407e172640c6752af07337f91617d97a64945c72fa12c706910bf",
+      "targetSha256": "13bfd8db52e2b17d9baf4e79bbe8071f89f68639b87a022adfa9361587e9736c",
+      "classification": "workflowFork"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/stock-location/update.ts",
+      "classification": "authored",
+      "targetSha256": "66cdfb4177db4b873053beba32ea03f56632613d01b30fb62fbcd2d00c50c287"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-stock-location-update-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "ab5e2f0c5e49cab7c9cbc173afd6a3d7c7c496202c5eca4ba8fcb8a65e053541"
+    },
+    {
+      "target": "packages/medusa-adapter/test/stock-location-update-composer.test.ts",
+      "classification": "authored",
+      "targetSha256": "6ff9d7dc9e29fc093d89aee3fb88a6df581c63c49de9ba2c21d00c5e9e3fbb46"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-stock-location-update-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "f836fd80850bef268bc45f9d8cf9733bdc17cf2b5a58de2040544aa95812b60e"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/stock-location/update-events.ts",
+      "classification": "authored",
+      "targetSha256": "12219960d1eddf3c4ebfbb61998e57a65f0eecc68de89750ccc4686326f54639"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/stock-location/update-input.ts",
+      "classification": "authored",
+      "targetSha256": "f998f1dbea34413d66db7db57d3cf0573d553230a7669adb5fa4edcdbb280ca2"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/stock-location/update-repository.ts",
+      "classification": "authored",
+      "targetSha256": "66735b6211fb58df429b94cdc74fd5f2c2ddfbb07c6580dc35ba708e183a4dfd"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/stock-location/update-service.ts",
+      "classification": "authored",
+      "targetSha256": "53749c961362ee149e2c8d6762fbf865b22922540fb9c8d22e8b2b1b6fc24bf5"
+    },
+    {
+      "target": "packages/medusa-adapter/test/stock-location-update-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "f164b1f2a263bd2e2f9614758bb77b50f1669984054f6009d80853b9eea95bbd"
     }
   ],
   "dependencies": {
@@ -8826,7 +8892,10 @@
         "./durable/product/import-products",
         "./durable/product/normalize-products-step",
         "./durable/product/batch-products",
-        "./durable/product/wait-confirmation-product-import-step"
+        "./durable/product/wait-confirmation-product-import-step",
+        "./stock-location/update-stock-locations",
+        "./stock-location/update-stock-locations-step",
+        "./stock-location/upsert-stock-location-addresses-step"
       ]
     },
     {
@@ -15159,12 +15228,12 @@
     },
     {
       "target": "packages/medusa-types/dist/stock-location/common.d.ts",
-      "targetSha256": "95f971ad6f4784267faddd1b0cc0ae2f936daf01e16bf8d68b0caae0f9a1d1b0",
+      "targetSha256": "a3784bd3940283a2e57605da5d4365ed59f4d495e2e8eef7f25f0128523da28b",
       "input": "packages/medusa-types/src/stock-location/common.ts"
     },
     {
       "target": "packages/medusa-types/dist/stock-location/common.d.ts.map",
-      "targetSha256": "f53ef8d90d584befd7d082eb7dc6f67033b314bcc72a14e64dcddc2d30b6fe6f",
+      "targetSha256": "d2301639832a80d71defb19976fbc1614ea0ac71822e17b067b5b9e1659e4510",
       "input": "packages/medusa-types/src/stock-location/common.ts"
     },
     {
@@ -16299,12 +16368,12 @@
     },
     {
       "target": "packages/medusa-stock-location/dist/services/stock-location-module.d.ts",
-      "targetSha256": "8e131d9704321a850490886e9db4594285ddc40ac2830357085c25c5f6932a35",
+      "targetSha256": "8fcf7ab68301070254de08f83b980555da445c2612c9ee47038490a0624b61f1",
       "input": "packages/medusa-stock-location/src/services/stock-location-module.ts"
     },
     {
       "target": "packages/medusa-stock-location/dist/services/stock-location-module.d.ts.map",
-      "targetSha256": "77bb5bf3b2eaf6b48637d553ca92f626c6b71c84811b865ba881f08d4bd115fb",
+      "targetSha256": "e2056cb86663156722932c58c9a1b25abec01b3737116dda9edc459bf3ac7ae6",
       "input": "packages/medusa-stock-location/src/services/stock-location-module.ts"
     },
     {
@@ -16559,12 +16628,12 @@
     },
     {
       "target": "packages/medusa-types/dist/stock-location/service.d.ts",
-      "targetSha256": "9ce2b1d12454699e13a33444eef876bc30879708cb50ffddde862811b7a62cdd",
+      "targetSha256": "e17ab8f09e0e0ca3d9bd4a44fe793ef1f5df5eca9933cf6c9598f55e364e2933",
       "input": "packages/medusa-types/src/stock-location/service.ts"
     },
     {
       "target": "packages/medusa-types/dist/stock-location/service.d.ts.map",
-      "targetSha256": "e57dd535a878749f065753167d40950881d8c76307c8c8b44afdb5ae0666ee49",
+      "targetSha256": "16397b32bdd2874d4d3203e11aaa478ecc10e9e0dbca5160d4317733eafb3461",
       "input": "packages/medusa-types/src/stock-location/service.ts"
     },
     {

@@ -9,6 +9,8 @@ const promotion = verifyCurrencyPromotion(root);
 const admitted = new Set(promotion.files.map((file) => path.resolve(root, file.target).replaceAll("\\", "/")));
 const inputs = new Set();
 for (const entry of [
+  "packages/medusa-core-flows/src/stock-location/workflows/update-stock-locations.ts",
+  "packages/medusa-adapter/src/workflows/stock-location/update.ts",
   "packages/medusa-core-flows/src/durable/product/workflows/import-products.ts",
   "packages/medusa-core-flows/src/sales-channel/workflows/create-sales-channels.ts",
   "packages/medusa-adapter/src/workflows/sales-channel/create.ts",

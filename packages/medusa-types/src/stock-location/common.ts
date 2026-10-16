@@ -432,7 +432,7 @@ export type UpdateStockLocationInput = {
   /**
    * The associated address's details.
    */
-  address?: StockLocationAddressInput
+  address?: Partial<StockLocationAddressInput>
 
   /**
    * Holds custom data in key-value pairs.
@@ -453,7 +453,7 @@ export type UpsertStockLocationInput = Partial<UpdateStockLocationInput> & {
   id?: string
 }
 
-export type UpdateStockLocationAddressInput = StockLocationAddressInput & {
+export type UpdateStockLocationAddressInput = Partial<StockLocationAddressInput> & {
   id: string
 }
 
@@ -461,7 +461,7 @@ export type UpdateStockLocationAddressInput = StockLocationAddressInput & {
  * The stock location address to create or update. If the `id` property isn't provided,
  * the stock location address is created. In that case, the `address_1` property is required.
  */
-export type UpsertStockLocationAddressInput = StockLocationAddressInput & {
+export type UpsertStockLocationAddressInput = Partial<StockLocationAddressInput> & {
   /**
    * The ID of the stock location address, if updating.
    */

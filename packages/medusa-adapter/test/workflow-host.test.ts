@@ -51,6 +51,27 @@ function logicalComposition(logical: WorkflowLogicalPolicy) {
 }
 
 describe("workflow registration and scoped resource composition", () => {
+  it("keeps borrowed-operation scheduling explicit in composition and workflow identity", async () => {
+    const { options } = logicalComposition({ commands: [command],
+      capture: value => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void });
+    const rootOnly = await Effect.runPromise(prepareWorkflowComposition({ ...options, operationScheduling: "queued" }));
+    const borrowed = await Effect.runPromise(prepareWorkflowComposition({ ...options,
+      operationScheduling: "queued", borrowedOperationScheduling: "queued" }));
+    expect(Object.hasOwn(rootOnly.composition, "borrowedOperationScheduling")).toBe(false);
+    expect(borrowed.composition.borrowedOperationScheduling).toBe("queued");
+    expect(borrowed.composition.identityAndAccessPolicy).not.toEqual(rootOnly.composition.identityAndAccessPolicy);
+  });
+
+  it("refuses borrowed scheduling without the outer queue and unsupported scheduling values", async () => {
+    const { options } = logicalComposition({ commands: [command],
+      capture: value => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void });
+    await expect(Effect.runPromise(prepareWorkflowComposition({ ...options, borrowedOperationScheduling: "queued" })))
+      .rejects.toMatchObject({ reason: "unsupportedProfile" });
+    // @ts-expect-error Deliberate unsupported policy at the trusted runtime boundary.
+    await expect(Effect.runPromise(prepareWorkflowComposition({ ...options, operationScheduling: "queued", borrowedOperationScheduling: "parallel" })))
+      .rejects.toMatchObject({ reason: "unsupportedProfile" });
+  });
+
   it("admits authenticated native methods without exposing a query graph", async () => {
     const graphless = Result.getOrThrow(defineWorkflowModule({ name: "method_only", source,
       methods: { echo: method }, graph: { aliases: [], reads: [] } }));

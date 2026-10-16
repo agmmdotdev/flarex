@@ -10,6 +10,12 @@ implemented with one shared lifetime and settlement. The separate private
 extends that ownership to Product and Currency installations. Broader measured validation
 and additional composition profiles remain open.
 
+[Borrowed Commerce operation scheduling](./73-borrowed-commerce-operation-scheduling.md)
+adds an explicit identity-bound FIFO inside admitted commands and child borrows.
+The existing root queue, strict lifetime overlap checks and single settlement
+owner retain their roles; the native mixed Address workflow owns its consumer
+admission.
+
 The authorized [transactional storage redesign](./07-transactional-storage-redesign.md)
 starts with shared Application fact batching and native latest-receipt upserts.
 Those statement reductions and the dedicated commit-keyed wake are implemented

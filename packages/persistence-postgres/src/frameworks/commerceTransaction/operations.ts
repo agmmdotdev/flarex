@@ -1,8 +1,8 @@
 import { Cause, Deferred, Effect, Exit, Fiber, Queue, Result, Scope } from "effect";
-import type { BoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
-import { commerceError, type CommerceTransactionError } from "../commerceTransaction/model";
+import type { BoundedRequestContext, BoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
+import { commerceError, type CommerceTransactionError } from "./model";
 
-export interface AtomicCommerceOperations {
+export interface CommerceOperations {
   /** Capture and charge owned inputs before waiting. The complete work callback,
    * including its participant lifetime and receipt, holds one FIFO position. */
   readonly submit: <Prepared, Value>(prepare: () => Result.Result<Prepared, CommerceTransactionError>,
@@ -18,11 +18,12 @@ interface Job {
   readonly reject: (cause: Cause.Cause<CommerceTransactionError>) => Effect.Effect<void>;
 }
 
-/** Explicit atomic-root profile only. This owner neither weakens low-level
- * overlap checks nor acquires a transaction, database clock or settlement. */
-export const makeAtomicCommerceOperations = Effect.fn("AtomicCommerce.makeOperations")(function* (
+/** Trusted bounded FIFO. The owner selects an authenticated context and retains
+ * every low-level overlap check; no database or settlement authority is added. */
+export const makeCommerceOperations = Effect.fn("Commerce.makeOperations")(function* (
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, callLimit: number,
-): Effect.fn.Return<AtomicCommerceOperations, CommerceTransactionError> {
+  context: BoundedRequestContext, checkAdmission = false,
+): Effect.fn.Return<CommerceOperations, CommerceTransactionError> {
   if (!Number.isSafeInteger(callLimit) || callLimit < 1) return yield* Effect.fail(commerceError("invalidInput"));
   const queue = yield* Queue.bounded<Job>(callLimit);
   const scope = yield* Scope.make();
@@ -52,17 +53,18 @@ export const makeAtomicCommerceOperations = Effect.fn("AtomicCommerce.makeOperat
     return rejectPending(firstCause ?? Cause.fail(commerceError("closed")));
   }))), scope);
 
-  const submit: AtomicCommerceOperations["submit"] = <Prepared, Value>(
+  const submit: CommerceOperations["submit"] = <Prepared, Value>(
     prepare: () => Result.Result<Prepared, CommerceTransactionError>,
     work: (prepared: Prepared) => Effect.Effect<Value, CommerceTransactionError>,
   ) => Effect.uninterruptibleMask(restore => {
     let finished = false;
-    // withinDeadline checks phase/time without inspecting the active borrowed
-    // participant context. A queued root cannot checkpoint that child context.
+    // Root jobs may be admitted while their participant child is active. A
+    // borrowed queue instead requires its exact manager at admission, so a
+    // parent cannot submit work while a deeper borrow owns the context.
     const admit = Effect.suspend(() => {
       if (firstCause !== undefined) return Effect.failCause(firstCause);
       if (phase !== "open") return Effect.fail(commerceError("closed"));
-      return lifetime.withinDeadline(Effect.suspend(() => {
+      return lifetime.withinDeadline((checkAdmission ? lifetime.checkpoint(context) : Effect.void).pipe(Effect.andThen(Effect.suspend(() => {
         if (firstCause !== undefined) return Effect.failCause(firstCause);
         if (phase !== "open") return Effect.fail(commerceError("closed"));
         if (accepted >= callLimit || lifetime.usedCalls() >= callLimit) return Effect.fail(commerceError("limitExceeded"));
@@ -75,7 +77,7 @@ export const makeAtomicCommerceOperations = Effect.fn("AtomicCommerce.makeOperat
             yield* Deferred.done(reply, exit);
           });
           const job: Job = {
-            run: lifetime.withinDeadline(lifetime.checkpoint(lifetime.context).pipe(
+            run: lifetime.withinDeadline(lifetime.checkpoint(context).pipe(
               Effect.andThen(() => work(prepared)),
             )).pipe(Effect.onExit(complete), Effect.asVoid),
             reject: cause => complete(Exit.failCause(cause)),
@@ -84,10 +86,10 @@ export const makeAtomicCommerceOperations = Effect.fn("AtomicCommerce.makeOperat
           pending.add(job);
           // Total accepted jobs never exceed queue capacity, including the
           // active job. This offer is synchronous and cannot suspend admission.
-          if (!Queue.offerUnsafe(queue, job)) throw new Error("Atomic operation queue rejected an admitted job");
+          if (!Queue.offerUnsafe(queue, job)) throw new Error("Commerce operation queue rejected an admitted job");
           return reply;
         }));
-      }));
+      }))));
     });
     return admit.pipe(Effect.flatMap(reply => restore(Deferred.await(reply))),
       Effect.onExit(exit => Exit.isFailure(exit) && !finished && phase !== "closed" ? abort(exit.cause) : Effect.void));
@@ -97,7 +99,7 @@ export const makeAtomicCommerceOperations = Effect.fn("AtomicCommerce.makeOperat
     if (pending.size !== 0) latch(Cause.fail(commerceError("overlappingOperation")));
     if (firstCause !== undefined) return Effect.failCause(firstCause);
     phase = "sealed";
-    return lifetime.checkpoint(lifetime.context).pipe(Effect.onExit(exit => {
+    return lifetime.checkpoint(context).pipe(Effect.onExit(exit => {
       if (Exit.isFailure(exit)) latch(exit.cause);
       return Effect.void;
     }));

@@ -115,13 +115,13 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
         // Native internal services mutate entity metadata before writing. Keep
         // captured storage/projection evidence private and give DAL callers
         // detached mutable entities after the complete read is validated.
-        find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, find(ctx, input, false)).pipe(Effect.map(value => structuredClone(value.rows)))),
-        findAndCount: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-          const value = yield* find(ctx, input, true);
+        find: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, find(ctx, captured, false)).pipe(Effect.map(value => structuredClone(value.rows)))),
+        findAndCount: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
+          const value = yield* find(ctx, captured, true);
           if (value.count === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));
           return [structuredClone(value.rows), value.count] satisfies [JsonObject[], number];
         }))),
-        create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createRows(ctx, input, shared))),
+        create: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, createRows(ctx, captured, shared))),
         update: refuse, delete: refuse,
         upsert: refuse, upsertWithReplace: refuse, softDelete: refuse, restore: refuse,
       };

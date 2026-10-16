@@ -21,7 +21,7 @@ import {
   requireLogicalRelationalAdmission,
 } from "../../storage/documents/logicalDocuments/relationalAdmission";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
-import { makeCommerceCommandContext } from "../commerceTransaction/context";
+import { withCommerceCommandContext } from "../commerceTransaction/context";
 import { getCommerceCommand, type CommerceCommand } from "../commerceTransaction/commands";
 import { finalizeCommerceCommit } from "../commerceTransaction/publication";
 import type { AtomicCommerceContext } from "./commands";
@@ -31,7 +31,7 @@ import {
   type CommerceEventClosure,
 } from "./events";
 import type { PreparedAtomicCommerceConfiguration } from "./configuration";
-import { makeAtomicCommerceOperations, type AtomicCommerceOperations } from "./operations";
+import { makeCommerceOperations, type CommerceOperations } from "../commerceTransaction/operations";
 import { capturePrivateJsonData } from "../../values/privateJsonData";
 import { commitEventLimits } from "../../commit/events/model";
 import type { AtomicCommerceAdmission } from "./admission";
@@ -49,7 +49,7 @@ import {
 
 type ExecutionConfiguration = Pick<
   PreparedAtomicCommerceConfiguration<never>,
-  "members" | "eventPolicy" | "limits" | "eventLimit" | "factLimit" | "owner" | "executionIsolation" | "operationScheduling" | "scopeId"
+  "members" | "eventPolicy" | "limits" | "eventLimit" | "factLimit" | "owner" | "executionIsolation" | "operationScheduling" | "borrowedOperationScheduling" | "scopeId"
 >;
 
 const scopeExclusions = new WeakMap<AtomicCommerceContext, Effect.Effect<void, CommerceTransactionError>>();
@@ -83,6 +83,7 @@ function makeParticipantInvocation(
   lifetime: BoundedRequestLifetime<CommerceTransactionError>,
   id: string,
   eventCapture: ReturnType<typeof makeAtomicEventCapture> | undefined,
+  borrowedCallLimit: number | undefined,
 ) {
   const events: Json[] = [];
   const invoke = Effect.fnUntraced(function* (
@@ -100,7 +101,8 @@ function makeParticipantInvocation(
       yield* Effect.fromResult(lifetime.charge(captured.bytes));
       value = captured;
     }
-    const commandContext = makeCommerceCommandContext(
+    const input = value.value;
+    const output = yield* withCommerceCommandContext(
       lifetime,
       working,
       id,
@@ -118,8 +120,9 @@ function makeParticipantInvocation(
             events.push(yield* eventCapture.captureSelected(member.events, event));
           }),
         ),
+      borrowedCallLimit,
+      context => operation.run(context, input),
     );
-    const output = yield* operation.run(commandContext, value.value);
     const result = yield* Effect.fromResult(
       captureCommerceJsonData(output, lifetime.remainingBytes()),
     );
@@ -142,7 +145,7 @@ function makeAtomicCommerceExecution(
   lifetime: BoundedRequestLifetime<CommerceTransactionError>,
   id: string,
   key: CapturedAtomicCommerceRequest["key"],
-  operations: AtomicCommerceOperations | undefined,
+  operations: CommerceOperations | undefined,
 ): AtomicCommerceExecution {
   const { members, eventPolicy, factLimit } = configuration;
   const eventCapture =
@@ -206,7 +209,8 @@ function makeAtomicCommerceExecution(
             const fromLifecycle = admission.kind === "logical" && "lifecycleCount" in working ? working.lifecycleCount() : undefined;
             const cursor = member.kind === "logical" && (member.validateLogicalCall !== undefined || member.allowReferenceReplacement === true) && "activityCursor" in working
               ? working.activityCursor() : undefined;
-            const { invoke, events } = makeParticipantInvocation(member, working, lifetime, id, eventCapture);
+            const { invoke, events } = makeParticipantInvocation(member, working, lifetime, id, eventCapture,
+              configuration.borrowedOperationScheduling === "queued" ? configuration.limits.calls : undefined);
             const call: Pick<AtomicCommerceCallObservation, "input" | "result"> = yield* invoke(child, command, inputArgs, capturedInput);
             if (cursor !== undefined && "callActivity" in working) {
               const activity = yield* working.callActivity(cursor);
@@ -386,7 +390,7 @@ export const executeAtomicCommerceRequest = Effect.fnUntraced(function* (
   );
   return yield* Effect.acquireUseRelease(
     configuration.operationScheduling === "queued"
-      ? makeAtomicCommerceOperations(lifetime, configuration.limits.calls) : Effect.succeed(undefined),
+      ? makeCommerceOperations(lifetime, configuration.limits.calls, lifetime.context) : Effect.succeed(undefined),
     operations => Effect.gen(function* () {
     const execution = makeAtomicCommerceExecution(
       configuration,

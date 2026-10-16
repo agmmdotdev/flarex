@@ -2,7 +2,7 @@
 
 ## Status And Authority
 
-Status: preflight complete; implementation pending after Sales Channel deletion.
+Status: implemented private bounded update profile.
 Chunked File import and Product export remain deferred. Authority is the accepted
 Flarex design, package boundaries, Medusa adoption roadmap and Medusa 2.13.4
 pinned at `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`. The source island remains
@@ -30,16 +30,24 @@ The workflow always runs the Address list/upsert step, including empty arrays.
 
 The composer strips both `address` and `address_id` before the Location update.
 It discards the upsert result and never attaches newly created Address IDs.
-Consequently an addressless target creates a standalone Address. This is
-source-inferred until the native composer witness executes; preserve the pinned
-business algorithm and characterize it explicitly. Attaching new Addresses
-would be a separately scoped Medusa business correction.
+Consequently an addressless target creates a standalone Address. Native composer
+and connected witnesses characterize this behavior without changing the pinned
+business algorithm. Attaching new Addresses would be a separately scoped Medusa
+business correction.
 
 The genuine service updates all selector matches but returns `serialized[0]`,
 despite the native array return annotation. Zero matches succeed with undefined;
 the composer does not dereference that result. Reuse the existing private
 optional-service transport from record 111 and the existing completed-undefined
 to public-null boundary. Do not synthesize an array or missing-row failure.
+
+The promoted module interface, service annotations and workflow declare the
+actual scalar-or-undefined result. Address update/upsert declarations permit
+partial patches while the creation input remains strict. The named Stock
+Location type-only source category admits exactly the module service and its
+two native type files; the shared emitted-JavaScript guard also retains the
+existing Sales Channel checks. These declaration corrections change no native
+runtime algorithm.
 
 No workflow EventBus, hook, Link, Inventory, Store, Locking, File, Region, provider
 or remote effect belongs to this closure. Genuine module events still require
@@ -65,13 +73,13 @@ for an empty root update. Address-only input becomes such a root update after
 stripping. Preserve Location `updated_at` and the absence of its update event.
 Preserve native ordered metadata merging across selector matches.
 
-## Implementation Plan And Owners
+## Connected Owners
 
 1. Promote the composer and two steps only. Reuse the existing portable query
    step and helper imports, add narrow package exports and exact provenance.
-   If needed, correct the selector return declaration to scalar-or-undefined
-   through the existing type-only, emitted-JS-equality guard pattern. Resolve
-   missing framework types narrowly; do not change the create ABI.
+   Selector return declarations express scalar-or-undefined through the existing
+   type-only, emitted-JS-equality guard. Narrow namespace/query type imports
+   close the portable type graph; the create ABI is unchanged.
 2. Add a named Stock Location update-workflow profile with real
    `listStockLocations`, `listStockLocationAddresses`,
    `upsertStockLocationAddresses` and `updateStockLocations` bindings. Preserve
@@ -96,23 +104,29 @@ Preserve native ordered metadata merging across selector matches.
    settlement, serializer or optional-result mechanism is needed.
 
 Both tables and their FK already exist. No source lineage change, durable reset
-or schema migration is implied. If a connected witness fails in a shared owner,
-retain the witness and correct that owner under the existing authorization.
+or schema migration is implied. The mixed native Address upsert witness reaches
+`overlappingOperation` inside one command despite root queuing. The correct-owner
+[borrowed scheduling extension](../../shared-transaction-core/73-borrowed-commerce-operation-scheduling.md)
+adds a separate identity-bound selection for DAL work, with a FIFO per command
+and child borrow. The generic repository bridge captures native input before
+waiting and consumes that capability; it does not add an adapter queue. Existing
+profiles, low-level overlap checks and resource ceilings remain unchanged.
 
-## Proposed Bounded Admission
+## Admitted Bounded Profile
 
 Admit zero to four actual matched Locations and four touched Addresses. ID/name
 selectors may be scalars or arrays of up to four, supported combinations or an
 empty selector. A fifth match must fail before writes. Refuse operators, `q`,
 unknown and managed fields outside this profile.
 
-Admit name, nullable metadata and native Address patches. Admit `address_id` only
+Admit name, nullable metadata and native Address patches. `address_id` is admitted
 with explicit ignored-input coverage, preserving the composer's stripping
 behavior. Nested caller-supplied Address IDs remain refused: native spread would
 override the selected ID and needs separate admission. Partial Address keys use
 their DML nullability; creation validates the complete new row in its actual
-branch. Keep current call/event/byte/catalog/identity/working-set limits pending
-the connected maximum-graph proof; do not infer that static tracing proves fit.
+branch. Current call/event/byte/catalog/identity/working-set limits remain.
+Maximum attached and mixed Address graphs exercise four Locations and four
+Addresses, including native creation and update branches under the same root.
 
 ## Compensation And Verification Gates
 

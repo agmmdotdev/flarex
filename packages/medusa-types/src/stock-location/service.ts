@@ -287,7 +287,7 @@ export interface IStockLocationService extends IModuleService {
     selector: FilterableStockLocationProps,
     input: UpdateStockLocationInput,
     context?: Context
-  ): Promise<StockLocationDTO[]>
+  ): Promise<StockLocationDTO | undefined>
 
   /**
    * This method deletes a stock location by its ID.

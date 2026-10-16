@@ -21,7 +21,7 @@ import type { PreparedCommitEventEligibility } from "@flarex/persistence-postgre
 const decodeOperationScheduling = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("queued")));
 const decodeLogicalPublication = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal("mixed")));
 
-export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestCallLimit" | "requestByteLimit" | "requestEventLimit" | "executionIsolation" | "operationScheduling" | "taskControlCommands">;
+export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestCallLimit" | "requestByteLimit" | "requestEventLimit" | "executionIsolation" | "operationScheduling" | "borrowedOperationScheduling" | "taskControlCommands">;
 /** The trusted database host closes its own database/session/authority inputs.
  * Only preparation data crosses this portable adapter boundary. */
 export interface AtomicWorkflowExecution<Host extends AtomicCommerceHost = AtomicCommerceHost> {
@@ -99,10 +99,15 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
   readonly requestByteLimit?: number;
   readonly requestEventLimit?: number;
   readonly operationScheduling?: "queued";
+  readonly borrowedOperationScheduling?: "queued";
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   const operationScheduling = yield* decodeOperationScheduling(options.operationScheduling)
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const borrowedOperationScheduling = yield* decodeOperationScheduling(options.borrowedOperationScheduling)
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  if (borrowedOperationScheduling !== undefined && operationScheduling !== "queued")
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
   const policy = yield* Effect.fromResult(captureWorkflowPolicy(options.identityAndAccessPolicy));
   const workflow = yield* Effect.fromResult(captureWorkflowRecord(options.workflow));
   if (!isPreparedWorkflow(workflow.prepared)) return yield* Effect.fail(commerceError("invalidAuthority"));
@@ -259,10 +264,12 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
     revision: options.revision, definition: workflow.prepared.identity, resources: identities, events: [...names],
     ...(composedIdentities.length ? { composedResources: composedIdentities } : {}),
     ...(operationScheduling === undefined ? {} : { operationScheduling }),
+    ...(borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling }),
     ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
   } }));
   const composition = { participants, commands: [command], identityAndAccessPolicy: identity,
     ...(operationScheduling === undefined ? {} : { operationScheduling }),
+    ...(borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling }),
     ...(scopeExclusive ? { executionIsolation: "scopeExclusive" as const } : {}),
     ...(requestEventLimit === undefined ? {} : { requestEventLimit }),
     ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
@@ -284,6 +291,7 @@ interface WorkflowHostInput<Resources, Input extends Json, Output extends Json, 
   readonly requestByteLimit?: number;
   readonly requestEventLimit?: number;
   readonly operationScheduling?: "queued";
+  readonly borrowedOperationScheduling?: "queued";
 }
 const prepareBoundWorkflowHost = Effect.fn("Workflow.prepareBoundHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json, Host extends AtomicCommerceHost>(input: WorkflowHostInput<Resources, Input, Output, EncodedInput, Host>) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
@@ -296,6 +304,7 @@ const prepareBoundWorkflowHost = Effect.fn("Workflow.prepareBoundHost")(function
     ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
     ...(options.requestEventLimit === undefined ? {} : { requestEventLimit: options.requestEventLimit }),
     ...(options.operationScheduling === undefined ? {} : { operationScheduling: options.operationScheduling }),
+    ...(options.borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling: options.borrowedOperationScheduling }),
   });
   const host = yield* execution.prepare(prepared.composition);
   return { host, prepared };

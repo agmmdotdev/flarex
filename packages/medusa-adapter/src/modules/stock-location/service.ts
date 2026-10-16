@@ -1,3 +1,4 @@
+import { makeStockLocationUpdateCommands } from "./update-service";
 import { deniedCommerceRepository } from "../../repository/denied";
 import { Effect, Result, Schema } from "effect";
 import { StockLocation, StockLocationAddress } from "@medusajs/stock-location/models";
@@ -24,7 +25,7 @@ import { StockLocationInput, StockLocationsInput, StockLocationsOutput } from ".
 import { stockLocationCreateEventPolicy } from "./events";
 
 /** Existing ID reads and the separately selected native creation admission. */
-export const makeStockLocationCommands = Effect.fn("StockLocationAdapter.commands")(function* (admission: "read" | "create" = "read") {
+const makeBasicStockLocationCommands = Effect.fn("StockLocationAdapter.commands")(function* (admission: "read" | "create" = "read") {
   const metadata = yield* captureStockLocationMetadata();
   const policy = stockLocationCreateEventPolicy();
   return yield* Effect.fromResult(Result.gen(function* () {
@@ -79,3 +80,9 @@ export const makeStockLocationCommands = Effect.fn("StockLocationAdapter.command
     return { count, create, commands: [count, create], workflow, graph, withService: module.use };
   }));
 });
+
+export function makeStockLocationCommands(admission: "update"): ReturnType<typeof makeStockLocationUpdateCommands>;
+export function makeStockLocationCommands(admission?: "read" | "create"): ReturnType<typeof makeBasicStockLocationCommands>;
+export function makeStockLocationCommands(admission: "read" | "create" | "update" = "read") {
+  return admission === "update" ? makeStockLocationUpdateCommands() : makeBasicStockLocationCommands(admission);
+}

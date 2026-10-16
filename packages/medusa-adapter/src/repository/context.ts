@@ -2,6 +2,8 @@ import { Effect, Result } from "effect";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommercePromiseOwner } from "../module/promise-owner";
+import { captureCommerceInput } from "../value/input";
+import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
 const projectFailure = (cause: unknown) => cause instanceof CommerceTransactionError ? cause : commerceError("adapterFailure", cause);
 export function commerceRepositoryContext(root: CommerceCommandContext, owner: CommercePromiseOwner) {
   const contexts = new Map<unknown, CommerceCommandContext>([[root.manager, root]]);
@@ -29,9 +31,19 @@ export function commerceRepositoryContext(root: CommerceCommandContext, owner: C
       const ctx = yield* select(shared);
       return yield* work(ctx);
     }));
+  /** The core owns the optional FIFO and its lifetime. Native undefined
+   * omission stays at this value boundary; core captures and charges the
+   * resulting JSON before any queued waiting. Default profiles stay immediate. */
+  const executeInput = <Value>(shared: unknown, input: unknown,
+    work: (ctx: CommerceCommandContext, captured: unknown) => Effect.Effect<Value, CommerceTransactionError>): Promise<Value> =>
+    owner.run(Effect.gen(function* () {
+      const ctx = yield* select(shared);
+      return yield* (ctx.enqueue === undefined ? work(ctx, input)
+        : ctx.enqueue(() => captureCommerceInput(input, ctx.resources), (captured: Json) => work(ctx, captured)));
+    }));
   const checked = <Value>(ctx: CommerceCommandContext, value: Effect.Effect<Value, CommerceTransactionError>) =>
     value.pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-  return { execute, checked, select, current: () => active,
+  return { execute, executeInput, checked, select, current: () => active,
     // SAFETY: Medusa declares caller-selected manager types; the returned opaque
     // token is authenticated again on every DAL call and nested entry.
     getFreshManager: <Manager>() => root.manager as Manager,
