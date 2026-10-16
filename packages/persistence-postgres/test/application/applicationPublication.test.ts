@@ -23,7 +23,7 @@ import {
   applicationRuntimeTargetFromPublication,
   makeApplicationPublicationRepository,
 } from "../../src/application/applicationPublication";
-import { createPGlitePersistence } from "../../src/database/pglite";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { runEffect } from "../support/effectTestRuntime";
 import {
   insertSessionTestScope,
@@ -41,14 +41,15 @@ const AUTHORITY: ApplicationAnalysisAuthority = Object.freeze({
   epoch: ScopeEpochSchema.make(`epoch_${SESSION_TEST_EPOCH_UUID}`),
 });
 
-beforeAll(() => {
+beforeAll(async () => {
   if (globalThis.crypto === undefined) {
     Object.defineProperty(globalThis, "crypto", {
       configurable: true,
       value: webcrypto,
     });
   }
-});
+  await migratedPGliteDataDir();
+}, 120_000);
 
 describe("Application publication generation", () => {
   it("publishes one manifest-derived catalog, replays exactly, and makes one target", async () => {
@@ -200,8 +201,7 @@ interface FunctionOverrides {
 }
 
 async function publicationFixture(functionOverrides?: FunctionOverrides) {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
+  const persistence = await createMigratedPGlitePersistence();
   await insertSessionTestScope(persistence);
   const identities = [
     "10000000-0000-4000-8000-000000000001",

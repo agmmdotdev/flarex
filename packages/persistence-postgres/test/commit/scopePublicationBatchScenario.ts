@@ -35,7 +35,6 @@ import {
   TransactionRequestKeyV1Schema,
   TransactionIdentityAccessPolicySha256V1Schema,
   TransactionRequestSha256V1Schema,
-  TransactionAuthorizationRevocationEpochSchema,
 } from "flarex-protocol/transaction-session";
 import {
   writeScopePublicationPrefix,
@@ -53,7 +52,6 @@ import {
   getScopeClock,
   lockScopeClockForUpdateInTransactionEffect,
   lockScopeClockForSnapshotReadInTransactionEffect,
-  openExactAttemptScopeClockObservation,
   closeExactAttemptScopeClockObservation,
 } from "../../src/scope/scopeClock";
 import {
@@ -362,13 +360,10 @@ export async function createScopePublicationFixture(
         if (candidate === "core") {
           try {
             await writeScopePublicationPrefix(tx, command, kernel, selectedOptions);
-            openExactAttemptScopeClockObservation(tx, record, TransactionAuthorizationRevocationEpochSchema.make(0n), "attempt");
-            try {
-              await runEffect(advanceScopePublicationClock(tx, command, kernel, selectedOptions));
-              const refreshed = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
-              expect(refreshed.lastCommitSeq).toBe(commitSeq);
-              expect(refreshed.updatedAt).toEqual(publicationTime);
-            } finally { closeExactAttemptScopeClockObservation(tx); }
+            await runEffect(advanceScopePublicationClock(tx, command, kernel, selectedOptions));
+            const refreshed = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
+            expect(refreshed.lastCommitSeq).toBe(commitSeq);
+            expect(refreshed.updatedAt).toEqual(publicationTime);
           } catch (cause) {
             if (controls.catchCorruption === undefined || !(cause instanceof ScopePublicationCorruptionError)) throw cause;
             expect(cause.reason).toBe(controls.catchCorruption);
@@ -399,7 +394,10 @@ export async function createScopePublicationFixture(
         controls.afterPublication?.();
         if (controls.failBeforeCommit)
           throw new Error("Deliberate publication rollback");
-      } finally { closeInstallationAdmission(tx); }
+      } finally {
+        closeExactAttemptScopeClockObservation(tx);
+        closeInstallationAdmission(tx);
+      }
     });
     return { work, parameters, steps: () => steps };
   };

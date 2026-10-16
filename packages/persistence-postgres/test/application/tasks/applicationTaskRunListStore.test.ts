@@ -120,7 +120,7 @@ describe("DTE07 located Application Task-run list store - PGlite", () => {
     });
   });
 
-  it("maps stale authority and malformed compact state to typed failures", async () => {
+  it("maps stale scope authority to a typed failure", async () => {
     await withFixture(async fixture => {
       await createRuns(fixture, [RUN_UUID_A]);
       const store = makeApplicationTaskRunListStore(fixture.located);
@@ -141,7 +141,9 @@ describe("DTE07 located Application Task-run list store - PGlite", () => {
         reason: "stale_scope_authority",
       });
     });
+  });
 
+  it("maps malformed compact state to a typed failure", async () => {
     await withFixture(async fixture => {
       await createRuns(fixture, [RUN_UUID_A]);
       await fixture.persistence.drizzle.update(fxSystemDurableTaskRunsV1).set({
@@ -166,7 +168,9 @@ describe("DTE07 located Application Task-run list store - PGlite", () => {
         reason: "corrupt_data",
       });
     });
+  });
 
+  it("maps an unsupported aggregate codec to a typed failure", async () => {
     await withFixture(async fixture => {
       await createRuns(fixture, [RUN_UUID_A]);
       await fixture.persistence.drizzle.update(fxSystemDurableTaskRunsV1).set({

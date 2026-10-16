@@ -1739,7 +1739,7 @@ async function expectPostgresArtifactOptimisticReconstructionDeadline():
           if (backendPid === undefined) {
             throw new Error("Expected an optimistic read backend PID.");
           }
-          await waitForPostgresBackendIdle(inspector, backendPid);
+          await waitForPostgresBackendState(inspector, backendPid, "idle");
           return backendPid;
         },
         30_000,
@@ -1763,9 +1763,10 @@ async function expectPostgresArtifactOptimisticReconstructionDeadline():
       expect(readBackendPids).toHaveLength(2);
       expect(new Set(readBackendPids).size).toBe(1);
       expect(observedPool.removedBackendPids()).toEqual([]);
-      await waitForPostgresBackendIdle(
+      await waitForPostgresBackendState(
         inspector,
         observed.observation,
+        "idle",
       );
       expect(await countArtifactRows(persistence, artifact)).toBe(1);
       expect(await countDependencyRows(persistence, artifact)).toBe(0);
@@ -1870,7 +1871,7 @@ async function expectPostgresArtifactPostResolutionReconstructionDeadline():
                   "Expected a post-resolution read backend PID.",
                 );
               }
-              await waitForPostgresBackendIdle(inspector, backendPid);
+              await waitForPostgresBackendState(inspector, backendPid, "idle in transaction");
               return backendPid;
             },
             30_000,
@@ -2356,9 +2357,10 @@ function cryptoHangingAtDigest(onDigest: () => void): object {
   });
 }
 
-async function waitForPostgresBackendIdle(
+async function waitForPostgresBackendState(
   inspector: PoolClient,
   backendPid: number,
+  expectedState: "idle" | "idle in transaction",
 ): Promise<void> {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
@@ -2367,11 +2369,11 @@ async function waitForPostgresBackendIdle(
       from pg_stat_activity
       where pid = $1
     `, [backendPid]);
-    if (result.rows[0]?.state === "idle") return;
+    if (result.rows[0]?.state === expectedState) return;
     await delay(25);
   }
   throw new Error(
-    `Timed out waiting for PostgreSQL backend ${backendPid} to become idle.`,
+    `Timed out waiting for PostgreSQL backend ${backendPid} to become ${expectedState}.`,
   );
 }
 

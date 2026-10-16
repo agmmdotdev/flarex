@@ -28,7 +28,8 @@ import {
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 
 import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
@@ -38,7 +39,6 @@ import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../../../src/
 import { fxSystemScopeClocks } from "../../../src/database/schema";
 import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
-  createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
@@ -128,12 +128,14 @@ interface PreparedReplacementAttemptV1 {
 
 describe("O08-A exact-attempt replacement", () => {
   let persistence: PGliteFlarexPersistence;
+  let closeFixture: (() => Promise<void>) | undefined;
   let uuidCounter = 1;
 
   beforeAll(async () => {
-    persistence = await createPGlitePersistence();
-    await persistence.migrate();
-  });
+    persistence = await createMigratedPGlitePersistence(cleanup => { closeFixture = cleanup; });
+  }, 120_000);
+
+  afterAll(async () => { await closeFixture?.(); });
 
   it("reproduces the conflict and atomically installs one pristine attempt", async () => {
     const current = await prepareAttempt("replace", true);

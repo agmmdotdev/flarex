@@ -26,7 +26,8 @@ import { TransactionGrantDeploymentIdV1Schema } from
   "flarex-protocol/transaction-grant";
 import { TransactionRequestKeyV1Schema } from
   "flarex-protocol/transaction-session";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 
 import {
   publishApplicationRelationBindingEffect,
@@ -40,7 +41,6 @@ import {
 } from "../../../src/application/relations/applicationRelationCommit";
 import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
-  createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
@@ -160,6 +160,7 @@ interface PrepareRelationAttemptOptions {
 
 describe("C09 point-commit relation maintenance", () => {
   let persistence: PGliteFlarexPersistence;
+  let closeFixture: (() => Promise<void>) | undefined;
   let uuidCounter = 1;
   let publicationCounter = 1;
 
@@ -170,9 +171,10 @@ describe("C09 point-commit relation maintenance", () => {
         value: webcrypto,
       });
     }
-    persistence = await createPGlitePersistence();
-    await persistence.migrate();
-  });
+    persistence = await createMigratedPGlitePersistence(cleanup => { closeFixture = cleanup; });
+  }, 120_000);
+
+  afterAll(async () => { await closeFixture?.(); });
 
   it("publishes same-commit source and target rows with one authenticated edge", async () => {
     const scope = await createRelationScope("same_commit");

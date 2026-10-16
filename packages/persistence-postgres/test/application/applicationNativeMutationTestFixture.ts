@@ -145,7 +145,6 @@ import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGliteLocatedScopeAuthorizationEpochTarget,
   createPGliteLocatedSplitScopeClockTarget,
-  createPGlitePersistence,
   createPGliteSplitScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../../src/database/pglite";
@@ -407,11 +406,10 @@ export async function createApplicationNativeMutationPGliteFixture(
       value: webcrypto,
     });
   }
-  const [control, target] = await Promise.all([
-    createPGlitePersistence(),
-    createPGlitePersistence(),
-  ]);
-  await Promise.all([control.migrate(), target.migrate()]);
+  // Keep Vitest fixture registration out of native and caller-owned lanes.
+  const { createMigratedPGlitePersistence } = await import("../support/pgliteTestFixture");
+  const control = await createMigratedPGlitePersistence();
+  const target = await createMigratedPGlitePersistence();
   return createApplicationNativeMutationFixture(options, {
     control,
     target,

@@ -28,23 +28,24 @@ import { createPGlitePersistence } from "../../src/database/pglite";
 import { deployments, fxControlApplicationSchemaAuthoritiesV1, fxControlSchemaVersions } from "../../src/database/schema";
 import { runEffect } from "../support/effectTestRuntime";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
 
-beforeAll(() => {
+beforeAll(async () => {
   if (globalThis.crypto === undefined) {
     Object.defineProperty(globalThis, "crypto", {
       configurable: true,
       value: webcrypto,
     });
   }
-});
+  await migratedPGliteDataDir();
+}, 120_000);
 
 describe("Application schema authority", () => {
   it("returns the published schema with detached original stored evidence", async () => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     const deploymentId = "deployment_application_schema_original_evidence";
     try {
       const persistence = await createPGlitePersistence({ db });
-      await persistence.migrate();
       await insertDeployment(persistence, deploymentId);
       const publisher = makeApplicationSchemaAuthorityPublisher({
         db: persistence.drizzle,
@@ -89,7 +90,7 @@ describe("Application schema authority", () => {
   });
 
   it("binds analyzer-local ordinals to stable catalog identities and replays", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_application_schema_authority";
     await insertDeployment(persistence, deploymentId);
     await persistence.publishAppSchemaV1({
@@ -143,7 +144,7 @@ describe("Application schema authority", () => {
   });
 
   it("rejects an analyzed table outside the existing object-document schema", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_application_schema_invalid";
     await insertDeployment(persistence, deploymentId);
     const publisher = makeApplicationSchemaAuthorityPublisher({
@@ -168,7 +169,7 @@ describe("Application schema authority", () => {
   });
 
   it("rejects a publication result relabeled from another artifact identity", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_application_schema_forged_artifact";
     await insertDeployment(persistence, deploymentId);
     const repository: AppSchemaPublicationV1Repository = {
@@ -201,7 +202,7 @@ describe("Application schema authority", () => {
   });
 
   it("rejects publication artifact manifest evidence that does not correlate", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_application_schema_forged_manifest";
     await insertDeployment(persistence, deploymentId);
     const repository: AppSchemaPublicationV1Repository = {
@@ -234,7 +235,7 @@ describe("Application schema authority", () => {
   });
 
   it("keeps a rejected reservation-selection query in the typed error channel", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_application_schema_selection_failure";
     await insertDeployment(persistence, deploymentId);
     const cause = Object.assign(new Error("selection query failed"), {
@@ -267,7 +268,7 @@ describe("Application schema authority", () => {
   });
 
   it("keeps a rejected in-gate query in the typed error channel", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_application_schema_gate_failure";
     await insertDeployment(persistence, deploymentId);
     const cause = Object.assign(new Error("gate query failed"), {
@@ -317,7 +318,7 @@ describe("Application schema authority", () => {
   });
 
   it("identifies read-only authority failures separately from publication", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const publisher = makeApplicationSchemaAuthorityPublisher({
       db: persistence.drizzle,
       runTransaction: run => persistence.drizzle.transaction(run),
@@ -339,7 +340,7 @@ describe("Application schema authority", () => {
   });
 
   it("repairs a reserved version occupied by the retained publisher", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_application_schema_stranded";
     await insertDeployment(persistence, deploymentId);
     await persistence.publishAppSchemaV1({
@@ -415,12 +416,6 @@ function isPublicationResult(value: unknown): value is {
 }
 
 type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
-
-async function migratedPersistence(): Promise<PGlitePersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  return persistence;
-}
 
 async function insertDeployment(
   persistence: PGlitePersistence,

@@ -20,6 +20,7 @@ import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import { postgresUrl, withTemporaryPostgresPersistence } from "../../support/postgresHelpers";
 import { runEffect } from "../../support/effectTestRuntime";
 import { newTestPGlite } from "../../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 
 const drivers = postgresUrl === null ? ["pglite" as const] : ["pglite" as const, "postgres" as const];
 
@@ -146,10 +147,10 @@ async function inspect(database: FlarexMetadataDatabase) {
 describe.each(drivers)("compact native writer readiness on %s", driver => {
   it("retains full source coverage, phase ordering, exact refusal and writer lifetime", async () => {
     if (driver === "postgres") return withTemporaryPostgresPersistence(persistence => inspect(persistence.drizzle));
-    const client = newTestPGlite();
+    const client = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     try {
       const persistence = await createPGlitePersistence({ db: client });
-      await persistence.migrate(); await inspect(persistence.drizzle);
+      await inspect(persistence.drizzle);
     } finally { await client.close(); }
   }, 180_000);
 });
@@ -404,10 +405,10 @@ async function inspectProgress(database: FlarexMetadataDatabase, driver: "pglite
 describe.each(drivers)("compact native full-progress readiness on %s", driver => {
   it("preserves separate clock cuts, complete availability and eager defect versus ordered typed refusal", async () => {
     if (driver === "postgres") return withTemporaryPostgresPersistence(persistence => inspectProgress(persistence.drizzle, driver, persistence.pool));
-    const client = newTestPGlite();
+    const client = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     try {
       const persistence = await createPGlitePersistence({ db: client });
-      await persistence.migrate(); await inspectProgress(persistence.drizzle, driver);
+      await inspectProgress(persistence.drizzle, driver);
     } finally { await client.close(); }
   }, 180_000);
 });

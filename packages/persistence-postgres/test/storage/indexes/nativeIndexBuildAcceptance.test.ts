@@ -13,6 +13,7 @@ import { prepareSelectedIndexBuildLockAcceptance } from "../../../src/storage/in
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import { postgresUrl, withTemporaryPostgresPersistence } from "../../support/postgresHelpers";
 import { newTestPGlite } from "../../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 
 const drivers = postgresUrl === null ? ["pglite" as const] : ["pglite" as const, "postgres" as const];
 
@@ -117,10 +118,10 @@ async function inspect(database: FlarexMetadataDatabase) {
 describe.each(drivers)("compact native settlement build acceptance on %s", driver => {
   it("returns one small success and retains the original ordered native corruption/refusal", async () => {
     if (driver === "postgres") return withTemporaryPostgresPersistence(persistence => inspect(persistence.drizzle));
-    const client = newTestPGlite();
+    const client = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     try {
       const persistence = await createPGlitePersistence({ db: client });
-      await persistence.migrate(); await inspect(persistence.drizzle);
+      await inspect(persistence.drizzle);
     }
     finally { await client.close(); }
   }, 180_000);

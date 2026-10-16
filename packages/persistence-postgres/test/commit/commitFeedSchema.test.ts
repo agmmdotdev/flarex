@@ -5,10 +5,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import type { FlarexPersistence } from "../../src";
 import { createPGlitePersistence } from "../../src/database/pglite";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { writeJournalThrough } from "../support/migrationFixtureSupport";
 
 const SCOPE_A = "81000000-0000-0000-0000-000000000001";
@@ -22,6 +23,8 @@ const EPOCH_C = "82000000-0000-0000-0000-000000000002";
 const POSTGRES_SIGNED_BIGINT_MAX = "9223372036854775807";
 
 type SqlPersistence = Pick<FlarexPersistence, "query">;
+
+beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
 
 describe("S08 commit/change-feed schema", () => {
   it("installs the additive inventory idempotently and keeps legacy storage intact", async () => {
@@ -328,8 +331,7 @@ describe("S08 commit/change-feed schema", () => {
   });
 
   it("enforces floor, header, child identity, and signed-bigint bounds", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await insertScope(persistence, SCOPE_A, EPOCH_A, "10");
 
     for (const statement of [
@@ -534,8 +536,7 @@ describe("S08 commit/change-feed schema", () => {
   });
 
   it("physically binds each change to one header and the same-epoch row revision", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await insertScope(persistence, SCOPE_A, EPOCH_B, "4");
     await insertRevision(persistence, {
       scopeUuid: SCOPE_A,

@@ -28,7 +28,7 @@ import {
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import { TransactionGrantDeploymentIdV1Schema } from
   "flarex-protocol/transaction-grant";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   publishApplicationRelationBindingEffect,
@@ -47,15 +47,16 @@ import {
   type ApplicationRelationRowTransition,
   type LocatedApplicationRelationDefinitionSet,
 } from "../../../src/application/relations/applicationRelationCommit";
-import { createPGlitePersistence } from "../../../src/database/pglite";
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 import type {
   PointMutationSessionAuthorityResolutionPortsV1,
 } from "../../../src/execution/session/constructionContracts";
 import { runEffect } from "../../support/effectTestRuntime";
 
-type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
+type PGlitePersistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
 let persistence: PGlitePersistence;
+let closeFixture: (() => Promise<void>) | undefined;
 let sequence = 0;
 
 beforeAll(async () => {
@@ -65,9 +66,10 @@ beforeAll(async () => {
       value: webcrypto,
     });
   }
-  persistence = await createPGlitePersistence();
-  await persistence.migrate();
-});
+  persistence = await createMigratedPGlitePersistence(cleanup => { closeFixture = cleanup; });
+}, 120_000);
+
+afterAll(async () => { await closeFixture?.(); });
 
 describe("C09 application relation commit lowering", () => {
   it("lowers a same-commit live target without a stored-target check", async () => {

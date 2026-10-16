@@ -1,7 +1,8 @@
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { newTestPGlite } from "../../support/pgliteSearchExtensions";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import { Cause, Deferred, Effect, Exit, Fiber, Result } from "effect";
 import {
+  beforeAll,
   afterEach,
   describe,
   expect,
@@ -31,10 +32,7 @@ import {
 } from "../../../src/installation/frameworkSchema/artifact/repository";
 import { getFrameworkSchemaArtifactEffect } from
   "../../../src/installation/frameworkSchema/artifact/read";
-import {
-  createPGlitePersistence,
-  type PGliteFlarexPersistence,
-} from "../../../src/database/pglite";
+import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   makePGliteFrameworkSchemaArtifactAdmissionFixture,
@@ -43,6 +41,8 @@ import {
   ARTIFACT_TABLE,
   DEPENDENCY_TABLE,
 } from "./frameworkSchemaArtifactStorageTestSupport";
+
+beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -100,682 +100,657 @@ describe("private framework schema artifact admission", () => {
     }
     expect(preparedReads).toBe(0);
 
-    await withPGlitePersistence(async persistence => {
-      const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
-        persistence,
-      );
-      const forgedPrepared = Object.freeze({}) as
-        PreparedFrameworkSchemaArtifactAdmission;
-      const error = await runEffectFailure(
-        admitFrameworkSchemaArtifactEffect(
-          fixture.repository,
-          forgedPrepared,
-        ),
-      );
-      expect(error).toMatchObject({
-        operation: "admit",
-        reason: "invalidInput",
-        message: "Framework schema artifact admission input is invalid",
-        retryable: false,
-      });
-      expect(fixture.events).toEqual([]);
+    const persistence = await createMigratedPGlitePersistence();
+    const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+      persistence,
+    );
+    const forgedPrepared = Object.freeze({}) as
+      PreparedFrameworkSchemaArtifactAdmission;
+    const error = await runEffectFailure(
+      admitFrameworkSchemaArtifactEffect(
+        fixture.repository,
+        forgedPrepared,
+      ),
+    );
+    expect(error).toMatchObject({
+      operation: "admit",
+      reason: "invalidInput",
+      message: "Framework schema artifact admission input is invalid",
+      retryable: false,
     });
+    expect(fixture.events).toEqual([]);
   }, 120_000);
 
   it("creates, takes the optimistic exact-replay path, and retains lineage history", async () => {
-    await withPGlitePersistence(async persistence => {
-      await insertDeployment(persistence);
-      const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
-        persistence,
-      );
-      const artifact = await captureArtifact();
+    const persistence = await createMigratedPGlitePersistence();
+    await insertDeployment(persistence);
+    const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+      persistence,
+    );
+    const artifact = await captureArtifact();
 
-      const created = await admitArtifact(fixture.repository, artifact);
-      expect(created).toEqual({ status: "created", artifact });
-      expect(created.artifact).toBe(artifact);
-      expect(Object.isFrozen(created)).toBe(true);
-      expect(await countArtifacts(persistence, artifact)).toBe(1);
+    const created = await admitArtifact(fixture.repository, artifact);
+    expect(created).toEqual({ status: "created", artifact });
+    expect(created.artifact).toBe(artifact);
+    expect(Object.isFrozen(created)).toBe(true);
+    expect(await countArtifacts(persistence, artifact)).toBe(1);
 
-      const transactionCount = fixture.events.filter(event =>
-        event === "initial:begin"
-      ).length;
-      const existing = await admitArtifact(fixture.repository, artifact);
-      expect(existing.status).toBe("existing");
-      expect(existing.artifact).toEqual(artifact);
-      expect(fixture.events.filter(event =>
-        event === "initial:begin"
-      )).toHaveLength(transactionCount);
-      expect(await countArtifacts(persistence, artifact)).toBe(1);
+    const transactionCount = fixture.events.filter(event =>
+      event === "initial:begin"
+    ).length;
+    const existing = await admitArtifact(fixture.repository, artifact);
+    expect(existing.status).toBe("existing");
+    expect(existing.artifact).toEqual(artifact);
+    expect(fixture.events.filter(event =>
+      event === "initial:begin"
+    )).toHaveLength(transactionCount);
+    expect(await countArtifacts(persistence, artifact)).toBe(1);
 
-      const next = await captureArtifact({
-        payload: { tables: ["posts", "authors"] },
-      });
-      expect(next.identity.lineageId).toBe(artifact.identity.lineageId);
-      expect(next.identity.artifactSha256).not.toBe(
-        artifact.identity.artifactSha256,
-      );
-      expect((await admitArtifact(fixture.repository, next)).status)
-        .toBe("created");
-      expect(await countLineageArtifacts(persistence, artifact)).toBe(2);
+    const next = await captureArtifact({
+      payload: { tables: ["posts", "authors"] },
     });
+    expect(next.identity.lineageId).toBe(artifact.identity.lineageId);
+    expect(next.identity.artifactSha256).not.toBe(
+      artifact.identity.artifactSha256,
+    );
+    expect((await admitArtifact(fixture.repository, next)).status)
+      .toBe("created");
+    expect(await countLineageArtifacts(persistence, artifact)).toBe(2);
   }, 120_000);
 
   it("returns exact missing-deployment and missing-dependency diagnostics without writes", async () => {
-    await withPGlitePersistence(async persistence => {
-      const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
-        persistence,
-      );
-      const artifact = await captureArtifact();
-      const deploymentError = await runEffectFailure(
+    const persistence = await createMigratedPGlitePersistence();
+    const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+      persistence,
+    );
+    const artifact = await captureArtifact();
+    const deploymentError = await runEffectFailure(
+      admitFrameworkSchemaArtifactEffect(
+        fixture.repository,
+        prepareOrThrow(artifact),
+      ),
+    );
+    expect(deploymentError).toMatchObject({
+      operation: "admit",
+      reason: "deploymentMissing",
+      message: "Framework schema artifact deployment is missing",
+      retryable: false,
+      deploymentId: artifact.identity.deploymentId,
+    });
+    expect(Object.hasOwn(deploymentError, "identity")).toBe(false);
+    expect(Object.hasOwn(deploymentError, "cause")).toBe(false);
+
+    await insertDeployment(persistence);
+    for (const missingOrdinal of [0, 1, 2]) {
+      const dependencies = await Promise.all([0, 1, 2].map(index =>
+        captureArtifact({
+          lineageId: `lineage-missing-${missingOrdinal}-${index}`,
+          payload: { table: `dependency-${missingOrdinal}-${index}` },
+        })
+      ));
+      for (let ordinal = 0; ordinal < dependencies.length; ordinal += 1) {
+        if (ordinal !== missingOrdinal) {
+          await admitArtifact(
+            fixture.repository,
+            requireArtifactAt(dependencies, ordinal),
+          );
+        }
+      }
+      const parent = await captureArtifact({
+        lineageId: `lineage-parent-missing-${missingOrdinal}`,
+        dependencies: dependencies.map(dependency => dependency.identity),
+      });
+
+      const dependencyError = await runEffectFailure(
         admitFrameworkSchemaArtifactEffect(
           fixture.repository,
-          prepareOrThrow(artifact),
+          prepareOrThrow(parent),
         ),
       );
-      expect(deploymentError).toMatchObject({
+      expect(dependencyError).toMatchObject({
         operation: "admit",
-        reason: "deploymentMissing",
-        message: "Framework schema artifact deployment is missing",
+        reason: "dependencyMissing",
+        message: "Framework schema artifact dependency is missing",
         retryable: false,
-        deploymentId: artifact.identity.deploymentId,
-      });
-      expect(Object.hasOwn(deploymentError, "identity")).toBe(false);
-      expect(Object.hasOwn(deploymentError, "cause")).toBe(false);
-
-      await insertDeployment(persistence);
-      for (const missingOrdinal of [0, 1, 2]) {
-        const dependencies = await Promise.all([0, 1, 2].map(index =>
-          captureArtifact({
-            lineageId: `lineage-missing-${missingOrdinal}-${index}`,
-            payload: { table: `dependency-${missingOrdinal}-${index}` },
-          })
-        ));
-        for (let ordinal = 0; ordinal < dependencies.length; ordinal += 1) {
-          if (ordinal !== missingOrdinal) {
-            await admitArtifact(
-              fixture.repository,
-              requireArtifactAt(dependencies, ordinal),
-            );
-          }
-        }
-        const parent = await captureArtifact({
-          lineageId: `lineage-parent-missing-${missingOrdinal}`,
-          dependencies: dependencies.map(dependency => dependency.identity),
-        });
-
-        const dependencyError = await runEffectFailure(
-          admitFrameworkSchemaArtifactEffect(
-            fixture.repository,
-            prepareOrThrow(parent),
-          ),
-        );
-        expect(dependencyError).toMatchObject({
-          operation: "admit",
-          reason: "dependencyMissing",
-          message: "Framework schema artifact dependency is missing",
-          retryable: false,
-          identity: parent.identity,
-          dependencyIdentity:
-            requireArtifactAt(dependencies, missingOrdinal).identity,
-          dependencyOrdinal: missingOrdinal,
-        });
-        expect(dependencyError.identity).not.toBe(parent.identity);
-        expect(dependencyError.dependencyIdentity).not.toBe(
+        identity: parent.identity,
+        dependencyIdentity:
           requireArtifactAt(dependencies, missingOrdinal).identity,
-        );
-        expect(Object.isFrozen(dependencyError.identity)).toBe(true);
-        expect(Object.isFrozen(dependencyError.dependencyIdentity)).toBe(true);
-        expect(Object.hasOwn(dependencyError, "cause")).toBe(false);
-        expect(await countArtifacts(persistence, parent)).toBe(0);
-      }
-    });
+        dependencyOrdinal: missingOrdinal,
+      });
+      expect(dependencyError.identity).not.toBe(parent.identity);
+      expect(dependencyError.dependencyIdentity).not.toBe(
+        requireArtifactAt(dependencies, missingOrdinal).identity,
+      );
+      expect(Object.isFrozen(dependencyError.identity)).toBe(true);
+      expect(Object.isFrozen(dependencyError.dependencyIdentity)).toBe(true);
+      expect(Object.hasOwn(dependencyError, "cause")).toBe(false);
+      expect(await countArtifacts(persistence, parent)).toBe(0);
+    }
   }, 120_000);
 
   it("inserts dependency edges atomically in canonical ordinal order", async () => {
-    await withPGlitePersistence(async persistence => {
-      await insertDeployment(persistence);
-      const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
-        persistence,
-      );
-      const dependencies = await Promise.all([0, 1, 2].map(index =>
-        captureArtifact({
-          lineageId: `lineage-dependency-${index}`,
-          payload: { table: `dependency-${index}` },
-        })
-      ));
-      for (const dependency of dependencies) {
-        expect((await admitArtifact(fixture.repository, dependency)).status)
-          .toBe("created");
-      }
-      const parent = await captureArtifact({
-        dependencies: [
-          requireArtifactAt(dependencies, 2).identity,
-          requireArtifactAt(dependencies, 0).identity,
-          requireArtifactAt(dependencies, 1).identity,
-        ],
-      });
-
-      expect((await admitArtifact(fixture.repository, parent)).status)
+    const persistence = await createMigratedPGlitePersistence();
+    await insertDeployment(persistence);
+    const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+      persistence,
+    );
+    const dependencies = await Promise.all([0, 1, 2].map(index =>
+      captureArtifact({
+        lineageId: `lineage-dependency-${index}`,
+        payload: { table: `dependency-${index}` },
+      })
+    ));
+    for (const dependency of dependencies) {
+      expect((await admitArtifact(fixture.repository, dependency)).status)
         .toBe("created");
-      const rows = await persistence.query<{
-        ordinal: number;
-        lineage_id: string;
-      }>(`
-        select d.dependency_ordinal as ordinal,
-               target.lineage_id
-        from ${DEPENDENCY_TABLE} as d
-        join ${ARTIFACT_TABLE} as target
-          on target.artifact_storage_id = d.dependency_storage_id
-        join ${ARTIFACT_TABLE} as parent
-          on parent.artifact_storage_id = d.artifact_storage_id
-        where parent.artifact_sha256 = decode($1, 'hex')
-        order by d.dependency_ordinal asc
-      `, [parent.identity.artifactSha256]);
-      expect(rows.rows).toEqual(parent.dependencies.map(
-        (dependency, ordinal) => ({
-          ordinal,
-          lineage_id: dependency.lineageId,
-        }),
-      ));
-
-      const existing = await admitArtifact(fixture.repository, parent);
-      expect(existing.status).toBe("existing");
-      expect(existing.artifact).toEqual(parent);
+    }
+    const parent = await captureArtifact({
+      dependencies: [
+        requireArtifactAt(dependencies, 2).identity,
+        requireArtifactAt(dependencies, 0).identity,
+        requireArtifactAt(dependencies, 1).identity,
+      ],
     });
+
+    expect((await admitArtifact(fixture.repository, parent)).status)
+      .toBe("created");
+    const rows = await persistence.query<{
+      ordinal: number;
+      lineage_id: string;
+    }>(`
+      select d.dependency_ordinal as ordinal,
+             target.lineage_id
+      from ${DEPENDENCY_TABLE} as d
+      join ${ARTIFACT_TABLE} as target
+        on target.artifact_storage_id = d.dependency_storage_id
+      join ${ARTIFACT_TABLE} as parent
+        on parent.artifact_storage_id = d.artifact_storage_id
+      where parent.artifact_sha256 = decode($1, 'hex')
+      order by d.dependency_ordinal asc
+    `, [parent.identity.artifactSha256]);
+    expect(rows.rows).toEqual(parent.dependencies.map(
+      (dependency, ordinal) => ({
+        ordinal,
+        lineage_id: dependency.lineageId,
+      }),
+    ));
+
+    const existing = await admitArtifact(fixture.repository, parent);
+    expect(existing.status).toBe("existing");
+    expect(existing.artifact).toEqual(parent);
   }, 120_000);
 
   it("rejects constraint-valid raw ordinal reordering in exact replay and point read", async () => {
-    await withPGlitePersistence(async persistence => {
-      await insertDeployment(persistence);
-      const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
-        persistence,
-      );
-      const dependencies = await Promise.all([0, 1].map(index =>
-        captureArtifact({
-          lineageId: `lineage-reordered-dependency-${index}`,
-          payload: { table: `reordered-dependency-${index}` },
-        })
-      ));
-      for (const dependency of dependencies) {
-        await admitArtifact(fixture.repository, dependency);
-      }
-      const parent = await captureArtifact({
-        lineageId: "lineage-reordered-parent",
-        dependencies: dependencies.map(dependency => dependency.identity),
-      });
-      await admitArtifact(fixture.repository, parent);
-      const parentStorageId = await requireArtifactStorageId(
-        persistence,
-        parent,
-      );
-
-      await persistence.query(`
-        update ${DEPENDENCY_TABLE}
-        set dependency_ordinal = 2
-        where artifact_storage_id = $1 and dependency_ordinal = 0
-      `, [parentStorageId]);
-      await persistence.query(`
-        update ${DEPENDENCY_TABLE}
-        set dependency_ordinal = 0
-        where artifact_storage_id = $1 and dependency_ordinal = 1
-      `, [parentStorageId]);
-      await persistence.query(`
-        update ${DEPENDENCY_TABLE}
-        set dependency_ordinal = 1
-        where artifact_storage_id = $1 and dependency_ordinal = 2
-      `, [parentStorageId]);
-
-      const reordered = await persistence.query<{
-        ordinal: number;
-        lineage_id: string;
-      }>(`
-        select edge.dependency_ordinal as ordinal, target.lineage_id
-        from ${DEPENDENCY_TABLE} as edge
-        join ${ARTIFACT_TABLE} as target
-          on target.artifact_storage_id = edge.dependency_storage_id
-        where edge.artifact_storage_id = $1
-        order by edge.dependency_ordinal asc
-      `, [parentStorageId]);
-      expect(reordered.rows).toEqual([
-        {
-          ordinal: 0,
-          lineage_id: requireArtifactAt(dependencies, 1).identity.lineageId,
-        },
-        {
-          ordinal: 1,
-          lineage_id: requireArtifactAt(dependencies, 0).identity.lineageId,
-        },
-      ]);
-
-      const replayError = await runEffectFailure(
-        admitFrameworkSchemaArtifactEffect(
-          fixture.repository,
-          prepareOrThrow(parent),
-        ),
-      );
-      expect(replayError).toMatchObject({
-        operation: "admit",
-        reason: "storedStateCorrupt",
-        storedStage: "dependencyRows",
-        identity: parent.identity,
-      });
-      expect(Object.hasOwn(replayError, "stage")).toBe(false);
-      expect(Object.hasOwn(replayError, "cause")).toBe(false);
-
-      const readError = await runEffectFailure(
-        getFrameworkSchemaArtifactEffect(
-          fixture.repository,
-          parent.identity,
-        ),
-      );
-      expect(readError).toMatchObject({
-        operation: "read",
-        reason: "storedStateCorrupt",
-        storedStage: "dependencyRows",
-        identity: parent.identity,
-      });
-      expect(Object.hasOwn(readError, "stage")).toBe(false);
-      expect(Object.hasOwn(readError, "cause")).toBe(false);
+    const persistence = await createMigratedPGlitePersistence();
+    await insertDeployment(persistence);
+    const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+      persistence,
+    );
+    const dependencies = await Promise.all([0, 1].map(index =>
+      captureArtifact({
+        lineageId: `lineage-reordered-dependency-${index}`,
+        payload: { table: `reordered-dependency-${index}` },
+      })
+    ));
+    for (const dependency of dependencies) {
+      await admitArtifact(fixture.repository, dependency);
+    }
+    const parent = await captureArtifact({
+      lineageId: "lineage-reordered-parent",
+      dependencies: dependencies.map(dependency => dependency.identity),
     });
+    await admitArtifact(fixture.repository, parent);
+    const parentStorageId = await requireArtifactStorageId(
+      persistence,
+      parent,
+    );
+
+    await persistence.query(`
+      update ${DEPENDENCY_TABLE}
+      set dependency_ordinal = 2
+      where artifact_storage_id = $1 and dependency_ordinal = 0
+    `, [parentStorageId]);
+    await persistence.query(`
+      update ${DEPENDENCY_TABLE}
+      set dependency_ordinal = 0
+      where artifact_storage_id = $1 and dependency_ordinal = 1
+    `, [parentStorageId]);
+    await persistence.query(`
+      update ${DEPENDENCY_TABLE}
+      set dependency_ordinal = 1
+      where artifact_storage_id = $1 and dependency_ordinal = 2
+    `, [parentStorageId]);
+
+    const reordered = await persistence.query<{
+      ordinal: number;
+      lineage_id: string;
+    }>(`
+      select edge.dependency_ordinal as ordinal, target.lineage_id
+      from ${DEPENDENCY_TABLE} as edge
+      join ${ARTIFACT_TABLE} as target
+        on target.artifact_storage_id = edge.dependency_storage_id
+      where edge.artifact_storage_id = $1
+      order by edge.dependency_ordinal asc
+    `, [parentStorageId]);
+    expect(reordered.rows).toEqual([
+      {
+        ordinal: 0,
+        lineage_id: requireArtifactAt(dependencies, 1).identity.lineageId,
+      },
+      {
+        ordinal: 1,
+        lineage_id: requireArtifactAt(dependencies, 0).identity.lineageId,
+      },
+    ]);
+
+    const replayError = await runEffectFailure(
+      admitFrameworkSchemaArtifactEffect(
+        fixture.repository,
+        prepareOrThrow(parent),
+      ),
+    );
+    expect(replayError).toMatchObject({
+      operation: "admit",
+      reason: "storedStateCorrupt",
+      storedStage: "dependencyRows",
+      identity: parent.identity,
+    });
+    expect(Object.hasOwn(replayError, "stage")).toBe(false);
+    expect(Object.hasOwn(replayError, "cause")).toBe(false);
+
+    const readError = await runEffectFailure(
+      getFrameworkSchemaArtifactEffect(
+        fixture.repository,
+        parent.identity,
+      ),
+    );
+    expect(readError).toMatchObject({
+      operation: "read",
+      reason: "storedStateCorrupt",
+      storedStage: "dependencyRows",
+      identity: parent.identity,
+    });
+    expect(Object.hasOwn(readError, "stage")).toBe(false);
+    expect(Object.hasOwn(readError, "cause")).toBe(false);
   }, 120_000);
 
   it("admits and exactly replays the 256-dependency boundary", async () => {
-    await withPGlitePersistence(async persistence => {
-      await insertDeployment(persistence);
-      const dependencies = await Promise.all(
-        Array.from({ length: 256 }, (_, index) => captureArtifact({
-          lineageId: `lineage-boundary-${String(index).padStart(3, "0")}`,
-          payload: { table: `dependency-${index}` },
-        })),
-      );
-      for (const dependency of dependencies) {
-        await insertCapturedArtifact(persistence, dependency);
-      }
-      const parent = await captureArtifact({
-        lineageId: "lineage-boundary-parent",
-        dependencies: dependencies.map(dependency => dependency.identity),
-      });
-      const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
-        persistence,
-      );
-
-      expect((await admitArtifact(fixture.repository, parent)).status)
-        .toBe("created");
-      const edgeCount = await persistence.query<{ count: string }>(`
-        select count(*)::text as count
-        from ${DEPENDENCY_TABLE} as dependency
-        join ${ARTIFACT_TABLE} as parent
-          on parent.artifact_storage_id = dependency.artifact_storage_id
-        where parent.artifact_sha256 = decode($1, 'hex')
-      `, [parent.identity.artifactSha256]);
-      expect(edgeCount.rows[0]?.count).toBe("256");
-
-      const existing = await admitArtifact(fixture.repository, parent);
-      expect(existing.status).toBe("existing");
-      expect(existing.artifact).toEqual(parent);
+    const persistence = await createMigratedPGlitePersistence();
+    await insertDeployment(persistence);
+    const dependencies = await Promise.all(
+      Array.from({ length: 256 }, (_, index) => captureArtifact({
+        lineageId: `lineage-boundary-${String(index).padStart(3, "0")}`,
+        payload: { table: `dependency-${index}` },
+      })),
+    );
+    for (const dependency of dependencies) {
+      await insertCapturedArtifact(persistence, dependency);
+    }
+    const parent = await captureArtifact({
+      lineageId: "lineage-boundary-parent",
+      dependencies: dependencies.map(dependency => dependency.identity),
     });
+    const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+      persistence,
+    );
+
+    expect((await admitArtifact(fixture.repository, parent)).status)
+      .toBe("created");
+    const edgeCount = await persistence.query<{ count: string }>(`
+      select count(*)::text as count
+      from ${DEPENDENCY_TABLE} as dependency
+      join ${ARTIFACT_TABLE} as parent
+        on parent.artifact_storage_id = dependency.artifact_storage_id
+      where parent.artifact_sha256 = decode($1, 'hex')
+    `, [parent.identity.artifactSha256]);
+    expect(edgeCount.rows[0]?.count).toBe("256");
+
+    const existing = await admitArtifact(fixture.repository, parent);
+    expect(existing.status).toBe("existing");
+    expect(existing.artifact).toEqual(parent);
   }, 120_000);
 
   it("classifies only fully reconstructed evidence as collision or corruption", async () => {
-    await withPGlitePersistence(async persistence => {
-      await insertDeployment(persistence);
-      const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
-        persistence,
-      );
-      const stored = await captureArtifact();
-      const storedEvidence = requireCapturedEvidence(stored);
-      await insertCapturedArtifact(persistence, stored);
-      vi.stubGlobal("crypto", cryptoReturning(storedEvidence.artifactSha256Bytes));
-      const colliding = await captureArtifact({
-        payload: { tables: ["different-but-same-digest"] },
-      });
-      expect(colliding.identity).toEqual(stored.identity);
-
-      const collision = await runEffectFailure(
-        admitFrameworkSchemaArtifactEffect(
-          fixture.repository,
-          prepareOrThrow(colliding),
-        ),
-      );
-      expect(collision).toMatchObject({
-        operation: "admit",
-        reason: "digestCollision",
-        message: "Framework schema artifact digest collision",
-        retryable: false,
-        identity: stored.identity,
-      });
-      expect(collision.identity).not.toBe(stored.identity);
-      expect(Object.hasOwn(collision, "cause")).toBe(false);
-
-      vi.unstubAllGlobals();
-      await persistence.query(`
-        alter table ${ARTIFACT_TABLE}
-          drop constraint fx_framework_artifact_frame_check
-      `);
-      await persistence.query(`
-        update ${ARTIFACT_TABLE}
-        set canonical_byte_length = 1,
-            canonical_bytes = decode('ff', 'hex')
-      `);
-      const corruption = await runEffectFailure(
-        admitFrameworkSchemaArtifactEffect(
-          fixture.repository,
-          prepareOrThrow(stored),
-        ),
-      );
-      expect(corruption).toMatchObject({
-        operation: "admit",
-        reason: "storedStateCorrupt",
-        message: "Stored framework schema artifact state is corrupt",
-        retryable: false,
-        identity: stored.identity,
-        storedStage: "canonicalFrame",
-      });
-      expect(Object.hasOwn(corruption, "cause")).toBe(false);
+    const persistence = await createMigratedPGlitePersistence();
+    await insertDeployment(persistence);
+    const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+      persistence,
+    );
+    const stored = await captureArtifact();
+    const storedEvidence = requireCapturedEvidence(stored);
+    await insertCapturedArtifact(persistence, stored);
+    vi.stubGlobal("crypto", cryptoReturning(storedEvidence.artifactSha256Bytes));
+    const colliding = await captureArtifact({
+      payload: { tables: ["different-but-same-digest"] },
     });
+    expect(colliding.identity).toEqual(stored.identity);
+
+    const collision = await runEffectFailure(
+      admitFrameworkSchemaArtifactEffect(
+        fixture.repository,
+        prepareOrThrow(colliding),
+      ),
+    );
+    expect(collision).toMatchObject({
+      operation: "admit",
+      reason: "digestCollision",
+      message: "Framework schema artifact digest collision",
+      retryable: false,
+      identity: stored.identity,
+    });
+    expect(collision.identity).not.toBe(stored.identity);
+    expect(Object.hasOwn(collision, "cause")).toBe(false);
+
+    vi.unstubAllGlobals();
+    await persistence.query(`
+      alter table ${ARTIFACT_TABLE}
+        drop constraint fx_framework_artifact_frame_check
+    `);
+    await persistence.query(`
+      update ${ARTIFACT_TABLE}
+      set canonical_byte_length = 1,
+          canonical_bytes = decode('ff', 'hex')
+    `);
+    const corruption = await runEffectFailure(
+      admitFrameworkSchemaArtifactEffect(
+        fixture.repository,
+        prepareOrThrow(stored),
+      ),
+    );
+    expect(corruption).toMatchObject({
+      operation: "admit",
+      reason: "storedStateCorrupt",
+      message: "Stored framework schema artifact state is corrupt",
+      retryable: false,
+      identity: stored.identity,
+      storedStage: "canonicalFrame",
+    });
+    expect(Object.hasOwn(corruption, "cause")).toBe(false);
   }, 120_000);
 
   it("returns locked exact replay from compact evidence without hashing", async () => {
-    await withPGlitePersistence(async persistence => {
-      await insertDeployment(persistence);
-      const artifact = await captureArtifact();
-      const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
-        persistence,
-        {
-          beforeInitialTransaction: () =>
-            insertCapturedArtifact(persistence, artifact),
+    const persistence = await createMigratedPGlitePersistence();
+    await insertDeployment(persistence);
+    const artifact = await captureArtifact();
+    const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+      persistence,
+      {
+        beforeInitialTransaction: () =>
+          insertCapturedArtifact(persistence, artifact),
+      },
+    );
+    const digestTransactionStates: boolean[] = [];
+    vi.stubGlobal("crypto", Object.freeze({
+      subtle: Object.freeze({
+        digest(): Promise<ArrayBuffer> {
+          digestTransactionStates.push(fixture.isTransactionActive());
+          return Promise.reject(new Error("unexpected digest"));
         },
-      );
-      const digestTransactionStates: boolean[] = [];
-      vi.stubGlobal("crypto", Object.freeze({
-        subtle: Object.freeze({
-          digest(): Promise<ArrayBuffer> {
-            digestTransactionStates.push(fixture.isTransactionActive());
-            return Promise.reject(new Error("unexpected digest"));
-          },
-        }),
-      }));
+      }),
+    }));
 
-      const existing = await admitArtifact(fixture.repository, artifact);
-      expect(existing).toEqual({ status: "existing", artifact });
-      expect(existing.artifact).toBe(artifact);
-      expect(digestTransactionStates).toEqual([]);
-      expect(fixture.events).toContain("initial:commit");
-      expect(await countArtifacts(persistence, artifact)).toBe(1);
-    });
+    const existing = await admitArtifact(fixture.repository, artifact);
+    expect(existing).toEqual({ status: "existing", artifact });
+    expect(existing.artifact).toBe(artifact);
+    expect(digestTransactionStates).toEqual([]);
+    expect(fixture.events).toContain("initial:commit");
+    expect(await countArtifacts(persistence, artifact)).toBe(1);
   }, 120_000);
 
   it("resolves a raced mismatch after the lock and never hashes inside the transaction", async () => {
-    await withPGlitePersistence(async persistence => {
-      await insertDeployment(persistence);
-      const stored = await captureArtifact();
-      const storedEvidence = requireCapturedEvidence(stored);
-      vi.stubGlobal("crypto", cryptoReturning(storedEvidence.artifactSha256Bytes));
-      const incoming = await captureArtifact({
-        payload: { tables: ["raced-collision"] },
-      });
-      vi.unstubAllGlobals();
-
-      const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
-        persistence,
-        {
-          beforeInitialTransaction: () =>
-            insertCapturedArtifact(persistence, stored),
-        },
-      );
-      const platformDigest = globalThis.crypto.subtle.digest.bind(
-        globalThis.crypto.subtle,
-      );
-      const digestTransactionStates: boolean[] = [];
-      vi.stubGlobal("crypto", Object.freeze({
-        subtle: Object.freeze({
-          digest(
-            algorithm: AlgorithmIdentifier,
-            data: BufferSource,
-          ): Promise<ArrayBuffer> {
-            digestTransactionStates.push(fixture.isTransactionActive());
-            return platformDigest(algorithm, data);
-          },
-        }),
-      }));
-
-      const error = await runEffectFailure(
-        admitFrameworkSchemaArtifactEffect(
-          fixture.repository,
-          prepareOrThrow(incoming),
-        ),
-      );
-      expect(error).toMatchObject({
-        operation: "admit",
-        reason: "digestCollision",
-      });
-      expect(digestTransactionStates).toEqual([false]);
-      expect(fixture.events).toContain("initial:commit");
-      expect(fixture.events.filter(event => event === "read:acquire"))
-        .toHaveLength(2);
+    const persistence = await createMigratedPGlitePersistence();
+    await insertDeployment(persistence);
+    const stored = await captureArtifact();
+    const storedEvidence = requireCapturedEvidence(stored);
+    vi.stubGlobal("crypto", cryptoReturning(storedEvidence.artifactSha256Bytes));
+    const incoming = await captureArtifact({
+      payload: { tables: ["raced-collision"] },
     });
+    vi.unstubAllGlobals();
+
+    const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+      persistence,
+      {
+        beforeInitialTransaction: () =>
+          insertCapturedArtifact(persistence, stored),
+      },
+    );
+    const platformDigest = globalThis.crypto.subtle.digest.bind(
+      globalThis.crypto.subtle,
+    );
+    const digestTransactionStates: boolean[] = [];
+    vi.stubGlobal("crypto", Object.freeze({
+      subtle: Object.freeze({
+        digest(
+          algorithm: AlgorithmIdentifier,
+          data: BufferSource,
+        ): Promise<ArrayBuffer> {
+          digestTransactionStates.push(fixture.isTransactionActive());
+          return platformDigest(algorithm, data);
+        },
+      }),
+    }));
+
+    const error = await runEffectFailure(
+      admitFrameworkSchemaArtifactEffect(
+        fixture.repository,
+        prepareOrThrow(incoming),
+      ),
+    );
+    expect(error).toMatchObject({
+      operation: "admit",
+      reason: "digestCollision",
+    });
+    expect(digestTransactionStates).toEqual([false]);
+    expect(fixture.events).toContain("initial:commit");
+    expect(fixture.events.filter(event => event === "read:acquire"))
+      .toHaveLength(2);
   }, 120_000);
 
   it("attributes post-settlement resolution acquisition to the read stage", async () => {
-    await withPGlitePersistence(async persistence => {
-      await insertDeployment(persistence);
-      const dependency = await captureArtifact({
-        lineageId: "lineage-resolution-acquire-dependency",
-      });
-      const parent = await captureArtifact({
-        lineageId: "lineage-resolution-acquire-parent",
-        dependencies: [dependency.identity],
-      });
-      const acquisitionCause = new Error("resolution read acquisition failed");
-      const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
-        persistence,
-        {
-          beforeInitialTransaction: () =>
-            insertCapturedArtifact(persistence, parent),
-          failPostSettlementReadAcquisition: { cause: acquisitionCause },
-        },
-      );
-
-      const error = await runEffectFailure(
-        admitFrameworkSchemaArtifactEffect(
-          fixture.repository,
-          prepareOrThrow(parent),
-        ),
-      );
-
-      expect(error).toMatchObject({
-        operation: "admit",
-        reason: "resourceFailure",
-        stage: "readArtifact",
-      });
-      expect(error.cause).toBeInstanceOf(
-        CatalogControlSessionResourceIssue,
-      );
-      if (
-        !(error.cause instanceof
-          CatalogControlSessionResourceIssue)
-      ) {
-        throw new Error("Expected a control-session resource issue.");
-      }
-      expect(error.cause.phase).toBe("acquire");
-      expect(error.cause.cause).toBe(acquisitionCause);
-      expect(fixture.events).toContain("initial:commit");
-      expect(fixture.events.filter(event => event === "read:acquire"))
-        .toHaveLength(2);
-      expect(fixture.events).toContain("read:acquireFailed");
+    const persistence = await createMigratedPGlitePersistence();
+    await insertDeployment(persistence);
+    const dependency = await captureArtifact({
+      lineageId: "lineage-resolution-acquire-dependency",
     });
+    const parent = await captureArtifact({
+      lineageId: "lineage-resolution-acquire-parent",
+      dependencies: [dependency.identity],
+    });
+    const acquisitionCause = new Error("resolution read acquisition failed");
+    const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+      persistence,
+      {
+        beforeInitialTransaction: () =>
+          insertCapturedArtifact(persistence, parent),
+        failPostSettlementReadAcquisition: { cause: acquisitionCause },
+      },
+    );
+
+    const error = await runEffectFailure(
+      admitFrameworkSchemaArtifactEffect(
+        fixture.repository,
+        prepareOrThrow(parent),
+      ),
+    );
+
+    expect(error).toMatchObject({
+      operation: "admit",
+      reason: "resourceFailure",
+      stage: "readArtifact",
+    });
+    expect(error.cause).toBeInstanceOf(
+      CatalogControlSessionResourceIssue,
+    );
+    if (
+      !(error.cause instanceof
+        CatalogControlSessionResourceIssue)
+    ) {
+      throw new Error("Expected a control-session resource issue.");
+    }
+    expect(error.cause.phase).toBe("acquire");
+    expect(error.cause.cause).toBe(acquisitionCause);
+    expect(fixture.events).toContain("initial:commit");
+    expect(fixture.events.filter(event => event === "read:acquire"))
+      .toHaveLength(2);
+    expect(fixture.events).toContain("read:acquireFailed");
   }, 120_000);
 
   it("rolls back the parent when the dependency insert fails", async () => {
-    await withPGlitePersistence(async persistence => {
-      await insertDeployment(persistence);
+    const persistence = await createMigratedPGlitePersistence();
+    await insertDeployment(persistence);
+    const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+      persistence,
+    );
+    const dependency = await captureArtifact({
+      lineageId: "lineage-rollback-dependency",
+    });
+    await admitArtifact(fixture.repository, dependency);
+    const parent = await captureArtifact({
+      lineageId: "lineage-rollback-parent",
+      dependencies: [dependency.identity],
+    });
+    await persistence.query(`drop table ${DEPENDENCY_TABLE}`);
+
+    const error = await runEffectFailure(
+      admitFrameworkSchemaArtifactEffect(
+        fixture.repository,
+        prepareOrThrow(parent),
+      ),
+    );
+    expect(error).toMatchObject({
+      operation: "admit",
+      reason: "resourceFailure",
+      message: "Framework schema artifact admission persistence failed",
+      retryable: false,
+      identity: parent.identity,
+      stage: "insertDependencies",
+    });
+    expect(Object.hasOwn(error, "cause")).toBe(true);
+    expect(await countArtifacts(persistence, parent)).toBe(0);
+  }, 120_000);
+
+  it("settles commit and release before re-emitting a successful admission interruption", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    await insertDeployment(persistence);
+    const seedFixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+      persistence,
+    );
+    const dependency = await captureArtifact({
+      lineageId: "lineage-interrupted-dependency",
+    });
+    await admitArtifact(seedFixture.repository, dependency);
+    const parent = await captureArtifact({
+      lineageId: "lineage-interrupted-parent",
+      dependencies: [dependency.identity],
+    });
+
+    const result = await runEffect(Effect.gen(function* () {
+      const beforeCommit = yield* Deferred.make<void>();
+      const releaseCommit = yield* Deferred.make<void>();
       const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
         persistence,
+        {
+          beforeInitialCommitEffect: Deferred.succeed(
+            beforeCommit,
+            undefined,
+          ).pipe(Effect.andThen(Deferred.await(releaseCommit))),
+        },
       );
-      const dependency = await captureArtifact({
-        lineageId: "lineage-rollback-dependency",
-      });
-      await admitArtifact(fixture.repository, dependency);
-      const parent = await captureArtifact({
-        lineageId: "lineage-rollback-parent",
-        dependencies: [dependency.identity],
-      });
-      await persistence.query(`drop table ${DEPENDENCY_TABLE}`);
-
-      const error = await runEffectFailure(
+      const worker = yield* Effect.forkChild(
         admitFrameworkSchemaArtifactEffect(
           fixture.repository,
           prepareOrThrow(parent),
         ),
       );
-      expect(error).toMatchObject({
-        operation: "admit",
-        reason: "resourceFailure",
-        message: "Framework schema artifact admission persistence failed",
-        retryable: false,
-        identity: parent.identity,
-        stage: "insertDependencies",
-      });
-      expect(Object.hasOwn(error, "cause")).toBe(true);
-      expect(await countArtifacts(persistence, parent)).toBe(0);
-    });
-  }, 120_000);
-
-  it("settles commit and release before re-emitting a successful admission interruption", async () => {
-    await withPGlitePersistence(async persistence => {
-      await insertDeployment(persistence);
-      const seedFixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
-        persistence,
+      yield* Deferred.await(beforeCommit);
+      const transactionActiveBeforeRelease = fixture.isTransactionActive();
+      let interruptionSettled = false;
+      const interrupter = yield* Effect.forkChild(
+        Fiber.interrupt(worker).pipe(Effect.tap(() => Effect.sync(() => {
+          interruptionSettled = true;
+        }))),
       );
-      const dependency = await captureArtifact({
-        lineageId: "lineage-interrupted-dependency",
-      });
-      await admitArtifact(seedFixture.repository, dependency);
-      const parent = await captureArtifact({
-        lineageId: "lineage-interrupted-parent",
-        dependencies: [dependency.identity],
-      });
+      yield* Effect.yieldNow;
+      const interruptionPendingBeforeRelease = !interruptionSettled;
+      const eventsBeforeRelease = [...fixture.events];
+      yield* Deferred.succeed(releaseCommit, undefined);
+      const exit = yield* Fiber.await(worker);
+      yield* Fiber.join(interrupter);
+      return {
+        events: [...fixture.events],
+        eventsBeforeRelease,
+        exit,
+        interruptionPendingBeforeRelease,
+        transactionActiveAfterSettlement: fixture.isTransactionActive(),
+        transactionActiveBeforeRelease,
+        repository: fixture.repository,
+      };
+    }));
 
-      const result = await runEffect(Effect.gen(function* () {
-        const beforeCommit = yield* Deferred.make<void>();
-        const releaseCommit = yield* Deferred.make<void>();
-        const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
-          persistence,
-          {
-            beforeInitialCommitEffect: Deferred.succeed(
-              beforeCommit,
-              undefined,
-            ).pipe(Effect.andThen(Deferred.await(releaseCommit))),
-          },
-        );
-        const worker = yield* Effect.forkChild(
-          admitFrameworkSchemaArtifactEffect(
-            fixture.repository,
-            prepareOrThrow(parent),
-          ),
-        );
-        yield* Deferred.await(beforeCommit);
-        const transactionActiveBeforeRelease = fixture.isTransactionActive();
-        let interruptionSettled = false;
-        const interrupter = yield* Effect.forkChild(
-          Fiber.interrupt(worker).pipe(Effect.tap(() => Effect.sync(() => {
-            interruptionSettled = true;
-          }))),
-        );
-        yield* Effect.yieldNow;
-        const interruptionPendingBeforeRelease = !interruptionSettled;
-        const eventsBeforeRelease = [...fixture.events];
-        yield* Deferred.succeed(releaseCommit, undefined);
-        const exit = yield* Fiber.await(worker);
-        yield* Fiber.join(interrupter);
-        return {
-          events: [...fixture.events],
-          eventsBeforeRelease,
-          exit,
-          interruptionPendingBeforeRelease,
-          transactionActiveAfterSettlement: fixture.isTransactionActive(),
-          transactionActiveBeforeRelease,
-          repository: fixture.repository,
-        };
-      }));
-
-      expect(result.transactionActiveBeforeRelease).toBe(true);
-      expect(result.interruptionPendingBeforeRelease).toBe(true);
-      expect(result.eventsBeforeRelease.at(-1)).toBe("initial:beforeCommit");
-      expect(result.eventsBeforeRelease).not.toContain("initial:commit");
-      expect(result.eventsBeforeRelease).not.toContain("initial:release");
-      expect(result.events.slice(-2)).toEqual([
-        "initial:commit",
-        "initial:release",
-      ]);
-      expect(result.events).not.toContain("initial:rollback");
-      expect(result.events).not.toContain("initial:quarantine");
-      expect(result.transactionActiveAfterSettlement).toBe(false);
-      expect(Exit.isFailure(result.exit)).toBe(true);
-      if (Exit.isFailure(result.exit)) {
-        expect(result.exit.cause.reasons.filter(Cause.isInterruptReason))
-          .toHaveLength(1);
-        expect(Cause.hasFails(result.exit.cause)).toBe(false);
-        expect(Cause.hasDies(result.exit.cause)).toBe(false);
-      }
-      expect(await countArtifacts(persistence, parent)).toBe(1);
-      expect(await countArtifactDependencies(persistence, parent)).toBe(1);
-      const replay = await admitArtifact(result.repository, parent);
-      expect(replay.status).toBe("existing");
-      expect(replay.artifact).toEqual(parent);
-    });
+    expect(result.transactionActiveBeforeRelease).toBe(true);
+    expect(result.interruptionPendingBeforeRelease).toBe(true);
+    expect(result.eventsBeforeRelease.at(-1)).toBe("initial:beforeCommit");
+    expect(result.eventsBeforeRelease).not.toContain("initial:commit");
+    expect(result.eventsBeforeRelease).not.toContain("initial:release");
+    expect(result.events.slice(-2)).toEqual([
+      "initial:commit",
+      "initial:release",
+    ]);
+    expect(result.events).not.toContain("initial:rollback");
+    expect(result.events).not.toContain("initial:quarantine");
+    expect(result.transactionActiveAfterSettlement).toBe(false);
+    expect(Exit.isFailure(result.exit)).toBe(true);
+    if (Exit.isFailure(result.exit)) {
+      expect(result.exit.cause.reasons.filter(Cause.isInterruptReason))
+        .toHaveLength(1);
+      expect(Cause.hasFails(result.exit.cause)).toBe(false);
+      expect(Cause.hasDies(result.exit.cause)).toBe(false);
+    }
+    expect(await countArtifacts(persistence, parent)).toBe(1);
+    expect(await countArtifactDependencies(persistence, parent)).toBe(1);
+    const replay = await admitArtifact(result.repository, parent);
+    expect(replay.status).toBe("existing");
+    expect(replay.artifact).toEqual(parent);
   }, 120_000);
 
   it("projects uncertain settlement with both exact causes and no ordinary cause", async () => {
-    await withPGlitePersistence(async persistence => {
-      await insertDeployment(persistence);
-      const initialSettlementCause = new Error("commit acknowledgement lost");
-      const quarantineCause = new Error("session destruction failed");
-      const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
-        persistence,
-        {
-          uncertainAfterCommit: {
-            initialSettlementCause,
-            quarantineCause,
-          },
+    const persistence = await createMigratedPGlitePersistence();
+    await insertDeployment(persistence);
+    const initialSettlementCause = new Error("commit acknowledgement lost");
+    const quarantineCause = new Error("session destruction failed");
+    const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+      persistence,
+      {
+        uncertainAfterCommit: {
+          initialSettlementCause,
+          quarantineCause,
         },
-      );
-      const artifact = await captureArtifact();
+      },
+    );
+    const artifact = await captureArtifact();
 
-      const error = await runEffectFailure(
-        admitFrameworkSchemaArtifactEffect(
-          fixture.repository,
-          prepareOrThrow(artifact),
-        ),
-      );
-      expect(error).toMatchObject({
-        operation: "admit",
-        reason: "decisionUncertain",
-        message: "Framework schema artifact admission decision is uncertain",
-        retryable: false,
-        identity: artifact.identity,
-        stage: "settle",
-      });
-      expect(error.initialSettlementCause).toBe(initialSettlementCause);
-      expect(error.resolutionCause).toBe(quarantineCause);
-      expect(Object.hasOwn(error, "cause")).toBe(false);
-      expect(await countArtifacts(persistence, artifact)).toBe(1);
+    const error = await runEffectFailure(
+      admitFrameworkSchemaArtifactEffect(
+        fixture.repository,
+        prepareOrThrow(artifact),
+      ),
+    );
+    expect(error).toMatchObject({
+      operation: "admit",
+      reason: "decisionUncertain",
+      message: "Framework schema artifact admission decision is uncertain",
+      retryable: false,
+      identity: artifact.identity,
+      stage: "settle",
     });
+    expect(error.initialSettlementCause).toBe(initialSettlementCause);
+    expect(error.resolutionCause).toBe(quarantineCause);
+    expect(Object.hasOwn(error, "cause")).toBe(false);
+    expect(await countArtifacts(persistence, artifact)).toBe(1);
   }, 120_000);
 });
 
-async function withPGlitePersistence(
-  run: (persistence: PGliteFlarexPersistence) => Promise<void>,
-): Promise<void> {
-  const database = newTestPGlite();
-  try {
-    const persistence = await createPGlitePersistence({ db: database });
-    await persistence.migrate();
-    await run(persistence);
-  } finally {
-    await database.close();
-  }
-}
 
 async function captureArtifact(
   overrides: Partial<FrameworkSchemaArtifactCaptureInput> = {},

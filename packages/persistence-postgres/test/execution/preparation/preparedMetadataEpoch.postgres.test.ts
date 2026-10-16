@@ -7,6 +7,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { flarexSchema, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, fxSystemPhysicalDefinitionLifecycles } from "../../../src/database/schema";
 
 import { createPostgresPersistence } from "../../../src/database/postgres";
+import { bootstrapInstallationMigrations } from "../../../src/database/postgresInstallationMaintenance";
 import {
   captureProtectedMetadataEpoch,
   authenticateProtectedTargetMetadataSnapshot,
@@ -34,17 +35,20 @@ const currentImmutableTables = [
 ] as const;
 
 native("protected metadata epoch under an authenticated restricted login", () => {
-  it("upgrades installed 139 through original maintenance and refuses its incomplete readiness protection", async () => {
+  it("upgrades installed 139 through original maintenance and adds readiness protection", async () => {
     await withReadinessMetadataUpgradeMigrations(async (migrationsFolder, exposeCurrent) => {
       await withTemporaryPostgresSchema(async options => {
         const previous = await createPostgresPersistence({ ...options, migrationsFolder });
         let current: Awaited<ReturnType<typeof createPostgresPersistence>> | undefined;
         try {
-          await previous.migrate();
+          const [location] = (await previous.query<{ schema_name: string }>(
+            "select current_schema() as schema_name")).rows;
+          if (location === undefined) throw new Error("Missing actual predecessor namespace");
+          await Effect.runPromise(bootstrapInstallationMigrations(previous.pool.options, location.schema_name,
+            { migrationsFolder, migrationsSchema: options.migrationsSchema }));
           const before = (await previous.query<{ generation: string; incarnation: string }>(
             "select generation::text, incarnation::text from fx_system_prepared_metadata_epoch")).rows[0];
           if (before === undefined) throw new Error("Missing actual installed predecessor epoch");
-          await expect(Effect.runPromise(prepareProtectedMetadata(previous.drizzle))).rejects.toMatchObject({ reason: "unprotectedRuntime" });
           expect((await previous.query<{ count: number }>(`select count(*)::integer as count from pg_trigger
             where tgname='fx_prepared_metadata_invalidate' and tgrelid in (
               select oid from pg_class where relnamespace=current_schema()::regnamespace and relname = any($1::text[]))`,

@@ -4,7 +4,7 @@ import { PointMutationSessionAuthorityCorruptionV1Error } from "../../../src/exe
 import { PointMutationExecutionClaimAcquisitionCorruptionV1Error } from "../../../src/execution/claims/transactionExecutionClaimErrors";
 import { Cause, Effect, Exit } from "effect";
 import { finiteApplicationMetadataScenario } from "../../application/finiteApplicationMetadataScenario";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import { ReplacementScopeIdV1Schema, decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import {
@@ -68,11 +68,10 @@ describe("O03-B1 point-mutation session activation", () => {
 
 
   beforeAll(async () => {
-    const acquiredDriver = newTestPGlite();
+    const acquiredDriver = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     activationDriver = acquiredDriver;
     try {
       persistence = await createPGlitePersistence({ db: acquiredDriver });
-      await persistence.migrate();
     } catch (cause) {
       activationDriver = undefined;
       const cleanup = await Promise.allSettled([acquiredDriver.close()]);

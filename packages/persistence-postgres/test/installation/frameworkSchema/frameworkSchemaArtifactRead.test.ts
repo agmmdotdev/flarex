@@ -1,7 +1,8 @@
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { newTestPGlite } from "../../support/pgliteSearchExtensions";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import { Cause, Effect, Exit, Result } from "effect";
 import {
+  beforeAll,
   afterEach,
   describe,
   expect,
@@ -38,15 +39,14 @@ import {
   runFrameworkSchemaArtifactRepositoryReadEffect,
   type FrameworkSchemaArtifactRepository,
 } from "../../../src/installation/frameworkSchema/artifact/repository";
-import {
-  createPGlitePersistence,
-  type PGliteFlarexPersistence,
-} from "../../../src/database/pglite";
+import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   ARTIFACT_TABLE,
   DEPENDENCY_TABLE,
 } from "./frameworkSchemaArtifactStorageTestSupport";
+
+beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
 
 const DEFAULT_READ_TIMEOUT_MILLISECONDS = 5_000;
 
@@ -209,241 +209,237 @@ describe("private framework schema artifact point read", () => {
   });
 
   it("returns absence and reconstructs a dependency-bearing authentic artifact only after release", async () => {
-    await withPGlitePersistence(async persistence => {
-      await insertDeployment(persistence);
-      const firstDependency = await captureArtifact({
-        lineageId: "lineage-dependency-a",
-        payload: { tables: ["authors"] },
-      });
-      const secondDependency = await captureArtifact({
-        lineageId: "lineage-dependency-b",
-        payload: { tables: ["tags"] },
-      });
-      const dependencyStorageIds = new Map<string, string>();
-      dependencyStorageIds.set(
-        firstDependency.identity.artifactSha256,
-        await insertCapturedArtifact(persistence, firstDependency, []),
-      );
-      dependencyStorageIds.set(
-        secondDependency.identity.artifactSha256,
-        await insertCapturedArtifact(persistence, secondDependency, []),
-      );
-      const artifact = await captureArtifact({
-        dependencies: [
-          secondDependency.identity,
-          firstDependency.identity,
-        ],
-      });
-      await insertCapturedArtifact(
-        persistence,
-        artifact,
-        artifact.dependencies.map(dependency =>
-          requireStorageId(dependencyStorageIds, dependency)
-        ),
-      );
-      const missing = await captureArtifact({
-        lineageId: "lineage-absent",
-      });
-      const events: string[] = [];
-      const repository = makeReadRepository(
-        pgliteControlDatabase(persistence),
-        { events },
-      );
-
-      expect(await runEffect(getFrameworkSchemaArtifactEffect(
-        repository,
-        missing.identity,
-      ))).toBeNull();
-      expect(events).toEqual(["session:acquire", "session:release"]);
-
-      events.length = 0;
-      const platformDigest = globalThis.crypto.subtle.digest.bind(
-        globalThis.crypto.subtle,
-      );
-      vi.stubGlobal("crypto", Object.freeze({
-        subtle: Object.freeze({
-          digest(
-            algorithm: AlgorithmIdentifier,
-            data: BufferSource,
-          ): Promise<ArrayBuffer> {
-            events.push("reconstruct:hash");
-            return platformDigest(algorithm, data);
-          },
-        }),
-      }));
-      const reconstructed = await runEffect(
-        getFrameworkSchemaArtifactEffect(repository, artifact.identity),
-      );
-
-      expect(events).toEqual([
-        "session:acquire",
-        "session:release",
-        "reconstruct:hash",
-      ]);
-      expect(reconstructed).toEqual(artifact);
-      expect(reconstructed).not.toBe(artifact);
-      expect(reconstructed === null).toBe(false);
-      if (reconstructed !== null) {
-        expect(Result.isSuccess(
-          prepareFrameworkSchemaArtifactAdmission(reconstructed),
-        )).toBe(true);
-        expect(Object.isFrozen(reconstructed)).toBe(true);
-        expect(Object.isFrozen(reconstructed.identity)).toBe(true);
-        expect(Object.isFrozen(reconstructed.dependencies)).toBe(true);
-      }
+    const persistence = await createMigratedPGlitePersistence();
+    await insertDeployment(persistence);
+    const firstDependency = await captureArtifact({
+      lineageId: "lineage-dependency-a",
+      payload: { tables: ["authors"] },
     });
+    const secondDependency = await captureArtifact({
+      lineageId: "lineage-dependency-b",
+      payload: { tables: ["tags"] },
+    });
+    const dependencyStorageIds = new Map<string, string>();
+    dependencyStorageIds.set(
+      firstDependency.identity.artifactSha256,
+      await insertCapturedArtifact(persistence, firstDependency, []),
+    );
+    dependencyStorageIds.set(
+      secondDependency.identity.artifactSha256,
+      await insertCapturedArtifact(persistence, secondDependency, []),
+    );
+    const artifact = await captureArtifact({
+      dependencies: [
+        secondDependency.identity,
+        firstDependency.identity,
+      ],
+    });
+    await insertCapturedArtifact(
+      persistence,
+      artifact,
+      artifact.dependencies.map(dependency =>
+        requireStorageId(dependencyStorageIds, dependency)
+      ),
+    );
+    const missing = await captureArtifact({
+      lineageId: "lineage-absent",
+    });
+    const events: string[] = [];
+    const repository = makeReadRepository(
+      pgliteControlDatabase(persistence),
+      { events },
+    );
+
+    expect(await runEffect(getFrameworkSchemaArtifactEffect(
+      repository,
+      missing.identity,
+    ))).toBeNull();
+    expect(events).toEqual(["session:acquire", "session:release"]);
+
+    events.length = 0;
+    const platformDigest = globalThis.crypto.subtle.digest.bind(
+      globalThis.crypto.subtle,
+    );
+    vi.stubGlobal("crypto", Object.freeze({
+      subtle: Object.freeze({
+        digest(
+          algorithm: AlgorithmIdentifier,
+          data: BufferSource,
+        ): Promise<ArrayBuffer> {
+          events.push("reconstruct:hash");
+          return platformDigest(algorithm, data);
+        },
+      }),
+    }));
+    const reconstructed = await runEffect(
+      getFrameworkSchemaArtifactEffect(repository, artifact.identity),
+    );
+
+    expect(events).toEqual([
+      "session:acquire",
+      "session:release",
+      "reconstruct:hash",
+    ]);
+    expect(reconstructed).toEqual(artifact);
+    expect(reconstructed).not.toBe(artifact);
+    expect(reconstructed === null).toBe(false);
+    if (reconstructed !== null) {
+      expect(Result.isSuccess(
+        prepareFrameworkSchemaArtifactAdmission(reconstructed),
+      )).toBe(true);
+      expect(Object.isFrozen(reconstructed)).toBe(true);
+      expect(Object.isFrozen(reconstructed.identity)).toBe(true);
+      expect(Object.isFrozen(reconstructed.dependencies)).toBe(true);
+    }
   }, 120_000);
 
   it("maps parent and dependency SQL failures to their exact active stages", async () => {
-    await withPGlitePersistence(async persistence => {
-      await insertDeployment(persistence);
-      const artifact = await captureArtifact();
-      await insertCapturedArtifact(persistence, artifact, []);
-      const repository = makeReadRepository(
-        pgliteControlDatabase(persistence),
-      );
+    const persistence = await createMigratedPGlitePersistence();
+    await insertDeployment(persistence);
+    const artifact = await captureArtifact();
+    await insertCapturedArtifact(persistence, artifact, []);
+    const repository = makeReadRepository(
+      pgliteControlDatabase(persistence),
+    );
 
-      await persistence.query(
-        `drop table ${DEPENDENCY_TABLE}`,
-      );
-      const dependencyFailure = await runEffectFailure(
-        getFrameworkSchemaArtifactEffect(repository, artifact.identity),
-      );
-      expect(dependencyFailure).toMatchObject({
-        operation: "read",
-        reason: "resourceFailure",
-        stage: "readDependencies",
-        identity: artifact.identity,
-      });
-      expect(Object.hasOwn(dependencyFailure, "storedStage")).toBe(false);
-      expect(Object.hasOwn(dependencyFailure, "cause")).toBe(true);
-
-      await persistence.query(
-        `drop table ${ARTIFACT_TABLE} cascade`,
-      );
-      const artifactFailure = await runEffectFailure(
-        getFrameworkSchemaArtifactEffect(repository, artifact.identity),
-      );
-      expect(artifactFailure).toMatchObject({
-        operation: "read",
-        reason: "resourceFailure",
-        stage: "readArtifact",
-        identity: artifact.identity,
-      });
-      expect(Object.hasOwn(artifactFailure, "storedStage")).toBe(false);
-      expect(Object.hasOwn(artifactFailure, "cause")).toBe(true);
+    await persistence.query(
+      `drop table ${DEPENDENCY_TABLE}`,
+    );
+    const dependencyFailure = await runEffectFailure(
+      getFrameworkSchemaArtifactEffect(repository, artifact.identity),
+    );
+    expect(dependencyFailure).toMatchObject({
+      operation: "read",
+      reason: "resourceFailure",
+      stage: "readDependencies",
+      identity: artifact.identity,
     });
+    expect(Object.hasOwn(dependencyFailure, "storedStage")).toBe(false);
+    expect(Object.hasOwn(dependencyFailure, "cause")).toBe(true);
+
+    await persistence.query(
+      `drop table ${ARTIFACT_TABLE} cascade`,
+    );
+    const artifactFailure = await runEffectFailure(
+      getFrameworkSchemaArtifactEffect(repository, artifact.identity),
+    );
+    expect(artifactFailure).toMatchObject({
+      operation: "read",
+      reason: "resourceFailure",
+      stage: "readArtifact",
+      identity: artifact.identity,
+    });
+    expect(Object.hasOwn(artifactFailure, "storedStage")).toBe(false);
+    expect(Object.hasOwn(artifactFailure, "cause")).toBe(true);
   }, 120_000);
 
   it("projects stored corruption without relabeling it as input or resource failure", async () => {
-    await withPGlitePersistence(async persistence => {
-      await insertDeployment(persistence);
-      const artifact = await captureArtifact();
-      await insertCapturedArtifact(persistence, artifact, []);
-      await persistence.query(`
-        alter table ${ARTIFACT_TABLE}
-          drop constraint fx_framework_artifact_frame_check
-      `);
-      await persistence.query(`
-        update ${ARTIFACT_TABLE}
-        set canonical_byte_length = 1,
-            canonical_bytes = decode('ff', 'hex')
-      `);
-      const repository = makeReadRepository(
-        pgliteControlDatabase(persistence),
-      );
+    const persistence = await createMigratedPGlitePersistence();
+    await insertDeployment(persistence);
+    const artifact = await captureArtifact();
+    await insertCapturedArtifact(persistence, artifact, []);
+    await persistence.query(`
+      alter table ${ARTIFACT_TABLE}
+        drop constraint fx_framework_artifact_frame_check
+    `);
+    await persistence.query(`
+      update ${ARTIFACT_TABLE}
+      set canonical_byte_length = 1,
+          canonical_bytes = decode('ff', 'hex')
+    `);
+    const repository = makeReadRepository(
+      pgliteControlDatabase(persistence),
+    );
 
-      const error = await runEffectFailure(
-        getFrameworkSchemaArtifactEffect(repository, artifact.identity),
-      );
-      expect(error).toMatchObject({
-        operation: "read",
-        reason: "storedStateCorrupt",
-        message: "Stored framework schema artifact state is corrupt",
-        retryable: false,
-        identity: artifact.identity,
-        storedStage: "canonicalFrame",
-      });
-      expect(error.identity).not.toBe(artifact.identity);
-      expect(Object.isFrozen(error.identity)).toBe(true);
-      expect(Object.hasOwn(error, "stage")).toBe(false);
-      expect(Object.hasOwn(error, "cause")).toBe(false);
+    const error = await runEffectFailure(
+      getFrameworkSchemaArtifactEffect(repository, artifact.identity),
+    );
+    expect(error).toMatchObject({
+      operation: "read",
+      reason: "storedStateCorrupt",
+      message: "Stored framework schema artifact state is corrupt",
+      retryable: false,
+      identity: artifact.identity,
+      storedStage: "canonicalFrame",
     });
+    expect(error.identity).not.toBe(artifact.identity);
+    expect(Object.isFrozen(error.identity)).toBe(true);
+    expect(Object.hasOwn(error, "stage")).toBe(false);
+    expect(Object.hasOwn(error, "cause")).toBe(false);
   }, 120_000);
 
   it("maps hashing failure and keeps the same deadline through hashing", async () => {
-    await withPGlitePersistence(async persistence => {
-      await insertDeployment(persistence);
-      const artifact = await captureArtifact();
-      await insertCapturedArtifact(persistence, artifact, []);
-      const events: string[] = [];
-      const repository = makeReadRepository(
-        pgliteControlDatabase(persistence),
-        { events },
-      );
-      const hashCause = new Error("SHA-256 unavailable");
-      vi.stubGlobal("crypto", Object.freeze({
-        subtle: Object.freeze({
-          digest(): Promise<ArrayBuffer> {
-            events.push("reconstruct:hash");
-            return Promise.reject(hashCause);
-          },
-        }),
-      }));
+    const persistence = await createMigratedPGlitePersistence();
+    await insertDeployment(persistence);
+    const artifact = await captureArtifact();
+    await insertCapturedArtifact(persistence, artifact, []);
+    const events: string[] = [];
+    const repository = makeReadRepository(
+      pgliteControlDatabase(persistence),
+      { events },
+    );
+    const hashCause = new Error("SHA-256 unavailable");
+    vi.stubGlobal("crypto", Object.freeze({
+      subtle: Object.freeze({
+        digest(): Promise<ArrayBuffer> {
+          events.push("reconstruct:hash");
+          return Promise.reject(hashCause);
+        },
+      }),
+    }));
 
-      const hashError = await runEffectFailure(
-        getFrameworkSchemaArtifactEffect(repository, artifact.identity),
-      );
-      expect(events).toEqual([
-        "session:acquire",
-        "session:release",
-        "reconstruct:hash",
-      ]);
-      expect(hashError).toMatchObject({
-        operation: "read",
-        reason: "resourceFailure",
-        stage: "reconstructArtifact",
-        identity: artifact.identity,
-      });
-      expect(hashError.cause).toBe(hashCause);
+    const hashError = await runEffectFailure(
+      getFrameworkSchemaArtifactEffect(repository, artifact.identity),
+    );
+    expect(events).toEqual([
+      "session:acquire",
+      "session:release",
+      "reconstruct:hash",
+    ]);
+    expect(hashError).toMatchObject({
+      operation: "read",
+      reason: "resourceFailure",
+      stage: "reconstructArtifact",
+      identity: artifact.identity,
+    });
+    expect(hashError.cause).toBe(hashCause);
 
-      vi.unstubAllGlobals();
-      events.length = 0;
-      const deadlineRepository = makeReadRepository(
-        pgliteControlDatabase(persistence),
-        { events, readTimeoutMilliseconds: 100 },
-      );
-      vi.stubGlobal("crypto", Object.freeze({
-        subtle: Object.freeze({
-          digest(): Promise<ArrayBuffer> {
-            events.push("reconstruct:hash");
-            return new Promise<ArrayBuffer>(() => {});
-          },
-        }),
-      }));
+    vi.unstubAllGlobals();
+    events.length = 0;
+    const deadlineRepository = makeReadRepository(
+      pgliteControlDatabase(persistence),
+      { events, readTimeoutMilliseconds: 100 },
+    );
+    vi.stubGlobal("crypto", Object.freeze({
+      subtle: Object.freeze({
+        digest(): Promise<ArrayBuffer> {
+          events.push("reconstruct:hash");
+          return new Promise<ArrayBuffer>(() => {});
+        },
+      }),
+    }));
 
-      const error = await runEffectFailure(
-        getFrameworkSchemaArtifactEffect(
-          deadlineRepository,
-          artifact.identity,
-        ),
-      );
-      expect(events).toEqual([
-        "session:acquire",
-        "session:release",
-        "reconstruct:hash",
-      ]);
-      expect(error).toMatchObject({
-        operation: "read",
-        reason: "resourceFailure",
-        stage: "reconstructArtifact",
-        identity: artifact.identity,
-      });
-      expect(error.cause).toMatchObject({
-        _tag: "CatalogControlSessionDeadlineIssue",
-        deadlineKind: "read",
-        phase: "read",
-      });
+    const error = await runEffectFailure(
+      getFrameworkSchemaArtifactEffect(
+        deadlineRepository,
+        artifact.identity,
+      ),
+    );
+    expect(events).toEqual([
+      "session:acquire",
+      "session:release",
+      "reconstruct:hash",
+    ]);
+    expect(error).toMatchObject({
+      operation: "read",
+      reason: "resourceFailure",
+      stage: "reconstructArtifact",
+      identity: artifact.identity,
+    });
+    expect(error.cause).toMatchObject({
+      _tag: "CatalogControlSessionDeadlineIssue",
+      deadlineKind: "read",
+      phase: "read",
     });
   }, 120_000);
 
@@ -562,18 +558,6 @@ function makeReadRepository(
   return result.success;
 }
 
-async function withPGlitePersistence(
-  run: (persistence: PGliteFlarexPersistence) => Promise<void>,
-): Promise<void> {
-  const database = newTestPGlite();
-  try {
-    const persistence = await createPGlitePersistence({ db: database });
-    await persistence.migrate();
-    await run(persistence);
-  } finally {
-    await database.close();
-  }
-}
 
 function pgliteControlDatabase(
   persistence: PGliteFlarexPersistence,

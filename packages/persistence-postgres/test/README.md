@@ -233,6 +233,18 @@ including automatic cleanup. Instrumented task-binding drivers restore the
 image through their existing raw-driver owner. Retained-history suites keep
 their original file lifetime and register closure with `afterAll`.
 Constraint-corruption cases retain separate backends rather than sharing rows.
+Framework artifact admission, read, list and corruption suites restore one
+independent image per case, including cases that drop constraints or tables.
+They use the shared fixture directly instead of local construction wrappers.
+The allocating Application native-mutation PGlite fixture restores independent
+control and target stores and registers cleanup with the current test. Its
+PGlite fixture dependency loads only in that allocating path; caller-supplied,
+mixed and native fixtures retain their own resource owners.
+Point finishing, replacement and relation suites retain their file lifetime
+and register the migrated fixture disposer with a static `afterAll` hook.
+Current commit-feed, wake-outbox and metadata-epoch contract cases reuse the
+image; their fresh-install and predecessor upgrade/failure cases still execute
+the original migration chain from their own empty databases.
 Bootstrap and split-provisioning PGlite cases use the same fixture and registered
 cleanup, retaining independent databases for stored-authority corruption,
 orphan-clock proofs and control/target separation.

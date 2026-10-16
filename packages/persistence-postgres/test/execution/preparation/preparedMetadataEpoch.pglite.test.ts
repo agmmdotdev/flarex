@@ -1,11 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { Cause, Effect, Exit } from "effect";
 import { getTableName, sql } from "drizzle-orm";
+import { migrate } from "drizzle-orm/pglite/migrator";
 import { fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, fxSystemPhysicalDefinitionLifecycles } from "../../../src/database/schema";
 
 import { createPGlitePersistence } from "../../../src/database/pglite";
 import { prepareProtectedMetadata, PreparedMetadataEpochError, protectedReadinessMetadataTables } from "../../../src/execution/preparation/preparedMetadataEpoch";
 import { newTestPGlite } from "../../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import { withReadinessMetadataUpgradeMigrations } from "../../storage/catalog/readinessMetadataUpgradeFixture";
 
 const currentImmutableTables = [
@@ -19,13 +21,15 @@ const currentImmutableTables = [
   ...protectedReadinessMetadataTables.map(getTableName),
 ] as const;
 
+beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
+
 describe("prepared metadata epoch PGlite migration", () => {
   it("upgrades installed 139 through the original migrator and advances its durable readiness epoch", async () => {
     await withReadinessMetadataUpgradeMigrations(async (migrationsFolder, exposeCurrent) => {
       const db = newTestPGlite();
       try {
         const previous = await createPGlitePersistence({ db, migrationsFolder });
-        await previous.migrate();
+        await migrate(previous.drizzle, { migrationsFolder });
         const before = (await previous.query<{ generation: string; incarnation: string }>(
           "select generation::text, incarnation::text from fx_system_prepared_metadata_epoch")).rows[0];
         if (before === undefined) throw new Error("Missing installed predecessor epoch");
@@ -49,10 +53,9 @@ describe("prepared metadata epoch PGlite migration", () => {
     });
   }, 180_000);
   it("refuses to mint protected metadata from the genuine migrated PGlite owner", async () => {
-    const db = newTestPGlite();
-    const persistence = await createPGlitePersistence({ db });
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     try {
-      await persistence.migrate();
+      const persistence = await createPGlitePersistence({ db });
       const owner = (await persistence.query<{ superuser: boolean }>(
         "select rolsuper as superuser from pg_roles where rolname = session_user")).rows[0];
       expect(owner?.superuser).toBe(true);
@@ -69,10 +72,9 @@ describe("prepared metadata epoch PGlite migration", () => {
   }, 180_000);
 
   it("invalidates only in the writer transaction and rolls back with it", async () => {
-    const db = newTestPGlite();
-    const persistence = await createPGlitePersistence({ db });
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     try {
-      await persistence.migrate();
+      const persistence = await createPGlitePersistence({ db });
       const read = async () => (await persistence.query<{ generation: string }>(
         "select generation::text from fx_system_prepared_metadata_epoch"))
         .rows[0]?.generation;
@@ -93,10 +95,9 @@ describe("prepared metadata epoch PGlite migration", () => {
   });
 
   it("invalidates every current immutable table for zero-row DML and TRUNCATE, atomically", async () => {
-    const db = newTestPGlite();
-    const persistence = await createPGlitePersistence({ db });
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     try {
-      await persistence.migrate();
+      const persistence = await createPGlitePersistence({ db });
       const read = async () => BigInt((await persistence.query<{ generation: string }>(
         "select generation::text from fx_system_prepared_metadata_epoch")).rows[0]!.generation);
       for (const table of currentImmutableTables) {
@@ -129,10 +130,9 @@ describe("prepared metadata epoch PGlite migration", () => {
   }, 180_000);
 
   it("keeps ordinary dynamic build and coverage progress outside the static epoch", async () => {
-    const db = newTestPGlite();
-    const persistence = await createPGlitePersistence({ db });
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     try {
-      await persistence.migrate();
+      const persistence = await createPGlitePersistence({ db });
       const read = async () => (await persistence.query<{ generation: string }>(
         "select generation::text from fx_system_prepared_metadata_epoch")).rows[0]?.generation;
       const before = await read();

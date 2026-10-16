@@ -1,6 +1,5 @@
 import { expect, it } from "vitest";
-import { newTestPGlite } from "../../support/pgliteSearchExtensions";
-import { createPGlitePersistence } from "../../../src/database/pglite";
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 import { verifyAppRowBatches, verifyAppRowBatchBindings } from "./appRowBatchScenario";
 import {
   readCurrentAppRowInTransactionEffect,
@@ -21,15 +20,9 @@ import {
 import { runEffectFailure } from "../../support/effectTestRuntime";
 
 it("applies bounded prepared row batches with exact identities and atomic rollback", async () => {
-  const db = newTestPGlite();
-  const persistence = await createPGlitePersistence({ db });
-  try {
-    await persistence.migrate();
-    await verifyAppRowBatches(persistence, persistence.drizzle);
-    await verifyAppRowBatchBindings(persistence, persistence.drizzle);
-  } finally {
-    await db.close();
-  }
+  const persistence = await createMigratedPGlitePersistence();
+  await verifyAppRowBatches(persistence, persistence.drizzle);
+  await verifyAppRowBatchBindings(persistence, persistence.drizzle);
 }, 120_000);
 
 it("classifies malformed stored row columns as corruption without a write capability", async () => {

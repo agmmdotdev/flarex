@@ -1,7 +1,8 @@
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { createPGlitePersistence } from "../../src/database/pglite";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import {
   insertPendingWake,
   insertWakeHeader,
@@ -15,10 +16,11 @@ import {
 import { verifyCommitWakeMigration } from "./commitWakeMigrationScenario";
 import { makeDrizzleCopyFixture } from "../support/migrationFixtureSupport";
 
+beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
+
 describe("S09-B commit-wake outbox schema", () => {
   it("installs only the private replacement wake table beside the legacy outbox", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const tables = await persistence.query<{ table_name: string }>(`
       select table_name
       from information_schema.tables
@@ -56,8 +58,7 @@ describe("S09-B commit-wake outbox schema", () => {
   });
 
   it("rejects every nullable state-matrix escape and non-finite time", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await insertWakeScope(persistence, {
       scopeUuid: WAKE_SCOPE_A,
       epochUuid: WAKE_EPOCH_A,
@@ -87,8 +88,7 @@ describe("S09-B commit-wake outbox schema", () => {
   });
 
   it("enforces exact UTF-8 and signed-int64 boundaries", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await insertWakeScope(persistence, {
       scopeUuid: WAKE_SCOPE_A,
       epochUuid: WAKE_EPOCH_A,
@@ -139,8 +139,7 @@ describe("S09-B commit-wake outbox schema", () => {
   });
 
   it("keeps scopes isolated and feed-header retention independent", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await insertWakeScope(persistence, {
       scopeUuid: WAKE_SCOPE_A,
       epochUuid: WAKE_EPOCH_A,

@@ -21,11 +21,11 @@ import {
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
 import { Cause, Effect, Exit } from "effect";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 
 import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
-  createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
@@ -104,12 +104,14 @@ interface Scenario {
 
 describe("C05-A point-commit finishing transition", () => {
   let persistence: PGliteFlarexPersistence;
+  let closeFixture: (() => Promise<void>) | undefined;
   let uuidCounter = 1;
 
   beforeAll(async () => {
-    persistence = await createPGlitePersistence();
-    await persistence.migrate();
-  });
+    persistence = await createMigratedPGlitePersistence(cleanup => { closeFixture = cleanup; });
+  }, 120_000);
+
+  afterAll(async () => { await closeFixture?.(); });
 
   it("enters finishing for a pinned shop after a peer joins its deployment", async () => {
     const current = await scenario("shared_deployment_exact_scope", true);

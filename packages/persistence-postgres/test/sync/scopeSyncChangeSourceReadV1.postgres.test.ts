@@ -90,7 +90,7 @@ describePostgres("FX02-A correlated query-sync source read - PostgreSQL", {
         },
       });
 
-      await target.drizzle.update(fxSystemScopeExecutionAuthorities).set({oldestAvailableCommitSeq: CommitSeqSchema.make(2n)}).where(eq(fxSystemScopeClocks.scopeUuid, scope.scopeUuid));
+      await target.drizzle.update(fxSystemScopeExecutionAuthorities).set({oldestAvailableCommitSeq: CommitSeqSchema.make(2n)}).where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.active.basis.authority.scopeId));
       const unavailable = await runEffect(reader.readAfter({
         scopeUuid: scope.scopeUuid,
         requestedSourceEpoch: epoch.epochUuid,

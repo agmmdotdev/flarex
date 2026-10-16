@@ -36,6 +36,7 @@ import {
   attemptLivenessState,
 } from "../session/support/activationFixture";
 import { newTestPGlite } from "../../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 
 describe("O03-B1 point-mutation session activation", () => {
   let activationDriver: ReturnType<typeof newTestPGlite> | undefined;
@@ -46,11 +47,10 @@ describe("O03-B1 point-mutation session activation", () => {
 
 
   beforeAll(async () => {
-    const acquiredDriver = newTestPGlite();
+    const acquiredDriver = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     activationDriver = acquiredDriver;
     try {
       persistence = await createPGlitePersistence({ db: acquiredDriver });
-      await persistence.migrate();
     } catch (cause) {
       activationDriver = undefined;
       const cleanup = await Promise.allSettled([acquiredDriver.close()]);

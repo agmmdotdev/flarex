@@ -17,7 +17,8 @@ import { Effect, Result } from "effect";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { normalizeFlarexValueV1 } from "flarex-protocol/value";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { migratedPGliteDataDir } from "../../persistence-postgres/test/support/pgliteTestFixture";
 
 import {
   correlateApplicationTaskQuerySelection,
@@ -49,6 +50,8 @@ const RUNTIME_TARGET_DRIFT_FIELDS = [
   "handlerSourceModulePath",
   "handlerExportName",
 ] as const;
+
+beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
 
 describe("Application Task query authority", () => {
   it.each([
