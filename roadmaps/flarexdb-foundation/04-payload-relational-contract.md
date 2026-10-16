@@ -989,7 +989,7 @@ Exit gates:
 Completion receipt (2026-08-23):
 
 - The retained private harness is
-  `packages/persistence-postgres/test/application/relations/relationSnapshotSupportPreflight.ts`,
+  `packages/persistence-postgres/test/performance/relations/relationSnapshotSupportPreflight.ts`,
   with a seven-case PGlite semantic lane and a fail-closed PostgreSQL physical
   lane. Its candidate tables are created only inside a disposable schema; no
   production migration, package export, runtime caller, compiler, or reader was

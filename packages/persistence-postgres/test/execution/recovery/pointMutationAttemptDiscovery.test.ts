@@ -1,3 +1,4 @@
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import { copyDrizzleMigrations } from "../../../src/testing/systemTestMigrationFiles";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -7,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { newTestPGlite } from "../../support/pgliteSearchExtensions";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import type { LocatedScopeClockReader } from
   "../../../src/scope/scopeAuthorityResolution";
@@ -51,6 +52,8 @@ const sharedLocator = Object.freeze({
 }) satisfies SharedDatabaseScopePhysicalLocator;
 
 describe("O08-B2b2b1 inert point-attempt discovery", () => {
+  beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
+
   it("returns only frozen inert hints in the exact global order", async () => {
     const persistence = await discoveryPersistence();
     await persistence.insertScopeMetadata({
@@ -408,10 +411,8 @@ describe("O08-B2b2b1 inert point-attempt discovery", () => {
   });
 
   it("installs exactly the two indexes and upgrades 0032 atomically", async () => {
-    const fresh = await createPGlitePersistence();
-    await fresh.migrate();
-    await fresh.migrate();
-    await expect(readDiscoveryIndexes(fresh)).resolves.toEqual(
+    const installed = await createMigratedPGlitePersistence();
+    await expect(readDiscoveryIndexes(installed)).resolves.toEqual(
       expectedDiscoveryIndexes(),
     );
 
@@ -504,8 +505,7 @@ function discovery(persistence: PGliteFlarexPersistence) {
 }
 
 async function discoveryPersistence(): Promise<PGliteFlarexPersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
+  const persistence = await createMigratedPGlitePersistence();
   await installDiscoveryAuthority(persistence);
   return persistence;
 }

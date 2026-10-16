@@ -19,16 +19,17 @@ import { runEffect } from "../../support/effectTestRuntime";
 import {
   acquirePostgresDeploymentLock,
   postgresUrl,
+  useFileScopedPostgresPersistence,
   waitForBlockedPostgresDeploymentLocks,
-  withTemporaryPostgresPersistence,
   type HeldPostgresDeploymentLock,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("real Postgres schema manifest table bindings", () => {
+  const withPostgresPersistence = useFileScopedPostgresPersistence();
   it("converges concurrent exact-plan applications", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const deploymentId = "deployment_binding_pg_replay";
       await insertDeployment(persistence, deploymentId);
       const plan = await prepareSchemaManifestAppTableBindingsV1(
@@ -65,7 +66,7 @@ describePostgres("real Postgres schema manifest table bindings", () => {
   }, 30_000);
 
   it("gives competing same-frontier plans one winner and one typed stale loser", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const deploymentId = "deployment_binding_pg_competing";
       await insertDeployment(persistence, deploymentId);
       const [usersPlan, productsPlan] = await Promise.all([
@@ -126,7 +127,7 @@ describePostgres("real Postgres schema manifest table bindings", () => {
   }, 30_000);
 
   it("observes an allocator that wins while the prepared plan waits", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const deploymentId = "deployment_binding_pg_allocator_first";
       await insertDeployment(persistence, deploymentId);
       const plan = await prepareSchemaManifestAppTableBindingsV1(

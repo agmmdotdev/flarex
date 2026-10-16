@@ -16,8 +16,8 @@ import { runEffect } from "../../support/effectTestRuntime";
 import {
   acquirePostgresDeploymentLock,
   postgresUrl,
+  useFileScopedPostgresPersistence,
   waitForBlockedPostgresDeploymentLocks,
-  withTemporaryPostgresPersistence,
   type HeldPostgresDeploymentLock,
 } from "../../support/postgresHelpers";
 
@@ -28,8 +28,9 @@ const prepareSchemaManifestAppSchemaBindingsV1 = (
 ) => runEffect(prepareSchemaManifestAppSchemaBindingsV1Effect(...args));
 
 describePostgres("real Postgres schema manifest app-schema bindings", () => {
+  const withPostgresPersistence = useFileScopedPostgresPersistence();
   it("converges concurrent exact table/index plan applications", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const deploymentId = "deployment_app_schema_pg_replay";
       await insertDeployment(persistence, deploymentId);
       const plan = await prepareSchemaManifestAppSchemaBindingsV1(
@@ -65,7 +66,7 @@ describePostgres("real Postgres schema manifest app-schema bindings", () => {
   }, 30_000);
 
   it("gives competing index-frontier plans one winner and a typed stale loser", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const deploymentId = "deployment_app_schema_pg_competing";
       await insertDeployment(persistence, deploymentId);
       const tablePlan = await prepareSchemaManifestAppSchemaBindingsV1(
@@ -152,7 +153,7 @@ describePostgres("real Postgres schema manifest app-schema bindings", () => {
   }, 30_000);
 
   it("rolls both catalogs back when the caller transaction fails", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const deploymentId = "deployment_app_schema_pg_rollback";
       await insertDeployment(persistence, deploymentId);
       const plan = await prepareSchemaManifestAppSchemaBindingsV1(

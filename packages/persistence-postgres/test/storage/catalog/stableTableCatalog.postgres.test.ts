@@ -11,14 +11,16 @@ import {
 import { runEffect } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
+  useFileScopedPostgresPersistence,
   withTemporaryPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("real Postgres stable table catalog", () => {
+  const withPostgresPersistence = useFileScopedPostgresPersistence();
   it("reads stable table identities by deployment-qualified ID", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const deploymentId = "deployment_catalog_id_read";
       await persistence.insertDeploymentMetadata({
         deploymentId,
@@ -60,7 +62,7 @@ describePostgres("real Postgres stable table catalog", () => {
   }, 30_000);
 
   it("serializes concurrent replays on the owning deployment", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       await persistence.insertDeploymentMetadata({
         deploymentId: "deployment_catalog_concurrent",
         projectId: "project_catalog_concurrent",

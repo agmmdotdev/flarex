@@ -182,10 +182,11 @@ Package commands separate iteration costs:
 | Command | Selection |
 | --- | --- |
 | `pnpm test:fast` | Curated contracts without database or Worker startup |
-| `pnpm test` / `pnpm test:pglite` | Local correctness, including migrations; native PostgreSQL and Workerd excluded |
+| `pnpm test` / `pnpm test:pglite` | Local correctness, including migrations; native PostgreSQL, Workerd and the retained relation comparison excluded |
 | `pnpm test:postgres` | Curated ordinary-role PostgreSQL correctness sweep, not every native suite |
 | `pnpm test:workerd` | Four consumer API Worker boundary suites |
 | `pnpm test:measure:publication` | Opt-in publication measurement campaign, outside correctness/release selections |
+| `pnpm test:r01-p:pglite` / `pnpm test:r01-p:postgres` | Opt-in retained relation snapshot-support comparison and physical reassessment |
 | `pnpm test:pglite:runtime` / `pnpm test:pglite:migrations` | Focused driver runtime / migration suites |
 
 The runner explicitly selects the persistence driver and removes inherited
@@ -202,6 +203,14 @@ Historical/upgrade migration tests still create their own fresh databases.
 Migration-copy fixtures, including historical verifier setup, share
 `src/testing/systemTestMigrationFiles` to retain SQL and the journal without
 copying generator snapshots.
+
+The completed R01-P comparison lives under `performance/relations`. It retains
+both the rejected edge-history candidate and the selected adjacency-version
+candidate for the roadmap's explicit reassessment gates. Default correctness
+selection excludes `test/performance/relations/**`; `vitest.relation-snapshot.config.ts` and the
+named R01-P commands opt in. Current relation paging, definition isolation,
+rollback and read-conflict regressions remain with `storage/relations` and
+`application/relations`.
 
 The base Vitest configuration keeps transformed modules on disk between runs
 with `fsModuleCache`. This caches compilation, not test results or mutable
@@ -250,6 +259,10 @@ the original migration chain from their own empty databases.
 Bootstrap and split-provisioning PGlite cases use the same fixture and registered
 cleanup, retaining independent databases for stored-authority corruption,
 orphan-clock proofs and control/target separation.
+Recovery discovery and current idempotency/claim boundary cases also restore
+independent images with automatic cleanup. Their table-drop witnesses remain
+isolated; fresh-install and populated predecessor-upgrade proofs still migrate
+their own databases.
 Suite setup prepares the baseline before the first case even on direct runs.
 Relation build/readiness fixtures also keep independent image restores. Row
 seeding acquires installation admission before the scope clock and closes that

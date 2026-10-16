@@ -29,8 +29,8 @@ import { runEffect } from "../../support/effectTestRuntime";
 import {
   acquirePostgresDeploymentLock,
   postgresUrl,
+  useFileScopedPostgresPersistence,
   waitForBlockedPostgresDeploymentLocks,
-  withTemporaryPostgresPersistence,
   type HeldPostgresDeploymentLock,
 } from "../../support/postgresHelpers";
 
@@ -53,8 +53,9 @@ const getSchemaVersionArtifactByVersion = (
 ) => runEffect(getSchemaVersionArtifactByVersionEffect(...args));
 
 describePostgres("real Postgres table-definitions artifact compatibility", () => {
+  const withPostgresPersistence = useFileScopedPostgresPersistence();
   it("converges concurrent exact mapping and artifact publications", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const deploymentId = "deployment_app_schema_pg_replay";
       await insertDeployment(persistence, deploymentId);
       const input = appSchemaInput(
@@ -104,7 +105,7 @@ describePostgres("real Postgres table-definitions artifact compatibility", () =>
   }, 30_000);
 
   it("replans and rehashes after an existing allocator wins the lock queue", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const deploymentId = "deployment_app_schema_pg_stale";
       await insertDeployment(persistence, deploymentId);
       const input = appSchemaInput(
@@ -191,7 +192,7 @@ describePostgres("real Postgres table-definitions artifact compatibility", () =>
   }, 30_000);
 
   it("rolls mapping inserts back when immutable artifact replay conflicts", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const deploymentId = "deployment_app_schema_pg_conflict";
       await insertDeployment(persistence, deploymentId);
       const input = appSchemaInput(

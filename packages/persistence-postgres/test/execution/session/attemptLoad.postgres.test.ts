@@ -116,7 +116,7 @@ describePostgres("real Postgres O03-B session authority", () => {
   }, 120_000);
 
   it("shares same-scope read admission while preserving the update-lock writer lane", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -512,7 +512,7 @@ describePostgres("real Postgres O03-B session authority", () => {
 
 
   it("locks the root before a held claim and reads time after the claim wait", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(persistence, "attempt_tail_wait",
         sharedLocator("attempt-tail-wait"), ids);

@@ -1,8 +1,9 @@
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import {
   replacementScopeIdV1FromUuid,
   type ReplacementScopeIdV1,
 } from "flarex-protocol/storage-authority";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   MAX_POINT_MUTATION_REDELIVERY_SCOPE_DISCOVERY_LIMIT_V1,
@@ -12,7 +13,6 @@ import {
   createPointMutationRedeliveryScopeDiscoveryV1,
 } from "@flarex/persistence-postgres/point-mutation-redelivery-scope-discovery";
 import {
-  createPGlitePersistence,
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
 import type { SharedDatabaseScopePhysicalLocator } from
@@ -27,8 +27,10 @@ const sharedLocator = Object.freeze({
 }) satisfies SharedDatabaseScopePhysicalLocator;
 
 describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
+  beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
+
   it("returns one frozen empty page without writing control state", async () => {
-    const persistence = await scopeDirectoryPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const before = await scopeCount(persistence);
     const page = await runEffect(
       discovery(persistence).discoverEffect({ limit: 1 }),
@@ -40,7 +42,7 @@ describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
   });
 
   it("returns only frozen inert replacement-scope locators", async () => {
-    const persistence = await scopeDirectoryPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const first = scopeIdAt(1);
     const second = scopeIdAt(2);
     await insertScope(persistence, second);
@@ -78,7 +80,7 @@ describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
   });
 
   it("skips bounded in-range noncanonical directory rows without poisoning later replacement scopes", async () => {
-    const persistence = await scopeDirectoryPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     for (let sequence = 1; sequence <= 25; sequence += 1) {
       await insertLegacyScope(persistence, sequence);
     }
@@ -106,7 +108,7 @@ describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
   });
 
   it("keeps database-owned cursor ordering across mixed legacy spellings", async () => {
-    const persistence = await scopeDirectoryPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     await insertLegacyScopeId(persistence, "Scope_uppercase_Ω", "upper");
     await insertLegacyScopeId(persistence, "scope_legacy_é", "accent");
     await insertLegacyScopeId(persistence, "scope_legacy_😀", "astral");
@@ -132,7 +134,7 @@ describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
   });
 
   it("paginates 100 plus overflow under one inert high-water fence", async () => {
-    const persistence = await scopeDirectoryPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     for (let sequence = 1; sequence <= 102; sequence += 1) {
       await insertScope(persistence, scopeIdAt(sequence));
     }
@@ -170,7 +172,7 @@ describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
   }, 30_000);
 
   it("rejects malformed limits, excess fields, and inverted continuations", async () => {
-    const persistence = await scopeDirectoryPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const repository = discovery(persistence);
     for (const invalid of [
       { limit: 0 },
@@ -210,7 +212,7 @@ describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
   });
 
   it("fails closed when a replacement-scope directory row has invalid deployment evidence", async () => {
-    const persistence = await scopeDirectoryPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = scopeIdAt(500);
     await persistence.insertDeploymentMetadata({
       deploymentId: "",
@@ -232,7 +234,7 @@ describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
   });
 
   it("maps the foreign database rejection once at the persistence boundary", async () => {
-    const persistence = await scopeDirectoryPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     await persistence.exec("drop table fx_control_scope cascade");
     const failure = await runEffectFailure(
       discovery(persistence).discoverEffect({ limit: 1 }),
@@ -246,12 +248,6 @@ describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
 
 function discovery(persistence: PGliteFlarexPersistence) {
   return createPointMutationRedeliveryScopeDiscoveryV1(persistence.drizzle);
-}
-
-async function scopeDirectoryPersistence(): Promise<PGliteFlarexPersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  return persistence;
 }
 
 function scopeIdAt(sequence: number): ReplacementScopeIdV1 {

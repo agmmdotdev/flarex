@@ -1,3 +1,4 @@
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import { copyDrizzleMigrations } from "../../../src/testing/systemTestMigrationFiles";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -7,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { newTestPGlite } from "../../support/pgliteSearchExtensions";
 import { MAX_PERSISTED_SIGNED_INT64_V1 } from
   "flarex-protocol/storage-authority";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, onTestFinished } from "vitest";
 
 import * as persistencePackage from "../../../src";
 import type { FlarexSqlClient } from "../../../src";
@@ -36,6 +37,8 @@ import { insertExecutionClaimFixture } from
 const MIGRATION_NAME = "0032_transaction_execution_claim.sql";
 
 describe("B2b1 exact-attempt execution-claim schema", () => {
+  beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
+
   it("brands only positive PostgreSQL signed-bigint claim fences", () => {
     expect(TransactionExecutionClaimFenceV1Schema.make(
       MAX_PERSISTED_SIGNED_INT64_V1,
@@ -51,7 +54,9 @@ describe("B2b1 exact-attempt execution-claim schema", () => {
   });
 
   it("installs privately with the exact bounded key and journal ownership", async () => {
-    const persistence = await createPGlitePersistence();
+    const db = newTestPGlite();
+    onTestFinished(() => db.close());
+    const persistence = await createPGlitePersistence({ db });
     await expect(persistence.migrate()).resolves.toBeUndefined();
     await expect(persistence.migrate()).resolves.toBeUndefined();
 
@@ -173,8 +178,7 @@ describe("B2b1 exact-attempt execution-claim schema", () => {
   }, 20_000);
 
   it("rejects invalid claims and cascades only with the exact journal root", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const sessionId = transactionSessionIdAt(322);
     await insertSessionTestScope(persistence);
     await insertTransactionSessionFixture(

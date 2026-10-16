@@ -1,3 +1,4 @@
+import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { copyDrizzleMigrations } from "../../src/testing/systemTestMigrationFiles";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -5,7 +6,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, onTestFinished } from "vitest";
 
 import * as persistencePackage from "../../src";
 import { createPGlitePersistence } from "../../src/database/pglite";
@@ -32,8 +33,12 @@ import {
 const MIGRATION_NAME = "0030_absurd_vanisher.sql";
 
 describe("S09-A committed-success idempotency schema", () => {
+  beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
+
   it("installs privately, replays idempotently, and owns only the scope FK", async () => {
-    const persistence = await createPGlitePersistence();
+    const db = newTestPGlite();
+    onTestFinished(() => db.close());
+    const persistence = await createPGlitePersistence({ db });
 
     await expect(persistence.migrate()).resolves.toBeUndefined();
     await expect(persistence.migrate()).resolves.toBeUndefined();
@@ -208,8 +213,7 @@ describe("S09-A committed-success idempotency schema", () => {
   });
 
   it("enforces key, match, token, timestamp, and result-state boundaries", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await insertS09Scope(persistence, S09_SCOPE_A, S09_EPOCH_B, "3");
     await insertS09Scope(
       persistence,
@@ -288,8 +292,7 @@ describe("S09-A committed-success idempotency schema", () => {
   });
 
   it("distinguishes compacted history from retained-range corruption", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await insertS09Scope(persistence, S09_SCOPE_A, S09_EPOCH_B, "3");
     await insertS09Header(persistence, S09_SCOPE_A, S09_EPOCH_A, "1");
     await insertAvailableOutcome(persistence, {
@@ -355,8 +358,7 @@ describe("S09-A committed-success idempotency schema", () => {
   });
 
   it("accepts exact result limits and rejects semantic or canonical +1", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await insertS09Scope(persistence, S09_SCOPE_A, S09_EPOCH_A, "1");
 
     await insertAvailableOutcome(persistence, {
