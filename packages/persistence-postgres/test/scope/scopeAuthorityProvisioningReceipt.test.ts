@@ -1,3 +1,7 @@
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../support/pgliteTestFixture";
 import { eq } from "drizzle-orm";
 import {
   ScopeEpochSchema,
@@ -5,14 +9,13 @@ import {
   type ScopeEpoch,
   type ScopeId,
 } from "flarex-protocol/storage-authority";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { beforeAll, describe, expect, expectTypeOf, it } from "vitest";
 
 import type {
   FlarexPersistence,
   SplitScopePhysicalLocator,
 } from "../../src";
 import { insertDeploymentMetadata } from "../../src/application/deployments";
-import { createPGlitePersistence } from "../../src/database/pglite";
 import {
   getScopeAuthorityProvisioningReceipt,
   InvalidScopeAuthorityProvisioningReceiptInputError,
@@ -69,6 +72,8 @@ type SharedSplitLocator = Extract<
   { readonly kind: "shared_database" }
 >;
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("split scope authority provisioning receipts", () => {
   it("keeps lifecycle mutation out of the root persistence capability", () => {
     expectTypeOf<ForbiddenRootReceiptMethod>().toEqualTypeOf<never>();
@@ -81,7 +86,7 @@ describe("split scope authority provisioning receipts", () => {
   });
 
   it("atomically composes scope creation and a reserved receipt", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = ScopeIdSchema.make("scope_receipt_atomic");
 
     const result = await persistence.drizzle.transaction(async (tx) => {
@@ -120,7 +125,7 @@ describe("split scope authority provisioning receipts", () => {
   });
 
   it("rolls back deployment, scope, and receipt as one control transaction", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = ScopeIdSchema.make("scope_receipt_rollback");
 
     await expect(
@@ -153,7 +158,7 @@ describe("split scope authority provisioning receipts", () => {
   });
 
   it("adopts the persisted epoch on reservation replay", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = await insertSplitScope(
       persistence,
       "reservation_replay",
@@ -184,7 +189,7 @@ describe("split scope authority provisioning receipts", () => {
   });
 
   it("rejects missing or conflicting canonical scope placement", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const missingScopeId = ScopeIdSchema.make("scope_receipt_missing");
 
     await expect(
@@ -227,7 +232,7 @@ describe("split scope authority provisioning receipts", () => {
   });
 
   it("detects drift between routing authority and immutable receipt intent", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = await insertSplitScope(
       persistence,
       "receipt_placement_conflict",
@@ -267,7 +272,7 @@ describe("split scope authority provisioning receipts", () => {
   });
 
   it("publishes readiness by exact identity and replays monotonically", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = await insertSplitScope(
       persistence,
       "ready_cas",
@@ -317,7 +322,7 @@ describe("split scope authority provisioning receipts", () => {
   });
 
   it("rolls back tentative readiness publication", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = await insertSplitScope(
       persistence,
       "ready_rollback",
@@ -344,7 +349,7 @@ describe("split scope authority provisioning receipts", () => {
   });
 
   it("rejects a missing receipt or mismatched epoch at ready publication", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const missingReceiptScopeId = await insertSplitScope(
       persistence,
       "ready_missing_receipt",
@@ -401,7 +406,7 @@ describe("split scope authority provisioning receipts", () => {
   });
 
   it("enforces receipt foreign key, split locator, epoch, and state constraints", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = await insertSplitScope(
       persistence,
       "ddl_constraints",
@@ -494,7 +499,7 @@ describe("split scope authority provisioning receipts", () => {
   });
 
   it("fails strict decoding if stored protocol evidence is corrupted", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = await insertSplitScope(
       persistence,
       "decoder_corruption",
@@ -529,7 +534,7 @@ describe("split scope authority provisioning receipts", () => {
   });
 
   it("rejects whitespace-only candidate intent before writing", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = await insertSplitScope(
       persistence,
       "invalid_input",
@@ -552,13 +557,7 @@ describe("split scope authority provisioning receipts", () => {
   });
 });
 
-type TestPersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
-
-async function migratedPersistence(): Promise<TestPersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  return persistence;
-}
+type TestPersistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
 async function insertSplitScope(
   persistence: TestPersistence,

@@ -1,3 +1,7 @@
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../support/pgliteTestFixture";
 import { fxSystemScopeExecutionAuthorities } from "../../src/database/schema";
 import { Cause, Effect, Exit, Result } from "effect";
 import {
@@ -6,11 +10,11 @@ import {
   type ScopeId,
 } from "flarex-protocol/storage-authority";
 import { eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
-  createPGlitePersistence,
+
   createPGliteSharedScopeAuthorityProvisioner,
 } from "../../src/database/pglite";
 import { fxSystemScopeClocks } from "../../src/database/schema";
@@ -50,6 +54,8 @@ const settlement = Object.freeze({
   rollbackMessage: "Scoped-execution test transaction rolled back.",
   cleanupDefect: (failure: unknown) => failure,
 });
+
+beforeAll(() => migratedPGliteDataDir(), 120_000);
 
 describe("scope execution", { timeout: 120_000 }, () => {
   it("mints one authentic capability after the clock guard and closes it on return", async () => {
@@ -218,8 +224,7 @@ describe("scope execution", { timeout: 120_000 }, () => {
 async function scopeFixture(
   deploymentId: string,
 ): Promise<LocatedTrustedScopeAuthority<LocatedReadCommittedAttemptTargetV1>> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
+  const persistence = await createMigratedPGlitePersistence();
   const provisioned = await createPGliteSharedScopeAuthorityProvisioner(
     persistence,
     {

@@ -1,3 +1,7 @@
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../../support/pgliteTestFixture";
 import { fxSystemScopeExecutionAuthorities } from "../../../src/database/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
@@ -26,7 +30,7 @@ import {
   type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
 import { Cause, Effect, Exit, Fiber } from "effect";
-import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   IndexBuildStateClockNotFoundError,
@@ -38,7 +42,6 @@ import {
   type IndexBuildStateRecord,
 } from "../../../src";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
-import { createPGlitePersistence } from "../../../src/database/pglite";
 import {
   fxSystemIndexBuildStates,
   fxSystemScopeClocks,
@@ -84,6 +87,8 @@ type ImpossibleDeclaredBuildCursor = Extract<
   }
 >;
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("fenced index build-state reads", () => {
   it("keeps lifecycle values branded and exposes no mutation/readiness API", () => {
     expectTypeOf<PublicBuildMutationMethod>().toEqualTypeOf<never>();
@@ -104,7 +109,7 @@ describe("fenced index build-state reads", () => {
   });
 
   it("distinguishes absent, current, and every stale authority pin", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = ScopeIdSchema.make("scope_index_build_fencing");
     const definitionId = CatalogIndexDefinitionIdSchema.make(1);
     await insertClock(persistence.drizzle, {
@@ -213,7 +218,7 @@ describe("fenced index build-state reads", () => {
   });
 
   it("decodes every lifecycle and exact exclusive row cursor", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = ScopeIdSchema.make("scope_index_build_lifecycle");
     const epoch = ScopeEpochSchema.make("epoch-lifecycle");
     await insertClock(persistence.drizzle, {
@@ -267,7 +272,7 @@ describe("fenced index build-state reads", () => {
   });
 
   it("enforces scope isolation and split-compatible local ownership", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const left = ScopeIdSchema.make("scope_index_build_left");
     const right = ScopeIdSchema.make("scope_index_build_right");
     const epoch = ScopeEpochSchema.make("epoch-isolation");
@@ -318,7 +323,7 @@ describe("fenced index build-state reads", () => {
   });
 
   it("rejects every malformed physical build-state shape", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = ScopeIdSchema.make("scope_index_build_constraints");
     await insertClock(persistence.drizzle, {
       scopeId,
@@ -361,7 +366,7 @@ describe("fenced index build-state reads", () => {
   });
 
   it("fails closed on an ahead-of-clock snapshot and stored corruption", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = ScopeIdSchema.make("scope_index_build_corruption");
     const epoch = ScopeEpochSchema.make("epoch-corruption");
     await insertClock(persistence.drizzle, {
@@ -410,7 +415,7 @@ describe("fenced index build-state reads", () => {
   });
 
   it("rejects malformed reads and missing clock authority", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = ScopeIdSchema.make("scope_index_build_input");
     const definitionId = CatalogIndexDefinitionIdSchema.make(1);
     const invalid: ReadonlyArray<unknown> = [
@@ -438,7 +443,7 @@ describe("fenced index build-state reads", () => {
   });
 
   it("maps the Drizzle read rejection at the persistence boundary", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     await persistence.query("drop table fx_system_scope_clock cascade");
 
     const failure = await runEffectFailure(readFencedIndexBuildStateEffect(
@@ -457,7 +462,7 @@ describe("fenced index build-state reads", () => {
   });
 
   it("classifies malformed stored clock authority as typed corruption", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const scopeId = ScopeIdSchema.make("scope_index_build_clock_corruption");
     const indexDefinitionId = CatalogIndexDefinitionIdSchema.make(1);
     await insertClock(persistence.drizzle, {
@@ -582,7 +587,6 @@ describe("fenced index build-state reads", () => {
   });
 
   it("preserves unexpected input accessor failures as defects", async () => {
-    const persistence = await migratedPersistence();
     const defect = new Error("unexpected index-build input accessor defect");
     const input = new Proxy(
       {
@@ -598,7 +602,7 @@ describe("fenced index build-state reads", () => {
     );
 
     const exit = await Effect.runPromiseExit(readFencedIndexBuildStateEffect(
-      persistence.drizzle,
+      indexBuildReadDatabase(() => { throw new Error("input failure reached storage"); }),
       input,
     ));
 
@@ -689,7 +693,7 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
+type PGlitePersistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
 interface ClockFixture {
   readonly scopeId: ScopeId;
@@ -722,12 +726,6 @@ interface RawBuildOverrides {
   readonly attemptFence?: bigint;
   readonly createdAt?: Date;
   readonly updatedAt?: Date;
-}
-
-async function migratedPersistence(): Promise<PGlitePersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  return persistence;
 }
 
 async function insertClock(

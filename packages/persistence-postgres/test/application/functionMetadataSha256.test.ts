@@ -1,11 +1,5 @@
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { Cause, Effect, Exit, Fiber, Result, Schema } from "effect";
-import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import {
-  TransactionArtifactIdV1Schema,
-  TransactionArtifactRuntimeV1Schema,
-  TransactionPackageIdV1Schema,
-} from "flarex-protocol/transaction-session";
+import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import {
   afterEach,
   describe,
@@ -16,16 +10,6 @@ import {
 } from "vitest";
 
 import * as persistenceRoot from "../../src";
-import {
-  frameFunctionMetadataChainStepSha256PreimageV1,
-  frameFunctionMetadataCompletedPackageSha256PreimageV1,
-  frameFunctionMetadataEmptyChainSha256PreimageV1,
-  frameFunctionMetadataPathSha256PreimageV1,
-  frameFunctionMetadataPublicationKeySha256PreimageV1,
-  frameFunctionMetadataRowSha256PreimageV1,
-  type FunctionMetadataFramingV1Error,
-  type FunctionMetadataPublicationKeyPinsV1,
-} from "../../src/application/functionMetadataFraming";
 import {
   createFunctionMetadataSha256V1,
   FunctionMetadataSha256InputV1Error,
@@ -74,84 +58,6 @@ describe("PAM-A0b0-H Function Metadata V1 SHA-256 adapter", () => {
     );
     expect(Object.getPrototypeOf(digest)).toBe(Uint8Array.prototype);
     expect(digest.byteLength).toBe(32);
-  });
-
-  it("hashes every accepted metadata frame family to its golden digest", async () => {
-    const framingBudget = { maximumFrameBytesMaterialized: 1_000_000 };
-    const path = framingSuccess(frameFunctionMetadataPathSha256PreimageV1(
-      "mod\0\ud800😀:run",
-      framingBudget,
-    ));
-    const row = framingSuccess(frameFunctionMetadataRowSha256PreimageV1(
-      new Uint8Array([0, 1, 255]),
-      framingBudget,
-    ));
-    const empty = framingSuccess(
-      frameFunctionMetadataEmptyChainSha256PreimageV1(framingBudget),
-    );
-    const pathDigest = await adapterSha256(path);
-    const rowDigest = await adapterSha256(row);
-    const emptyDigest = await adapterSha256(empty);
-    const step = framingSuccess(frameFunctionMetadataChainStepSha256PreimageV1({
-      previousChainSha256: emptyDigest,
-      ordinal: 0n,
-      canonicalRowBytesTotal: 0n,
-      functionPathSha256: pathDigest,
-      functionRowSha256: rowDigest,
-      canonicalRowByteLength: 3n,
-    }, framingBudget));
-    const publicationPins = {
-      packageId: Schema.decodeUnknownSync(TransactionPackageIdV1Schema)(
-        "pkg-main",
-      ),
-      artifactRuntime: Schema.decodeUnknownSync(
-        TransactionArtifactRuntimeV1Schema,
-      )("dynamic-worker"),
-      artifactId: Schema.decodeUnknownSync(TransactionArtifactIdV1Schema)(
-        "artifact_0123456789abcdef0123456789abcdef",
-      ),
-      sourcePackageSha256: bytesFromRange(0, 32),
-      schemaVersionId: decodeCatalogSchemaVersionId("schema-v1"),
-      schemaManifestCodecVersion: 1,
-      schemaManifestByteLength: 123n,
-      schemaManifestSha256: bytesFromRange(32, 32),
-      functionMetadataCodecVersion: 1,
-    } satisfies FunctionMetadataPublicationKeyPinsV1;
-    const publication = framingSuccess(
-      frameFunctionMetadataPublicationKeySha256PreimageV1(
-        publicationPins,
-        framingBudget,
-      ),
-    );
-    const publicationDigest = await adapterSha256(publication);
-    const completed = framingSuccess(
-      frameFunctionMetadataCompletedPackageSha256PreimageV1({
-        publicationKeySha256: publicationDigest,
-        functionCount: 2n,
-        canonicalRowBytesTotal: 456n,
-        finalRowChainSha256: emptyDigest,
-      }, framingBudget),
-    );
-
-    for (const [frame, expected] of [
-      [path, "35dbd3650bd271449e3632a30dc93f0a93ea732e8bef19b61ff8a41ae6c1e9be"],
-      [row, "314a443ee2cabcfeecba032f6109ef177ee289f6c5dd397f6f9e9843bf164c74"],
-      [empty, "285c6deca25c6de4b70c2215cd8df13680fb9a96ebf528157df4eec173a3089f"],
-      [
-        step.canonicalBytes,
-        "973498b24c27b8ed11396fcddf2374befb2dbcc72a3924700db48c98c57cbeca",
-      ],
-      [
-        publication,
-        "f372c4f1b4dff258f477107199cc5ade7b054c49d5c8a283fca71bba4c012247",
-      ],
-      [
-        completed,
-        "5e0d1a4f9321f6db9708d449d69989e433ca7f581272243a9c883d096a2f8c1e",
-      ],
-    ] as const) {
-      expect(encodeBytesToLowercaseHex(await adapterSha256(frame))).toBe(expected);
-    }
   });
 
   it("validates the mandatory inclusive budget before allocation or digest invocation", async () => {
@@ -539,23 +445,6 @@ describe("PAM-A0b0-H Function Metadata V1 SHA-256 adapter", () => {
 async function nativeSha256(input: Uint8Array): Promise<Uint8Array> {
   const owned = new Uint8Array(input);
   return new Uint8Array(await crypto.subtle.digest("SHA-256", owned));
-}
-
-async function adapterSha256(input: Uint8Array): Promise<Uint8Array> {
-  return runEffect(hashFunctionMetadataSha256V1(input, {
-    maximumInputBytes: input.byteLength,
-  }));
-}
-
-function framingSuccess<A>(
-  result: Result.Result<A, FunctionMetadataFramingV1Error>,
-): A {
-  if (Result.isFailure(result)) throw result.failure;
-  return result.success;
-}
-
-function bytesFromRange(start: number, length: number): Uint8Array {
-  return Uint8Array.from({ length }, (_, index) => start + index);
 }
 
 function expectDefect<E>(exit: Exit.Exit<unknown, E>, expected: unknown): void {

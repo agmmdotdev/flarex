@@ -1,12 +1,15 @@
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../../support/pgliteTestFixture";
 import { Clock, Effect, Result } from "effect";
 import { decodeReplacementScopeIdV1, ScopeEpochSchema } from
   "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from
   "flarex-protocol/transaction-grant";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
-  createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
@@ -43,14 +46,18 @@ const physicalLocator = Object.freeze({
   schemaName: "public",
 });
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("O11-E retained-history maintenance", () => {
   let persistence: PGliteFlarexPersistence;
+  let closeFixture: (() => Promise<void>) | undefined;
   let uuidCounter = 1;
 
   beforeAll(async () => {
-    persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    persistence = await createMigratedPGlitePersistence(cleanup => { closeFixture = cleanup; });
   });
+
+  afterAll(async () => { await closeFixture?.(); });
 
   function nextUuid(): string {
     const suffix = uuidCounter.toString().padStart(12, "0");

@@ -1,4 +1,8 @@
 import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../../support/pgliteTestFixture";
+import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
   ScopeEpochSchema,
@@ -9,14 +13,13 @@ import {
 import { eq } from "drizzle-orm";
 import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
 import { Result } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   createAppDataSnapshotResolver,
   type ResolvedAppDataSnapshot,
 } from "../../../src/storage/documents/appDataSnapshot";
 import {
-  createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
 } from "../../../src/database/pglite";
 import { fxSystemScopeClocks } from "../../../src/database/schema";
@@ -48,10 +51,11 @@ const initialEpoch = ScopeEpochSchema.make(
 );
 const highCommitSeq = 9_007_199_254_740_993n;
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("app-data snapshot resolution", () => {
   it("resolves a frozen exact sequence-zero snapshot from persisted authority", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const provisioned = await createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {
@@ -88,8 +92,7 @@ describe("app-data snapshot resolution", () => {
   });
 
   it("keeps independently provisioned scope snapshots independent", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const provisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {
@@ -137,8 +140,7 @@ describe("app-data snapshot resolution", () => {
   });
 
   it("selects two scopes in one deployment and refuses a mismatched deployment", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const first = await createPGliteSharedScopeAuthorityProvisioner(persistence, {
       physicalLocator: sharedLocator,
       randomUuid: uuidSequence(

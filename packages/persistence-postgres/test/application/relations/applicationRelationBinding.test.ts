@@ -1,3 +1,7 @@
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../../support/pgliteTestFixture";
 import { webcrypto } from "node:crypto";
 import {
   ApplicationManifestSchemaBindingSha256HexSchema,
@@ -24,7 +28,6 @@ import {
   type ApplicationRelationBindingRepository,
   type PublishApplicationRelationBindingInput,
 } from "../../../src/application/relations/binding";
-import { createPGlitePersistence } from "../../../src/database/pglite";
 import {
   fxControlApplicationManifestSchemaBindings,
   fxControlBoundApplicationSchemas,
@@ -42,9 +45,11 @@ beforeAll(() => {
   }
 });
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("Application relation binding", () => {
   it("publishes, replays, and reuses one bound schema across full manifests", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_relation_binding_replay";
     await insertDeployment(persistence, deploymentId);
     const repository = repositoryFor(persistence);
@@ -119,7 +124,7 @@ describe("Application relation binding", () => {
   });
 
   it("requires explicit exact physical reuse and keeps replacements alongside it", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_relation_binding_evolution";
     await insertDeployment(persistence, deploymentId);
     const repository = repositoryFor(persistence);
@@ -243,7 +248,7 @@ describe("Application relation binding", () => {
   });
 
   it("rolls back the base catalogs and relation projections as one unit", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_relation_binding_rollback";
     await insertDeployment(persistence, deploymentId);
     const rollback = new Error("rollback after relation publication");
@@ -287,7 +292,7 @@ describe("Application relation binding", () => {
   });
 
   it("fails closed when retained application-schema collision evidence drifts", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_relation_binding_schema_evidence";
     await insertDeployment(persistence, deploymentId);
     const repository = repositoryFor(persistence);
@@ -314,7 +319,7 @@ describe("Application relation binding", () => {
   });
 
   it("fails closed when retained analyzed-manifest collision evidence drifts", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_relation_binding_manifest_evidence";
     await insertDeployment(persistence, deploymentId);
     const repository = repositoryFor(persistence);
@@ -360,7 +365,7 @@ describe("Application relation binding", () => {
   });
 
   it("round-trips canonical negative zero through JSONB", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_relation_binding_negative_zero";
     await insertDeployment(persistence, deploymentId);
     const repository = repositoryFor(persistence);
@@ -388,7 +393,7 @@ describe("Application relation binding", () => {
   });
 
   it("rejects missing and self-referential preserved origins in SQL", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_relation_binding_origin_check";
     await insertDeployment(persistence, deploymentId);
     const repository = repositoryFor(persistence);
@@ -559,13 +564,7 @@ function manifestInput(
   })).manifest;
 }
 
-type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
-
-async function migratedPersistence(): Promise<PGlitePersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  return persistence;
-}
+type PGlitePersistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
 async function insertDeployment(
   persistence: PGlitePersistence,

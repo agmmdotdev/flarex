@@ -1,10 +1,11 @@
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
 import { Result } from "effect";
 import {
   replacementScopeIdV1FromUuid,
   type ReplacementScopeIdV1,
 } from "flarex-protocol/storage-authority";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   createPGlitePersistence,
@@ -32,6 +33,8 @@ const LOCATOR = Object.freeze({
   databaseKey: "dte06-c3-control-directory",
   schemaName: "public",
 });
+
+beforeAll(() => migratedPGliteDataDir(), 120_000);
 
 describe("DTE06-C3 deadline-owned control directory - PGlite", () => {
   it("classifies a competing pool deadline as invalid pool configuration", () => {
@@ -62,10 +65,9 @@ describe("DTE06-C3 deadline-owned control directory - PGlite", () => {
   });
 
   it("preserves one finite scope snapshot across exact continuation", async () => {
-    const raw = newTestPGlite();
+    const raw = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     try {
       const persistence = await createPGlitePersistence({ db: raw });
-      await persistence.migrate();
       const first = scopeIdAt(1);
       const second = scopeIdAt(2);
       const deferred = scopeIdAt(9);

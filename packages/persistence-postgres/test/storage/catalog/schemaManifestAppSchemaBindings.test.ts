@@ -1,4 +1,8 @@
 import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../../support/pgliteTestFixture";
+import {
   CatalogIndexIdSchema,
   CatalogTableIdSchema,
   MAX_CATALOG_INDEX_ID,
@@ -11,14 +15,13 @@ import type {
   SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { beforeAll, describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   getStableLogicalIndexIdentityByIdEffect,
   getStableLogicalIndexIdentityByNameEffect,
   type FlarexPersistence,
 } from "../../../src";
-import { createPGlitePersistence } from "../../../src/database/pglite";
 import {
   applySchemaManifestAppSchemaBindingsV1InTransactionEffect,
   type ApplySchemaManifestAppSchemaBindingsV1Error,
@@ -66,6 +69,8 @@ type PublicMutationExport = Extract<
   | "nextStableLogicalIndexCatalogId"
   | "nextStableLogicalIndexCatalogIdResult"
 >;
+
+beforeAll(() => migratedPGliteDataDir(), 120_000);
 
 describe("schema manifest app-schema bindings", () => {
   it("keeps logical allocation internal and table/index ID brands distinct", () => {
@@ -359,7 +364,7 @@ describe("schema manifest app-schema bindings", () => {
   });
 
   it("maps a combined-plan logical-index read rejection to its tagged error", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_app_schema_read_failure";
     await insertDeployment(persistence, deploymentId);
     const plan = await prepareSchemaManifestAppSchemaBindingsV1(
@@ -394,7 +399,7 @@ describe("schema manifest app-schema bindings", () => {
   });
 
   it("preserves combined-plan query construction failures as defects", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_app_schema_construction_defect";
     await insertDeployment(persistence, deploymentId);
     const plan = await prepareSchemaManifestAppSchemaBindingsV1(
@@ -426,7 +431,7 @@ describe("schema manifest app-schema bindings", () => {
   });
 
   it("waits for a combined-plan logical-index read before interruption completes", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_app_schema_interruption";
     await insertDeployment(persistence, deploymentId);
     const plan = await prepareSchemaManifestAppSchemaBindingsV1(
@@ -471,7 +476,7 @@ describe("schema manifest app-schema bindings", () => {
   });
 
   it("allocates deterministically, replays exactly, and reuses identity when fields change", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_app_schema_deterministic";
     await insertDeployment(persistence, deploymentId);
 
@@ -551,7 +556,7 @@ describe("schema manifest app-schema bindings", () => {
   });
 
   it("assigns new descriptors new IDs and permits one descriptor on different tables", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_app_schema_identity";
     await insertDeployment(persistence, deploymentId);
     const initial = await prepareSchemaManifestAppSchemaBindingsV1(
@@ -590,7 +595,7 @@ describe("schema manifest app-schema bindings", () => {
   });
 
   it("rejects undeclared tables, reserved indexes, missing deployments, and forged plans", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_app_schema_invalid";
     await insertDeployment(persistence, deploymentId);
 
@@ -656,7 +661,7 @@ describe("schema manifest app-schema bindings", () => {
   });
 
   it("fails stale when either catalog frontier advances", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const tableDeployment = "deployment_app_schema_table_frontier";
     await insertDeployment(persistence, tableDeployment);
     const tablePlan = await prepareSchemaManifestAppSchemaBindingsV1(
@@ -700,7 +705,7 @@ describe("schema manifest app-schema bindings", () => {
   });
 
   it("detects changed index bindings and cross-catalog partial application", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const changedDeployment = "deployment_app_schema_binding_changed";
     await insertDeployment(persistence, changedDeployment);
     const tableOnly = await prepareSchemaManifestAppSchemaBindingsV1(
@@ -773,7 +778,7 @@ describe("schema manifest app-schema bindings", () => {
   });
 
   it("rolls table and index mappings back together and reuses the exact plan", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_app_schema_rollback";
     await insertDeployment(persistence, deploymentId);
     const plan = await prepareSchemaManifestAppSchemaBindingsV1(
@@ -805,7 +810,7 @@ describe("schema manifest app-schema bindings", () => {
   });
 
   it("rolls both catalogs back when Result verification rejects index RETURNING", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_app_schema_returning_rollback";
     await insertDeployment(persistence, deploymentId);
     const plan = await prepareSchemaManifestAppSchemaBindingsV1(
@@ -841,7 +846,7 @@ describe("schema manifest app-schema bindings", () => {
   });
 
   it("enforces logical catalog constraints and deployment-qualified table ownership", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     await insertDeployment(persistence, "deployment_index_constraints_a");
     await insertDeployment(persistence, "deployment_index_constraints_b");
     await ensureTable(persistence, {
@@ -920,7 +925,7 @@ describe("schema manifest app-schema bindings", () => {
   });
 
   it("fails before planning past the deployment-local logical ID limit", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_app_schema_exhausted";
     await insertDeployment(persistence, deploymentId);
     await ensureTable(persistence, {
@@ -946,13 +951,7 @@ describe("schema manifest app-schema bindings", () => {
   });
 });
 
-type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
-
-async function migratedPersistence(): Promise<PGlitePersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  return persistence;
-}
+type PGlitePersistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
 async function insertDeployment(
   persistence: PGlitePersistence,

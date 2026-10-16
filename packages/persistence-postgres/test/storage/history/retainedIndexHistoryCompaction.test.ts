@@ -1,3 +1,8 @@
+import { withApplicationNativeFixtureTransaction } from "../../application/applicationNativeMutationTestFixture";
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../../support/pgliteTestFixture";
 import { verifyTerminalMembershipCompaction } from "./membershipCompactionScenario";
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
@@ -19,10 +24,9 @@ import {
   decodeReplacementScopeIdV1,
 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
-  createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
@@ -59,14 +63,18 @@ const physicalLocator = Object.freeze({
   schemaName: "public",
 });
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("O11-D retained ordered-index history compaction", () => {
   let persistence: PGliteFlarexPersistence;
+  let closeFixture: (() => Promise<void>) | undefined;
   let uuidCounter = 1;
 
   beforeAll(async () => {
-    persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    persistence = await createMigratedPGlitePersistence(cleanup => { closeFixture = cleanup; });
   });
+
+  afterAll(async () => { await closeFixture?.(); });
 
   function nextUuid(): string {
     const suffix = uuidCounter.toString().padStart(12, "0");
@@ -352,7 +360,7 @@ describe("O11-D retained ordered-index history compaction", () => {
     );
     const epoch = epochRows.rows[0]?.epoch;
     if (epoch === undefined) throw new Error("Expected the scope epoch.");
-    const appended = await persistence.drizzle.transaction((tx) =>
+    const appended = await withApplicationNativeFixtureTransaction(persistence, (tx) =>
       runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
         kind: "tombstone",
         scopeId: context.scopeId,

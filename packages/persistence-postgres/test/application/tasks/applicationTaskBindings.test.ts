@@ -1,3 +1,7 @@
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../../support/pgliteTestFixture";
 import { webcrypto } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { canonicalizeApplicationManifestV1 } from
@@ -57,6 +61,8 @@ const AUTHORITY: ApplicationAnalysisAuthority = Object.freeze({
 const taskSha256 = makeStandardApplicationTaskSha256V1(input =>
   globalThis.crypto.subtle.digest("SHA-256", input)
 );
+
+beforeAll(() => migratedPGliteDataDir(), 120_000);
 
 beforeAll(() => {
   if (globalThis.crypto === undefined) {
@@ -184,27 +190,27 @@ describe("Application task-binding persistence", () => {
   });
 
   it("refuses aggregate stored task evidence before transferring definition bodies", async () => {
-    const db = newTestPGlite();
-    let watching = false;
-    let largestDriverBytes = 0;
-    const observe = (value: unknown): void => {
-      if (value instanceof Uint8Array) largestDriverBytes = Math.max(largestDriverBytes, value.byteLength);
-      else if (Array.isArray(value)) value.forEach(observe);
-      else if (typeof value === "object" && value !== null) Object.values(value).forEach(observe);
-    };
-    const persistence = await createPGlitePersistence({ db: {
-      exec: db.exec.bind(db), query: db.query.bind(db),
-      transaction: run => db.transaction(tx => run({ exec: tx.exec.bind(tx), query: new Proxy(tx.query, {
-        apply(targetQuery, _receiver, args: unknown[]) {
-          return Promise.resolve(Reflect.apply(targetQuery, tx, args)).then(result => {
-            if (watching) observe(result);
-            return result;
-          });
-        },
-      }) })),
-    } });
-    const fixture = await taskBindingFixture(false, persistence);
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     try {
+      let watching = false;
+      let largestDriverBytes = 0;
+      const observe = (value: unknown): void => {
+        if (value instanceof Uint8Array) largestDriverBytes = Math.max(largestDriverBytes, value.byteLength);
+        else if (Array.isArray(value)) value.forEach(observe);
+        else if (typeof value === "object" && value !== null) Object.values(value).forEach(observe);
+      };
+      const persistence = await createPGlitePersistence({ db: {
+        exec: db.exec.bind(db), query: db.query.bind(db),
+        transaction: run => db.transaction(tx => run({ exec: tx.exec.bind(tx), query: new Proxy(tx.query, {
+          apply(targetQuery, _receiver, args: unknown[]) {
+            return Promise.resolve(Reflect.apply(targetQuery, tx, args)).then(result => {
+              if (watching) observe(result);
+              return result;
+            });
+          },
+        }) })),
+      } });
+      const fixture = await taskBindingFixture(false, persistence);
       await runEffect(fixture.repository.register(fixture.input));
       // Each frame fits its persisted16MiB limit, but their sum plus the real
       // catalog header exceeds the existing32MiB evidence budget.
@@ -693,8 +699,7 @@ async function taskBindingCounts(
 }
 
 async function taskBindingFixture(empty = false, suppliedPersistence?: Awaited<ReturnType<typeof createPGlitePersistence>> | PostgresFlarexPersistence) {
-  const persistence = suppliedPersistence ?? await createPGlitePersistence();
-  await persistence.migrate();
+  const persistence = suppliedPersistence ?? await createMigratedPGlitePersistence();
   await insertSessionTestScope(persistence);
   const identities = [
     "20000000-0000-4000-8000-000000000001",

@@ -1,4 +1,8 @@
 import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../../support/pgliteTestFixture";
+import {
   type CatalogIndexDefinitionId,
 } from "flarex-protocol/catalog";
 import {
@@ -15,7 +19,7 @@ import {
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
-import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 // @ts-expect-error D2b prepared tokens must remain absent from the package root.
 import type { PreparedAppCreationTimeIndexDefinitionV1 as RootPreparedAppCreationTimeIndexDefinitionV1 } from "../../../src";
@@ -37,7 +41,6 @@ import {
   type EnsureAppCreationTimeIndexDefinitionV1Result,
   type PreparedAppCreationTimeIndexDefinitionV1,
 } from "../../../src/storage/indexes/appIndexDefinitions";
-import { createPGlitePersistence } from "../../../src/database/pglite";
 import {
   applySchemaManifestAppSchemaBindingsV1InTransactionEffect,
 } from "../../../src/storage/catalog/schemaManifestAppSchemaBindings";
@@ -82,6 +85,8 @@ type PreparedTokenStringKey = Extract<
   string
 >;
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("table-owned app creation-time index definitions", () => {
   it("keeps the derived row primitive package-internal and identity-only", () => {
     expectTypeOf<PublicD2bMethod>().toEqualTypeOf<never>();
@@ -108,7 +113,7 @@ describe("table-owned app creation-time index definitions", () => {
   });
 
   it("derives, creates, and exactly replays the complete intrinsic set", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_creation_time_exact";
     const fixture = await prepareFixture(
       persistence,
@@ -220,7 +225,7 @@ describe("table-owned app creation-time index definitions", () => {
   });
 
   it("rejects missing and stale exact table parents before allocation", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_creation_time_parent";
     const fixture = await prepareFixture(
       persistence,
@@ -257,7 +262,7 @@ describe("table-owned app creation-time index definitions", () => {
   });
 
   it("fails closed on equal-digest unequal canonical evidence", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_creation_time_collision";
     const fixture = await prepareFixture(
       persistence,
@@ -291,7 +296,7 @@ describe("table-owned app creation-time index definitions", () => {
   });
 
   it("maps invalid prepared replay evidence to catalog corruption", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_creation_time_replay_corruption";
     const fixture = await prepareFixture(
       persistence,
@@ -345,7 +350,7 @@ describe("table-owned app creation-time index definitions", () => {
   });
 
   it("preserves prepared replay evidence access failures as defects", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_creation_time_replay_defect";
     const fixture = await prepareFixture(
       persistence,
@@ -402,7 +407,7 @@ describe("table-owned app creation-time index definitions", () => {
   });
 
   it("preserves prepared replay snapshot failures as defects", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_creation_time_replay_snapshot_defect";
     const fixture = await prepareFixture(
       persistence,
@@ -466,7 +471,7 @@ describe("table-owned app creation-time index definitions", () => {
   });
 
   it("labels rejected replay reads and rejects the caller-owned transaction", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_creation_time_sql_failure";
     const fixture = await prepareFixture(
       persistence,
@@ -506,7 +511,7 @@ describe("table-owned app creation-time index definitions", () => {
   });
 
   it("preserves synchronous lock-query construction failures as defects", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const fixture = await prepareFixture(
       persistence,
       "deployment_creation_time_construction_defect",
@@ -534,7 +539,7 @@ describe("table-owned app creation-time index definitions", () => {
   });
 
   it("waits for a pending deployment lock before interruption completes", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const fixture = await prepareFixture(
       persistence,
       "deployment_creation_time_interruption",
@@ -578,7 +583,7 @@ describe("table-owned app creation-time index definitions", () => {
   });
 
   it("rolls allocation back and reuses the deployment-wide next identity", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_creation_time_rollback";
     const fixture = await prepareFixture(
       persistence,
@@ -618,13 +623,7 @@ describe("table-owned app creation-time index definitions", () => {
   });
 });
 
-type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
-
-async function migratedPersistence(): Promise<PGlitePersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  return persistence;
-}
+type PGlitePersistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
 async function prepareFixture(
   persistence: PGlitePersistence,

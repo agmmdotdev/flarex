@@ -1,3 +1,4 @@
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
 import {
   decodeTaskRetryJitterV1,
@@ -12,7 +13,7 @@ import { count } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { replacementScopeIdV1FromUuid } from
   "flarex-protocol/storage-authority";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
@@ -39,6 +40,8 @@ import {
 const TASK_DEPLOYMENT_ID = "deployment_task_store_v1";
 const MISSED_RUN_ID = "run_75000000-0000-4000-8000-000000000001";
 const retryJitter = Result.getOrThrow(decodeTaskRetryJitterV1(0.25));
+
+beforeAll(() => migratedPGliteDataDir(), 120_000);
 
 describe("DTE05-D fresh Queue scheduler resolution - PGlite", () => {
   it("publishes after commit and a later hint discovers work with no prior publication", async () => {
@@ -204,10 +207,9 @@ function makeResolver(
 async function withFixture(
   run: (persistence: PGliteFlarexPersistence) => Promise<void>,
 ): Promise<void> {
-  const raw = newTestPGlite();
+  const raw = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
   try {
     const persistence = await createPGlitePersistence({ db: raw });
-    await persistence.migrate();
     await persistence.insertDeploymentMetadata({
       deploymentId: TASK_DEPLOYMENT_ID,
       projectId: "project_task_store_v1",

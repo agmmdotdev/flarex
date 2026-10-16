@@ -228,6 +228,11 @@ identity witnesses and register runtime/database cleanup rather than migrating
 or leaving a backend open for each case.
 
 Scope, catalog and index fixtures also restore independent migrated images.
+Application analysis/relation/task-binding repositories use the same owner,
+including automatic cleanup. Instrumented task-binding drivers restore the
+image through their existing raw-driver owner. Retained-history suites keep
+their original file lifetime and register closure with `afterAll`.
+Constraint-corruption cases retain separate backends rather than sharing rows.
 Bootstrap and split-provisioning PGlite cases use the same fixture and registered
 cleanup, retaining independent databases for stored-authority corruption,
 orphan-clock proofs and control/target separation.
@@ -266,6 +271,11 @@ production code rather than being reimplemented by fixture reset.
 Task compute-delivery fixtures restore the same image through their existing
 raw-driver owner and close each borrow immediately. Constraint and evidence
 corruption cases retain independent databases.
+Task directory, resolver and partition suites follow that same ownership.
+Repair-scheduler shape refusals share one isolated backend because each rejected
+autocommit statement rolls back itself; the fresh migration/idempotency witness
+still starts empty. Metadata frame goldens belong in the framing suite; the
+SHA adapter retains its known vector and separate boundary/failure coverage.
 
 Ordinary PostgreSQL suites reuse `useFileScopedPostgresPersistence` where row
 reset preserves the required baseline. It drains an outstanding callback and

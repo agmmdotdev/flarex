@@ -1,3 +1,4 @@
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { PGlite } from "@electric-sql/pglite";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
 import type {
@@ -7,7 +8,7 @@ import type {
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { Brand, Effect, Result } from "effect";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { beforeAll, describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
@@ -68,6 +69,8 @@ const DISCOVERY_DEADLINE_POLICY = Object.freeze({
   transactionTimeoutMilliseconds: 20_000,
   settlementReserveMilliseconds: 30_000,
 });
+
+beforeAll(() => migratedPGliteDataDir(), 120_000);
 
 describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
   it("exposes exact operation-specific Effect channels", () => {
@@ -489,7 +492,7 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
 async function withFixture(
   run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
 ): Promise<void> {
-  const raw = newTestPGlite();
+  const raw = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
   try {
     await run(await makeFixture(raw));
   } finally {
@@ -499,7 +502,6 @@ async function withFixture(
 
 async function makeFixture(raw: PGlite) {
   const persistence = await createPGlitePersistence({ db: raw });
-  await persistence.migrate();
   const seeded = await seedTaskComputeDeliverySchemaV1(persistence);
   const [dispatchFixture] = detachDriverRows(
     await persistence.drizzle.select().from(

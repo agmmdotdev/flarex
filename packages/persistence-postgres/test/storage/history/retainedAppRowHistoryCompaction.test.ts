@@ -1,3 +1,8 @@
+import { withApplicationNativeFixtureTransaction } from "../../application/applicationNativeMutationTestFixture";
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../../support/pgliteTestFixture";
 import { Effect } from "effect";
 import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import { decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
@@ -11,14 +16,13 @@ import {
 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from
   "flarex-protocol/transaction-grant";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   appendPreparedAppRowRevisionsInTransactionEffect,
   readAppRowAtSnapshotInTransactionEffect,
 } from "../../../src/storage/documents/appRows";
 import {
-  createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
@@ -55,14 +59,18 @@ const physicalLocator = Object.freeze({
   schemaName: "public",
 });
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("O11-D retained app-row history compaction", () => {
   let persistence: PGliteFlarexPersistence;
+  let closeFixture: (() => Promise<void>) | undefined;
   let uuidCounter = 1;
 
   beforeAll(async () => {
-    persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    persistence = await createMigratedPGlitePersistence(cleanup => { closeFixture = cleanup; });
   });
+
+  afterAll(async () => { await closeFixture?.(); });
 
   function nextUuid(): string {
     const suffix = uuidCounter.toString().padStart(12, "0");
@@ -242,7 +250,7 @@ describe("O11-D retained app-row history compaction", () => {
     );
     const epoch = epochRows.rows[0]?.epoch;
     if (epoch === undefined) throw new Error("Missing scope epoch.");
-    const appended = await persistence.drizzle.transaction(tx =>
+    const appended = await withApplicationNativeFixtureTransaction(persistence, tx =>
       runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
         kind: "tombstone",
         scopeId: context.scopeId,

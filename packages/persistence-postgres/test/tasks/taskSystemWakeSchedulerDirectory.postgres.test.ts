@@ -17,7 +17,7 @@ import {
 import { runEffect } from "../support/effectTestRuntime";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../support/postgresHelpers";
 import {
   seedTaskSystemRunAttemptStoreV1,
@@ -25,6 +25,7 @@ import {
 } from "./taskSystemRunAttemptStoreTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 const retryJitter = Result.getOrThrow(decodeTaskRetryJitterV1(0.25));
 
 describe("DTE05-C2 PostgreSQL acceptance environment", () => {
@@ -38,7 +39,7 @@ describe("DTE05-C2 PostgreSQL acceptance environment", () => {
 
 describePostgres("DTE05-C2 trusted Task scheduler directory - PostgreSQL", () => {
   it("reconstructs fresh authority and a C1 scheduler after settlement", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const parent = await seedTaskSystemParentV1(persistence);
       await seedTaskSystemRunAttemptStoreV1(persistence, { parent });
 

@@ -1,8 +1,9 @@
+import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
 } from "flarex-protocol/schema-manifest";
-import { ScopeEpochSchema, ScopeIdSchema } from
+import { ScopeIdSchema } from
   "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
 
@@ -37,7 +38,7 @@ describePostgres("real PostgreSQL S03-D3 reconciliation", () => {
         "show server_version",
       );
       expect(version.rows[0]?.server_version).toMatch(/^18\./);
-      const peerScopeId = ScopeIdSchema.make("scope_s03_d3_pg_peer");
+      const peerScopeId = ScopeIdSchema.make("scope_63000000-0000-4000-8000-000000000002");
       await persistence.insertScopeMetadata({
         deploymentId: fixture.input.deploymentId,
         scopeId: peerScopeId,
@@ -67,7 +68,7 @@ describePostgres("real PostgreSQL S03-D3 reconciliation", () => {
            returning scope_id
          ) update fx_system_scope_clock as clock set last_commit_seq = 25
            from authority where clock.scope_id = authority.scope_id`,
-        [fixture.scopeId, "epoch_s03_d3_pg_2"],
+        [fixture.scopeId, "epoch_63000000-0000-4000-8000-000000000004"],
       );
       const redeployed = await reconcile(fixture);
       expect(redeployed).toMatchObject({
@@ -126,7 +127,7 @@ describePostgres("real PostgreSQL S03-D3 reconciliation", () => {
 
 async function fixtureFor(persistence: PostgresFlarexPersistence) {
   const deploymentId = "deployment_s03_d3_postgres";
-  const scopeId = ScopeIdSchema.make("scope_s03_d3_postgres");
+  const scopeId = ScopeIdSchema.make("scope_63000000-0000-4000-8000-000000000001");
   const schemaVersionId = CatalogSchemaVersionIdSchema.make(
     "schema_s03_d3_postgres",
   );
@@ -139,14 +140,9 @@ async function fixtureFor(persistence: PostgresFlarexPersistence) {
     deploymentId,
     physicalLocator: LOCATOR,
   });
-  await persistence.query(
-    `with created as (
-       insert into fx_system_scope_clock (scope_id) values ($1) returning scope_id
-     ) insert into fx_system_scope_execution_authority
-       (scope_id, storage_generation, storage_generation_fence, epoch)
-       select scope_id, 'flarexdb_v1', 1, $2 from created`,
-    [scopeId, ScopeEpochSchema.make("epoch_s03_d3_postgres")],
-  );
+  await insertCurrentScopeClockFixture(persistence.drizzle, {
+    scopeId, epoch: "epoch_63000000-0000-4000-8000-000000000003",
+  });
   await persistence.publishAppSchemaV1({
     deploymentId,
     schemaVersionId,

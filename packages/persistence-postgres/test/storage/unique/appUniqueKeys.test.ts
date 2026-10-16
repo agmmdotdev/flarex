@@ -1,3 +1,7 @@
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../../support/pgliteTestFixture";
 import { createHash } from "node:crypto";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission, requireAdmittedTargetInstallationSchema } from "../../../src/installation/installationLifecycle";
 import { getTableName, sql } from "drizzle-orm";
@@ -20,7 +24,7 @@ import {
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
 import { Effect, Result, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   canonicalizeAppUniqueKeyV1Result,
@@ -44,7 +48,6 @@ import {
   type AppendPreparedAppRowRevisionV1Input,
 } from "../../../src/storage/documents/appRows";
 import {
-  createPGlitePersistence,
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
@@ -79,6 +82,8 @@ const rowE = decodeAppRowIdHexV1("5400000000000000000000000000000e");
 const rowF = decodeAppRowIdHexV1("5400000000000000000000000000000f");
 const keyA = projection("alpha");
 const keyB = projection("beta");
+
+beforeAll(() => migratedPGliteDataDir(), 120_000);
 
 describe("S11 app unique-key storage", () => {
   it("applies bounded unique sets and rolls back later-batch failures", async () => {
@@ -208,7 +213,7 @@ describe("S11 app unique-key storage", () => {
       expect(await runEffectFailure(applyAppUniqueKeyMutationsInTransactionEffect(tx, [mutation(scopeId, epoch, rowA, keyA, keyA)])))
         .toBeInstanceOf(AppUniqueKeyStorageCorruptionError);
       throw rollback;
-    
+
         } finally { closeInstallationAdmission(tx); }
       })).rejects.toBe(rollback);
     expect((await apply(persistence, mutation(scopeId, epoch, rowA, keyA, keyA))).status).toBe("unchanged");
@@ -503,7 +508,7 @@ return await runEffectFailure(applyAppUniqueKeyMutationsInTransactionEffect(tx, 
         [mutation(scopeId, epoch, rowA, null, keyA)],
       ));
       throw new Error("injected S11 rollback");
-    
+
         } finally { closeInstallationAdmission(tx); }
       })).rejects.toThrow("injected S11 rollback");
     const counts = await persistence.query<{ rows_count: string; keys_count: string }>(`
@@ -516,8 +521,7 @@ return await runEffectFailure(applyAppUniqueKeyMutationsInTransactionEffect(tx, 
 });
 
 async function uniquePersistence(): Promise<PGliteFlarexPersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
+  const persistence = await createMigratedPGlitePersistence();
   await persistence.query(
     `with clock as (
        insert into fx_system_scope_clock (scope_id, last_commit_seq)
@@ -539,7 +543,7 @@ async function appendRow(
         try {
 
     await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [input]));
-  
+
         } finally { closeInstallationAdmission(tx); }
       });
 }

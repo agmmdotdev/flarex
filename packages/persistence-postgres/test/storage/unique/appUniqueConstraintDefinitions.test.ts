@@ -1,4 +1,8 @@
 import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../../support/pgliteTestFixture";
+import {
   CatalogTableIdSchema,
 } from "flarex-protocol/catalog";
 import {
@@ -13,7 +17,7 @@ import {
   type CatalogSchemaVersionId,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   AppSchemaVersionUniqueConstraintBindingConflictError,
@@ -23,7 +27,6 @@ import {
   prepareAppUniqueConstraintDefinitionBindingV1Effect,
   type PreparedAppUniqueConstraintDefinitionBindingV1,
 } from "../../../src/storage/unique/appUniqueConstraintDefinitions";
-import { createPGlitePersistence } from "../../../src/database/pglite";
 import {
   applySchemaManifestAppSchemaBindingsV1InTransactionEffect,
   prepareSchemaManifestAppSchemaBindingsV1Effect,
@@ -34,9 +37,11 @@ import {
 } from "../../../src/storage/catalog/schemaVersionArtifacts";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("immutable app unique-constraint definitions", () => {
   it("replays exact bindings and keeps changed physical generations", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_unique_definition_generations";
     await insertDeployment(persistence, deploymentId);
     const v1 = await registerSchema(persistence, deploymentId, "unique_v1", 1);
@@ -89,7 +94,7 @@ describe("immutable app unique-constraint definitions", () => {
   });
 
   it("rejects a competing generation for an already-bound schema version", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_unique_binding_conflict";
     await insertDeployment(persistence, deploymentId);
     const registered = await registerSchema(
@@ -115,7 +120,7 @@ describe("immutable app unique-constraint definitions", () => {
   });
 
   it("rolls back identity, definition, and binding atomically", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_unique_definition_rollback";
     await insertDeployment(persistence, deploymentId);
     const registered = await registerSchema(
@@ -145,7 +150,7 @@ describe("immutable app unique-constraint definitions", () => {
   });
 
   it("rejects structurally forged preparation tokens", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const failure = await persistence.drizzle.transaction((tx) =>
       runEffectFailure(
         ensureAppUniqueConstraintDefinitionBindingV1InTransaction(
@@ -165,7 +170,7 @@ describe("immutable app unique-constraint definitions", () => {
   });
 
   it("rejects decodable manifest JSON that disagrees with stored evidence", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_unique_tampered_manifest";
     await insertDeployment(persistence, deploymentId);
     const registered = await registerSchema(
@@ -195,7 +200,7 @@ describe("immutable app unique-constraint definitions", () => {
   });
 
   it("rejects a deployment table omitted from the exact schema", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_unique_omitted_table";
     await insertDeployment(persistence, deploymentId);
     const users = await registerSchema(
@@ -226,13 +231,7 @@ describe("immutable app unique-constraint definitions", () => {
   });
 });
 
-type Persistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
-
-async function migratedPersistence(): Promise<Persistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  return persistence;
-}
+type Persistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
 async function insertDeployment(persistence: Persistence, deploymentId: string) {
   await persistence.insertDeploymentMetadata({

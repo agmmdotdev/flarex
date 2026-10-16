@@ -1,5 +1,9 @@
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../support/pgliteTestFixture";
 import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -11,7 +15,6 @@ import {
 } from "flarex-protocol/storage-authority";
 
 import {
-  createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
 } from "../../src/database/pglite";
 import {
@@ -86,10 +89,11 @@ const initialEpoch = ScopeEpochSchema.make(
   "epoch_20000000-0000-4000-8000-000000000003",
 );
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("trusted scope authority resolution", () => {
   it("selects exact scopes in one deployment and refuses a foreign deployment", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_shared",
       projectId: "project_shared",
@@ -159,8 +163,7 @@ describe("trusted scope authority resolution", () => {
   });
 
   it("resolves a provisioned shared scope from PGlite authority rows", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const provisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {

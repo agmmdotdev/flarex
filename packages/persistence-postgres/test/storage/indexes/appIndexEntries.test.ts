@@ -1,3 +1,7 @@
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../../support/pgliteTestFixture";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import { verifyIndexBatches } from "./indexBatchScenario";
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
@@ -37,7 +41,7 @@ import { Effect } from "effect";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { flarexSchema } from "../../../src/database/schema";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   AppIndexEntryTransitionConflictError,
@@ -65,7 +69,6 @@ import {
   type AppendPreparedAppRowRevisionV1Input,
 } from "../../../src/storage/documents/appRows";
 import {
-  createPGlitePersistence,
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
@@ -92,6 +95,8 @@ const keyC = key("c");
 const physicalSpec = APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1;
 const deploymentId = "deployment_s10_pglite";
 let locatedDefinition: LocatedAppIndexDefinitionV1;
+
+beforeAll(() => migratedPGliteDataDir(), 120_000);
 
 describe("S10 app-index revision and current storage", () => {
   it("retains genuine frozen catalog specifications and authenticates raw publication digests", async () => {
@@ -204,7 +209,7 @@ return await runEffectFailure(
           if (executeSpy !== undefined) expect(executeSpy).toHaveBeenCalledOnce();
           if (prepareSpy !== undefined) expect(prepareSpy.mock.calls.filter(args => args[1] === undefined)).toHaveLength(1);
         } finally { executeSpy?.mockRestore(); prepareSpy?.mockRestore(); }
-      
+
         } finally { closeInstallationAdmission(tx); }
       });
     }
@@ -255,7 +260,7 @@ return await runEffectFailure(
       await appendEntry(tx, liveEntry(rowB, keyB, 2n));
       await appendRow(tx, await liveRow(rowC, 2n, null, "b-tie"));
       await appendEntry(tx, liveEntry(rowC, keyB, 2n));
-    
+
         } finally { closeInstallationAdmission(tx); }
       });
     await commitRowAndEntries(persistence, await liveRow(rowA, 3n, 1n, "c"), [
@@ -372,7 +377,7 @@ return await runEffect(
       const result =
         await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [liveEntry(rowA, keyA, 5n)]));
       expect(result).toHaveLength(1);
-    
+
         } finally { closeInstallationAdmission(tx); }
       });
 
@@ -422,7 +427,7 @@ return await runEffectFailure(
 
       await appendRow(tx, await liveRow(rowA, 5n, 3n, "stale"));
       await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [liveEntry(rowA, keyA, 5n)]));
-    
+
         } finally { closeInstallationAdmission(tx); }
       })).rejects.toBeInstanceOf(AppIndexEntryTransitionConflictError);
     const stored = await persistence.query<{ count: string }>(
@@ -549,7 +554,7 @@ return await runEffectFailure(
 
       await appendRow(tx, tombstoneRow(rowA, 1n, null));
       await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [liveEntry(rowA, keyA, 1n)]));
-    
+
         } finally { closeInstallationAdmission(tx); }
       })).rejects.toBeInstanceOf(AppIndexEntryParentRowError);
     await persistence.drizzle.transaction(async (tx) => {
@@ -557,7 +562,7 @@ return await runEffectFailure(
         try {
 
       await appendRow(tx, await liveRow(rowB, 2n, null, "b"));
-    
+
         } finally { closeInstallationAdmission(tx); }
       });
     const forgedDefinition = {
@@ -633,8 +638,7 @@ return await runEffectFailure(
 });
 
 async function indexPersistence(): Promise<PGliteFlarexPersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
+  const persistence = await createMigratedPGlitePersistence();
   await seedLocatedDefinition(persistence);
   await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch, lastCommitSeq: 100n });
   return persistence;
@@ -709,7 +713,7 @@ async function commitRowAndEntries(
 
     await appendRow(tx, row);
     for (const entry of entries) await appendEntry(tx, entry);
-  
+
         } finally { closeInstallationAdmission(tx); }
       });
 }

@@ -1,3 +1,7 @@
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../support/pgliteTestFixture";
 import { webcrypto } from "node:crypto";
 import {
   canonicalizeApplicationManifestV1,
@@ -22,7 +26,6 @@ import {
 import { relationManifestV2Text } from
   "./applicationAnalysisRegistrationTestSupport";
 import type { FlarexMetadataDatabase } from "../../src/application/deployments";
-import { createPGlitePersistence } from "../../src/database/pglite";
 import { fxSystemApplicationAnalysesV1 } from "../../src/database/schema";
 import { runEffect } from "../support/effectTestRuntime";
 import {
@@ -48,6 +51,8 @@ beforeAll(() => {
     });
   }
 });
+
+beforeAll(() => migratedPGliteDataDir(), 120_000);
 
 describe("Application Analysis persistence generation", () => {
   it("admits one pending authority and replays the request key exactly", async () => {
@@ -500,8 +505,7 @@ function manifestText(): string {
 async function repositoryFixture(
   options: { readonly failUuidOnceAt?: number } = {},
 ) {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
+  const persistence = await createMigratedPGlitePersistence();
   await insertSessionTestScope(persistence);
   const uuids = [
     "10000000-0000-4000-8000-000000000001",

@@ -1,8 +1,12 @@
 import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../support/pgliteTestFixture";
+import {
   ScopeIdSchema,
   type ScopeId,
 } from "flarex-protocol/storage-authority";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { beforeAll, describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   InvalidScopeMetadataInputError,
@@ -14,7 +18,6 @@ import {
   type ScopeMetadataRecord,
   type ScopePhysicalLocator,
 } from "../../src";
-import { createPGlitePersistence } from "../../src/database/pglite";
 
 const physicalLocators = [
   {
@@ -34,6 +37,8 @@ const physicalLocators = [
   },
 ] as const satisfies readonly ScopePhysicalLocator[];
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("scope metadata", () => {
   it("keeps scope identity branded and the active schema pointer read-only", () => {
     expectTypeOf<InsertScopeMetadataInput["scopeId"]>()
@@ -45,8 +50,7 @@ describe("scope metadata", () => {
   });
 
   it("rejects page limits that cannot produce an advancing cursor", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
 
     for (const limit of [
       0,
@@ -70,8 +74,7 @@ describe("scope metadata", () => {
   });
 
   it("round-trips every physical topology and lists scopes stably", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
 
     const inputs = [
       {
@@ -140,8 +143,7 @@ describe("scope metadata", () => {
   });
 
   it("rejects whitespace-only input before it can claim a deployment", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_whitespace_input";
     await persistence.insertDeploymentMetadata({
       deploymentId,
@@ -209,8 +211,7 @@ describe("scope metadata", () => {
   });
 
   it("enforces scope ownership and locator constraints", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     for (const deploymentId of ["deployment_owner_a", "deployment_owner_b"]) {
       await persistence.insertDeploymentMetadata({
         deploymentId,
@@ -376,8 +377,7 @@ describe("scope metadata", () => {
   });
 
   it("rejects malformed persisted locator JSON when decoding rows", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await persistence.exec(`
       alter table fx_control_scope
       drop constraint fx_control_scope_physical_locator_check

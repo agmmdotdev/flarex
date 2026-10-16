@@ -1,9 +1,13 @@
 import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../../support/pgliteTestFixture";
+import {
   CatalogIndexIdSchema,
   CatalogTableIdSchema,
 } from "flarex-protocol/catalog";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { beforeAll, describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   getStableLogicalIndexIdentityByIdEffect,
@@ -14,7 +18,6 @@ import {
   type StableLogicalIndexIdentity,
 } from "../../../src";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
-import { createPGlitePersistence } from "../../../src/database/pglite";
 import { fxControlIndexes, fxControlTables } from "../../../src/database/schema";
 import { decodeStableLogicalIndexIdentityResult } from
   "../../../src/storage/catalog/stableLogicalIndexCatalog";
@@ -26,6 +29,8 @@ type PublicPromiseReaderExport = Extract<
   | "getStableLogicalIndexIdentityByName"
 >;
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("stable logical index catalog reads", () => {
   it("exposes Effect readers without retaining an unowned Promise facade", () => {
     expectTypeOf<PublicPromiseReaderExport>().toEqualTypeOf<never>();
@@ -34,7 +39,7 @@ describe("stable logical index catalog reads", () => {
   });
 
   it("reads deployment-qualified identities by ID and name and returns null when absent", async () => {
-    const persistence = await migratedPersistence();
+    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_logical_index_reads";
     const tableId = CatalogTableIdSchema.make(1);
     const logicalIndexId = CatalogIndexIdSchema.make(1);
@@ -239,14 +244,6 @@ describe("stable logical index catalog reads", () => {
     }
   });
 });
-
-type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
-
-async function migratedPersistence(): Promise<PGlitePersistence> {
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  return persistence;
-}
 
 function logicalIndexReadDatabase(
   run: () => Promise<readonly unknown[]>,

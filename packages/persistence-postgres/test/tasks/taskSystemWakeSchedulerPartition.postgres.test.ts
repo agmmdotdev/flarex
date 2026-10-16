@@ -23,7 +23,7 @@ import {
 import { runEffect } from "../support/effectTestRuntime";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../support/postgresHelpers";
 import {
   TASK_LOCATOR,
@@ -34,6 +34,7 @@ import {
 } from "./taskSystemRunAttemptStoreTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 const EARLY_RUN_ID = "run_72000000-0000-4000-8000-000000000001";
 const LATE_RUN_ID = "run_72000000-0000-4000-8000-000000000005";
 const retryJitter = Result.getOrThrow(decodeTaskRetryJitterV1(0.25));
@@ -49,7 +50,7 @@ describe("DTE05-C1 PostgreSQL acceptance environment", () => {
 
 describePostgres("DTE05-C1 located-scope scheduler composition - PostgreSQL", () => {
   it("resumes a durable page after reconstructing the scope-bound scheduler", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       const seeded = await seedTaskSystemRunAttemptStoreV1(persistence);
       await seedAdditionalTaskSystemRunV1(
         persistence,

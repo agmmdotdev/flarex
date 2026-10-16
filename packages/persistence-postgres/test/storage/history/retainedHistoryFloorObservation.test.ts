@@ -1,3 +1,7 @@
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../../support/pgliteTestFixture";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Effect, Fiber, Result } from "effect";
@@ -12,13 +16,12 @@ import {
 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from
   "flarex-protocol/transaction-grant";
-import { TransactionAuthorizationRevocationEpochSchema } from "flarex-protocol/transaction-session";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGliteLocatedRetainedHistoryFloorTarget,
-  createPGlitePersistence,
+
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
@@ -62,7 +65,7 @@ import {
 } from "../../execution/session/support/authorityClock";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { lockScopeClockForUpdateInTransactionEffect, lockScopeClockForSnapshotReadInTransactionEffect,
-  openExactAttemptScopeClockObservation, closeExactAttemptScopeClockObservation } from "../../../src/scope/scopeClock";
+  closeExactAttemptScopeClockObservation } from "../../../src/scope/scopeClock";
 import { retainedHistoryFloorLeaseScenario, seedRetainedFloorLeaseCommit } from "./retainedHistoryFloorLeaseScenario";
 
 const sharedLocator = Object.freeze({
@@ -77,14 +80,18 @@ const retentionPolicy = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
   maximumLiveSnapshotRetentionMilliseconds: 10_000,
 }));
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("O11-B/C retained-history floor", () => {
   let persistence: PGliteFlarexPersistence;
+  let closeFixture: (() => Promise<void>) | undefined;
   let uuidCounter = 1;
 
   beforeAll(async () => {
-    persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    persistence = await createMigratedPGlitePersistence(cleanup => { closeFixture = cleanup; });
   });
+
+  afterAll(async () => { await closeFixture?.(); });
 
   function nextUuid(): string {
     const suffix = uuidCounter.toString().padStart(12, "0");
@@ -445,8 +452,7 @@ describe("O11-B/C retained-history floor", () => {
     const runner = createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle);
     let observedFloor: bigint | undefined;
     const port = publicationPort(work => runner(async tx => {
-      const clock = await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, context.scopeId));
-      openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "attempt");
+      await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, context.scopeId));
       try {
         const result = await work(tx);
         observedFloor = (await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, context.scopeId))).oldestAvailableCommitSeq;

@@ -1,3 +1,4 @@
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { fxSystemScopeExecutionAuthorities } from "../../src/database/schema";
 import { PGlite } from "@electric-sql/pglite";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
@@ -13,7 +14,7 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
@@ -49,6 +50,8 @@ const taskScopeId = ScopeIdSchema.make(TASK_SCOPE_ID);
 const staleScopeEpoch = ScopeEpochSchema.make(
   "epoch_72000000-0000-4000-8000-000000000099",
 );
+
+beforeAll(() => migratedPGliteDataDir(), 120_000);
 
 describe("DTE05-C1 located-scope scheduler composition - PGlite", () => {
   it("runs bounded Drizzle pages through the real lifecycle and resumes exactly", async () => {
@@ -172,7 +175,7 @@ function attemptUuidSequence(): () => string {
 async function withFixture(
   run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
 ): Promise<void> {
-  const raw = newTestPGlite();
+  const raw = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
   try {
     await run(await makeFixture(raw));
   } finally {
@@ -182,7 +185,6 @@ async function withFixture(
 
 async function makeFixture(raw: PGlite) {
   const persistence = await createPGlitePersistence({ db: raw });
-  await persistence.migrate();
   await seedTaskSystemRunAttemptStoreV1(persistence);
   const target = createPGliteLocatedTaskSystemRunAttemptTargetV1(
     persistence,

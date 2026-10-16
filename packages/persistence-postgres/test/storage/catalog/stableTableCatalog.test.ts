@@ -1,9 +1,19 @@
+import { PglitePreparedQuery } from "drizzle-orm/pglite";
+import { fxControlTables } from "../../../src/database/schema";
+import {
+  lockInstallationForCurrentTransaction,
+  closeInstallationAdmission,
+} from "../../../src/installation/installationLifecycle";
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../../support/pgliteTestFixture";
 import {
   CatalogTableIdSchema,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { beforeAll, describe, expect, expectTypeOf, it, onTestFinished, vi } from "vitest";
 
 import type {
   EnsureStableTableIdentityInput,
@@ -28,7 +38,6 @@ import {
   StableTableIdentityPersistenceError,
 } from "../../../src/storage/catalog/stableTableCatalog";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
-import { createPGlitePersistence } from "../../../src/database/pglite";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
 interface AnalyzerDerivedTableIdentity {
@@ -63,6 +72,8 @@ type InternalPromiseReaderExport = Extract<
   "getStableTableIdentityByIdForPromiseTransaction"
 >;
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("stable table catalog", () => {
   it("keeps allocation internal and analyzer ordinals out of input", () => {
     expectTypeOf<AnalyzerOrdinalAccepted>().toEqualTypeOf<false>();
@@ -77,8 +88,7 @@ describe("stable table catalog", () => {
   });
 
   it("allocates once, replays exactly, and supports deployment-qualified reads", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_catalog_a",
       projectId: "project_catalog_a",
@@ -272,7 +282,7 @@ describe("stable table catalog", () => {
 
   it("maps rejected allocator queries once and rolls back", async () => {
     const rejection = new Error("deployment lock rejected");
-    const transaction = stableTableAllocationDatabase({
+    const transaction = await stableTableAllocationDatabase("deployment_catalog_allocation_sql_failure", {
       rejection: { operation: "lockDeployment", cause: rejection },
     });
 
@@ -324,7 +334,7 @@ describe("stable table catalog", () => {
 
   it("preserves allocator query-construction failures as defects", async () => {
     const defect = new Error("deployment lock construction defect");
-    const transaction = stableTableAllocationDatabase({
+    const transaction = await stableTableAllocationDatabase("deployment_catalog_allocation_defect", {
       constructionDefect: { operation: "lockDeployment", cause: defect },
     });
 
@@ -545,8 +555,7 @@ describe("stable table catalog", () => {
   });
 
   it("isolates the compact identity sequence by deployment", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     for (const suffix of ["a", "b"] as const) {
       await persistence.insertDeploymentMetadata({
         deploymentId: `deployment_isolated_${suffix}`,
@@ -573,8 +582,7 @@ describe("stable table catalog", () => {
   });
 
   it("fails closed for invalid ownership and names", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
 
     await expect(
       ensure(persistence, {
@@ -619,7 +627,7 @@ describe("stable table catalog", () => {
   });
 
   it("rolls back when post-insert verification returns typed corruption", async () => {
-    const transaction = stableTableAllocationDatabase({ insertedRows: [] });
+    const transaction = await stableTableAllocationDatabase("deployment_catalog_rollback", { insertedRows: [] });
 
     const failure = await runEffectFailure(ensureStableTableIdentityEffect(
       transaction.db,
@@ -634,11 +642,12 @@ describe("stable table catalog", () => {
     expect(failure).toMatchObject({ detail: "insert returned no row" });
     expect(transaction.committed()).toBe(false);
     expect(transaction.rolledBack()).toBe(true);
+    expect(await transaction.catalogRows()).toEqual([]);
   });
 
   it("retains callback failure when transaction rollback fails differently", async () => {
     const rollbackFailure = new Error("allocator rollback failed");
-    const transaction = stableTableAllocationDatabase({
+    const transaction = await stableTableAllocationDatabase("deployment_catalog_rollback_failure", {
       insertedRows: [],
       rollbackFailure,
     });
@@ -668,11 +677,11 @@ describe("stable table catalog", () => {
     }
     expect(transaction.committed()).toBe(false);
     expect(transaction.rolledBack()).toBe(true);
+    expect(await transaction.catalogRows()).toEqual([]);
   });
 
   it("enforces catalog constraints below the typed API", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
+    const persistence = await createMigratedPGlitePersistence();
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_catalog_constraints",
       projectId: "project_catalog_constraints",
@@ -723,7 +732,7 @@ describe("stable table catalog", () => {
   });
 });
 
-type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
+type PGlitePersistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
 function ensure(
   persistence: PGlitePersistence,
@@ -743,113 +752,81 @@ function stableTableReadDatabase(
   return { select: () => query } as unknown as FlarexMetadataDatabase;
 }
 
-type StableTableAllocationOperation =
-  StableTableCatalogAllocationPersistenceError["operation"];
-
 interface StableTableAllocationDatabaseOptions {
   readonly insertedRows?: readonly unknown[];
   readonly rollbackFailure?: unknown;
   readonly rejection?: Readonly<{
-    operation: StableTableAllocationOperation;
+    operation: "lockDeployment";
     cause: unknown;
   }>;
   readonly constructionDefect?: Readonly<{
-    operation: StableTableAllocationOperation;
+    operation: "lockDeployment";
     cause: unknown;
   }>;
 }
 
-function stableTableAllocationDatabase(
+async function stableTableAllocationDatabase(
+  deploymentId: string,
   options: StableTableAllocationDatabaseOptions = {},
-): Readonly<{
-  db: FlarexMetadataDatabase;
-  committed(): boolean;
-  rolledBack(): boolean;
-}> {
+) {
+  const persistence = await createMigratedPGlitePersistence();
+  await persistence.insertDeploymentMetadata({ deploymentId, projectId: "project_allocator_fault" });
   let committed = false;
   let rolledBack = false;
-  let selectCount = 0;
-  const row = {
-    deploymentId: "deployment_catalog_rollback",
-    namespace: "app",
-    logicalName: "rolled_back",
-    tableId: CatalogTableIdSchema.make(1),
-    createdAt: new Date("2026-07-19T00:00:00.000Z"),
-  } as const;
-
-  const query = (
-    operation: StableTableAllocationOperation | "getByName",
-    rows: readonly unknown[],
-  ) => {
-    if (
-      options.constructionDefect !== undefined
-      && options.constructionDefect.operation === operation
-    ) {
-      throw options.constructionDefect.cause;
-    }
-    const run = () =>
-      options.rejection !== undefined
-        && options.rejection.operation === operation
-        ? Promise.reject(options.rejection.cause)
-        : Promise.resolve(rows);
-    const builder = {
-      from: () => builder,
-      where: () => builder,
-      limit: () => builder,
-      orderBy: () => builder,
-      for: () => run(),
-      then: <Success, Failure = never>(
-        onSuccess?: ((value: readonly unknown[]) => Success | PromiseLike<Success>)
-          | null,
-        onFailure?: ((reason: unknown) => Failure | PromiseLike<Failure>) | null,
-      ) => run().then(onSuccess, onFailure),
-    };
-    return builder;
-  };
-
-  const tx = {
-    select() {
-      selectCount += 1;
-      if (selectCount === 1) {
-        return query("lockDeployment", [{
-          deploymentId: "deployment_catalog_rollback",
-        }]);
-      }
-      if (selectCount === 2) {
-        return query("getByName", []);
-      }
-      return query("readHighWater", []);
-    },
-    insert() {
-      const builder = {
-        values: () => builder,
-        returning: () => query("insert", options.insertedRows ?? [row]),
-      };
-      return builder;
-    },
-  };
-  const db = {
-    async transaction(
-      run: (transaction: typeof tx) => Promise<unknown>,
-    ): Promise<unknown> {
-      try {
-        const value = await run(tx);
-        committed = true;
-        return value;
-      } catch (cause) {
-        rolledBack = true;
-        if (options.rollbackFailure !== undefined) {
-          throw options.rollbackFailure;
+  const transaction = persistence.drizzle.transaction.bind(persistence.drizzle);
+  const fault = vi.spyOn(persistence.drizzle, "transaction").mockImplementation(async (run, config) => {
+    try {
+      const result = await transaction(async tx => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        let emptyInsertResult = false;
+        let rejection = options.rejection;
+        const execute = PglitePreparedQuery.prototype.execute;
+        const queryFault = vi.spyOn(PglitePreparedQuery.prototype, "execute").mockImplementation(async function (
+          this: typeof PglitePreparedQuery.prototype, ...args
+        ) {
+          if (rejection !== undefined) {
+            const cause = rejection.cause;
+            rejection = undefined;
+            throw cause;
+          }
+          const rows = await execute.apply(this, args);
+          if (emptyInsertResult) {
+            emptyInsertResult = false;
+            return options.insertedRows;
+          }
+          return rows;
+        });
+        const selectFault = options.constructionDefect === undefined ? undefined :
+          vi.spyOn(tx, "select").mockImplementationOnce(() => { throw options.constructionDefect?.cause; });
+        const insert = tx.insert.bind(tx);
+        const insertFault = options.insertedRows === undefined ? undefined :
+          vi.spyOn(tx, "insert").mockImplementation((...args: Parameters<typeof insert>) => {
+            emptyInsertResult = true;
+            return insert(...args);
+          });
+        try {
+          return await run(tx);
+        } finally {
+          insertFault?.mockRestore();
+          selectFault?.mockRestore();
+          queryFault.mockRestore();
+          closeInstallationAdmission(tx);
         }
-        throw cause;
-      }
-    },
-  } as unknown as FlarexMetadataDatabase;
-
+      }, config);
+      committed = true;
+      return result;
+    } catch (cause: unknown) {
+      rolledBack = true;
+      if (options.rollbackFailure !== undefined) throw options.rollbackFailure;
+      throw cause;
+    }
+  });
+  onTestFinished(() => fault.mockRestore());
   return Object.freeze({
-    db,
+    db: persistence.drizzle,
     committed: () => committed,
     rolledBack: () => rolledBack,
+    catalogRows: () => persistence.drizzle.select().from(fxControlTables),
   });
 }
 

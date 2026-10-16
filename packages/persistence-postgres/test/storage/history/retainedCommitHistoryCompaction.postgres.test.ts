@@ -52,6 +52,7 @@ describePostgres("real PostgreSQL O11-D retained commit-history compaction", () 
         "fx_commit_event_header_fk",
         "fx_commit_preference_deletion_header_fk",
         "fx_commit_relational_header_fk",
+        "fx_event_eligibility_member_commit_fk",
         "fx_system_commit_app_row_change_header_fk",
         "fx_system_commit_relation_adjacency_header_fk",
       ]);

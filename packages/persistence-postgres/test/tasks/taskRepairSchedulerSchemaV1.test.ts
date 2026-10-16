@@ -1,7 +1,13 @@
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../support/pgliteTestFixture";
 
 import { createPGlitePersistence } from "../../src/database/pglite";
+
+beforeAll(() => migratedPGliteDataDir(), 120_000);
 
 describe("DTE05-E2A Task repair scheduler schema", () => {
   it("migrates idempotently to exactly one inert idle row", async () => {
@@ -55,11 +61,8 @@ describe("DTE05-E2A Task repair scheduler schema", () => {
   });
 
   it("accepts one complete claimed checkpoint shape", async () => {
-    const db = newTestPGlite();
-    const persistence = await createPGlitePersistence({ db });
-    try {
-      await persistence.migrate();
-      await expect(persistence.query(`
+    const persistence = await createMigratedPGlitePersistence();
+    await expect(persistence.query(`
         update fx_system_durable_task_repair_scheduler_v1
         set
           scheduler_state = 'claimed',
@@ -73,10 +76,7 @@ describe("DTE05-E2A Task repair scheduler schema", () => {
           continuation_sha256 = decode(repeat('00', 32), 'hex'),
           updated_at = now()
         where scheduler_key = 'durable_task_repair_v1'
-      `)).resolves.toBeDefined();
-    } finally {
-      await db.close();
-    }
+    `)).resolves.toBeDefined();
   });
 
   it("rejects invalid key, fence, claim, continuation, and timestamp shapes", async () => {
@@ -120,15 +120,10 @@ describe("DTE05-E2A Task repair scheduler schema", () => {
        set updated_at = created_at - interval '1 millisecond'`,
     ];
 
+    const persistence = await createMigratedPGlitePersistence();
+    // Each rejected autocommit statement rolls back its own attempted change.
     for (const statement of invalidStatements) {
-      const db = newTestPGlite();
-      const persistence = await createPGlitePersistence({ db });
-      try {
-        await persistence.migrate();
-        await expect(persistence.query(statement)).rejects.toThrow();
-      } finally {
-        await db.close();
-      }
+      await expect(persistence.query(statement)).rejects.toThrow();
     }
   });
 });
