@@ -7,6 +7,10 @@
     "src"
   ],
   "exports": {
+    "./internal/trusted-workflow-checkpoint": "./src/tasks/trustedWorkflowCheckpoint.ts",
+    "./internal/trusted-workflow-continuation": "./src/tasks/trustedWorkflowContinuationStore.ts",
+    "./internal/trusted-workflow-callback": "./src/tasks/trustedWorkflowCallback.ts",
+    "./internal/trusted-workflow-event-eligibility": "./src/tasks/trustedWorkflowEventEligibilityStore.ts",
     "./internal/execution-diagnostics": "./src/execution/diagnostics/operation.ts",
     "./internal/cms-adapter": "./src/frameworks/cmsTransaction/cmsAdapter.ts",
     "./internal/cms-construction": "./src/frameworks/cmsTransaction/construction.ts",

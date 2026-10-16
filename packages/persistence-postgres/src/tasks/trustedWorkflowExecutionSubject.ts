@@ -1,7 +1,7 @@
 import { bytesEqualFullScan, copyBytes, isUint8ArrayWithByteLength } from "@flarex/utils/bytes";
 import {
   decodeTaskExecutionPrincipalReferenceV1, decodeTaskExecutionPrincipalObjectV1, inspectTrustedWorkflowTaskBinding,
-  trustedWorkflowPrincipalMatches, type TaskExecutionPrincipalReferenceV1,
+  trustedWorkflowPrincipalMatches, type TaskExecutionPrincipalReferenceV1, type TaskInputReferenceV1,
   type TrustedWorkflowTaskBinding, type TrustedWorkflowTaskBindingState, type TaskExecutionPrincipalObjectV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
 import {
@@ -25,7 +25,7 @@ import type { AppRowTransaction } from "../storage/documents/appRows";
 import type { TrustedScopeAuthority } from "../scope/scopeAuthorityResolution";
 import { scopePhysicalLocatorsEqual } from "../scope/scopePhysicalLocator";
 import { captureTaskSystemTrustedScopeAuthorityV1, requireLockedTaskSystemScopeAuthorityV1 } from "./taskSystemScopeAuthorityV1";
-import { decodeAndCorrelateTaskSystemRunRowV1 } from "./taskSystemRunRowV1";
+import { decodeAndCorrelateTaskSystemRunRowV1, decodeTaskSystemRunInputReferenceV1 } from "./taskSystemRunRowV1";
 
 const IdentitySchema = Schema.Struct({ runId: TaskRunIdV1Schema,
   attemptId: TaskAttemptIdV1Schema, attemptNumber: TaskAttemptNumberV1Schema,
@@ -44,12 +44,27 @@ const failure = (reason: TrustedWorkflowExecutionSubjectError["reason"], cause?:
   new TrustedWorkflowExecutionSubjectError({ reason, ...(cause === undefined ? {} : { cause }) });
 
 export interface TrustedWorkflowExecutionSubject { readonly _TrustedWorkflowExecutionSubject: unique symbol }
-interface SubjectState {
-  readonly identity: Identity;
+export interface TrustedWorkflowControlSubject { readonly _TrustedWorkflowControlSubject: unique symbol }
+export type TrustedWorkflowInterpreterSubject = TrustedWorkflowExecutionSubject | TrustedWorkflowControlSubject;
+type Permission = "commerce" | "control";
+type SubjectFor<Mode extends Permission> = Mode extends "commerce" ? TrustedWorkflowExecutionSubject : TrustedWorkflowControlSubject;
+interface SubjectOptions<HashFailure> {
+  readonly authority: TrustedScopeAuthority;
+  readonly target: DeadlineOwnedTaskPersistenceTarget;
+  readonly binding: TrustedWorkflowTaskBinding;
+  readonly principal: unknown;
+  readonly principalCanonicalBytes: Uint8Array;
+  readonly sha256: (bytes: Uint8Array) => Effect.Effect<Uint8Array, HashFailure>;
+}
+export interface CapturedTrustedWorkflowExecutionAuthority {
   readonly authority: TrustedScopeAuthority;
   readonly binding: TrustedWorkflowTaskBindingState;
   readonly principal: TaskExecutionPrincipalReferenceV1;
   readonly executionPrincipal: TaskExecutionPrincipalObjectV1;
+}
+interface SubjectState extends CapturedTrustedWorkflowExecutionAuthority {
+  readonly permission: Permission;
+  readonly identity: Identity;
 }
 const subjects = new WeakMap<object, SubjectState>();
 
@@ -62,31 +77,14 @@ export interface LiveTrustedWorkflowExecutionPins extends Identity {
   readonly executionPrincipal: TaskExecutionPrincipalObjectV1;
   readonly leaseExpiresAtMs: number;
   readonly remainingLeaseMs: number;
+  readonly executionMode: "workflow" | "control";
+  readonly inputReference: TaskInputReferenceV1;
 }
 
 /** Trusted construction authenticates actual principal bytes and decodes them
  * through the shared Task principal owner, not an arbitrary principal label. */
-export const issueTrustedWorkflowExecutionSubject = Effect.fn("TrustedWorkflowExecutionSubject.issue")(
-  function* <HashFailure>(rawIdentity: unknown, input: {
-    readonly authority: TrustedScopeAuthority;
-    readonly target: DeadlineOwnedTaskPersistenceTarget;
-    readonly binding: TrustedWorkflowTaskBinding;
-    readonly principal: unknown;
-    readonly principalCanonicalBytes: Uint8Array;
-    readonly sha256: (bytes: Uint8Array) => Effect.Effect<Uint8Array, HashFailure>;
-  }) {
-    yield* Effect.fromResult(requireDeadlineOwnedTaskPersistenceTarget(input.target)).pipe(
-      Effect.mapError(cause => failure("invalidTarget", cause)));
-    const captured = yield* Effect.fromResult(Result.try({
-      try: () => normalizeFlarexRuntimeValueWithLimitsV1(rawIdentity, {
-        ...FLAREX_GENERAL_VALUE_LIMITS_V1, maxSemanticBytes: 2048, maxNesting: 2,
-        maxArrayItems: 0, maxObjectFields: 4,
-      }),
-      catch: cause => { if (cause instanceof FlarexValueRuntimeCoreV1Error) return failure("invalidInput", cause); throw cause; },
-    }));
-    const identity = yield* Effect.fromResult(decodeIdentity(captured.value))
-      .pipe(Effect.mapError(cause => failure("invalidInput", cause)));
-    Object.freeze(identity);
+export const captureTrustedWorkflowExecutionAuthority = Effect.fn("TrustedWorkflowExecutionSubject.captureAuthority")(
+  function* <HashFailure>(input: Omit<SubjectOptions<HashFailure>, "target">) {
     const binding = yield* Effect.fromResult(inspectTrustedWorkflowTaskBinding(input.binding))
       .pipe(Effect.mapError(cause => failure("invalidBinding", cause)));
     const authority = captureTaskSystemTrustedScopeAuthorityV1(input.authority);
@@ -104,9 +102,27 @@ export const issueTrustedWorkflowExecutionSubject = Effect.fn("TrustedWorkflowEx
       .pipe(Effect.mapError(cause => failure("invalidInput", cause)));
     if (executionPrincipal.scopeId !== authority.scopeId) return yield* failure("staleAuthority");
     const digest = yield* input.sha256(copyBytes(binding.canonicalBytes));
-    if (!isUint8ArrayWithByteLength(digest, 32) || !bytesEqualFullScan(digest, binding.sha256))
-      return yield* failure("invalidBinding");
-    const state: SubjectState = Object.freeze({ identity, authority, binding, principal, executionPrincipal });
+    if (!isUint8ArrayWithByteLength(digest, 32) || !bytesEqualFullScan(digest, binding.sha256)) return yield* failure("invalidBinding");
+    return Object.freeze({ authority, binding, principal, executionPrincipal });
+  });
+
+const issueSubject = Effect.fn("TrustedWorkflowExecutionSubject.issue")(
+  function* <Mode extends Permission, HashFailure>(permission: Mode, rawIdentity: unknown, input: SubjectOptions<HashFailure>) {
+    yield* Effect.fromResult(requireDeadlineOwnedTaskPersistenceTarget(input.target)).pipe(
+      Effect.mapError(cause => failure("invalidTarget", cause)));
+    const captured = yield* Effect.fromResult(Result.try({
+      try: () => normalizeFlarexRuntimeValueWithLimitsV1(rawIdentity, {
+        ...FLAREX_GENERAL_VALUE_LIMITS_V1, maxSemanticBytes: 2048, maxNesting: 2,
+        maxArrayItems: 0, maxObjectFields: 4,
+      }),
+      catch: cause => { if (cause instanceof FlarexValueRuntimeCoreV1Error) return failure("invalidInput", cause); throw cause; },
+    }));
+    const identity = yield* Effect.fromResult(decodeIdentity(captured.value))
+      .pipe(Effect.mapError(cause => failure("invalidInput", cause)));
+    Object.freeze(identity);
+    const capturedAuthority = yield* captureTrustedWorkflowExecutionAuthority(input);
+    const { authority } = capturedAuthority;
+    const state: SubjectState = Object.freeze({ ...capturedAuthority, permission, identity });
     yield* runDeadlineOwnedTaskPersistenceTransaction(input.target, "trustedWorkflowSubject.issue", tx => Effect.gen(function* () {
       yield* Effect.tryPromise({ try: () => requireLockedTaskSystemScopeAuthorityV1(tx, authority, input.target,
         mismatch => failure("staleAuthority", mismatch)), catch: cause => cause instanceof TrustedWorkflowExecutionSubjectError
@@ -115,20 +131,32 @@ export const issueTrustedWorkflowExecutionSubject = Effect.fn("TrustedWorkflowEx
     }), cause => failure(cause.reason, cause));
     return yield* Effect.sync(() => {
       // SAFETY: only this module's WeakMap membership authenticates the handle.
-      const subject = Object.freeze({}) as TrustedWorkflowExecutionSubject;
+      const subject = Object.freeze({}) as SubjectFor<Mode>;
       subjects.set(subject, state);
       return subject;
     });
   },
 );
 
-export function revokeTrustedWorkflowExecutionSubject(subject: TrustedWorkflowExecutionSubject): void {
+export const issueTrustedWorkflowExecutionSubject = Effect.fn("TrustedWorkflowExecutionSubject.issueCommerce")(
+  <HashFailure>(rawIdentity: unknown, input: SubjectOptions<HashFailure>) => issueSubject("commerce", rawIdentity, input));
+/** Native timeout/cancellation control has no ordinary commerce authority.
+ * A separate host may explicitly admit named cleanup commands. */
+export const issueTrustedWorkflowControlSubject = Effect.fn("TrustedWorkflowExecutionSubject.issueControl")(
+  <HashFailure>(rawIdentity: unknown, input: SubjectOptions<HashFailure>) => issueSubject("control", rawIdentity, input));
+
+export function revokeTrustedWorkflowExecutionSubject(subject: TrustedWorkflowInterpreterSubject): void {
   subjects.delete(subject);
 }
 
 /** Authentic identity inspection only; this receipt makes NO live-lease claim.
  * Child entry and settlement must use the transaction-borrowed operation. */
 export function inspectTrustedWorkflowExecutionSubject(subject: unknown) {
+  return inspectTrustedWorkflowInterpreterSubject(subject).pipe(Result.flatMap(pins =>
+    pins.executionMode === "workflow" ? Result.succeed(pins) : Result.fail(failure("notExecuting"))));
+}
+
+export function inspectTrustedWorkflowInterpreterSubject(subject: unknown) {
   if (typeof subject !== "object" || subject === null) return Result.fail(failure("notIssued"));
   const state = subjects.get(subject);
   return state === undefined ? Result.fail(failure("notIssued")) :
@@ -136,7 +164,8 @@ export function inspectTrustedWorkflowExecutionSubject(subject: unknown) {
       Result.mapError(cause => failure("storedCorruption", cause)),
       Result.map(principal => Object.freeze({ ...state.identity, scopeId: state.authority.scopeId,
         definition: state.binding.definition, bindingSha256: copyBytes(state.binding.sha256),
-        principal, executionPrincipal: state.executionPrincipal })),
+        principal, executionPrincipal: state.executionPrincipal,
+        executionMode: state.permission === "commerce" ? "workflow" as const : "control" as const })),
     );
 }
 
@@ -148,24 +177,38 @@ export const requireLiveTrustedWorkflowExecutionSubject = Effect.fn("TrustedWork
     if (typeof subject !== "object" || subject === null) return yield* failure("notIssued");
     const state = subjects.get(subject);
     if (state === undefined) return yield* failure("notIssued");
+    if (state.permission !== "commerce") return yield* failure("notExecuting");
     const pins = yield* requireLiveState(tx, state, expectedAuthority);
     if (subjects.get(subject) !== state) return yield* failure("notIssued");
     return pins;
   },
 );
 
-const requireLiveState = Effect.fn("TrustedWorkflowExecutionSubject.requireLiveState")(
-  function* (tx: AppRowTransaction, state: SubjectState, authority: TrustedScopeAuthority): Effect.fn.Return<
-    LiveTrustedWorkflowExecutionPins, TrustedWorkflowExecutionSubjectError
-  > {
+/** INTERNAL loan for native interpreter control only. Commerce retains its
+ * separate admission above. Both use the same current Task row and fence. */
+export const requireLiveTrustedWorkflowInterpreterSubject = Effect.fn("TrustedWorkflowExecutionSubject.requireInterpreter")(
+  function* (tx: AppRowTransaction, subject: unknown, expectedAuthority: TrustedScopeAuthority) {
+    if (typeof subject !== "object" || subject === null) return yield* failure("notIssued");
+    const state = subjects.get(subject);
+    if (state === undefined) return yield* failure("notIssued");
+    const pins = yield* requireLiveState(tx, state, expectedAuthority);
+    if (subjects.get(subject) !== state) return yield* failure("notIssued");
+    return pins;
+  });
+
+/** INTERNAL authority-only loan for confirmation and durable control decisions.
+ * It validates the same stored binding/principal/policy as execution issuance,
+ * without granting an active attempt or requiring one during suspension. */
+export const requireTrustedWorkflowRunAuthoritySnapshot = Effect.fn("TrustedWorkflowExecutionSubject.requireRunAuthoritySnapshot")(
+  function* (tx: AppRowTransaction, state: CapturedTrustedWorkflowExecutionAuthority, runId: typeof TaskRunIdV1Schema.Type,
+    authority: TrustedScopeAuthority = state.authority) {
     const expected = state.authority;
     if (expected.scopeId !== authority.scopeId || expected.deploymentId !== authority.deploymentId ||
       expected.epoch !== authority.epoch || expected.storageGeneration !== authority.storageGeneration ||
       expected.storageGenerationFence !== authority.storageGenerationFence ||
       !scopePhysicalLocatorsEqual(expected.physicalLocator, authority.physicalLocator)) return yield* failure("staleAuthority");
-    const identity = state.identity;
     const row = (yield* query(tx.select().from(fxSystemDurableTaskRunsV1).where(and(
-      eq(fxSystemDurableTaskRunsV1.scopeId, authority.scopeId), eq(fxSystemDurableTaskRunsV1.runId, identity.runId),
+      eq(fxSystemDurableTaskRunsV1.scopeId, authority.scopeId), eq(fxSystemDurableTaskRunsV1.runId, runId),
     )).for("update").limit(1)))[0];
     if (row === undefined) return yield* failure("staleAttempt");
     const decoded = yield* Effect.fromResult(decodeAndCorrelateTaskSystemRunRowV1(row))
@@ -187,9 +230,29 @@ const requireLiveState = Effect.fn("TrustedWorkflowExecutionSubject.requireLiveS
       return yield* failure("storedCorruption");
     if (canonicalPolicy(decoded.aggregate.boundPolicy) !== canonicalPolicy(state.binding.definition.boundPolicy))
       return yield* failure("storedCorruption");
-    if (decoded.aggregate.phase !== "executing" || decoded.aggregate.cancellation.kind !== "not_requested")
+    const inputReference = yield* Effect.fromResult(decodeTaskSystemRunInputReferenceV1(row))
+      .pipe(Effect.mapError(cause => failure("storedCorruption", cause)));
+    return Object.freeze({ current: decoded.aggregate, inputReference });
+  });
+
+/** Authority-only compatibility projection retains its supported aggregate result. */
+export const requireTrustedWorkflowRunAuthority = Effect.fn("TrustedWorkflowExecutionSubject.requireRunAuthority")((
+  tx: AppRowTransaction, state: CapturedTrustedWorkflowExecutionAuthority, runId: typeof TaskRunIdV1Schema.Type,
+  authority: TrustedScopeAuthority = state.authority,
+) => requireTrustedWorkflowRunAuthoritySnapshot(tx, state, runId, authority).pipe(Effect.map(snapshot => snapshot.current)));
+
+const requireLiveState = Effect.fn("TrustedWorkflowExecutionSubject.requireLiveState")(
+  function* (tx: AppRowTransaction, state: SubjectState, authority: TrustedScopeAuthority): Effect.fn.Return<
+    LiveTrustedWorkflowExecutionPins, TrustedWorkflowExecutionSubjectError
+  > {
+    const identity = state.identity, principal = state.principal;
+    const { current, inputReference } = yield* requireTrustedWorkflowRunAuthoritySnapshot(tx, state, identity.runId, authority);
+    if (current.phase !== "executing") return yield* failure("notExecuting");
+    if (state.permission === "commerce"
+      ? current.cancellation.kind !== "not_requested" || current.executionMode === "control"
+      : current.cancellation.kind !== "requested" && current.executionMode !== "control")
       return yield* failure("notExecuting");
-    const active = decoded.aggregate.currentAttempt;
+    const active = current.currentAttempt;
     if (active.attemptId !== identity.attemptId || active.attemptNumber !== identity.attemptNumber ||
       active.executionFence !== identity.executionFence) return yield* failure("staleAttempt");
     const attempt = (yield* query(tx.select().from(fxSystemDurableTaskAttemptIdentitiesV1).where(and(
@@ -210,7 +273,8 @@ const requireLiveState = Effect.fn("TrustedWorkflowExecutionSubject.requireLiveS
       .pipe(Effect.mapError(cause => failure("storedCorruption", cause)));
     return Object.freeze({ ...identity, scopeId: authority.scopeId, definition: state.binding.definition,
       bindingSha256: copyBytes(state.binding.sha256), principal: ownedPrincipal,
-      executionPrincipal: state.executionPrincipal, leaseExpiresAtMs, remainingLeaseMs });
+      executionPrincipal: state.executionPrincipal, inputReference, leaseExpiresAtMs, remainingLeaseMs,
+      executionMode: state.permission === "commerce" ? "workflow" as const : "control" as const });
   },
 );
 

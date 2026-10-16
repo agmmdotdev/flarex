@@ -3,7 +3,7 @@ import type { Json } from "flarex-protocol/json";
 import type { CommerceCommand } from "../commerceTransaction/commands";
 import type { CommerceTransactionError } from "../commerceTransaction/model";
 import type { CommerceEventContract } from "./events";
-import type { TrustedWorkflowExecutionSubject } from "../../tasks/trustedWorkflowExecutionSubject";
+import type { TrustedWorkflowExecutionSubject, TrustedWorkflowControlSubject } from "../../tasks/trustedWorkflowExecutionSubject";
 import type { PreparedCommitEventEligibility } from "../../commit/events/eligibility";
 
 declare const participantBrand: unique symbol;
@@ -56,6 +56,9 @@ export interface AtomicCommerceHost {
  * owner with a live authenticated subject; no transaction escapes the host. */
 export interface TaskAtomicCommerceHost extends AtomicCommerceHost {
   readonly runTaskChild: (subject: TrustedWorkflowExecutionSubject, occurrence: bigint,
+    command: AtomicCommerceCommand, args: Json, eligibility?: PreparedCommitEventEligibility
+  ) => Effect.Effect<Json, CommerceTransactionError>;
+  readonly runControlChild: (subject: TrustedWorkflowControlSubject, occurrence: bigint,
     command: AtomicCommerceCommand, args: Json, eligibility?: PreparedCommitEventEligibility
   ) => Effect.Effect<Json, CommerceTransactionError>;
 }

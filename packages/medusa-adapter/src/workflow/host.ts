@@ -1,6 +1,6 @@
 import { Effect, Result, Schema } from "effect";
 import { isPreparedWorkflow, type PreparedWorkflow } from "@medusajs/workflows-sdk";
-import { commerceCommandIdentity, defineAtomicCommerceCommand, defineCommerceEventContract, defineCommerceDerivedIdEventContract, type AtomicCommerceContext, type AtomicCommerceHost, type AtomicCommerceHostInput,
+import { commerceCommandIdentity, defineAtomicCommerceCommand, defineCommerceEventContract, defineCommerceDerivedIdEventContract, type AtomicCommerceContext, type AtomicCommerceHost, type TaskAtomicCommerceHost, type AtomicCommerceHostInput,
   type AtomicCommerceParticipantInput, type AtomicCommerceEvents, type AtomicCommerceCallObservation, type CommerceCommand, type CommerceEventContract,
   } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { captureCommerceResources, commerceError, isJsonObject, type CommerceResources, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -15,16 +15,18 @@ import { bindWorkflowResources, type BoundWorkflowEvent, type WorkflowEventDefin
 import { checkedCommerceValue } from "../value/checked";
 import { requireAtomicCommerceScopeExclusion } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceDecoder } from "../value/decoder";
+import type { TrustedWorkflowExecutionSubject } from "@flarex/persistence-postgres/internal/trusted-workflow-execution-subject";
+import type { PreparedCommitEventEligibility } from "@flarex/persistence-postgres/internal/commit-event-eligibility";
 
 const decodeOperationScheduling = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("queued")));
 const decodeLogicalPublication = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal("mixed")));
 
-export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestCallLimit" | "requestByteLimit" | "requestEventLimit" | "executionIsolation" | "operationScheduling">;
+export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestCallLimit" | "requestByteLimit" | "requestEventLimit" | "executionIsolation" | "operationScheduling" | "taskControlCommands">;
 /** The trusted database host closes its own database/session/authority inputs.
  * Only preparation data crosses this portable adapter boundary. */
-export interface AtomicWorkflowExecution {
+export interface AtomicWorkflowExecution<Host extends AtomicCommerceHost = AtomicCommerceHost> {
   readonly identityAndAccessPolicy: Json;
-  readonly prepare: (composition: AtomicWorkflowHostComposition) => Effect.Effect<AtomicCommerceHost, CommerceTransactionError>;
+  readonly prepare: (composition: AtomicWorkflowHostComposition) => Effect.Effect<Host, CommerceTransactionError>;
 }
 export type InstalledWorkflowModule<Module extends WorkflowModule = WorkflowModule> = {
   readonly module: Module;
@@ -265,15 +267,15 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
     ...(requestEventLimit === undefined ? {} : { requestEventLimit }),
     ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
     ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }), ...(events === undefined ? {} : { events }) };
-  return Object.freeze({ composition, command, decodeStoredOutput,
+  return Object.freeze({ composition, command, decodeInput, decodeStoredOutput,
     run: (ctx: AtomicCommerceContext, value: Json) => Effect.fromResult(captureCommerceInput(value)).pipe(
       Effect.flatMap(args => execute(ctx, args)),
       Effect.flatMap(result => Effect.fromResult(decodeStoredOutput(result))),
     ) });
 });
 
-export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json>(input: {
-  readonly execution: AtomicWorkflowExecution;
+interface WorkflowHostInput<Resources, Input extends Json, Output extends Json, EncodedInput extends Json, Host extends AtomicCommerceHost> {
+  readonly execution: AtomicWorkflowExecution<Host>;
   readonly modules: Readonly<Record<string, InstalledWorkflowModule>>;
   readonly workflow: AtomicWorkflowDefinition<Resources, Input, Output, EncodedInput>;
   readonly revision: string;
@@ -282,7 +284,8 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
   readonly requestByteLimit?: number;
   readonly requestEventLimit?: number;
   readonly operationScheduling?: "queued";
-}) {
+}
+const prepareBoundWorkflowHost = Effect.fn("Workflow.prepareBoundHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json, Host extends AtomicCommerceHost>(input: WorkflowHostInput<Resources, Input, Output, EncodedInput, Host>) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   const execution = yield* Effect.fromResult(captureWorkflowRecord(options.execution));
   if (typeof execution.prepare !== "function") return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -295,10 +298,28 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
     ...(options.operationScheduling === undefined ? {} : { operationScheduling: options.operationScheduling }),
   });
   const host = yield* execution.prepare(prepared.composition);
+  return { host, prepared };
+});
+
+export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json>(input: WorkflowHostInput<Resources, Input, Output, EncodedInput, AtomicCommerceHost>) {
+  const { host, prepared } = yield* prepareBoundWorkflowHost(input);
   return Object.freeze({ newRequestKey: host.newRequestKey, close: host.close,
     run: Effect.fn("Workflow.run")((key: string, value: EncodedInput) => Effect.fromResult(captureCommerceInput(value)).pipe(
       Effect.flatMap(args => host.run(key, prepared.command, args)),
       Effect.flatMap(result => Effect.fromResult(prepared.decodeStoredOutput(result))),
     )),
+  });
+});
+
+/** Genuine Task child invocation over the same prepared business graph and
+ * resource/event contracts. The supplied core host owns binding admission. */
+export const prepareTaskAtomicWorkflowHost = Effect.fn("Workflow.prepareTaskHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json>(input: WorkflowHostInput<Resources, Input, Output, EncodedInput, TaskAtomicCommerceHost>) {
+  const { host, prepared } = yield* prepareBoundWorkflowHost(input);
+  return Object.freeze({ close: host.close, decodeInput: prepared.decodeInput,
+    runTaskChild: Effect.fn("Workflow.runTaskChild")((subject: TrustedWorkflowExecutionSubject, occurrence: bigint,
+      value: EncodedInput, eligibility?: PreparedCommitEventEligibility) => Effect.fromResult(captureCommerceInput(value)).pipe(
+        Effect.flatMap(args => host.runTaskChild(subject, occurrence, prepared.command, args, eligibility)),
+        Effect.flatMap(result => Effect.fromResult(prepared.decodeStoredOutput(result))),
+      )),
   });
 });

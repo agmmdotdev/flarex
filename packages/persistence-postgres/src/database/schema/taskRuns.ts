@@ -25,7 +25,7 @@ import {
   type TaskRequestedEffectPersistenceCursorV1,
   type TaskRequestedEffectSequenceV1,
   type TaskRequestedEffectV1,
-  type TaskRunAttemptPersistenceProjectionV1,
+  type CurrentTaskRunAttemptPersistenceProjection,
   type TaskRunIdV1,
   type TaskRunVersionV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
@@ -346,10 +346,10 @@ export const fxSystemDurableTaskRunsV1 = pgTable(
       .$type<TaskRunVersionV1>()
       .notNull(),
     phase: text("phase")
-      .$type<TaskRunAttemptPersistenceProjectionV1["phase"]>()
+      .$type<CurrentTaskRunAttemptPersistenceProjection["phase"]>()
       .notNull(),
     dueKind: text("due_kind").$type<Exclude<
-      TaskRunAttemptPersistenceProjectionV1["dueKind"],
+      CurrentTaskRunAttemptPersistenceProjection["dueKind"],
       null
     >>(),
     dueAtMs: bigint("due_at_ms", { mode: "bigint" }),
@@ -542,6 +542,15 @@ export const fxSystemDurableTaskRunsV1 = pgTable(
           and ${table.dueAtMs} is not null
           and ${table.currentAttemptId} is null
           and ${table.executionFenceBasis} is not null
+          and ${table.currentLeaseVersion} is null
+          and ${table.currentLeaseExpiresAtMs} is null)
+        or (${table.definitionGeneration} = 'trusted_workflow'
+          and ${table.phase} in ('continuation_waiting', 'continuation_ready')
+          and ((${table.phase} = 'continuation_waiting' and ${table.dueKind} = 'handle_continuation_timeout')
+            or (${table.phase} = 'continuation_ready' and ${table.dueKind} = 'start_attempt'))
+          and ${table.dueAtMs} is not null
+          and ${table.executionFenceBasis} is not null
+          and ${table.currentAttemptId} is null
           and ${table.currentLeaseVersion} is null
           and ${table.currentLeaseExpiresAtMs} is null)
         or (${table.phase} in ('attempt_granted', 'executing')

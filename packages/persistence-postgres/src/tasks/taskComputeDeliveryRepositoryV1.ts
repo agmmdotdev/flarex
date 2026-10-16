@@ -1,3 +1,4 @@
+import { decodeTaskSystemRunInputReferenceV1 } from "./taskSystemRunRowV1";
 import {
   TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1,
   TASK_COMPUTE_CANCELLATION_REQUEST_VERSION_V1,
@@ -22,7 +23,6 @@ import {
 } from "@flarex/durable-task/internal/compute-provider-v1";
 import {
   decodeTaskExecutionPrincipalReferenceV1,
-  decodeTaskInputReferenceV1,
   type TaskExecutionPrincipalReferenceV1,
   type TaskInputReferenceV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
@@ -4392,22 +4392,8 @@ async function loadImmutablePreparation(
       "creation_authority_invalid",
     ));
   }
-  const inputByteLength = Number(run.inputByteLength);
-  if (!Number.isSafeInteger(inputByteLength)) {
-    throw rollback(corruption(operation, run.runId, "input_invalid"));
-  }
-  const inputReference = Result.getOrThrowWith(
-    decodeTaskInputReferenceV1({
-      codec: run.inputCodec,
-      store: run.inputStore,
-      valueCodec: run.inputValueCodec,
-      objectKey: run.inputObjectKey,
-      byteLength: inputByteLength,
-      sha256: new Uint8Array(run.inputSha256),
-      retention: { kind: run.inputRetention },
-    }),
-    () => rollback(corruption(operation, run.runId, "input_invalid")),
-  );
+  const inputReference = Result.getOrThrowWith(decodeTaskSystemRunInputReferenceV1(run),
+    () => rollback(corruption(operation, run.runId, "input_invalid")));
   return Object.freeze({
     generation: "legacy_definition_v1" as const,
     runtimeBindingCommitment: commitment,
@@ -4734,19 +4720,8 @@ function decodeInputReference(
   run: RunRow,
   operation: TaskComputeDeliveryRepositoryOperationV1,
 ): TaskInputReferenceV1 {
-  const inputByteLength = Number(run.inputByteLength);
-  if (!Number.isSafeInteger(inputByteLength)) {
-    throw rollback(corruption(operation, run.runId, "input_invalid"));
-  }
-  return Result.getOrThrowWith(decodeTaskInputReferenceV1({
-    codec: run.inputCodec,
-    store: run.inputStore,
-    valueCodec: run.inputValueCodec,
-    objectKey: run.inputObjectKey,
-    byteLength: inputByteLength,
-    sha256: new Uint8Array(run.inputSha256),
-    retention: { kind: run.inputRetention },
-  }), () => rollback(corruption(operation, run.runId, "input_invalid")));
+  return Result.getOrThrowWith(decodeTaskSystemRunInputReferenceV1(run),
+    () => rollback(corruption(operation, run.runId, "input_invalid")));
 }
 
 function decodePrincipalReference(

@@ -44,7 +44,7 @@ describe("Trigger compatibility boundary checker", () => {
       specifier: "@flarex/durable-task/internal/run-creation-v1",
       text: `import { decodeTaskExecutionPrincipalReferenceV1, decodeTaskExecutionPrincipalObjectV1,
         inspectTrustedWorkflowTaskBinding, trustedWorkflowPrincipalMatches,
-        type TaskExecutionPrincipalReferenceV1, type TrustedWorkflowTaskBinding,
+        type TaskExecutionPrincipalReferenceV1, type TaskInputReferenceV1, type TrustedWorkflowTaskBinding,
         type TrustedWorkflowTaskBindingState, type TaskExecutionPrincipalObjectV1
       } from "@flarex/durable-task/internal/run-creation-v1";`,
     },
@@ -53,6 +53,164 @@ describe("Trigger compatibility boundary checker", () => {
       specifier: "@flarex/durable-task/internal/run-attempt-v1",
       text: `import { TaskRunIdV1Schema, TaskAttemptIdV1Schema, TaskAttemptNumberV1Schema,
         TaskExecutionFenceV1Schema } from "@flarex/durable-task/internal/run-attempt-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowCallback.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: "import { inspectTrustedWorkflowTaskBinding, type TrustedWorkflowTaskBinding } from \"@flarex/durable-task/internal/run-creation-v1\";",
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowCheckpoint.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: "import { inspectTrustedWorkflowTaskBinding, type TrustedWorkflowTaskBinding } from \"@flarex/durable-task/internal/run-creation-v1\";",
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowCheckpoint.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: "import { MAX_TRUSTED_WORKFLOW_CHECKPOINT_BYTES, TrustedWorkflowCheckpointDescriptorSchema } from \"@flarex/durable-task/internal/run-attempt-v1\";",
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowCheckpointSchema.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: "import { MAX_TRUSTED_WORKFLOW_CHECKPOINT_BYTES, type TaskRunIdV1 } from \"@flarex/durable-task/internal/run-attempt-v1\";",
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowContinuationStore.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: "import type { TrustedWorkflowTaskBinding } from \"@flarex/durable-task/internal/run-creation-v1\";",
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowContinuationStore.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: `import {
+          RegisterTrustedWorkflowContinuationCommandSchema, ResolveTrustedWorkflowContinuationCommandSchema,
+          decideTrustedWorkflowRegisterContinuation, decideTrustedWorkflowConfirmContinuation,
+          decideTrustedWorkflowExpireContinuation, decideTrustedWorkflowRequestCancellation,
+          decodeRunAttemptCommandV1, decodeTaskRunIdV1, type CurrentRunAttemptMutationOperation, type TaskRunIdV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowEventEligibilityStore.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: "import type { TrustedWorkflowTaskBinding } from \"@flarex/durable-task/internal/run-creation-v1\";",
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowTaskRunCreation.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: `import {
+          decodeTaskExecutionPrincipalReferenceV1, decodeTaskInputReferenceV1, decodeTaskRunCreationRequestKeyV1,
+          encodeTaskRunCreationRequestKeyPreimageV1, inspectTrustedWorkflowTaskBinding,
+          makeTrustedWorkflowTaskRunCreationInitialAggregate, trustedWorkflowPrincipalMatches,
+          TrustedWorkflowBindingSha256Schema, type TrustedWorkflowTaskBinding,
+          type TaskRunCreationAuthoritySha256V1, type TaskRunCreationRequestKeySha256V1,
+          type TaskRunCreationRequestSha256V1,
+        } from "@flarex/durable-task/internal/run-creation-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowTaskRunCreation.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: `import { decodeTaskDatabaseTimeMsV1, decodeTaskRunIdV1,
+          encodeTrustedWorkflowTaskRunAttemptAggregateJson, projectCurrentTaskRunAttemptPersistence,
+        } from "@flarex/durable-task/internal/run-attempt-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/taskSystemRunAttemptStoreV1.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: `import { encodeTrustedWorkflowTaskRunAttemptAggregateJson, decodeTrustedWorkflowTaskRunAttemptAggregateJson,
+          encodeTrustedWorkflowPersistedTaskRequestedEffectJson, projectCurrentTaskRunAttemptPersistence,
+          toCurrentApplicationTaskRunAttemptDecision, fromCurrentTaskRunAttemptAggregate, fromCurrentTaskRequestedEffect,
+          type CurrentTaskRunAttemptAggregate, type CurrentTaskRunAttemptDecision, type CurrentRunAttemptPhase,
+          type CurrentRunAttemptMutationOperation, type CurrentTaskRunAttemptEvidence, type CurrentPersistedTaskRequestedEffect,
+          type CurrentTaskSystemRunAttemptDecisionInput, type TaskSystemRunAttemptInspectionRequestV1,
+          type TrustedWorkflowTaskSystemRunAttemptTransaction, type TrustedWorkflowTaskSystemRunAttemptStoreShape,
+        } from "@flarex/durable-task/internal/run-attempt-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/taskSystemRunAttemptStoreV1.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: `import {
+          InvalidRunAttemptTransitionError,
+          StaleTaskRunVersionError,
+          TaskRunAttemptCounterExhaustedError,
+          TaskSystemRunAttemptCorruptionError,
+          TaskSystemRunAttemptStaleScopeAuthorityError,
+          TaskSystemRunAttemptStore,
+          TaskSystemRunAttemptTerminalStoreError,
+          TaskSystemRunAttemptTransientStoreError,
+          TaskSystemRunAttemptUnavailableError,
+          decodeApplicationTaskRunAttemptAggregateJsonV1,
+          encodeApplicationPersistedTaskRequestedEffectJsonV1,
+          encodeApplicationTaskRunAttemptAggregateJsonV1,
+          decodePersistedTaskRunAttemptAggregateJsonV1,
+          decodeTaskAttemptIdV1,
+          decodeTaskAttemptNumberV1,
+          decodeTaskDatabaseTimeMsV1,
+          decodeTaskExecutionFenceV1,
+          encodePersistedTaskRequestedEffectJsonV1,
+          encodePersistedTaskRunAttemptAggregateJsonV1,
+          projectApplicationTaskRunAttemptPersistenceV1,
+          projectTaskRunAttemptPersistenceV1,
+          toCurrentTaskRunAttemptAggregate,
+          type ApplicationTaskRunAttemptAggregateV1,
+          type ApplicationTaskRunAttemptDecisionV1,
+          type ApplicationTaskSystemRunAttemptInspectionSnapshotV1,
+          type ApplicationTaskSystemRunAttemptStoreShape,
+          type ApplicationTaskSystemRunAttemptTransactionReceiptV1,
+          type ApplicationTaskSystemRunAttemptTransactionV1,
+          type RunAttemptDecisionFor,
+          type RunAttemptDecisionErrorV1,
+          type CurrentRunAttemptOperation,
+          type RunAttemptServiceReceiptFor,
+          type TaskAttemptGrantCandidateV1,
+          type TaskDatabaseTimeMsV1,
+          type TaskRunAttemptAggregateV1,
+          type TaskRunAttemptDecisionV1,
+          type TaskRunIdV1,
+          type TaskRunVersionV1,
+          type TaskSystemRunAttemptInspectionSnapshotV1,
+          type TaskSystemRunAttemptStoreErrorV1,
+          type TaskSystemRunAttemptStoreShape,
+          type TaskSystemRunAttemptTransactionReceiptV1,
+          type TaskSystemRunAttemptTransactionV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/taskSystemRunRowV1.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: "import { decodeTaskInputReferenceV1 } from \"@flarex/durable-task/internal/run-creation-v1\";",
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/taskSystemRunRowV1.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: "import { decodeTrustedWorkflowTaskRunAttemptAggregateJson, encodeTrustedWorkflowTaskRunAttemptAggregateJson, projectCurrentTaskRunAttemptPersistence, type CurrentTaskRunAttemptAggregate } from \"@flarex/durable-task/internal/run-attempt-v1\";",
+    },
+    {
+      relativePath: "packages/medusa-adapter/src/workflow/durable-native-storage.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: "import { MAX_TRUSTED_WORKFLOW_CHECKPOINT_BYTES, type TrustedWorkflowCheckpointDescriptor } from \"@flarex/durable-task/internal/run-attempt-v1\";",
+    },
+    {
+      relativePath: "packages/medusa-adapter/src/workflows/product/import-inline-input.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: "import { makeTaskInputReferenceV1, decodeTaskInputReferenceV1 } from \"@flarex/durable-task/internal/run-creation-v1\";",
+    },
+    {
+      relativePath: "packages/medusa-adapter/src/workflows/product/import-inline-task.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: "import { inspectTrustedWorkflowTaskBinding } from \"@flarex/durable-task/internal/run-creation-v1\";",
+    },
+    {
+      relativePath: "packages/medusa-adapter/src/workflows/product/import-inline-task.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: `import { decideTrustedWorkflowStartAttempt, decideTrustedWorkflowHeartbeatAttempt, decideTrustedWorkflowCompleteAttempt,
+          decideTrustedWorkflowHandleLeaseExpiry, decodeTaskRetryJitterV1, decodeTaskHeartbeatSequenceV1, decodeTaskDurationMsV1,
+          TaskFailureMessageV1Schema,
+          type TaskAttemptCompletionV1, type CurrentTaskRunAttemptAggregate } from "@flarex/durable-task/internal/run-attempt-v1";`,
+    },
+    {
+      relativePath: "packages/medusa-adapter/src/workflows/product/import-inline.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: "import type { TrustedWorkflowContinuation } from \"@flarex/durable-task/internal/run-attempt-v1\";",
     },
   ];
 
@@ -74,7 +232,8 @@ describe("Trigger compatibility boundary checker", () => {
   it("preserves contract symbol modes and refuses added symbols", () => {
     for (const contract of trustedWorkflowContracts) {
       const typeOnly = contract.text.replace(/\btype /g, "").replace(/^(import|export) /, "$1 type ");
-      expect(analyzeTriggerCompatibilityBoundary([], [{ ...contract, text: typeOnly }]).errors).toHaveLength(1);
+      if (typeOnly !== contract.text)
+        expect(analyzeTriggerCompatibilityBoundary([], [{ ...contract, text: typeOnly }]).errors).toHaveLength(1);
       expect(analyzeTriggerCompatibilityBoundary([], [{ ...contract,
         text: contract.text.replace("{", "{ makeRunAttemptLifecycleV1,"),
       }]).errors).toHaveLength(1);
@@ -84,6 +243,42 @@ describe("Trigger compatibility boundary checker", () => {
         text: contract.text.replace(/\btype /g, ""),
       }]).errors).toHaveLength(1);
     }
+  });
+
+  it("keeps trusted workflow contract consumers closed to alternate loaders and re-exports", () => {
+    for (const contract of trustedWorkflowContracts.filter(value => value.text.startsWith("import"))) {
+      for (const text of [
+        `import * as task from "${contract.specifier}";`,
+        `import task from "${contract.specifier}";`,
+        `import "${contract.specifier}";`,
+        `void import("${contract.specifier}");`,
+        `const task = require("${contract.specifier}");`,
+        `export * from "${contract.specifier}";`,
+      ]) expect(analyzeTriggerCompatibilityBoundary([], [{ ...contract, text }]).errors).toHaveLength(1);
+    }
+  });
+
+  it("admits only the exact private Medusa Task contract dependency without admitting neighboring hosts", () => {
+    const relativePath = "packages/medusa-adapter/package.json";
+    expect(analyzeTriggerCompatibilityBoundary([{ relativePath,
+      manifest: { dependencies: { "@flarex/durable-task": "workspace:*" } },
+    }], []).errors).toEqual([]);
+    for (const [owner, name, value] of [
+      ["packages/medusa-adapter-neighbor/package.json", "@flarex/durable-task", "workspace:*"],
+      [relativePath, "task", "workspace:@flarex/durable-task@*"],
+      [relativePath, "@flarex/durable-task", "workspace:^"],
+      [relativePath, "task", "file:../durable-task"],
+      [relativePath, "@flarex/durable-task/internal/run-attempt-v1", "workspace:*"],
+    ]) expect(analyzeTriggerCompatibilityBoundary([{ relativePath: owner,
+      manifest: { dependencies: { [name]: value } },
+    }], []).errors).toHaveLength(1);
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/medusa-adapter/src/worker.ts",
+      text: 'import { makeRunAttemptLifecycleV1 } from "@flarex/durable-task/internal/run-attempt-v1";',
+    }, {
+      relativePath: "packages/medusa-adapter/src/workflows/product/import-inline-task.ts",
+      text: 'import { makeTaskQueueWakeAdapterV1 } from "@flarex/executor/internal/task-queue-wake-v1";',
+    }]).errors).toHaveLength(2);
   });
 
   it("keeps principal contract re-exports exact and blocks alternate loading forms", () => {

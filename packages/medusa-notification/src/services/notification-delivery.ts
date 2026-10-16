@@ -41,6 +41,12 @@ export interface NotificationDeliveryPorts<Provider extends NotificationDelivery
   readonly send: (provider: Provider, data: NotificationDeliveryData) => Promise<NotificationTypes.ProviderSendNotificationResultsDTO>
   readonly updateNotifications: (data: NotificationDeliveryUpdate[]) => Promise<Row[]>
 }
+/** A native outer service may borrow separately settled persistence phases.
+ * These ports contain no manager, transaction, settlement or retry authority. */
+export interface NotificationDeliveryPhases<Provider extends NotificationDeliveryProvider, Row extends NotificationDeliveryRow>
+  extends NotificationDeliveryPorts<Provider, Row> {
+  readonly prepare: (data: NotificationTypes.CreateNotificationDTO[]) => Promise<PreparedNotificationDelivery<Provider, Row>>
+}
 
 /** This is the genuine native reservation transaction. The provider send is
  * deliberately absent; callers must settle this phase before delivery. */
@@ -112,9 +118,7 @@ export async function deliverPreparedNotifications<Provider extends Notification
  * commerce transaction spanning the provider callback. */
 export async function createNotificationsWithDelivery<Provider extends NotificationDeliveryProvider, Row extends NotificationDeliveryRow>(
   data: NotificationTypes.CreateNotificationDTO[],
-  ports: NotificationDeliveryPorts<Provider, Row> & {
-    readonly prepare: (data: NotificationTypes.CreateNotificationDTO[]) => Promise<PreparedNotificationDelivery<Provider, Row>>
-  }
+  ports: NotificationDeliveryPhases<Provider, Row>
 ): Promise<Row[]> {
   if (!data.length) return []
   const prepared = await ports.prepare(data)

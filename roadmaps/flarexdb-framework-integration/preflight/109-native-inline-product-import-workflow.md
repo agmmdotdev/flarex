@@ -2,20 +2,18 @@
 
 ## Status And Authority
 
-Status: pinned-source and current-owner preflight complete. Native CSV
-normalization and the Notification service/model/local-provider prerequisites
-are implemented privately. Their source availability does not admit a complete
-import or standalone Notification facade. Durable confirmation,
-native child invocation, compensation/event decision bridging, native Notification
-admission and connected import implementation remain proposed. Bounded native
-orchestration has executed with storage and business test ports; database,
-provider, elapsed-timeout and Redis conformance remain unproven. This is not
-implemented import support.
+Status: **IMPLEMENTED AND VALIDATED** for the bounded private inline import
+profile. Its implementation connects the genuine native composer and interpreter, Task
+continuation/checkpoint authority, one finite Product batch, native local-feed
+Notification phases and parent-controlled event eligibility. Connected PGlite
+and ordinary-role PostgreSQL validation covers its admitted behavior. This does
+not establish hosted or arbitrary workflow compatibility.
 
-Private shared prerequisites now include authentic Task execution subjects,
-finite commerce child invocation and bounded cross-commit delivery eligibility.
-Their connected command proof is framework-neutral. They do not yet connect the
-native Product composer, confirmation, Notification persistence or interpreter.
+Shared private owners provide authentic ordinary/control execution subjects,
+lease-free continuation waits, checkpoint CAS, finite commerce children,
+callback outcome evidence and bounded event gates. They retain their neutral
+contracts. Medusa owns the native graph, checkpoint codec, confirmation bridge,
+Notification content and compensation interpretation.
 
 The continuing Medusa integration goal authorizes necessary correct-owner
 changes, implementation, review and scoped commits. Authority is the accepted
@@ -33,23 +31,22 @@ validation/status gates. Existing atomic profiles must keep their limits,
 rollback, replay and event-publication contracts while this different profile
 is developed.
 
-## Next Connected Outcome
+## Connected Inline Admission
 
-Complete native `importProductsWorkflow` with inline CSV text and filename.
+The profile executes native `importProductsWorkflow` with inline CSV text and filename.
 Chunked File import and Product export are explicitly deferred and are not next
-integration work. After inline import, select another pending Medusa workflow.
+integration work. The next selected slice is
+[native Sales Channel creation](./110-native-sales-channel-creation-workflow.md).
 The selected inline workflow avoids File, Region and Node
 stream dependencies. Its connected closure is still broader than CSV parsing:
 native normalization and summary, durable confirmation with a one-hour timeout,
 one background native Product batch, genuine success Notification and genuine
 failure compensation, including the child-cancellation and event-group behavior.
 
-The first implementation milestone is a host-neutral, scope-bound
-confirmation-to-one-commerce-child boundary. CSV planning and the native local
-feed Notification path are connected framework work. An isolated parser,
-confirmation record or batch invocation is a milestone, not completion of this
-workflow. Do not replace the native composer with a convenience import command
-or call an always-confirmed wrapper compatible.
+The selected profile is host-neutral and scope-bound. It runs the native
+confirmation protocol rather than an always-confirmed convenience command.
+An isolated parser, continuation or batch invocation remains insufficient to
+establish the complete connected outcome.
 
 ## Exact Pinned Source And Native Sequence
 
@@ -95,8 +92,8 @@ The resulting `{ create, update }` yields summary
 The native examples confirm through the Workflow Engine's `setStepSuccess`,
 with workflow ID, transaction ID, invocation action, step ID and
 `new StepResponse(true)`. A synchronous Boolean callback or local timer is not
-this protocol. Characterize summary/result visibility and the exact wait/start/
-deadline instant through the executing native runner before choosing the facade.
+this protocol. The selected facade reads summary/result through the native return
+closure and retains the native wait start/deadline in its Task continuation.
 
 After the wait, the composer registers `notifyOnFailureStep` with
 `to: ""`, `channel: "feed"`, `template: "admin-ui"`, and native failure title/
@@ -169,40 +166,46 @@ through its genuine owner, with its own settlement and durable outcome.
 
 The genuine `WorkflowsModuleService.run/setStepSuccess/cancel`,
 `WorkflowOrchestratorService`, compiled SDK, import composer and step bodies
-execute through an explicit native abstract-storage protocol fixture. It retains
-any published finished checkpoint and records native timeout requests. Business,
-Notification and event-bus ports record calls; they do not prove database undo,
-provider delivery, queued module events or Redis behavior.
+execute through the separate durable SDK profile. The native characterization
+below establishes framework behavior using its abstract-storage protocol. The
+connected implementation replaces its business, Notification and event-bus test
+ports with the selected real owners; Redis transport and retention remain outside
+the profile.
 
 | Selected native path | Executed behavior |
 | --- | --- |
-| Empty successful import | The summary is visible while confirmation remains awaiting. Native schedules 3600 seconds; explicit confirmation starts the background child, then success Notification and parent group release. No elapsed-hour timeout is proven. |
+| Empty successful import | The summary is visible while confirmation remains awaiting. Native requests 3600 seconds; explicit confirmation starts the background child, then success Notification and parent group release. The durable wait retains no live worker for that interval. |
+| Confirmation versus timeout processing | Confirmation at the deadline, one millisecond later, and one hour later succeeds while the stored step remains waiting. A timeout callback at exactly the deadline does not expire it; a callback one millisecond after the deadline first reverts it and subsequent confirmation is refused. Timeout eligibility is strictly `now > startedAt + timeout`; confirmation does not independently enforce that clock predicate. Durable resolution must preserve the first accepted native decision. |
 | Registered execution options | Parent has `store: true` and async/timeout flags. The all-synchronous batch child has `store` absent, not an explicit false value. Native wrappers and registration do not force child persistence. |
 | Success Notification fails after an empty or nonempty batch | Child reports DONE without errors but publishes no checkpoint. Native child `run` can then reject with the parent's Notification failure while awaiting `triggerParentStep`. Parent attempts cancellation of the derived child ID, receives native `not_found`, ends FAILED and clears the group. Failure Notification compensation is attempted; no delete/dismiss business inverse is called. |
 | Invalid CSV column | Native `invalid_data` precedes confirmation/compensation registration. Parent is REVERTED, no commerce or Notification is called, and the group is cleared. |
-| Group release fails | The bounded native process fails with an unhandled `Unknown error` through `workflow-export.ts` finish/cancel handling. Recovery is unproven; neither successful release nor successful cancellation may be inferred. |
+| Group release fails | Native finish handling attempts cancellation when release rejects. The selected bridge preserves the original core failure and replays genuine finish policy from a cold terminal checkpoint; release failure alone establishes neither successful release nor successful cancellation. |
 
 These observations distinguish child business completion from resolution of its
-parent-triggering invocation. Preserve that distinction during uncertain-result
-recovery. They do not prove nonempty native database state or real module-event
-group contents. A separate exploratory composer-entry attempt failed a harness
-observation and establishes no additional native contract.
+parent-triggering invocation. The selected recovery contract preserves that
+distinction. A native characterization port alone does not prove nonempty
+database state, actual provider execution or committed module-event contents.
+Cold terminal recovery now invokes the genuine native finish policy before
+accepting Task completion; connected verification of that bridge remains a
+completion gate.
 
-## Current APIs And Missing Contracts
+## Private Owners And Remaining Boundaries
 
-| Existing owner and exact API | Reusable behavior | Missing connected contract |
+| Owner and exact API | Selected responsibility | Remaining boundary |
 | --- | --- | --- |
-| `packages/medusa-workflows-sdk/src/definition.ts`: `createStep`, `createWorkflow`, `runAsStep`; `src/runtime.ts`: `executeWorkflow` | Authentic definitions, finite child frames, conditions and queued sibling execution through caller-owned ports. | Step options admit only `name` and `compensation: "transactionCovered"`; `.config` admits name only. Native async/timeout/background and irreversible compensation remain refused. Add a separate explicit execution profile rather than loosening atomic definitions. |
+| `packages/medusa-workflows-sdk/src/definition.ts` and separate `src/durable/` exports | Existing finite atomic definitions keep their restrictions; the durable export runs genuine native orchestration and async/background step behavior. | The separate export does not admit arbitrary graphs, options, providers or hosts. |
 | `packages/medusa-adapter/src/workflow/host.ts`: `prepareWorkflowComposition`, `prepareAtomicWorkflowHost`; `src/workflow/runtime.ts`: `runNativeMedusaWorkflow` | Checked resources, authentic module methods and bounded fresh callback lifetimes for one atomic root. | All callbacks borrow `AtomicCommerceContext`. No continuation, confirmed resume or provider boundary exists here; do not hold this context across them. |
-| `packages/medusa-adapter/src/workflows/product/batch.ts`: `prepareProductBatchWorkflow` | Genuine bounded Product batch and native Product/Pricing/Inventory/Link children. | A fenced durable caller must invoke one prepared child with a retained stable request key and recover its exact outcome; it cannot regenerate a key on resume. Cross-commit compensation and delayed event eligibility need their actual owners. |
+| `packages/medusa-adapter/src/workflows/product/batch.ts`: `prepareProductBatchTaskWorkflow` | Genuine finite Product batch through Task occurrence 1 and the existing commerce outcome owner. | The default native child remains uncheckpointed; later cancellation is not business undo. |
 | `packages/persistence-postgres/src/frameworks/atomicCommerce/commands.ts`: `AtomicCommerceHost.run` and private `TaskAtomicCommerceHost.runTaskChild`; `host.ts`: `makeAtomicCommerceHost` | Single settlement, exact replay and uncertain recovery; Task child entry and final lease checks under an explicitly admitted authentic binding and scope-exclusive profile. | The native interpreter must bind its exact plan to this finite child. No Product import or continuation follows from the neutral command proof. |
-| `packages/durable-task/src/runAttempt/Services/RunAttemptLifecycle.ts`: `startAttempt`, `heartbeatAttempt`, `completeAttempt`, `requestCancellation`, `handleLeaseExpiry`, `inspectCurrentAttempt` | Existing Task state, versions, fences, lease/cancellation and terminal meaning. | Current aggregates are ready, attempt_granted, executing, retry_waiting and terminal; none is a durable confirmation wait. Do not relabel retry delay or keep an executing lease alive for an hour. |
-| `packages/durable-task/src/scheduling/TaskWakeScheduler.ts`: `makeTaskWakeSchedulerV1(...).run(request)` | Scope-bound bounded due discovery, cursor correlation and existing candidate handling. | A confirmed/expired import continuation has no admitted candidate kind or lifecycle correlation yet. Queue hints may wake work, but PostgreSQL owns eligibility and the winning transition. |
+| `packages/durable-task/src/runAttempt/WorkflowContinuation.ts` and `Layers/RunAttemptLifecycleLive.ts` | The private trusted generation adds `continuation_waiting`/`continuation_ready`, retained resolution receipts and fresh grants through the existing Task decisions. | No executing lease, transaction or worker spans the wait. Application and retained legacy codecs remain unchanged. |
+| `packages/persistence-postgres/src/tasks/trustedWorkflowContinuationStore.ts`: `register`, `inspect`, `confirm`, `expire`, `cancel` | Authenticated binding/principal facade over the existing run and requested-effect ledger; registration atomically anchors checkpoint CAS and retires the lease. | Explicit bounded `advance` drives this profile. An autonomous scheduler, public signal transport and hosted routing are not admitted. |
+| `packages/persistence-postgres/src/tasks/trustedWorkflowCheckpoint.ts`: `prepare`, `load`, `save` | Opaque, copied, digest-checked framework bytes with scoped binding/run identity, live interpreter checks and revision CAS. | Medusa validates its native checkpoint topology and codec; Task does not interpret the business graph. |
 | `packages/standard-application-invocation/src/ApplicationTaskSystem.ts`: `createApplicationTaskRun` / `ApplicationTaskSystemApi.createRun` | Current Application task selection, immutable runtime/principal binding and scoped run creation. | It selects Application tasks, not Medusa workflow definitions. Do not fabricate an Application function/runtime binding to host commerce. |
-| `packages/durable-task/src/runCreation/TrustedWorkflowBinding.ts`; persistence `tasks/trustedWorkflowTaskRunCreation.ts`, `taskSystemRunAttemptStoreV1.ts` and `trustedWorkflowExecutionSubject.ts` | Private exact scoped creation/replay, existing lifecycle and authentic execution subjects checking canonical binding/policy/principal plus current executing attempt and database lease. | Compute/due-discovery and continuation waits remain absent. Native policy interpretation belongs to the selected framework owner. |
+| `packages/durable-task/src/runCreation/TrustedWorkflowBinding.ts`; persistence `tasks/trustedWorkflowTaskRunCreation.ts`, `taskSystemRunAttemptStoreV1.ts` and `trustedWorkflowExecutionSubject.ts` | Exact scoped creation/replay and genuine ordinary/control subjects checking canonical binding/policy/principal, current attempt, fence, cancellation and database lease. | Ordinary inspection is not a live permission. Control issuance grants only separately admitted cleanup, never Product forward work. |
 | `packages/standard-application-invocation/src/ApplicationTaskMutationAuthority.ts`: external-effect session `prepare`, `declareDispatch`, `confirm`, `reconcile`, `close`; persistence `tasks/taskExternalEffectAuthority.ts`: corresponding child-mutation operations | Existing ordinal, stable request identity, fenced subject and uncertain dispatch evidence are concrete reuse references. | Inputs/subjects bind Application task launches and `TransactionFunctionPathV1`. They grant no arbitrary commerce/provider authority. Correct the real owner for a named additional subject/operation rather than laundering Medusa through a fake function path. |
 | `roadmaps/durable-task-engine/preflight/55-dte07-clean-task-await-contract.md`: `awaitTask` | Bounded scope-authorized status observation and one final result read. | Caller-side polling is not durable suspension, authenticated confirmation or a wake mechanism. |
-| `packages/persistence-postgres/src/commit/events/` and workflow-foundations topic07 | Immutable event intents, digest-witnessed bounded eligibility groups, fresh conjunctive claim gating and existing subscriber outcomes. | Native parent release/clear must be authenticated by the live Task interpreter; the scope-bound group capability alone supplies no workflow decision. |
+| `packages/persistence-postgres/src/tasks/trustedWorkflowCallback.ts`: `makeTrustedWorkflowCallbackJournal(...).run` | Constructor-bound callback identity/policy, ordinal input and tagged known-outcome replay in the existing external-effect ledger. | Dispatching/uncertain evidence never authorizes redelivery. Arbitrary callback lifetime is not bounded by SQL or a timeout wrapper. |
+| `packages/persistence-postgres/src/tasks/trustedWorkflowEventEligibilityStore.ts`: `open`, `inspect`, `decide` | Stable run/role/occurrence groups under genuine live interpreter authority; existing publication and subscriber owners enforce the conjunction. | Native group strings alone confer no authority; release/clear affects delivery, not committed business state. |
 
 [Workflow foundations 02](../../workflow-foundations/02-durable-operations-and-recovery.md),
 [03](../../workflow-foundations/03-continuations-waits-and-signals.md),
@@ -221,9 +224,10 @@ with `services/notification-provider.ts` and models `notification.ts` and
 `notification-provider.ts`. Those paths are under
 `third_party/medusa/upstream/`. Their DML, native module construction, provider
 metadata, repository reads/writes, event families and exact scalar/array DTO
-contracts need an explicit connected admission. The native source closure and
-its preparation/delivery/finalization extraction are available privately;
-Product's subscriber and an arbitrary supplied callback grant no admission.
+contracts are selected by the private local-feed profile. The real native
+service retains scalar/array/empty normalization, serialization and outer
+`EmitEvents`. Its preparation/delivery/finalization seam contains no manager or
+settlement capability; Product's subscriber grants no Notification authority.
 
 Native `createNotifications` first reserves/creates rows and resolves configured
 enabled providers in a repository transaction, then sends through the provider,
@@ -234,8 +238,8 @@ fresh ID while suppressing creation of an existing keyed row, so its final
 update may target a missing ID. The narrow import profile refuses keys; these
 particular native workflow messages supply none. Do not inject an extra key into the
 native workflow input or replace calls with synthetic events to hide restart
-duplication. Determine stable occurrence/result recovery and the native owner
-seam needed to retain those genuine calls across uncertainty.
+duplication. Stable Task phase occurrences and the callback journal retain exact
+prepared rows and known results across attempts without changing those messages.
 
 Use the genuine local provider at
 `packages/modules/providers/notification-local/src/services/local.ts` under the
@@ -256,82 +260,150 @@ meaning. Other array defaults remain refused. This extension rewrites no
 existing artifact, retained row or installation. The local-feed boundary checks
 the native array shape and string entries separately from JSONB storage.
 
-## Proposed Finite Boundary
+## Selected Private Profile
 
-Begin with one inline CSV, one filename, one confirmation occurrence and one
-native Product batch, with at most four total normalized create/update Products
-and the existing batch's four total incoming Variants. Retain its independent
-request-initial Variant and nested graph limits. CSV normalization produces no
-delete branch. Do not silently drop normalized fields or records outside that
-existing admitted child contract.
+`prepareProductInlineImportInput` captures exactly `{ fileContent, filename }`
+and returns its canonical bytes and Task input reference. The existing outer
+Task body owner publishes and reloads those exact bytes, including the filename;
+the adapter adds no second input store. Every `start`/`advance` verifies the
+complete supplied body against the run's immutable input reference before native
+normalization or child work. A changed filename is an input conflict even when
+the CSV is unchanged.
 
-For planning, propose at most 256 KiB UTF-8 CSV, sixty-four parsed records and
-256 UTF-8 filename bytes. These are unimplemented admission candidates, not
-measured safe maxima or new parser semantics. Bound raw input before parsing,
-then complete normalized output before persistence/confirmation. Preserve
-quoted fields/newlines and all native row numbering/grouping. Confirm exact
-parser behavior and output encoding before finalizing these bounds.
+The profile admits at most 256 KiB UTF-8 CSV, sixty-four parsed records and
+256 UTF-8 filename bytes. Genuine native normalization must produce at most
+four total create/update Products and four incoming Variants. The existing
+batch's independent request-initial Variant and nested graph limits still
+apply. CSV normalization produces no delete branch. A complete normalized plan
+outside that child contract is refused before confirmation or business writes;
+fields and records are not dropped to fit. Native checkpoint bytes are limited
+to 1 MiB. These are private admission limits, not scale or parser-performance
+claims.
 
-Retained state must bind workflow/code and validator revisions, scope and
-principal, installation/profile identities, exact normalized plan and summary,
-confirmation occurrence/deadline, child operation identity and terminal outcome,
-plus necessary compensation and event eligibility evidence. Use the actual
-durable owners' codecs and authority; this is an obligation inventory, not a
-selected new schema. Retention/expiry may not cause uncertain child work to be
-treated as fresh. Any later durable schema changes need forward migration and
-explicit existing-data disposition; this record authorizes no reset.
+`makeProductInlineImportTask` exposes explicit bounded `start`, `inspect`,
+`confirm`, `cancel` and `advance`. Construction requires the exact authenticated
+workflow profile/policy, at least three allowed attempts, and at least 120 seconds
+each for the lease and maximum active-attempt duration. Waiting consumes no
+executing lease; fresh advancement uses the existing Task start/heartbeat
+decisions and a new authentic subject. A live competing attempt is never adopted.
+Lease loss follows the existing Task policy and a later explicit advance.
 
-## Connected Implementation Plan
+### Continuation And Native Checkpoint
 
-1. Characterize executing native inline import and orchestration. Preserve
-   composer/step source bodies and record actual normalization, summary/start
-   result visibility, confirmation identity/deadline, asynchronous child result,
-   post-child failure/cancellation and parent event-group behavior. Native ORM,
-   orchestration, provider and Flarex adapter witnesses are distinct evidence.
-2. Resolve the narrow durable owner contracts below. Implement and prove a
-   framework-neutral confirmation-to-one-child fixture first, reusing existing
-   Task/fence/scheduling/publication machinery where it actually fits. No
-   long-lived connection, process-local deferred or retry loop owns the wait.
-3. Admit the native local-feed Notification closure with checked logical schema,
-   provider construction and real service phases. Resolve occurrence replay,
-   unknown provider outcome and compensation retry separately from Product
-   settlement. Preserve failures, including failure while reporting failure.
-4. Extend the SDK/runner at its explicit durable execution profile and bind
-   authentic resumed capabilities. Connect the genuine inline composer to one
-   prepared existing Product batch, preserve the observed cancellation/failure
-   dispositions and event eligibility, and refuse unsupported options/profiles at construction.
-   Existing atomic callers must retain their exact supported contracts.
-5. Run the connected matrix, required reviews and source/provenance/browser/
-   configured lint gates, then commit a complete scoped capability. Any smaller
-   owner milestone retains incomplete import status. Update adoption only at
-   the actual capability boundary, without copying chronological receipts here.
+The framework checkpoint uses `medusa.native-checkpoint.json.v1`. Medusa decodes
+the real native checkpoint and verifies workflow ID, Task-run transaction ID,
+exact input and genuine builder topology. Task stores opaque copied bytes with
+binding/run identity, codec, revision, length and digest. It does not reconstruct
+the native business graph or translate a timeout into a new engine state.
 
-## Concrete Decisions Still Required
+Registration commits checkpoint CAS and `continuation_waiting` through the
+existing Task run/requested-effect owner, preserving the suspended attempt and
+acceptance anchor while retiring its lease wake. The stored deadline is the
+native wait's original `startedAt + 3600 seconds`. A cold host can recover the
+waiting checkpoint before registration without restarting the native timer.
+Inspection correlates the continuation descriptor with the actual stored bytes;
+a missing or contradictory checkpoint fails closed.
 
-- Which existing durable Task/operation owner stores this bounded continuation,
-  and whether a correlated workflow continuation record or narrowly extended
-  lifecycle is necessary. Specify authoritative transitions before schema/API
-  names; do not invent an independent Medusa job engine.
-- The exact authorized confirmation subject, early/duplicate/late response,
-  expiry/cancellation precedence and native one-hour deadline origin. Decide
-  waiting-time versus attempt-time accounting and fresh resume authority.
-- Stable child occurrence identity across new attempts, exact plan/revision/
-  installation binding, fencing at dispatch and outcome recovery after either
-  business commit or continuation-checkpoint loss. Expired/unavailable evidence
-  must not authorize redispatch as new work.
-- Durable representation of a completed child whose parent-triggering invocation
-  rejects, subsequent native cancellation-not-found and failed compensation.
-  Preserve the default uncheckpointed-child contract; other retained-child
-  profiles or business undo need separate evidence and a named decision.
-- Parent-controlled cross-commit event release/clear, including compensation
-  events and failed release. Extend existing committed-intent eligibility;
-  preserve one PostgreSQL publication authority and ordinary atomic event use.
-- Notification occurrence identity and prepared-row/provider/result recovery
-  without adding fields to the native message or promising exactly-once logs.
-  Select a correct native service seam and narrow local-feed admission.
-- Bounded plan/result retention and cleanup, exact summary facade contract, and
-  refusal/error classification at each phase. These decisions remain work within
-  the authorized goal; this record does not imply another user approval gate.
+Confirmation and timeout resolution retain the first accepted receipt.
+Confirmation may win after the deadline while timeout has not been processed;
+timeout is eligible only when database time is strictly greater than the native
+deadline. Resolution enters `continuation_ready`, not an hour-long executing
+attempt. A fresh grant resumes the native `setStepSuccess(new StepResponse(true))`
+protocol. If that native success was already checkpointed before a crash, recovery
+calls the actual native `run` instead of acknowledging the step twice.
+
+### Pending Cancellation And Control
+
+Cancellation is an authenticated Task transition. Ordinary authority is revoked
+before continuing with a genuine control subject; timeout also selects control
+mode. Issuance still checks canonical binding, bound policy, principal, current
+attempt/fence, cancellation or control state and the live database-clock lease.
+It does not manufacture ordinary Product authority from a cancellation flag.
+
+Native cancellation of an unanswered asynchronous confirmation may remain
+`WAITING_TO_COMPENSATE`. The adapter does not inject a fake step-failure response
+to make that state look finished. The current control attempt completes as
+failed with `override_delay` until the original deadline plus one millisecond.
+The existing lifecycle retains `continuation_ready` with
+`continuation.controlRetry`; an explicit later advance obtains a fresh control
+grant and runs the genuine native timeout path. Exhausted attempts remain an honest Task failure with
+unresolved-control meaning, not successful cancellation. A native REVERTED
+result may acknowledge the actual cancellation generation; FAILED cleanup does
+not.
+
+### Finite Product Child And Recovery
+
+Commerce occurrence 1 invokes the prepared native Product batch through the
+actual native asynchronous child wrapper. The immutable command input, host
+policy, installations, binding and parent eligibility are retained by the
+existing commerce receipt. Stable identity is scope/run/occurrence, independent
+of attempt and fence. Missing, conflicting or expired evidence cannot produce a
+new request key or a fresh business operation.
+
+If a cold parent checkpoint still waits for that child, the bridge asks the
+genuine native `retryStep`/`run` path to derive its next child transaction ID,
+including the native `-attempt-N` suffix. Native attempt counts are bounded by
+the fresh Task attempt and bound retry policy. That different native child ID
+still reuses commerce occurrence 1 and its exact committed receipt. The default
+batch remains uncheckpointed; the bridge does not retain it merely to make
+later cancellation succeed.
+
+Cold DONE/FAILED/REVERTED parent checkpoints replay the genuine native finish
+policy, including parent event release or clearing, before Task completion.
+The original Effect Cause remains sticky across native Promise handling,
+background work and finalization. All owned native work is drained before the
+bridge closes; an unknown core result cannot be swallowed by a native helper
+and followed by successful Task settlement.
+
+The finite child's native callback boundary records mapped rejections with the
+existing transaction refusal owner before exposing them to fail-fast parallel
+execution. Sibling cancellation still stops and joins queued DAL runners;
+it cannot replace the initiating callback failure. The full outcome retains
+the transaction owner's additional rollback-only cleanup evidence.
+
+### Notification And Delivery Eligibility
+
+The native messages remain unchanged and contain no supplied idempotency key.
+Their exact success/failure payloads, including filename, select fixed trusted
+roles. Genuine Notification preparation and finalization each use one finite
+commerce child; the real local provider runs between those settled transactions.
+
+| Native role | Preparation occurrence | Finalization occurrence | Callback occurrence | Role gate |
+| --- | --- | --- | --- | --- |
+| Success `send-notifications` invoke | 2 | 3 | 1 | notification 1 |
+| Failure `notify-on-failure` compensate | 4 | 5 | 2 | notification 2 |
+
+Callback ordinals belong to their own ledger kind. The constructor binds real
+callback identity/revision, input/outcome codec revisions, finite callback budget
+and whether control is allowed. Expected provider errors are framework-owned
+tagged failure data; arbitrary Effect failure, defect and interruption retain
+their full Cause. Confirmed known outcomes replay without another send.
+Dispatching/uncertain evidence is explicitly unknown and never redispatched as
+fresh. A late or revoked callback cannot write a known result. SQL deadlines do
+not bound an arbitrary hanging foreign callback, and the local log is not an
+exactly-once effect.
+
+Product intents require the parent gate. Notification intents require both the
+parent and their role gate; the parent permits five enrolled child commits, each
+role two. The real native outer `EmitEvents` must match the exact original
+preparation/finalization messages before releasing that role gate. It does not
+write duplicate event intents. Native parent finish release/clear uses genuine
+Task-bound eligibility authority, not the descriptive native group string.
+Clearing changes delivery eligibility only; committed rows, facts and history
+remain PostgreSQL authority.
+
+Only the two Notification phase commands are allowlisted for `runControlChild`;
+the Product command and success role remain forbidden. Ordinary and control
+execution use the same logical cleanup receipt identity, so a fresh control
+attempt can replay existing authorized cleanup rather than repeat it. Each use
+still rechecks the current issuer permission, live lease and exact request.
+
+A known success-provider error can leave the Product batch committed, finalize
+the native failure status, attempt the failure Notification, receive native
+`NOT_FOUND` when cancelling the uncheckpointed child, and end with parent FAILED.
+The native event decision clears the parent gate. This is neither Product undo
+nor successful cancellation. Failure while reporting failure retains its real
+native/core disposition.
 
 ## Validation And Exclusions
 

@@ -1,0 +1,10 @@
+{
+  "extends": "../../tools/medusa/tsconfig.fork.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "rootDir": "src/durable",
+    "outDir": "dist/durable"
+  },
+  "include": ["src/durable/**/*.ts"]
+}

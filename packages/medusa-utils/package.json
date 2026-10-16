@@ -492,6 +492,36 @@
       "types": "./dist/dml/properties/array.d.ts",
       "source": "./src/dml/properties/array.ts",
       "default": "./dist/dml/properties/array.js"
+    },
+    "./orchestration/types": {
+      "types": "./dist/orchestration/types.d.ts",
+      "source": "./src/orchestration/types.ts",
+      "default": "./dist/orchestration/types.js"
+    },
+    "./orchestration/symbol": {
+      "types": "./dist/orchestration/symbol.d.ts",
+      "source": "./src/orchestration/symbol.ts",
+      "default": "./dist/orchestration/symbol.js"
+    },
+    "./common/create-portable-id": {
+      "types": "./dist/common/create-portable-id.d.ts",
+      "source": "./src/common/create-portable-id.ts",
+      "default": "./dist/common/create-portable-id.js"
+    },
+    "./common/is-error-like": {
+      "types": "./dist/common/is-error-like.d.ts",
+      "source": "./src/common/is-error-like.ts",
+      "default": "./dist/common/is-error-like.js"
+    },
+    "./common/serialize-error": {
+      "types": "./dist/common/serialize-error.d.ts",
+      "source": "./src/common/serialize-error.ts",
+      "default": "./dist/common/serialize-error.js"
+    },
+    "./common/parse-stringify-if-necessary": {
+      "types": "./dist/common/parse-stringify-if-necessary.d.ts",
+      "source": "./src/common/parse-stringify-if-necessary.ts",
+      "default": "./dist/common/parse-stringify-if-necessary.js"
     }
   },
   "license": "MIT",

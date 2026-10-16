@@ -1,3 +1,4 @@
+import { decodeTaskInputReferenceV1 } from "@flarex/durable-task/internal/run-creation-v1";
 import { decodeTrustedWorkflowTaskRunAttemptAggregateJson, encodeTrustedWorkflowTaskRunAttemptAggregateJson, projectCurrentTaskRunAttemptPersistence, type CurrentTaskRunAttemptAggregate } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
   decodeApplicationTaskRunAttemptAggregateJsonV1,
@@ -181,4 +182,13 @@ function decodeAndCorrelateTrustedWorkflowRunRow(row: TaskSystemDurableTaskRunRo
       return yield* Result.fail("binding_reference_invalid" as const);
     return Object.freeze({ generation: "trusted_workflow" as const, aggregate });
   });
+}
+
+/** Canonical stored input projection shared by dispatch and native workflow
+ * subjects. The durable Task reference decoder owns all field/bounds checks. */
+export function decodeTaskSystemRunInputReferenceV1(row: Pick<TaskSystemDurableTaskRunRowV1,
+  "inputCodec" | "inputStore" | "inputValueCodec" | "inputObjectKey" | "inputByteLength" | "inputSha256" | "inputRetention">) {
+  return decodeTaskInputReferenceV1({ codec: row.inputCodec, store: row.inputStore,
+    valueCodec: row.inputValueCodec, objectKey: row.inputObjectKey, byteLength: Number(row.inputByteLength),
+    sha256: new Uint8Array(row.inputSha256), retention: { kind: row.inputRetention } });
 }

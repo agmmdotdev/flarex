@@ -21,6 +21,7 @@ const owners = new Map([
   ["packages/medusa-link-modules", "@medusajs/link-modules"],
   ["packages/medusa-core-flows", "@medusajs/core-flows"],
   ["packages/medusa-workflows-sdk", "@medusajs/workflows-sdk"],
+  ["packages/medusa-orchestration", "@medusajs/orchestration"],
   ["packages/medusa-drizzle", "@medusajs/drizzle"],
   ["packages/medusa-types", "@medusajs/types"],
   ["packages/medusa-utils", "@medusajs/utils"],
@@ -143,7 +144,15 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "notificationServiceFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
-    if (file.classification === "workflowFork" && !(file.target.startsWith("packages/medusa-workflows-sdk/src/") || file.target.startsWith("packages/medusa-core-flows/src/") || file.target === "packages/medusa-adapter/test/workflow-composer-upstream.test.ts")) {
+    if (file.classification === "workflowFork" && !(file.target.startsWith("packages/medusa-workflows-sdk/src/") || file.target.startsWith("packages/medusa-core-flows/src/") || file.target.startsWith("packages/medusa-orchestration/src/") || [
+      "packages/medusa-utils/src/common/create-portable-id.ts",
+      "packages/medusa-utils/src/common/is-error-like.ts",
+      "packages/medusa-utils/src/common/serialize-error.ts",
+      "packages/medusa-utils/src/common/parse-stringify-if-necessary.ts",
+      "packages/medusa-utils/src/orchestration/types.ts",
+      "packages/medusa-utils/src/orchestration/symbol.ts",
+      "packages/medusa-adapter/test/workflow-composer-upstream.test.ts",
+    ].includes(file.target))) {
       throw new Error("Workflow fork adaptation outside its approved source closure");
     }
     if (file.classification === "linkFork" && ![

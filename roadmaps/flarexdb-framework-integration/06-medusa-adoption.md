@@ -53,8 +53,10 @@ same-installation atomic participants and is complete. Arbitrary configured
 module sets remain unadmitted. Medusa services
 remain above the existing Flarex transaction and publication owners.
 
-The user-selected next integration outcome is inline Product import completion,
-followed by another pending Medusa workflow. Chunked File import and Product
+The private inline Product import is complete for its bounded admitted profile.
+The next integration outcome is
+[native Sales Channel creation](./preflight/110-native-sales-channel-creation-workflow.md).
+Chunked File import and Product
 export are explicitly deferred; their File and Region dependencies are outside
 the current integration goal.
 With performance optimization paused, the approved bounded connected admission is
@@ -195,22 +197,23 @@ Variant and eight selected assignment deletions. Its authenticated facade select
 128 calls with ordinary 64 events, 128-identity working sets and default OCC.
 SDK resolution authenticates closure-returned references before capture and
 bounds descriptor inspection and expanded traversal. Existing Variant-to-Images
-admission and portable endpoint integrity remain intact. Larger graphs, durable
+admission and portable endpoint integrity remain intact. Larger graphs, File
 import/export execution, general restoration and hosted activation remain
 unadmitted.
 
 The [inline Product import preflight](./preflight/109-native-inline-product-import-workflow.md)
-is the next proposed workflow boundary. It requires durable confirmation,
-background child invocation, native local-feed Notification phases and
-parent-controlled event eligibility. Native CSV normalization and Notification
-service/model/provider prerequisites are available privately, along with a
-distinct trusted workflow Task binding/creation/lifecycle prerequisite. They
-do not admit execution, waits, Notification persistence or a complete import.
-Bounded native orchestration distinguishes
+implements the bounded private native composer and interpreter, durable
+confirmation with lease-free waits, cold checkpoint recovery, one finite atomic
+Product batch, persisted local-feed Notification phases and Task-bound parent
+event eligibility. Trusted Task lifecycle and fresh ordinary/control subjects
+own continuation, cancellation and cleanup authority. Native CSV normalization
+and complete graph admission precede the confirmation wait.
+Native orchestration distinguishes
 a completed default batch from its subsequently failed parent invocation:
 the uncheckpointed child cannot be found for cancellation, so business undo
-must not be invented. Durable integration, real module/provider persistence and
-release-failure recovery remain unimplemented. Chunked File import and Region/File
+must not be invented. Recovery covers business commit, confirmation, child DONE
+and terminal parent checkpoints before native event release. Unknown provider
+outcomes retain their uncertainty and cannot be redispatched as fresh. Chunked File import and Region/File
 export are deferred, with their separate dependencies excluded from this goal.
 
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)

@@ -1,4 +1,4 @@
-import type { CurrentTaskRunAttemptAggregate } from "./Model.js";
+import type { CurrentTaskRunAttemptAggregate, CurrentRunAttemptPhase } from "./Model.js";
 import { Brand } from "effect";
 import type {
   ApplicationTaskRunAttemptAggregateV1,
@@ -24,6 +24,9 @@ export type TaskRequestedEffectPersistenceCursorV1 = Brand.Branded<
 export type TaskRunAttemptDueKindV1 =
   | "start_attempt"
   | "handle_lease_expiry";
+
+export type CurrentTaskRunAttemptDueKind = TaskRunAttemptDueKindV1 | "handle_continuation_timeout";
+export type CurrentTaskRunAttemptPersistenceProjection = Omit<TaskRunAttemptPersistenceProjectionV1, "taskDefinitionRevisionId" | "phase" | "dueKind"> & Readonly<{ phase: CurrentRunAttemptPhase; dueKind: CurrentTaskRunAttemptDueKind | null }>;
 
 export interface TaskRunAttemptPersistenceProjectionV1 {
   readonly version: "flarex.task-run-attempt-persistence-projection.v1";
@@ -72,9 +75,11 @@ export function projectApplicationTaskRunAttemptPersistenceV1(
   });
 }
 
+export function projectCurrentTaskRunAttemptPersistence(aggregate: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1): Omit<TaskRunAttemptPersistenceProjectionV1, "taskDefinitionRevisionId">;
+export function projectCurrentTaskRunAttemptPersistence(aggregate: CurrentTaskRunAttemptAggregate): CurrentTaskRunAttemptPersistenceProjection;
 export function projectCurrentTaskRunAttemptPersistence(
   aggregate: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
-): Omit<TaskRunAttemptPersistenceProjectionV1, "taskDefinitionRevisionId"> {
+): CurrentTaskRunAttemptPersistenceProjection {
   const requestedEffectSequence = taskRequestedEffectPersistenceCursor(
     aggregate.requestedEffectCursor.kind === "none"
       ? 0n
@@ -89,6 +94,17 @@ export function projectCurrentTaskRunAttemptPersistence(
     requestedEffectSequence,
   };
   switch (aggregate.phase) {
+    case "continuation_waiting":
+    case "continuation_ready": {
+      const continuation = aggregate.continuation;
+      const dueAtMs = aggregate.phase === "continuation_waiting" ? continuation.deadlineAtMs + 1 :
+        continuation.controlRetry?.notBeforeMs ?? continuation.resolution?.observedAtMs;
+      if (dueAtMs === undefined) throw new Error("Unresolved continuation cannot be ready");
+      return Object.freeze({ ...common, dueKind: aggregate.phase === "continuation_waiting" ? "handle_continuation_timeout" : "start_attempt",
+        dueAtMs: Brand.nominal<TaskDatabaseTimeMsV1>()(dueAtMs), currentAttemptId: null,
+        executionFenceBasis: (continuation.resumeAfterAttempt ?? continuation.suspendedAttempt).executionFence,
+        currentLeaseVersion: null, currentLeaseExpiresAtMs: null });
+    }
     case "ready": return Object.freeze({
       ...common,
       dueKind: "start_attempt" as const,

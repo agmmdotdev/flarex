@@ -159,6 +159,10 @@ function isTaskResultCommitmentRecord(value: object): boolean {
     readOwnDataProperty(value, "codec") === "flarex.task-result.v1";
 }
 
+function isTrustedWorkflowCheckpointDescriptorRecord(value: object): boolean {
+  return hasExactEnumerableDataKeys(value, ["revision", "byteLength", "sha256"]);
+}
+
 function freezeOwnedJsonObject(
   entries: ReadonlyArray<readonly [string, Json]>,
 ): JsonObject {
@@ -518,6 +522,7 @@ function encodeOwnedPersistenceJsonValueV1(
   }
   return Result.gen(function* () {
     const commitment = isTaskResultCommitmentRecord(input);
+    const checkpoint = trustedWorkflowIdentity && isTrustedWorkflowCheckpointDescriptorRecord(input);
     const entries: Array<readonly [string, Json]> = [];
     for (const key of keys) {
       if (typeof key !== "string") {
@@ -537,7 +542,7 @@ function encodeOwnedPersistenceJsonValueV1(
       }
       entries.push([key, yield* encodeOwnedPersistenceJsonValueV1(
         descriptor.value,
-        (commitment && key === "sha256")
+        ((commitment || checkpoint) && key === "sha256")
           || key === "applicationTaskRuntimeTargetSha256"
           || (trustedWorkflowIdentity && key === "trustedWorkflowBindingSha256"),
         trustedWorkflowIdentity,
@@ -609,6 +614,7 @@ function decodeOwnedPersistenceJsonValueV1(
     });
   }
   const commitment = isTaskResultCommitmentRecord(input);
+    const checkpoint = trustedWorkflowIdentity && isTrustedWorkflowCheckpointDescriptorRecord(input);
   const keys = Reflect.ownKeys(input);
   if (keys.some((key) =>
     typeof key === "string" && key.startsWith("$flarex."))) {
@@ -632,7 +638,7 @@ function decodeOwnedPersistenceJsonValueV1(
           kind: "domain_encoding_not_json" as const,
         });
       }
-      owned[key] = (commitment && key === "sha256")
+      owned[key] = ((commitment || checkpoint) && key === "sha256")
         || key === "applicationTaskRuntimeTargetSha256"
         || (trustedWorkflowIdentity && key === "trustedWorkflowBindingSha256")
         ? yield* decodeTaskResultSha256WrapperV1(descriptor.value)

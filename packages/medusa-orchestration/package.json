@@ -1,0 +1,56 @@
+{
+  "name": "@medusajs/orchestration",
+  "version": "2.13.4",
+  "private": true,
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./transaction": {
+      "types": "./dist/transaction/index.d.ts",
+      "source": "./src/transaction/index.ts",
+      "default": "./dist/transaction/index.js"
+    },
+    "./transaction/errors": {
+      "types": "./dist/transaction/errors.d.ts",
+      "source": "./src/transaction/errors.ts",
+      "default": "./dist/transaction/errors.js"
+    },
+    "./transaction/orchestrator-builder": {
+      "types": "./dist/transaction/orchestrator-builder.d.ts",
+      "source": "./src/transaction/orchestrator-builder.ts",
+      "default": "./dist/transaction/orchestrator-builder.js"
+    },
+    "./transaction/types": {
+      "types": "./dist/transaction/types.d.ts",
+      "source": "./src/transaction/types.ts",
+      "default": "./dist/transaction/types.js"
+    },
+    "./workflow/local-workflow": {
+      "types": "./dist/workflow/local-workflow.d.ts",
+      "source": "./src/workflow/local-workflow.ts",
+      "default": "./dist/workflow/local-workflow.js"
+    },
+    "./workflow/workflow-manager": {
+      "types": "./dist/workflow/workflow-manager.d.ts",
+      "source": "./src/workflow/workflow-manager.ts",
+      "default": "./dist/workflow/workflow-manager.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "source": "./src/runtime.ts",
+      "default": "./dist/runtime.js"
+    }
+  },
+  "dependencies": {
+    "@medusajs/types": "workspace:*",
+    "@medusajs/utils": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

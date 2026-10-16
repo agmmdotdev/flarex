@@ -1,10 +1,11 @@
 # Task Command Integration
 
-Status: trusted workflow binding, run creation, lifecycle, execution-subject
-issuance and a finite Task-to-commerce child boundary are implemented privately.
-The connected proof uses a neutral commerce command. Native Product import,
-continuations, compute delivery and provider execution remain pending. This
-is a general capability outline; the
+Status: trusted workflow binding, run creation, lifecycle, genuine
+ordinary/control subjects, continuation/checkpoint authority, finite commerce
+children, callback outcome evidence and Task-bound event gates are implemented
+privately. The bounded native inline Product import is implemented and
+validated. Compute delivery, hosted activation and general workflow
+admission remain separate. This is a general capability outline; the
 [folder index](./README.md) owns scope and the one-capability-at-a-time process.
 
 ## Purpose
@@ -118,11 +119,52 @@ Fresh database lease checks surround publication and finish after the effect
 receipt update, so refusal rolls back business data, facts, events and receipt.
 No transaction or connection spans waiting or provider work.
 
-The [event eligibility owner](./07-durable-workflow-events.md#cross-commit-delivery-eligibility)
-can hold this child's committed intents under two conjunctive groups. Task-bound
-release/clear decisions and native workflow interpretation remain separate gates.
+## Callback, Control And Event Owners
 
-This capability does not admit suspension, confirmations, provider calls,
-arbitrary workflows or a new scheduler. Those need their own explicit lifecycle
-and eligibility contracts. The framework interpreter remains framework-owned;
-Task owns durable authority rather than the native business graph.
+`makeTrustedWorkflowCallbackJournal` reuses the existing external-effect ledger
+with a distinct `trusted_callback` kind. Trusted construction fixes authentic
+workflow binding, callback identity/revision, input/outcome codec revisions,
+control permission and finite callback budget. Scope/run/ordinal identity stays
+stable across attempts. One short transaction declares dispatch, the actual
+callback executes outside SQL, and another still-live transaction records a
+known tagged returned/failed JSON outcome. Input, policy, binding and outcome
+evidence remain exact. Known provider errors are encoded by the framework;
+infrastructure failure, defects and interruption retain their original Cause.
+
+Confirmed known outcomes replay without invocation. Dispatching or uncertain
+evidence is explicitly unknown and never becomes fresh work; late or revoked
+settlement cannot write a known outcome. The finite callback budget is checked
+against the lease and at settlement. SQL bounds do not abort an arbitrary hanging
+foreign callback, and no timeout wrapper abandons it or supplies exactly-once
+semantics. Its actual cancellation/drain contract belongs to its provider owner.
+
+`runControlChild` selects only explicitly allowlisted cleanup commands. It uses
+the same logical receipt identity as an ordinary call while still requiring a
+genuine current control subject and exact request equality. Control mode grants
+no general commerce permission. The inline profile permits Notification
+preparation/finalization cleanup and refuses Product forward work.
+
+The [event eligibility owner](./07-durable-workflow-events.md#cross-commit-delivery-eligibility)
+can hold each child's committed intents under two conjunctive groups.
+`makeTrustedWorkflowEventEligibilityStore` binds one or two constructor-owned
+roles and their occurrence/commit limits to the authentic workflow. Its
+`open`, `inspect` and `decide` operations derive stable scope/run/role/occurrence
+identity and revalidate the live ordinary/control subject around the existing
+group owner. A native group string alone grants no release/clear capability.
+The existing publication and subscriber owners remain authoritative.
+
+The selected inline composition uses Product occurrence 1; success Notification
+phase occurrences 2/3 and failure occurrences 4/5. Provider callback occurrences
+1/2 are independent of commerce ordinals. Product intents require the parent
+gate; Notification intents require parent plus the corresponding role gate.
+Actual native `EmitEvents` acknowledges the exact phase messages before role
+release, without producing duplicate intents. The parent gate allows five
+enrolled child commits and each role two. Native finish policy owns the final
+parent release/clear decision. Clearing eligibility cannot undo a child commit.
+
+The separate [private continuation contract](./03-continuations-waits-and-signals.md)
+and [control contract](./04-cancellation-and-compensation.md) connect these owners
+to one fixed native profile. The framework retains its interpreter, checkpoint
+codec and business graph; Task retains singular lifecycle/ledger authority.
+No autonomous scheduler, general provider/workflow API, hosted route, retention
+or garbage-collection contract follows from this private admission.

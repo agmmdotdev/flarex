@@ -13,6 +13,8 @@ import { makeAtomicCommerceHost } from "../../persistence-postgres/src/framework
 import type { LogicalCommerceCallValidation } from "../../persistence-postgres/src/frameworks/atomicCommerce/participants";
 import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
+import { createStep, createWorkflow, parallelize, WorkflowResponse } from "@medusajs/workflows-sdk";
+import { runNativeMedusaWorkflow } from "../src/workflow/runtime";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
@@ -172,6 +174,63 @@ describe("explicit queued atomic operations on a neutral logical source", () => 
     expect(exit._tag === "Failure" ? reasons(exit.cause) : []).toContain("invalidInput");
     expect(started).toEqual(["caught-first", "caught-failure"]);
     expect(await rows()).toEqual(beforeRows); expect(await commits()).toEqual(beforeCommits); expect(await events()).toEqual(beforeEvents);
+  });
+
+  it("records a native callback failure once under the default strict profile", async () => {
+    const failure = commerceError("invalidInput");
+    const refused = createStep("queue-probe-strict-native-refused", async () => { throw failure; });
+    const workflow = createWorkflow("queue-probe-strict-native-failure", () => new WorkflowResponse(refused(undefined)));
+    const prepared = Result.getOrThrow(workflow.prepare());
+    const unused = write("queueProbeStrictNativeRefusal");
+    const tested = await open(Effect.fn(function* (ctx) {
+      return yield* runNativeMedusaWorkflow(prepared, ctx, null, () => ({
+        resolve: () => { throw new Error("Unexpected native container resolution"); },
+      }));
+    }), [unused], undefined, "strict");
+    const before = { rows: await rows(), commits: await commits(), events: await events() };
+    const exit = await Effect.runPromise(Effect.exit(tested.host.run(tested.host.newRequestKey(), tested.command, null)));
+    if (Exit.isSuccess(exit)) throw new Error("Expected the native callback refusal");
+    expect(Result.getOrThrow(Cause.findError(exit.cause))).toBe(failure);
+    expect({ rows: await rows(), commits: await commits(), events: await events() }).toEqual(before);
+  });
+
+  it("records a native callback failure before fail-fast cancellation interrupts a queued sibling", async () => {
+    const reached = Deferred.makeUnsafe<void>();
+    const failure = commerceError("invalidInput");
+    let cleaned = false;
+    let escaped: (() => Promise<Json>) | undefined;
+    const active = write("queueProbeNativeCallbackFailure", () => Deferred.succeed(reached, undefined).pipe(
+      Effect.andThen(Effect.never), Effect.ensuring(Effect.sync(() => { cleaned = true; })),
+    ));
+    const pending = createStep("queue-probe-native-pending", async () => {
+      if (escaped === undefined) throw new Error("Missing native participant method");
+      return await escaped();
+    });
+    const refused = createStep("queue-probe-native-refused", async () => {
+      await Effect.runPromise(Deferred.await(reached));
+      throw failure;
+    });
+    const workflow = createWorkflow("queue-probe-native-callback-failure", () =>
+      new WorkflowResponse(parallelize(pending(undefined), refused(undefined))));
+    const prepared = Result.getOrThrow(workflow.prepare());
+    const tested = await open(Effect.fn(function* (ctx) {
+      return yield* runNativeMedusaWorkflow(prepared, ctx, null, owner => {
+        escaped = () => owner.run(ctx.call(participant, active, { id: "native-refused-write", value: 1 }));
+        return { resolve: () => { throw new Error("Unexpected native container resolution"); } };
+      });
+    }), [active]);
+    const before = { rows: await rows(), commits: await commits(), events: await events() };
+    const exit = await Effect.runPromise(Effect.exit(tested.host.run(tested.host.newRequestKey(), tested.command, null)));
+    if (Exit.isSuccess(exit)) throw new Error("Expected the native callback refusal");
+    expect(Result.getOrThrow(Cause.findError(exit.cause))).toBe(failure);
+    // The original failure remains first; interrupted participant work also
+    // retains the transaction owner's rollback-only cleanup evidence.
+    expect(reasons(exit.cause)).toEqual(["invalidInput", "rollbackOnly"]);
+    expect(cleaned).toBe(true);
+    expect({ rows: await rows(), commits: await commits(), events: await events() }).toEqual(before);
+    if (escaped === undefined) throw new Error("Missing escaped native participant method");
+    await expect(escaped()).rejects.toMatchObject({ reason: "closed" });
+    expect(await rows()).toEqual(before.rows);
   });
 
   it("refuses settlement with escaped active and pending jobs, drains the worker and closes escaped authority", async () => {

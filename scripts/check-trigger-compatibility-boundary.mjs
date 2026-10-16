@@ -19,6 +19,7 @@ const standardApplicationInvocationManifestPath =
 const persistencePostgresManifestPath =
   "packages/persistence-postgres/package.json";
 const flarexBackendManifestPath = "packages/flarex-backend/package.json";
+const medusaAdapterManifestPath = "packages/medusa-adapter/package.json";
 const standardApplicationTaskComputeDeliveryPath =
   "packages/standard-application-invocation/src/ApplicationTaskComputeDelivery.ts";
 const standardApplicationTaskMutationAuthorityPath =
@@ -645,7 +646,7 @@ const admittedTrustedWorkflowContractImports = [
     {
       values: ["decodeTaskExecutionPrincipalReferenceV1", "decodeTaskExecutionPrincipalObjectV1",
         "inspectTrustedWorkflowTaskBinding", "trustedWorkflowPrincipalMatches"],
-      types: ["TaskExecutionPrincipalReferenceV1", "TrustedWorkflowTaskBinding",
+      types: ["TaskExecutionPrincipalReferenceV1", "TaskInputReferenceV1", "TrustedWorkflowTaskBinding",
         "TrustedWorkflowTaskBindingState", "TaskExecutionPrincipalObjectV1"],
     },
   ),
@@ -653,6 +654,188 @@ const admittedTrustedWorkflowContractImports = [
     "packages/persistence-postgres/src/tasks/trustedWorkflowExecutionSubject.ts",
     "@flarex/durable-task/internal/run-attempt-v1",
     { values: ["TaskRunIdV1Schema", "TaskAttemptIdV1Schema", "TaskAttemptNumberV1Schema", "TaskExecutionFenceV1Schema"] },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowCallback.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: ["inspectTrustedWorkflowTaskBinding"],
+      types: ["TrustedWorkflowTaskBinding"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowCheckpoint.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: ["inspectTrustedWorkflowTaskBinding"],
+      types: ["TrustedWorkflowTaskBinding"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowCheckpoint.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: ["MAX_TRUSTED_WORKFLOW_CHECKPOINT_BYTES","TrustedWorkflowCheckpointDescriptorSchema"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowCheckpointSchema.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: ["MAX_TRUSTED_WORKFLOW_CHECKPOINT_BYTES"],
+      types: ["TaskRunIdV1"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowContinuationStore.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      types: ["TrustedWorkflowTaskBinding"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowContinuationStore.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: [
+        "RegisterTrustedWorkflowContinuationCommandSchema", "ResolveTrustedWorkflowContinuationCommandSchema", "decideTrustedWorkflowRegisterContinuation",
+        "decideTrustedWorkflowConfirmContinuation", "decideTrustedWorkflowExpireContinuation", "decideTrustedWorkflowRequestCancellation",
+        "decodeRunAttemptCommandV1", "decodeTaskRunIdV1",
+      ],
+      types: ["CurrentRunAttemptMutationOperation","TaskRunIdV1"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowEventEligibilityStore.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      types: ["TrustedWorkflowTaskBinding"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowTaskRunCreation.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: [
+        "decodeTaskExecutionPrincipalReferenceV1", "decodeTaskInputReferenceV1", "decodeTaskRunCreationRequestKeyV1",
+        "encodeTaskRunCreationRequestKeyPreimageV1", "inspectTrustedWorkflowTaskBinding", "makeTrustedWorkflowTaskRunCreationInitialAggregate",
+        "trustedWorkflowPrincipalMatches", "TrustedWorkflowBindingSha256Schema",
+      ],
+      types: [
+        "TrustedWorkflowTaskBinding", "TaskRunCreationAuthoritySha256V1", "TaskRunCreationRequestKeySha256V1",
+        "TaskRunCreationRequestSha256V1",
+      ],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowTaskRunCreation.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: [
+        "decodeTaskDatabaseTimeMsV1", "decodeTaskRunIdV1", "encodeTrustedWorkflowTaskRunAttemptAggregateJson",
+        "projectCurrentTaskRunAttemptPersistence",
+      ],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/taskSystemRunAttemptStoreV1.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: [
+        "encodeTrustedWorkflowTaskRunAttemptAggregateJson", "decodeTrustedWorkflowTaskRunAttemptAggregateJson", "encodeTrustedWorkflowPersistedTaskRequestedEffectJson",
+        "projectCurrentTaskRunAttemptPersistence", "toCurrentApplicationTaskRunAttemptDecision", "fromCurrentTaskRunAttemptAggregate",
+        "fromCurrentTaskRequestedEffect",
+      ],
+      types: [
+        "CurrentTaskRunAttemptAggregate", "CurrentTaskRunAttemptDecision", "CurrentRunAttemptPhase",
+        "CurrentRunAttemptMutationOperation", "CurrentTaskRunAttemptEvidence", "CurrentPersistedTaskRequestedEffect",
+        "CurrentTaskSystemRunAttemptDecisionInput", "TaskSystemRunAttemptInspectionRequestV1", "TrustedWorkflowTaskSystemRunAttemptTransaction",
+        "TrustedWorkflowTaskSystemRunAttemptStoreShape",
+      ],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/taskSystemRunAttemptStoreV1.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: [
+        "InvalidRunAttemptTransitionError", "StaleTaskRunVersionError", "TaskRunAttemptCounterExhaustedError",
+        "TaskSystemRunAttemptCorruptionError", "TaskSystemRunAttemptStaleScopeAuthorityError", "TaskSystemRunAttemptStore",
+        "TaskSystemRunAttemptTerminalStoreError", "TaskSystemRunAttemptTransientStoreError", "TaskSystemRunAttemptUnavailableError",
+        "decodeApplicationTaskRunAttemptAggregateJsonV1", "encodeApplicationPersistedTaskRequestedEffectJsonV1", "encodeApplicationTaskRunAttemptAggregateJsonV1",
+        "decodePersistedTaskRunAttemptAggregateJsonV1", "decodeTaskAttemptIdV1", "decodeTaskAttemptNumberV1",
+        "decodeTaskDatabaseTimeMsV1", "decodeTaskExecutionFenceV1", "encodePersistedTaskRequestedEffectJsonV1",
+        "encodePersistedTaskRunAttemptAggregateJsonV1", "projectApplicationTaskRunAttemptPersistenceV1", "projectTaskRunAttemptPersistenceV1",
+        "toCurrentTaskRunAttemptAggregate",
+      ],
+      types: [
+        "ApplicationTaskRunAttemptAggregateV1", "ApplicationTaskRunAttemptDecisionV1", "ApplicationTaskSystemRunAttemptInspectionSnapshotV1",
+        "ApplicationTaskSystemRunAttemptStoreShape", "ApplicationTaskSystemRunAttemptTransactionReceiptV1", "ApplicationTaskSystemRunAttemptTransactionV1",
+        "RunAttemptDecisionFor", "RunAttemptDecisionErrorV1", "CurrentRunAttemptOperation",
+        "RunAttemptServiceReceiptFor", "TaskAttemptGrantCandidateV1", "TaskDatabaseTimeMsV1",
+        "TaskRunAttemptAggregateV1", "TaskRunAttemptDecisionV1", "TaskRunIdV1",
+        "TaskRunVersionV1", "TaskSystemRunAttemptInspectionSnapshotV1", "TaskSystemRunAttemptStoreErrorV1",
+        "TaskSystemRunAttemptStoreShape", "TaskSystemRunAttemptTransactionReceiptV1", "TaskSystemRunAttemptTransactionV1",
+      ],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/taskSystemRunRowV1.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: ["decodeTaskInputReferenceV1"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/taskSystemRunRowV1.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: [
+        "decodeTrustedWorkflowTaskRunAttemptAggregateJson", "encodeTrustedWorkflowTaskRunAttemptAggregateJson", "projectCurrentTaskRunAttemptPersistence",
+      ],
+      types: ["CurrentTaskRunAttemptAggregate"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/medusa-adapter/src/workflow/durable-native-storage.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: ["MAX_TRUSTED_WORKFLOW_CHECKPOINT_BYTES"],
+      types: ["TrustedWorkflowCheckpointDescriptor"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/medusa-adapter/src/workflows/product/import-inline-input.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: ["makeTaskInputReferenceV1","decodeTaskInputReferenceV1"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/medusa-adapter/src/workflows/product/import-inline-task.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: ["inspectTrustedWorkflowTaskBinding"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/medusa-adapter/src/workflows/product/import-inline-task.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: [
+        "decideTrustedWorkflowStartAttempt", "decideTrustedWorkflowHeartbeatAttempt", "decideTrustedWorkflowCompleteAttempt",
+        "decideTrustedWorkflowHandleLeaseExpiry", "decodeTaskRetryJitterV1", "decodeTaskHeartbeatSequenceV1", "decodeTaskDurationMsV1",
+        "TaskFailureMessageV1Schema",
+      ],
+      types: ["TaskAttemptCompletionV1", "CurrentTaskRunAttemptAggregate"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/medusa-adapter/src/workflows/product/import-inline.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      types: ["TrustedWorkflowContinuation"],
+    },
   ),
 ];
 const admittedPrincipalContractReExports = new Map([
@@ -2709,6 +2892,7 @@ function isAdmittedDurableTaskConsumerDependency(
     || relativePath === standardApplicationInvocationManifestPath
     || relativePath === persistencePostgresManifestPath
     || relativePath === flarexBackendManifestPath
+    || relativePath === medusaAdapterManifestPath
     || relativePath === systemTestManifestPath
   )
     && name === expectedTargetPackage

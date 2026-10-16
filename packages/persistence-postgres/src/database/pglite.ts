@@ -85,6 +85,7 @@ import {
 } from "../tasks/taskComputeDeliveryControlDirectoryTarget";
 import {
   createTaskRepairPostgresDeadlinePolicyV1,
+  configureTaskRepairPostgresTransactionDeadlinesV1,
   type TaskRepairPostgresDeadlineConfigurationV1Error,
   type TaskRepairPostgresDeadlinePolicyInputV1,
 } from "../tasks/taskRepairPostgresDeadlinePolicyV1";
@@ -273,6 +274,26 @@ export function createPGliteDeadlineOwnedTaskPersistenceTarget(
     retainDeadlineOwnedTaskPersistenceTargetInternal(createLocatedTaskExternalEffectAuthorityTargetFromPolicyInternal(
       persistence.drizzle, physicalLocator, createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle), policy,
     ), policy, "pgliteTest")));
+}
+
+/** Same explicit SQL test owner, with the existing Task lifecycle target's
+ * database-time and identity allocation capabilities. */
+export function createPGliteDeadlineOwnedTaskRunAttemptTarget(
+  persistence: Pick<PGliteFlarexPersistence, "drizzle">,
+  physicalLocator: ScopePhysicalLocator,
+  deadlineInput: TaskRepairPostgresDeadlinePolicyInputV1,
+): Result.Result<LocatedTaskSystemRunAttemptTargetV1 & DeadlineOwnedTaskPersistenceTarget,
+  TaskPersistenceTransactionError | TaskRepairPostgresDeadlineConfigurationV1Error> {
+  if (!ownedPGliteDatabases.has(persistence.drizzle)) return Result.fail(new TaskPersistenceTransactionError({
+    reason: "invalidTarget", operation: "pgliteTaskLifecycleTarget" }));
+  return createTaskRepairPostgresDeadlinePolicyV1(deadlineInput).pipe(Result.map(policy => {
+    const runReadCommitted = createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle);
+    return retainDeadlineOwnedTaskPersistenceTargetInternal(createLocatedTaskSystemRunAttemptTargetV1(
+      persistence.drizzle, physicalLocator, work => runReadCommitted(async tx => {
+        await configureTaskRepairPostgresTransactionDeadlinesV1(tx, policy);
+        return work(tx);
+      })), policy, "pgliteTest");
+  }));
 }
 
 export function createPGliteLocatedApplicationActionAuthorityTargetV1(

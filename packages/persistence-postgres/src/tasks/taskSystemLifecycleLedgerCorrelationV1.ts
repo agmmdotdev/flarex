@@ -110,6 +110,11 @@ async function correlateRequestedEffects(
         aggregate.lastLifecycleAcceptance.accepted,
         ...aggregate.completionReplays.map((replay) => replay.accepted),
       ];
+  if (aggregate.continuation !== undefined) {
+    acceptances.push(aggregate.continuation.registrationReceipt);
+    if (aggregate.continuation.resolutionReceipt !== null) acceptances.push(aggregate.continuation.resolutionReceipt);
+    if (aggregate.continuation.cancellationReceipt !== undefined) acceptances.push(aggregate.continuation.cancellationReceipt);
+  }
   for (const acceptance of acceptances) {
     for (const effect of acceptance.requestedEffects) {
       const existing = expected.get(effect.sequence);
@@ -330,6 +335,10 @@ function collectExpectedAttemptIdentities(
       break;
   }
   for (const replay of aggregate.completionReplays) add(replay.attempt);
+  if (aggregate.continuation !== undefined) {
+    add(aggregate.continuation.suspendedAttempt, aggregate.continuation.suspendedAttemptAcceptedRunVersion);
+    if (aggregate.continuation.resumeAfterAttempt !== undefined) add(aggregate.continuation.resumeAfterAttempt, aggregate.continuation.resumeAfterAttemptAcceptedRunVersion ?? null);
+  }
   return expected;
 }
 

@@ -1,7 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import { batchProductsWorkflow } from "@medusajs/core-flows/product/batch-products";
 import { batchProductVariantsWorkflow } from "@medusajs/core-flows/product/batch-product-variants";
-import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import type { AtomicCommerceEvents, AtomicCommerceHost, TaskAtomicCommerceHost } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { ProductBatchWorkflowModule } from "../../modules/product/product-batch-workflow";
 import { ProductDeletionIds } from "../../modules/product/commands/deletion";
@@ -22,7 +22,7 @@ import { workflowModuleDefinition, type WorkflowMethod } from "../../workflow/mo
 import { commerceDecoder } from "../../value/decoder";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { prepareWorkflowResources } from "../../workflow/resources";
-import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution, type InstalledWorkflowModule, type WorkflowCallResults } from "../../workflow/host";
+import { prepareAtomicWorkflowHost, prepareTaskAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution, type InstalledWorkflowModule, type WorkflowCallResults } from "../../workflow/host";
 import { productBatchResources, productBatchParticipantResources } from "../../workflow/policy";
 import { decodeGraphCount } from "../../local-graph/query";
 import { productCreationWorkflowEntry } from "./create-input";
@@ -42,8 +42,8 @@ type SharedSelections = {
   readonly product_links: { readonly module: Runtime<typeof prepareLocalProductLinks>["workflow"]; readonly methods: readonly ["salesNativeCreate", "salesNativeList", "salesNativeDismiss", "salesNativeSoftDelete", "shippingNativeCreate", "shippingNativeList", "shippingNativeDismiss", "shippingNativeSoftDelete"]; readonly graph: true; readonly expose: false };
   readonly variant_links: { readonly module: Runtime<typeof prepareLocalVariantLinks>["workflow"]; readonly methods: readonly ["inventoryNativeCreate", "inventoryNativeList", "inventoryNativeDismiss", "inventoryNativeSoftDelete", "pricingNativeCreate", "pricingNativeList", "pricingNativeSoftDelete"]; readonly graph: true; readonly expose: false };
 };
-interface BatchInput {
-  readonly execution: AtomicWorkflowExecution;
+interface BatchInput<Host extends AtomicCommerceHost = AtomicCommerceHost> {
+  readonly execution: AtomicWorkflowExecution<Host>;
   readonly modules: { readonly product: InstalledWorkflowModule<ProductBatchWorkflowModule> } & {
     readonly [Key in keyof SharedSelections]: InstalledWorkflowModule<SharedSelections[Key]["module"]>;
   };
@@ -60,7 +60,7 @@ const CreatedVariants = Schema.Array(ProductVariantInventoryOutput.value).check(
 export const ProductBatchOutput = Schema.Struct({ created: CreatedProducts, updated: ProductUpdateOutput, deleted: ProductDeletionIds });
 export const ProductVariantBatchOutput = Schema.Struct({ created: CreatedVariants, updated: ProductVariantUpdateOutput, deleted: ProductDeletionIds });
 
-const prepareInputs = Effect.fn("ProductBatch.prepareInputs")(function* (input: BatchInput) {
+const prepareInputs = Effect.fn("ProductBatch.prepareInputs")(function* <Host extends AtomicCommerceHost>(input: BatchInput<Host>) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   if (Object.keys(options).some(key => !["execution", "modules", "link", "revision", "subscribers"].includes(key)))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -154,7 +154,7 @@ const validateItemLifetime = Effect.fn("ProductBatch.validateItemLifetime")(func
   }
 });
 
-export const prepareProductBatchWorkflow = Effect.fn("ProductBatch.prepareProduct")(function* (input: BatchInput) {
+const prepareProductBatchDefinition = Effect.fn("ProductBatch.prepareDefinition")(function* <Host extends AtomicCommerceHost>(input: BatchInput<Host>) {
   const { options, captured, modules, shared, product, variant, inventoryDeletion } = yield* prepareInputs(input);
   const variants = Schema.Array(variantUpdateData(variant.table.columns, { id: Schema.optionalKey(Id), prices: Schema.optionalKey(BasePricesUpdate) })).check(Schema.isMaxLength(4));
   const update = productUpdateData(product.table.columns, { id: Id, variants: Schema.optionalKey(variants),
@@ -171,13 +171,23 @@ export const prepareProductBatchWorkflow = Effect.fn("ProductBatch.prepareProduc
     orderedProductWorkflowEvents("product.created", resultIds([method.createProducts])),
     orderedProductWorkflowEvents("product.updated", resultIds([method.upsertProducts, method.updateProducts])),
     orderedProductWorkflowEvents("product.deleted", requestedIds(method.softDeleteProducts))];
-  return yield* prepareAtomicWorkflowHost({ ...options, modules, requestCallLimit: productBatchResources.calls, requestByteLimit: productBatchResources.commandBytes,
-    requestEventLimit: productBatchResources.eventMessages, operationScheduling: "queued", workflow: { name: "batchProductsWorkflow", resources, prepared, input: boundary, output: ProductBatchOutput,
+  return { ...options, modules, requestCallLimit: productBatchResources.calls, requestByteLimit: productBatchResources.commandBytes,
+    requestEventLimit: productBatchResources.eventMessages, operationScheduling: "queued" as const, workflow: { name: "batchProductsWorkflow", resources, prepared, input: boundary, output: ProductBatchOutput,
       events: { contracts: policies.flatMap(policy => policy.contracts), validate: Effect.fn("ProductBatch.validateEvents")(function* (events: Parameters<AtomicCommerceEvents["validate"]>[0], calls: WorkflowCallResults) {
         for (const policy of policies) yield* policy.validate(events, calls);
         yield* validateCohorts(calls, captured.product.module, "product");
         yield* validateItemLifetime(calls, inventoryDeletion, captured.variant_links.module.methods.inventoryNativeCreate);
-      }) } } });
+      }) } } };
+});
+
+export const prepareProductBatchWorkflow = Effect.fn("ProductBatch.prepareProduct")(function* (input: BatchInput) {
+  return yield* prepareAtomicWorkflowHost(yield* prepareProductBatchDefinition(input));
+});
+
+/** The durable parent's genuine finite child delegates this same native atomic
+ * business graph through the authenticated Task occurrence owner. */
+export const prepareProductBatchTaskWorkflow = Effect.fn("ProductBatch.prepareTaskProduct")(function* (input: BatchInput<TaskAtomicCommerceHost>) {
+  return yield* prepareTaskAtomicWorkflowHost(yield* prepareProductBatchDefinition(input));
 });
 
 export const prepareProductVariantBatchWorkflow = Effect.fn("ProductBatch.prepareVariant")(function* (input: BatchInput) {

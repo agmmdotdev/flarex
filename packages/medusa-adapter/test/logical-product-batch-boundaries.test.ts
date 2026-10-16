@@ -10,6 +10,9 @@ import { RelationalSessionError } from "../../persistence-postgres/src/database/
 import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { prepareLogicalProductBatch } from "./support/logical-product-batch-fixture";
+import { defineAtomicCommerceCommand, getAtomicCommerceCommand, type AtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
+import type { AtomicWorkflowExecution } from "../src/workflow/host";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
@@ -186,6 +189,7 @@ describe("native Product batch authority, lifetime and settlement boundaries", (
     const prefix = "batch-old-new-shared-" + kind, product = (await connected.seed(prefix, 1, 2))[0]!;
     const oldVariant = product.variants[0]!.id, newVariant = prefix + "-new-variant", sharedItem = prefix + "-inventory-0";
     const deletionReached = await Effect.runPromise(Deferred.make<void>()), attached = await Effect.runPromise(Deferred.make<void>());
+    const attachReached = Deferred.makeUnsafe<void>();
     const trace: string[] = [];
     const matchesAttach = Schema.is(Schema.Array(Schema.Struct({ product: Schema.Struct({ variant_id: Schema.Literal(newVariant) }),
       inventory: Schema.Struct({ inventory_item_id: Schema.Literal(sharedItem) }) })).check(Schema.isLengthBetween(1, 1)));
@@ -207,6 +211,7 @@ describe("native Product batch authority, lifetime and settlement boundaries", (
     const attach = vi.spyOn(Link.prototype, "create").mockImplementation(async function (this: Link, ...args) {
       if (!matchesAttach(args[0])) return Reflect.apply(originalCreate, this, args);
       trace.push("newLinkWaiting");
+      await Effect.runPromise(Deferred.succeed(attachReached, undefined));
       await Effect.runPromise(Deferred.await(deletionReached).pipe(Effect.timeout(30_000)));
       try {
         const result = await Reflect.apply(originalCreate, this, args);
@@ -224,13 +229,30 @@ describe("native Product batch authority, lifetime and settlement boundaries", (
       return Reflect.apply(originalDelete, this, args);
     });
     try {
+      // Forward the real root and participant commands. Pause BEFORE the
+      // deletion call enters the FIFO, after its native ownership graph read.
+      const execution: AtomicWorkflowExecution = { ...connected.execution, prepare: composition => Effect.gen(function* () {
+        const original = composition.commands[0], definition = original === undefined ? undefined : getAtomicCommerceCommand(original);
+        if (original === undefined || definition === undefined || composition.commands.length !== 1 || connected.inventoryBatch.softDeleteItems === undefined)
+          return yield* Effect.fail(commerceError("invalidAuthority"));
+        const forwarded = defineAtomicCommerceCommand("productBatchSharedItemInterleavingFixture", (context, value) => definition.run({ ...context,
+          call: (participant, command, args) => command === connected.inventoryBatch.softDeleteItems
+            ? Deferred.await(attachReached).pipe(Effect.timeoutOrElse({ duration: 30_000,
+              orElse: () => Effect.fail(commerceError("deadlineExceeded")) }), Effect.andThen(context.call(participant, command, args)))
+            : context.call(participant, command, args),
+        }, value));
+        const host = yield* connected.execution.prepare({ ...composition, commands: [forwarded] });
+        const forwardedHost: AtomicCommerceHost = { ...host,
+          run: (key, command, value) => host.run(key, command === original ? forwarded : command, value) };
+        return forwardedHost;
+      }) };
       const before = await snapshot();
       const variant = { id: newVariant, title: "Surviving shared Item owner", sku: prefix + "-new-sku", options: { Size: "1" },
         manage_inventory: true, inventory_items: [{ inventory_item_id: sharedItem, required_quantity: 1 }], prices: [] };
       const createdProduct = { id: prefix + "-new-product", title: prefix, handle: prefix + "-handle",
         options: [{ title: "Size", values: ["1"] }], variants: [variant] };
       const result = kind === "product"
-        ? await connected.prepareProduct().then(host => Effect.runPromise(Effect.result(host.run(host.newRequestKey(), {
+        ? await connected.prepareProduct(execution).then(host => Effect.runPromise(Effect.result(host.run(host.newRequestKey(), {
           create: [createdProduct], delete: [product.id],
         }))))
         : await connected.prepareVariant().then(host => Effect.runPromise(Effect.result(host.run(host.newRequestKey(), {
@@ -240,12 +262,16 @@ describe("native Product batch authority, lifetime and settlement boundaries", (
         expect(trace).toContain(stage);
       expect(trace.indexOf("deletionGraphCaptured")).toBeLessThan(trace.indexOf("newLinkAttached"));
       expect(trace.indexOf("nativeVariantCreated")).toBeLessThan(trace.indexOf("newLinkAttached"));
-      if (kind === "product") expect(trace.indexOf("inventoryDeletedSharedItem")).toBeLessThan(trace.indexOf("newLinkAttached"));
+      if (kind === "product") {
+        expect(trace.indexOf("newLinkWaiting")).toBeLessThan(trace.indexOf("inventoryDeletedSharedItem"));
+        expect(trace.indexOf("inventoryDeletedSharedItem")).toBeLessThan(trace.indexOf("newLinkAttached"));
+      }
       else expect(trace.indexOf("newLinkAttached")).toBeLessThan(trace.indexOf("inventoryDeletedSharedItem"));
       expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
       if (result._tag === "Failure") expect(failurePath(result.failure)).toEqual(["unsupportedProfile"]);
       expect(await snapshot()).toEqual(before);
     } finally {
+      await Effect.runPromise(Deferred.succeed(attachReached, undefined));
       await Effect.runPromise(Deferred.succeed(deletionReached, undefined)); await Effect.runPromise(Deferred.succeed(attached, undefined));
       nativeCreate.mockRestore(); inventoryDelete.mockRestore(); attach.mockRestore(); deletion.mockRestore();
     }

@@ -1,7 +1,8 @@
 import { encodeTrustedWorkflowTaskRunAttemptAggregateJson, decodeTrustedWorkflowTaskRunAttemptAggregateJson,
   encodeTrustedWorkflowPersistedTaskRequestedEffectJson, projectCurrentTaskRunAttemptPersistence,
   toCurrentApplicationTaskRunAttemptDecision, fromCurrentTaskRunAttemptAggregate, fromCurrentTaskRequestedEffect,
-  type CurrentTaskRunAttemptAggregate, type CurrentTaskRunAttemptDecision,
+  type CurrentTaskRunAttemptAggregate, type CurrentTaskRunAttemptDecision, type CurrentRunAttemptPhase,
+  type CurrentRunAttemptMutationOperation, type CurrentTaskRunAttemptEvidence, type CurrentPersistedTaskRequestedEffect,
   type CurrentTaskSystemRunAttemptDecisionInput, type TaskSystemRunAttemptInspectionRequestV1,
   type TrustedWorkflowTaskSystemRunAttemptTransaction, type TrustedWorkflowTaskSystemRunAttemptStoreShape,
 } from "@flarex/durable-task/internal/run-attempt-v1";
@@ -37,7 +38,7 @@ import {
   type ApplicationTaskSystemRunAttemptTransactionV1,
   type RunAttemptDecisionFor,
   type RunAttemptDecisionErrorV1,
-  type RunAttemptOperationV1,
+  type CurrentRunAttemptOperation,
   type RunAttemptServiceReceiptFor,
   type TaskAttemptGrantCandidateV1,
   type TaskDatabaseTimeMsV1,
@@ -112,7 +113,7 @@ type TaskRunRow = typeof fxSystemDurableTaskRunsV1.$inferSelect;
 export type ReadTaskSystemDatabaseNowV1 = (
   tx: AppRowTransaction,
   scopeId: ScopeId,
-  operation: RunAttemptOperationV1,
+  operation: CurrentRunAttemptOperation,
   runId: TaskRunIdV1,
 ) => Promise<TaskDatabaseTimeMsV1>;
 
@@ -292,7 +293,7 @@ const transactApplicationRunAttempt = Effect.fn(
 const transactGeneration = Effect.fn(
   "TaskSystemRunAttemptStore.transactGeneration",
 )(function* <_Outcome, Request extends Readonly<{
-  readonly operation: RunAttemptOperationV1;
+  readonly operation: CurrentRunAttemptOperation;
   readonly runId: TaskRunIdV1;
 }>, Receipt>(
   authority: TrustedScopeAuthority,
@@ -464,13 +465,13 @@ interface TransactionGenerationAdapter<
 > {
   readonly decode: (
     row: TaskRunRow,
-    operation: RunAttemptOperationV1,
+    operation: CurrentRunAttemptOperation,
     runId: TaskRunIdV1,
   ) => Current;
   readonly correlate: (
     tx: AppRowTransaction,
     scopeId: ScopeId,
-    operation: RunAttemptOperationV1,
+    operation: CurrentRunAttemptOperation,
     runId: TaskRunIdV1,
     current: Current,
   ) => Promise<void>;
@@ -500,7 +501,7 @@ async function transactOnceCore<
   Decision,
   Receipt,
   Request extends Readonly<{
-    readonly operation: RunAttemptOperationV1;
+    readonly operation: CurrentRunAttemptOperation;
     readonly runId: TaskRunIdV1;
   }>,
 >(
@@ -628,7 +629,7 @@ async function requireLockedScopeAuthority(
   tx: AppRowTransaction,
   authority: TrustedScopeAuthority,
   target: LocatedTaskSystemRunAttemptTargetV1,
-  operation: RunAttemptOperationV1,
+  operation: CurrentRunAttemptOperation,
   runId: TaskRunIdV1,
 ): Promise<void> {
   await requireLockedTaskSystemScopeAuthorityV1(
@@ -656,7 +657,7 @@ async function loadRun(
 async function readTaskSystemDatabaseNowV1(
   tx: AppRowTransaction,
   scopeId: ScopeId,
-  operation: RunAttemptOperationV1,
+  operation: CurrentRunAttemptOperation,
   runId: TaskRunIdV1,
 ): Promise<TaskDatabaseTimeMsV1> {
   const rows = await tx.select({
@@ -678,7 +679,7 @@ async function readTaskSystemDatabaseNowV1(
 
 function decodeAndCorrelateRunRow(
   row: TaskRunRow,
-  operation: RunAttemptOperationV1,
+  operation: CurrentRunAttemptOperation,
   runId: TaskRunIdV1,
 ): TaskRunAttemptAggregateV1 {
   if (row.runId !== runId) {
@@ -700,7 +701,7 @@ function decodeAndCorrelateRunRow(
 
 function decodeAndCorrelateApplicationRunRow(
   row: TaskRunRow,
-  operation: RunAttemptOperationV1,
+  operation: CurrentRunAttemptOperation,
   runId: TaskRunIdV1,
 ): ApplicationTaskRunAttemptAggregateV1 {
   if (row.runId !== runId) {
@@ -721,7 +722,7 @@ function decodeAndCorrelateApplicationRunRow(
 async function correlateLifecycleLedger(
   tx: AppRowTransaction,
   scopeId: ScopeId,
-  operation: RunAttemptOperationV1,
+  operation: CurrentRunAttemptOperation,
   runId: TaskRunIdV1,
   aggregate: TaskRunAttemptAggregateV1,
 ): Promise<void> {
@@ -757,6 +758,8 @@ function allocateAttemptCandidate(
       : current.ready.acceptedRetry.previousAttempt.executionFence
     : current.phase === "retry_waiting"
     ? current.retry.previousAttempt.executionFence
+    : current.phase === "continuation_waiting" || current.phase === "continuation_ready"
+    ? (current.continuation.resumeAfterAttempt ?? current.continuation.suspendedAttempt).executionFence
     : current.phase === "attempt_granted" || current.phase === "executing"
     ? current.currentAttempt.executionFence
     : current.terminal.attempt?.executionFence ?? 0n;
@@ -882,12 +885,12 @@ async function applyDecisionCore<
     Outcome,
     Aggregate,
     Evidence,
-    RequestedEffect
+    RequestedEffect, CurrentRunAttemptPhase
   >,
   prepare: (
     candidate: TaskAttemptGrantCandidateV1 | null,
     decision: Extract<
-      RunAttemptDecisionFor<Outcome, Aggregate, Evidence, RequestedEffect>,
+      RunAttemptDecisionFor<Outcome, Aggregate, Evidence, RequestedEffect, CurrentRunAttemptPhase>,
       { readonly kind: "commit" }
     >,
   ) => Prepared,
@@ -937,7 +940,8 @@ type ApplicationPreparedPersistenceCommit =
   ReturnType<typeof prepareApplicationCommit>;
 type PreparedPersistenceCommit =
   | LegacyPreparedPersistenceCommit
-  | ApplicationPreparedPersistenceCommit;
+  | ApplicationPreparedPersistenceCommit
+  | ReturnType<typeof prepareCurrentDefinitionCommit>;
 type PreparedPersistenceInput<Outcome> =
   | Readonly<{ readonly generation: "trusted_workflow"; readonly request: TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>; readonly prepared: ReturnType<typeof prepareCurrentDefinitionCommit<Outcome>> }>
   | Readonly<{
@@ -1164,7 +1168,7 @@ function prepareApplicationCommit<Outcome>(
 }
 
 function prepareCurrentDefinitionCommit<Outcome>(
-  request: Pick<TaskSystemRunAttemptTransactionV1<Outcome>, "operation" | "runId">,
+  request: Pick<TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>, "operation" | "runId">,
   current: CurrentTaskRunAttemptAggregate, databaseNowMs: TaskDatabaseTimeMsV1,
   candidate: TaskAttemptGrantCandidateV1 | null,
   decision: CurrentTaskRunAttemptDecision<Outcome>, generation: "application_v1" | "trusted_workflow",
@@ -1185,6 +1189,8 @@ function prepareCurrentDefinitionCommit<Outcome>(
       cause: null,
     }));
   }
+  if (generation === "trusted_workflow" && !continuationTransitionPreservesAnchor(request.operation, current, decision.next))
+    throw rollbackDecisionError(invalidDecision(request, current, "next_state_invalid"));
   const currentModel = current;
   const nextModel = decision.next;
   if (
@@ -1210,7 +1216,9 @@ function prepareCurrentDefinitionCommit<Outcome>(
   const acceptance = next.lastLifecycleAcceptance;
   if (
     acceptance === null
-    || acceptance.kind !== request.operation
+    || (acceptance.kind === "workflow_continuation"
+      ? acceptance.accepted.evidence[0]?.kind !== "workflow_continuation" || acceptance.accepted.evidence[0].operation !== request.operation
+      : acceptance.kind !== request.operation)
     || acceptance.accepted.observedAtMs !== databaseNowMs
     || !persistedValueEqual(acceptance.accepted.outcome, decision.outcome)
     || !persistedValueEqual(acceptance.accepted.evidence, decision.evidence)
@@ -1272,7 +1280,7 @@ function prepareCurrentDefinitionCommit<Outcome>(
 }
 
 function requireAcceptedAttemptIdentity<Outcome>(
-  request: Pick<TaskSystemRunAttemptTransactionV1<Outcome>, "operation" | "runId">,
+  request: Pick<TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>, "operation" | "runId">,
   current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
   next: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
   candidate: TaskAttemptGrantCandidateV1 | null,
@@ -1297,13 +1305,19 @@ function isStoredAcceptanceReplay<_Outcome>(
     current.lastLifecycleAcceptance !== null
     && persistedValueEqual(current.lastLifecycleAcceptance.accepted, replay)
   ) return true;
+  if ("continuation" in current && current.continuation !== undefined) {
+    const continuation = current.continuation;
+    if (persistedValueEqual(continuation.registrationReceipt, replay)
+      || persistedValueEqual(continuation.resolutionReceipt, replay)
+      || (continuation.cancellationReceipt !== undefined && persistedValueEqual(continuation.cancellationReceipt, replay))) return true;
+  }
   return current.completionReplays.some((entry) =>
     persistedValueEqual(entry.accepted, replay)
   );
 }
 
 function invalidDecision<Outcome>(
-  request: Pick<TaskSystemRunAttemptTransactionV1<Outcome>, "operation" | "runId">,
+  request: Pick<TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>, "operation" | "runId">,
   current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
   reason: InvalidRunAttemptTransitionError["reason"],
 ): InvalidRunAttemptTransitionError {
@@ -1438,7 +1452,7 @@ type ClassifiedTransactionFailure =
   | Readonly<{ readonly kind: "defect"; readonly cause: unknown }>;
 
 function classifyTransactionFailure(
-  operation: RunAttemptOperationV1,
+  operation: CurrentRunAttemptOperation,
   runId: TaskRunIdV1,
   cause: unknown,
   execution: number,
@@ -1482,7 +1496,7 @@ function classifyTransactionFailure(
 }
 
 function classifyConfirmedRollback(
-  operation: RunAttemptOperationV1,
+  operation: CurrentRunAttemptOperation,
   runId: TaskRunIdV1,
   callbackCause: unknown,
   transactionCause: LocatedReadCommittedTransactionFailureV1,
@@ -1542,7 +1556,7 @@ function isStoreError(
 }
 
 function transientDriverFailure(
-  operation: RunAttemptOperationV1,
+  operation: CurrentRunAttemptOperation,
   runId: TaskRunIdV1,
   sqlCause: unknown,
   retainedCause: unknown,
@@ -1561,7 +1575,7 @@ function transientDriverFailure(
 }
 
 function classifyInfrastructureFailure(
-  operation: RunAttemptOperationV1,
+  operation: CurrentRunAttemptOperation,
   runId: TaskRunIdV1,
   failure: LocatedReadCommittedTransactionFailureV1,
 ): ClassifiedTransactionFailure {
@@ -1592,7 +1606,7 @@ function classifyInfrastructureFailure(
 }
 
 function classifyKnownSqlFailure(
-  operation: RunAttemptOperationV1,
+  operation: CurrentRunAttemptOperation,
   runId: TaskRunIdV1,
   sqlCause: unknown,
   retainedCause: unknown,
@@ -1644,7 +1658,7 @@ function stringProperty(value: unknown, key: string): string | undefined {
 }
 
 function staleAuthority(
-  operation: RunAttemptOperationV1,
+  operation: CurrentRunAttemptOperation,
   runId: TaskRunIdV1,
   authority: TaskSystemRunAttemptStaleScopeAuthorityError["authority"],
 ): TaskSystemRunAttemptStaleScopeAuthorityError {
@@ -1656,7 +1670,7 @@ function staleAuthority(
 }
 
 function corruption(
-  operation: RunAttemptOperationV1,
+  operation: CurrentRunAttemptOperation,
   runId: TaskRunIdV1,
   reason: TaskSystemRunAttemptCorruptionError["reason"],
 ): TaskSystemRunAttemptCorruptionError {
@@ -1686,7 +1700,10 @@ export function makeTrustedWorkflowTaskSystemRunAttemptStore(
   const authority = captureTaskSystemTrustedScopeAuthorityV1(located.authority);
   const target = located.target, randomUuid = options.randomUuid ?? (() => crypto.randomUUID());
   return Object.freeze({
-    transactRunAttempt: <Outcome>(request: TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>) => transactGeneration(
+    transactRunAttempt: <Outcome>(request: TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>) =>
+      request.operation === "register_continuation" || request.operation === "confirm_continuation" || request.operation === "expire_continuation"
+        ? Effect.fail(new TaskSystemRunAttemptTerminalStoreError({ operation: request.operation, runId: request.runId, reason: "unsupported_integration", cause: "Continuation operations require the checkpoint-owning continuation store" }))
+        : transactGeneration(
       authority, target, request,
       tx => transactOnceCore(tx, authority, target, randomUuid, request, {
         decode: decodeTrustedWorkflowRunRow,
@@ -1714,8 +1731,89 @@ export function makeTrustedWorkflowTaskSystemRunAttemptStore(
     }, request.operation, request.runId),
   });
 }
-function decodeTrustedWorkflowRunRow(row: TaskRunRow, operation: RunAttemptOperationV1, runId: TaskRunIdV1): CurrentTaskRunAttemptAggregate {
+function decodeTrustedWorkflowRunRow(row: TaskRunRow, operation: CurrentRunAttemptOperation, runId: TaskRunIdV1): CurrentTaskRunAttemptAggregate {
   const decoded = Result.getOrThrowWith(decodeAndCorrelateTaskSystemRunRowV1(row), reason => rollbackStoreError(corruption(operation, runId, reason)));
   if (decoded.generation !== "trusted_workflow") throw rollbackStoreError(corruption(operation, runId, "binding_reference_invalid"));
   return decoded.aggregate;
+}
+
+/** INTERNAL Task owner loan. The deadline-owned outer owner holds the scope lock
+ * and settles; this function locks and correlates the existing Task run and
+ * lends only its accepted transition publisher. It opens no transaction. */
+export const borrowTrustedWorkflowTaskRunInTransaction = Effect.fn("TaskSystem.borrowTrustedWorkflowRun")(
+  function* <A, E>(tx: AppRowTransaction, scopeId: ScopeId,
+    operation: CurrentRunAttemptMutationOperation, runId: TaskRunIdV1,
+    work: (loan: Readonly<{
+      current: CurrentTaskRunAttemptAggregate;
+      databaseNowMs: TaskDatabaseTimeMsV1;
+      apply: <Outcome>(decision: CurrentTaskRunAttemptDecision<Outcome>) => Effect.Effect<
+        RunAttemptServiceReceiptFor<Outcome, CurrentTaskRunAttemptEvidence, CurrentPersistedTaskRequestedEffect>,
+        RunAttemptDecisionErrorV1 | TaskSystemRunAttemptStoreErrorV1>;
+    }>) => Effect.Effect<A, E>) {
+    const ownerPromise = <Value>(call: () => Promise<Value>) => taskOwnerPromise(operation, runId, call);
+    const { current, databaseNowMs } = yield* inspectTrustedWorkflowTaskRunInTransaction(tx, scopeId, operation, runId);
+    let applied = false, open = true;
+    return yield* work(Object.freeze({ current: snapshotOwned(current), databaseNowMs,
+      apply: <Outcome>(decision: CurrentTaskRunAttemptDecision<Outcome>) => Effect.suspend(() => {
+        if (!open || applied) return Effect.fail(invalidDecision({ operation, runId }, current, "next_state_invalid"));
+        applied = true;
+        const request: TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome> = { operation, runId, decide: () => Result.succeed(decision) };
+        return ownerPromise(() => applyDecisionCore(request, current, databaseNowMs, null, decision,
+          (candidate, commit) => prepareCurrentDefinitionCommit(request, current, databaseNowMs, candidate, commit, "trusted_workflow"),
+          prepared => persistPreparedCommit(tx, scopeId, current.runVersion, databaseNowMs, { generation: "trusted_workflow", request, prepared })))
+          .pipe(Effect.map(receipt => snapshotOwned(receipt)));
+      }),
+    })).pipe(Effect.ensuring(Effect.sync(() => { open = false; })));
+  });
+
+function continuationAnchor(value: NonNullable<CurrentTaskRunAttemptAggregate["continuation"]>) {
+  return {
+    waitId: value.waitId, checkpoint: value.checkpoint, nativeStartedAtMs: value.nativeStartedAtMs,
+    timeoutMs: value.timeoutMs, deadlineAtMs: value.deadlineAtMs, registeredAtMs: value.registeredAtMs,
+    suspendedAttempt: value.suspendedAttempt, suspendedAttemptAcceptedRunVersion: value.suspendedAttemptAcceptedRunVersion,
+    suspendedComputeProfile: value.suspendedComputeProfile, registrationReceipt: value.registrationReceipt,
+  };
+}
+function continuationTransitionPreservesAnchor(operation: CurrentRunAttemptMutationOperation,
+  current: CurrentTaskRunAttemptAggregate, next: CurrentTaskRunAttemptAggregate): boolean {
+  const before = current.continuation, after = next.continuation;
+  if (before === undefined) return after === undefined || operation === "register_continuation";
+  if (after === undefined || operation === "register_continuation") return false;
+  if (!persistedValueEqual(continuationAnchor(before), continuationAnchor(after))) return false;
+  if (before.resolution !== null && (!persistedValueEqual(before.resolution, after.resolution) ||
+    !persistedValueEqual(before.resolutionReceipt, after.resolutionReceipt))) return false;
+  if (before.cancellationReceipt !== undefined && !persistedValueEqual(before.cancellationReceipt, after.cancellationReceipt)) return false;
+  if (operation !== "confirm_continuation" && operation !== "expire_continuation" && operation !== "request_cancellation")
+    return persistedValueEqual(before.resolution, after.resolution) && persistedValueEqual(before.resolutionReceipt, after.resolutionReceipt) &&
+      persistedValueEqual(before.cancellationReceipt ?? null, after.cancellationReceipt ?? null);
+  return true;
+}
+
+/** INTERNAL read loan over the same Task row/ledger/clock owner. Caller already
+ * holds scope authority and binds the run to its authenticated definition. */
+export const inspectTrustedWorkflowTaskRunInTransaction = Effect.fn("TaskSystem.inspectTrustedWorkflowRun")(
+  function* (tx: AppRowTransaction, scopeId: ScopeId, operation: CurrentRunAttemptOperation, runId: TaskRunIdV1) {
+    const current = yield* taskOwnerPromise(operation, runId, async () => {
+      const row = await loadRun(tx, scopeId, runId, true);
+      if (row === null) throw rollbackStoreError(new TaskSystemRunAttemptUnavailableError({ operation, runId, reason: "unavailable" }));
+      const decodedCurrent = decodeTrustedWorkflowRunRow(row, operation, runId);
+      await correlateLifecycleLedgerCurrent(tx, scopeId, runId, { generation: "trusted_workflow", aggregate: decodedCurrent },
+        reason => rollbackStoreError(corruption(operation, runId, reason)));
+      return decodedCurrent;
+    });
+    const databaseNowMs = yield* taskOwnerPromise(operation, runId, () => readTaskSystemDatabaseNowV1(tx, scopeId, operation, runId));
+    return Object.freeze({ current: snapshotOwned(current), databaseNowMs });
+  });
+function taskOwnerPromise<Value>(operation: CurrentRunAttemptOperation, runId: TaskRunIdV1, call: () => Promise<Value>) {
+  return Effect.tryPromise({ try: call, catch: cause => cause }).pipe(
+    // oxlint-disable-next-line flarex/prefer-tagged-effect-recovery -- REVIEW: transaction - classifies the owned Task Promise rejection channel while preserving rollback errors and defects
+    Effect.catch(cause => {
+    const domain = unwrapRollback(cause);
+    if (domain !== null) return Effect.fail(domain);
+    const transient = classifyKnownSqlFailure(operation, runId, cause, cause);
+    if (transient !== null) return Effect.fail(transient);
+    if (isRetryableSqlConflict(cause)) return Effect.fail(new TaskSystemRunAttemptTransientStoreError({
+      operation, runId, reason: "transaction_conflict", cause }));
+    return Effect.die(cause);
+  }));
 }

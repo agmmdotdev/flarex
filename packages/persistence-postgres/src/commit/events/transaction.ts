@@ -41,11 +41,18 @@ export const makeCommitEventTransactionRunner = Effect.fn("CommitEvents.makeTran
       const clock = yield* lockScopeClockForShareInTransactionEffect(tx, located.authority.scopeId).pipe(Effect.mapError(cause => eventError("invalidAuthority", cause)));
       if (clock.epoch !== located.authority.epoch || clock.storageGeneration !== located.authority.storageGeneration || clock.storageGenerationFence !== located.authority.storageGenerationFence) return yield* Effect.fail(eventError("invalidAuthority"));
       const epoch = yield* Effect.fromResult(projectScopeEpochUuidV1Result(clock.epoch)).pipe(Effect.mapError(cause => eventError("invalidAuthority", cause)));
-      const times = yield* statement(tx.select({ now: sql<string>`clock_timestamp()::text` }).from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeUuid, scope.scopeUuid)));
-      const now = new Date(times[0]?.now ?? "");
-      if (finiteDateMilliseconds(now) === undefined) return yield* Effect.fail(eventError("storedCorruption"));
+      const now = yield* readCommitEventScopeTimeInTransaction(tx, { scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid });
       return yield* work(tx, { scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid }, now, clock.lastCommitSeq);
     })).pipe(Effect.mapError(cause => cause instanceof CommitEventError ? cause : eventError("resourceFailure", cause)));
   });
   return transact;
 });
+
+/** The same database clock for borrowed Task/event decisions. */
+export const readCommitEventScopeTimeInTransaction = Effect.fn("CommitEvents.readScopeTime")(
+  function* (tx: FlarexMetadataTransaction, pins: CommitEventScopePins) {
+    const times = yield* statement(tx.select({ now: sql<string>`clock_timestamp()::text` }).from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeUuid, pins.scopeUuid)));
+    const now = new Date(times[0]?.now ?? "");
+    if (finiteDateMilliseconds(now) === undefined) return yield* Effect.fail(eventError("storedCorruption"));
+    return now;
+  });

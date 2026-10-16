@@ -16,8 +16,10 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 /** Shared storage/schema and real native creation seed; the update root alone
  * selects its wider methods. No fixture reproduces reconciliation or cascade. */
 export async function prepareLogicalProductUpdate(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
-  shared?: { readonly resource: Awaited<ReturnType<typeof logicalCurrencyFixture>>["resource"];
-    readonly fixtureIdentity: { readonly deploymentId: string; readonly projectId: string; readonly uuidOffset: number } }) {
+  shared?: Pick<NonNullable<Parameters<typeof logicalCurrencyFixture>[2]>, "additionalSources"> & (
+    { readonly resource: Awaited<ReturnType<typeof logicalCurrencyFixture>>["resource"];
+      readonly fixtureIdentity: { readonly deploymentId: string; readonly projectId: string; readonly uuidOffset: number } }
+    | { readonly resource?: never; readonly fixtureIdentity?: never })) {
   const configuration = { includeProduct: true, includePricing: true,
     includeVariantInventory: true, includeSalesChannel: true, includeShippingProfile: true,
     includeProductSalesChannelLink: true, includeProductShippingProfileLink: true };

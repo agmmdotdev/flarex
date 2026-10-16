@@ -47,27 +47,11 @@ export const makeCommitEventEligibilityStore = Effect.fn("CommitEvents.makeEligi
     const captured = yield* Effect.fromResult(capturePrivateJsonData(definition, 1024, () => eventError("invalidInput")));
     const reference = Object.freeze(yield* Effect.fromResult(decodeReference(captured.value)).pipe(Effect.mapError(cause => eventError("invalidInput", cause))));
     return yield* transact((tx, pins) => Effect.gen(function* () {
-      yield* statement(tx.insert(groups).values({ ...pins, ...reference, state: "held" }).onConflictDoNothing());
-      const rows = yield* statement(tx.select().from(groups).where(groupWhere(pins, reference.groupId)).for("update"));
-      if (rows.length !== 1) return yield* Effect.fail(eventError("storedCorruption"));
-      const row = yield* decodeStoredCommitEventEligibilityGroup(rows[0]);
-      if (!sameReference(row, reference)) return yield* Effect.fail(eventError("groupConflict"));
-      // SAFETY: only authenticated database rows enter this module-private registry.
-      const capability = Object.freeze({}) as CommitEventEligibilityGroup;
-      issuedGroups.set(capability, Object.freeze({ ...pins, reference }));
-      return capability;
+      return yield* openCapturedCommitEventEligibilityGroupInTransaction(tx, pins, reference);
     }));
   });
   const decide = Effect.fn("CommitEvents.decideEligibilityGroup")((capability: CommitEventEligibilityGroup, decision: "released" | "cleared") => transact((tx, pins, now) => Effect.gen(function* () {
-    const facts = issuedGroups.get(capability);
-    if (facts === undefined || !sameScope(facts, pins)) return yield* Effect.fail(eventError("invalidAuthority"));
-    if (decision !== "released" && decision !== "cleared") return yield* Effect.fail(eventError("invalidInput"));
-    const row = yield* lockGroup(tx, facts);
-    yield* verifyGroupMembershipCount(tx, pins, row);
-    if (row.state === decision) return "replayed" as const;
-    if (row.state !== "held") return yield* Effect.fail(eventError("groupConflict"));
-    yield* statement(tx.update(groups).set({ state: decision, decidedAt: now }).where(groupWhere(pins, row.groupId)));
-    return "applied" as const;
+    return yield* decideCommitEventEligibilityGroupInTransaction(tx, pins, now, capability, decision);
   })));
   return Object.freeze({ open, decide });
 });
@@ -184,3 +168,45 @@ export const readCommitEventEligibilityInTransaction = Effect.fn("CommitEvents.r
   }
   return eligible;
 });
+
+/** INTERNAL borrowed group owner. It neither opens nor settles a transaction. */
+export const openCommitEventEligibilityGroupInTransaction = Effect.fn("CommitEvents.openEligibilityBorrowed")(
+  function* (tx: FlarexMetadataTransaction, pins: CommitEventScopePins, definition: CommitEventEligibilityReference) {
+    const captured = yield* Effect.fromResult(capturePrivateJsonData(definition, 1024, () => eventError("invalidInput")));
+    const reference = Object.freeze(yield* Effect.fromResult(decodeReference(captured.value)).pipe(Effect.mapError(cause => eventError("invalidInput", cause))));
+    return yield* openCapturedCommitEventEligibilityGroupInTransaction(tx, pins, reference);
+  });
+const openCapturedCommitEventEligibilityGroupInTransaction = Effect.fn("CommitEvents.openCapturedEligibilityBorrowed")(
+  function* (tx: FlarexMetadataTransaction, pins: CommitEventScopePins, reference: CommitEventEligibilityReference) {
+    yield* statement(tx.insert(groups).values({ ...pins, ...reference, state: "held" }).onConflictDoNothing());
+    const rows = yield* statement(tx.select().from(groups).where(groupWhere(pins, reference.groupId)).for("update"));
+    if (rows.length !== 1) return yield* Effect.fail(eventError("storedCorruption"));
+    const row = yield* decodeStoredCommitEventEligibilityGroup(rows[0]);
+    if (!sameReference(row, reference)) return yield* Effect.fail(eventError("groupConflict"));
+    // SAFETY: only authenticated database rows enter this module-private registry.
+    const capability = Object.freeze({}) as CommitEventEligibilityGroup;
+    issuedGroups.set(capability, Object.freeze({ ...pins, reference }));
+    return capability;
+  });
+/** INTERNAL borrowed decision, sharing exact membership/state/replay checks. */
+export const decideCommitEventEligibilityGroupInTransaction = Effect.fn("CommitEvents.decideEligibilityBorrowed")(
+  function* (tx: FlarexMetadataTransaction, pins: CommitEventScopePins, now: Date,
+    capability: CommitEventEligibilityGroup, decision: "released" | "cleared") {
+    const facts = issuedGroups.get(capability);
+    if (facts === undefined || !sameScope(facts, pins)) return yield* Effect.fail(eventError("invalidAuthority"));
+    if (decision !== "released" && decision !== "cleared") return yield* Effect.fail(eventError("invalidInput"));
+    const row = yield* lockGroup(tx, facts);
+    yield* verifyGroupMembershipCount(tx, pins, row);
+    if (row.state === decision) return "replayed" as const;
+    if (row.state !== "held") return yield* Effect.fail(eventError("groupConflict"));
+    yield* statement(tx.update(groups).set({ state: decision, decidedAt: now }).where(groupWhere(pins, row.groupId)));
+    return "applied" as const;
+  });
+export const inspectCommitEventEligibilityGroupInTransaction = Effect.fn("CommitEvents.inspectEligibilityBorrowed")(
+  function* (tx: FlarexMetadataTransaction, pins: CommitEventScopePins, capability: CommitEventEligibilityGroup) {
+    const facts = issuedGroups.get(capability);
+    if (facts === undefined || !sameScope(facts, pins)) return yield* Effect.fail(eventError("invalidAuthority"));
+    const row = yield* lockGroup(tx, facts);
+    yield* verifyGroupMembershipCount(tx, pins, row);
+    return Object.freeze({ ...row });
+  });

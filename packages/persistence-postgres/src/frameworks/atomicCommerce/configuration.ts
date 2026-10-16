@@ -70,6 +70,9 @@ export interface AtomicCommerceHostInput<Failure> extends CommerceHostConfigurat
   /** Explicit authentic Task definition admission. Omission refuses all Task
    * children, while preserving ordinary atomic command behavior and identity. */
   readonly taskBinding?: TrustedWorkflowTaskBinding;
+  /** Explicit cleanup-only command selection for authentic control attempts.
+   * Omission grants no control child. The selection is policy-bound. */
+  readonly taskControlCommands?: readonly AtomicCommerceCommand[];
 }
 
 const decodeCallLimit = Schema.decodeUnknownEffect(CommerceCallLimit);
@@ -97,6 +100,7 @@ export interface PreparedAtomicCommerceConfiguration<Failure> extends Omit<
   readonly executionIsolation: "scopeExclusive" | undefined;
   readonly operationScheduling: "queued" | undefined;
   readonly taskBindingSha256: string | undefined;
+  readonly taskControlAllowed: ReadonlySet<AtomicCommerceCommand>;
 }
 
 /** Input ownership precedes the original generation's authority or catalog I/O.
@@ -120,6 +124,8 @@ export interface CapturedAtomicCommerceConfiguration<Failure> extends Omit<Comme
   readonly executionIsolation: "scopeExclusive" | undefined;
   readonly operationScheduling: "queued" | undefined;
   readonly taskBindingSha256: string | undefined;
+  readonly taskControlAllowed: ReadonlySet<AtomicCommerceCommand>;
+  readonly taskControlNames: readonly string[] | undefined;
 }
 
 export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.captureConfiguration")(function* <
@@ -138,6 +144,7 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
   const participantInput = captureAtomicCommerceParticipants(input.participants);
   const eventInput = input.events === undefined ? undefined : captureAtomicCommerceEvents(input.events);
   const selectedCommands = [...input.commands];
+  const selectedControlCommands = input.taskControlCommands === undefined ? undefined : [...input.taskControlCommands];
   const policyInput = captureCommerceJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes);
   const authority = captureExactTrustedScopeAuthorityResolutionPorts(input.authority);
   const selectedCallLimit = input.requestCallLimit;
@@ -175,13 +182,23 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
       return yield* Effect.fail(commerceError("invalidAuthority"));
     names.add(definition.name);
   }
+  const taskControlAllowed = new Set(selectedControlCommands);
+  const taskControlNames: string[] | undefined = selectedControlCommands === undefined ? undefined : [];
+  if (selectedControlCommands !== undefined && (taskBinding === undefined || executionIsolation !== "scopeExclusive" ||
+    taskControlAllowed.size === 0 || taskControlAllowed.size !== selectedControlCommands.length)) return yield* commerceError("unsupportedProfile");
+  for (const command of taskControlAllowed) {
+    const definition = getAtomicCommerceCommand(command);
+    if (!allowed.has(command) || definition === undefined) return yield* commerceError("invalidAuthority");
+    taskControlNames?.push(definition.name);
+  }
   const policy = yield* Effect.fromResult(policyInput);
   const capturedMembers = yield* Effect.fromResult(participantInput);
   yield* chargeHostPreparation({ names: [...names], policy: policy.value,
     requestSelection: { selectedCallLimit: selectedCallLimit ?? null, selectedByteLimit: selectedByteLimit ?? null,
       selectedEventLimit: selectedEventLimit ?? null, selectedCommandMs: selectedCommandMs ?? null, executionIsolation: executionIsolation ?? null,
       ...(operationScheduling === undefined ? {} : { operationScheduling }),
-      ...(taskBindingSha256 === undefined ? {} : { taskBindingSha256 }) },
+      ...(taskBindingSha256 === undefined ? {} : { taskBindingSha256 }),
+      ...(taskControlNames === undefined ? {} : { taskControlCommands: taskControlNames }) },
     participants: capturedMembers.map(member => ({
       commandCount: member.commands.length, derivedIdEvent: member.derivedIdEvent ?? null,
       events: Result.isSuccess(member.events) ? { contracts: member.events.success?.contracts.length ?? 0 } : null,
@@ -198,7 +215,8 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
     } : null }).pipe(Effect.mapError(projectCommerceRequestFailure));
   return Object.freeze({ database, session, target, deploymentId, scopeId, application, authority, allowed,
     names: Object.freeze([...names]), capturedMembers, eventInput, policy,
-    selectedCallLimit, selectedByteLimit, selectedEventLimit, selectedCommandMs, callLimit, byteLimit, eventLimit, commandMs, executionIsolation, operationScheduling, taskBindingSha256 });
+    selectedCallLimit, selectedByteLimit, selectedEventLimit, selectedCommandMs, callLimit, byteLimit, eventLimit, commandMs, executionIsolation, operationScheduling, taskBindingSha256,
+    taskControlAllowed, taskControlNames: taskControlNames === undefined ? undefined : Object.freeze(taskControlNames) });
 });
 
 /** All storage preparations belong to the original current generation. */
@@ -208,7 +226,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
 ): Effect.fn.Return<PreparedAtomicCommerceConfiguration<Failure>, CommerceTransactionError> {
   const { database, session, target, deploymentId, scopeId, application, authority, allowed, names,
     capturedMembers, eventInput, policy, selectedCallLimit, selectedByteLimit, selectedEventLimit, selectedCommandMs,
-    callLimit, byteLimit, eventLimit, commandMs, executionIsolation, operationScheduling, taskBindingSha256 } = captured;
+    callLimit, byteLimit, eventLimit, commandMs, executionIsolation, operationScheduling, taskBindingSha256, taskControlAllowed, taskControlNames } = captured;
   if (currentAuthority.deploymentId !== deploymentId || currentAuthority.scopeId !== scopeId)
     return yield* Effect.fail(commerceError("invalidAuthority"));
   const members = yield* prepareAtomicCommerceParticipants(database, target, capturedMembers,
@@ -265,6 +283,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     ...(executionIsolation === undefined ? {} : { executionIsolation }),
     ...(operationScheduling === undefined ? {} : { operationScheduling }),
     ...(taskBindingSha256 === undefined ? {} : { taskBindingSha256 }),
+    ...(taskControlNames === undefined ? {} : { taskControlCommands: taskControlNames }),
   }, commerceLimits.commandBytes);
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(
     yield* hashAtomicCommerceBytes(identity.canonicalBytes),
@@ -314,5 +333,6 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     executionIsolation,
     operationScheduling,
     taskBindingSha256,
+    taskControlAllowed,
   };
 });

@@ -7,6 +7,7 @@ export const SimpleVariantInput = Schema.Struct({
   id: Schema.optionalKey(Id), product_id: Id, title: Schema.String,
   options: Schema.Record(Schema.String, Schema.String),
   sku: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  allow_backorder: Schema.optionalKey(Schema.Boolean),
   manage_inventory: Schema.optionalKey(Schema.Boolean),
   origin_country: Schema.optionalKey(Schema.NullOr(Schema.String)),
   mid_code: Schema.optionalKey(Schema.NullOr(Schema.String)),

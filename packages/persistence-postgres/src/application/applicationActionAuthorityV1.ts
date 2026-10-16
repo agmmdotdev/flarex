@@ -2112,7 +2112,8 @@ function decodeCommonInvocationRow(
 }
 
 function decodeEffectRow(row: EffectRow): Effect.Effect<ExternalEffectAttemptProjectionV1, ApplicationActionAuthorityCorruptionV1Error> {
-  if (row.effectKind === "child_commerce") return corruption("Application action cannot own a commerce child effect");
+  if (row.effectKind === "child_commerce" || row.effectKind === "trusted_callback")
+    return corruption("Application action cannot own a trusted workflow effect");
   const preparedAt = databaseDate(row.preparedAt);
   const dispatchDeclaredAt = nullableDatabaseDate(row.dispatchDeclaredAt);
   const settledAt = nullableDatabaseDate(row.settledAt);

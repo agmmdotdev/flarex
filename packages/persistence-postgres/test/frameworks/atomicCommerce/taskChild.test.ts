@@ -22,7 +22,7 @@ import { makeCommitEventPump } from "../../../src/commit/events/pump";
 import { makeCommitEventStore } from "../../../src/commit/events/store";
 import { makeTrustedWorkflowTaskRunCreationStore } from "../../../src/tasks/trustedWorkflowTaskRunCreation";
 import { makeTrustedWorkflowTaskSystemRunAttemptStore } from "../../../src/tasks/taskSystemRunAttemptStoreV1";
-import { issueTrustedWorkflowExecutionSubject, revokeTrustedWorkflowExecutionSubject,
+import { issueTrustedWorkflowExecutionSubject, issueTrustedWorkflowControlSubject, revokeTrustedWorkflowExecutionSubject,
   type TrustedWorkflowExecutionSubject } from "../../../src/tasks/trustedWorkflowExecutionSubject";
 import { resolveLocatedTrustedScopeAuthorityByIdEffect } from "../../../src/scope/scopeAuthorityResolution";
 import { frameworkSchemaTargetSnapshot } from "../../../src/installation/frameworkSchema/target";
@@ -145,10 +145,80 @@ async function liveTask(leaseMs = 45_000) {
   });
   const identity = await grant();
   const subject = await runEffect(issue(identity));
-  return { database, lifecycle, identity, subject, issue, grant, binding };
+  const issueControl = () => issueTrustedWorkflowControlSubject(identity, {
+    authority: located.authority, target: transactionTarget, binding, principal, principalCanonicalBytes: canonical.canonicalBytes, sha256: hash,
+  });
+  return { database, lifecycle, identity, subject, issue, issueControl, grant, binding };
 }
 
 describe(`Task-owned atomic commerce - ${driver}`, () => {
+  it("recovers an allowlisted cleanup occurrence across ordinary and cancellation authority without repeating its write", async () => {
+    const task = await liveTask(), selected = { ...hostInput(task.binding), taskControlCommands: [writeRoot] };
+    const host = await openHost(selected), count = callbacks;
+    const args = row("authority-replay-" + randomUUID());
+    const result = await runEffect(host.runTaskChild(task.subject, 1n, writeRoot, args));
+    const committed = await inventory();
+    await runEffect(task.lifecycle.transactRunAttempt({ operation: "request_cancellation", runId: task.identity.runId,
+      decide: value => decideTrustedWorkflowRequestCancellation({ type: "request_cancellation", runId: task.identity.runId,
+        reason: { code: "requested", message: null } }, value) }));
+    const control = await runEffect(task.issueControl()), cold = await openHost(selected);
+    expect(await runEffect(cold.runControlChild(control, 1n, writeRoot, args))).toEqual(result);
+    expect(await inventory()).toEqual(committed); expect(callbacks).toBe(count + 1);
+    expect(await runEffectFailure(cold.runTaskChild(task.subject, 1n, writeRoot, args)))
+      .toMatchObject({ reason: "invalidAuthority" });
+    expect(await runEffectFailure(cold.runControlChild(control, 1n, otherRoot, args)))
+      .toMatchObject({ reason: "invalidAuthority" });
+    expect(await runEffectFailure(cold.runControlChild(control, 1n, writeRoot, { ...args, value: 2 })))
+      .toMatchObject({ reason: "requestConflict" });
+    expect(await inventory()).toEqual(committed); expect(callbacks).toBe(count + 1);
+  }, 480_000);
+
+  it("admits control cleanup only through the explicit bound command allowlist and rechecks revocation before settlement", async () => {
+    const task = await liveTask();
+    const selected = { ...hostInput(task.binding), taskControlCommands: [writeRoot] };
+    const host = await openHost(selected);
+    const omitted = await openHost(hostInput(task.binding));
+    const before = await inventory(), count = callbacks;
+    // SAFETY: the intentional opposite-subject call proves runtime admission,
+    // independently of the public TypeScript distinction.
+    expect(await runEffectFailure(host.runControlChild(task.subject as never, 1n, writeRoot, row("ordinary-control"))))
+      .toMatchObject({ reason: "invalidAuthority" });
+    for (const taskControlCommands of [[], [writeRoot, writeRoot]]) {
+      expect(await runEffectFailure(makeAtomicCommerceHost({ ...selected, taskControlCommands })))
+        .toMatchObject({ reason: "unsupportedProfile" });
+    }
+    expect(await runEffectFailure(makeAtomicCommerceHost({ ...selected,
+      taskControlCommands: [defineAtomicCommerceCommand("foreignCleanup", () => Effect.succeed(null))] })))
+      .toMatchObject({ reason: "invalidAuthority" });
+    await runEffect(task.lifecycle.transactRunAttempt({ operation: "request_cancellation", runId: task.identity.runId,
+      decide: value => decideTrustedWorkflowRequestCancellation({ type: "request_cancellation", runId: task.identity.runId,
+        reason: { code: "requested", message: null } }, value) }));
+    const control = await runEffect(task.issueControl());
+    expect(await runEffectFailure(host.runTaskChild(control as never, 1n, writeRoot, row("control-ordinary"))))
+      .toMatchObject({ reason: "invalidAuthority" });
+    expect(await runEffectFailure(omitted.runControlChild(control, 1n, writeRoot, row("unlisted"))))
+      .toMatchObject({ reason: "invalidAuthority" });
+    expect(await runEffectFailure(host.runControlChild(control, 1n, otherRoot, row("unlisted"))))
+      .toMatchObject({ reason: "invalidAuthority" });
+    expect(callbacks).toBe(count); expect(await inventory()).toEqual(before);
+    const result = await runEffect(host.runControlChild(control, 1n, writeRoot, row("cleanup")));
+    const committed = await inventory();
+    expect(committed.commerce.rows).toContainEqual(expect.objectContaining(row("cleanup")));
+    const fresh = await openHost(selected);
+    expect(await runEffect(fresh.runControlChild(control, 1n, writeRoot, row("cleanup")))).toEqual(result);
+    expect(await inventory()).toEqual(committed); expect(callbacks).toBe(count + 1);
+    const revokedRoot = defineAtomicCommerceCommand("revokeControlCleanup", Effect.fn(function* (ctx, input) {
+      yield* ctx.call(participant, write, input);
+      yield* ctx.emit(event, input);
+      revokeTrustedWorkflowExecutionSubject(control);
+      return null;
+    }));
+    const revokedHost = await openHost({ ...hostInput(task.binding, [revokedRoot]), taskControlCommands: [revokedRoot] });
+    expect(await runEffectFailure(revokedHost.runControlChild(control, 2n, revokedRoot, row("revoked-cleanup"))))
+      .toMatchObject({ reason: "invalidAuthority" });
+    expect(await inventory()).toEqual(committed);
+  }, 480_000);
+
   it("commits one child receipt and recovers the same occurrence across host reconstruction and a genuine new Task attempt", async () => {
     const task = await liveTask();
     const host = await openHost(hostInput(task.binding));

@@ -1,4 +1,6 @@
 import type { CurrentTaskRunAttemptAggregate, CurrentTaskRunAttemptEvidence, CurrentTaskRunAttemptMutationAcceptance, CurrentTaskAttemptCompletionReplay } from "./Model.js";
+import { TrustedWorkflowCheckpointDescriptorSchema, TrustedWorkflowCheckpointDescriptorCodec } from "./WorkflowContinuation.js";
+import type { TrustedWorkflowContinuation, TrustedWorkflowContinuationEvidence } from "./WorkflowContinuation.js";
 import { TrustedWorkflowBindingSha256Schema } from "../runCreation/TrustedWorkflowBindingDigest.js";
 // Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
 // upstream/packages/core/src/v3/schemas/schemas.ts. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
@@ -286,6 +288,9 @@ const SafeMessageSchema = Schema.String.check(
 );
 export const TaskFailureMessageV1Schema = SafeMessageSchema.pipe(
   Schema.brand("FlarexDurableTask/TaskFailureMessageV1"),
+);
+export const trustedWorkflowUnresolvedControlMessage = TaskFailureMessageV1Schema.make(
+  "Native workflow control did not complete; checkpoint and held events require manual repair if retry budget is exhausted.",
 );
 export const TaskCancellationMessageV1Schema = SafeMessageSchema.pipe(
   Schema.brand("FlarexDurableTask/TaskCancellationMessageV1"),
@@ -1120,15 +1125,19 @@ const TaskRunAttemptEvidenceBaseFieldsV1 = {
 function makeTaskRunAttemptEvidenceSchema<
   const IdentityFields extends Schema.Struct.Fields,
 >(identityFields: IdentityFields) {
+  return makeEvidenceFromBase(identityFields, TaskRunAttemptEvidenceBaseFieldsV1, Schema.Literals(["ready", "retry_waiting"]));
+}
+function makeEvidenceFromBase<const IdentityFields extends Schema.Struct.Fields, const Fields extends Schema.Struct.Fields,
+  FromPhase extends Schema.Top>(identityFields: IdentityFields, base: Fields, fromPhase: FromPhase) {
   return Schema.Union([
   Schema.Struct({
-    ...TaskRunAttemptEvidenceBaseFieldsV1,
+    ...base,
     kind: Schema.Literal("attempt_granted"),
-    fromPhase: Schema.Literals(["ready", "retry_waiting"]),
+    fromPhase,
     grant: makeTaskAttemptGrantSchema(identityFields),
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRunAttemptEvidenceBaseFieldsV1,
+    ...base,
     kind: Schema.Literal("heartbeat_accepted"),
     attempt: TaskTerminalAttemptRefV1Schema,
     heartbeatSequence: TaskHeartbeatSequenceV1Schema,
@@ -1137,14 +1146,14 @@ function makeTaskRunAttemptEvidenceSchema<
     enteredExecuting: Schema.Boolean,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRunAttemptEvidenceBaseFieldsV1,
+    ...base,
     kind: Schema.Literal("completion_succeeded"),
     attempt: TaskTerminalAttemptRefV1Schema,
     completion: TaskSucceededCompletionV1Schema,
     outcome: CompleteAttemptSucceededOutcomeV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRunAttemptEvidenceBaseFieldsV1,
+    ...base,
     kind: Schema.Literal("completion_failed"),
     attempt: TaskTerminalAttemptRefV1Schema,
     completion: TaskFailedCompletionV1Schema,
@@ -1152,28 +1161,28 @@ function makeTaskRunAttemptEvidenceSchema<
     outcome: Schema.Union([CompleteAttemptRetryOutcomeV1Schema, CompleteAttemptFailedOutcomeV1Schema]),
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRunAttemptEvidenceBaseFieldsV1,
+    ...base,
     kind: Schema.Literal("completion_cancellation_acknowledged"),
     attempt: TaskTerminalAttemptRefV1Schema,
     completion: TaskCancellationAcknowledgedCompletionV1Schema,
     outcome: CompleteAttemptCancelledOutcomeV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRunAttemptEvidenceBaseFieldsV1,
+    ...base,
     kind: Schema.Literal("cancellation_requested"),
     attempt: TaskTerminalAttemptRefV1Schema,
     cancellation: TaskCancellationRequestedV1Schema,
     outcome: RequestCancellationRequestedOutcomeV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRunAttemptEvidenceBaseFieldsV1,
+    ...base,
     kind: Schema.Literal("cancellation_resolved_without_attempt"),
     attempt: Schema.Null,
     cancellation: TaskCancellationResolvedWithoutAttemptV1Schema,
     outcome: RequestCancellationTerminalOutcomeV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRunAttemptEvidenceBaseFieldsV1,
+    ...base,
     kind: Schema.Literal("lease_expiry_recovered"),
     attempt: TaskTerminalAttemptRefV1Schema,
     expiredLeaseVersion: TaskLeaseVersionV1Schema,
@@ -1182,7 +1191,7 @@ function makeTaskRunAttemptEvidenceSchema<
     outcome: Schema.Union([HandleLeaseExpiryRetryOutcomeV1Schema, HandleLeaseExpiryFailedOutcomeV1Schema]),
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRunAttemptEvidenceBaseFieldsV1,
+    ...base,
     kind: Schema.Literal("lease_expiry_cancelled"),
     attempt: TaskTerminalAttemptRefV1Schema,
     expiredLeaseVersion: TaskLeaseVersionV1Schema,
@@ -1217,7 +1226,9 @@ function makeAcceptedReceiptBaseFields<
 function makeAcceptedReceiptSchemas<
   const IdentityFields extends Schema.Struct.Fields,
 >(identityFields: IdentityFields) {
-  const base = makeAcceptedReceiptBaseFields(identityFields);
+  return makeAcceptedReceiptSchemasFromBase(identityFields, makeAcceptedReceiptBaseFields(identityFields));
+}
+function makeAcceptedReceiptSchemasFromBase<const IdentityFields extends Schema.Struct.Fields, const Fields extends Schema.Struct.Fields>(identityFields: IdentityFields, base: Fields) {
   return {
     start: Schema.Struct({
       ...base,
@@ -1257,7 +1268,12 @@ function makeAcceptedReceiptSchemas<
 function makeTaskRunAttemptMutationAcceptanceSchema<
   const IdentityFields extends Schema.Struct.Fields,
 >(identityFields: IdentityFields) {
-  const receipts = makeAcceptedReceiptSchemas(identityFields);
+  return makeAcceptanceFromReceipts(makeAcceptedReceiptSchemas(identityFields));
+}
+function makeAcceptanceFromReceipts<Start extends Schema.Top, Heartbeat extends Schema.Top,
+  Complete extends Schema.Top, Cancellation extends Schema.Top, Expiry extends Schema.Top>(receipts: Readonly<{
+    start: Start; heartbeat: Heartbeat; complete: Complete; cancellation: Cancellation; leaseExpiry: Expiry;
+  }>) {
   return Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("start_attempt"),
@@ -1448,7 +1464,9 @@ function completionReplayCorrelatesV1(
     !terminalAttemptRefEqualV1(evidence.attempt, replay.attempt) ||
     !persistedValueEqualV1(evidence.completion, replay.completion) ||
     !persistedValueEqualV1(evidence.outcome, replay.accepted.outcome) ||
-    replay.accepted.resultingPhase !== completionOutcomePhaseV1(replay.accepted.outcome)) return false;
+    (replay.accepted.resultingPhase !== completionOutcomePhaseV1(replay.accepted.outcome) &&
+      !(replay.accepted.resultingPhase === "continuation_ready" && replay.accepted.outcome.kind === "retry_scheduled" &&
+        "executionMode" in aggregate && aggregate.executionMode === "control"))) return false;
   if (replay.completion.kind === "succeeded" && evidence.kind !== "completion_succeeded") return false;
   if (replay.completion.kind === "failed" && evidence.kind !== "completion_failed") return false;
   if (replay.completion.kind === "cancellation_acknowledged" &&
@@ -1522,14 +1540,18 @@ function requestedEffectKindsEqualV1(
 
 function leaseFailurePolicyCorrelatesV1(
   aggregate: PersistedTaskRunAttemptAggregate,
-  evidence: Extract<TaskRunAttemptAggregateV1["lastLifecycleAcceptance"], { readonly kind: "handle_lease_expiry" }>["accepted"]["evidence"][number] &
-    { readonly kind: "lease_expiry_recovered" },
+  evidence: Extract<PersistedTaskRunAttemptEvidence, { readonly kind: "lease_expiry_recovered" }>,
 ): boolean {
   const { policy, outcome } = evidence;
+  const unresolvedPreSlotCancellation = "definitionReference" in aggregate && aggregate.definitionReference.generation === "trusted_workflow" &&
+    aggregate.continuation === undefined && aggregate.cancellation.kind === "resolved" && aggregate.cancellation.resolution === "superseded_by_completion" &&
+    policy.decision.kind === "retry_rejected" && policy.decision.reason === "cancellation_requested";
   const expectedFailure = {
     kind: "system_failure" as const,
-    code: evidence.sourcePhase === "attempt_granted" ? "attempt_dispatch_failed" as const : "execution_lost" as const,
-    message: null,
+    code: !unresolvedPreSlotCancellation && evidence.sourcePhase === "attempt_granted" ? "attempt_dispatch_failed" as const : "execution_lost" as const,
+    message: unresolvedPreSlotCancellation || ("executionMode" in aggregate && aggregate.executionMode === "control")
+      ? trustedWorkflowUnresolvedControlMessage
+      : null,
   };
   if (!persistedValueEqualV1(policy.failure, expectedFailure) ||
     policy.currentAttemptNumber !== evidence.attempt.attemptNumber ||
@@ -1546,7 +1568,7 @@ function leaseFailurePolicyCorrelatesV1(
     directive: policy.directive.value,
     directiveSource: "synthesized_bound_policy",
     leaseExpiry: true,
-    cancellationRequested: false,
+    cancellationRequested: unresolvedPreSlotCancellation,
     nextComputeProfile: outcome.kind === "retry_scheduled" ? outcome.retry.nextComputeProfile : null,
   })) return false;
   if (policy.decision.kind === "retry_accepted") {
@@ -1572,6 +1594,16 @@ function latestAcceptanceCorrelatesV1(
   const evidence = accepted.evidence[0];
   if (evidence === undefined) return false;
   switch (acceptance.kind) {
+    case "workflow_continuation": {
+      if (!("continuation" in aggregate) || aggregate.continuation === undefined ||
+        (aggregate.phase !== "continuation_waiting" && aggregate.phase !== "continuation_ready") ||
+        evidence.kind !== "workflow_continuation" || !persistedValueEqualV1(evidence.outcome, accepted.outcome) ||
+        evidence.waitId !== aggregate.continuation.waitId ||
+        !terminalAttemptRefEqualV1(evidence.attempt, aggregate.continuation.suspendedAttempt)) return false;
+      const selected = evidence.operation === "register_continuation" ? aggregate.continuation.registrationReceipt :
+        evidence.operation === "request_cancellation" ? aggregate.continuation.cancellationReceipt ?? aggregate.continuation.resolutionReceipt : aggregate.continuation.resolutionReceipt;
+      return persistedValueEqualV1(selected, accepted);
+    }
     case "start_attempt": {
       if (aggregate.phase !== "attempt_granted" || evidence.kind !== "attempt_granted" ||
         accepted.outcome.kind !== "attempt_granted" || acceptance.command.expectedRunVersion + 1n !== accepted.acceptedRunVersion ||
@@ -1586,7 +1618,7 @@ function latestAcceptanceCorrelatesV1(
         aggregate.currentAttempt.grantedAtMs !== accepted.outcome.grant.grantedAtMs ||
         !persistedValueEqualV1(accepted.outcome.grant.lease, aggregate.currentAttempt.lease) ||
         accepted.outcome.grant.computeProfile !== aggregate.currentAttempt.computeProfile ||
-        aggregate.cancellation.kind !== "not_requested") return false;
+        (aggregate.cancellation.kind !== "not_requested" && !("executionMode" in aggregate && aggregate.executionMode === "control"))) return false;
       if (!requestedEffectKindsEqualV1(accepted, [
         "dispatch_attempt", "wake_lease_expiry", "publish_lifecycle_event", "notify_current_state",
       ])) return false;
@@ -1643,6 +1675,9 @@ function latestAcceptanceCorrelatesV1(
       const outcome = replay.accepted.outcome;
       if (outcome.kind === "retry_scheduled") {
         if (outcome.retry.acceptedAtMs !== accepted.observedAtMs) return false;
+        if (aggregate.phase === "continuation_ready") return "executionMode" in aggregate && aggregate.executionMode === "control" &&
+          persistedValueEqualV1(aggregate.continuation.controlRetry, outcome.retry) &&
+          terminalAttemptRefEqualV1(aggregate.continuation.resumeAfterAttempt ?? aggregate.continuation.suspendedAttempt, outcome.retry.previousAttempt);
         return outcome.delivery === "immediate"
           ? aggregate.phase === "ready" && aggregate.ready.kind === "immediate_retry" &&
             persistedValueEqualV1(aggregate.ready.acceptedRetry, outcome.retry)
@@ -1712,7 +1747,9 @@ function latestAcceptanceCorrelatesV1(
       if (accepted.outcome.kind === "retry_scheduled") {
         const wake = effects[1];
         return accepted.outcome.retry.acceptedAtMs === accepted.observedAtMs &&
-          aggregate.phase === "retry_waiting" && persistedValueEqualV1(aggregate.retry, accepted.outcome.retry) &&
+          ((aggregate.phase === "retry_waiting" && persistedValueEqualV1(aggregate.retry, accepted.outcome.retry)) ||
+            (aggregate.phase === "continuation_ready" && "executionMode" in aggregate && aggregate.executionMode === "control" &&
+              persistedValueEqualV1(aggregate.continuation.controlRetry, accepted.outcome.retry))) &&
           terminalAttemptRefEqualV1(evidence.attempt, accepted.outcome.retry.previousAttempt) &&
           release.cause === (evidence.sourcePhase === "attempt_granted"
             ? "lease_expired_before_heartbeat" : "lease_expired_after_heartbeat") &&
@@ -1799,7 +1836,9 @@ function makeTaskRunAttemptAggregateBaseFields<
 function makeTaskRunAttemptAggregateSchema<
   const IdentityFields extends Schema.Struct.Fields,
 >(identityFields: IdentityFields) {
-  const base = makeTaskRunAttemptAggregateBaseFields(identityFields);
+  return makeTaskRunAttemptStates(makeTaskRunAttemptAggregateBaseFields(identityFields));
+}
+function makeTaskRunAttemptStates<const Fields extends Schema.Struct.Fields>(base: Fields) {
   return Schema.Union([
   Schema.Struct({
     ...base,
@@ -1862,6 +1901,62 @@ const LegacyTaskRunAttemptAggregateV1Schema = makeTaskRunAttemptAggregateSchema(
 const ApplicationTaskRunAttemptAggregateSchemaV1 = makeTaskRunAttemptAggregateSchema(
   ApplicationDefinitionIdentityFieldsV1,
 );
+function receiptRequestedEffectsCorrelate(
+  aggregate: PersistedTaskRunAttemptAggregate,
+  receipt: Pick<PersistedTaskRunAttemptMutationAcceptance["accepted"], "acceptedRunVersion" | "requestedEffects">,
+): boolean {
+  const first = receipt.requestedEffects[0], last = receipt.requestedEffects.at(-1);
+  if (first === undefined || last === undefined || first.sequence <= 0n ||
+    aggregate.requestedEffectCursor.kind !== "issued" || last.sequence > aggregate.requestedEffectCursor.lastSequence) return false;
+  const latest = aggregate.lastLifecycleAcceptance?.accepted;
+  const latestFirst = latest?.requestedEffects[0];
+  if (latest !== undefined && receipt.acceptedRunVersion < latest.acceptedRunVersion &&
+    (latestFirst === undefined || last.sequence >= latestFirst.sequence)) return false;
+  return receipt.requestedEffects.every((persisted, index) => persisted.sequence === first.sequence + BigInt(index) &&
+    persisted.effect.runId === aggregate.runId && persisted.effect.acceptedRunVersion === receipt.acceptedRunVersion);
+}
+function retainedContinuationReceiptCorrelates(
+  aggregate: PersistedTaskRunAttemptAggregate,
+  continuation: TrustedWorkflowContinuation,
+  receipt: TrustedWorkflowContinuation["registrationReceipt"],
+  operation: TrustedWorkflowContinuationEvidence["operation"],
+): boolean {
+  const evidence = receipt.evidence[0];
+  if (evidence?.kind !== "workflow_continuation" || evidence.operation !== operation ||
+    evidence.runId !== aggregate.runId || evidence.acceptedRunVersion !== receipt.acceptedRunVersion ||
+    evidence.recordedAtMs !== receipt.observedAtMs || evidence.resultingPhase !== receipt.resultingPhase ||
+    evidence.waitId !== continuation.waitId || !terminalAttemptRefEqualV1(evidence.attempt, continuation.suspendedAttempt) ||
+    !persistedValueEqualV1(evidence.outcome, receipt.outcome) || !receiptRequestedEffectsCorrelate(aggregate, receipt)) return false;
+  if (operation === "register_continuation") {
+    const cancelLeaseWake = receipt.requestedEffects[0]?.effect;
+    if (cancelLeaseWake?.kind !== "cancel_obsolete_lease_wake" ||
+      cancelLeaseWake.attemptId !== continuation.suspendedAttempt.attemptId ||
+      cancelLeaseWake.executionFence !== continuation.suspendedAttempt.executionFence ||
+      aggregate.leaseHistory.kind !== "issued" || aggregate.attemptHistory.kind !== "issued" ||
+      (aggregate.attemptHistory.lastAttemptNumber === continuation.suspendedAttempt.attemptNumber
+        ? cancelLeaseWake.obsoleteLeaseVersion !== aggregate.leaseHistory.lastLeaseVersion
+        : cancelLeaseWake.obsoleteLeaseVersion >= aggregate.leaseHistory.lastLeaseVersion)) return false;
+  } else {
+    const registrationLast = continuation.registrationReceipt.requestedEffects.at(-1);
+    const first = receipt.requestedEffects[0];
+    if (registrationLast === undefined || first === undefined || first.sequence <= registrationLast.sequence) return false;
+    if (operation === "request_cancellation" && continuation.resolutionReceipt !== null) {
+      if (continuation.resolution?.kind === "cancelled") {
+        if (!persistedValueEqualV1(receipt, continuation.resolutionReceipt)) return false;
+      } else {
+        const resolutionLast = continuation.resolutionReceipt.requestedEffects.at(-1);
+        if (resolutionLast === undefined || receipt.acceptedRunVersion <= continuation.resolutionReceipt.acceptedRunVersion ||
+          first.sequence <= resolutionLast.sequence) return false;
+      }
+    }
+  }
+  return operation === "register_continuation"
+    ? persistedValueEqualV1(evidence.checkpoint, continuation.checkpoint) &&
+      evidence.nativeStartedAtMs === continuation.nativeStartedAtMs && evidence.timeoutMs === continuation.timeoutMs &&
+      evidence.deadlineAtMs === continuation.deadlineAtMs
+    : evidence.checkpoint === undefined && evidence.nativeStartedAtMs === undefined &&
+      evidence.timeoutMs === undefined && evidence.deadlineAtMs === undefined;
+}
 function taskRunAttemptAggregateFailureV1(
   aggregate: PersistedTaskRunAttemptAggregate,
 ): string | undefined {
@@ -1916,6 +2011,52 @@ function taskRunAttemptAggregateFailureV1(
         return "Expected terminal completion not to precede run creation";
       }
     }
+    if ("continuation" in aggregate && aggregate.continuation !== undefined) {
+      const continuation = aggregate.continuation;
+      if (!("definitionReference" in aggregate) || aggregate.definitionReference.generation !== "trusted_workflow" ||
+        lastAttempt === null || continuation.suspendedAttempt.attemptNumber > lastAttempt ||
+        continuation.registeredAtMs < aggregate.createdAtMs || continuation.nativeStartedAtMs < aggregate.createdAtMs ||
+        continuation.suspendedAttemptAcceptedRunVersion >= continuation.registrationReceipt.acceptedRunVersion ||
+        ((continuation.resumeAfterAttempt === undefined) !== (continuation.resumeAfterAttemptAcceptedRunVersion === undefined)) ||
+        (continuation.resumeAfterAttemptAcceptedRunVersion !== undefined &&
+          (continuation.resumeAfterAttemptAcceptedRunVersion <= continuation.suspendedAttemptAcceptedRunVersion ||
+           continuation.resumeAfterAttemptAcceptedRunVersion > aggregate.runVersion))) return "Expected a trusted, issued continuation bound to this run lifetime";
+      const registration = continuation.registrationReceipt;
+      if (registration.acceptedRunVersion > aggregate.runVersion || registration.observedAtMs !== continuation.registeredAtMs ||
+        registration.resultingPhase !== "continuation_waiting" || registration.outcome.kind !== "continuation_waiting" ||
+        registration.outcome.waitId !== continuation.waitId || registration.outcome.resolution !== null ||
+        !retainedContinuationReceiptCorrelates(aggregate, continuation, registration, "register_continuation") ||
+        !requestedEffectKindsEqualV1(registration, ["cancel_obsolete_lease_wake", "notify_current_state"]))
+        return "Expected retained registration to pin the exact original checkpoint and native wait origin";
+      if (continuation.resolution !== null) {
+        const receipt = continuation.resolutionReceipt;
+        if (receipt === null || receipt.acceptedRunVersion <= registration.acceptedRunVersion || receipt.acceptedRunVersion > aggregate.runVersion ||
+          receipt.observedAtMs !== continuation.resolution.observedAtMs || receipt.resultingPhase !== "continuation_ready" ||
+          receipt.outcome.kind !== "continuation_ready" || receipt.outcome.waitId !== continuation.waitId ||
+          receipt.outcome.resolution !== continuation.resolution.kind ||
+          !retainedContinuationReceiptCorrelates(aggregate, continuation, receipt, continuation.resolution.kind === "confirmed"
+            ? "confirm_continuation" : continuation.resolution.kind === "timeout" ? "expire_continuation" : "request_cancellation") ||
+          !requestedEffectKindsEqualV1(receipt, ["notify_current_state"]))
+          return "Expected one retained decision for the original wait";
+      }
+      if (continuation.cancellationReceipt !== undefined && (aggregate.cancellation.kind === "not_requested" ||
+        continuation.cancellationReceipt.resultingPhase !== "continuation_ready" ||
+        continuation.cancellationReceipt.outcome.kind !== "continuation_ready" ||
+        continuation.cancellationReceipt.outcome.resolution !== "cancelled" ||
+        continuation.cancellationReceipt.outcome.waitId !== continuation.waitId ||
+        continuation.cancellationReceipt.observedAtMs !== aggregate.cancellation.requestedAtMs ||
+        continuation.cancellationReceipt.acceptedRunVersion <= registration.acceptedRunVersion ||
+        continuation.cancellationReceipt.acceptedRunVersion > aggregate.runVersion ||
+        !retainedContinuationReceiptCorrelates(aggregate, continuation, continuation.cancellationReceipt, "request_cancellation") ||
+        !requestedEffectKindsEqualV1(continuation.cancellationReceipt, ["notify_current_state"])))
+        return "Expected retained control cancellation to agree with requested cancellation";
+      if (aggregate.phase === "continuation_waiting" && (continuation.resolution !== null || aggregate.cancellation.kind !== "not_requested"))
+        return "Expected an unresolved, uncancelled wait";
+      if (aggregate.phase === "continuation_ready" && (continuation.resolution === null ||
+        (continuation.resumeAfterAttempt ?? continuation.suspendedAttempt).attemptNumber !== lastAttempt || lastAttempt >= maximumAttempts)) return "Expected resolved continuation to leave a fresh grant";
+      if ("executionMode" in aggregate && aggregate.executionMode === "control" && continuation.resolution?.kind !== "timeout" && aggregate.cancellation.kind === "not_requested")
+        return "Expected control execution to name timeout or cancellation";
+    }
     if (aggregate.cancellation.kind !== "not_requested" &&
       aggregate.cancellation.requestedAtMs < aggregate.createdAtMs) {
       return "Expected cancellation request not to precede run creation";
@@ -1952,13 +2093,8 @@ function taskRunAttemptAggregateFailureV1(
       }
       const firstAcceptedEffect = accepted.requestedEffects[0];
       if (firstAcceptedEffect === undefined) return "Expected latest acceptance to contain requested effects";
-      for (let index = 0; index < accepted.requestedEffects.length; index += 1) {
-        const persisted = accepted.requestedEffects[index];
-        if (persisted === undefined || persisted.sequence !== firstAcceptedEffect.sequence + BigInt(index) ||
-          persisted.effect.runId !== aggregate.runId ||
-          persisted.effect.acceptedRunVersion !== accepted.acceptedRunVersion) {
-          return "Expected latest acceptance effects to be contiguous and receipt-bound";
-        }
+      if (!receiptRequestedEffectsCorrelate(aggregate, accepted)) {
+        return "Expected latest acceptance effects to be contiguous and receipt-bound";
       }
       if (accepted.requestedEffects.at(-1)?.sequence !== expectedCursor) {
         return "Expected latest accepted effect sequence to equal aggregate cursor";
@@ -2002,13 +2138,8 @@ function taskRunAttemptAggregateFailureV1(
       if (firstReplayEffect.sequence <= previousReplayEffectSequence) {
         return "Expected completion replay effect ranges to increase without overlap";
       }
-      for (let index = 0; index < replay.accepted.requestedEffects.length; index += 1) {
-        const persisted = replay.accepted.requestedEffects[index];
-        if (persisted === undefined || persisted.sequence !== firstReplayEffect.sequence + BigInt(index) ||
-          persisted.effect.runId !== aggregate.runId ||
-          persisted.effect.acceptedRunVersion !== replay.accepted.acceptedRunVersion) {
-          return "Expected completion replay effects to be contiguous and receipt-bound";
-        }
+      if (!receiptRequestedEffectsCorrelate(aggregate, replay.accepted)) {
+        return "Expected completion replay effects to be contiguous and receipt-bound";
       }
       const lastReplayEffect = replay.accepted.requestedEffects.at(-1);
       if (lastReplayEffect === undefined || lastReplayEffect.sequence > expectedCursor) {
@@ -2369,8 +2500,65 @@ export type {
 
 /** The new persisted generation retains the current definition-reference envelope.
  * The lifecycle schema factories and invariant validator remain the single owners. */
-export const TrustedWorkflowTaskRunAttemptAggregateSchema: Schema.Codec<CurrentTaskRunAttemptAggregate, unknown> = makeTaskRunAttemptAggregateSchema(TrustedWorkflowIdentityFields)
-  .check(Schema.makeFilter(aggregate => taskRunAttemptAggregateFailureV1(aggregate)));
+const CurrentPhaseSchema = Schema.Literals(["ready", "attempt_granted", "executing", "retry_waiting", "terminal", "continuation_waiting", "continuation_ready"]);
+const ContinuationWaitIdSchema = Schema.String.check(Schema.makeFilter(value => {
+  const length = utf8ByteLength(value); return length >= 1 && length <= 1024;
+}));
+export const RegisterTrustedWorkflowContinuationCommandSchema = Schema.Struct({
+  type: Schema.Literal("register_continuation"), runId: TaskRunIdV1Schema,
+  attemptId: TaskAttemptIdV1Schema, executionFence: Schema.toType(TaskExecutionFenceV1Schema), expectedRunVersion: Schema.toType(TaskRunVersionV1Schema),
+  waitId: ContinuationWaitIdSchema, checkpoint: TrustedWorkflowCheckpointDescriptorSchema,
+  nativeStartedAtMs: TaskDatabaseTimeMsV1Schema, timeoutMs: TaskDurationMsV1Schema, deadlineAtMs: TaskDatabaseTimeMsV1Schema,
+}).annotate(STRICT_STRUCT_OPTIONS);
+export const ResolveTrustedWorkflowContinuationCommandSchema = Schema.Struct({
+  type: Schema.Literals(["confirm_continuation", "expire_continuation"]), runId: TaskRunIdV1Schema, waitId: ContinuationWaitIdSchema,
+}).annotate(STRICT_STRUCT_OPTIONS);
+const ContinuationOutcomeSchema = Schema.Struct({ kind: Schema.Literals(["continuation_waiting", "continuation_ready"]),
+  waitId: Schema.String, resolution: Schema.NullOr(Schema.Literals(["confirmed", "timeout", "cancelled"])) }).annotate(STRICT_STRUCT_OPTIONS);
+const ContinuationEvidenceSchema = Schema.Struct({ ...TaskRunAttemptEvidenceBaseFieldsV1,
+  kind: Schema.Literal("workflow_continuation"), resultingPhase: Schema.Literals(["continuation_waiting", "continuation_ready"]),
+  operation: Schema.Literals(["register_continuation", "confirm_continuation", "expire_continuation", "request_cancellation"]),
+  waitId: Schema.String, attempt: TaskTerminalAttemptRefV1Schema, outcome: ContinuationOutcomeSchema,
+  checkpoint: Schema.optionalKey(TrustedWorkflowCheckpointDescriptorCodec), nativeStartedAtMs: Schema.optionalKey(TaskDatabaseTimeMsV1Schema),
+  timeoutMs: Schema.optionalKey(TaskDurationMsV1Schema), deadlineAtMs: Schema.optionalKey(TaskDatabaseTimeMsV1Schema),
+}).annotate(STRICT_STRUCT_OPTIONS);
+const TrustedEvidenceSchema = Schema.Union([
+  makeEvidenceFromBase(TrustedWorkflowIdentityFields, { ...TaskRunAttemptEvidenceBaseFieldsV1, resultingPhase: CurrentPhaseSchema },
+    Schema.Literals(["ready", "retry_waiting", "continuation_ready"])), ContinuationEvidenceSchema,
+]);
+const trustedReceiptBase = { ...makeAcceptedReceiptBaseFields(TrustedWorkflowIdentityFields), resultingPhase: CurrentPhaseSchema,
+  evidence: Schema.Array(TrustedEvidenceSchema).check(Schema.isLengthBetween(1, 1)),
+  requestedEffects: Schema.Array(makePersistedTaskRequestedEffectSchema(TrustedWorkflowIdentityFields)).check(Schema.isLengthBetween(1, 5)) };
+const trustedReceipts = makeAcceptedReceiptSchemasFromBase(TrustedWorkflowIdentityFields, trustedReceiptBase);
+const ContinuationReceiptSchema = Schema.Struct({ ...trustedReceiptBase, outcome: ContinuationOutcomeSchema }).annotate(STRICT_STRUCT_OPTIONS);
+export const TrustedWorkflowContinuationSchema = Schema.Struct({
+  waitId: ContinuationWaitIdSchema,
+  checkpoint: TrustedWorkflowCheckpointDescriptorCodec, nativeStartedAtMs: TaskDatabaseTimeMsV1Schema,
+  timeoutMs: TaskDurationMsV1Schema, deadlineAtMs: TaskDatabaseTimeMsV1Schema, registeredAtMs: TaskDatabaseTimeMsV1Schema,
+  suspendedAttempt: TaskTerminalAttemptRefV1Schema, suspendedAttemptAcceptedRunVersion: TaskRunVersionV1Schema, suspendedComputeProfile: TaskComputeProfileRefV1Schema,
+  resumeAfterAttempt: Schema.optionalKey(TaskTerminalAttemptRefV1Schema), resumeAfterAttemptAcceptedRunVersion: Schema.optionalKey(TaskRunVersionV1Schema), controlRetry: Schema.optionalKey(TaskAcceptedRetryV1Schema),
+  resolution: Schema.NullOr(Schema.Struct({ kind: Schema.Literals(["confirmed", "timeout", "cancelled"]), observedAtMs: TaskDatabaseTimeMsV1Schema }).annotate(STRICT_STRUCT_OPTIONS)),
+  registrationReceipt: ContinuationReceiptSchema, resolutionReceipt: Schema.NullOr(ContinuationReceiptSchema),
+  cancellationReceipt: Schema.optionalKey(ContinuationReceiptSchema),
+}).annotate(STRICT_STRUCT_OPTIONS).check(Schema.makeFilter(value =>
+  value.deadlineAtMs === value.nativeStartedAtMs + value.timeoutMs && value.registeredAtMs >= value.nativeStartedAtMs &&
+  value.deadlineAtMs < Number.MAX_SAFE_INTEGER &&
+  (value.resolution === null ? value.resolutionReceipt === null : value.resolutionReceipt !== null &&
+    value.resolution.observedAtMs >= value.registeredAtMs && (value.resolution.kind !== "timeout" || value.resolution.observedAtMs > value.deadlineAtMs))));
+const trustedAggregateBase = { ...makeTaskRunAttemptAggregateBaseFields(TrustedWorkflowIdentityFields),
+  lastLifecycleAcceptance: Schema.NullOr(Schema.Union([makeAcceptanceFromReceipts(trustedReceipts),
+    Schema.Struct({ kind: Schema.Literal("workflow_continuation"), accepted: ContinuationReceiptSchema }).annotate(STRICT_STRUCT_OPTIONS)])),
+  completionReplays: Schema.Array(Schema.Struct({ attempt: TaskTerminalAttemptRefV1Schema,
+    completion: TaskAttemptCompletionV1Schema, accepted: trustedReceipts.complete }).annotate(STRICT_STRUCT_OPTIONS)).check(Schema.isMaxLength(250)),
+  continuation: Schema.optionalKey(TrustedWorkflowContinuationSchema), executionMode: Schema.optionalKey(Schema.Literal("control")),
+};
+export const TrustedWorkflowTaskRunAttemptAggregateSchema: Schema.Codec<CurrentTaskRunAttemptAggregate, unknown> = Schema.Union([
+  makeTaskRunAttemptStates(trustedAggregateBase),
+  Schema.Struct({ ...trustedAggregateBase, phase: Schema.Literals(["continuation_waiting", "continuation_ready"]),
+    continuation: TrustedWorkflowContinuationSchema,
+    cancellation: Schema.Union([TaskCancellationNotRequestedV1Schema, TaskCancellationRequestedV1Schema]),
+  }).annotate(STRICT_STRUCT_OPTIONS),
+]).check(Schema.makeFilter(aggregate => taskRunAttemptAggregateFailureV1(aggregate)));
 const decodeTrustedWorkflowAggregateSchema = Schema.decodeUnknownResult(TrustedWorkflowTaskRunAttemptAggregateSchema, STRICT_PARSE_OPTIONS);
 export const decodeTrustedWorkflowTaskRunAttemptAggregate = (input: unknown): Result.Result<CurrentTaskRunAttemptAggregate, Schema.SchemaError> => decodeTrustedWorkflowAggregateSchema(input).pipe(
   Result.map(aggregate => toCurrentTaskRunAttemptAggregate({ generation: "trusted_workflow", aggregate })),

@@ -27,7 +27,7 @@ import {
 import type { RequestLimits } from "../../execution/preparation/boundedRequestLifetime";
 import { captureAtomicCommerceRequest, prepareAtomicCommerceRequestEvidence } from "./request";
 import { executeAtomicCommerceRequest } from "./execution";
-import { captureAtomicCommerceTaskChild, lockAtomicCommerceTaskChild, prepareAtomicCommerceTaskChild,
+import { captureAtomicCommerceTaskChild, captureAtomicCommerceControlChild, lockAtomicCommerceTaskChild, prepareAtomicCommerceTaskChild,
   requireAtomicCommerceTaskChildOutcome, requireAtomicCommerceTaskChildSettlement,
   type CapturedAtomicCommerceTaskChild } from "./taskChild";
 
@@ -45,6 +45,9 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
     run: (key, command, args) => withExecutionDiagnosticDefaults(retained.use(host => host.run(key, command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))))),
     runTaskChild: (subject, occurrence, command, args, eligibility) => withExecutionDiagnosticDefaults(
       retained.use(host => host.runTaskChild(subject, occurrence, command, args, eligibility))
+        .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))))),
+    runControlChild: (subject, occurrence, command, args, eligibility) => withExecutionDiagnosticDefaults(
+      retained.use(host => host.runControlChild(subject, occurrence, command, args, eligibility))
         .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))))),
   } satisfies TaskAtomicCommerceHost);
 });
@@ -99,6 +102,8 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
               if (configuration.executionIsolation !== "scopeExclusive" || configuration.taskBindingSha256 === undefined)
                 return yield* commerceError("unsupportedProfile");
               if (configuration.taskBindingSha256 !== request.taskChild.identity.bindingSha256)
+                return yield* commerceError("invalidAuthority");
+              if (request.taskChild.permission === "control" && !configuration.taskControlAllowed.has(token))
                 return yield* commerceError("invalidAuthority");
               lockedChild = yield* lockAtomicCommerceTaskChild(tx, request.taskChild, entryAuthority, limits.commandMs);
               yield* lockCommerceRequest(tx, captured.scopeId, request.key);
@@ -160,5 +165,11 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
       const child = yield* captureAtomicCommerceTaskChild(subject, occurrence, eligibility);
       return yield* runRequest(child.key, command, args, child);
     });
-  return Object.freeze({ newRequestKey: () => `commerce/atomic/${crypto.randomUUID()}`, run, runTaskChild });
+  const runControlChild: TaskAtomicCommerceHost["runControlChild"] = Effect.fn("AtomicCommerce.runControlChild")(
+    function* (subject, occurrence, command, args, eligibility) {
+      if (!captured.taskControlAllowed.has(command)) return yield* commerceError("invalidAuthority");
+      const child = yield* captureAtomicCommerceControlChild(subject, occurrence, eligibility);
+      return yield* runRequest(child.key, command, args, child);
+    });
+  return Object.freeze({ newRequestKey: () => `commerce/atomic/${crypto.randomUUID()}`, run, runTaskChild, runControlChild });
 });

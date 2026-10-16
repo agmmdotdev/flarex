@@ -19,12 +19,13 @@ import type {
   TaskSystemRunAttemptDecisionInputV1,
   TaskRunAttemptDecisionV1,
   RunAttemptMutationOperationV1,
+  CurrentRunAttemptMutationOperation,
   TaskRunIdV1,
   TaskSystemRunAttemptTransactionReceiptV1,
 } from "../Model.js";
 
 export interface TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome> {
-  readonly operation: RunAttemptMutationOperationV1;
+  readonly operation: CurrentRunAttemptMutationOperation;
   readonly runId: TaskRunIdV1;
   readonly decide: (input: CurrentTaskSystemRunAttemptDecisionInput) => Result.Result<
     CurrentTaskRunAttemptDecision<Outcome>, RunAttemptDecisionErrorV1

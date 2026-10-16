@@ -1,3 +1,5 @@
+import { bytesEqualFullScan } from "@flarex/utils/bytes";
+import type { RegisterTrustedWorkflowContinuationCommand, ResolveTrustedWorkflowContinuationCommand, TrustedWorkflowContinuation, TrustedWorkflowContinuationOutcome } from "../WorkflowContinuation.js";
 import { decodeTrustedWorkflowTaskRunAttemptAggregate, encodeTrustedWorkflowTaskRunAttemptAggregate } from "../Schema.js";
 // Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
 // multiple mapped upstream paths. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
@@ -54,7 +56,7 @@ import {
   type CurrentPersistedTaskRequestedEffect,
   type RequestCancellationCommandV1,
   type CurrentRequestCancellationOutcome,
-  type RunAttemptMutationOperationV1,
+  type CurrentRunAttemptMutationOperation,
   type StartAttemptCommandV1,
   type CurrentStartAttemptOutcome,
   type CurrentTaskAttemptCompletionReplay,
@@ -82,6 +84,7 @@ import { decideFailurePolicyV1, validateBoundPolicyV1 } from "../Policy.js";
 import {
   decodeApplicationTaskRunAttemptAggregateV1,
   decodeTaskRunAttemptAggregateV1,
+  trustedWorkflowUnresolvedControlMessage,
   encodeApplicationTaskRunAttemptAggregateV1,
   encodeTaskRunAttemptAggregateV1,
 } from "../Schema.js";
@@ -126,7 +129,7 @@ function projectFailureForLifecycleEvent(
 }
 
 function incrementRunVersion(
-  operation: RunAttemptMutationOperationV1,
+  operation: CurrentRunAttemptMutationOperation,
   current: CurrentTaskRunAttemptAggregate,
 ): Result.Result<TaskRunVersionV1, TaskRunAttemptCounterExhaustedError> {
   return current.runVersion >= MAX_COUNTER
@@ -139,7 +142,7 @@ function incrementRunVersion(
 }
 
 function incrementLeaseVersion(
-  operation: Exclude<RunAttemptMutationOperationV1, "request_cancellation">,
+  operation: Exclude<CurrentRunAttemptMutationOperation, "request_cancellation">,
   current: CurrentTaskRunAttemptAggregate,
 ): Result.Result<TaskLeaseVersionV1, TaskRunAttemptCounterExhaustedError> {
   const cursor = current.leaseHistory;
@@ -154,7 +157,7 @@ function incrementLeaseVersion(
 }
 
 function addDatabaseDuration(
-  operation: Exclude<RunAttemptMutationOperationV1, "request_cancellation">,
+  operation: Exclude<CurrentRunAttemptMutationOperation, "request_cancellation">,
   current: CurrentTaskRunAttemptAggregate,
   now: TaskDatabaseTimeMsV1,
   duration: number,
@@ -186,6 +189,8 @@ function commonBase(
     lastLifecycleAcceptance: null,
     completionReplays: current.completionReplays,
     requestedEffectCursor: cursor,
+    ...(current.continuation === undefined ? {} : { continuation: current.continuation }),
+    ...(current.executionMode === undefined ? {} : { executionMode: current.executionMode }),
   };
 }
 
@@ -221,7 +226,7 @@ function idempotentDecision<Outcome>(
 }
 
 function assignEffects(
-  operation: RunAttemptMutationOperationV1,
+  operation: CurrentRunAttemptMutationOperation,
   current: CurrentTaskRunAttemptAggregate,
   effects: readonly CurrentTaskRequestedEffect[],
 ): Result.Result<{
@@ -261,11 +266,11 @@ type CurrentDecisionInput = CurrentTaskSystemRunAttemptDecisionInput & Readonly<
 }>;
 
 function finalizeCommit<Outcome>(input: {
-  readonly operation: RunAttemptMutationOperationV1;
+  readonly operation: CurrentRunAttemptMutationOperation;
   readonly current: CurrentTaskRunAttemptAggregate;
   readonly nextVersion: TaskRunVersionV1;
   readonly observedAtMs: TaskDatabaseTimeMsV1;
-  readonly draft: (cursor: TaskRequestedEffectCursorV1) => CurrentTaskRunAttemptAggregate;
+  readonly draft: (cursor: TaskRequestedEffectCursorV1, receipt: CurrentTaskRunAttemptAcceptedReceipt<Outcome>) => CurrentTaskRunAttemptAggregate;
   readonly evidence: readonly CurrentTaskRunAttemptEvidence[];
   readonly effects: readonly CurrentTaskRequestedEffect[];
   readonly outcome: Outcome;
@@ -284,15 +289,18 @@ function finalizeCommit<Outcome>(input: {
     }));
   }
   return Result.flatMap(assignEffects(input.operation, input.current, input.effects), ({ persisted, cursor }) => {
-    const initial = input.draft(cursor);
+    const resultingPhase = input.evidence[0]?.resultingPhase;
+    if (resultingPhase === undefined) return Result.fail(new InvalidRunAttemptTransitionError({
+      operation: input.operation, runId: input.current.runId, phase: input.current.phase, reason: "evidence_invalid" }));
     const receipt: CurrentTaskRunAttemptAcceptedReceipt<Outcome> = {
       observedAtMs: input.observedAtMs,
       acceptedRunVersion: input.nextVersion,
-      resultingPhase: initial.phase,
+      resultingPhase,
       outcome: input.outcome,
       evidence: input.evidence,
       requestedEffects: persisted,
     };
+    const initial = input.draft(cursor, receipt);
     const acceptance = input.acceptance(receipt);
     const replay = input.completionReplay?.(receipt) ?? null;
     const next: CurrentTaskRunAttemptAggregate = {
@@ -323,11 +331,11 @@ function effectBase(current: CurrentTaskRunAttemptAggregate, acceptedRunVersion:
   };
 }
 
-function evidenceBase(
+function evidenceBase<const Phase extends CurrentTaskRunAttemptAggregate["phase"]>(
   current: CurrentTaskRunAttemptAggregate,
   acceptedRunVersion: TaskRunVersionV1,
   recordedAtMs: TaskDatabaseTimeMsV1,
-  resultingPhase: CurrentTaskRunAttemptAggregate["phase"],
+  resultingPhase: Phase,
 ) {
   return {
     version: "flarex.task-run-attempt-evidence.v1" as const,
@@ -359,10 +367,13 @@ function decideStartAttemptCore(
   if (command.expectedRunVersion !== current.runVersion) {
     return Result.succeed(currentDecision({ kind: "current", reason: "stale_run_version", state: projectCurrentRunAttemptState(current) }));
   }
-  if (current.phase !== "ready" && current.phase !== "retry_waiting") {
+  if (current.phase !== "ready" && current.phase !== "retry_waiting" && current.phase !== "continuation_ready") {
     return Result.succeed(currentDecision({ kind: "current", reason: "phase_not_startable", state: projectCurrentRunAttemptState(current) }));
   }
-  const eligibleAtMs = current.phase === "ready" ? current.ready.eligibleAtMs : current.retry.notBeforeMs;
+  const eligibleAtMs = current.phase === "ready" ? current.ready.eligibleAtMs : current.phase === "retry_waiting" ? current.retry.notBeforeMs :
+    current.continuation.controlRetry?.notBeforeMs ?? current.continuation.resolution?.observedAtMs;
+  if (eligibleAtMs === undefined) return Result.fail(new InvalidRunAttemptTransitionError({
+    operation: "start_attempt", runId: current.runId, phase: current.phase, reason: "next_state_invalid" }));
   if (input.databaseNowMs < eligibleAtMs) {
     return Result.succeed(currentDecision({ kind: "current", reason: "not_yet_eligible", state: projectCurrentRunAttemptState(current) }));
   }
@@ -389,7 +400,7 @@ function decideStartAttemptCore(
     );
     const computeProfile = current.phase === "retry_waiting"
       ? current.retry.nextComputeProfile
-      : current.boundPolicy.initialComputeProfile;
+      : current.phase === "continuation_ready" ? current.continuation.controlRetry?.nextComputeProfile ?? current.continuation.suspendedComputeProfile : current.boundPolicy.initialComputeProfile;
     const attempt: TaskCurrentAttemptV1 = {
       attemptId: candidate.attemptId,
       attemptNumber: candidate.attemptNumber,
@@ -434,6 +445,10 @@ function decideStartAttemptCore(
         phase: "attempt_granted",
         attemptHistory: { kind: "issued", lastAttemptNumber: candidate.attemptNumber },
         leaseHistory: { kind: "issued", lastLeaseVersion: nextLeaseVersion },
+        ...(current.phase === "continuation_ready" && (current.continuation.resolution?.kind !== "confirmed" || current.cancellation.kind === "requested")
+          ? { executionMode: "control" as const } : {}),
+        ...(current.continuation === undefined ? {} : { continuation: { ...current.continuation,
+          resumeAfterAttempt: attemptRef, resumeAfterAttemptAcceptedRunVersion: nextVersion } }),
         currentAttempt: attempt,
         heartbeat: { kind: "none_accepted" },
         cancellation: current.cancellation,
@@ -701,7 +716,7 @@ function decideCompleteAttemptCore(
       operation: "complete_attempt", runId: current.runId, databaseNowMs: input.databaseNowMs,
       boundPolicy: current.boundPolicy, currentAttempt: current.currentAttempt,
       failure: command.completion.failure, directive: command.completion.retry,
-      directiveSource: "completion", cancellationRequested: current.cancellation.kind === "requested", leaseExpiry: false,
+      directiveSource: "completion", cancellationRequested: current.cancellation.kind === "requested" && current.executionMode !== "control", leaseExpiry: false,
     });
     if (policy.kind === "retry") {
       const retry = {
@@ -719,14 +734,17 @@ function decideCompleteAttemptCore(
         retryEffect,
         { ...base, kind: "publish_lifecycle_event", observedAtMs: input.databaseNowMs, event: { kind: "retry_scheduled", previousAttemptNumber: attempt.attemptNumber, retry: { source: "failed_completion", delivery: policy.delivery }, notBeforeMs: policy.notBeforeMs } },
       ]);
-      const nextPhase = policy.delivery === "immediate" ? "ready" : "retry_waiting";
+      const nextPhase = current.executionMode === "control" && current.continuation !== undefined ? "continuation_ready" : policy.delivery === "immediate" ? "ready" : "retry_waiting";
       const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{
         ...evidenceBase(current, nextVersion, input.databaseNowMs, nextPhase),
         kind: "completion_failed", attempt, completion: command.completion, policy: policy.evidence, outcome,
       }];
       return yield* finalizeCommit({
         operation: "complete_attempt", current, nextVersion, observedAtMs: input.databaseNowMs,
-        draft: (cursor) => policy.delivery === "immediate"
+        draft: (cursor) => current.executionMode === "control" && current.continuation !== undefined
+          ? { ...commonBase(current, nextVersion, cursor), phase: "continuation_ready", executionMode: "control",
+            continuation: { ...current.continuation, resumeAfterAttempt: attempt, controlRetry: retry }, cancellation: current.cancellation }
+          : policy.delivery === "immediate"
           ? { ...commonBase(current, nextVersion, cursor), phase: "ready", ready: { kind: "immediate_retry", eligibleAtMs: policy.notBeforeMs, acceptedRetry: retry }, cancellation: { kind: "not_requested", generation: current.cancellation.generation } }
           : { ...commonBase(current, nextVersion, cursor), phase: "retry_waiting", retry, cancellation: { kind: "not_requested", generation: current.cancellation.generation } },
         evidence, effects, outcome,
@@ -855,11 +873,11 @@ function decideRequestCancellationCore(
   });
 }
 
-function leaseFailure(phase: "attempt_granted" | "executing"): TaskExecutionFailureV1 {
+function leaseFailure(phase: "attempt_granted" | "executing", control = false): TaskExecutionFailureV1 {
   return {
     kind: "system_failure",
     code: phase === "attempt_granted" ? "attempt_dispatch_failed" : "execution_lost",
-    message: null,
+    message: control ? trustedWorkflowUnresolvedControlMessage : null,
   };
 }
 
@@ -890,7 +908,9 @@ function decideHandleLeaseExpiryCore(
     const nextVersion = yield* incrementRunVersion("handle_lease_expiry", current);
     const attempt = activeAttempt(current.currentAttempt);
     const base = effectBase(current, nextVersion);
-    if (current.cancellation.kind === "requested") {
+    const unresolvedPreSlotCancellation = current.definitionReference.generation === "trusted_workflow" &&
+      current.cancellation.kind === "requested" && current.continuation === undefined;
+    if (current.cancellation.kind === "requested" && current.executionMode !== "control" && !unresolvedPreSlotCancellation) {
       const resolved = resolvedCancellation(current, input.databaseNowMs, "lease_expired");
       const terminal = {
         kind: "cancelled" as const,
@@ -920,12 +940,14 @@ function decideHandleLeaseExpiryCore(
         acceptance: (accepted) => ({ kind: "handle_lease_expiry", command: { kind: "handle_lease_expiry", attemptId: command.attemptId, executionFence: command.executionFence, expectedLeaseVersion: command.expectedLeaseVersion }, accepted }),
       });
     }
-    const failure = leaseFailure(current.phase);
+    const failure: TaskExecutionFailureV1 = unresolvedPreSlotCancellation
+      ? { kind: "system_failure", code: "execution_lost", message: trustedWorkflowUnresolvedControlMessage }
+      : leaseFailure(current.phase, current.executionMode === "control");
     const policy = yield* decideFailurePolicyV1({
       operation: "handle_lease_expiry", runId: current.runId, databaseNowMs: input.databaseNowMs,
       boundPolicy: current.boundPolicy, currentAttempt: current.currentAttempt, failure,
       directive: { kind: "use_bound_policy" }, directiveSource: "synthesized_bound_policy",
-      cancellationRequested: false, leaseExpiry: true,
+      cancellationRequested: unresolvedPreSlotCancellation, leaseExpiry: true,
     });
     if (policy.kind === "retry") {
       const causeKind = current.phase === "attempt_granted"
@@ -946,13 +968,16 @@ function decideHandleLeaseExpiryCore(
         { ...base, kind: "notify_current_state" },
       ];
       const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{
-        ...evidenceBase(current, nextVersion, input.databaseNowMs, "retry_waiting"),
+        ...evidenceBase(current, nextVersion, input.databaseNowMs, current.executionMode === "control" && current.continuation !== undefined ? "continuation_ready" : "retry_waiting"),
         kind: "lease_expiry_recovered", attempt, expiredLeaseVersion: command.expectedLeaseVersion,
         sourcePhase: current.phase, policy: policy.evidence, outcome,
       }];
       return yield* finalizeCommit({
         operation: "handle_lease_expiry", current, nextVersion, observedAtMs: input.databaseNowMs,
-        draft: (cursor) => ({ ...commonBase(current, nextVersion, cursor), phase: "retry_waiting", retry, cancellation: { kind: "not_requested", generation: current.cancellation.generation } }),
+        draft: (cursor) => current.executionMode === "control" && current.continuation !== undefined
+          ? { ...commonBase(current, nextVersion, cursor), phase: "continuation_ready", executionMode: "control",
+            continuation: { ...current.continuation, resumeAfterAttempt: attempt, controlRetry: retry }, cancellation: current.cancellation }
+          : ({ ...commonBase(current, nextVersion, cursor), phase: "retry_waiting", retry, cancellation: { kind: "not_requested", generation: current.cancellation.generation } }),
         evidence, effects, outcome,
         validateCandidate: input.validateCandidate,
         acceptance: (accepted) => ({ kind: "handle_lease_expiry", command: { kind: "handle_lease_expiry", attemptId: command.attemptId, executionFence: command.executionFence, expectedLeaseVersion: command.expectedLeaseVersion }, accepted }),
@@ -979,7 +1004,8 @@ function decideHandleLeaseExpiryCore(
     }];
     return yield* finalizeCommit({
       operation: "handle_lease_expiry", current, nextVersion, observedAtMs: input.databaseNowMs,
-      draft: (cursor) => ({ ...commonBase(current, nextVersion, cursor), phase: "terminal", terminal, cancellation: { kind: "not_requested", generation: current.cancellation.generation } }),
+      draft: (cursor) => ({ ...commonBase(current, nextVersion, cursor), phase: "terminal", terminal,
+        cancellation: current.cancellation.kind === "requested" ? resolvedCancellation(current, input.databaseNowMs, "superseded_by_completion") : current.cancellation }),
       evidence, effects, outcome,
       validateCandidate: input.validateCandidate,
       acceptance: (accepted) => ({ kind: "handle_lease_expiry", command: { kind: "handle_lease_expiry", attemptId: command.attemptId, executionFence: command.executionFence, expectedLeaseVersion: command.expectedLeaseVersion }, accepted }),
@@ -989,7 +1015,7 @@ function decideHandleLeaseExpiryCore(
 
 function legacyDecisionInput(
   input: TaskSystemRunAttemptDecisionInputV1,
-  operation: RunAttemptMutationOperationV1,
+  operation: CurrentRunAttemptMutationOperation,
 ): CurrentDecisionInput {
   return {
     databaseNowMs: input.databaseNowMs,
@@ -1005,7 +1031,7 @@ function legacyDecisionInput(
 }
 
 const makeLegacyCandidateValidator = (
-  operation: RunAttemptMutationOperationV1,
+  operation: CurrentRunAttemptMutationOperation,
 ): CurrentAggregateCandidateValidator => (candidate) =>
   fromCurrentTaskRunAttemptAggregate(candidate, "legacy_definition_v1").pipe(
     Result.flatMap((persisted) => encodeTaskRunAttemptAggregateV1(
@@ -1026,7 +1052,7 @@ const makeLegacyCandidateValidator = (
 
 function applicationDecisionInput(
   input: ApplicationTaskSystemRunAttemptDecisionInputV1,
-  operation: RunAttemptMutationOperationV1,
+  operation: CurrentRunAttemptMutationOperation,
 ): Result.Result<CurrentDecisionInput, InvalidRunAttemptTransitionError> {
   const validateCandidate = makeApplicationCandidateValidator(operation);
   const current = toCurrentTaskRunAttemptAggregate({
@@ -1053,7 +1079,7 @@ function applicationDecisionInput(
 }
 
 const makeApplicationCandidateValidator = (
-  operation: RunAttemptMutationOperationV1,
+  operation: CurrentRunAttemptMutationOperation,
 ): CurrentAggregateCandidateValidator => (candidate) => fromCurrentTaskRunAttemptAggregate(
     candidate,
     "application_v1",
@@ -1351,13 +1377,139 @@ export const RunAttemptLifecycleLive = Layer.effect(
 
 /** The trusted generation borrows the same lifecycle decisions and validates the
  * current-reference schema. No Application launch identity is synthesized. */
-function trustedDecisionInput(input: CurrentTaskSystemRunAttemptDecisionInput, operation: RunAttemptMutationOperationV1): CurrentDecisionInput {
+function trustedDecisionInput(input: CurrentTaskSystemRunAttemptDecisionInput, operation: CurrentRunAttemptMutationOperation): CurrentDecisionInput {
   return { databaseNowMs: input.databaseNowMs, get attemptGrantCandidate() { return input.attemptGrantCandidate; }, current: input.current,
     validateCandidate: candidate => encodeTrustedWorkflowTaskRunAttemptAggregate(candidate).pipe(Result.flatMap(decodeTrustedWorkflowTaskRunAttemptAggregate), Result.mapError(() => new InvalidRunAttemptTransitionError({ operation, runId: candidate.runId, phase: candidate.phase, reason: "next_state_invalid" }))),
   };
 }
 export const decideTrustedWorkflowStartAttempt = (command: StartAttemptCommandV1, input: CurrentTaskSystemRunAttemptDecisionInput) => decideStartAttemptCore(command, trustedDecisionInput(input, "start_attempt"));
 export const decideTrustedWorkflowHeartbeatAttempt = (command: HeartbeatAttemptCommandV1, input: CurrentTaskSystemRunAttemptDecisionInput) => decideHeartbeatAttemptCore(command, trustedDecisionInput(input, "heartbeat_attempt"));
-export const decideTrustedWorkflowCompleteAttempt = (command: CompleteAttemptCommandV1, input: CurrentTaskSystemRunAttemptDecisionInput) => decideCompleteAttemptCore(command, trustedDecisionInput(input, "complete_attempt"));
-export const decideTrustedWorkflowRequestCancellation = (command: RequestCancellationCommandV1, input: CurrentTaskSystemRunAttemptDecisionInput) => decideRequestCancellationCore(command, trustedDecisionInput(input, "request_cancellation"));
+export const decideTrustedWorkflowCompleteAttempt = (command: CompleteAttemptCommandV1, input: CurrentTaskSystemRunAttemptDecisionInput) => {
+  if (input.current.executionMode === "control" && command.completion.kind === "succeeded")
+    return Result.fail(new InvalidRunAttemptTransitionError({ operation: "complete_attempt", runId: input.current.runId, phase: input.current.phase, reason: "acceptance_invalid" }));
+  return decideCompleteAttemptCore(command, trustedDecisionInput(input, "complete_attempt"));
+};
+export const decideTrustedWorkflowRequestCancellation = (command: RequestCancellationCommandV1, input: CurrentTaskSystemRunAttemptDecisionInput): Result.Result<CurrentTaskRunAttemptDecision<CurrentRequestCancellationOutcome | TrustedWorkflowContinuationOutcome>, RunAttemptDecisionErrorV1> => {
+  const current = input.current;
+  if (current.continuation?.cancellationReceipt !== undefined && current.cancellation.kind !== "not_requested" &&
+    command.runId === current.runId && cancellationReasonEqual(current.cancellation.reason, command.reason))
+    return Result.succeed(idempotentDecision(current.continuation.cancellationReceipt));
+  if (current.continuation !== undefined && (current.phase === "continuation_waiting" || current.phase === "continuation_ready" || current.phase === "ready" || current.phase === "retry_waiting")) return cancelTrustedWorkflowContinuation(command, input);
+  return decideRequestCancellationCore(command, trustedDecisionInput(input, "request_cancellation")).pipe(Result.flatMap(decision => {
+    if (decision.kind !== "commit" || decision.next.phase === "terminal" || current.continuation === undefined) return Result.succeed(decision);
+    const next = { ...decision.next, executionMode: "control" as const };
+    return encodeTrustedWorkflowTaskRunAttemptAggregate(next).pipe(Result.flatMap(decodeTrustedWorkflowTaskRunAttemptAggregate), Result.map(owned => ({ ...decision, next: owned })),
+      Result.mapError(() => new InvalidRunAttemptTransitionError({ operation: "request_cancellation", runId: current.runId, phase: current.phase, reason: "next_state_invalid" })));
+  }));
+};
 export const decideTrustedWorkflowHandleLeaseExpiry = (command: HandleLeaseExpiryCommandV1, input: CurrentTaskSystemRunAttemptDecisionInput) => decideHandleLeaseExpiryCore(command, trustedDecisionInput(input, "handle_lease_expiry"));
+
+
+function continuationTransitionError(operation: CurrentRunAttemptMutationOperation, current: CurrentTaskRunAttemptAggregate) {
+  return new InvalidRunAttemptTransitionError({ operation, runId: current.runId, phase: current.phase, reason: "acceptance_invalid" });
+}
+function sameContinuationRegistration(record: TrustedWorkflowContinuation, command: RegisterTrustedWorkflowContinuationCommand): boolean {
+  return record.waitId === command.waitId && record.nativeStartedAtMs === command.nativeStartedAtMs &&
+    record.timeoutMs === command.timeoutMs && record.deadlineAtMs === command.deadlineAtMs &&
+    record.checkpoint.revision === command.checkpoint.revision && record.checkpoint.byteLength === command.checkpoint.byteLength &&
+    bytesEqualFullScan(record.checkpoint.sha256, command.checkpoint.sha256) &&
+    record.suspendedAttempt.attemptId === command.attemptId && record.suspendedAttempt.executionFence === command.executionFence &&
+    record.registrationReceipt.acceptedRunVersion === command.expectedRunVersion + 1n;
+}
+/** The storage owner commits the supplied checkpoint revision and this decision
+ * together. Framework-owned bytes and native step interpretation remain opaque. */
+export function decideTrustedWorkflowRegisterContinuation(command: RegisterTrustedWorkflowContinuationCommand,
+  input: CurrentTaskSystemRunAttemptDecisionInput): Result.Result<CurrentTaskRunAttemptDecision<TrustedWorkflowContinuationOutcome>, RunAttemptDecisionErrorV1> {
+  const current = input.current;
+  if (current.definitionReference.generation !== "trusted_workflow" || command.runId !== current.runId || input.attemptGrantCandidate !== null)
+    return Result.fail(continuationTransitionError(command.type, current));
+  if (current.continuation !== undefined) return sameContinuationRegistration(current.continuation, command)
+    ? Result.succeed(idempotentDecision(current.continuation.registrationReceipt)) : Result.fail(continuationTransitionError(command.type, current));
+  if (current.phase !== "executing" || current.currentAttempt.attemptId !== command.attemptId ||
+    current.currentAttempt.executionFence !== command.executionFence || current.runVersion !== command.expectedRunVersion ||
+    current.cancellation.kind !== "not_requested" || input.databaseNowMs >= current.currentAttempt.lease.expiresAtMs ||
+    input.databaseNowMs - current.currentAttempt.grantedAtMs >= current.boundPolicy.maximumDurationMs ||
+    current.currentAttempt.attemptNumber >= current.boundPolicy.runAttempt.retry.maxAttempts)
+    return Result.fail(continuationTransitionError(command.type, current));
+  return Result.gen(function* () {
+    const nextVersion = yield* incrementRunVersion(command.type, current);
+    const attempt = activeAttempt(current.currentAttempt), base = effectBase(current, nextVersion);
+    const outcome: TrustedWorkflowContinuationOutcome = { kind: "continuation_waiting", waitId: command.waitId, resolution: null };
+    const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{ ...evidenceBase(current, nextVersion, input.databaseNowMs, "continuation_waiting"),
+      kind: "workflow_continuation", operation: command.type, waitId: command.waitId, attempt, outcome,
+      checkpoint: command.checkpoint, nativeStartedAtMs: command.nativeStartedAtMs, timeoutMs: command.timeoutMs, deadlineAtMs: command.deadlineAtMs }];
+    const effects: readonly CurrentTaskRequestedEffect[] = [
+      { ...base, kind: "cancel_obsolete_lease_wake", attemptId: attempt.attemptId, executionFence: attempt.executionFence, obsoleteLeaseVersion: current.currentAttempt.lease.version },
+      { ...base, kind: "notify_current_state" },
+    ];
+    return yield* finalizeCommit({ operation: command.type, current, nextVersion, observedAtMs: input.databaseNowMs, evidence, effects, outcome,
+      draft: (cursor, receipt) => ({ ...commonBase(current, nextVersion, cursor), phase: "continuation_waiting", cancellation: current.cancellation,
+        continuation: { waitId: command.waitId, checkpoint: command.checkpoint, nativeStartedAtMs: command.nativeStartedAtMs,
+          timeoutMs: command.timeoutMs, deadlineAtMs: command.deadlineAtMs, registeredAtMs: input.databaseNowMs,
+          suspendedAttempt: attempt, suspendedAttemptAcceptedRunVersion: Brand.nominal<TaskRunVersionV1>()(current.currentAttempt.grantBasisRunVersion + 1n), suspendedComputeProfile: current.currentAttempt.computeProfile, resolution: null,
+          registrationReceipt: receipt, resolutionReceipt: null } }),
+      acceptance: accepted => ({ kind: "workflow_continuation", accepted }), validateCandidate: trustedDecisionInput(input, command.type).validateCandidate,
+    });
+  });
+}
+function resolveTrustedWorkflowContinuation(command: ResolveTrustedWorkflowContinuationCommand, input: CurrentTaskSystemRunAttemptDecisionInput) {
+  const current = input.current, continuation = current.continuation;
+  const kind = command.type === "confirm_continuation" ? "confirmed" as const : "timeout" as const;
+  const unchanged = (reason: Extract<TrustedWorkflowContinuationOutcome, { readonly kind: "current" }>["reason"]) =>
+    Result.succeed(currentDecision<TrustedWorkflowContinuationOutcome>({ kind: "current", reason }));
+  if (current.definitionReference.generation !== "trusted_workflow" || command.runId !== current.runId || input.attemptGrantCandidate !== null)
+    return Result.fail(continuationTransitionError(command.type, current));
+  if (continuation === undefined) return unchanged("not_waiting");
+  if (continuation.waitId !== command.waitId) return unchanged("wait_mismatch");
+  if (continuation.resolution !== null) return continuation.resolution.kind === kind && continuation.resolutionReceipt !== null
+    ? Result.succeed(idempotentDecision(continuation.resolutionReceipt)) : unchanged("already_resolved");
+  if (current.phase !== "continuation_waiting") return unchanged("not_waiting");
+  // Native step success checks stored WAITING/TIMEOUT, not wall time. A late
+  // confirmation may win before timeout processing. Timeout itself is strict >.
+  if (kind === "timeout" && input.databaseNowMs <= continuation.deadlineAtMs) return unchanged("not_expired");
+  return Result.gen(function* () {
+    const nextVersion = yield* incrementRunVersion(command.type, current), base = effectBase(current, nextVersion);
+    const outcome: TrustedWorkflowContinuationOutcome = { kind: "continuation_ready", waitId: command.waitId, resolution: kind };
+    const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{ ...evidenceBase(current, nextVersion, input.databaseNowMs, "continuation_ready"),
+      kind: "workflow_continuation", operation: command.type, waitId: command.waitId, attempt: continuation.suspendedAttempt, outcome }];
+    return yield* finalizeCommit({ operation: command.type, current, nextVersion, observedAtMs: input.databaseNowMs, evidence,
+      effects: [{ ...base, kind: "notify_current_state" }], outcome,
+      draft: (cursor, receipt) => ({ ...commonBase(current, nextVersion, cursor), phase: "continuation_ready", cancellation: current.cancellation,
+        ...(kind === "timeout" ? { executionMode: "control" as const } : {}),
+        continuation: { ...continuation, resolution: { kind, observedAtMs: input.databaseNowMs }, resolutionReceipt: receipt } }),
+      acceptance: accepted => ({ kind: "workflow_continuation", accepted }), validateCandidate: trustedDecisionInput(input, command.type).validateCandidate,
+    });
+  });
+}
+export const decideTrustedWorkflowConfirmContinuation = (command: ResolveTrustedWorkflowContinuationCommand, input: CurrentTaskSystemRunAttemptDecisionInput) =>
+  command.type === "confirm_continuation" ? resolveTrustedWorkflowContinuation(command, input) : Result.fail(continuationTransitionError("confirm_continuation", input.current));
+export const decideTrustedWorkflowExpireContinuation = (command: ResolveTrustedWorkflowContinuationCommand, input: CurrentTaskSystemRunAttemptDecisionInput) =>
+  command.type === "expire_continuation" ? resolveTrustedWorkflowContinuation(command, input) : Result.fail(continuationTransitionError("expire_continuation", input.current));
+function cancelTrustedWorkflowContinuation(command: RequestCancellationCommandV1, input: CurrentTaskSystemRunAttemptDecisionInput): Result.Result<CurrentTaskRunAttemptDecision<TrustedWorkflowContinuationOutcome>, RunAttemptDecisionErrorV1> {
+  const current = input.current;
+  if (current.definitionReference.generation !== "trusted_workflow" || command.runId !== current.runId ||
+    (current.phase !== "continuation_waiting" && current.phase !== "continuation_ready" && current.phase !== "ready" && current.phase !== "retry_waiting") || current.continuation === undefined || input.attemptGrantCandidate !== null)
+    return Result.fail(continuationTransitionError(command.type, current));
+  const continuation = current.continuation;
+  if (current.cancellation.kind === "requested") return continuation.cancellationReceipt !== undefined && cancellationReasonEqual(current.cancellation.reason, command.reason)
+    ? Result.succeed(idempotentDecision(continuation.cancellationReceipt)) : Result.succeed(currentDecision({ kind: "current", reason: "already_resolved" }));
+  return Result.gen(function* () {
+    const nextVersion = yield* incrementRunVersion(command.type, current);
+    if (current.cancellation.generation >= MAX_COUNTER) return yield* Result.fail(new TaskRunAttemptCounterExhaustedError({ operation: command.type, runId: current.runId, counter: "cancellation_generation" }));
+    const cancellation = { kind: "requested" as const, generation: Brand.nominal<import("../Model.js").TaskCancellationGenerationV1>()(current.cancellation.generation + 1n),
+      requestedAtMs: input.databaseNowMs, reason: command.reason };
+    const outcome: TrustedWorkflowContinuationOutcome = { kind: "continuation_ready", waitId: continuation.waitId, resolution: "cancelled" };
+    const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{ ...evidenceBase(current, nextVersion, input.databaseNowMs, "continuation_ready"),
+      kind: "workflow_continuation", operation: command.type, waitId: continuation.waitId, attempt: continuation.suspendedAttempt, outcome }];
+    return yield* finalizeCommit({ operation: command.type, current, nextVersion, observedAtMs: input.databaseNowMs, evidence,
+      effects: [{ ...effectBase(current, nextVersion), kind: "notify_current_state" }], outcome,
+      draft: (cursor, receipt) => ({ ...commonBase(current, nextVersion, cursor), phase: "continuation_ready", executionMode: "control", cancellation,
+        continuation: { ...continuation, cancellationReceipt: receipt,
+          ...(current.phase === "retry_waiting" ? { resumeAfterAttempt: current.retry.previousAttempt } :
+            current.phase === "ready" && current.ready.kind === "immediate_retry" ? { resumeAfterAttempt: current.ready.acceptedRetry.previousAttempt } : {}),
+          resolution: continuation.resolution ?? { kind: "cancelled", observedAtMs: input.databaseNowMs },
+          resolutionReceipt: continuation.resolutionReceipt ?? receipt } }),
+      acceptance: accepted => ({ kind: "workflow_continuation", accepted }), validateCandidate: trustedDecisionInput(input, command.type).validateCandidate,
+    });
+  });
+}

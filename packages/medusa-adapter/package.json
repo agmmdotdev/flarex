@@ -11,6 +11,7 @@
     "./internal/product-attempt": "./src/modules/product/attempt.ts"
   },
   "dependencies": {
+    "@flarex/durable-task": "workspace:*",
     "@flarex/analysis": "workspace:*",
     "@flarex/payload-adapter": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
@@ -21,6 +22,7 @@
     "@medusajs/fulfillment": "workspace:*",
     "@medusajs/link-modules": "workspace:*",
     "@medusajs/modules-sdk": "workspace:*",
+    "@medusajs/orchestration": "workspace:*",
     "@medusajs/pricing": "workspace:*",
     "@medusajs/product": "workspace:*",
     "@medusajs/sales-channel": "workspace:*",

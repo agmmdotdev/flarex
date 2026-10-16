@@ -1,3 +1,4 @@
+import type { TrustedWorkflowContinuation, TrustedWorkflowContinuationAggregate, TrustedWorkflowContinuationAcceptance, TrustedWorkflowContinuationEvidence } from "./WorkflowContinuation.js";
 // Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
 // upstream/internal-packages/run-engine/src/engine/eventBus.ts. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
 import type { Brand } from "effect";
@@ -477,10 +478,16 @@ export type ApplicationRunAttemptStateV1 = ReplaceLegacyDefinitionIdentity<
   RunAttemptStateV1,
   ApplicationDefinitionIdentityV1
 >;
+export type CurrentRunAttemptPhase = RunAttemptPhaseV1 | "continuation_waiting" | "continuation_ready";
 export type CurrentRunAttemptState = ReplaceLegacyDefinitionIdentity<
   RunAttemptStateV1,
   CurrentDefinitionIdentity
->;
+> | Readonly<{ version: "flarex.run-attempt-state.v1"; runId: TaskRunIdV1;
+  definitionReference: TaskDefinitionReference; runVersion: TaskRunVersionV1;
+  phase: "continuation_waiting" | "continuation_ready"; continuation: TrustedWorkflowContinuation;
+  cancellation: TaskCancellationNotRequestedV1 | TaskCancellationRequestedV1 }>;
+type WithCurrentState<Value> = Value extends { readonly state: unknown }
+  ? Omit<Value, "state"> & { readonly state: CurrentRunAttemptState } : Value;
 
 export interface RunAttemptInspectionV1 {
   readonly version: "flarex.run-attempt-inspection.v1";
@@ -526,10 +533,10 @@ export type ApplicationStartAttemptOutcomeV1 = ReplaceLegacyDefinitionIdentity<
   StartAttemptOutcomeV1,
   ApplicationDefinitionIdentityV1
 >;
-export type CurrentStartAttemptOutcome = ReplaceLegacyDefinitionIdentity<
+export type CurrentStartAttemptOutcome = WithCurrentState<ReplaceLegacyDefinitionIdentity<
   StartAttemptOutcomeV1,
   CurrentDefinitionIdentity
->;
+>>;
 
 export type HeartbeatAttemptCurrentReasonV1 =
   | "phase_not_active"
@@ -555,10 +562,10 @@ export type ApplicationHeartbeatAttemptOutcomeV1 = ReplaceLegacyDefinitionIdenti
   HeartbeatAttemptOutcomeV1,
   ApplicationDefinitionIdentityV1
 >;
-export type CurrentHeartbeatAttemptOutcome = ReplaceLegacyDefinitionIdentity<
+export type CurrentHeartbeatAttemptOutcome = WithCurrentState<ReplaceLegacyDefinitionIdentity<
   HeartbeatAttemptOutcomeV1,
   CurrentDefinitionIdentity
->;
+>>;
 
 export type TaskRetryDeliveryV1 = "immediate" | "durable";
 export type TaskRunSucceededTerminalV1 = Extract<
@@ -634,10 +641,10 @@ export type ApplicationCompleteAttemptOutcomeV1 = ReplaceLegacyDefinitionIdentit
   CompleteAttemptOutcomeV1,
   ApplicationDefinitionIdentityV1
 >;
-export type CurrentCompleteAttemptOutcome = ReplaceLegacyDefinitionIdentity<
+export type CurrentCompleteAttemptOutcome = WithCurrentState<ReplaceLegacyDefinitionIdentity<
   CompleteAttemptOutcomeV1,
   CurrentDefinitionIdentity
->;
+>>;
 
 export type RequestCancellationCurrentReasonV1 =
   | "already_requested"
@@ -662,10 +669,10 @@ export type ApplicationRequestCancellationOutcomeV1 = ReplaceLegacyDefinitionIde
   RequestCancellationOutcomeV1,
   ApplicationDefinitionIdentityV1
 >;
-export type CurrentRequestCancellationOutcome = ReplaceLegacyDefinitionIdentity<
+export type CurrentRequestCancellationOutcome = WithCurrentState<ReplaceLegacyDefinitionIdentity<
   RequestCancellationOutcomeV1,
   CurrentDefinitionIdentity
->;
+>>;
 
 export type HandleLeaseExpiryCurrentReasonV1 =
   | "phase_not_active"
@@ -697,10 +704,10 @@ export type ApplicationHandleLeaseExpiryOutcomeV1 = ReplaceLegacyDefinitionIdent
   HandleLeaseExpiryOutcomeV1,
   ApplicationDefinitionIdentityV1
 >;
-export type CurrentHandleLeaseExpiryOutcome = ReplaceLegacyDefinitionIdentity<
+export type CurrentHandleLeaseExpiryOutcome = WithCurrentState<ReplaceLegacyDefinitionIdentity<
   HandleLeaseExpiryOutcomeV1,
   CurrentDefinitionIdentity
->;
+>>;
 
 export interface TaskFailurePolicyDecisionEvidenceV1 {
   readonly failure: TaskExecutionFailureV1;
@@ -943,19 +950,24 @@ export type ApplicationTaskRunAttemptEvidenceV1 =
     TaskRunAttemptEvidenceV1,
     ApplicationDefinitionIdentityV1
   >;
-export type CurrentTaskRunAttemptEvidence = ReplaceLegacyDefinitionIdentity<
+type CurrentEvidence<Value> = Value extends { readonly resultingPhase: unknown }
+  ? Omit<Value, "resultingPhase" | "fromPhase"> & { readonly resultingPhase: CurrentRunAttemptPhase } &
+    (Value extends { readonly fromPhase: unknown } ? { readonly fromPhase: "ready" | "retry_waiting" | "continuation_ready" } : {})
+  : Value;
+export type CurrentTaskRunAttemptEvidence = CurrentEvidence<ReplaceLegacyDefinitionIdentity<
   TaskRunAttemptEvidenceV1,
   CurrentDefinitionIdentity
->;
+>> | TrustedWorkflowContinuationEvidence;
 
 export interface RunAttemptAcceptedReceiptFor<
   Outcome,
   Evidence,
   RequestedEffect,
+  Phase extends CurrentRunAttemptPhase = RunAttemptPhaseV1,
 > {
   readonly observedAtMs: TaskDatabaseTimeMsV1;
   readonly acceptedRunVersion: TaskRunVersionV1;
-  readonly resultingPhase: RunAttemptPhaseV1;
+  readonly resultingPhase: Phase;
   readonly outcome: Outcome;
   readonly evidence: readonly Evidence[];
   readonly requestedEffects: readonly RequestedEffect[];
@@ -975,7 +987,7 @@ export type ApplicationTaskRunAttemptAcceptedReceiptV1<Outcome> =
 export interface CurrentTaskRunAttemptAcceptedReceipt<Outcome> {
   readonly observedAtMs: TaskDatabaseTimeMsV1;
   readonly acceptedRunVersion: TaskRunVersionV1;
-  readonly resultingPhase: RunAttemptPhaseV1;
+  readonly resultingPhase: CurrentRunAttemptPhase;
   readonly outcome: Outcome;
   readonly evidence: readonly CurrentTaskRunAttemptEvidence[];
   readonly requestedEffects: readonly CurrentPersistedTaskRequestedEffect[];
@@ -1056,11 +1068,11 @@ export type ApplicationTaskRunAttemptMutationAcceptanceV1 =
     TaskRunAttemptMutationAcceptanceV1,
     ApplicationDefinitionIdentityV1
   >;
-export type CurrentTaskRunAttemptMutationAcceptance =
-  ReplaceLegacyDefinitionIdentity<
-    TaskRunAttemptMutationAcceptanceV1,
-    CurrentDefinitionIdentity
-  >;
+type CurrentAcceptance<Value> = Value extends { readonly accepted: { readonly outcome: infer Outcome } }
+  ? Omit<Value, "accepted"> & { readonly accepted: CurrentTaskRunAttemptAcceptedReceipt<Outcome> } : Value;
+export type CurrentTaskRunAttemptMutationAcceptance = CurrentAcceptance<
+  ReplaceLegacyDefinitionIdentity<TaskRunAttemptMutationAcceptanceV1, CurrentDefinitionIdentity>
+> | TrustedWorkflowContinuationAcceptance;
 
 export interface TaskAttemptCompletionReplayV1 {
   readonly attempt: TaskTerminalAttemptRefV1;
@@ -1073,10 +1085,11 @@ export type ApplicationTaskAttemptCompletionReplayV1 =
     TaskAttemptCompletionReplayV1,
     ApplicationDefinitionIdentityV1
   >;
-export type CurrentTaskAttemptCompletionReplay = ReplaceLegacyDefinitionIdentity<
-  TaskAttemptCompletionReplayV1,
-  CurrentDefinitionIdentity
->;
+export interface CurrentTaskAttemptCompletionReplay {
+  readonly attempt: TaskTerminalAttemptRefV1;
+  readonly completion: TaskAttemptCompletionV1;
+  readonly accepted: CurrentTaskRunAttemptAcceptedReceipt<AcceptedCompleteAttemptOutcomeV1>;
+}
 
 function taskResultDigestBytesEqualV1(left: Uint8Array, right: Uint8Array): boolean {
   if (left.byteLength !== right.byteLength) return false;
@@ -1126,10 +1139,14 @@ export interface TaskRunAttemptAggregateBaseV1 {
   readonly completionReplays: readonly TaskAttemptCompletionReplayV1[];
   readonly requestedEffectCursor: TaskRequestedEffectCursorV1;
 }
-export type CurrentTaskRunAttemptAggregateBase = ReplaceLegacyDefinitionIdentity<
-  TaskRunAttemptAggregateBaseV1,
-  CurrentDefinitionIdentity
->;
+export type CurrentTaskRunAttemptAggregateBase = Omit<ReplaceLegacyDefinitionIdentity<
+  TaskRunAttemptAggregateBaseV1, CurrentDefinitionIdentity
+>, "lastLifecycleAcceptance" | "completionReplays"> & Readonly<{
+  lastLifecycleAcceptance: CurrentTaskRunAttemptMutationAcceptance | null;
+  completionReplays: readonly CurrentTaskAttemptCompletionReplay[];
+  continuation?: TrustedWorkflowContinuation;
+  executionMode?: "control";
+}>;
 
 export interface TaskRunAttemptReadyAggregateV1 extends TaskRunAttemptAggregateBaseV1 {
   readonly phase: "ready";
@@ -1187,10 +1204,9 @@ export type ApplicationTaskRunAttemptAggregateV1 =
     TaskRunAttemptAggregateV1,
     ApplicationDefinitionIdentityV1
   >;
-export type CurrentTaskRunAttemptAggregate = ReplaceLegacyDefinitionIdentity<
-  TaskRunAttemptAggregateV1,
-  CurrentDefinitionIdentity
->;
+type WithCurrentBase<Value> = Value extends TaskRunAttemptAggregateBaseV1
+  ? Omit<ReplaceLegacyDefinitionIdentity<Value, CurrentDefinitionIdentity>, keyof CurrentTaskRunAttemptAggregateBase> & CurrentTaskRunAttemptAggregateBase : never;
+export type CurrentTaskRunAttemptAggregate = WithCurrentBase<TaskRunAttemptAggregateV1> | TrustedWorkflowContinuationAggregate;
 
 export interface StartAttemptCommandV1 {
   readonly type: "start_attempt";
@@ -1278,6 +1294,7 @@ export type RunAttemptDecisionFor<
   Aggregate,
   Evidence,
   RequestedEffect,
+  Phase extends CurrentRunAttemptPhase = RunAttemptPhaseV1,
 > =
   | {
       readonly kind: "no_change";
@@ -1285,7 +1302,8 @@ export type RunAttemptDecisionFor<
       readonly replay: RunAttemptAcceptedReceiptFor<
         Outcome,
         Evidence,
-        RequestedEffect
+        RequestedEffect,
+        Phase
       >;
     }
   | {
@@ -1342,10 +1360,16 @@ export type RunAttemptOperationV1 =
   | "request_cancellation"
   | "handle_lease_expiry"
   | "inspect_current_attempt";
+export type CurrentRunAttemptOperation = RunAttemptOperationV1
+  | "register_continuation"
+  | "confirm_continuation"
+  | "expire_continuation";
 export type RunAttemptMutationOperationV1 = Exclude<
   RunAttemptOperationV1,
   "inspect_current_attempt"
 >;
+
+export type CurrentRunAttemptMutationOperation = Exclude<CurrentRunAttemptOperation, "inspect_current_attempt">;
 
 export interface TaskSystemRunAttemptInspectionRequestV1 {
   readonly operation: "inspect_current_attempt";
@@ -1448,6 +1472,10 @@ export function projectCurrentRunAttemptState(
 ): CurrentRunAttemptState {
   const base = projectCurrentRunAttemptStateBase(aggregate);
   switch (aggregate.phase) {
+    case "continuation_waiting":
+    case "continuation_ready":
+      return snapshotRunAttemptDomainValueV1({ ...base, phase: aggregate.phase,
+        continuation: aggregate.continuation, cancellation: aggregate.cancellation });
     case "ready":
       return snapshotRunAttemptDomainValueV1({
         ...base,

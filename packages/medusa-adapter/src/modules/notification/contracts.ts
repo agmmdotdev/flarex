@@ -1,6 +1,8 @@
 import { Result, Schema } from "effect";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { SchemaTable } from "../../schema/model";
+import { NotificationStatus } from "@medusajs/utils/notification/common";
+import { jsonEqual } from "flarex-protocol/json";
 import { commerceDecoder, commerceRowDecoder } from "../../value/decoder";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
@@ -25,6 +27,39 @@ export const NotificationLocalProvider = Schema.Struct({ id: Schema.Literal("loc
   name: Schema.Literal("local"), is_enabled: Schema.Literal(true), channels: Schema.Tuple([Schema.Literal("feed")]),
 });
 export const decodeNotificationLocalProvider = commerceDecoder(NotificationLocalProvider, "unsupportedProfile");
+export const LocalFeedDispatchData = Schema.Struct({ ...LocalFeedNotificationInput.fields,
+  id: Id, provider_id: Schema.optionalKey(Schema.Literal("local")) });
+export const NotificationTerminalUpdate = Schema.Struct({ ...LocalFeedDispatchData.fields,
+  status: Schema.Literals([NotificationStatus.SUCCESS, NotificationStatus.FAILURE]), external_id: Schema.optionalKey(Schema.String) });
+export const NotificationTerminalUpdates = Schema.Array(NotificationTerminalUpdate).check(Schema.isMaxLength(1));
+export const decodeNotificationTerminalUpdates = commerceDecoder(NotificationTerminalUpdates, "invalidInput");
+export const NotificationPhaseMessage = Schema.Struct({ name: Schema.String,
+  metadata: Schema.Struct({ source: Schema.Literal("notification"), object: Schema.Literal("notification"),
+    action: Schema.Literals(["created", "updated"]) }), data: Schema.Struct({ id: Id }),
+});
+export const NotificationPhaseMessages = Schema.Array(NotificationPhaseMessage).check(Schema.isMaxLength(1));
+
+/** Compile full row shape and value representation from the checked DML.
+ * Storage still owns defaults, required writes, references and constraints. */
+function compileCompleteRow(table: SchemaTable) {
+  return Result.gen(function* () {
+    const values: { readonly name: string; readonly decode: (input: unknown) => Result.Result<unknown, CommerceTransactionError> }[] = [];
+    for (const column of table.columns) {
+      const scalar = column.type === "id" || column.type === "text" || column.type === "dateTime" ? Schema.String :
+        column.type === "boolean" ? Schema.Boolean : column.type === "json" ? Schema.Json :
+          column.type === "array" ? Schema.Array(Schema.String) :
+            column.type === "enum" && column.options?.choices !== undefined ? Schema.Literals(column.options.choices) : undefined;
+      if (scalar === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+      values.push({ name: column.name, decode: commerceDecoder(column.nullable ? Schema.NullOr(scalar) : scalar, "storedCorruption") });
+    }
+    const decodeShape = commerceDecoder(Schema.Record(Schema.Literals(table.columns.map(column => column.name)), Schema.Json), "storedCorruption");
+    return (input: unknown): Result.Result<JsonObject, CommerceTransactionError> => Result.gen(function* () {
+      const row = yield* decodeShape(input);
+      for (const value of values) yield* value.decode(row[value.name]);
+      return row;
+    });
+  });
+}
 
 /** Column names come from the admitted DML. Persistence retains scalar value,
  * default, lifecycle, FK and uniqueness enforcement; phase schemas own only
@@ -42,16 +77,40 @@ export function compileNotificationPhaseContracts(notification: SchemaTable, pro
       Schema.Record(Schema.Literals(arrayFields), Schema.Array(Schema.String)), [Schema.Record(Schema.String, Schema.Json)],
     ), "storedCorruption");
     const decodeProviderRow = (input: unknown) => providerRow(input).pipe(Result.flatMap(decodeProviderArrays));
-    const PreparedData = Schema.Struct({ ...LocalFeedNotificationInput.fields, id: Id, provider_id: Schema.Literal("local") });
-    const ProviderRow = Schema.StructWithRest(NotificationLocalProvider, [Schema.Record(Schema.String, Schema.Json)]);
-    const PendingRow = Schema.StructWithRest(Schema.Struct({ id: Id, to: Schema.String, channel: Schema.Literal("feed"),
-      provider_id: Schema.Literal("local"), status: Schema.Literal("pending"),
+    const decodeCompleteNotification = yield* compileCompleteRow(notification);
+    const decodeCompleteProvider = yield* compileCompleteRow(provider);
+    const ProviderRow = Schema.StructWithRest(Schema.Struct({ id: Schema.Literal("local"), handle: Schema.Literal("local"),
+      name: Schema.Literal("local"), is_enabled: Schema.Boolean, channels: Schema.Array(Schema.Literal("feed")).check(Schema.isMaxLength(1)),
     }), [Schema.Record(Schema.String, Schema.Json)]);
-    const Prepared = Schema.Struct({ notificationsToProcess: Schema.Array(Schema.Struct({ provider: ProviderRow, data: PreparedData })).check(Schema.isMaxLength(1)),
+    const PendingRow = Schema.StructWithRest(Schema.Struct({ id: Id, to: Schema.String, channel: Schema.Literal("feed"),
+      provider_id: Schema.NullOr(Schema.Literal("local")), status: Schema.Literal("pending"),
+    }), [Schema.Record(Schema.String, Schema.Json)]);
+    const Prepared = Schema.Struct({ notificationsToProcess: Schema.Array(Schema.Struct({ provider: Schema.optionalKey(ProviderRow), data: LocalFeedDispatchData })).check(Schema.isMaxLength(1)),
       createdNotifications: Schema.Array(PendingRow).check(Schema.isMaxLength(1)),
     });
+    const decodePreparedShape = commerceDecoder(Prepared, "storedCorruption");
+    const decodePrepared = (input: unknown) => decodePreparedShape(input).pipe(Result.flatMap(value => Result.gen(function* () {
+      if (value.notificationsToProcess.length !== value.createdNotifications.length) return yield* Result.fail(commerceError("storedCorruption"));
+      for (const [index, entry] of value.notificationsToProcess.entries()) {
+        const row = value.createdNotifications[index];
+        if (row === undefined || row.id !== entry.data.id || row.provider_id !== (entry.data.provider_id ?? null) ||
+          entry.provider?.id !== entry.data.provider_id) return yield* Result.fail(commerceError("storedCorruption"));
+        for (const [key, field] of Object.entries(entry.data)) {
+          if (field !== undefined && (row[key] === undefined || !jsonEqual(row[key], field)))
+            return yield* Result.fail(commerceError("storedCorruption"));
+        }
+        yield* decodeCompleteNotification(row);
+        if (entry.provider !== undefined) yield* decodeCompleteProvider(entry.provider);
+      }
+      return value;
+    })));
+    const decodeRowArray = commerceDecoder(Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Id }),
+      [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(1)), "storedCorruption");
+    const decodeRows = (input: unknown) => decodeRowArray(input)
+      .pipe(Result.flatMap(rows => Result.gen(function* () { for (const row of rows) yield* decodeCompleteNotification(row); return rows; })));
     return { input: LocalFeedNotificationsInput, prepared: Prepared, decodeInput: decodeLocalFeedNotificationsInput,
-      decodePrepared: commerceDecoder(Prepared, "storedCorruption"), decodeNotificationRow, decodeProviderRow,
+      decodePrepared, decodeNotificationRow, decodeProviderRow, decodeCompleteNotification, decodeCompleteProvider, decodeRows,
+      decodeDispatch: commerceDecoder(LocalFeedDispatchData, "storedCorruption"),
       decodeProvider: decodeNotificationLocalProvider };
   });
 }

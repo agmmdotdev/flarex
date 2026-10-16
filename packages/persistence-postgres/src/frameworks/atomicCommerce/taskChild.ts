@@ -6,8 +6,8 @@ import { fxSystemExternalEffectAttemptsV1 as effects } from "../../database/sche
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
-import { inspectTrustedWorkflowExecutionSubject, requireLiveTrustedWorkflowExecutionSubject,
-  TrustedWorkflowExecutionSubjectError, type TrustedWorkflowExecutionSubject } from "../../tasks/trustedWorkflowExecutionSubject";
+import { inspectTrustedWorkflowInterpreterSubject, requireLiveTrustedWorkflowExecutionSubject, requireLiveTrustedWorkflowInterpreterSubject,
+  TrustedWorkflowExecutionSubjectError, type TrustedWorkflowExecutionSubject, type TrustedWorkflowControlSubject, type TrustedWorkflowInterpreterSubject } from "../../tasks/trustedWorkflowExecutionSubject";
 import { commerceError } from "../commerceTransaction/model";
 import { canonicalizeJsonOutcome } from "../../values/jsonOutcome";
 import { projectCommerceRequestFailure } from "../commerceTransaction/request";
@@ -41,7 +41,8 @@ const projectSubjectFailure = (cause: TrustedWorkflowExecutionSubjectError) => c
   cause.reason === "storeFailure" ? "resourceFailure" : cause.reason === "storedCorruption" ? "storedCorruption" : "invalidAuthority", cause);
 
 export interface CapturedAtomicCommerceTaskChild {
-  readonly subject: TrustedWorkflowExecutionSubject;
+  readonly subject: TrustedWorkflowInterpreterSubject;
+  readonly permission: "workflow" | "control";
   readonly ordinal: bigint;
   readonly key: string;
   readonly subjectIdentitySha256: Uint8Array;
@@ -52,9 +53,10 @@ export interface CapturedAtomicCommerceTaskChild {
 
 /** Run/occurrence identity survives attempts. The authentic subject is still
  * checked inside every accepting transaction; these facts convey no live lease. */
-export const captureAtomicCommerceTaskChild = Effect.fn("AtomicCommerce.captureTaskChild")(
-  function* (subject: TrustedWorkflowExecutionSubject, rawOrdinal: bigint, eligibility?: PreparedCommitEventEligibility) {
-    const pins = yield* Effect.fromResult(inspectTrustedWorkflowExecutionSubject(subject)).pipe(Effect.mapError(projectSubjectFailure));
+const captureTaskChild = Effect.fn("AtomicCommerce.captureTaskChild")(
+  function* (subject: TrustedWorkflowInterpreterSubject, rawOrdinal: bigint, permission: "workflow" | "control", eligibility?: PreparedCommitEventEligibility) {
+    const pins = yield* Effect.fromResult(inspectTrustedWorkflowInterpreterSubject(subject)).pipe(Effect.mapError(projectSubjectFailure));
+    if (pins.executionMode !== permission) return yield* commerceError("invalidAuthority");
     const ordinal = yield* ordinalDecoder(rawOrdinal).pipe(Effect.mapError(cause => commerceError("invalidInput", cause)));
     if (eligibility !== undefined) yield* Effect.fromResult(inspectCommitEventEligibility(eligibility))
       .pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
@@ -68,11 +70,28 @@ export const captureAtomicCommerceTaskChild = Effect.fn("AtomicCommerce.captureT
       codec: "flarex.trusted-workflow.execution-subject.v1", scopeId: pins.scopeId,
       runId: pins.runId, attemptId: pins.attemptId, bindingSha256,
     }));
-    return Object.freeze({ subject, ordinal, key: `commerce/atomic/task/${encodeBytesToLowercaseHex(keyDigest)}`,
+    return Object.freeze({ subject, permission, ordinal, key: `commerce/atomic/task/${encodeBytesToLowercaseHex(keyDigest)}`,
       subjectIdentitySha256, executionFence: pins.executionFence,
+      // Permission authenticates this invocation; the logical occurrence and
+      // exact command/policy/arguments survive a later cleanup authority.
       identity: Object.freeze({ runId: pins.runId, bindingSha256 }), eligibility });
   },
 );
+
+export const captureAtomicCommerceTaskChild = Effect.fn("AtomicCommerce.captureOrdinaryTaskChild")(
+  (subject: TrustedWorkflowExecutionSubject, ordinal: bigint, eligibility?: PreparedCommitEventEligibility) => captureTaskChild(subject, ordinal, "workflow", eligibility));
+export const captureAtomicCommerceControlChild = Effect.fn("AtomicCommerce.captureControlChild")(
+  (subject: TrustedWorkflowControlSubject, ordinal: bigint, eligibility?: PreparedCommitEventEligibility) => captureTaskChild(subject, ordinal, "control", eligibility));
+
+const requireTaskChildSubject = Effect.fn("AtomicCommerce.requireChildSubject")(function* (
+  tx: FlarexMetadataTransaction, child: CapturedAtomicCommerceTaskChild, authority: TrustedScopeAuthority,
+) {
+  const pins = yield* (child.permission === "workflow"
+    ? requireLiveTrustedWorkflowExecutionSubject(tx, child.subject, authority)
+    : requireLiveTrustedWorkflowInterpreterSubject(tx, child.subject, authority)).pipe(Effect.mapError(projectSubjectFailure));
+  if (pins.executionMode !== child.permission) return yield* commerceError("invalidAuthority");
+  return pins;
+});
 
 const childWhere = (scopeId: TrustedScopeAuthority["scopeId"], key: string) => and(
   eq(effects.scopeId, scopeId), eq(effects.effectKind, "child_commerce"), eq(effects.stableEffectKey, key));
@@ -82,7 +101,7 @@ const childWhere = (scopeId: TrustedScopeAuthority["scopeId"], key: string) => a
 export const lockAtomicCommerceTaskChild = Effect.fn("AtomicCommerce.lockTaskChild")(
   function* (tx: FlarexMetadataTransaction, child: CapturedAtomicCommerceTaskChild,
     authority: TrustedScopeAuthority, commandMilliseconds: number) {
-    const live = yield* requireLiveTrustedWorkflowExecutionSubject(tx, child.subject, authority).pipe(Effect.mapError(projectSubjectFailure));
+    const live = yield* requireTaskChildSubject(tx, child, authority);
     if (live.remainingLeaseMs < commandMilliseconds + trustedWorkflowChildSettlementReserveMs)
       return yield* commerceError("deadlineExceeded");
     const rows = yield* statement(tx.select().from(effects).where(childWhere(authority.scopeId, child.key)).for("update").limit(2));
@@ -144,7 +163,7 @@ export const confirmAtomicCommerceTaskChild = Effect.fn("AtomicCommerce.confirmT
 
 export const requireAtomicCommerceTaskChildSettlement = Effect.fn("AtomicCommerce.requireTaskChildSettlement")(
   function* (tx: FlarexMetadataTransaction, child: CapturedAtomicCommerceTaskChild, authority: TrustedScopeAuthority) {
-    const live = yield* requireLiveTrustedWorkflowExecutionSubject(tx, child.subject, authority).pipe(Effect.mapError(projectSubjectFailure));
+    const live = yield* requireTaskChildSubject(tx, child, authority);
     if (live.remainingLeaseMs < trustedWorkflowChildSettlementReserveMs) return yield* commerceError("deadlineExceeded");
   },
 );

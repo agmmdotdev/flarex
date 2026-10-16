@@ -11,7 +11,8 @@ const source = "packages/medusa-currency/src/models/currency.ts";
 
 describe("exact Currency promotion", () => {
   it("authenticates source, transformed inputs, package exports, and available build outputs", () => {
-    expect(promotion.packages).toHaveLength(20);
+    expect(promotion.packages).toHaveLength(21);
+    expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-orchestration")).toBe(true);
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-inventory")).toBe(true);
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-stock-location")).toBe(true);
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-notification")).toBe(true);

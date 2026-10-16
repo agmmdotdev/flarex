@@ -20,7 +20,11 @@ export const runNativeMedusaWorkflow = Effect.fn("MedusaWorkflow.runNative")(fun
     invoke: work => Effect.tryPromise({
       try: signal => owner.callback(() => Promise.resolve(work()), signal),
       catch: cause => cause instanceof CommerceTransactionError ? cause : commerceError(cause instanceof WorkflowDefinitionError ? "unsupportedProfile" : "adapterFailure", cause),
-    }),
+    }).pipe(
+      // Record the native rejection before fail-fast parallel execution aborts
+      // sibling callbacks and their queued DAL runners.
+      Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)),
+    ),
   })).pipe(
     Effect.catchTag("WorkflowDefinitionError", cause => ctx.refuse(commerceError("unsupportedProfile", cause))),
     Effect.flatMap(value => {
@@ -31,7 +35,6 @@ export const runNativeMedusaWorkflow = Effect.fn("MedusaWorkflow.runNative")(fun
       return owner.hasPending() ? ctx.refuse(commerceError("overlappingOperation"))
         : ctx.capture(value === undefined ? null : value, captureCommerceInput);
     }),
-    Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)),
     Effect.ensuring(owner.close),
   );
 });

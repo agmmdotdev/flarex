@@ -24,6 +24,7 @@ import type {
 } from "flarex-protocol/internal/application-action-authority-v1";
 import { bytea, nonBlankText } from "./primitives";
 import { fxSystemScopeClocks } from "./scope";
+import type { Json } from "flarex-protocol/json";
 
 /**
  * Private, route-independent direct edge-action invocation authority.
@@ -262,7 +263,7 @@ export const fxSystemExternalEffectAttemptsV1 = pgTable(
     subjectFence: bigint("subject_fence", { mode: "bigint" }).notNull(),
     effectOrdinal: bigint("effect_ordinal", { mode: "bigint" }).notNull(),
     effectKind: text("effect_kind").$type<
-      "outbound_http" | "child_mutation" | "child_commerce"
+      "outbound_http" | "child_mutation" | "child_commerce" | "trusted_callback"
     >().notNull(),
     stableEffectKey: text("stable_effect_key").notNull(),
     requestIdentitySha256: bytea("request_identity_sha256").notNull(),
@@ -278,6 +279,15 @@ export const fxSystemExternalEffectAttemptsV1 = pgTable(
     childCommerceCommandName: text("child_commerce_command_name"),
     childCommerceArgumentsSha256: bytea("child_commerce_arguments_sha256"),
     childCommercePolicySha256: bytea("child_commerce_policy_sha256"),
+    trustedCallbackId: text("trusted_callback_id"),
+    trustedCallbackRevision: text("trusted_callback_revision"),
+    trustedCallbackBindingSha256: bytea("trusted_callback_binding_sha256"),
+    trustedCallbackInputJson: jsonb("trusted_callback_input_json").$type<Json>(),
+    trustedCallbackInputSha256: bytea("trusted_callback_input_sha256"),
+    trustedCallbackPolicyJson: jsonb("trusted_callback_policy_json").$type<Json>(),
+    trustedCallbackPolicySha256: bytea("trusted_callback_policy_sha256"),
+    trustedCallbackOutcomeJson: jsonb("trusted_callback_outcome_json").$type<Json>(),
+    trustedCallbackOutcomeSha256: bytea("trusted_callback_outcome_sha256"),
     state: text("state").$type<
       "prepared" | "failed_before_dispatch" | "dispatching" | "confirmed" |
         "uncertain"
@@ -312,13 +322,15 @@ export const fxSystemExternalEffectAttemptsV1 = pgTable(
     }).onDelete("restrict"),
     uniqueIndex("fx_external_effect_commerce_key_idx").on(table.scopeUuid, table.stableEffectKey)
       .where(sql`${table.effectKind} = 'child_commerce'`),
+    uniqueIndex("fx_external_effect_callback_key_idx").on(table.scopeUuid, table.stableEffectKey)
+      .where(sql`${table.effectKind} = 'trusted_callback'`),
     check(
       "fx_external_effect_attempt_v1_identity_check",
       sql`${table.subjectKind} in ('direct_action', 'durable_task_attempt')
         and octet_length(${table.subjectIdentitySha256}) = 32
         and ${table.subjectFence} >= 1
         and ${table.effectOrdinal} >= 1
-        and ${table.effectKind} in ('outbound_http', 'child_mutation', 'child_commerce')
+        and ${table.effectKind} in ('outbound_http', 'child_mutation', 'child_commerce', 'trusted_callback')
         and ${nonBlankText(table.stableEffectKey)}
         and octet_length(convert_to(${table.stableEffectKey}, 'UTF8')) <= 2048
         and octet_length(${table.requestIdentitySha256}) = 32`,
@@ -368,6 +380,13 @@ export const fxSystemExternalEffectAttemptsV1 = pgTable(
           and octet_length(${table.childCommerceArgumentsSha256}) = 32
           and ${table.childCommercePolicySha256} is not null
           and octet_length(${table.childCommercePolicySha256}) = 32)
+        or (${table.effectKind} = 'trusted_callback'
+          and ${table.subjectKind} = 'durable_task_attempt'
+          and ${table.effectOrdinal} between 1 and 16
+          and ${table.requestStoreIdentity} is null and ${table.requestCodecIdentity} is null
+          and ${table.requestObjectKey} is null and ${table.requestByteLength} is null and ${table.requestSha256} is null
+          and ${table.childMutationRequestKey} is null and ${table.childMutationFunctionPath} is null
+          and ${table.childMutationArgumentsSha256} is null)
       )`,
     ),
     check("fx_external_effect_commerce_columns_check", sql`
@@ -375,6 +394,36 @@ export const fxSystemExternalEffectAttemptsV1 = pgTable(
         ${table.childCommerceRequestKey} is null and ${table.childCommerceCommandName} is null
         and ${table.childCommerceArgumentsSha256} is null and ${table.childCommercePolicySha256} is null
         and ${table.childCommerceOutcomeSha256} is null)`),
+    check("fx_external_effect_callback_columns_check", sql`
+      (${table.effectKind} <> 'trusted_callback'
+        and ${table.trustedCallbackId} is null and ${table.trustedCallbackRevision} is null
+        and ${table.trustedCallbackBindingSha256} is null and ${table.trustedCallbackInputJson} is null
+        and ${table.trustedCallbackInputSha256} is null and ${table.trustedCallbackPolicyJson} is null
+        and ${table.trustedCallbackPolicySha256} is null and ${table.trustedCallbackOutcomeJson} is null
+        and ${table.trustedCallbackOutcomeSha256} is null)
+      or (${table.effectKind} = 'trusted_callback'
+        and ${table.trustedCallbackId} is not null and ${table.trustedCallbackId} ~ '^[a-zA-Z][a-zA-Z0-9._-]{0,127}$'
+        and ${table.trustedCallbackRevision} is not null and ${table.trustedCallbackRevision} ~ '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$'
+        and ${table.trustedCallbackBindingSha256} is not null and octet_length(${table.trustedCallbackBindingSha256}) = 32
+        and ${table.trustedCallbackInputJson} is not null
+        and octet_length(convert_to(${table.trustedCallbackInputJson}::text, 'UTF8')) <= 262144
+        and ${table.trustedCallbackInputSha256} is not null and octet_length(${table.trustedCallbackInputSha256}) = 32
+        and ${table.trustedCallbackPolicyJson} is not null and jsonb_typeof(${table.trustedCallbackPolicyJson}) = 'object'
+        and octet_length(convert_to(${table.trustedCallbackPolicyJson}::text, 'UTF8')) <= 16384
+        and ${table.trustedCallbackPolicySha256} is not null and octet_length(${table.trustedCallbackPolicySha256}) = 32
+        and ((${table.state} = 'confirmed'
+          and ${table.trustedCallbackOutcomeJson} is not null and jsonb_typeof(${table.trustedCallbackOutcomeJson}) = 'object'
+          and ${table.trustedCallbackOutcomeJson} ? 'kind'
+          and jsonb_typeof(${table.trustedCallbackOutcomeJson}->'kind') = 'string'
+          and ((${table.trustedCallbackOutcomeJson}->>'kind' = 'returned'
+              and ${table.trustedCallbackOutcomeJson} ? 'value'
+              and (${table.trustedCallbackOutcomeJson} - 'kind' - 'value') = '{}'::jsonb)
+            or (${table.trustedCallbackOutcomeJson}->>'kind' = 'failed'
+              and ${table.trustedCallbackOutcomeJson} ? 'error'
+              and (${table.trustedCallbackOutcomeJson} - 'kind' - 'error') = '{}'::jsonb))
+          and octet_length(convert_to(${table.trustedCallbackOutcomeJson}::text, 'UTF8')) <= 262144
+          and ${table.trustedCallbackOutcomeSha256} is not null and octet_length(${table.trustedCallbackOutcomeSha256}) = 32)
+          or (${table.state} <> 'confirmed' and ${table.trustedCallbackOutcomeJson} is null and ${table.trustedCallbackOutcomeSha256} is null)))`),
     check(
       "fx_external_effect_attempt_v1_state_check",
       sql`(
@@ -439,6 +488,10 @@ export const fxSystemExternalEffectAttemptsV1 = pgTable(
           and ${table.childMutationOutcomeSha256} is null
           and ${table.childCommerceOutcomeSha256} is not null
           and octet_length(${table.childCommerceOutcomeSha256}) = 32)
+        or (${table.state} = 'confirmed' and ${table.effectKind} = 'trusted_callback'
+          and ${table.responseStoreIdentity} is null and ${table.responseCodecIdentity} is null
+          and ${table.responseObjectKey} is null and ${table.responseByteLength} is null and ${table.responseSha256} is null
+          and ${table.childMutationOutcomeSha256} is null)
       )`,
     ),
     check("fx_external_effect_commerce_state_check", sql`

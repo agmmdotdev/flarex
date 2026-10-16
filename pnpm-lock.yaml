@@ -849,6 +849,9 @@ importers:
       '@flarex/analysis':
         specifier: workspace:*
         version: link:../analysis
+      '@flarex/durable-task':
+        specifier: workspace:*
+        version: link:../durable-task
       '@flarex/payload-adapter':
         specifier: workspace:*
         version: link:../payload-adapter
@@ -885,6 +888,9 @@ importers:
       '@medusajs/notification-local':
         specifier: workspace:*
         version: link:../medusa-notification-local
+      '@medusajs/orchestration':
+        specifier: workspace:*
+        version: link:../medusa-orchestration
       '@medusajs/pricing':
         specifier: workspace:*
         version: link:../medusa-pricing
@@ -961,6 +967,10 @@ importers:
       json-2-csv:
         specifier: 5.5.10
         version: 5.5.10
+    devDependencies:
+      '@medusajs/orchestration':
+        specifier: workspace:*
+        version: link:../medusa-orchestration
 
   packages/medusa-currency:
     dependencies:
@@ -1089,6 +1099,15 @@ importers:
         specifier: workspace:*
         version: link:../medusa-utils
 
+  packages/medusa-orchestration:
+    dependencies:
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+
   packages/medusa-pricing:
     dependencies:
       '@medusajs/framework':
@@ -1195,6 +1214,18 @@ importers:
 
   packages/medusa-workflows-sdk:
     dependencies:
+      '@medusajs/deps':
+        specifier: workspace:*
+        version: link:../medusa-deps
+      '@medusajs/orchestration':
+        specifier: workspace:*
+        version: link:../medusa-orchestration
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.112
