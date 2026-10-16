@@ -1,3 +1,4 @@
+import { compileInventoryItemContracts } from "./item-contracts";
 import { Effect, Result, Schema } from "effect";
 import { InventoryItem, InventoryLevel, ReservationItem } from "@medusajs/inventory/models";
 import { InventoryModuleService, InventoryLevelService } from "@medusajs/inventory/services";
@@ -12,7 +13,7 @@ import { defineWorkflowModule, defineWorkflowMethod } from "../../workflow/modul
 import { commerceDecoder } from "../../value/decoder";
 import { captureInventoryMetadata } from "./schema";
 import { prepareInventoryItemUpdateRepository } from "./update-repository";
-import { compileInventoryItemUpdateContracts, InventoryItemUpdates, InventoryItemUpdateReadInput,
+import { InventoryItemUpdates, InventoryItemUpdateReadInput,
   decodeInventoryItemUpdateCommandInput, decodeInventoryItemUpdateReadInput } from "./update-input";
 import { inventoryItemUpdateEventPolicy } from "./update-events";
 
@@ -26,7 +27,7 @@ export const makeInventoryItemUpdateCommands = Effect.fn("InventoryAdapter.itemU
   return yield* Effect.fromResult(Result.gen(function* () {
     const table = metadata.frame.tables.find(table => table.name === "inventory_item");
     if (table === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const contracts = yield* compileInventoryItemUpdateContracts(table), prepared = yield* prepareInventoryItemUpdateRepository(table);
+    const contracts = yield* compileInventoryItemContracts(table), prepared = yield* prepareInventoryItemUpdateRepository(table);
     const bind = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
         const bound = prepared.bind(ctx, owner);
         const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,

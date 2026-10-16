@@ -91,7 +91,8 @@
     "./inventory/delete-inventory-levels": "./src/inventory/workflows/delete-inventory-levels.ts",
     "./common/delete-entities-step": "./src/common/steps/delete-entities.ts",
     "./inventory/delete-inventory-items": "./src/inventory/workflows/delete-inventory-items.ts",
-    "./inventory/batch-inventory-item-levels": "./src/inventory/workflows/batch-inventory-item-levels.ts"
+    "./inventory/batch-inventory-item-levels": "./src/inventory/workflows/batch-inventory-item-levels.ts",
+    "./inventory/create-inventory-items": "./src/inventory/workflows/create-inventory-items.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

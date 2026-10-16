@@ -1,3 +1,4 @@
+import { compileInventoryItemContracts } from "./item-contracts";
 import { Effect, Result, Schema } from "effect";
 import { Modules, buildModuleResourceEventName, isPresent } from "@medusajs/framework/utils/portable";
 import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
@@ -7,9 +8,9 @@ import { commerceError, defaultCommerceResources, type JsonObject } from "@flare
 import { moduleEventDecoder } from "../../module/events";
 import { matchesPublicRow, projectNativeRow, orderNativeIdRows } from "../../repository/result";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
-import { compileInventoryItemUpdateContracts, decodeInventoryItemUpdateCommandInput, decodeInventoryItemUpdateReadInput } from "./update-input";
+import { decodeInventoryItemUpdateCommandInput, decodeInventoryItemUpdateReadInput } from "./update-input";
 
-type Contracts = Result.Result.Success<ReturnType<typeof compileInventoryItemUpdateContracts>>;
+type Contracts = Result.Result.Success<ReturnType<typeof compileInventoryItemContracts>>;
 type Item = Result.Result.Success<ReturnType<Contracts["decodeRow"]>>;
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,

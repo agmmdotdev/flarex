@@ -1,28 +1,22 @@
-import { Effect, Result, Schema } from "effect";
+import { Effect, Result } from "effect";
 import { InventoryItem, InventoryLevel, ReservationItem } from "@medusajs/inventory/models";
 import { InventoryModuleService, InventoryLevelService } from "@medusajs/inventory/services";
-import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
+import { Modules } from "@medusajs/framework/utils/portable";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
 import { defineCommerceModule } from "../../module/definition";
-import { commerceServiceCommands, commerceCommandPreparation } from "../../module/commands";
 import { commerceModuleEventBus } from "../../module/events";
-import { defineWorkflowModule, defineWorkflowMethod } from "../../workflow/module";
+import { defineWorkflowModule } from "../../workflow/module";
 import { deniedCommerceRepository } from "../../repository/denied";
-import { commerceDecoder } from "../../value/decoder";
 import { captureInventoryMetadata } from "./schema";
 import { compileInventoryLevelContracts } from "./level-contracts";
 import { prepareInventoryQuantityRepository } from "./quantity-repository";
-import { inventoryLevelLifecycleRepository, InventoryLevelPhysicalDeletionIds, decodeInventoryLevelPhysicalDeletionIds } from "./level-lifecycle";
-import { InventoryLevelsInput } from "./level-input";
+import { inventoryLevelLifecycleRepository } from "./level-lifecycle";
+import { prepareInventoryLevelCreationMethods } from "./level-creation";
 import { prepareInventoryLevelUpdateMethods } from "./update-level-service";
 import { prepareInventoryLevelDeletionMethods } from "./delete-level-service";
 import { inventoryLevelBatchEventPolicy } from "./batch-level-events";
-
-const decodeCreate = commerceDecoder(InventoryLevelsInput, "invalidInput");
-const decodeCreateArguments = commerceDecoder(Schema.Tuple([InventoryLevelsInput]), "invalidInput");
-const decodePhysicalArguments = commerceDecoder(Schema.Tuple([InventoryLevelPhysicalDeletionIds]), "invalidInput");
 
 /** One genuine Inventory service and one Level working set cover all three
  * native branches and retained inverses. Item/Reservation DALs stay denied. */
@@ -59,21 +53,8 @@ export const makeInventoryLevelBatchCommands = Effect.fn("InventoryAdapter.level
           deleteInventoryLevels: native.deleteInventoryLevels.bind(native) }, context };
       },
     }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
-    const commands = commerceServiceCommands(module.use), prepare = commerceCommandPreparation("InventoryLevelBatch.prepare");
-    const createLevels = commands.write("inventoryCreateLevels", prepare(decodeCreate), ({ service, context }, input) =>
-      service.createInventoryLevels([...input], context));
-    const deleteForWorkflow = commands.write("inventoryLevelPhysicalDeleteForWorkflow", prepare(decodeInventoryLevelPhysicalDeletionIds),
-      async ({ service, context }, ids) => {
-        const result = await service.deleteInventoryLevels([...ids], context);
-        if (result !== undefined) throw commerceError("storedCorruption");
-        return null;
-      });
-    const createInventoryLevels = yield* defineWorkflowMethod({ command: createLevels, arguments: decodeCreateArguments,
-      encode: ([input]) => input, output: contracts.decodeCreatedRows,
-      moduleEvents: [buildModuleResourceEventName({ prefix: Modules.INVENTORY, objectName: "inventory_level", action: "created" })] });
-    const deleteInventoryLevels = yield* defineWorkflowMethod({ command: deleteForWorkflow, arguments: decodePhysicalArguments,
-      encode: ([ids]) => ids, output: commerceDecoder(Schema.Null, "storedCorruption"),
-      moduleEvents: [buildModuleResourceEventName({ prefix: Modules.INVENTORY, objectName: "inventory_level", action: "deleted" })] });
+    const { createLevels, deleteForWorkflow, createInventoryLevels, deleteInventoryLevels } =
+      yield* prepareInventoryLevelCreationMethods(module.use, contracts);
     const updates = yield* prepareInventoryLevelUpdateMethods(module.use, contracts);
     const deletions = yield* prepareInventoryLevelDeletionMethods(module.use, prepared.table);
     const { list, update, listInventoryLevels, updateInventoryLevels } = updates;

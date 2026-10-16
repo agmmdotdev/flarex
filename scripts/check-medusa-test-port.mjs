@@ -77,6 +77,77 @@ function inventoryDeletionCallbacks(text, name, factory, indexes) {
   });
 }
 
+/** Exact named top-level declarations share the callback guards' existing AST
+ * normalizer; source import/type relocation never changes executable bodies.
+ * @param {string} text @param {string} name */
+function inventoryNamedDeclaration(text, name) {
+  const file = ts.createSourceFile("inventory-creation.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const matches = file.statements.filter(ts.isVariableStatement).flatMap(statement => statement.declarationList.declarations
+    .filter(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === name));
+  const declaration = matches[0];
+  if (matches.length !== 1 || declaration === undefined) throw new Error("Changed native Inventory Item creation callback behavior");
+  return { file, declaration, text: "const " + declaration.getText(file) };
+}
+
+/** Authenticate the existing Item root's sole child-options seam, both native
+ * ordinal helpers, unchanged Level child and retained Item/Level callbacks.
+ * The location Query bridge is checked exactly before restoring its native
+ * remoteQuery preamble; the native difference/error tail remains unchanged.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeItem @param {string} item
+ * @param {string} nativeLevels @param {string} levels
+ * @param {string} nativeLevel @param {string} level
+ * @param {string} nativeLocations @param {string} locations */
+export function verifyInventoryItemCreateCallbacks(nativeWorkflow, workflow, nativeItem, item, nativeLevels, levels, nativeLevel, level, nativeLocations, locations) {
+  const failure = "Changed native Inventory Item creation callback behavior";
+  /** @param {string} text */
+  const shape = text => testPortProgram("const callback = " + text);
+  /** @param {string} source @param {string} target @param {string} name */
+  const sameVariable = (source, target, name) => {
+    if (testPortProgram(inventoryNamedDeclaration(source, name).text) !== testPortProgram(inventoryNamedDeclaration(target, name).text)) throw new Error(failure);
+  };
+  for (const name of ["buildLocationLevelMapAndItemData", "buildInventoryLevelsInput", "createInventoryItemsWorkflowId"]) sameVariable(nativeWorkflow, workflow, name);
+  const original = inventoryDeletionCallbacks(nativeWorkflow, "createInventoryItemsWorkflow", "createWorkflow", [1])[0];
+  const promoted = inventoryDeletionCallbacks(workflow, "createInventoryItemsWorkflow", "createWorkflow", [1])[0];
+  if (original === undefined || promoted === undefined || !ts.isBlock(promoted.callback.body) || promoted.call.arguments[0]?.getText(promoted.file) !== "createInventoryItemsWorkflowId") throw new Error(failure);
+  const seam = promoted.callback.body.statements[3];
+  const expected = "createInventoryLevelsWorkflow.runAsStep({ input: inventoryLevelsInput.input })";
+  if (seam === undefined || testPortProgram(seam.getText(promoted.file)) !== testPortProgram(expected)) throw new Error(failure);
+  const restored = promoted.text.replace(seam.getText(promoted.file), "createInventoryLevelsWorkflow.runAsStep(inventoryLevelsInput)");
+  if (shape(original.text) !== shape(restored)) throw new Error(failure);
+  /** @type {readonly (readonly [string, string, string, string, readonly number[]])[]} */
+  const unchanged = [
+    [nativeItem, item, "createInventoryItemsStep", "createStep", [1, 2]],
+    [nativeLevels, levels, "createInventoryLevelsWorkflow", "createWorkflow", [1]],
+    [nativeLevel, level, "createInventoryLevelsStep", "createStep", [1, 2]],
+  ];
+  for (const [source, target, name, factory, indexes] of unchanged) {
+    const sourceCallbacks = inventoryDeletionCallbacks(source, name, factory, indexes);
+    const targetCallbacks = inventoryDeletionCallbacks(target, name, factory, indexes);
+    for (const [index, callback] of sourceCallbacks.entries()) if (shape(callback.text) !== shape(targetCallbacks[index]?.text ?? "")) throw new Error(failure);
+    sameVariable(source, target, name + "Id");
+    const selected = targetCallbacks[0], options = selected?.call.arguments[0];
+    if (selected === undefined || options === undefined || testPortProgram("const options = " + options.getText(selected.file)) !== testPortProgram(factory === "createStep"
+      ? `const options = { name: ${name}Id, compensation: "transactionCovered" }` : `const options = ${name}Id`)) throw new Error(failure);
+  }
+  const nativeValidation = inventoryDeletionCallbacks(nativeLocations, "validateInventoryLocationsStep", "createStep", [1])[0];
+  const validation = inventoryDeletionCallbacks(locations, "validateInventoryLocationsStep", "createStep", [1])[0];
+  if (nativeValidation === undefined || validation === undefined || !ts.isBlock(nativeValidation.callback.body) || !ts.isBlock(validation.callback.body)) throw new Error(failure);
+  const nativeStatements = nativeValidation.callback.body.statements, statements = validation.callback.body.statements;
+  const query = statements[0], result = statements[1], completeness = statements[2], nativeQuery = nativeStatements[0], nativeResult = nativeStatements[1];
+  if (query === undefined || result === undefined || completeness === undefined || nativeQuery === undefined || nativeResult === undefined) throw new Error(failure);
+  const querySeam = `const query = container.resolve<WorkflowGraphResource>("query")`;
+  const resultSeam = `const { data: stockLocations, metadata } = await query.graph({ entity: "stock_location", filters: { id: data.map((d) => d.location_id) }, fields: ["id"], pagination: { take: query.maxPageSize } })`;
+  const completenessSeam = `if (metadata.count !== stockLocations.length || metadata.skip !== 0) throw new WorkflowDefinitionError({ reason: "unsupportedProfile", detail: "Inventory validation requires a complete bounded ID result" })`;
+  if (testPortProgram(query.getText(validation.file)) !== testPortProgram(querySeam) || testPortProgram(result.getText(validation.file)) !== testPortProgram(resultSeam) ||
+    testPortProgram(completeness.getText(validation.file)) !== testPortProgram(completenessSeam)) throw new Error(failure);
+  const nativeRestored = validation.text.replace(completeness.getText(validation.file), "")
+    .replace(result.getText(validation.file), nativeResult.getText(nativeValidation.file)).replace(query.getText(validation.file), nativeQuery.getText(nativeValidation.file));
+  if (shape(nativeValidation.text) !== shape(nativeRestored)) throw new Error(failure);
+  sameVariable(nativeLocations, locations, "validateInventoryLocationsStepId");
+  if (validation.call.arguments[0]?.getText(validation.file) !== "validateInventoryLocationsStepId") throw new Error(failure);
+}
+
 /** Preserve the exact emitted native deletion guard and generic callbacks.
  * @param {string} nativeWorkflow @param {string} workflow
  * @param {string} nativeStep @param {string} step */

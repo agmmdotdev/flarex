@@ -1,3 +1,4 @@
+import { makeInventoryItemCreationCommands } from "./create-item-service";
 import { makeInventoryItemUpdateCommands } from "./update-service";
 import { makeInventoryItemDeletionCommands } from "./delete-item-service";
 import { compileInventoryDeletionContracts } from "./deletion-contracts";
@@ -187,15 +188,16 @@ const makeBasicInventoryCommands = Effect.fn("InventoryAdapter.commands")(functi
   }));
 });
 
-
+export function makeLocalInventoryCommands(admission: "item-creations"): ReturnType<typeof makeInventoryItemCreationCommands>;
 export function makeLocalInventoryCommands(admission: "level-batches"): ReturnType<typeof makeInventoryLevelBatchCommands>;
 export function makeLocalInventoryCommands(admission: "item-deletions"): ReturnType<typeof makeInventoryItemDeletionCommands>;
 export function makeLocalInventoryCommands(admission: "item-updates"): ReturnType<typeof makeInventoryItemUpdateCommands>;
 export function makeLocalInventoryCommands(admission: "level-updates"): ReturnType<typeof makeInventoryLevelUpdateCommands>;
 export function makeLocalInventoryCommands(admission: "level-deletions"): ReturnType<typeof makeInventoryLevelDeletionCommands>;
 export function makeLocalInventoryCommands(admission?: "items" | "levels" | "stock" | "product-deletions" | "product-batches"): ReturnType<typeof makeBasicInventoryCommands>;
-export function makeLocalInventoryCommands(admission: "items" | "levels" | "stock" | "product-deletions" | "product-batches" | "item-updates" | "level-updates" | "level-deletions" | "item-deletions" | "level-batches" = "items") {
-  return admission === "level-batches" ? makeInventoryLevelBatchCommands()
+export function makeLocalInventoryCommands(admission: "items" | "levels" | "stock" | "product-deletions" | "product-batches" | "item-updates" | "level-updates" | "level-deletions" | "item-deletions" | "level-batches" | "item-creations" = "items") {
+  return admission === "item-creations" ? makeInventoryItemCreationCommands()
+    : admission === "level-batches" ? makeInventoryLevelBatchCommands()
     : admission === "item-deletions" ? makeInventoryItemDeletionCommands()
     : admission === "item-updates" ? makeInventoryItemUpdateCommands()
     : admission === "level-updates" ? makeInventoryLevelUpdateCommands()

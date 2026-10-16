@@ -5,7 +5,7 @@ import { commerceError, defaultCommerceResources, isJsonObject } from "@flarex/p
 import { ScalarId } from "../../repository/scalar-id-read";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
 
-export function stockLocationCreateEventPolicy() {
+export function stockLocationCreateEventPolicy(validateRead: LogicalCallReceiptValidation) {
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(Modules.STOCK_LOCATION),
       object: Schema.Literals(["stock_location", "stock_location_address"]), action: Schema.Literal(CommonEvents.CREATED) }),
@@ -20,10 +20,7 @@ export function stockLocationCreateEventPolicy() {
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("StockLocationEvents.validateCall")(function* (call, activity) {
     if (activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length)
       return yield* Effect.fail(commerceError("receiptMismatch"));
-    if (call.mode === "read") {
-      if (activity.mutations.length || call.events.length) return yield* Effect.fail(commerceError("receiptMismatch"));
-      return;
-    }
+    if (call.mode === "read") return yield* validateRead(call, activity);
     if (call.commandName !== "stockLocationCreate" || Array.isArray(call.input) !== Array.isArray(call.result))
       return yield* Effect.fail(commerceError("receiptMismatch"));
     const inputs = Array.isArray(call.input) ? call.input : [call.input];

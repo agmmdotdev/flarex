@@ -105,9 +105,17 @@ combines eight creates, four updates and four raw deletes through the genuine
 parallel composer and one Inventory participant. It preserves omitted deleted
 output, the direct create branch's scalar Location behavior, and distinct
 physical-create, update and restoration inverses within existing resource limits.
-The next preflighted outcome is
-[standalone Inventory Item creation](./preflight/120-native-inventory-item-create-workflow.md),
-including its required Stock Location reads.
+The bounded
+[standalone Inventory Item creation](./preflight/120-native-inventory-item-create-workflow.md)
+profile preserves native ordinal association for four Items and eight nested
+Levels, including unconditional empty Stock Location reads. Shared Item-create
+receipts authenticate complete ordered DTOs before association; Stock Location
+read receipts authenticate IDs, projections and pagination counts against actual
+call-local observations. Retained physical Item compensation removes its complete
+bounded history while emitting only native root Item events. Existing resource
+limits remain unchanged. The next preflighted outcome is
+[standalone Inventory Level creation](./preflight/121-native-inventory-level-create-workflow.md)
+for existing Items and Locations with a dedicated two-method Inventory profile.
 Chunked File import and Product
 export are explicitly deferred; their File and Region dependencies are outside
 the current integration goal.

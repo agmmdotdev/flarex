@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -146,6 +146,48 @@ describe("native Inventory Level batch callback provenance", () => {
     const changed = update.replace(before, after); expect(changed).not.toBe(update);
     expect(() => verifyInventoryLevelBatchCallbacks(nativeWorkflow, workflow, nativeCreate, create, nativeUpdate, changed))
       .toThrow("Changed native Inventory Level batch callback behavior");
+  });
+});
+
+describe("native Inventory Item creation callback provenance", () => {
+  const names = ["inventory/workflows/create-inventory-items.ts", "inventory/steps/create-inventory-items.ts", "inventory/workflows/create-inventory-levels.ts", "inventory/steps/create-inventory-levels.ts", "inventory/steps/validate-inventory-locations.ts"];
+  const originals = names.map(name => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + name, "utf8"));
+  const promoted = names.map(name => readFileSync("packages/medusa-core-flows/src/" + name, "utf8"));
+  const verify = (selected = promoted) => verifyInventoryItemCreateCallbacks(originals[0], selected[0], originals[1], selected[1], originals[2], selected[2], originals[3], selected[3], originals[4], selected[4]);
+  it("permits only erased types and the two exact existing portable seams", () => { expect(() => verify()).not.toThrow(); });
+  it.each([
+    [0, "missing items fallback", "data.items = data.items ?? []", "data.items = []"],
+    [0, "ordinal mapping", "locationLevelMap[index] =", "locationLevelMap[0] ="],
+    [0, "nested array order", "location_levels?.length ? location_levels : []", "location_levels?.length ? [...location_levels].reverse() : []"],
+    [0, "Item association order", "data.items.forEach((item, index)", "data.items.reverse().forEach((item, index)"],
+    [0, "foreign Item identity precedence", "inventory_item_id: item.id", "inventory_item_id: locationLevel.inventory_item_id"],
+    [0, "empty Level child skip", "createInventoryLevelsWorkflow.runAsStep({ input: inventoryLevelsInput.input })", "if (items.length) createInventoryLevelsWorkflow.runAsStep({ input: inventoryLevelsInput.input })"],
+    [0, "child seam input", "input: inventoryLevelsInput.input", "input: {}"],
+    [0, "returned Item array", "new WorkflowResponse(items)", "new WorkflowResponse([])"],
+    [0, "root binding identity", "  createInventoryItemsWorkflowId,", "  differentWorkflowId,"],
+    [0, "root identity", '"create-inventory-items-workflow"', '"create-different-items-workflow"'],
+    [1, "empty Item invocation", "await inventoryService.createInventoryItems(data)", "data.length ? await inventoryService.createInventoryItems(data) : []"],
+    [1, "captured generated Item IDs", "createdItems.map((i) => i.id)", "[]"],
+    [1, "Item inverse empty resolution", "if (!data?.length)", "if (!data)"],
+    [1, "Item inverse physical method", "deleteInventoryItems(data)", "softDeleteInventoryItems(data)"],
+    [1, "Item inverse identities", "deleteInventoryItems(data)", "deleteInventoryItems([])"],
+    [1, "Item retained compensation", 'compensation: "transactionCovered"', 'compensation: undefined'],
+    [2, "Level guard ordering", "validateInventoryLocationsStep(input.inventory_levels)", "validateInventoryLocationsStep([])"],
+    [2, "Level native data", "createInventoryLevelsStep(input.inventory_levels)", "createInventoryLevelsStep([])"],
+    [3, "empty Level invocation", "await service.createInventoryLevels(data)", "data.length ? await service.createInventoryLevels(data) : []"],
+    [3, "Level inverse identities", "inventoryLevels.map((level) => level.id)", "[]"],
+    [3, "Level inverse physical method", "deleteInventoryLevels(ids)", "softDeleteInventoryLevels(ids)"],
+    [3, "Level inverse empty resolution", "if (!ids?.length)", "if (!ids)"],
+    [4, "Stock query raw IDs", "id: data.map((d) => d.location_id)", "id: []"],
+    [4, "Stock query projection", 'fields: ["id"]', 'fields: ["name"]'],
+    [4, "complete Stock count", "metadata.count !== stockLocations.length", "metadata.count < stockLocations.length"],
+    [4, "Stock offset", "metadata.skip !== 0", "metadata.skip < 0"],
+    [4, "bounded Stock page", "take: query.maxPageSize", "take: 1"],
+    [4, "missing Location ordering", 'diff.join(", ")', 'diff.reverse().join(", ")'],
+    [4, "missing Location guard", "if (diff.length > 0)", "if (false)"],
+  ])("rejects changed native %s / %s", (index, _name, before, after) => {
+    const selected = [...promoted], changed = selected[index].replace(before, after); expect(changed).not.toBe(selected[index]); selected[index] = changed;
+    expect(() => verify(selected)).toThrow("Changed native Inventory Item creation callback behavior");
   });
 });
 

@@ -2,7 +2,7 @@
 
 ## Status And Authority
 
-Status: preflight complete; implementation pending. Inventory Item update (115),
+Status: implemented for the bounded private standalone profile. Inventory Item update (115),
 Level update (116), Level deletion (117), Item deletion (118), and Level batch
 (119) are implemented for their bounded private profiles. Core62 is implemented.
 Chunked File Product import, Product export and hosted activation remain deferred.
@@ -44,9 +44,9 @@ the admitted nested DTO itself omits inventory_item_id. Item creation must fully
 authenticate returned length, unique actual identities, complete bodies and
 **array order before this transform**. Merely checking that returned IDs belong
 to an inserted set permits reordered valid Items to attach Levels to the wrong
-Item. This is a concrete stronger receipt obligation at the existing Item-create
-owner, whose current inventoryCreateEventPolicy checks set membership rather
-than complete ordered DTO correlation.
+Item. The shared receipt enforces this obligation at the existing Item-create
+owner, where inventoryCreateEventPolicy authenticates complete ordered DTO
+correlation before the native transform can consume its result.
 
 The Level child is unconditional even with no Items/no nested Levels. The root
 returns Items only; nested Level DTOs are discarded by its composer but must be
@@ -91,12 +91,11 @@ location filtering, genuine missing/duplicate ID behavior, scalar Item FK and
 active Item/Location uniqueness remain with their existing owners. Missing
 locations fail after Item creation has staged, so the whole root must roll back.
 
-The existing Stock Location read receipt checks read-only effects but does not
-correlate native returned IDs/count with observed rows. For this standalone
-existence guard, add a scoped result-authentication correction at that same read
-owner, deriving the exact selected native projection/count from genuine activity.
-First add a failing forged-existing-ID witness, then regress other Stock Location
-read consumers. No adapter SQL reread, synthetic successful location, alternative
+The shared Stock Location read owner authenticates returned IDs/count against
+complete call-local observations for both read-only and creation profiles. It
+reuses the native query conversion and existing scalar planner, projection and
+window owners, including UTF-8 order, pagination counts and pending-created rows.
+No adapter SQL reread, synthetic successful location, alternative
 transaction or shared-core weakening is an acceptable replacement.
 
 ## Retained Physical Inverses And Native Events
@@ -105,10 +104,10 @@ Item creation compensation skips missing/empty IDs before resolution; otherwise
 it calls plural generated deleteInventoryItems(capturedCreatedIds). This is
 physical deletion, not 118's soft-delete workflow and not remote Link cleanup.
 Its module API returns void; the generated internal service constructs
-{$or:[{id},...]} and dispatches actual deleted Item IDs. The current Item/Level
-creation profiles deny this inverse. 119's physical Level inverse is
-reusable only after that slice completes its validation; it does not grant
-physical Item deletion or its cascade closure.
+{$or:[{id},...]} and dispatches actual deleted Item IDs. Other Item/Level creation
+profiles retain their existing admission. This named
+profile reuses 119's physical Level inverse and adds the bounded physical Item
+cascade; neither grants arbitrary public physical Item deletion.
 
 InventoryItem DML declares cascades over location_levels and reservation_items.
 The pinned compiler lowers the inverse belongsTo FKs to onDelete:cascade. Native
@@ -132,8 +131,8 @@ otherwise supported Item/Level graph or substitute quantity-release commands.
 No native stock/reservation sufficiency guard applies at this inverse edge.
 No Link provider is resolved and no remote Link routing is invented.
 
-Propose the existing four-Item/two-persisted-Levels/one-persisted-Reservation per
-Item closure for the private Item inverse: at most four Items, eight historical
+The admitted four-Item/two-persisted-Levels/one-persisted-Reservation per
+Item closure bounds the private Item inverse: at most four Items, eight historical
 Levels and four historical Reservations, including already-deleted rows. This
 keeps 118's complete history bounds and authentic quantities/raw companions;
 overflow refuses before publication rather than truncating descendants. The
@@ -142,7 +141,7 @@ obligation produces a real refusal, preserve it and correct its actual owner;
 this is not authorization for a hidden Link cleanup or an arbitrary public
 physical Item-deletion API.
 
-## Proposed Connected Work
+## Connected Admission
 
 1. Reuse the already promoted native root, Item step and real Level child. Add
    the exact standalone export and durable source guards for both mapping
@@ -153,7 +152,7 @@ physical Item-deletion API.
    createInventoryLevels, plus retained-only deleteInventoryItems and
    deleteInventoryLevels. Keep update/stock/reservation/soft-delete APIs denied.
    Reuse the genuine scalar Item creation owner and 119's strict Level create,
-   physical Level lifecycle binding and event receipts once validated. Factor
+   physical Level lifecycle binding and event receipts. Factor
    current complete Item row contracts from 115 where they match actual native
    creation DTOs; do not maintain duplicate shape/default validators or wrappers.
    Fully authenticate Item input/defaults/metadata/dimensions, ordered DTOs and
@@ -188,9 +187,9 @@ sixteen-row history closure while emitting only root Item events. Start with
 existing 64-call/64-event, 128-identity and current byte/catalog/node allowances.
 Measure maximum forward and both inverse shapes before claiming they fit; any
 needed allowance belongs to a named trusted identity-bound owner, never input
-or a silently widened default. Expected expanded ordered graph is four nodes:
+or a silently widened default. The expanded ordered graph has four nodes:
 Item step, Level child workflow, Location validation and Level create step.
-Verify the actual prepared graph rather than raising the 64-node ceiling.
+The existing 64-node ceiling remains unchanged.
 
 ## Required Proofs And Disposition
 
@@ -220,12 +219,13 @@ with native Stock Location soft deletion or conflicting Item SKU/Level tuple
 creation must retain read/uniqueness dependencies and produce a coherent root or
 sticky conflict, not stale successful validation or silent retries.
 
-Run affected creation/stocking, 115–118, 119 after completion, Product/Variant
+Run affected creation/stocking, 115–119, Product/Variant
 creation/batch, read-result and lifecycle regressions, both database lanes,
 source/promotion/browser guards, typechecks/builds, lint, required reviews and
-exact staged checks before a scoped commit. Concrete missing owners are ordered
-full Item-create receipts, the standalone composition, retained physical Item
-cascade and Stock Location read-result authentication. No additional core,
-schema/migration, locking or host blocker is established by source inspection;
-new connected failures still belong to their true owner. This preflight makes
-no implementation or deployment claim.
+exact staged checks before a scoped commit. The connected owners are ordered
+full Item-create receipts, the standalone
+composition, retained physical Item cascade and Stock Location read-result
+authentication. No additional core, schema/migration, locking or host blocker
+is established by source inspection; new connected failures still belong to
+their true owner. This bounded private admission makes no deployment or arbitrary framework
+compatibility claim.

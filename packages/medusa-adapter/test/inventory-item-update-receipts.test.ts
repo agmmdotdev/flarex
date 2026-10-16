@@ -1,15 +1,16 @@
+import { compileInventoryItemContracts } from "../src/modules/inventory/item-contracts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import type { Json, JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCallReceiptValidation } from "../src/repository/call-receipt";
 import { captureInventoryMetadata } from "../src/modules/inventory/schema";
-import { compileInventoryItemUpdateContracts, decodeInventoryItemUpdates } from "../src/modules/inventory/update-input";
+import { decodeInventoryItemUpdates } from "../src/modules/inventory/update-input";
 import { inventoryItemUpdateEventPolicy } from "../src/modules/inventory/update-events";
 
 type Call = Parameters<LogicalCallReceiptValidation>[0];
 type Activity = Parameters<LogicalCallReceiptValidation>[1];
 let policy: ReturnType<typeof inventoryItemUpdateEventPolicy>;
-let contracts: Result.Result.Success<ReturnType<typeof compileInventoryItemUpdateContracts>>;
+let contracts: Result.Result.Success<ReturnType<typeof compileInventoryItemContracts>>;
 const time = "2026-10-16T00:00:00.000Z", later = "2026-10-16T00:01:00.000Z";
 const row = (id: string, changes: JsonObject = {}): JsonObject => ({ id, sku: id, origin_country: null, hs_code: null, mid_code: null,
   material: null, weight: null, length: null, height: null, width: null, requires_shipping: true, description: null,
@@ -33,7 +34,7 @@ const refused = async (receipt: Call, activity: Activity) =>
 beforeAll(async () => {
   const metadata = await Effect.runPromise(captureInventoryMetadata()), table = metadata.frame.tables.find(table => table.name === "inventory_item");
   if (table === undefined) throw new Error("Missing InventoryItem DML");
-  contracts = Result.getOrThrow(compileInventoryItemUpdateContracts(table)); policy = inventoryItemUpdateEventPolicy(contracts);
+  contracts = Result.getOrThrow(compileInventoryItemContracts(table)); policy = inventoryItemUpdateEventPolicy(contracts);
 });
 
 describe("native InventoryItem attribute update receipts", () => {

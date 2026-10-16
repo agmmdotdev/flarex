@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks } from "./check-medusa-test-port.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -178,6 +178,18 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, "packages/medusa-core-flows/src/inventory/steps/create-inventory-levels.ts"), "utf8"),
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/inventory/steps/update-inventory-levels.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/inventory/steps/update-inventory-levels.ts"), "utf8"),
+  );
+  verifyInventoryItemCreateCallbacks(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/inventory/workflows/create-inventory-items.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/inventory/workflows/create-inventory-items.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/inventory/steps/create-inventory-items.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/inventory/steps/create-inventory-items.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/inventory/workflows/create-inventory-levels.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/inventory/workflows/create-inventory-levels.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/inventory/steps/create-inventory-levels.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/inventory/steps/create-inventory-levels.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/inventory/steps/validate-inventory-locations.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/inventory/steps/validate-inventory-locations.ts"), "utf8"),
   );
   const csvSource = sourcePrefix + "packages/core/utils/src/product/__tests__/";
   const csvTarget = "packages/medusa-utils/src/product/__tests__/";

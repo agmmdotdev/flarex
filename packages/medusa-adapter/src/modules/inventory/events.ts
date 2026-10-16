@@ -1,8 +1,13 @@
+import { InventoryItemRows } from "./item-contracts";
+import { commerceDecoder } from "../../value/decoder";
+import { matchesPublicRow, projectNativeRow } from "../../repository/result";
 import { Effect, Schema } from "effect";
 import { Modules, CommonEvents, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { commerceError, defaultCommerceResources, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { moduleEventDecoder } from "../../module/events";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
+
+const decodeItems = commerceDecoder(InventoryItemRows, "receiptMismatch");
 
 /** The trusted module profile selects item-only or nonempty level creation. */
 export function inventoryCreateEventPolicy(levels = false) {
@@ -44,6 +49,14 @@ export function inventoryCreateEventPolicy(levels = false) {
         mutation.before !== null || typeof id !== "string" || mutation.after?.deleted_at !== null || expected.has(id))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       expected.add(id);
+    }
+    if (table === "inventory_item") {
+      const decoded = yield* Effect.fromResult(decodeItems(results));
+      for (const [index, mutation] of activity.mutations.entries()) {
+        const returned = decoded[index];
+        if (mutation.after === null || returned === undefined || !matchesPublicRow(projectNativeRow(mutation.after), returned))
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+      }
     }
     const returned = new Set<string>();
     for (const row of results) {

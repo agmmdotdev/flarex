@@ -20,7 +20,7 @@ import { defineWorkflowModule, defineWorkflowMethod } from "../../workflow/modul
 import { moduleAliases, scalarGraphDefinition } from "../../local-graph/module";
 
 import type { CommercePromiseOwner } from "../../module/promise-owner";
-import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
+import { compileStockLocationReadReceipt } from "./read-receipt";
 import { prepareStockLocationRepository } from "./repository";
 import { StockLocationInput, StockLocationsInput, StockLocationsOutput } from "./input";
 import { stockLocationCreateEventPolicy } from "./events";
@@ -28,7 +28,6 @@ import { stockLocationCreateEventPolicy } from "./events";
 /** Existing ID reads and the separately selected native creation admission. */
 const makeBasicStockLocationCommands = Effect.fn("StockLocationAdapter.commands")(function* (admission: "read" | "create" = "read") {
   const metadata = yield* captureStockLocationMetadata();
-  const policy = stockLocationCreateEventPolicy();
   return yield* Effect.fromResult(Result.gen(function* () {
     const table = metadata.frame.tables.find(table => table.name === "stock_location");
     const address = metadata.frame.tables.find(table => table.name === "stock_location_address");
@@ -67,10 +66,8 @@ const makeBasicStockLocationCommands = Effect.fn("StockLocationAdapter.commands"
     const joiner = stockLocationStaticResources.joinerConfig;
     if (!joiner) return yield* Result.fail(commerceError("unsupportedProfile"));
     const graph = yield* scalarGraphDefinition(yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : []).filter(alias => alias.entity === "StockLocation") }), "StockLocation", count, prepared.table);
-    const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("StockLocation.validateRead")(function* (call, activity) {
-      if (call.mode !== "read" || call.events.length || activity.mutations.length || activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length)
-        return yield* Effect.fail(commerceError("receiptMismatch"));
-    });
+    const validateLogicalCall = yield* compileStockLocationReadReceipt(table, prepared.query);
+    const policy = stockLocationCreateEventPolicy(validateLogicalCall);
     const createStockLocations = yield* defineWorkflowMethod({ command: create,
       arguments: decodeCreateArguments, encode: ([rows]) => [...rows],
       output: commerceDecoder(StockLocationsOutput, "storedCorruption"),

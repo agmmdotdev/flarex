@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { inventoryStaticResources } from "@medusajs/inventory/static-manifest";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
 import { medusaLifecycle } from "../../repository/lifecycle";
@@ -38,10 +38,20 @@ export const inventoryItemLifecycle = Effect.fn("InventoryAdapter.itemLifecycle"
   const catalog = { tables: [item, level, reservation], entities: [{ table: item, model: "InventoryItem" },
     { table: level, model: "InventoryLevel" }, { table: reservation, model: "ReservationItem" }] };
   const lifecycle = medusaLifecycle(ctx, catalog, operation), roots = yield* lifecycle.roots(item, [...new Set(ids)]);
-  const plan = yield* lifecycle.plan(item, roots), rootIds = new Set(roots.map(row => row.id));
-  for (const [table, maximum] of [[level, 2], [reservation, 1]] as const) {
+  const plan = yield* lifecycle.plan(item, roots);
+  yield* validateInventoryItemLifecycleClosure(roots, plan.rows(level), plan.rows(reservation));
+  return yield* plan.apply();
+});
+
+/** Persisted descendant history consumes the same Item-owned finite closure
+ * for managed lifecycle and the retained physical creation inverse. */
+export const validateInventoryItemLifecycleClosure = Effect.fn("InventoryAdapter.validateItemLifecycleClosure")(function* (
+  roots: readonly JsonObject[], levels: readonly JsonObject[], reservations: readonly JsonObject[],
+) {
+  const rootIds = new Set(roots.map(row => row.id));
+  for (const [rows, maximum] of [[levels, 2], [reservations, 1]] as const) {
     const counts = new Map<string, number>();
-    for (const row of plan.rows(table)) {
+    for (const row of rows) {
       if (typeof row.id !== "string" || typeof row.inventory_item_id !== "string" || !rootIds.has(row.inventory_item_id))
         return yield* Effect.fail(commerceError("storedCorruption"));
       const count = (counts.get(row.inventory_item_id) ?? 0) + 1;
@@ -49,5 +59,4 @@ export const inventoryItemLifecycle = Effect.fn("InventoryAdapter.itemLifecycle"
       if (count > maximum) return yield* Effect.fail(commerceError("limitExceeded"));
     }
   }
-  return yield* plan.apply();
 });

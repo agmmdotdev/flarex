@@ -127,6 +127,6 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
       };
       return { repository, mutationEvents, bridge, refuse, find, createRows, events };
     };
-    return { table: yield* catalog.table(table.name), bind };
+    return { table: yield* catalog.table(table.name), query, bind };
   });
 }
