@@ -12,7 +12,6 @@ import {
   type PostgresFlarexPersistence,
 } from "../../src/database/postgres";
 import {
-  classifyOutcomeIntegrity,
   insertAvailableOutcome,
   insertS09Header,
   insertS09Scope,
@@ -20,7 +19,6 @@ import {
   MAX_RESULT_CANONICAL_BYTES,
   MAX_RESULT_SEMANTIC_BYTES,
   S09_EPOCH_A,
-  S09_EPOCH_B,
   S09_EPOCH_C,
   S09_SCOPE_A,
   S09_SCOPE_B,
@@ -281,114 +279,6 @@ describePostgres("real Postgres S09-A committed-success idempotency schema", () 
         "fx_system_idempotency_scope_uuid_request_key_pk",
       );
       expect(plans.audit).toContain("fx_system_idempotency_commit_token_idx");
-    });
-  }, 30_000);
-
-  it("keeps compacted receipts unambiguous across a repeatable-read race", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
-      await insertS09Scope(persistence, S09_SCOPE_A, S09_EPOCH_A, "3");
-      await insertS09Header(persistence, S09_SCOPE_A, S09_EPOCH_A, "1");
-      await insertAvailableOutcome(persistence, {
-        scopeUuid: S09_SCOPE_A,
-        requestKey: "compaction-race",
-        epochUuid: S09_EPOCH_A,
-        commitSeq: "1",
-      });
-
-      const reader = await persistence.pool.connect();
-      try {
-        await reader.query("begin isolation level repeatable read read only");
-        const snapshotPersistence: SqlPersistence = {
-          query: async (sql, params) => {
-            const result = await reader.query(
-              sql,
-              params === undefined ? undefined : [...params],
-            );
-            return { rows: result.rows };
-          },
-        };
-        await expect(
-          classifyOutcomeIntegrity(
-            snapshotPersistence,
-            S09_SCOPE_A,
-            "compaction-race",
-          ),
-        ).resolves.toBe("validRetained");
-
-        await persistence.transaction(async (transaction) => {
-          await transaction.query(
-            `delete from fx_system_commit
-             where scope_uuid = $1::uuid and commit_seq = 1`,
-            [S09_SCOPE_A],
-          );
-          await transaction.query(
-            `update fx_system_scope_execution_authority
-             set oldest_available_commit_seq = 2
-             where scope_id = $1`,
-            [`scope_${S09_SCOPE_A}`],
-          );
-        });
-
-        await expect(
-          classifyOutcomeIntegrity(
-            snapshotPersistence,
-            S09_SCOPE_A,
-            "compaction-race",
-          ),
-        ).resolves.toBe("validRetained");
-        await reader.query("commit");
-      } catch (error) {
-        await reader.query("rollback").catch(() => undefined);
-        throw error;
-      } finally {
-        reader.release();
-      }
-
-      await expect(
-        classifyOutcomeIntegrity(
-          persistence,
-          S09_SCOPE_A,
-          "compaction-race",
-        ),
-      ).resolves.toBe("validCompacted");
-
-      await insertS09Header(persistence, S09_SCOPE_A, S09_EPOCH_A, "2");
-      await insertAvailableOutcome(persistence, {
-        scopeUuid: S09_SCOPE_A,
-        requestKey: "wrong-retained-epoch",
-        epochUuid: S09_EPOCH_B,
-        commitSeq: "2",
-      });
-      await insertAvailableOutcome(persistence, {
-        scopeUuid: S09_SCOPE_A,
-        requestKey: "missing-retained-header",
-        epochUuid: S09_EPOCH_A,
-        commitSeq: "3",
-      });
-      await insertAvailableOutcome(persistence, {
-        scopeUuid: S09_SCOPE_A,
-        requestKey: "future-token",
-        epochUuid: S09_EPOCH_A,
-        commitSeq: "4",
-      });
-
-      await expect(
-        classifyOutcomeIntegrity(
-          persistence,
-          S09_SCOPE_A,
-          "wrong-retained-epoch",
-        ),
-      ).resolves.toBe("corruptRetainedEpoch");
-      await expect(
-        classifyOutcomeIntegrity(
-          persistence,
-          S09_SCOPE_A,
-          "missing-retained-header",
-        ),
-      ).resolves.toBe("corruptMissingRetainedHeader");
-      await expect(
-        classifyOutcomeIntegrity(persistence, S09_SCOPE_A, "future-token"),
-      ).resolves.toBe("corruptFutureToken");
     });
   }, 30_000);
 

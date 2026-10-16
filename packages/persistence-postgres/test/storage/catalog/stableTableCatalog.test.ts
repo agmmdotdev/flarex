@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { PglitePreparedQuery } from "drizzle-orm/pglite";
 import { fxControlTables } from "../../../src/database/schema";
 import {
@@ -6,14 +7,13 @@ import {
 } from "../../../src/installation/installationLifecycle";
 import {
   createMigratedPGlitePersistence,
-  migratedPGliteDataDir,
 } from "../../support/pgliteTestFixture";
 import {
   CatalogTableIdSchema,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
-import { beforeAll, describe, expect, expectTypeOf, it, onTestFinished, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, expectTypeOf, it, onTestFinished, vi } from "vitest";
 
 import type {
   EnsureStableTableIdentityInput,
@@ -72,9 +72,7 @@ type InternalPromiseReaderExport = Extract<
   "getStableTableIdentityByIdForPromiseTransaction"
 >;
 
-beforeAll(() => migratedPGliteDataDir(), 120_000);
-
-describe("stable table catalog", () => {
+describe("stable table catalog", { concurrent: false }, () => {
   it("keeps allocation internal and analyzer ordinals out of input", () => {
     expectTypeOf<AnalyzerOrdinalAccepted>().toEqualTypeOf<false>();
     expectTypeOf<PublicAllocatorMethod>().toEqualTypeOf<never>();
@@ -85,72 +83,6 @@ describe("stable table catalog", () => {
     expectTypeOf<InternalPromiseReaderExport>().toEqualTypeOf<never>();
     expectTypeOf<StableTableIdentity["tableId"]>()
       .toEqualTypeOf<CatalogTableId>();
-  });
-
-  it("allocates once, replays exactly, and supports deployment-qualified reads", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    await persistence.insertDeploymentMetadata({
-      deploymentId: "deployment_catalog_a",
-      projectId: "project_catalog_a",
-    });
-
-    const users = await ensure(persistence, {
-      deploymentId: "deployment_catalog_a",
-      namespace: "app",
-      logicalName: "users",
-    });
-    const replay = await ensure(persistence, {
-      deploymentId: "deployment_catalog_a",
-      namespace: "app",
-      logicalName: "users",
-    });
-    const payloadUsers = await ensure(persistence, {
-      deploymentId: "deployment_catalog_a",
-      namespace: "payload",
-      logicalName: "users",
-    });
-    const products = await ensure(persistence, {
-      deploymentId: "deployment_catalog_a",
-      namespace: "app",
-      logicalName: "products",
-    });
-
-    expect(users).toMatchObject({ status: "created", table: { tableId: 1 } });
-    expect(replay).toEqual({ status: "existing", table: users.table });
-    expect(payloadUsers).toMatchObject({
-      status: "created",
-      table: { tableId: 2 },
-    });
-    expect(products).toMatchObject({ status: "created", table: { tableId: 3 } });
-    expect(users.table.createdAt).toBeInstanceOf(Date);
-
-    await expect(
-      runEffect(
-        getStableTableIdentityByIdEffect(
-          persistence.drizzle,
-          "deployment_catalog_a",
-          users.table.tableId,
-        ),
-      ),
-    ).resolves.toEqual(users.table);
-    await expect(
-      runEffect(
-        getStableTableIdentityByNameEffect(persistence.drizzle, {
-          deploymentId: "deployment_catalog_a",
-          namespace: "payload",
-          logicalName: "users",
-        }),
-      ),
-    ).resolves.toEqual(payloadUsers.table);
-    await expect(
-      runEffect(
-        getStableTableIdentityByIdEffect(
-          persistence.drizzle,
-          "deployment_catalog_a",
-          CatalogTableIdSchema.make(99),
-        ),
-      ),
-    ).resolves.toBeNull();
   });
 
   it("keeps ID input validation pure and classifies invalid caller values", () => {
@@ -280,33 +212,6 @@ describe("stable table catalog", () => {
     });
   });
 
-  it("maps rejected allocator queries once and rolls back", async () => {
-    const rejection = new Error("deployment lock rejected");
-    const transaction = await stableTableAllocationDatabase("deployment_catalog_allocation_sql_failure", {
-      rejection: { operation: "lockDeployment", cause: rejection },
-    });
-
-    const failure = await runEffectFailure(ensureStableTableIdentityEffect(
-      transaction.db,
-      {
-        deploymentId: "deployment_catalog_allocation_sql_failure",
-        namespace: "app",
-        logicalName: "users",
-      },
-    ));
-
-    expect(failure).toBeInstanceOf(
-      StableTableCatalogAllocationPersistenceError,
-    );
-    expect(failure).toMatchObject({
-      _tag: "StableTableCatalogAllocationPersistenceError",
-      operation: "lockDeployment",
-      cause: rejection,
-    });
-    expect(transaction.committed()).toBe(false);
-    expect(transaction.rolledBack()).toBe(true);
-  });
-
   it("distinguishes transaction infrastructure rejection", async () => {
     const rejection = new Error("transaction begin rejected");
     const db = {
@@ -330,31 +235,6 @@ describe("stable table catalog", () => {
       cause: rejection,
       callbackCause: undefined,
     });
-  });
-
-  it("preserves allocator query-construction failures as defects", async () => {
-    const defect = new Error("deployment lock construction defect");
-    const transaction = await stableTableAllocationDatabase("deployment_catalog_allocation_defect", {
-      constructionDefect: { operation: "lockDeployment", cause: defect },
-    });
-
-    const exit = await Effect.runPromiseExit(ensureStableTableIdentityEffect(
-      transaction.db,
-      {
-        deploymentId: "deployment_catalog_allocation_defect",
-        namespace: "app",
-        logicalName: "users",
-      },
-    ));
-
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      expect(Cause.hasDies(exit.cause)).toBe(true);
-      expect(Cause.hasFails(exit.cause)).toBe(false);
-      expect(exit.cause.toString()).toContain(defect.message);
-    }
-    expect(transaction.committed()).toBe(false);
-    expect(transaction.rolledBack()).toBe(true);
   });
 
   it("waits for the allocator transaction before interruption completes", async () => {
@@ -554,181 +434,306 @@ describe("stable table catalog", () => {
     }
   });
 
-  it("isolates the compact identity sequence by deployment", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    for (const suffix of ["a", "b"] as const) {
+  describe("database-backed catalog cases", { concurrent: false }, () => {
+    let persistence: PGlitePersistence;
+    let dispose: (() => Promise<void>) | undefined;
+
+    beforeAll(async () => {
+      persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
+    }, 120_000);
+
+    afterAll(async () => { await dispose?.(); }, 120_000);
+
+    it("allocates once, replays exactly, and supports deployment-qualified reads", async () => {
       await persistence.insertDeploymentMetadata({
-        deploymentId: `deployment_isolated_${suffix}`,
-        projectId: `project_isolated_${suffix}`,
+        deploymentId: "deployment_catalog_a",
+        projectId: "project_catalog_a",
       });
-    }
 
-    const [first, second] = await Promise.all([
-      ensure(persistence, {
-        deploymentId: "deployment_isolated_a",
-        namespace: "medusa",
-        logicalName: "product",
-      }),
-      ensure(persistence, {
-        deploymentId: "deployment_isolated_b",
-        namespace: "medusa",
-        logicalName: "product",
-      }),
-    ]);
-
-    expect(first.table.tableId).toBe(1);
-    expect(second.table.tableId).toBe(1);
-    expect(first.table.deploymentId).not.toBe(second.table.deploymentId);
-  });
-
-  it("fails closed for invalid ownership and names", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-
-    await expect(
-      ensure(persistence, {
-        deploymentId: "missing_deployment",
+      const users = await ensure(persistence, {
+        deploymentId: "deployment_catalog_a",
         namespace: "app",
         logicalName: "users",
-      }),
-    ).rejects.toBeInstanceOf(StableTableCatalogDeploymentNotFoundError);
-
-    await expect(
-      ensure(persistence, {
-        deploymentId: " ",
+      });
+      const replay = await ensure(persistence, {
+        deploymentId: "deployment_catalog_a",
         namespace: "app",
         logicalName: "users",
-      }),
-    ).rejects.toBeInstanceOf(InvalidStableTableIdentityInputError);
-
-    await persistence.insertDeploymentMetadata({
-      deploymentId: "deployment_invalid_name",
-      projectId: "project_invalid_name",
-    });
-    await expect(
-      ensure(persistence, {
-        deploymentId: "deployment_invalid_name",
-        namespace: "system",
-        logicalName: "\t\n",
-      }),
-    ).rejects.toBeInstanceOf(InvalidStableTableIdentityInputError);
-
-    await expect(runEffect(
-      ensureStableTableIdentityEffect(persistence.drizzle, {
-          deploymentId: "deployment_invalid_name",
-          namespace: "app",
-          logicalName: "analyzer_ordinal",
-          // @ts-expect-error Analyzer ordinals are forbidden allocator input.
-          tableId: 17,
-        }),
-    )).rejects.toMatchObject({
-      name: "InvalidStableTableIdentityInputError",
-      field: "tableId",
-    });
-  });
-
-  it("rolls back when post-insert verification returns typed corruption", async () => {
-    const transaction = await stableTableAllocationDatabase("deployment_catalog_rollback", { insertedRows: [] });
-
-    const failure = await runEffectFailure(ensureStableTableIdentityEffect(
-      transaction.db,
-      {
-        deploymentId: "deployment_catalog_rollback",
+      });
+      const payloadUsers = await ensure(persistence, {
+        deploymentId: "deployment_catalog_a",
+        namespace: "payload",
+        logicalName: "users",
+      });
+      const products = await ensure(persistence, {
+        deploymentId: "deployment_catalog_a",
         namespace: "app",
-        logicalName: "rolled_back",
-      },
-    ));
+        logicalName: "products",
+      });
 
-    expect(failure).toBeInstanceOf(StableTableCatalogCorruptionError);
-    expect(failure).toMatchObject({ detail: "insert returned no row" });
-    expect(transaction.committed()).toBe(false);
-    expect(transaction.rolledBack()).toBe(true);
-    expect(await transaction.catalogRows()).toEqual([]);
-  });
+      expect(users).toMatchObject({ status: "created", table: { tableId: 1 } });
+      expect(replay).toEqual({ status: "existing", table: users.table });
+      expect(payloadUsers).toMatchObject({
+        status: "created",
+        table: { tableId: 2 },
+      });
+      expect(products).toMatchObject({ status: "created", table: { tableId: 3 } });
+      expect(users.table.createdAt).toBeInstanceOf(Date);
 
-  it("retains callback failure when transaction rollback fails differently", async () => {
-    const rollbackFailure = new Error("allocator rollback failed");
-    const transaction = await stableTableAllocationDatabase("deployment_catalog_rollback_failure", {
-      insertedRows: [],
-      rollbackFailure,
-    });
-
-    const failure = await runEffectFailure(ensureStableTableIdentityEffect(
-      transaction.db,
-      {
-        deploymentId: "deployment_catalog_rollback_failure",
-        namespace: "app",
-        logicalName: "rolled_back",
-      },
-    ));
-
-    expect(failure).toBeInstanceOf(
-      StableTableCatalogAllocationTransactionError,
-    );
-    expect(failure).toMatchObject({ cause: rollbackFailure });
-    if (failure instanceof StableTableCatalogAllocationTransactionError) {
-      const callbackCause = failure.callbackCause;
-      if (callbackCause === undefined) {
-        throw new Error("Expected the transaction error to retain callback Cause.");
-      }
-      expect(Cause.hasFails(callbackCause)).toBe(true);
-      expect(callbackCause.toString()).toContain(
-        "insert returned no row",
-      );
-    }
-    expect(transaction.committed()).toBe(false);
-    expect(transaction.rolledBack()).toBe(true);
-    expect(await transaction.catalogRows()).toEqual([]);
-  });
-
-  it("enforces catalog constraints below the typed API", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    await persistence.insertDeploymentMetadata({
-      deploymentId: "deployment_catalog_constraints",
-      projectId: "project_catalog_constraints",
-    });
-
-    for (const row of [
-      { tableId: 0, namespace: "app", logicalName: "zero" },
-      { tableId: 1, namespace: "commerce", logicalName: "namespace" },
-      { tableId: 1, namespace: "app", logicalName: "\t\n" },
-    ]) {
       await expect(
-        persistence.query(
-          `
+        runEffect(
+          getStableTableIdentityByIdEffect(
+            persistence.drizzle,
+            "deployment_catalog_a",
+            users.table.tableId,
+          ),
+        ),
+      ).resolves.toEqual(users.table);
+      await expect(
+        runEffect(
+          getStableTableIdentityByNameEffect(persistence.drizzle, {
+            deploymentId: "deployment_catalog_a",
+            namespace: "payload",
+            logicalName: "users",
+          }),
+        ),
+      ).resolves.toEqual(payloadUsers.table);
+      await expect(
+        runEffect(
+          getStableTableIdentityByIdEffect(
+            persistence.drizzle,
+            "deployment_catalog_a",
+            CatalogTableIdSchema.make(99),
+          ),
+        ),
+      ).resolves.toBeNull();
+    });
+
+    it("maps rejected allocator queries once and rolls back", async () => {
+      const rejection = new Error("deployment lock rejected");
+      const transaction = await stableTableAllocationDatabase(persistence, "deployment_catalog_allocation_sql_failure", {
+        rejection: { operation: "lockDeployment", cause: rejection },
+      });
+
+      const failure = await runEffectFailure(ensureStableTableIdentityEffect(
+        transaction.db,
+        {
+          deploymentId: "deployment_catalog_allocation_sql_failure",
+          namespace: "app",
+          logicalName: "users",
+        },
+      ));
+
+      expect(failure).toBeInstanceOf(
+        StableTableCatalogAllocationPersistenceError,
+      );
+      expect(failure).toMatchObject({
+        _tag: "StableTableCatalogAllocationPersistenceError",
+        operation: "lockDeployment",
+        cause: rejection,
+      });
+      expect(transaction.committed()).toBe(false);
+      expect(transaction.rolledBack()).toBe(true);
+    });
+
+    it("preserves allocator query-construction failures as defects", async () => {
+      const defect = new Error("deployment lock construction defect");
+      const transaction = await stableTableAllocationDatabase(persistence, "deployment_catalog_allocation_defect", {
+        constructionDefect: { operation: "lockDeployment", cause: defect },
+      });
+
+      const exit = await Effect.runPromiseExit(ensureStableTableIdentityEffect(
+        transaction.db,
+        {
+          deploymentId: "deployment_catalog_allocation_defect",
+          namespace: "app",
+          logicalName: "users",
+        },
+      ));
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(true);
+        expect(Cause.hasFails(exit.cause)).toBe(false);
+        expect(exit.cause.toString()).toContain(defect.message);
+      }
+      expect(transaction.committed()).toBe(false);
+      expect(transaction.rolledBack()).toBe(true);
+    });
+
+    it("isolates the compact identity sequence by deployment", async () => {
+      for (const suffix of ["a", "b"] as const) {
+        await persistence.insertDeploymentMetadata({
+          deploymentId: `deployment_isolated_${suffix}`,
+          projectId: `project_isolated_${suffix}`,
+        });
+      }
+
+      const [first, second] = await Promise.all([
+        ensure(persistence, {
+          deploymentId: "deployment_isolated_a",
+          namespace: "medusa",
+          logicalName: "product",
+        }),
+        ensure(persistence, {
+          deploymentId: "deployment_isolated_b",
+          namespace: "medusa",
+          logicalName: "product",
+        }),
+      ]);
+
+      expect(first.table.tableId).toBe(1);
+      expect(second.table.tableId).toBe(1);
+      expect(first.table.deploymentId).not.toBe(second.table.deploymentId);
+    });
+
+    it("fails closed for invalid ownership and names", async () => {
+
+      await expect(
+        ensure(persistence, {
+          deploymentId: "missing_deployment",
+          namespace: "app",
+          logicalName: "users",
+        }),
+      ).rejects.toBeInstanceOf(StableTableCatalogDeploymentNotFoundError);
+
+      await expect(
+        ensure(persistence, {
+          deploymentId: " ",
+          namespace: "app",
+          logicalName: "users",
+        }),
+      ).rejects.toBeInstanceOf(InvalidStableTableIdentityInputError);
+
+      await persistence.insertDeploymentMetadata({
+        deploymentId: "deployment_invalid_name",
+        projectId: "project_invalid_name",
+      });
+      await expect(
+        ensure(persistence, {
+          deploymentId: "deployment_invalid_name",
+          namespace: "system",
+          logicalName: "\t\n",
+        }),
+      ).rejects.toBeInstanceOf(InvalidStableTableIdentityInputError);
+
+      await expect(runEffect(
+        ensureStableTableIdentityEffect(persistence.drizzle, {
+            deploymentId: "deployment_invalid_name",
+            namespace: "app",
+            logicalName: "analyzer_ordinal",
+            // @ts-expect-error Analyzer ordinals are forbidden allocator input.
+            tableId: 17,
+          }),
+      )).rejects.toMatchObject({
+        name: "InvalidStableTableIdentityInputError",
+        field: "tableId",
+      });
+    });
+
+    it("rolls back when post-insert verification returns typed corruption", async () => {
+      const transaction = await stableTableAllocationDatabase(persistence, "deployment_catalog_rollback", { insertedRows: [] });
+
+      const failure = await runEffectFailure(ensureStableTableIdentityEffect(
+        transaction.db,
+        {
+          deploymentId: "deployment_catalog_rollback",
+          namespace: "app",
+          logicalName: "rolled_back",
+        },
+      ));
+
+      expect(failure).toBeInstanceOf(StableTableCatalogCorruptionError);
+      expect(failure).toMatchObject({ detail: "insert returned no row" });
+      expect(transaction.committed()).toBe(false);
+      expect(transaction.rolledBack()).toBe(true);
+      expect(await transaction.catalogRows()).toEqual([]);
+    });
+
+    it("retains callback failure when transaction rollback fails differently", async () => {
+      const rollbackFailure = new Error("allocator rollback failed");
+      const transaction = await stableTableAllocationDatabase(persistence, "deployment_catalog_rollback_failure", {
+        insertedRows: [],
+        rollbackFailure,
+      });
+
+      const failure = await runEffectFailure(ensureStableTableIdentityEffect(
+        transaction.db,
+        {
+          deploymentId: "deployment_catalog_rollback_failure",
+          namespace: "app",
+          logicalName: "rolled_back",
+        },
+      ));
+
+      expect(failure).toBeInstanceOf(
+        StableTableCatalogAllocationTransactionError,
+      );
+      expect(failure).toMatchObject({ cause: rollbackFailure });
+      if (failure instanceof StableTableCatalogAllocationTransactionError) {
+        const callbackCause = failure.callbackCause;
+        if (callbackCause === undefined) {
+          throw new Error("Expected the transaction error to retain callback Cause.");
+        }
+        expect(Cause.hasFails(callbackCause)).toBe(true);
+        expect(callbackCause.toString()).toContain(
+          "insert returned no row",
+        );
+      }
+      expect(transaction.committed()).toBe(false);
+      expect(transaction.rolledBack()).toBe(true);
+      expect(await transaction.catalogRows()).toEqual([]);
+    });
+
+    it("enforces catalog constraints below the typed API", async () => {
+      await persistence.insertDeploymentMetadata({
+        deploymentId: "deployment_catalog_constraints",
+        projectId: "project_catalog_constraints",
+      });
+
+      for (const row of [
+        { tableId: 0, namespace: "app", logicalName: "zero" },
+        { tableId: 1, namespace: "commerce", logicalName: "namespace" },
+        { tableId: 1, namespace: "app", logicalName: "\t\n" },
+      ]) {
+        await expect(
+          persistence.query(
+            `
             insert into fx_control_table
               (deployment_id, table_id, namespace, logical_name)
             values ($1, $2, $3, $4)
           `,
-          [
-            "deployment_catalog_constraints",
-            row.tableId,
-            row.namespace,
-            row.logicalName,
-          ],
-        ),
-      ).rejects.toThrow();
-    }
+            [
+              "deployment_catalog_constraints",
+              row.tableId,
+              row.namespace,
+              row.logicalName,
+            ],
+          ),
+        ).rejects.toThrow();
+      }
 
-    await persistence.query(
-      `
+      await persistence.query(
+        `
         insert into fx_control_table
           (deployment_id, table_id, namespace, logical_name)
         values ($1, $2, $3, $4)
       `,
-      [
-        "deployment_catalog_constraints",
-        2_147_483_647,
-        "system",
-        "maximum_table_id",
-      ],
-    );
-    await expect(
-      ensure(persistence, {
-        deploymentId: "deployment_catalog_constraints",
-        namespace: "app",
-        logicalName: "after_maximum",
-      }),
-    ).rejects.toBeInstanceOf(StableTableCatalogIdExhaustedError);
+        [
+          "deployment_catalog_constraints",
+          2_147_483_647,
+          "system",
+          "maximum_table_id",
+        ],
+      );
+      await expect(
+        ensure(persistence, {
+          deploymentId: "deployment_catalog_constraints",
+          namespace: "app",
+          logicalName: "after_maximum",
+        }),
+      ).rejects.toBeInstanceOf(StableTableCatalogIdExhaustedError);
+    });
   });
 });
 
@@ -766,10 +771,10 @@ interface StableTableAllocationDatabaseOptions {
 }
 
 async function stableTableAllocationDatabase(
+  persistence: PGlitePersistence,
   deploymentId: string,
   options: StableTableAllocationDatabaseOptions = {},
 ) {
-  const persistence = await createMigratedPGlitePersistence();
   await persistence.insertDeploymentMetadata({ deploymentId, projectId: "project_allocator_fault" });
   let committed = false;
   let rolledBack = false;
@@ -826,7 +831,8 @@ async function stableTableAllocationDatabase(
     db: persistence.drizzle,
     committed: () => committed,
     rolledBack: () => rolledBack,
-    catalogRows: () => persistence.drizzle.select().from(fxControlTables),
+    catalogRows: () => persistence.drizzle.select().from(fxControlTables)
+      .where(eq(fxControlTables.deploymentId, deploymentId)),
   });
 }
 

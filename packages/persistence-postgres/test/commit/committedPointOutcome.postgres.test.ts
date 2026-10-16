@@ -20,14 +20,17 @@ import {
 import { runEffect } from "../support/effectTestRuntime";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  rollbackAndReleasePostgresClient,
+  useFileScopedPostgresPersistence,
 } from "../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
-describePostgres("real Postgres O07-A committed point outcome resolver", () => {
+describePostgres("real Postgres O07-A committed point outcome resolver", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPostgresPersistence();
+
   it("returns one statement snapshot across concurrent atomic publication", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertOutcomeScope(persistence, { lastCommitSeq: 0n });
       const gate = deferred<void>();
       const captured = deferred<void>();
@@ -41,32 +44,41 @@ describePostgres("real Postgres O07-A committed point outcome resolver", () => {
         },
       );
       const first = runEffect(resolver.resolve(outcomeLookup("race")));
-      await captured.promise;
-      await persistence.transaction(async (transaction) => {
-        await transaction.query(
-          `update fx_system_scope_clock set last_commit_seq = 1 where scope_uuid = $1::uuid`,
-          [OUTCOME_SCOPE_A],
-        );
-        await insertOutcomeHeader(transaction);
-        await insertCanonicalAvailableOutcome(transaction, {
-          requestKey: "race",
+      const settled = Promise.allSettled([first]);
+      try {
+        await Promise.race([
+          captured.promise,
+          first.then(() => { throw new Error("Resolver settled before its statement barrier."); }),
+        ]);
+        await persistence.transaction(async (transaction) => {
+          await transaction.query(
+            `update fx_system_scope_clock set last_commit_seq = 1 where scope_uuid = $1::uuid`,
+            [OUTCOME_SCOPE_A],
+          );
+          await insertOutcomeHeader(transaction);
+          await insertCanonicalAvailableOutcome(transaction, {
+            requestKey: "race",
+          });
         });
-      });
-      gate.resolve(undefined);
-      await expect(first).resolves.toEqual({ kind: "missing" });
-      await expect(
-        runEffect(
-          createCommittedPointOutcomeResolverV1(persistence.drizzle).resolve(
-            outcomeLookup("race"),
+        gate.resolve(undefined);
+        await expect(first).resolves.toEqual({ kind: "missing" });
+        await expect(
+          runEffect(
+            createCommittedPointOutcomeResolverV1(persistence.drizzle).resolve(
+              outcomeLookup("race"),
+            ),
           ),
-        ),
-      ).resolves.toMatchObject({ kind: "available" });
+        ).resolves.toMatchObject({ kind: "available" });
+      } finally {
+        gate.resolve(undefined);
+        await settled;
+      }
     });
   }, 30_000);
 
   it("observes either retained or compacted history without a torn floor/header view", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
-      await insertOutcomeScope(persistence, { lastCommitSeq: 2n });
+    await withPersistence(async (persistence) => {
+      await insertOutcomeScope(persistence, { lastCommitSeq: 3n });
       await insertOutcomeHeader(persistence, {
         epochUuid: OUTCOME_EPOCH_A,
         commitSeq: 1n,
@@ -90,45 +102,72 @@ describePostgres("real Postgres O07-A committed point outcome resolver", () => {
       const retained = runEffect(
         resolver.resolve(outcomeLookup("compaction")),
       );
-      await captured.promise;
-      await persistence.transaction(async (transaction) => {
-        await transaction.query(
-          `delete from fx_system_commit where scope_uuid = $1::uuid and commit_seq = 1`,
-          [OUTCOME_SCOPE_A],
+      const settled = Promise.allSettled([retained]);
+      try {
+        await Promise.race([
+          captured.promise,
+          retained.then(() => { throw new Error("Resolver settled before its statement barrier."); }),
+        ]);
+        await persistence.transaction(async (transaction) => {
+          await transaction.query(
+            `delete from fx_system_commit where scope_uuid = $1::uuid and commit_seq = 1`,
+            [OUTCOME_SCOPE_A],
+          );
+          await transaction.query(
+            `update fx_system_scope_execution_authority set oldest_available_commit_seq = 2 where scope_id = (select scope_id from fx_system_scope_clock where scope_uuid = $1::uuid)`,
+            [OUTCOME_SCOPE_A],
+          );
+        });
+        gate.resolve(undefined);
+        await expect(retained).resolves.toMatchObject({ kind: "available" });
+        const postCompaction = createCommittedPointOutcomeResolverV1(
+          persistence.drizzle,
         );
-        await transaction.query(
-          `update fx_system_scope_execution_authority set oldest_available_commit_seq = 2 where scope_id = (select scope_id from fx_system_scope_clock where scope_uuid = $1::uuid)`,
-          [OUTCOME_SCOPE_A],
-        );
-      });
-      gate.resolve(undefined);
-      await expect(retained).resolves.toMatchObject({ kind: "available" });
-      const postCompaction = createCommittedPointOutcomeResolverV1(
-        persistence.drizzle,
-      );
-      await expect(
-        runEffect(postCompaction.resolve(outcomeLookup("compaction"))),
-      ).resolves.toMatchObject({ kind: "available" });
+        await expect(
+          runEffect(postCompaction.resolve(outcomeLookup("compaction"))),
+        ).resolves.toMatchObject({ kind: "available" });
 
-      await insertCanonicalAvailableOutcome(persistence, {
-        requestKey: "at-floor",
-        epochUuid: OUTCOME_EPOCH_B,
-        commitSeq: 2n,
-      });
-      const atFloor = runEffect(
-        postCompaction.resolve(outcomeLookup("at-floor")),
-      );
-      await expect(atFloor).rejects.toBeInstanceOf(
-        CommittedPointOutcomeCorruptionErrorV1,
-      );
-      await expect(atFloor).rejects.toMatchObject({
-        reason: "missingRetainedHeader",
-      });
+        await insertCanonicalAvailableOutcome(persistence, {
+          requestKey: "at-floor",
+          epochUuid: OUTCOME_EPOCH_B,
+          commitSeq: 2n,
+        });
+        const atFloor = runEffect(
+          postCompaction.resolve(outcomeLookup("at-floor")),
+        );
+        await expect(atFloor).rejects.toBeInstanceOf(
+          CommittedPointOutcomeCorruptionErrorV1,
+        );
+        await expect(atFloor).rejects.toMatchObject({
+          reason: "missingRetainedHeader",
+        });
+
+        await insertOutcomeHeader(persistence, {
+          epochUuid: OUTCOME_EPOCH_A,
+          commitSeq: 3n,
+        });
+        for (const { requestKey, commitSeq, reason } of [
+          { requestKey: "wrong-retained-epoch", commitSeq: 3n, reason: "retainedHeaderEpochMismatch" },
+          { requestKey: "future-token", commitSeq: 4n, reason: "commitTokenAheadOfClock" },
+        ]) {
+          await insertCanonicalAvailableOutcome(persistence, {
+            requestKey,
+            epochUuid: OUTCOME_EPOCH_B,
+            commitSeq,
+          });
+          const failure = runEffect(postCompaction.resolve(outcomeLookup(requestKey)));
+          await expect(failure).rejects.toBeInstanceOf(CommittedPointOutcomeCorruptionErrorV1);
+          await expect(failure).rejects.toMatchObject({ reason });
+        }
+      } finally {
+        gate.resolve(undefined);
+        await settled;
+      }
     });
   }, 30_000);
 
   it("releases SQL resources before verification and uses bounded index-backed lookup", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertOutcomeScope(persistence, { lastCommitSeq: 1n });
       await insertOutcomeHeader(persistence);
       await insertCanonicalAvailableOutcome(persistence, {
@@ -164,33 +203,42 @@ describePostgres("real Postgres O07-A committed point outcome resolver", () => {
       const resolving = runEffect(
         resolver.resolve(outcomeLookup("plan-target")),
       );
-      await captured.promise;
-
-      const lockClient = await persistence.pool.connect();
+      const settled = Promise.allSettled([resolving]);
       try {
-        await lockClient.query("begin");
-        await expect(lockClient.query(`
+        await Promise.race([
+          captured.promise,
+          resolving.then(() => { throw new Error("Resolver settled before its statement barrier."); }),
+        ]);
+
+        const lockClient = await persistence.pool.connect();
+        try {
+          await lockClient.query("begin");
+          await expect(lockClient.query(`
           lock table fx_system_idempotency, fx_system_scope_clock,
             fx_system_commit in access exclusive mode nowait
         `)).resolves.toBeDefined();
-        await lockClient.query("rollback");
-      } finally {
-        lockClient.release();
-      }
-      gate.resolve(undefined);
-      await expect(resolving).resolves.toMatchObject({ kind: "available" });
+          await lockClient.query("rollback");
+        } finally {
+          await rollbackAndReleasePostgresClient(lockClient);
+        }
+        gate.resolve(undefined);
+        await expect(resolving).resolves.toMatchObject({ kind: "available" });
 
-      expect(observed).toBeDefined();
-      if (observed === undefined) throw new Error("Missing observed query.");
-      expect(observed.sql.toLowerCase()).toContain("octet_length");
-      expect(observed.sql.toLowerCase()).toContain("case when");
-      const plan = await explainObservedQuery(persistence, observed);
-      expect(plan).toContain(
-        "fx_system_idempotency_scope_uuid_request_key_pk",
-      );
-      expect(plan).toContain("fx_system_scope_clock_scope_uuid_unique");
-      expect(plan).toContain(`"Index Cond":"(fx_system_scope_clock.scope_uuid = '${OUTCOME_SCOPE_A}'::uuid)"`);
-      expect(plan).toContain("fx_system_commit_scope_uuid_commit_seq_pk");
+        expect(observed).toBeDefined();
+        if (observed === undefined) throw new Error("Missing observed query.");
+        expect(observed.sql.toLowerCase()).toContain("octet_length");
+        expect(observed.sql.toLowerCase()).toContain("case when");
+        const plan = await explainObservedQuery(persistence, observed);
+        expect(plan).toContain(
+          "fx_system_idempotency_scope_uuid_request_key_pk",
+        );
+        expect(plan).toContain("fx_system_scope_clock_scope_uuid_unique");
+        expect(plan).toContain(`"Index Cond":"(fx_system_scope_clock.scope_uuid = '${OUTCOME_SCOPE_A}'::uuid)"`);
+        expect(plan).toContain("fx_system_commit_scope_uuid_commit_seq_pk");
+      } finally {
+        gate.resolve(undefined);
+        await settled;
+      }
     });
   }, 30_000);
 });
@@ -225,13 +273,9 @@ async function explainObservedQuery(
       `explain (format json, verbose) ${query.sql}`,
       [...query.params],
     );
-    await client.query("rollback");
     return JSON.stringify(explained.rows);
-  } catch (error) {
-    await client.query("rollback").catch(() => undefined);
-    throw error;
   } finally {
-    client.release();
+    await rollbackAndReleasePostgresClient(client);
   }
 }
 

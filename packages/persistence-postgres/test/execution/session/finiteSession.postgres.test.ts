@@ -45,8 +45,9 @@ import {
 import {
   postgresUrl,
   rollbackAndReleasePostgresClient,
-  withTemporaryPostgresPersistence,
+  createFileScopedPostgresFixture,
 } from "../../support/postgresHelpers";
+import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
 import { prepareInstalledAttemptScopeAuthority } from "../../../src/scope/scopeAuthorityControlRead";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
@@ -71,49 +72,55 @@ const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("finite running authority barrier", () => {
 
-  for (const [dimension, reason] of [
-    ["generation", "unsupportedStorageGeneration"],
-    ["fence", "storageGenerationFenceChanged"],
-    ["epoch", "scopeEpochChanged"],
-  ] as const) {
-    it(`refuses changed ${dimension} before data and before later claim refusal`, async () => {
-      await withTemporaryPostgresPersistence(async persistence => {
-        const fixture = await finiteBarrierFixture(persistence, `refuse_${dimension}`, false);
-        const currentInput = await captureExpiredFiniteFixtureRecovery(persistence, fixture);
-        const nextFence = StorageGenerationFenceSchema.make(currentInput.preliminaryAuthority.storageGenerationFence + 1n);
-        const nextEpoch = ScopeEpochSchema.make("epoch_64000000-0000-4000-8000-000000000902");
-        await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set(
-          dimension === "generation" ? { storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1") }
-            : dimension === "fence" ? { storageGenerationFence: nextFence } : { epoch: nextEpoch },
-        ).where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.context.scopeId));
-        await expectFiniteRefusalBeforeData(persistence, fixture, currentInput, reason);
-        // Add only later refusals: generation precedes fence/epoch; fence
-        // precedes epoch; every authority refusal precedes the stale claim.
-        if (dimension !== "epoch") await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({
-          ...(dimension === "generation" ? { storageGenerationFence: nextFence } : {}), epoch: nextEpoch,
-        }).where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.context.scopeId));
-        await expectFiniteRefusalBeforeData(persistence, fixture,
-          { ...currentInput, executionClaim: fixture.input.executionClaim }, reason);
-      }, { transport: "finiteCapture" });
-    }, 120_000);
-  }
+  describe("direct refusals", { concurrent: false }, () => {
+    const withFinitePersistence = useFileScopedPersistence(
+      () => createFileScopedPostgresFixture({}, {}, "finiteCapture"),
+      postgresUrl !== null,
+    );
+
+    for (const [dimension, reason] of [
+      ["generation", "unsupportedStorageGeneration"],
+      ["fence", "storageGenerationFenceChanged"],
+      ["epoch", "scopeEpochChanged"],
+    ] as const) {
+      it(`refuses changed ${dimension} before data and before later claim refusal`, async () => {
+        await withFinitePersistence(async persistence => {
+          const fixture = await finiteBarrierFixture(persistence, `refuse_${dimension}`, false);
+          const currentInput = await captureExpiredFiniteFixtureRecovery(persistence, fixture);
+          const nextFence = StorageGenerationFenceSchema.make(currentInput.preliminaryAuthority.storageGenerationFence + 1n);
+          const nextEpoch = ScopeEpochSchema.make("epoch_64000000-0000-4000-8000-000000000902");
+          await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set(
+            dimension === "generation" ? { storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1") }
+              : dimension === "fence" ? { storageGenerationFence: nextFence } : { epoch: nextEpoch },
+          ).where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.context.scopeId));
+          await expectFiniteRefusalBeforeData(persistence, fixture, currentInput, reason);
+          // Add only later refusals: generation precedes fence/epoch; fence
+          // precedes epoch; every authority refusal precedes the stale claim.
+          if (dimension !== "epoch") await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({
+            ...(dimension === "generation" ? { storageGenerationFence: nextFence } : {}), epoch: nextEpoch,
+          }).where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.context.scopeId));
+          await expectFiniteRefusalBeforeData(persistence, fixture,
+            { ...currentInput, executionClaim: fixture.input.executionClaim }, reason);
+        });
+      }, 120_000);
+    }
 
 
-  for (const dimension of ["owner", "fence"] as const) {
-    it(`refuses an independently stale claim ${dimension} before data`, async () => {
-      await withTemporaryPostgresPersistence(async persistence => {
-        const fixture = await finiteBarrierFixture(persistence, `refuse_claim_${dimension}`, false);
-        // Trusted negative storage fixture changes exactly one persisted claim
-        // scalar. The original issued owner input remains unchanged.
-        await persistence.query(`update fx_system_tx_session set ${dimension === "owner"
-          ? "finite_claim_owner = $2::uuid" : "finite_claim_fence = $2::bigint"} where session_id = $1`,
-        [fixture.activated.anchor.sessionId, dimension === "owner"
-          ? "64000000-0000-4000-8000-000000000901" : fixture.input.executionClaim.claimFence + 1n]);
-        await expectFiniteRefusalBeforeData(persistence, fixture, fixture.input, "ownershipChanged");
-      }, { transport: "finiteCapture" });
-    }, 120_000);
-  }
-
+    for (const dimension of ["owner", "fence"] as const) {
+      it(`refuses an independently stale claim ${dimension} before data`, async () => {
+        await withFinitePersistence(async persistence => {
+          const fixture = await finiteBarrierFixture(persistence, `refuse_claim_${dimension}`, false);
+          // Trusted negative storage fixture changes exactly one persisted claim
+          // scalar. The original issued owner input remains unchanged.
+          await persistence.query(`update fx_system_tx_session set ${dimension === "owner"
+            ? "finite_claim_owner = $2::uuid" : "finite_claim_fence = $2::bigint"} where session_id = $1`,
+          [fixture.activated.anchor.sessionId, dimension === "owner"
+            ? "64000000-0000-4000-8000-000000000901" : fixture.input.executionClaim.claimFence + 1n]);
+          await expectFiniteRefusalBeforeData(persistence, fixture, fixture.input, "ownershipChanged");
+        });
+      }, 120_000);
+    }
+  });
 
   for (const profile of ["direct", "installed"] as const) {
   it.skipIf(profile === "installed" && !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(

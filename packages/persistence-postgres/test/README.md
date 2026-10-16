@@ -257,6 +257,10 @@ Scope, catalog and index fixtures use the migrated image. Schema-artifact and
 index-definition database cases each share a file-owned backend with distinct
 deployment identities and serial execution. Their pure token/driver-fault cases
 need no database; the artifact table-drop witness keeps its own backend.
+Stable-table and creation-time definition cases use the same file lifetime;
+allocator fault inspection is deployment-qualified. Candidate-validation cases
+share their distinct deployment/scope fixtures; the foreign-control identity
+witness retains a separate database, and retained hosts close with their test.
 Application analysis/relation/task-binding repositories use the same owner,
 including automatic cleanup. Instrumented task-binding drivers restore the
 image through their existing raw-driver owner. Retained-history suites keep
@@ -354,6 +358,9 @@ uncertain COMMIT and session-configuration witnesses keep separate fixtures.
 Plan probes use `withPostgresSequentialScansDisabled` to bind `SET LOCAL` and
 EXPLAIN to one client and roll back the setting before reuse.
 Validate converted suites as whole files, including failure-triggered rebuilds.
+Finite direct authority/claim refusal cases borrow one file fixture with the
+existing `finiteCapture` transport and its statement budget. Installed, lease,
+DDL and session-state witnesses keep their existing owners.
 Finite terminalization barriers borrow that same lifecycle with the existing
 `finiteCapture` transport; the paused-scope witness uses its ordinary file owner,
 releases its gate, drains both operations and cancels its losing timer before
@@ -378,6 +385,12 @@ Effect contracts. Prefer assertions in
 existing consumer scenarios over separate tests of fixed fixture contents or
 helper allocation details. Preserve behavioral, durable-data, rollback and
 compatibility witnesses; an old checkpoint label alone does not make one obsolete.
+Idempotency schema suites retain migration, constraint, uniqueness, plan and
+size-limit proofs. The fresh-install fixture starts its empty PGlite engine in
+setup; the case still executes and asserts both fresh migration and replay. Outcome classification and compaction races exercise the real
+committed-outcome resolver; there is no test-owned classification algorithm.
+Native resolver cases share the existing row-reset fixture, release statement
+gates and drain pending resolvers before reset.
 
 Coordinator driver-error mapping assertions run beside their existing authentic
 parent/read/replay scenarios and share the repository fault helper. Root-selection

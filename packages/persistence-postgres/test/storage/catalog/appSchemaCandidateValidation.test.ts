@@ -26,7 +26,7 @@ import {
   StorageGenerationFenceSchema,
 } from "flarex-protocol/storage-authority";
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from "vitest";
 import { retainPreparedHost } from "../../../src/execution/preparation/preparedHostRuntime";
 import { preparedHostTestRuntime } from "../../execution/preparation/preparedHostRuntimeTestSupport";
 
@@ -74,9 +74,18 @@ const LOCATOR = Object.freeze({
 } as const satisfies ScopePhysicalLocator);
 let fixtureOrdinal = 0;
 
-describe("M03-A app-schema candidate validation", () => {
+describe("M03-A app-schema candidate validation", { concurrent: false }, () => {
+  let persistence: Persistence;
+  let dispose: (() => Promise<void>) | undefined;
+
+  beforeAll(async () => {
+    persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
+  }, 120_000);
+
+  afterAll(async () => { await dispose?.(); }, 120_000);
+
   it("fences captured empty heads by issuer and target before detecting a new candidate", async () => {
-    const fixture = await fixtureFor("captured_empty_head");
+    const fixture = await fixtureFor(persistence, "captured_empty_head");
     const dependencies = portDependencies(fixture);
     const candidateValidation = createAppSchemaCandidateValidationPort(dependencies);
     const pointCommitAuthority = { scopeMetadata: dependencies.authority.scopeMetadata,
@@ -88,6 +97,7 @@ describe("M03-A app-schema candidate validation", () => {
     const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(fixture.persistence.drizzle),
       prepareFiniteAppSchemaCandidateWriteGuardPortEffect({ candidateValidation, pointCommitAuthority },
         { profile: "fullArtifactProof", deploymentId: fixture.deploymentId, scopeId: fixture.scopeId })));
+    onTestFinished(() => runEffect(retained.close));
     const guard = await runEffect(retained.use(Effect.succeed));
     expect((await runEffect(Effect.fromResult(retained.readUsage()))).chargedBytes).toBeGreaterThan(0);
     const clock = await fixture.target.getCurrentClock(fixture.scopeId);
@@ -136,7 +146,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("advances the selected shop when another scope shares its deployment", async () => {
-    const fixture = await fixtureFor("shared_deployment_peer");
+    const fixture = await fixtureFor(persistence, "shared_deployment_peer");
     await fixture.persistence.insertScopeMetadata({
       deploymentId: fixture.deploymentId,
       scopeId: ScopeIdSchema.make("scope_candidate_validation_peer"),
@@ -152,7 +162,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("projects exact missing, progress, receipt, failure, and replacement readiness", async () => {
-    const fixture = await fixtureFor("readiness");
+    const fixture = await fixtureFor(persistence, "readiness");
     const validation = port(fixture);
     const readiness = createAppSchemaCandidateReadinessPort(validation);
 
@@ -273,7 +283,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("installs one head, replays exactly, and supersedes a different candidate", async () => {
-    const fixture = await fixtureFor("install");
+    const fixture = await fixtureFor(persistence, "install");
     const first = await install(fixture, fixture.schemaVersionId);
     expect(first).toMatchObject({
       disposition: "installed",
@@ -311,7 +321,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("scans authoritative revisions at the pinned frontier and settles", async () => {
-    const fixture = await fixtureFor("frontier");
+    const fixture = await fixtureFor(persistence, "frontier");
     await appendLive(fixture, rowId(1), 1n, null, { name: "before" });
     await setClockCommit(fixture, 1n);
     await install(fixture, fixture.schemaVersionId);
@@ -352,7 +362,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("fails with bounded body-free evidence for incompatible and removed rows", async () => {
-    const fixture = await fixtureFor("failure");
+    const fixture = await fixtureFor(persistence, "failure");
     await appendLive(fixture, rowId(1), 1n, null, { name: 42 });
     await setClockCommit(fixture, 1n);
     await install(fixture, fixture.schemaVersionId);
@@ -401,7 +411,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("atomically fails an active candidate from final point-commit rows", async () => {
-    const fixture = await fixtureFor("write_guard");
+    const fixture = await fixtureFor(persistence, "write_guard");
     const dependencies = portDependencies(fixture);
     const candidateValidation = createAppSchemaCandidateValidationPort(
       dependencies,
@@ -507,7 +517,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("keeps valid writes and deletes inert, then invalidates a settled receipt", async () => {
-    const fixture = await fixtureFor("write_guard_receipt");
+    const fixture = await fixtureFor(persistence, "write_guard_receipt");
     const dependencies = portDependencies(fixture);
     const candidateValidation = createAppSchemaCandidateValidationPort(
       dependencies,
@@ -618,7 +628,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("binds write guards to one exact point-commit authority object", async () => {
-    const fixture = await fixtureFor("write_guard_composition");
+    const fixture = await fixtureFor(persistence, "write_guard_composition");
     const dependencies = portDependencies(fixture);
     const pointCommitAuthority = Object.freeze({
       scopeMetadata: dependencies.authority.scopeMetadata,
@@ -666,7 +676,7 @@ describe("M03-A app-schema candidate validation", () => {
       { ...applicationPointCommitAuthority },
     )).toBe(false);
 
-    const foreignFixture = await fixtureFor("write_guard_foreign_control");
+    const foreignFixture = await fixtureFor(await createMigratedPGlitePersistence(), "write_guard_foreign_control");
     const foreignControlAuthority = Object.freeze({
       ...pointCommitAuthority,
       applicationControlDb: foreignFixture.persistence.drizzle,
@@ -720,7 +730,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("accepts same-candidate scan progress between preparation and commit", async () => {
-    const fixture = await fixtureFor("write_guard_progress_race");
+    const fixture = await fixtureFor(persistence, "write_guard_progress_race");
     await appendLive(fixture, rowId(1), 1n, null, { name: "existing" });
     await setClockCommit(fixture, 1n);
     const dependencies = portDependencies(fixture);
@@ -786,7 +796,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("truncates long-path failures to the aggregate evidence byte ceiling", async () => {
-    const fixture = await fixtureFor("failure_bytes");
+    const fixture = await fixtureFor(persistence, "failure_bytes");
     const installed = await install(fixture, fixture.schemaVersionId);
     if (installed.head.frame.kind !==
         "app_schema_candidate_validation_progress") {
@@ -844,7 +854,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("rolls back interrupted progress and rejects canonical-frame corruption", async () => {
-    const fixture = await fixtureFor("rollback");
+    const fixture = await fixtureFor(persistence, "rollback");
     await appendLive(fixture, rowId(1), 1n, null, { name: "safe" });
     await setClockCommit(fixture, 1n);
     const installed = await install(fixture, fixture.schemaVersionId);
@@ -885,7 +895,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("projects decision uncertainty and cold-replays the committed head", async () => {
-    const fixture = await fixtureFor("uncertain");
+    const fixture = await fixtureFor(persistence, "uncertain");
     const baseRunner = createDefaultLocatedReadCommittedTransactionRunnerV1(
       fixture.persistence.drizzle,
     );
@@ -928,7 +938,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("advances resumably at the time ceiling without losing cursor order", async () => {
-    const fixture = await fixtureFor("time_budget");
+    const fixture = await fixtureFor(persistence, "time_budget");
     await appendLive(fixture, rowId(1), 1n, null, { name: "Ada" });
     await appendLive(fixture, rowId(2), 1n, null, { name: "Bea" });
     await setClockCommit(fixture, 1n);
@@ -967,7 +977,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("caps one page at 128 identities and resumes the 129th exactly", async () => {
-    const fixture = await fixtureFor("row_budget");
+    const fixture = await fixtureFor(persistence, "row_budget");
     await appendManyLive(fixture, 129);
     await setClockCommit(fixture, 1n);
     await install(fixture, fixture.schemaVersionId);
@@ -996,7 +1006,7 @@ describe("M03-A app-schema candidate validation", () => {
   }, 180_000);
 
   it("lets DDL guards refuse malformed authority without changing the head", async () => {
-    const fixture = await fixtureFor("ddl_refusal");
+    const fixture = await fixtureFor(persistence, "ddl_refusal");
     const installed = await install(fixture, fixture.schemaVersionId);
     await expect(fixture.persistence.query(
       `update fx_system_app_schema_candidate_validation
@@ -1024,7 +1034,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("restarts a remediated failed candidate at a fresh frontier", async () => {
-    const fixture = await fixtureFor("restart_failed");
+    const fixture = await fixtureFor(persistence, "restart_failed");
     await appendLive(fixture, rowId(1), 1n, null, { name: 42 });
     await setClockCommit(fixture, 1n);
     await install(fixture, fixture.schemaVersionId);
@@ -1066,7 +1076,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("boundedly skips more than one page of post-frontier inserts", async () => {
-    const fixture = await fixtureFor("post_frontier");
+    const fixture = await fixtureFor(persistence, "post_frontier");
     await install(fixture, fixture.schemaVersionId);
     await appendManyLive(fixture, 129);
     await setClockCommit(fixture, 1n);
@@ -1094,7 +1104,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("rejects a current identity whose revision history has no root", async () => {
-    const fixture = await fixtureFor("missing_root");
+    const fixture = await fixtureFor(persistence, "missing_root");
     const id = rowId(1);
     await fixture.persistence.query(
       `insert into fx_app_row_rev
@@ -1133,7 +1143,7 @@ describe("M03-A app-schema candidate validation", () => {
   });
 
   it("authenticates exact port composition and rejects copies and accessors", async () => {
-    const fixture = await fixtureFor("port_auth");
+    const fixture = await fixtureFor(persistence, "port_auth");
     const exactDependencies = portDependencies(fixture);
     const exact = createAppSchemaCandidateValidationPort(exactDependencies);
     expect(hasAppSchemaCandidateValidationComposition(
@@ -1199,8 +1209,7 @@ interface Fixture {
   readonly target: ReturnType<typeof createLocatedAppSchemaCandidateValidationTarget>;
 }
 
-async function fixtureFor(suffix: string): Promise<Fixture> {
-  const persistence = await createMigratedPGlitePersistence();
+async function fixtureFor(persistence: Persistence, suffix: string): Promise<Fixture> {
   fixtureOrdinal += 1;
   const fixtureSuffix = fixtureOrdinal.toString(16).padStart(12, "0");
   const deploymentId = `deployment_schema_validation_${suffix}`;

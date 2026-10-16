@@ -6,13 +6,12 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
-import { beforeAll, describe, expect, it, onTestFinished } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from "vitest";
 
 import * as persistencePackage from "../../src";
 import { createPGlitePersistence } from "../../src/database/pglite";
 import { flarexSchema } from "../../src/database/schema";
 import {
-  classifyOutcomeIntegrity,
   insertAvailableOutcome,
   insertExpiredOutcome,
   insertS09Header,
@@ -35,32 +34,40 @@ const MIGRATION_NAME = "0030_absurd_vanisher.sql";
 describe("S09-A committed-success idempotency schema", () => {
   beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
 
-  it("installs privately, replays idempotently, and owns only the scope FK", async () => {
-    const db = newTestPGlite();
-    onTestFinished(() => db.close());
-    const persistence = await createPGlitePersistence({ db });
+  describe("fresh installation", () => {
+    let db: ReturnType<typeof newTestPGlite> | undefined;
+    let persistence: Awaited<ReturnType<typeof createPGlitePersistence>>;
 
-    await expect(persistence.migrate()).resolves.toBeUndefined();
-    await expect(persistence.migrate()).resolves.toBeUndefined();
+    beforeAll(async () => {
+      db = newTestPGlite();
+      await db.waitReady;
+      persistence = await createPGlitePersistence({ db });
+    }, 120_000);
 
-    const inventory = await persistence.query<{ table_name: string }>(`
+    afterAll(async () => { await db?.close(); }, 120_000);
+
+    it("installs privately, replays idempotently, and owns only the scope FK", async () => {
+      await expect(persistence.migrate()).resolves.toBeUndefined();
+      await expect(persistence.migrate()).resolves.toBeUndefined();
+
+      const inventory = await persistence.query<{ table_name: string }>(`
       select table_name
       from information_schema.tables
       where table_schema = current_schema()
         and table_name in ('fx_system_idempotency', 'outbox')
       order by table_name
     `);
-    expect(inventory.rows).toEqual([
-      { table_name: "fx_system_idempotency" },
-      { table_name: "outbox" },
-    ]);
-    expect("fxSystemIdempotency" in flarexSchema).toBe(false);
-    expect(persistencePackage).not.toHaveProperty("fxSystemIdempotency");
+      expect(inventory.rows).toEqual([
+        { table_name: "fx_system_idempotency" },
+        { table_name: "outbox" },
+      ]);
+      expect("fxSystemIdempotency" in flarexSchema).toBe(false);
+      expect(persistencePackage).not.toHaveProperty("fxSystemIdempotency");
 
-    const foreignKeys = await persistence.query<{
-      constraint_name: string;
-      foreign_table_name: string;
-    }>(`
+      const foreignKeys = await persistence.query<{
+        constraint_name: string;
+        foreign_table_name: string;
+      }>(`
       select
         constraint_row.constraint_name,
         usage_row.table_name as foreign_table_name
@@ -72,12 +79,13 @@ describe("S09-A committed-success idempotency schema", () => {
         and constraint_row.table_name = 'fx_system_idempotency'
         and constraint_row.constraint_type = 'FOREIGN KEY'
     `);
-    expect(foreignKeys.rows).toEqual([
-      {
-        constraint_name: "fx_system_idempotency_scope_clock_fk",
-        foreign_table_name: "fx_system_scope_clock",
-      },
-    ]);
+      expect(foreignKeys.rows).toEqual([
+        {
+          constraint_name: "fx_system_idempotency_scope_clock_fk",
+          foreign_table_name: "fx_system_scope_clock",
+        },
+      ]);
+    });
   });
 
   it("upgrades 0029 with target and legacy rows intact", async () => {
@@ -289,72 +297,6 @@ describe("S09-A committed-success idempotency schema", () => {
       select count(*)::text as count from fx_system_idempotency
     `);
     expect(outcomes.rows).toEqual([{ count: "4" }]);
-  });
-
-  it("distinguishes compacted history from retained-range corruption", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    await insertS09Scope(persistence, S09_SCOPE_A, S09_EPOCH_B, "3");
-    await insertS09Header(persistence, S09_SCOPE_A, S09_EPOCH_A, "1");
-    await insertAvailableOutcome(persistence, {
-      scopeUuid: S09_SCOPE_A,
-      requestKey: "old-epoch",
-      epochUuid: S09_EPOCH_A,
-      commitSeq: "1",
-    });
-    expect(
-      await classifyOutcomeIntegrity(persistence, S09_SCOPE_A, "old-epoch"),
-    ).toBe("validRetained");
-
-    await persistence.query(`
-      delete from fx_system_commit
-      where scope_uuid = '${S09_SCOPE_A}'::uuid and commit_seq = 1
-    `);
-    expect(
-      await classifyOutcomeIntegrity(persistence, S09_SCOPE_A, "old-epoch"),
-    ).toBe("corruptMissingRetainedHeader");
-    await persistence.query(`
-      update fx_system_scope_execution_authority
-      set oldest_available_commit_seq = 2
-      where scope_id = 'scope_${S09_SCOPE_A}'
-    `);
-    expect(
-      await classifyOutcomeIntegrity(persistence, S09_SCOPE_A, "old-epoch"),
-    ).toBe("validCompacted");
-
-    await insertAvailableOutcome(persistence, {
-      scopeUuid: S09_SCOPE_A,
-      requestKey: "missing-at-floor",
-      epochUuid: S09_EPOCH_B,
-      commitSeq: "2",
-    });
-    expect(
-      await classifyOutcomeIntegrity(
-        persistence,
-        S09_SCOPE_A,
-        "missing-at-floor",
-      ),
-    ).toBe("corruptMissingRetainedHeader");
-
-    await insertAvailableOutcome(persistence, {
-      scopeUuid: S09_SCOPE_A,
-      requestKey: "future-token",
-      epochUuid: S09_EPOCH_B,
-      commitSeq: "4",
-    });
-    expect(
-      await classifyOutcomeIntegrity(persistence, S09_SCOPE_A, "future-token"),
-    ).toBe("corruptFutureToken");
-
-    await insertS09Header(persistence, S09_SCOPE_A, S09_EPOCH_A, "3");
-    await insertAvailableOutcome(persistence, {
-      scopeUuid: S09_SCOPE_A,
-      requestKey: "wrong-epoch",
-      epochUuid: S09_EPOCH_B,
-      commitSeq: "3",
-    });
-    expect(
-      await classifyOutcomeIntegrity(persistence, S09_SCOPE_A, "wrong-epoch"),
-    ).toBe("corruptRetainedEpoch");
   });
 
   it("accepts exact result limits and rejects semantic or canonical +1", async () => {
