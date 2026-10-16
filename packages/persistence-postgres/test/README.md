@@ -334,6 +334,11 @@ uncertain COMMIT and session-configuration witnesses keep separate fixtures.
 Plan probes use `withPostgresSequentialScansDisabled` to bind `SET LOCAL` and
 EXPLAIN to one client and roll back the setting before reuse.
 Validate converted suites as whole files, including failure-triggered rebuilds.
+Finite terminalization barriers borrow that same lifecycle with the existing
+`finiteCapture` transport; the paused-scope witness uses its ordinary file owner,
+releases its gate, drains both operations and cancels its losing timer before
+reuse. App-row plan probes use the existing scoped
+planner-setting helper so pooled sessions return with their original settings.
 `database/postgresRuntime.postgres.test.ts` keeps real installation admission
 on its test-owned connection while injecting only transaction-command failures.
 
@@ -343,6 +348,14 @@ Effect contracts. Prefer assertions in
 existing consumer scenarios over separate tests of fixed fixture contents or
 helper allocation details. Preserve behavioral, durable-data, rollback and
 compatibility witnesses; an old checkpoint label alone does not make one obsolete.
+
+Coordinator driver-error mapping assertions run beside their existing authentic
+parent/read/replay scenarios and share the repository fault helper. Graph-pass
+policy and lifetime cases share one file-owned database without row changes;
+the cross-transaction witness retains its second independent database. Typed
+maintenance converter cases restore independent control/target images before
+constructing their private predecessor representation, then execute the actual
+conversion, rollback, final attestation and reopen paths.
 
 Run a focused owner from this package, for example:
 

@@ -1,3 +1,4 @@
+import { rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { eq, sql } from "drizzle-orm";
 import { Effect, Option } from "effect";
@@ -87,6 +88,20 @@ describe("framework coordinator physical-name assignment repository", () => {
         ),
       ));
       expect(readSecond).toEqual(second);
+      const driverCause = new Error("driver unavailable");
+      const failure = await runEffectFailure(
+        readRelationalPhysicalNameAssignmentInTransactionEffect(
+          rejectingSelectTransaction(transaction, driverCause),
+          collision,
+          values.firstAssignment,
+        ),
+      );
+      expect(failure).toMatchObject({
+        _tag: "FrameworkMigrationRepositoryError",
+        operation: "readPhysicalNameAssignment",
+        reason: "resourceFailure",
+        cause: driverCause,
+      });
       return { first, second };
     });
 
@@ -409,28 +424,6 @@ describe("framework coordinator physical-name assignment repository", () => {
       reason: "storedCorruption",
     });
   });
-
-  it("projects a rejected driver statement without retaining the transaction", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const values = await freshAssignmentRepositoryValues();
-    const { collision } = await persistence.drizzle.transaction(
-      transaction => ensureParents(transaction, values),
-    );
-    const driverCause = new Error("driver unavailable");
-    const failure = await runEffectFailure(
-      readRelationalPhysicalNameAssignmentInTransactionEffect(
-        rejectingSelectTransaction(driverCause),
-        collision,
-        values.firstAssignment,
-      ),
-    );
-    expect(failure).toMatchObject({
-      _tag: "FrameworkMigrationRepositoryError",
-      operation: "readPhysicalNameAssignment",
-      reason: "resourceFailure",
-      cause: driverCause,
-    });
-  });
 });
 
 async function freshAssignmentRepositoryValues() {
@@ -528,21 +521,6 @@ async function assignmentCount(
   const row = result.rows[0];
   if (row === undefined) throw new Error("Missing assignment count row");
   return row.assignment_count;
-}
-
-function rejectingSelectTransaction(
-  cause: unknown,
-): FlarexMetadataTransaction {
-  const transaction = {
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: () => Promise.reject(cause),
-        }),
-      }),
-    }),
-  };
-  return transaction as unknown as FlarexMetadataTransaction;
 }
 
 // Single-item convenience belongs to tests; the repository accepts inventories.

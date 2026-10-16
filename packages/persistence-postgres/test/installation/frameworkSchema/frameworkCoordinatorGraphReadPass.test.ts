@@ -1,5 +1,5 @@
 import { Effect, Exit, Option } from "effect";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../../../src/installation/migrationCoordination/graphReadPass";
 import { frameworkMigrationGraphPolicy, withBindingMigrationGraphLimits, withAdditiveMigrationGraphLimits } from "../../../src/installation/migrationCoordination/graphLimits";
@@ -7,9 +7,16 @@ import { FrameworkMigrationRepositoryError } from "../../../src/installation/mig
 import { runEffect } from "../../support/effectTestRuntime";
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 
-describe("immutable graph read pass", () => {
+describe("immutable graph read pass", { concurrent: false }, () => {
+  // These callbacks compare transaction identities without mutating database rows.
+  let persistence: Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
+  let dispose: (() => Promise<void>) | undefined;
+  beforeAll(async () => {
+    persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
+  }, 120_000);
+  afterAll(async () => { await dispose?.(); }, 120_000);
+
   it("does not reuse unrestricted evidence under additive traversal limits", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const memo = makeFrameworkGraphReferenceRead<number>();
     const read = Effect.gen(function* () {
       if ((yield* frameworkMigrationGraphPolicy) !== "ordinary") return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal("readPlan"));
@@ -22,7 +29,6 @@ describe("immutable graph read pass", () => {
     }), tx)));
   }, 30_000);
   it("distinguishes binding from additive policy and never downgrades nested additive reads", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const memo = makeFrameworkGraphReferenceRead<string>();
     const read = Effect.gen(function* () { return yield* frameworkMigrationGraphPolicy; });
     await persistence.drizzle.transaction(tx => runEffect(withFrameworkGraphReadPass(Effect.gen(function* () {
@@ -33,7 +39,6 @@ describe("immutable graph read pass", () => {
     }), tx)));
   }, 30_000);
   it("reuses exact references only within one pass and transaction", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const other = await createMigratedPGlitePersistence();
     const memo = makeFrameworkGraphReferenceRead<number>();
     let reads = 0;
@@ -61,7 +66,6 @@ describe("immutable graph read pass", () => {
   }, 30_000);
 
   it("retains no failure and closes inherited contexts on interruption", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const memo = makeFrameworkGraphReferenceRead<number>();
     const sentinel = FrameworkMigrationRepositoryError.storedCorruption("readPlan");
     let reads = 0;
@@ -89,7 +93,6 @@ describe("immutable graph read pass", () => {
   }, 30_000);
 
   it("bounds retained references while preserving uncached validation", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const memo = makeFrameworkGraphReferenceRead<number>();
     let reads = 0;
     const read = Effect.sync(() => ++reads);

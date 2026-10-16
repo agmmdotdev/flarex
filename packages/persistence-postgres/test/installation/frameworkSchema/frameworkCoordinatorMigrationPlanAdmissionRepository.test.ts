@@ -1,3 +1,4 @@
+import { rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
 import { sql } from "drizzle-orm";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import {
@@ -102,6 +103,21 @@ describe("framework coordinator migration-plan admission repository", () => {
         ));
         expect(replayed.storageId).toBe(first.storageId);
         expect(read).toEqual(first);
+        const driverCause = new Error("admission driver unavailable");
+        const failure = await runEffectFailure(
+          readFrameworkMigrationPlanAdmissionInTransactionEffect(
+            rejectingSelectTransaction(transaction, driverCause),
+            plan,
+            null,
+            admission,
+          ),
+        );
+        expect(failure).toMatchObject({
+          _tag: "FrameworkMigrationRepositoryError",
+          operation: "readAdmission",
+          reason: "resourceFailure",
+          cause: driverCause,
+        });
         return { admission, first };
       },
     );
@@ -589,36 +605,6 @@ describe("framework coordinator migration-plan admission repository", () => {
       reason: "storedCorruption",
     });
   }, 60_000);
-
-  it("projects a rejected driver read without retaining the transaction", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const values = await freshPlanRepositoryValues();
-    const plan = await persistence.drizzle.transaction(
-      transaction => ensureStoredPlan(transaction, values),
-    );
-    const admission = await captureAdmission(
-      plan,
-      null,
-      FIRST_ADMITTED_AT,
-    );
-    const driverCause = new Error("admission driver unavailable");
-    const failure = await persistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        readFrameworkMigrationPlanAdmissionInTransactionEffect(
-          rejectingSelectTransaction(transaction, driverCause),
-          plan,
-          null,
-          admission,
-        ),
-      ),
-    );
-    expect(failure).toMatchObject({
-      _tag: "FrameworkMigrationRepositoryError",
-      operation: "readAdmission",
-      reason: "resourceFailure",
-      cause: driverCause,
-    });
-  }, PGLITE_TEST_TIMEOUT);
 });
 
 async function freshPlanRepositoryValues() {
@@ -742,26 +728,6 @@ async function storedAdmissionAssignmentOrdering(
     spelling: row.spelling,
     assignmentSha256: Encoding.encodeHex(row.assignmentSha256),
   }));
-}
-
-function rejectingSelectTransaction(
-  transaction: FlarexMetadataTransaction,
-  cause: unknown,
-): FlarexMetadataTransaction {
-  return new Proxy(transaction, {
-    get(target, property, receiver) {
-      if (property === "select") {
-        return () => ({
-          from: () => ({
-            where: () => ({
-              limit: () => Promise.reject(cause),
-            }),
-          }),
-        });
-      }
-      return Reflect.get(target, property, receiver);
-    },
-  });
 }
 
 function hideFirstAdmissionRootRead(

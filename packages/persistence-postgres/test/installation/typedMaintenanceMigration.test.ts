@@ -1,3 +1,4 @@
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { readFile, writeFile } from "node:fs/promises";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { sql } from "drizzle-orm";
@@ -240,11 +241,11 @@ async function verifyPublicMigration(target: ApplicationNativeMutationPersistenc
 
 it("authenticates source135 conversion, resolves unknown COMMIT, and retains evidence through final rollback (PGlite)", async () => {
   const fixture = await makeDrizzleCopyFixture("typed-maintenance-predecessor","pglite","0136_typed_maintenance_obligations.sql");
-  const controlDb = newTestPGlite(); const targetDb = newTestPGlite();
+  const controlDb = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
+  const targetDb = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
   try {
     const control = await createPGlitePersistence({ db: controlDb });
     const target = await createPGlitePersistence({ db: targetDb,migrationsFolder: fixture.migrationsFolder });
-    await control.migrate(); await target.migrate();
     const app = await relationReadinessFixture({ persistence: target,controlPersistence: control,writePolicy: true,
       cmsFields: [{ name: "title",kind: "text",unique: true }],activationProfile: { kind: "fullProof" } });
     await prepareReadinessEvidence(app);
@@ -256,11 +257,11 @@ it("authenticates source135 conversion, resolves unknown COMMIT, and retains evi
 
 it("public migrate converts genuine source135 ordered and unique obligations before final attestation and reopen (PGlite)", async () => {
   const fixture = await makeDrizzleCopyFixture("typed-maintenance-public","pglite","0136_typed_maintenance_obligations.sql");
-  const controlDb = newTestPGlite(); const targetDb = newTestPGlite();
+  const controlDb = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
+  const targetDb = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
   try {
     const control = await createPGlitePersistence({ db: controlDb });
     const target = await createPGlitePersistence({ db: targetDb,migrationsFolder: fixture.migrationsFolder,immutableCatalog: control.drizzle });
-    await control.migrate(); await target.migrate();
     const app = await relationReadinessFixture({ persistence: target,controlPersistence: control,writePolicy: true,
       cmsFields: [{ name: "title",kind: "text",unique: true }],activationProfile: { kind: "fullProof" } });
     await prepareReadinessEvidence(app);

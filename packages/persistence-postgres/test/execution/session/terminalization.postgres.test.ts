@@ -1,3 +1,4 @@
+import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
 import { createPointMutationSessionAttemptTerminalizationPersistenceV1 } from "../../../src/execution/session/terminalization";
 import { PointMutationSessionAttemptTerminalizationV1Error } from "../../../src/execution/session/errors";
 import { resolutionPorts } from "./support/postgresFixture";
@@ -13,9 +14,9 @@ import { describe, expect, it } from "vitest";
 import { advanceScopeAuthorizationRevocationEpochInTransactionEffect } from "../../../src/scope/scopeClock";
 import {
   postgresUrl,
+  createFileScopedPostgresFixture,
   rollbackAndReleasePostgresClient,
   useFileScopedPostgresPersistence,
-  withTemporaryPostgresPersistence,
 } from "../../support/postgresHelpers";
 import { runEffect } from "../../support/effectTestRuntime";
 import {
@@ -306,7 +307,7 @@ describePostgres("real Postgres O03-B session authority", () => {
 
 
   it("allows an independent scope to terminalize while another attempt is paused", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const contextA = await provisionContext(
         persistence,
@@ -350,22 +351,31 @@ describePostgres("real Postgres O03-B session authority", () => {
         executionClaim: executionClaimForAnchor(anchorA),
         expectedSnapshotToken: anchorA.snapshotToken,
       });
-      await entered.promise;
-
+      const deadline = new AbortController();
+      let pendingB: ReturnType<typeof abortPointMutationSessionAttempt> | undefined;
       let resultB;
       try {
-        resultB = await Promise.race([
-          abortPointMutationSessionAttempt(terminalizationB, {
-            selector: selectorFromAnchor(anchorB),
-            executionClaim: executionClaimForAnchor(anchorB),
-            expectedSnapshotToken: anchorB.snapshotToken,
+        await Promise.race([
+          entered.promise,
+          pendingA.then(() => {
+            throw new Error("Expected the first terminalization to pause at its session lock.");
           }),
-          delay(5_000).then(() => {
+        ]);
+        pendingB = abortPointMutationSessionAttempt(terminalizationB, {
+          selector: selectorFromAnchor(anchorB),
+          executionClaim: executionClaimForAnchor(anchorB),
+          expectedSnapshotToken: anchorB.snapshotToken,
+        });
+        resultB = await Promise.race([
+          pendingB,
+          delay(5_000, undefined, { signal: deadline.signal }).then(() => {
             throw new Error("Independent-scope terminalization timed out.");
           }),
         ]);
       } finally {
         release.resolve();
+        deadline.abort();
+        await Promise.allSettled(pendingB === undefined ? [pendingA] : [pendingA, pendingB]);
       }
       const resultA = await pendingA;
 
@@ -425,8 +435,13 @@ describePostgres("real Postgres O03-B session authority", () => {
 });
 
 describePostgres("finite running authority barrier", () => {
+  const withFinitePersistence = useFileScopedPersistence(
+    () => createFileScopedPostgresFixture({}, {}, "finiteCapture"),
+    postgresUrl !== null,
+  );
+
   it("reports an out-of-JS-range stored finite terminal date as typed corruption without writes", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withFinitePersistence(async persistence => {
       const fixture = await finiteBarrierFixture(persistence, "terminal_date_outside_js_range", false);
       const anchor = fixture.activated.anchor;
       expect(anchor.executionProfile).toBe("finiteRoot");
@@ -477,11 +492,11 @@ describePostgres("finite running authority barrier", () => {
       expect(await persistence.drizzle.select().from(fxSystemScopeExecutionAuthorities)
         .where(eq(fxSystemScopeExecutionAuthorities.scopeId, anchor.scopeId))).toEqual(beforeAuthority);
       expect(await rowCounts(persistence, fixture.context.scopeId)).toEqual(beforeCounts);
-    }, { transport: "finiteCapture" });
+    });
   }, 120_000);
 
   it("refuses a future terminal revocation counter without releasing its expired reservation", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withFinitePersistence(async persistence => {
       const fixture = await finiteBarrierFixture(persistence, "future_terminal_revocation", false);
       const anchor = fixture.activated.anchor;
       await persistence.query(`update fx_system_tx_session set authorization_revocation_epoch = 1
@@ -498,13 +513,13 @@ describePostgres("finite running authority barrier", () => {
       expect(await rowCounts(persistence, fixture.context.scopeId)).toEqual({
         sessions: 1, leases: 0, journals: 0, executionClaims: 0,
       });
-    }, { transport: "finiteCapture" });
+    });
   }, 120_000);
 
 
   for (const refusal of ["snapshot mismatch", "finishing lifecycle"] as const) {
     it(`refuses exact anchor terminal abort ${refusal} without writes`, async () => {
-      await withTemporaryPostgresPersistence(async persistence => {
+      await withFinitePersistence(async persistence => {
         const fixture = await finiteBarrierFixture(persistence, `terminal_early_${refusal}`, false);
         const anchor = fixture.activated.anchor;
         if (refusal === "finishing lifecycle") await persistence.query(`update fx_system_tx_session
@@ -520,13 +535,13 @@ describePostgres("finite running authority barrier", () => {
           : { _tag: "PointMutationSessionAttemptTerminalizationV1Error", issue: { reason: "attemptNotTerminalizable", lifecycle: "finishing" } });
         expect(await captureSessionStorage(persistence, anchor)).toEqual(before);
         expect(await rowCounts(persistence, fixture.context.scopeId)).toEqual({ sessions: 1, leases: 0, journals: 0, executionClaims: 0 });
-      }, { transport: "finiteCapture" });
+      });
     }, 120_000);
   }
 
 
   it("observes an idempotent terminal abort without acquiring the claim relation", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withFinitePersistence(async persistence => {
       const fixture = await finiteBarrierFixture(persistence, "terminal_idempotent_claim_gate", false);
       const anchor = fixture.activated.anchor;
       const terminalization = createTerminalizationPersistence(persistence);
@@ -557,12 +572,12 @@ describePostgres("finite running authority barrier", () => {
       expect(await rowCounts(persistence, fixture.context.scopeId)).toEqual({
         sessions: 1, leases: 0, journals: 0, executionClaims: 0,
       });
-    }, { transport: "finiteCapture" });
+    });
   }, 120_000);
 
 
   it("samples terminal abort time after the exact claim lock wait", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withFinitePersistence(async persistence => {
       const fixture = await finiteBarrierFixture(persistence, "terminal_claim_wait", false);
       const anchor = fixture.activated.anchor;
       const before = await finiteAttemptRowState(persistence, fixture.context.scopeId);
@@ -609,13 +624,13 @@ describePostgres("finite running authority barrier", () => {
         await pending?.catch(() => undefined);
         await outcome?.catch(() => undefined);
       }
-    }, { transport: "finiteCapture" });
+    });
   }, 120_000);
 
 
   for (const operation of ["abort", "expire"] as const) {
     it(`releases a revoked finite reservation through exact ${operation} cleanup`, async () => {
-      await withTemporaryPostgresPersistence(async persistence => {
+      await withFinitePersistence(async persistence => {
         const fixture = await finiteBarrierFixture(persistence, `revoked_${operation}`, false);
         const anchor = fixture.activated.anchor;
         const reserved = await persistence.query<{ reserved: boolean }>(`
@@ -649,7 +664,7 @@ describePostgres("finite running authority barrier", () => {
           from fx_system_scope_execution_authority a join fx_system_scope_clock c using(scope_id)
           where a.scope_id = $1`, [fixture.context.scopeId]);
         expect(authority.rows).toEqual([{ revocation: "1", commit_seq: "0" }]);
-      }, { transport: "finiteCapture" });
+      });
     }, 120_000);
   }
 });

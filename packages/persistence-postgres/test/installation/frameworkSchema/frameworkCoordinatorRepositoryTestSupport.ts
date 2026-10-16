@@ -315,3 +315,23 @@ export async function storeSuccessfulAvailabilityHistoryGraphInTransaction(
     availabilityHistory,
   });
 }
+
+export function rejectingSelectTransaction(
+  transaction: FlarexMetadataTransaction,
+  cause: unknown,
+): FlarexMetadataTransaction {
+  return new Proxy(transaction, {
+    get(target, property, receiver) {
+      if (property === "select") {
+        return () => ({
+          from: () => ({
+            where: () => ({
+              limit: () => Promise.reject(cause),
+            }),
+          }),
+        });
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}

@@ -1,3 +1,4 @@
+import { rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
 import { sql } from "drizzle-orm";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { eq } from "drizzle-orm";
@@ -153,6 +154,20 @@ describe("framework coordinator migration-plan repository", () => {
         ));
         expect(replayed.storageId).toBe(first.storageId);
         expect(read).toEqual(first);
+        const driverCause = new Error("driver unavailable");
+        const failure = await runEffectFailure(
+          readFreshRelationalMigrationPlanInTransactionEffect(
+            rejectingSelectTransaction(transaction, driverCause),
+            collision,
+            values.plan,
+          ),
+        );
+        expect(failure).toMatchObject({
+          _tag: "FrameworkMigrationRepositoryError",
+          operation: "readPlan",
+          reason: "resourceFailure",
+          cause: driverCause,
+        });
         return first;
       },
     );
@@ -529,28 +544,6 @@ describe("framework coordinator migration-plan repository", () => {
       reason: "storedCorruption",
     });
   }, 60_000);
-
-  it("projects a rejected driver read without retaining the transaction", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const values = await freshPlanRepositoryValues();
-    const { collision } = await persistence.drizzle.transaction(
-      transaction => ensurePlanPrerequisites(transaction, values),
-    );
-    const driverCause = new Error("driver unavailable");
-    const failure = await runEffectFailure(
-      readFreshRelationalMigrationPlanInTransactionEffect(
-        rejectingSelectTransaction(driverCause),
-        collision,
-        values.plan,
-      ),
-    );
-    expect(failure).toMatchObject({
-      _tag: "FrameworkMigrationRepositoryError",
-      operation: "readPlan",
-      reason: "resourceFailure",
-      cause: driverCause,
-    });
-  }, PGLITE_TEST_TIMEOUT);
 });
 
 async function freshPlanRepositoryValues() {
@@ -690,19 +683,4 @@ async function storedPlanOrdering(
       dependencyStepId: row.dependency_step_id,
     })),
   };
-}
-
-function rejectingSelectTransaction(
-  cause: unknown,
-): FlarexMetadataTransaction {
-  const transaction = {
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: () => Promise.reject(cause),
-        }),
-      }),
-    }),
-  };
-  return transaction as unknown as FlarexMetadataTransaction;
 }

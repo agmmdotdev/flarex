@@ -31,7 +31,8 @@ import {
 import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
+  withPostgresSequentialScansDisabled,
 } from "../../support/postgresHelpers";
 import { runEffect } from "../../support/effectTestRuntime";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
@@ -55,8 +56,9 @@ const firstCommitSeq = CommitSeqSchema.make(9_007_199_254_740_993n);
 const secondCommitSeq = CommitSeqSchema.make(firstCommitSeq + 2n);
 
 describePostgres("real Postgres FlarexDB app-row storage", () => {
+  const withPostgresPersistence = useFileScopedPostgresPersistence();
   it("hydrates bounded historical batches in request order with exact failures", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPostgresPersistence(async persistence => {
       await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch: firstEpoch });
       await admittedTransaction(persistence, tx => snapshotHydrationBatchScenario(tx,
         { identity: { scopeId, tableId, rowId }, epoch: firstEpoch, schemaVersionId, creationTime }));
@@ -64,7 +66,7 @@ describePostgres("real Postgres FlarexDB app-row storage", () => {
   }, 60_000);
 
   it("proves exact history, rollback, epoch independence, and indexed lookup", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch: firstEpoch, lastCommitSeq: secondCommitSeq });
       const first = await canonicalizeAppDocumentV1({
         tableId,
@@ -179,7 +181,7 @@ describePostgres("real Postgres FlarexDB app-row storage", () => {
   }, 30_000);
 
   it("keeps semantic point reads pinned while a later revision commits", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch: firstEpoch, lastCommitSeq: secondCommitSeq });
       const first = await canonicalizeAppDocumentV1({
         tableId,
@@ -373,9 +375,7 @@ async function pointLookupPlans(
     });
   });
   await persistence.query("analyze fx_app_row_current");
-  const client = await persistence.pool.connect();
-  try {
-    await client.query(`set enable_seqscan = off`);
+  return withPostgresSequentialScansDisabled(persistence, async client => {
     const revision = await client.query<{ "QUERY PLAN": string }>(
       `
         explain (costs off)
@@ -412,7 +412,5 @@ async function pointLookupPlans(
       revision: revision.rows.map((row) => row["QUERY PLAN"]).join("\n"),
       current: current.rows.map((row) => row["QUERY PLAN"]).join("\n"),
     };
-  } finally {
-    client.release();
-  }
+  });
 }
