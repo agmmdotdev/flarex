@@ -49,15 +49,19 @@
     "./product/create-product-options": "./src/product/workflows/create-product-options.ts",
     "./product/update-product-options": "./src/product/workflows/update-product-options.ts",
     "./product/delete-product-options": "./src/product/workflows/delete-product-options.ts",
-    "./product/batch-image-variants": "./src/product/workflows/batch-image-variants.ts"
+    "./product/batch-image-variants": "./src/product/workflows/batch-image-variants.ts",
+    "./product/normalize-products-step": "./src/product/steps/normalize-products.ts",
+    "./product/csvtojson": "./src/product/utils/csvtojson.ts"
   },
   "dependencies": {
+    "@medusajs/deps": "workspace:*",
     "@medusajs/modules-sdk": "workspace:*",
     "@medusajs/types": "workspace:*",
     "@medusajs/utils": "workspace:*",
     "@medusajs/workflows-sdk": "workspace:*",
     "effect": "catalog:",
-    "@medusajs/framework": "workspace:*"
+    "@medusajs/framework": "workspace:*",
+    "json-2-csv": "5.5.10"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

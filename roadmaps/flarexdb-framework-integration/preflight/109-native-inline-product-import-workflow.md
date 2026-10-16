@@ -2,7 +2,10 @@
 
 ## Status And Authority
 
-Status: pinned-source and current-owner preflight complete. Durable confirmation,
+Status: pinned-source and current-owner preflight complete. Native CSV
+normalization and the Notification service/model/local-provider prerequisites
+are implemented privately. Their source availability does not admit a complete
+import or standalone Notification facade. Durable confirmation,
 cross-commit child invocation, compensation/event eligibility, native Notification
 admission and connected import implementation remain proposed. Bounded native
 orchestration has executed with storage and business test ports; database,
@@ -60,11 +63,23 @@ Its direct execution dependencies under that core-flows `src/` root are:
 the genuine Product create/update Zod validators. Relevant native utility files
 are `packages/core/utils/src/product/csv-normalizer.ts` and
 `packages/core/utils/src/product/validators.ts` under the pinned source root.
-`csvtojson.ts` invokes `json-2-csv`'s `csv2json` with CSV injection prevention
-and native comma/semicolon/pipe header delimiter detection. Reuse these actual
+`csvtojson.ts` passes `preventCsvInjection: true` to `json-2-csv`'s `csv2json`
+and uses native comma/semicolon/pipe header delimiter detection. The pinned
+parser applies that option to JSON-to-CSV conversion, not this parse direction;
+formula-looking input therefore remains data. Reuse these actual
 normalization rules, grouping, conversions, defaults and failures. The CSV
 validators are this executing workflow's native input contract; they do not
 replace DML validation at persistence boundaries.
+
+The promoted normalizer intentionally corrects a pinned-source dictionary
+defect. Product handles and IDs use own-entry dictionaries so names such as
+`__proto__`, `constructor` and `toString` cannot select and mutate inherited
+objects. Ordinary grouping and enumeration semantics remain native. Variant
+option name `__proto__` is explicitly refused with the native row-numbered
+error: the pinned Zod record constructor discards that key, so accepting it
+would silently lose the option. Other valid option names retain their native
+meaning. This correction belongs to the fork normalizer; the adapter does not
+filter identities or replace the native validator.
 
 The resulting `{ create, update }` yields summary
 `{ toCreate: create.length, toUpdate: update.length }`. Next,
@@ -177,6 +192,7 @@ observation and establishes no additional native contract.
 | `packages/durable-task/src/runAttempt/Services/RunAttemptLifecycle.ts`: `startAttempt`, `heartbeatAttempt`, `completeAttempt`, `requestCancellation`, `handleLeaseExpiry`, `inspectCurrentAttempt` | Existing Task state, versions, fences, lease/cancellation and terminal meaning. | Current aggregates are ready, attempt_granted, executing, retry_waiting and terminal; none is a durable confirmation wait. Do not relabel retry delay or keep an executing lease alive for an hour. |
 | `packages/durable-task/src/scheduling/TaskWakeScheduler.ts`: `makeTaskWakeSchedulerV1(...).run(request)` | Scope-bound bounded due discovery, cursor correlation and existing candidate handling. | A confirmed/expired import continuation has no admitted candidate kind or lifecycle correlation yet. Queue hints may wake work, but PostgreSQL owns eligibility and the winning transition. |
 | `packages/standard-application-invocation/src/ApplicationTaskSystem.ts`: `createApplicationTaskRun` / `ApplicationTaskSystemApi.createRun` | Current Application task selection, immutable runtime/principal binding and scoped run creation. | It selects Application tasks, not Medusa workflow definitions. Do not fabricate an Application function/runtime binding to host commerce. |
+| `packages/durable-task/src/runCreation/TrustedWorkflowBinding.ts`: `prepareTrustedWorkflowTaskBinding`; persistence `tasks/trustedWorkflowTaskRunCreation.ts`: `makeTrustedWorkflowTaskRunCreationStore`; `taskSystemRunAttemptStoreV1.ts`: `makeTrustedWorkflowTaskSystemRunAttemptStore` | Implemented private trusted workflow binding, exact scoped creation/replay and existing lifecycle decisions under a separate definition reference. | Compute/due-discovery admission, authenticated execution-subject issuance, continuation waits and commerce effects remain absent. The future issuer must check canonical persisted binding/policy/principal as well as the current attempt and lease. |
 | `packages/standard-application-invocation/src/ApplicationTaskMutationAuthority.ts`: external-effect session `prepare`, `declareDispatch`, `confirm`, `reconcile`, `close`; persistence `tasks/taskExternalEffectAuthority.ts`: corresponding child-mutation operations | Existing ordinal, stable request identity, fenced subject and uncertain dispatch evidence are concrete reuse references. | Inputs/subjects bind Application task launches and `TransactionFunctionPathV1`. They grant no arbitrary commerce/provider authority. Correct the real owner for a named additional subject/operation rather than laundering Medusa through a fake function path. |
 | `roadmaps/durable-task-engine/preflight/55-dte07-clean-task-await-contract.md`: `awaitTask` | Bounded scope-authorized status observation and one final result read. | Caller-side polling is not durable suspension, authenticated confirmation or a wake mechanism. |
 | `packages/persistence-postgres/src/commit/events/` and workflow-foundations topic07 | Existing immutable event intents, commit correlation, claims and durable subscriber outcomes. | Groups spanning multiple committed steps remain deferred. Immediate child event eligibility does not implement parent release/clear. Extend the actual eligibility owner without a competing event feed/outbox or mutable committed facts. |
@@ -198,14 +214,18 @@ with `services/notification-provider.ts` and models `notification.ts` and
 `notification-provider.ts`. Those paths are under
 `third_party/medusa/upstream/`. Their DML, native module construction, provider
 metadata, repository reads/writes, event families and exact scalar/array DTO
-contracts need an explicit connected promotion/admission. They are not currently
-admitted by Product's event subscriber or an arbitrary supplied callback.
+contracts need an explicit connected admission. The native source closure and
+its preparation/delivery/finalization extraction are available privately;
+Product's subscriber and an arbitrary supplied callback grant no admission.
 
 Native `createNotifications` first reserves/creates rows and resolves configured
 enabled providers in a repository transaction, then sends through the provider,
 and finally updates success/failure and optional external identity. Existing
-idempotency keys reuse sent rows and retry failed rows; these particular native
-workflow messages supply no idempotency key. Do not inject an extra key into the
+idempotency keys filter already-sent entries and retry failed entries; the
+already-sent array result is empty. The native failed-key branch generates a
+fresh ID while suppressing creation of an existing keyed row, so its final
+update may target a missing ID. The narrow import profile refuses keys; these
+particular native workflow messages supply none. Do not inject an extra key into the
 native workflow input or replace calls with synthetic events to hide restart
 duplication. Determine stable occurrence/result recovery and the native owner
 seam needed to retain those genuine calls across uncertainty.
@@ -219,6 +239,15 @@ and preserve native service/provider outcomes. Even this local side effect is
 not transactional rollback or proof of exactly-once provider execution. Actual
 provider execution must run outside an open borrowed commerce transaction;
 Notification's preparation, send and final persistence keep their own lifecycle.
+
+The provider's native `channels` field remains DML `array` with default `[]`.
+Shared checked lowering represents it as JSONB with the generic relational
+`emptyJsonArray` default. The default has no arbitrary JSON payload, requires a
+JSONB column and has its own physical capability identity. Logical creates
+materialize a fresh empty array; explicit values and updates retain their usual
+meaning. Other array defaults remain refused. This extension rewrites no
+existing artifact, retained row or installation. The local-feed boundary checks
+the native array shape and string entries separately from JSONB storage.
 
 ## Proposed Finite Boundary
 

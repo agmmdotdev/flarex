@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { Result } from "effect";
+import { Effect, Result } from "effect";
 import {
   normalizeRelationalSchema,
 } from "flarex-protocol/internal/relational-schema";
 import { compileLogicalSourceSearches } from "flarex-protocol/internal/logical-storage-requirements";
 import { dmlSchemaOrigins, lowerDmlSchema } from "../src/schema/lower";
 import type { SchemaColumn, SchemaTable } from "../src/schema/model";
+import { decodeCompiledDml } from "../src/schema/compiled";
 
 const timestamps: readonly SchemaColumn[] = [
   { name: "created_at", type: "dateTime", nullable: false, primaryKey: false },
@@ -56,6 +57,29 @@ const pivot = {
 } as const satisfies SchemaTable;
 
 describe("shared checked DML lowering", () => {
+  it("preserves empty native array defaults through neutral lowering", () => {
+    const input: SchemaTable = { ...labels, columns: [...labels.columns,
+      { name: "channels", type: "array", nullable: false, primaryKey: false, defaultValue: [] },
+      { name: "attachments", type: "array", nullable: true, primaryKey: false },
+    ] };
+    const before = structuredClone(input);
+    const schema = Result.getOrThrow(normalizeRelationalSchema(lowerDmlSchema([input], "array-default")));
+    expect(schema.tables[0]?.columns.find(column => column.identity.columnId === "channels"))
+      .toMatchObject({ type: "jsonb", default: { kind: "emptyJsonArray" } });
+    expect(schema.tables[0]?.columns.find(column => column.identity.columnId === "attachments"))
+      .toMatchObject({ type: "jsonb", nullable: true, default: { kind: "none" } });
+    expect(input).toEqual(before);
+  });
+
+  it("refuses unsupported array defaults in the shared compiled grammar", async () => {
+    const input = (defaultValue: unknown) => ({ tables: [{ name: "messages", columns: [
+      { name: "channels", type: "array", nullable: false, primaryKey: false, defaultValue },
+    ], indexes: [], checks: [], foreignKeys: [], relationships: [], cascades: { delete: [], detach: [] } }] });
+    expect(Result.isSuccess(await Effect.runPromise(Effect.result(decodeCompiledDml(input([])))))).toBe(true);
+    for (const value of [null, {}, ["feed"], "[]", false])
+      expect(Result.isFailure(await Effect.runPromise(Effect.result(decodeCompiledDml(input(value)))))).toBe(true);
+  });
+
   it("lowers renamed natural keys, exact numeric companions and scalar defaults without module names", () => {
     const input = [ledger, labels, pivot];
     const before = structuredClone(input);
@@ -121,7 +145,7 @@ describe("shared checked DML lowering", () => {
 
   it("leaves missing endpoints and invalid defaults to relational normalization", () => {
     expect(Result.isFailure(normalizeRelationalSchema(lowerDmlSchema([pivot], "ledger")))).toBe(true);
-    const invalid = { ...ledger, columns: ledger.columns.map(column => column.name === "state" ? { ...column, defaultValue: "missing" } : column) };
+    const invalid = { ...ledger, columns: ledger.columns.map(column => column.type === "enum" && column.name === "state" ? { ...column, defaultValue: "missing" } : column) };
     expect(Result.isFailure(normalizeRelationalSchema(lowerDmlSchema([invalid], "ledger")))).toBe(true);
     const missingRaw = { ...ledger, exactNumbers: [{ capabilityId: "ledger.amount", numericColumn: "amount", rawColumn: "absent" }] };
     expect(Result.isFailure(normalizeRelationalSchema(lowerDmlSchema([missingRaw], "ledger")))).toBe(true);
@@ -130,12 +154,23 @@ describe("shared checked DML lowering", () => {
   it("refuses an unsupported native index method instead of admitting it as B-tree", () => {
     for (const unique of [false, true]) {
       const withGin = { ...ledger, indexes: [...ledger.indexes,
+        { name: "ledger_key_gin", columns: ["lookup_key"], unique, type: "gin" }] };
+      const lowered = lowerDmlSchema([withGin], "ledger");
+      expect(lowered.tables[0]?.indexes.find(index => index.indexId === "ledger_key_gin"))
+        .toMatchObject({ kind: "gin", columns: ["lookup_key"] });
+      expect(lowered.tables[0]?.keys.some(key => key.keyId === "ledger_key_gin")).toBe(false);
+      expect(Result.isFailure(normalizeRelationalSchema(lowered))).toBe(true);
+    }
+  });
+
+  it("admits the supported nonunique JSON GIN declaration while refusing unique GIN", () => {
+    for (const unique of [false, true]) {
+      const withGin = { ...ledger, indexes: [...ledger.indexes,
         { name: "ledger_amount_data_gin", columns: ["amount_data"], unique, type: "gin" }] };
       const lowered = lowerDmlSchema([withGin], "ledger");
       expect(lowered.tables[0]?.indexes.find(index => index.indexId === "ledger_amount_data_gin"))
-        .toMatchObject({ kind: "gin", columns: ["amount_data"] });
-      expect(lowered.tables[0]?.keys.some(key => key.keyId === "ledger_amount_data_gin")).toBe(false);
-      expect(Result.isFailure(normalizeRelationalSchema(lowered))).toBe(true);
+        .toMatchObject({ kind: unique ? "gin" : "jsonContainment", columns: ["amount_data"] });
+      expect(Result.isSuccess(normalizeRelationalSchema(lowered))).toBe(!unique);
     }
   });
 

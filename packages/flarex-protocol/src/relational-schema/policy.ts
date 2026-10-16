@@ -1158,6 +1158,7 @@ function validateColumnDefault(
     (defaultValue.kind === "integerLiteral" && column.type === "integer") ||
     (defaultValue.kind === "exactNumericLiteral" && column.type === "numeric") ||
     (defaultValue.kind === "exactNumericRawLiteral" && column.type === "jsonb") ||
+    (defaultValue.kind === "emptyJsonArray" && column.type === "jsonb") ||
     (defaultValue.kind === "currentTimestamp" && column.type === "timestamptz");
   return valid
     ? Result.succeed(undefined)
@@ -1177,7 +1178,7 @@ function decodeColumnDefault(
 ): Result.Result<RelationalColumnDefault, RelationalSchemaError> {
   return Result.gen(function* () {
     const kind = yield* discriminant(input, path);
-    if (kind === "none" || kind === "currentTimestamp") {
+    if (kind === "none" || kind === "currentTimestamp" || kind === "emptyJsonArray") {
       yield* exactRecord(input, ["kind"], path);
       return Object.freeze({ kind });
     }

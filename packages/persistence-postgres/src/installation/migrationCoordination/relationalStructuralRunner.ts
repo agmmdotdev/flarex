@@ -2016,6 +2016,8 @@ const defaultSql = Effect.fn(
       return "";
     case "booleanLiteral":
       return ` DEFAULT ${column.default.value ? "true" : "false"}`;
+    case "emptyJsonArray":
+      return " DEFAULT '[]'::jsonb";
     case "textLiteral":
       return ` DEFAULT ${yield* Effect.fromResult(dollarQuotedLiteralResult(
         column.default.value,
@@ -2130,6 +2132,8 @@ const defaultExpressionMatches = Effect.fn(
       return actual === null;
     case "booleanLiteral":
       return actual === String(expected.default.value);
+    case "emptyJsonArray":
+      return actual === (yield* expectedLiteralExpression(transaction, "[]", "jsonb", context));
     case "textLiteral":
       return samePostgresTextLiteralExpression(
         actual,

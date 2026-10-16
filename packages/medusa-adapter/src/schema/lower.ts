@@ -21,13 +21,14 @@ function columnType(column: SchemaColumn): LoweredColumn["type"] {
     case "id": case "enum": return "text";
     case "number": return "integer";
     case "dateTime": return "timestamptz";
-    case "json": return "jsonb";
+    case "json": case "array": return "jsonb";
     case "bigNumber": return "numeric";
     default: return column.type;
   }
 }
 
 function columnDefault(column: SchemaColumn): ColumnDefault {
+  if (column.type === "array") return { kind: column.defaultValue === undefined ? "none" : "emptyJsonArray" };
   const value = column.defaultValue;
   if (value === undefined) return { kind: ["created_at", "updated_at"].includes(column.name) ? "currentTimestamp" : "none" };
   if (value === null) return { kind: "none" };

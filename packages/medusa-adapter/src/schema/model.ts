@@ -15,6 +15,7 @@ type ColumnBase = Readonly<Pick<DatabaseColumn, "name" | "nullable" | "primaryKe
 /** Checked adapter subset of the pinned DML compiler. This is a lowering input,
  * not a decoder or authority to admit another module or compiler feature. */
 export type SchemaColumn = ColumnBase & (
+  | { readonly type: "array"; readonly defaultValue?: readonly [] }
   | { readonly type: "id" | "text" | "number" | "boolean" | "dateTime" | "json" | "enum";
       readonly defaultValue?: string | number | boolean }
   | { readonly type: "bigNumber"; readonly defaultValue?: string | number | null }

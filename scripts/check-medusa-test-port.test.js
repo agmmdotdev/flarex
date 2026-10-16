@@ -1,6 +1,6 @@
 // @ts-check
 import { describe, expect, it } from "vitest";
-import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyCsvNormalizerTests } from "./check-medusa-test-port.mjs";
 import { readFileSync } from "node:fs";
 
 const source = `import { runner } from "./runner";
@@ -10,6 +10,42 @@ describe("suite", () => {
 });`;
 
 describe("maintained Medusa test ports", () => {
+  it("preserves the complete native CSV suite, snapshots and exact fixtures", () => {
+    const nativeRoot = "../third_party/medusa/upstream/packages/core/utils/src/product/__tests__/";
+    const targetRoot = "../packages/medusa-utils/src/product/__tests__/";
+    const original = readFileSync(new URL(nativeRoot + "csv-normalizer.spec.ts", import.meta.url), "utf8");
+    const selected = readFileSync(new URL(targetRoot + "csv-normalizer.spec.ts", import.meta.url), "utf8");
+    const names = ["multiple-products-multiple-variants.json", "same-product-multiple-rows.json",
+      "same-product-multiple-variant-options.json", "single-row-create.json"];
+    const sourceFixtures = Object.fromEntries(names.map(name => [name,
+      readFileSync(new URL(nativeRoot + "__fixtures__/" + name, import.meta.url), "utf8")]));
+    const targetFixtures = Object.fromEntries(names.map(name => [name,
+      readFileSync(new URL(targetRoot + "__fixtures__/" + name, import.meta.url), "utf8")]));
+    expect(() => verifyCsvNormalizerTests(original, selected, sourceFixtures, targetFixtures)).not.toThrow();
+    const mutations = [
+      selected.replace("should process a CSV row", "renamed native case"),
+      selected.replace('it("should process a CSV row"', 'it.skip("should process a CSV row"'),
+      selected.replace('"title": "Medusa Sweatshirt"', '"title": "Changed snapshot"'),
+      selected.replace('readFile(join(__dirname, "__fixtures__", fileName)', 'readFile(join(__dirname, "other", fileName)'),
+      selected.replace('from "../csv-normalizer"', 'from "../fake-normalizer"'),
+      selected.replace('describe, expect, it', 'describe, expect, it, vi'),
+      selected.replace('describe, expect, it', 'describe, expect as check, it'),
+      selected.replace('const csvData: any[]', 'const csvData: unknown[]'),
+      selected + '\nit("extra", () => {});',
+    ];
+    for (const changed of mutations) {
+      expect(changed).not.toBe(selected);
+      expect(() => verifyCsvNormalizerTests(original, changed, sourceFixtures, targetFixtures)).toThrow();
+    }
+    for (const name of names) {
+      expect(() => verifyCsvNormalizerTests(original, selected, sourceFixtures,
+        { ...targetFixtures, [name]: targetFixtures[name] + " " })).toThrow("Changed native CSV fixtures");
+    }
+    const missing = { ...targetFixtures }; delete missing[names[0]];
+    expect(() => verifyCsvNormalizerTests(original, selected, sourceFixtures, missing)).toThrow("Changed native CSV fixtures");
+    expect(() => verifyCsvNormalizerTests(original, selected, sourceFixtures,
+      { ...targetFixtures, "extra.json": "{}" })).toThrow("Changed native CSV fixtures");
+  });
   it("preserves both selected native Inventory item creation bodies", () => {
     const original = readFileSync(new URL("../third_party/medusa/upstream/packages/modules/inventory/integration-tests/__tests__/inventory-module-service.spec.ts", import.meta.url), "utf8");
     const selected = readFileSync(new URL("../packages/medusa-adapter/test/support/inventory-native-tests.ts", import.meta.url), "utf8");

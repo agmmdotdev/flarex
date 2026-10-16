@@ -62,6 +62,66 @@ afterEach(() => {
 });
 
 describe("private relational schema values", () => {
+  it("admits only the named empty JSON array default on JSONB columns", () => {
+    const input = minimalInput();
+    input.tables[0]?.columns.push({ columnId: "messages", type: "jsonb", nullable: false,
+      default: { kind: "emptyJsonArray" }, origin: synthetic("fixture.messages") });
+    const schema = Result.getOrThrow(normalizeRelationalSchema(input));
+    expect(schema.tables[0]?.columns.find(column => column.identity.columnId === "messages")?.default)
+      .toEqual({ kind: "emptyJsonArray" });
+    for (const invalid of [
+      { kind: "emptyJsonArray", value: [] }, { kind: "emptyJsonArray", extra: true },
+      { kind: "jsonLiteral", value: [] }, { kind: "jsonLiteral", value: ["value"] },
+      { kind: "jsonLiteral", value: {} },
+    ]) {
+      const altered = structuredClone(input);
+      Reflect.set(altered.tables[0]?.columns[1] ?? {}, "default", invalid);
+      expect(Result.isFailure(normalizeRelationalSchema(altered))).toBe(true);
+    }
+    const wrongType = minimalInput();
+    Reflect.set(wrongType.tables[0]?.columns[0] ?? {}, "default", { kind: "emptyJsonArray" });
+    expectInvalid(wrongType, "$.tables[only].columns[id].default");
+  });
+
+  it("allocates independent immutable logical array defaults while preserving explicit JSON and update values", () => {
+    const input = minimalInput();
+    input.tables[0]?.columns.push({ columnId: "messages", type: "jsonb", nullable: false,
+      default: { kind: "emptyJsonArray" }, origin: synthetic("fixture.messages") });
+    const schema = Result.getOrThrow(normalizeRelationalSchema(input));
+    const table = schema.tables[0];
+    if (table === undefined) throw new Error("Missing array default table");
+    const rows = Result.getOrThrow(prepareLogicalRelationalRows(table, schema.capabilities, rowFailure));
+    const first = Result.getOrThrow(rows.normalize({ id: "first" }, null, "2026-10-16T00:00:00.000Z"));
+    const second = Result.getOrThrow(rows.normalize({ id: "second" }, null, "2026-10-16T00:00:00.000Z"));
+    expect(first.messages).toEqual([]);
+    expect(second.messages).toEqual([]);
+    expect(first.messages).not.toBe(second.messages);
+    expect(Object.isFrozen(first.messages)).toBe(true);
+    const supplied = ["native", { nested: true }];
+    const explicit = Result.getOrThrow(rows.normalize({ id: "explicit", messages: supplied }, null, "2026-10-16T00:00:00.000Z"));
+    supplied.push("later mutation");
+    expect(explicit.messages).toEqual(["native", { nested: true }]);
+    expect(Result.getOrThrow(rows.normalize({ id: "explicit" }, explicit, "2026-10-17T00:00:00.000Z")).messages)
+      .toEqual(["native", { nested: true }]);
+    // This default does not impose a new array-only constraint on ordinary JSONB values.
+    expect(Result.getOrThrow(rows.normalize({ id: "object", messages: { existing: true } }, null,
+      "2026-10-16T00:00:00.000Z")).messages).toEqual({ existing: true });
+    expect(Result.isFailure(rows.normalize({ id: "null", messages: null }, null, "2026-10-16T00:00:00.000Z"))).toBe(true);
+  });
+
+  it("records the named empty-array capability without changing older serialized artifacts", async () => {
+    const input = minimalInput();
+    input.tables[0]?.columns.push({ columnId: "messages", type: "jsonb", nullable: false,
+      default: { kind: "emptyJsonArray" }, origin: synthetic("fixture.messages") });
+    const captured = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a", schema: input,
+      provenance: { kind: "synthetic", fixtureId: "array-default" } }));
+    expect(captured.artifact.capabilities).toContain("relational-schema.default.emptyJsonArray");
+    const previous = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a", schema: minimalInput(),
+      provenance: { kind: "synthetic", fixtureId: "golden" } }));
+    expect(previous.artifact.canonicalJson).toBe(GOLDEN_CANONICAL_JSON);
+    expect(previous.artifact.identity.artifactSha256).toBe(GOLDEN_SHA256);
+  });
+
   it("remains private, nominally typed, and Result-based", () => {
     expectTypeOf<PublicRelationalSchemaExport>().toEqualTypeOf<never>();
     expectTypeOf<PlainStringIsRelationalIdentity>().toEqualTypeOf<false>();

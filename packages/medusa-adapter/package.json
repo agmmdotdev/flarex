@@ -29,7 +29,9 @@
     "effect": "catalog:",
     "flarex-protocol": "workspace:*",
     "@medusajs/inventory": "workspace:*",
-    "@medusajs/stock-location": "workspace:*"
+    "@medusajs/stock-location": "workspace:*",
+    "@medusajs/notification": "workspace:*",
+    "@medusajs/notification-local": "workspace:*"
   },
   "devDependencies": {
     "@flarex/application-schema-definition": "workspace:*",

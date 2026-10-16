@@ -104,6 +104,7 @@ function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
         switch (value.kind) {
           case "none": if (column.nullable) row[name] = null; break;
           case "currentTimestamp": row[name] = timestamp; break;
+          case "emptyJsonArray": row[name] = []; break;
           case "exactNumericRawLiteral": row[name] = { value: value.value, precision: value.precision }; break;
           case "booleanLiteral": case "textLiteral": case "integerLiteral": case "exactNumericLiteral": row[name] = value.value; break;
         }

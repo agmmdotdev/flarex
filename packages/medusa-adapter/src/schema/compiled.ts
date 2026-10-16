@@ -21,6 +21,9 @@ const RawDefault = Schema.Struct({
   precision: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 100 })),
 });
 const Column = Schema.Union([
+  Schema.Struct({ ...columnFields, type: Schema.Literal("array"),
+    defaultValue: Schema.optionalKey(Schema.Tuple([])),
+  }),
   Schema.Struct({ ...columnFields,
     type: Schema.Literals(["id", "text", "number", "boolean", "dateTime", "enum"]),
     defaultValue: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number, Schema.Boolean])),
@@ -81,6 +84,7 @@ const CompiledSchema = Schema.Struct({
           (raw[0].generated === true || (raw[0].generated === undefined && raw[0].nullable === column.nullable));
       }
       if (typeof column.defaultValue === "object" && column.defaultValue !== null) {
+        if (column.type === "array") return true;
         return table.columns.some(candidate =>
           candidate.type === "bigNumber" && column.name === "raw_" + candidate.name);
       }

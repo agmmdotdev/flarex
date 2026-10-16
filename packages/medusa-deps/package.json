@@ -13,6 +13,11 @@
       "source": "./src/mikro-orm-postgresql.ts",
       "default": "./dist/mikro-orm-postgresql.js"
     },
+    "./zod": {
+      "types": "./dist/zod.d.ts",
+      "source": "./src/zod.ts",
+      "default": "./dist/zod.js"
+    },
     "./awilix": {
       "types": "./dist/awilix.d.ts",
       "source": "./src/awilix.ts",
@@ -23,7 +28,8 @@
   "dependencies": {
     "@mikro-orm/core": "6.4.16",
     "@mikro-orm/postgresql": "6.4.16",
-    "awilix": "8.0.1"
+    "awilix": "8.0.1",
+    "zod": "3.25.76"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

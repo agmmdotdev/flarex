@@ -636,6 +636,7 @@ function samePhysicalDefault(
   switch (left.kind) {
     case "none":
     case "currentTimestamp":
+    case "emptyJsonArray":
       return true;
     case "textLiteral":
     case "booleanLiteral":
@@ -945,7 +946,7 @@ function isPhysicalColumn(input: unknown): input is RelationalPhysicalColumn {
 
 function isPhysicalDefault(input: unknown): boolean {
   if (isExactPrivateValueRecord(input, ["kind"])) {
-    return input.kind === "none" || input.kind === "currentTimestamp";
+    return input.kind === "none" || input.kind === "currentTimestamp" || input.kind === "emptyJsonArray";
   }
   if (isExactPrivateValueRecord(input, ["kind", "value"])) {
     return (input.kind === "booleanLiteral" && typeof input.value === "boolean") ||
@@ -982,6 +983,7 @@ function physicalDefaultMatchesType(
     case "exactNumericLiteral":
       return columnType === "numeric";
     case "exactNumericRawLiteral":
+    case "emptyJsonArray":
       return columnType === "jsonb";
     case "currentTimestamp":
       return columnType === "timestamp with time zone";

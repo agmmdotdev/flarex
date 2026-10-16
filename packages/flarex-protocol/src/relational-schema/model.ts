@@ -108,6 +108,7 @@ export type RelationalColumnType =
   | "timestamptz";
 
 export type RelationalColumnDefault =
+  | (Readonly<{ readonly kind: "emptyJsonArray" }> & JsonObject)
   | (Readonly<{ readonly kind: "booleanLiteral"; readonly value: boolean }> & JsonObject)
   | (Readonly<{ readonly kind: "none" }> & JsonObject)
   | (Readonly<{

@@ -11,9 +11,11 @@ const source = "packages/medusa-currency/src/models/currency.ts";
 
 describe("exact Currency promotion", () => {
   it("authenticates source, transformed inputs, package exports, and available build outputs", () => {
-    expect(promotion.packages).toHaveLength(18);
+    expect(promotion.packages).toHaveLength(20);
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-inventory")).toBe(true);
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-stock-location")).toBe(true);
+    expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-notification")).toBe(true);
+    expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-notification-local")).toBe(true);
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-fulfillment")).toBe(true);
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-pricing")).toBe(true);
     expect(promotion.files.some((file) => file.target === source && file.classification === "unchanged")).toBe(true);
@@ -26,6 +28,8 @@ describe("exact Currency promotion", () => {
     ["misclassified preserved source", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "workflowFork" } : file) }],
     ["misclassified Link adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "linkFork" } : file) }],
     ["misclassified Product adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "productServiceFork" } : file) }],
+    ["misclassified Notification adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "notificationServiceFork" } : file) }],
+    ["misclassified CSV adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "csvNormalizerFork" } : file) }],
     ["misclassified schema compiler adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "schemaCompilerFork" } : file) }],
     ["unapproved transform", { ...promotion, files: promotion.files.map((file) => ({ ...file, classification: "anything" })) }],
   ])("rejects %s", (_name, input) => {
@@ -68,7 +72,7 @@ describe("exact Currency promotion", () => {
 
   it("retains the executable original compatibility scenarios and assertions", () => {
     const tests = promotion.files.filter((file) => file.classification === "testPort");
-    expect(tests).toHaveLength(17);
+    expect(tests).toHaveLength(18);
     for (const file of tests) {
       const original = file.source;
       if (!original) throw new Error("Missing original test source");

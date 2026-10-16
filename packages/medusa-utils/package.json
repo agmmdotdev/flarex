@@ -448,10 +448,50 @@
       "source": "./src/dml/relations/has-one.ts",
       "default": "./dist/dml/relations/has-one.js"
     },
+    "./product/csv-normalizer": {
+      "types": "./dist/product/csv-normalizer.d.ts",
+      "source": "./src/product/csv-normalizer.ts",
+      "default": "./dist/product/csv-normalizer.js"
+    },
+    "./product/validators": {
+      "types": "./dist/product/validators.d.ts",
+      "source": "./src/product/validators.ts",
+      "default": "./dist/product/validators.js"
+    },
+    "./common/normalize-csv-value": {
+      "types": "./dist/common/normalize-csv-value.d.ts",
+      "source": "./src/common/normalize-csv-value.ts",
+      "default": "./dist/common/normalize-csv-value.js"
+    },
+    "./common/try-convert-to-boolean": {
+      "types": "./dist/common/try-convert-to-boolean.d.ts",
+      "source": "./src/common/try-convert-to-boolean.ts",
+      "default": "./dist/common/try-convert-to-boolean.js"
+    },
+    "./common/try-convert-to-number": {
+      "types": "./dist/common/try-convert-to-number.d.ts",
+      "source": "./src/common/try-convert-to-number.ts",
+      "default": "./dist/common/try-convert-to-number.js"
+    },
     "./common/convert-item-response-to-update-request": {
       "types": "./dist/common/convert-item-response-to-update-request.d.ts",
       "source": "./src/common/convert-item-response-to-update-request.ts",
       "default": "./dist/common/convert-item-response-to-update-request.js"
+    },
+    "./notification/common": {
+      "types": "./dist/notification/common.d.ts",
+      "source": "./src/notification/common.ts",
+      "default": "./dist/notification/common.js"
+    },
+    "./notification/abstract-notification-provider": {
+      "types": "./dist/notification/abstract-notification-provider.d.ts",
+      "source": "./src/notification/abstract-notification-provider.ts",
+      "default": "./dist/notification/abstract-notification-provider.js"
+    },
+    "./dml/properties/array": {
+      "types": "./dist/dml/properties/array.d.ts",
+      "source": "./src/dml/properties/array.ts",
+      "default": "./dist/dml/properties/array.js"
     }
   },
   "license": "MIT",

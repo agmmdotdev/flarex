@@ -7,6 +7,7 @@ export { JSONProperty } from "@medusajs/utils/dml/properties/json";
 export { NullableModifier } from "@medusajs/utils/dml/properties/nullable";
 export { PrimaryKeyModifier } from "@medusajs/utils/dml/properties/primary-key";
 export { TextProperty } from "@medusajs/utils/dml/properties/text";
+export { ArrayProperty } from "@medusajs/utils/dml/properties/array";
 export { GeoZoneType } from "@medusajs/utils/fulfillment/geo-zone";
 export { ShippingOptionPriceType } from "@medusajs/utils/fulfillment/shipping-options";
 export { FulfillmentEvents } from "@medusajs/utils/fulfillment/events";

@@ -879,6 +879,12 @@ importers:
       '@medusajs/modules-sdk':
         specifier: workspace:*
         version: link:../medusa-modules-sdk
+      '@medusajs/notification':
+        specifier: workspace:*
+        version: link:../medusa-notification
+      '@medusajs/notification-local':
+        specifier: workspace:*
+        version: link:../medusa-notification-local
       '@medusajs/pricing':
         specifier: workspace:*
         version: link:../medusa-pricing
@@ -931,6 +937,9 @@ importers:
 
   packages/medusa-core-flows:
     dependencies:
+      '@medusajs/deps':
+        specifier: workspace:*
+        version: link:../medusa-deps
       '@medusajs/framework':
         specifier: workspace:*
         version: link:../medusa-framework
@@ -949,6 +958,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.112
+      json-2-csv:
+        specifier: 5.5.10
+        version: 5.5.10
 
   packages/medusa-currency:
     dependencies:
@@ -976,6 +988,9 @@ importers:
       awilix:
         specifier: 8.0.1
         version: 8.0.1
+      zod:
+        specifier: 3.25.76
+        version: 3.25.76
 
   packages/medusa-drizzle:
     dependencies:
@@ -1043,6 +1058,30 @@ importers:
 
   packages/medusa-modules-sdk:
     dependencies:
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+
+  packages/medusa-notification:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+
+  packages/medusa-notification-local:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
       '@medusajs/types':
         specifier: workspace:*
         version: link:../medusa-types
@@ -2969,6 +3008,10 @@ packages:
       supports-color:
         optional: true
 
+  deeks@3.1.0:
+    resolution: {integrity: sha512-e7oWH1LzIdv/prMQ7pmlDlaVoL64glqzvNgkgQNgyec9ORPHrT2jaOqMtRyqJuwWjtfb6v+2rk9pmaHj+F137A==}
+    engines: {node: '>= 16'}
+
   deepmerge@4.3.1:
     resolution: {integrity: sha512-3sUqbMEc77XqpdNO7FRyRog+eW3ph+GYCbj+rK+uYyRMuwsVy0rMiVtPn+QJlKFvWP/1PYpapqYn0Me2knFn+A==}
     engines: {node: '>=0.10.0'}
@@ -2980,6 +3023,10 @@ packages:
   dir-glob@3.0.1:
     resolution: {integrity: sha512-WkrWp9GR4KXfKGYzOLmTuGVi1UWFfws377n9cc55/tb6DuqyF6pcQ5AbiHEshaDpY9v6oaSr2XCDidGmMwdzIA==}
     engines: {node: '>=8'}
+
+  doc-path@4.1.1:
+    resolution: {integrity: sha512-h1ErTglQAVv2gCnOpD3sFS6uolDbOKHDU1BZq+Kl3npPqroU3dYL42lUgMfd5UimlwtRgp7C9dLGwqQ5D2HYgQ==}
+    engines: {node: '>=16'}
 
   dotenv@16.5.0:
     resolution: {integrity: sha512-m/C+AwOAr9/W1UOIZUo232ejMNnJAJtYQjUbHoNTBNTJSvqzzDh7vnrei3o3r3m9blf6ZoDkvcw0VmozNRFJxg==}
@@ -3307,6 +3354,11 @@ packages:
   js-yaml@4.3.2:
     resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==}
     hasBin: true
+
+  json-2-csv@5.5.10:
+    resolution: {integrity: sha512-Dep8wO3Fr5wNjQevO2Z8Y7yeee/nYSGRsi7q6zJDKEVHxXkXT+v21vxHmDX923UzmCXXkSo62HaTz6eTWzFLaw==}
+    engines: {node: '>= 16'}
+    deprecated: A security vulnerability has been reported with the preventCsvInjection option which has been fixed in version 5.5.11. Please upgrade as soon as possible.
 
   json-schema-to-typescript@15.0.3:
     resolution: {integrity: sha512-iOKdzTUWEVM4nlxpFudFsWyUiu/Jakkga4OZPEt7CGoSEsAsUgdOZqR6pcgx2STBek9Gm4hcarJpXSzIvZ/hKA==}
@@ -4018,6 +4070,9 @@ packages:
 
   youch@4.1.0-beta.10:
     resolution: {integrity: sha512-rLfVLB4FgQneDr0dv1oddCVZmKjcJ6yX6mS4pU82Mq/Dt9a3cLZQ62pDBL4AUO+uVrCvtWz3ZFUL2HFAFJ/BXQ==}
+
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
 snapshots:
 
@@ -4895,6 +4950,8 @@ snapshots:
     dependencies:
       ms: 2.1.3
 
+  deeks@3.1.0: {}
+
   deepmerge@4.3.1: {}
 
   detect-libc@2.1.2: {}
@@ -4902,6 +4959,8 @@ snapshots:
   dir-glob@3.0.1:
     dependencies:
       path-type: 4.0.0
+
+  doc-path@4.1.1: {}
 
   dotenv@16.5.0: {}
 
@@ -5204,6 +5263,11 @@ snapshots:
   js-yaml@4.3.2:
     dependencies:
       argparse: 2.0.1
+
+  json-2-csv@5.5.10:
+    dependencies:
+      deeks: 3.1.0
+      doc-path: 4.1.1
 
   json-schema-to-typescript@15.0.3:
     dependencies:
@@ -5914,3 +5978,5 @@ snapshots:
       '@speed-highlight/core': 1.2.17
       cookie: 1.1.1
       youch-core: 0.3.3
+
+  zod@3.25.76: {}

@@ -80,3 +80,8 @@ export * from "./stock-location/index";
 export { IEventBusService } from "./event-bus/event-bus";
 
 export * as ReservationWorkflow from "./workflow/reservation";
+
+export * as NotificationTypes from "./notification/index";
+export { INotificationModuleService, INotificationProvider, LocalNotificationServiceOptions } from "./notification/index";
+export { Logger } from "./logger/index";
+export { InternalModuleDeclaration } from "./modules-sdk/index";

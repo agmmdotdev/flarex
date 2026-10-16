@@ -30,6 +30,30 @@ type PublicPhysicalExport = Extract<
 >;
 
 describe("private relational physical values", () => {
+  it("round-trips the named JSON array default and refuses recomputed malformed physical defaults", async () => {
+    const schema = currencySchemaInput();
+    schema.tables[0]?.columns.push({ columnId: "messages", type: "jsonb", nullable: false,
+      default: { kind: "emptyJsonArray" }, origin: { kind: "synthetic", sourceId: "fixture.messages" } });
+    const artifact = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a", schema,
+      provenance: { kind: "synthetic", fixtureId: "array-default-physical" } }));
+    const layout = await runEffect(captureRelationalPhysicalLayout({ artifact: artifact.artifact,
+      physicalLocator: FRAMEWORK_VALUE_LOCATOR, targetNamespace: await frameworkTargetNamespace() }));
+    const physical = layout.frame.tables[0]?.columns.find(value => value.identity.columnId === "messages");
+    expect(physical).toMatchObject({ type: "jsonb", default: { kind: "emptyJsonArray" } });
+    expect(await runEffect(verifyStoredRelationalPhysicalValue({ kind: "physicalLayout",
+      canonicalBytes: new TextEncoder().encode(layout.canonicalJson), sha256Hex: layout.layoutSha256 }))).toEqual(layout.frame);
+    for (const replacement of [
+      { type: "text", default: { kind: "emptyJsonArray" } },
+      { type: "jsonb", default: { kind: "emptyJsonArray", value: [] } },
+      { type: "jsonb", default: { kind: "emptyJsonArray", extra: true } },
+      { type: "jsonb", default: { kind: "jsonLiteral", value: ["arbitrary"] } },
+    ]) {
+      await expectStoredLayoutCorruption({ ...layout.frame, tables: layout.frame.tables.map(table => ({
+        ...table, columns: table.columns.map(value => value.identity.columnId === "messages" ? { ...value, ...replacement } : value),
+      })) });
+    }
+  });
+
   it.each([false, true])("authenticates exact numeric nullability evidence (matching %s)", async matching => {
     const schema = currencySchemaInput();
     for (const column of schema.tables[0]?.columns ?? []) {

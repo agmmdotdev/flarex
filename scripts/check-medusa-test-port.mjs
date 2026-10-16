@@ -4,6 +4,32 @@ import ts from "@typescript/typescript6";
 const vitestBindings = new Set(["afterAll", "afterEach", "beforeAll", "beforeEach", "describe", "expect", "it", "test", "vi"]);
 const currencyImports = new Map([["../index", "@medusajs/currency/index"], ["../static-manifest", "@medusajs/currency/static-manifest"], ["../models", "@medusajs/currency/models"]]);
 
+/** The complete native CSV suite changes only its explicit test-runner import.
+ * Its fixtures remain the exact native files, including their formatting.
+ * @param {string} source @param {string} target
+ * @param {Record<string, string>} sourceFixtures
+ * @param {Record<string, string>} targetFixtures */
+export function verifyCsvNormalizerTests(source, target, sourceFixtures, targetFixtures) {
+  verifyTestPort(source, target);
+  const file = ts.createSourceFile("csv-normalizer.spec.ts", target, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const first = file.statements[0];
+  if (first === undefined || !ts.isImportDeclaration(first) || first.getStart(file) !== 0 ||
+    !ts.isStringLiteral(first.moduleSpecifier) || first.moduleSpecifier.text !== "vitest")
+    throw new Error("Changed native CSV test-runner import");
+  const bindings = first.importClause?.namedBindings;
+  if (first.importClause?.isTypeOnly || first.importClause?.name || bindings === undefined || !ts.isNamedImports(bindings) ||
+    bindings.elements.map(binding => binding.isTypeOnly || binding.propertyName ? null : binding.name.text).join(",") !== "describe,expect,it")
+    throw new Error("Changed native CSV test-runner import");
+  const nativeText = target.slice(first.end).replace(/^\r?\n/, "").replace(/\r\n/g, "\n");
+  if (nativeText !== source.replace(/\r\n/g, "\n")) throw new Error("Changed native CSV suite beyond the test-runner import");
+  const names = ["multiple-products-multiple-variants.json", "same-product-multiple-rows.json",
+    "same-product-multiple-variant-options.json", "single-row-create.json"].sort();
+  if (JSON.stringify(Object.keys(sourceFixtures).sort()) !== JSON.stringify(names) ||
+    JSON.stringify(Object.keys(targetFixtures).sort()) !== JSON.stringify(names) ||
+    names.some(name => sourceFixtures[name] !== targetFixtures[name]))
+    throw new Error("Changed native CSV fixtures");
+}
+
 /** Two unchanged native item creation bodies; all other Inventory methods remain deferred.
  * @param {string} source @param {string} target */
 export function verifyInventoryCreateTests(source, target) {

@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests } from "./check-medusa-test-port.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -16,6 +16,8 @@ const owners = new Map([
   ["packages/medusa-pricing", "@medusajs/pricing"],
   ["packages/medusa-inventory", "@medusajs/inventory"],
   ["packages/medusa-stock-location", "@medusajs/stock-location"],
+  ["packages/medusa-notification", "@medusajs/notification"],
+  ["packages/medusa-notification-local", "@medusajs/notification-local"],
   ["packages/medusa-link-modules", "@medusajs/link-modules"],
   ["packages/medusa-core-flows", "@medusajs/core-flows"],
   ["packages/medusa-workflows-sdk", "@medusajs/workflows-sdk"],
@@ -128,8 +130,17 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, sourcePrefix + "packages/modules/inventory/integration-tests/__tests__/inventory-module-service.spec.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/test/support/inventory-native-tests.ts"), "utf8"),
   );
+  const csvSource = sourcePrefix + "packages/core/utils/src/product/__tests__/";
+  const csvTarget = "packages/medusa-utils/src/product/__tests__/";
+  const csvFixtures = ["multiple-products-multiple-variants.json", "same-product-multiple-rows.json",
+    "same-product-multiple-variant-options.json", "single-row-create.json"];
+  const fixtureText = (/** @type {string} */ prefix) => Object.fromEntries(csvFixtures.map(name =>
+    [name, readFileSync(path.join(root, prefix, "__fixtures__", name), "utf8")]));
+  verifyCsvNormalizerTests(readFileSync(path.join(root, csvSource, "csv-normalizer.spec.ts"), "utf8"),
+    readFileSync(path.join(root, csvTarget, "csv-normalizer.spec.ts"), "utf8"),
+    fixtureText(csvSource), fixtureText(csvTarget));
   for (const file of promotion.files) {
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "notificationServiceFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.classification === "workflowFork" && !(file.target.startsWith("packages/medusa-workflows-sdk/src/") || file.target.startsWith("packages/medusa-core-flows/src/") || file.target === "packages/medusa-adapter/test/workflow-composer-upstream.test.ts")) {
@@ -150,6 +161,12 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       "packages/medusa-product/src/services/product-module-service.ts",
       "packages/medusa-product/src/services/product-category.ts",
     ].includes(file.target)) throw new Error("Product service adaptation outside its approved source files");
+    if (file.classification === "notificationServiceFork" && ![
+      "packages/medusa-notification/src/services/notification-module-service.ts",
+      "packages/medusa-notification/src/services/notification-delivery.ts",
+    ].includes(file.target)) throw new Error("Notification service adaptation outside its approved source files");
+    if (file.classification === "csvNormalizerFork" && file.target !== "packages/medusa-utils/src/product/csv-normalizer.ts")
+      throw new Error("CSV normalizer adaptation outside its approved source file");
     if (file.classification === "schemaCompilerFork" && ![
       "packages/medusa-drizzle/src/dml-types.ts", "packages/medusa-drizzle/src/schema.ts",
     ].includes(file.target)) {
