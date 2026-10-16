@@ -2,7 +2,7 @@
 
 ## Status And Authority
 
-Status: preflight complete; implementation pending. Inventory Level deletion
+Status: implemented for the bounded private native root. Inventory Level deletion
 and its shared call-local observation prerequisite are implemented. Authority is
 the accepted Flarex design, package boundaries, Medusa adoption roadmap and Medusa 2.13.4 at
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`. The source island remains read-only.
@@ -13,7 +13,7 @@ The exact root is singular `deleteInventoryItemWorkflow`, ID
 `inventory/workflows/delete-inventory-items.ts`. There is no plural
 `deleteInventoryItemsWorkflow` export in the pinned file. Its composer and steps
 already execute as nested Product/Variant deletion dependencies; a standalone
-complete Item root and its retained Item/Link compensators are not yet admitted.
+complete Item root and its retained Item/Link compensators are now admitted.
 This slice must use that genuine composer, rather than the Inventory module's
 physical `deleteInventoryItems` method or a synthetic selected-ID delete root.
 
@@ -57,6 +57,12 @@ may then return an empty result without a repository call. The generated service
 returns its actual linkable-key map, normally Item/Level/Reservation keys for
 actual cascade rows; the step ignores that return value. Fully authenticate the
 map even though the composer discards it.
+
+Generated linkable-key arrays retain lifecycle encounter order. The pinned
+Drizzle UPDATE RETURNING path does not promise a global child-ID sort. The
+existing lifecycle owner traverses Items by ID and each Item's children by ID;
+receipts correlate the exact issued lifecycle order, including reordered-map
+refusal, rather than sorting results or comparing only membership.
 
 `removeRemoteLinkStep` receives `{inventory:{inventory_item_id:input}}`. Even
 `input=[]` is a nonempty outer entry object, so the step resolves Link and calls
@@ -127,13 +133,18 @@ deleted rows. All callback invocations remain transactionCovered. Whole-root
 failure rollback is a separate proof and must not depend on running inverse
 callbacks or introduce a standalone durable restoration API.
 
-## Proposed Implementation And Bounds
+## Implemented Profile And Bounds
 
 1. Reuse the already promoted genuine Item composer/steps and portable Query and
    Link steps. Add only the narrow package export needed for this native root;
    preserve its source mapping and emitted guard/callback behavior. Its existing
    eight-row projected decoder is required by nested Product deletion, so the
    standalone root's four-request admission must not weaken that older consumer.
+   Restore the shared removeRemoteLinkStep invocation to its pinned executable
+   body through type-only seams; the earlier Object.entries rewrite is displaced.
+   Authenticate the exact Item/Link callbacks and the composer's named projected
+   decoding seam through the existing source guard owner. Existing Product and
+   Variant deletion consumers retain their native behavior and regression gates.
 2. Add a named Inventory item-deletions preparation/profile using the existing
    computed Item graph and complete deletion owner. Expose only
    softDeleteInventoryItems and restoreInventoryItems, graph true; keep Level
@@ -161,12 +172,13 @@ in total. Every individual history/cardinality overflow must refuse the whole
 root before publication, not truncate children or treat a page as completeness.
 Bound the rich Link inverse by the same complete eight-row selection, including
 history/unchanged restore semantics. Maintain ordinary 128-identity working
-sets and current bytes/catalog bounds. Start validation with existing 64-call/
-64-event root allowances: this graph has at most 24 lifecycle row identities,
-but runtime call consumption must be measured on the full graph. If the full
-native branch exceeds a limit, preserve the witness and use the correct named
-resource owner within the existing approval; do not shrink the graph or silently
-loosen shared/default limits.
+sets and current bytes/catalog bounds. The complete forward graph fits the
+existing 64-call/64-event root allowances. Its 24 lifecycle row identities emit
+16 Inventory singleton messages and one native Link batch containing eight IDs.
+The Link preparation authenticates its complete-history configuration against
+the genuine immutable repository binding before issuing workflow methods;
+structural replacements cannot attest a different bound closure. No shared or
+default resource limits are widened.
 
 The shared core62 call-local row observation correction is a prerequisite. The
 guard may observe Item/Level bodies which later commands do not use, and cached
@@ -205,10 +217,11 @@ stocking/reservations and shared lifecycle/call-local read owners as affected.
 Complete affected typechecks/builds, source/promotion/browser guards, lint and
 both required read-only reviews before one scoped commit.
 
-Following native workflow candidates are batchInventoryItemLevelsWorkflow
-(create/update/delete with native parallelize and retained deletion child), the
-standalone createInventoryItemsWorkflow composer (Item plus optional Levels),
-and the still-present deprecated bulkCreateDeleteLevelsWorkflow. Their raw
+The next preflighted native root is
+[batchInventoryItemLevelsWorkflow](./119-native-inventory-level-batch-workflow.md)
+(create/update/delete with native parallelize and retained deletion child).
+Subsequent candidates include standalone createInventoryItemsWorkflow (Item plus
+optional Levels) and the still-present deprecated bulkCreateDeleteLevelsWorkflow. Their raw
 optional outputs, child dependencies, conditionals and scheduling need separate
 preflights; neither deprecation alone nor existing module methods prove their
 integration. Chunked File import, Product export and hosted activation remain

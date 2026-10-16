@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks } from "./check-medusa-test-port.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -162,6 +162,14 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, "packages/medusa-core-flows/src/inventory/workflows/delete-inventory-levels.ts"), "utf8"),
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/common/steps/delete-entities.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/common/steps/delete-entities.ts"), "utf8"),
+  );
+  verifyInventoryItemDeleteCallbacks(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/inventory/workflows/delete-inventory-items.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/inventory/workflows/delete-inventory-items.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/inventory/steps/delete-inventory-items.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/inventory/steps/delete-inventory-items.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/common/steps/remove-remote-links.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/common/steps/remove-remote-links.ts"), "utf8"),
   );
   const csvSource = sourcePrefix + "packages/core/utils/src/product/__tests__/";
   const csvTarget = "packages/medusa-utils/src/product/__tests__/";

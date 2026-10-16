@@ -1,4 +1,6 @@
 import { makeInventoryItemUpdateCommands } from "./update-service";
+import { makeInventoryItemDeletionCommands } from "./delete-item-service";
+import { compileInventoryDeletionContracts } from "./deletion-contracts";
 import { makeInventoryLevelUpdateCommands } from "./update-level-service";
 import { makeInventoryLevelDeletionCommands } from "./delete-level-service";
 import { deniedCommerceRepository } from "../../repository/denied";
@@ -28,7 +30,7 @@ import { InventoryLevelsInput, InventoryLevelsOutput } from "./level-input";
 import { prepareInventoryQuantityRepository, inventoryQuantityProjection } from "./quantity-repository";
 import { Adjustments, ReservationCreates, ReservationUpdates, ReservationIds, ReservationRead, ReservationOutput } from "./reservation-input";
 import { inventoryStockEventPolicy } from "./stock-events";
-import { InventoryDeletionSelection, InventoryDeletionConfig, decodeInventoryDeletionInput, softDeleteInventoryItems } from "./deletion-lifecycle";
+import { InventoryDeletionSelection, InventoryDeletionConfig, decodeInventoryDeletionInput, inventoryItemLifecycle } from "./deletion-lifecycle";
 import { inventoryDeletionFind, inventoryDeletionReadTable } from "./deletion-read";
 import { inventoryDeletionEventPolicy } from "./deletion-events";
 
@@ -46,7 +48,8 @@ const makeBasicInventoryCommands = Effect.fn("InventoryAdapter.commands")(functi
   const admitsLevels = admission === "levels" || stock;
   const levelInput = admitsLevels ? InventoryLevelsInput : EmptyLevels;
   const decodeLevels = commerceDecoder(levelInput, "unsupportedProfile");
-  const policy = () => deletion ? inventoryDeletionEventPolicy() : stock ? inventoryStockEventPolicy() : inventoryCreateEventPolicy(admission === "levels");
+  const deletionContracts = deletion ? yield* Effect.fromResult(compileInventoryDeletionContracts(metadata.frame.tables)) : undefined;
+  const policy = () => deletionContracts !== undefined ? inventoryDeletionEventPolicy(deletionContracts) : stock ? inventoryStockEventPolicy() : inventoryCreateEventPolicy(admission === "levels");
   const decodeAdjust = commerceDecoder(stock ? Adjustments : Schema.Never, "unsupportedProfile");
   const decodeReserve = commerceDecoder(stock ? ReservationCreates : Schema.Never, "unsupportedProfile");
   const decodeUpdateReservation = commerceDecoder(stock ? ReservationUpdates : Schema.Never, "unsupportedProfile");
@@ -73,7 +76,7 @@ const makeBasicInventoryCommands = Effect.fn("InventoryAdapter.commands")(functi
           return [structuredClone(value.rows), value.count] satisfies [object[], number];
         }))),
         softDelete: (input, shared) => bound.bridge.execute(shared, current => bound.bridge.checked(current, Effect.gen(function* () {
-          const result = yield* softDeleteInventoryItems(current, metadata.frame, input);
+          const result = yield* inventoryItemLifecycle(current, metadata.frame, input, "softDelete", 8);
           if (shared === undefined || !bound.events.isSubscribed(shared)) return yield* current.refuse(commerceError("unadmittedEvent"));
           yield* bound.events.cascades(result.cascades, shared, row => ({ entity: row, originalEntity: { deleted_at: null } }));
           return [result.roots, result.cascades] satisfies [object[], Record<string, unknown[]>];
@@ -184,12 +187,14 @@ const makeBasicInventoryCommands = Effect.fn("InventoryAdapter.commands")(functi
 });
 
 
+export function makeLocalInventoryCommands(admission: "item-deletions"): ReturnType<typeof makeInventoryItemDeletionCommands>;
 export function makeLocalInventoryCommands(admission: "item-updates"): ReturnType<typeof makeInventoryItemUpdateCommands>;
 export function makeLocalInventoryCommands(admission: "level-updates"): ReturnType<typeof makeInventoryLevelUpdateCommands>;
 export function makeLocalInventoryCommands(admission: "level-deletions"): ReturnType<typeof makeInventoryLevelDeletionCommands>;
 export function makeLocalInventoryCommands(admission?: "items" | "levels" | "stock" | "product-deletions" | "product-batches"): ReturnType<typeof makeBasicInventoryCommands>;
-export function makeLocalInventoryCommands(admission: "items" | "levels" | "stock" | "product-deletions" | "product-batches" | "item-updates" | "level-updates" | "level-deletions" = "items") {
-  return admission === "item-updates" ? makeInventoryItemUpdateCommands()
+export function makeLocalInventoryCommands(admission: "items" | "levels" | "stock" | "product-deletions" | "product-batches" | "item-updates" | "level-updates" | "level-deletions" | "item-deletions" = "items") {
+  return admission === "item-deletions" ? makeInventoryItemDeletionCommands()
+    : admission === "item-updates" ? makeInventoryItemUpdateCommands()
     : admission === "level-updates" ? makeInventoryLevelUpdateCommands()
       : admission === "level-deletions" ? makeInventoryLevelDeletionCommands() : makeBasicInventoryCommands(admission);
 }

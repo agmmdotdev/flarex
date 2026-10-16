@@ -23,17 +23,25 @@ export interface BoundLink { readonly link: Readonly<Pick<Link, "create" | "dism
   readonly service: Readonly<Pick<ILinkModule, "list" | "listAndCount" | "create" | "dismiss" | "softDelete" | "restore">>; readonly context: Context;
   readonly cascade: (result: unknown) => Promise<Json> }
 
+const preparedLinkLifecycles = new WeakMap<object, Readonly<{ maximumRows: 8 | null; completeHistory: boolean }>>();
+export function linkServiceLifecycleDefinition(input: unknown) {
+  const lifecycle = typeof input === "object" && input !== null ? preparedLinkLifecycles.get(input) : undefined;
+  return lifecycle === undefined ? undefined : Object.freeze({ ...lifecycle });
+}
+
 /** One prepared Link owns its repository, native services/router, read tokens
  * and borrowed context. Host assembly still explicitly selects all participants. */
 export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(function* (
   metadata: Effect.Success<ReturnType<typeof captureLinkMetadata>>,
   maximumLifecycleRows?: 8,
+  completeLifecycleHistory?: true,
 ) {
   const joiner = structuredClone(metadata.joiner);
   const [primary, foreign] = joiner.relationships ?? [];
   const idPrefix = joiner.databaseConfig?.idPrefix;
   if (primary === undefined || foreign === undefined || idPrefix === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const prepared = yield* Effect.fromResult(prepareLinkRepository(metadata.frame, idPrefix, maximumLifecycleRows));
+  const prepared = yield* Effect.fromResult(prepareLinkRepository(metadata.frame, idPrefix, maximumLifecycleRows, completeLifecycleHistory));
+  const lifecycle = Object.freeze({ maximumRows: maximumLifecycleRows ?? null, completeHistory: completeLifecycleHistory === true });
   const decodeEndpoint = commerceDecoder(Schema.Union([
     Schema.Struct({ [primary.serviceName]: Schema.Struct({ [primary.foreignKey]: Ids }) }),
     Schema.Struct({ [foreign.serviceName]: Schema.Struct({ [foreign.foreignKey]: Ids }) }),
@@ -95,5 +103,7 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
   const useService = (ctx: CommerceCommandContext, work: (service: Pick<BoundLink, "service" | "context">) => Promise<unknown>) =>
     withCommerceService(ctx, owner => ({ service: bind(ctx, owner).service,
       context: { manager: ctx.manager, transactionManager: ctx.manager } }), work);
-  return { use, useService, bind, prepared, joiner, serviceName, entityName, routing };
+  const result = Object.freeze({ use, useService, bind, prepared, joiner, serviceName, entityName, routing, lifecycle });
+  preparedLinkLifecycles.set(result, lifecycle);
+  return result;
 });

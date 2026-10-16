@@ -38,20 +38,22 @@ export const removeRemoteLinkStep = createStep(
     const grouped: DeleteEntityInput = {}
 
     for (const entry of entries) {
-      for (const [moduleName, values] of Object.entries(entry)) {
-        const target = grouped[moduleName] ??= {}
+      for (const moduleName of Object.keys(entry)) {
+        grouped[moduleName] ??= {}
 
-        for (const [linkableKey, incomingValue] of Object.entries(values)) {
-          target[linkableKey] ??= []
+        for (const linkableKey of Object.keys(entry[moduleName]!)) {
+          grouped[moduleName]![linkableKey] ??= []
+
+          const incomingValue = entry[moduleName]![linkableKey]!
           const incomingKeys = Array.isArray(incomingValue)
             ? incomingValue
             : [incomingValue]
-          const currentValue = target[linkableKey]
+          const currentValue = grouped[moduleName]![linkableKey]!
           const currentKeys = Array.isArray(currentValue)
             ? currentValue
             : [currentValue]
 
-          target[linkableKey] = currentKeys.concat(incomingKeys)
+          grouped[moduleName]![linkableKey] = currentKeys.concat(incomingKeys)
         }
       }
     }

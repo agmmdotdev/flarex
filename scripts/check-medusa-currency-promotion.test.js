@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyInventoryLevelDeleteCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -40,6 +40,58 @@ describe("native Inventory Level deletion callback provenance", () => {
     expect(changed).not.toBe(step);
     expect(() => verifyInventoryLevelDeleteCallbacks(nativeWorkflow, workflow, nativeStep, changed))
       .toThrow("Changed native Inventory Level deletion callback behavior");
+  });
+});
+
+describe("native Inventory Item deletion callback provenance", () => {
+  const nativeWorkflow = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/inventory/workflows/delete-inventory-items.ts", "utf8");
+  const workflow = readFileSync("packages/medusa-core-flows/src/inventory/workflows/delete-inventory-items.ts", "utf8");
+  const nativeStep = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/inventory/steps/delete-inventory-items.ts", "utf8");
+  const step = readFileSync("packages/medusa-core-flows/src/inventory/steps/delete-inventory-items.ts", "utf8");
+  const nativeLink = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/common/steps/remove-remote-links.ts", "utf8");
+  const link = readFileSync("packages/medusa-core-flows/src/common/steps/remove-remote-links.ts", "utf8");
+  it("permits only erased callback types and the exact existing eight-row checked projection seam", () => {
+    expect(() => verifyInventoryItemDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeLink, link)).not.toThrow();
+  });
+  it.each([
+    ["raw guard lookup", "id: input,", "id: [],"],
+    ["guard execution", "validateInventoryDeleteStep({ inventory_items: inventoryItemsToDelete })", "validateInventoryDeleteStep({ inventory_items: [] })"],
+    ["raw lifecycle IDs", "deleteInventoryItemStep(input)", "deleteInventoryItemStep([])"],
+    ["raw Link endpoints", "inventory_item_id: input", "inventory_item_id: []"],
+    ["raw array response", "return new WorkflowResponse(input)", "return new WorkflowResponse([])"],
+    ["projection completeness bound", "Schema.isMaxLength(8)", "Schema.isMaxLength(4)"],
+    ["computed finite decoder", "Schema.Number.check(Schema.isFinite())", "Schema.Number"],
+    ["projection excess fields", 'onExcessProperty: "error"', 'onExcessProperty: "ignore"'],
+    ["guard row order", ").map(row => ({ ...row })))", ").map(row => ({ ...row })).reverse())"],
+    ["query field omission", '["id", "reserved_quantity"]', '["id"]'],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = workflow.replace(before, after); expect(changed).not.toBe(workflow);
+    expect(() => verifyInventoryItemDeleteCallbacks(nativeWorkflow, changed, nativeStep, step, nativeLink, link))
+      .toThrow("Changed native Inventory Item deletion callback behavior");
+  });
+  it.each([
+    ["reservation predicate", "MathBN.gt(inventoryItem.reserved_quantity, 0)", "MathBN.gt(inventoryItem.reserved_quantity, 1)"],
+    ["reservation order", ".map((inventoryItem) => inventoryItem.id)", ".reverse().map((inventoryItem) => inventoryItem.id)"],
+    ["native Item empty call", "await inventoryService.softDeleteInventoryItems(ids)", "if (ids.length) await inventoryService.softDeleteInventoryItems(ids)"],
+    ["Item map projection", "new StepResponse(void 0, ids)", "new StepResponse(ids, ids)"],
+    ["Item inverse payload", "new StepResponse(void 0, ids)", "new StepResponse(void 0, [])"],
+    ["Item inverse empty resolution", "if (!prevInventoryItemIds?.length)", "if (!prevInventoryItemIds)"],
+    ["Item inverse invocation", "restoreInventoryItems(prevInventoryItemIds)", "restoreInventoryItems([])"],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = step.replace(before, after); expect(changed).not.toBe(step);
+    expect(() => verifyInventoryItemDeleteCallbacks(nativeWorkflow, workflow, nativeStep, changed, nativeLink, link))
+      .toThrow("Changed native Inventory Item deletion callback behavior");
+  });
+  it.each([
+    ["grouped empty Link invocation", "await link.delete(grouped)", "if (Object.values(grouped).some(Boolean)) await link.delete(grouped)"],
+    ["Link grouping order", "currentKeys.concat(incomingKeys)", "incomingKeys.concat(currentKeys)"],
+    ["Link inverse payload", "new StepResponse(grouped, grouped)", "new StepResponse(grouped, {})"],
+    ["grouped empty inverse resolution", "if (!removedLinks)", "if (!removedLinks || !Object.keys(removedLinks).length)"],
+    ["Link inverse invocation", "await link.restore(removedLinks)", "await link.restore({})"],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = link.replace(before, after); expect(changed).not.toBe(link);
+    expect(() => verifyInventoryItemDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeLink, changed))
+      .toThrow("Changed native Inventory Item deletion callback behavior");
   });
 });
 

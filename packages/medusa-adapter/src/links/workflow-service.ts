@@ -3,7 +3,7 @@ import { commerceError, type JsonObject } from "@flarex/persistence-postgres/int
 import { commerceDecoder } from "../value/decoder";
 import { commerceServiceCommands, commerceCommandPreparation } from "../module/commands";
 import { defineWorkflowMethod, type WorkflowMethod } from "../workflow/module";
-import type { prepareLinkService } from "./service";
+import { linkServiceLifecycleDefinition, type prepareLinkService } from "./service";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const Rows = Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(8));
@@ -11,8 +11,9 @@ const decodeRows = commerceDecoder(Rows, "storedCorruption");
 const decodeRead = commerceDecoder(Schema.Struct({ filters: Schema.JsonObject, config: Schema.JsonObject }), "invalidInput");
 const decodeReadArguments = commerceDecoder(Schema.Tuple([Schema.JsonObject, Schema.JsonObject]), "invalidInput");
 interface LinkWorkflowServiceDefinition {
-  readonly admission: "create" | "dismiss" | "cascade" | "product-deletions" | "inventory-deletions" | "sales-channel-deletions" | "stock-location-deletions";
+  readonly admission: "create" | "dismiss" | "cascade" | "product-deletions" | "inventory-deletions" | "inventory-item-deletions" | "sales-channel-deletions" | "stock-location-deletions";
   readonly routing: Effect.Success<ReturnType<typeof prepareLinkService>>["routing"];
+  readonly lifecycle: Effect.Success<ReturnType<typeof prepareLinkService>>["lifecycle"];
   readonly createMethod: WorkflowMethod<readonly unknown[], readonly JsonObject[]>;
   readonly listMethod: WorkflowMethod<readonly unknown[], readonly JsonObject[]>;
   readonly dismissMethod?: WorkflowMethod<readonly unknown[], readonly JsonObject[]>;
@@ -22,7 +23,8 @@ interface LinkWorkflowServiceDefinition {
 const preparedServices = new WeakMap<object, LinkWorkflowServiceDefinition>();
 export function linkWorkflowServiceDefinition(input: unknown) {
   const definition = typeof input === "object" && input !== null ? preparedServices.get(input) : undefined;
-  return definition === undefined ? undefined : { ...definition, routing: structuredClone(definition.routing) };
+  return definition === undefined ? undefined : { ...definition, routing: structuredClone(definition.routing),
+    lifecycle: Object.freeze({ ...definition.lifecycle }) };
 }
 
 /** Native Link service ABI over a single source's normal borrowed commands.
@@ -30,6 +32,10 @@ export function linkWorkflowServiceDefinition(input: unknown) {
 export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<typeof prepareLinkService>>, prefix: string,
   admission: LinkWorkflowServiceDefinition["admission"] = "create") {
   return Result.gen(function* () {
+    const lifecycle = linkServiceLifecycleDefinition(prepared);
+    if (lifecycle === undefined) return yield* Result.fail(commerceError("invalidAuthority"));
+    if (admission === "inventory-item-deletions" && (lifecycle.maximumRows !== 8 || lifecycle.completeHistory !== true))
+      return yield* Result.fail(commerceError("unsupportedProfile"));
     const extras = Schema.Struct({ id: Schema.optionalKey(Id),
       ...Object.fromEntries(Object.keys(prepared.joiner.databaseConfig?.extraFields ?? {}).map(name =>
         [name, Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: -2147483648, maximum: 2147483647 })))])),
@@ -73,7 +79,7 @@ export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<t
       moduleEvents: [prepared.entityName + ".detached"] });
     // Restoration belongs to the connected endpoint-deletion profiles, whose
     // retained native compensators supply the authenticated forward endpoint.
-    const restoration = (admission === "sales-channel-deletions" || admission === "stock-location-deletions") ? yield* Result.gen(function* () {
+    const restoration = (admission === "inventory-item-deletions" || admission === "sales-channel-deletions" || admission === "stock-location-deletions") ? yield* Result.gen(function* () {
       const restoreName = prefix + "NativeRestore";
       const restore = commands.write(restoreName, prepare(decodeSoftDelete), ({ service, context }, input) =>
         service.restore(input.selector, { returnLinkableKeys: [...input.config.returnLinkableKeys] }, context));
@@ -82,11 +88,11 @@ export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<t
         moduleEvents: [prepared.entityName + ".attached"] });
       return { restore, restoreName, restoreMethod };
     }) : undefined;
-    const deletes = admission === "cascade" || admission === "product-deletions" || admission === "inventory-deletions" || admission === "sales-channel-deletions" || admission === "stock-location-deletions";
+    const deletes = admission === "cascade" || admission === "product-deletions" || admission === "inventory-deletions" || admission === "inventory-item-deletions" || admission === "sales-channel-deletions" || admission === "stock-location-deletions";
     const result = Object.freeze({ create, list, createName, createMethod, listMethod, routing: structuredClone(prepared.routing),
       ...(admission === "create" ? {} : { dismiss, dismissName, dismissMethod }),
       ...(deletes ? { softDelete, softDeleteName, softDeleteMethod } : {}), ...restoration });
-    preparedServices.set(result, { admission, routing: structuredClone(prepared.routing), createMethod, listMethod,
+    preparedServices.set(result, { admission, lifecycle, routing: structuredClone(prepared.routing), createMethod, listMethod,
       ...(admission === "create" ? {} : { dismissMethod }), ...(deletes ? { softDeleteMethod } : {}), ...(restoration === undefined ? {} : { restoreMethod: restoration.restoreMethod }) });
     return result;
   });

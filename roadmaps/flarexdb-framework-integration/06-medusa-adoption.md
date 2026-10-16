@@ -94,8 +94,14 @@ authenticates complete bodies before the native field mask; shared
 [call-local activity](../shared-logical-storage/62-call-local-row-observations.md)
 distinguishes genuine cached and pending candidate use from earlier calls while
 retaining complete settlement dependencies. Existing OCC, calls and events stay
-with their current owners. The next preflighted integration outcome is
-[native Inventory Item deletion](./preflight/118-native-inventory-item-delete-workflow.md).
+with their current owners. The bounded
+[native Inventory Item deletion](./preflight/118-native-inventory-item-delete-workflow.md)
+profile retains computed reservation guards, complete Item/Level/Reservation
+cascades, eight rich Links and native retained inverses. Link preparation binds
+complete-history admission to its genuine immutable repository owner. Native
+raw-ID results and batched Link events retain their existing semantics. The next
+preflighted outcome is the
+[native Level batch workflow](./preflight/119-native-inventory-level-batch-workflow.md).
 Chunked File import and Product
 export are explicitly deferred; their File and Region dependencies are outside
 the current integration goal.

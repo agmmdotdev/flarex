@@ -37,8 +37,10 @@ const readOptions = (primary: string) => commerceDecoder(Schema.Struct({
 
 /** Several prepared Links may coexist. Each bind borrows only its command's
  * transaction; no global service, raw database or second lifetime. */
-export function prepareLinkRepository(metadata: Effect.Success<ReturnType<typeof captureLinkMetadata>>["frame"], idPrefix: string, maximumLifecycleRows?: 8) {
+export function prepareLinkRepository(metadata: Effect.Success<ReturnType<typeof captureLinkMetadata>>["frame"], idPrefix: string, maximumLifecycleRows?: 8, completeLifecycleHistory?: true) {
   return Result.gen(function* () {
+    if (completeLifecycleHistory !== undefined && (completeLifecycleHistory !== true || maximumLifecycleRows === undefined))
+      return yield* Result.fail(commerceError("unsupportedProfile"));
     const table = { name: metadata.name, columns: metadata.columns.map(column => column.name),
       primaryKeys: metadata.columns.filter(column => column.primaryKey).map(column => column.name), foreignKeys: [], companions: {} };
     const [primary, foreign] = table.primaryKeys;
@@ -76,11 +78,15 @@ export function prepareLinkRepository(metadata: Effect.Success<ReturnType<typeof
       });
       const lifecycle = (operation: "softDelete" | "restore", input: unknown, shared: unknown) =>
         bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-          const selected = yield* find(ctx, { where: input, options: { filters: { softDeletable: { withDeleted: operation === "restore" } } } }, maximumLifecycleRows !== undefined);
+          const selected = yield* find(ctx, { where: input, options: { filters: { softDeletable: { withDeleted: operation === "restore" || completeLifecycleHistory === true } } } }, maximumLifecycleRows !== undefined);
           if (maximumLifecycleRows !== undefined && (selected.count === undefined || selected.count > maximumLifecycleRows || selected.count !== selected.rows.length))
             return yield* ctx.refuse(commerceError(selected.count === undefined ? "storedCorruption" : "limitExceeded"));
+          // Complete-history admission bounds the same native selector before
+          // transition. Soft deletion still changes only its active members.
+          const members = operation === "softDelete" && completeLifecycleHistory === true
+            ? selected.rows.filter(row => row.deleted_at === null) : selected.rows;
           const store = yield* ctx.table(table.name);
-          const rows = [...yield* store.lifecycle(ctx.manager, operation, selected.rows.map(row => ({
+          const rows = [...yield* store.lifecycle(ctx.manager, operation, members.map(row => ({
             [primary]: row[primary], [foreign]: row[foreign],
           })))];
           return [rows, rows.length === 0 ? {} : { LinkModel: rows }] satisfies [JsonObject[], Record<string, unknown[]>];
@@ -119,6 +125,6 @@ export function prepareLinkRepository(metadata: Effect.Success<ReturnType<typeof
       };
       return { repository, bridge, refuse };
     };
-    return { table, bind };
+    return Object.freeze({ table, bind });
   });
 }

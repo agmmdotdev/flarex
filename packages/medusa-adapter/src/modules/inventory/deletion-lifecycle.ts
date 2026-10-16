@@ -25,18 +25,19 @@ const decodeSelection = commerceDecoder(InventoryDeletionSelection, "unsupported
 
 /** Native Inventory owns both cascades. Bounds cover persisted history before
  * any lifecycle transition; repeated IDs retain the native membership semantics. */
-export const softDeleteInventoryItems = Effect.fn("InventoryAdapter.softDeleteItems")(function* (
+export const inventoryItemLifecycle = Effect.fn("InventoryAdapter.itemLifecycle")(function* (
   ctx: CommerceCommandContext, metadata: Effect.Success<ReturnType<typeof captureInventoryMetadata>>["frame"], input: unknown,
+  operation: "softDelete" | "restore", maximumRoots: 4 | 8,
 ) {
   const selection = yield* Effect.fromResult(decodeSelection(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));
   const ids = inventoryDeletionIds(selection);
-  if (ids.length > 8) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  if (ids.length > maximumRoots) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const item = metadata.tables.find(table => table.name === "inventory_item"), level = metadata.tables.find(table => table.name === "inventory_level"),
     reservation = metadata.tables.find(table => table.name === "reservation_item");
   if (item === undefined || level === undefined || reservation === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const catalog = { tables: [item, level, reservation], entities: [{ table: item, model: "InventoryItem" },
     { table: level, model: "InventoryLevel" }, { table: reservation, model: "ReservationItem" }] };
-  const lifecycle = medusaLifecycle(ctx, catalog, "softDelete"), roots = yield* lifecycle.roots(item, [...new Set(ids)]);
+  const lifecycle = medusaLifecycle(ctx, catalog, operation), roots = yield* lifecycle.roots(item, [...new Set(ids)]);
   const plan = yield* lifecycle.plan(item, roots), rootIds = new Set(roots.map(row => row.id));
   for (const [table, maximum] of [[level, 2], [reservation, 1]] as const) {
     const counts = new Map<string, number>();

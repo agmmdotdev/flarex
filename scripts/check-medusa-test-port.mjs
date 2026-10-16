@@ -48,41 +48,89 @@ export function verifyInventoryLevelUpdateTests(source, target) {
   verifyInventoryTests(source, target, new Set(["should update inventory level", "should fail to update inventory level for item in location that isn't stocked"]), true);
 }
 
+/** Exact callback extraction is shared by the Inventory deletion provenance
+ * guards; testPortProgram owns type erasure and executable AST comparison.
+ * @param {string} text @param {string} name @param {string} factory
+ * @param {readonly number[]} indexes */
+function inventoryDeletionCallbacks(text, name, factory, indexes) {
+  const file = ts.createSourceFile("inventory-delete.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  /** @type {ts.CallExpression[]} */
+  const calls = [];
+  /** @param {ts.Node} node */
+  const visit = node => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
+      if (calls.length !== 0 || node.initializer === undefined || !ts.isCallExpression(node.initializer)
+        || !ts.isIdentifier(node.initializer.expression) || node.initializer.expression.text !== factory)
+        throw new Error("Invalid native Inventory deletion callback declaration");
+      calls.push(node.initializer);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  const call = calls[0];
+  if (call === undefined) throw new Error("Missing native Inventory deletion callback declaration");
+  return indexes.map(index => {
+    const callback = call.arguments[index];
+    if (callback === undefined || (!ts.isFunctionExpression(callback) && !ts.isArrowFunction(callback)))
+      throw new Error("Missing native Inventory deletion callback");
+    return { file, callback, text: callback.getText(file) };
+  });
+}
+
 /** Preserve the exact emitted native deletion guard and generic callbacks.
  * @param {string} nativeWorkflow @param {string} workflow
  * @param {string} nativeStep @param {string} step */
 export function verifyInventoryLevelDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step) {
   /** @param {string} text @param {string} name @param {readonly number[]} indexes */
-  const callbacks = (text, name, indexes) => {
-    const file = ts.createSourceFile("inventory-level-delete.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
-    /** @type {ts.CallExpression[]} */
-    const calls = [];
-    /** @param {ts.Node} node */
-    const visit = node => {
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
-        if (calls.length !== 0 || node.initializer === undefined || !ts.isCallExpression(node.initializer)
-          || !ts.isIdentifier(node.initializer.expression) || node.initializer.expression.text !== "createStep")
-          throw new Error("Invalid native Inventory deletion callback declaration");
-        calls.push(node.initializer);
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(file);
-    const call = calls[0];
-    if (call === undefined) throw new Error("Missing native Inventory deletion callback declaration");
-    const arguments_ = call.arguments;
-    return indexes.map(index => {
-      const callback = arguments_[index];
-      if (callback === undefined || (!ts.isFunctionExpression(callback) && !ts.isArrowFunction(callback)))
-        throw new Error("Missing native Inventory deletion callback");
-      return testPortProgram("const callback = " + callback.getText(file));
-    });
-  };
+  const callbacks = (text, name, indexes) => inventoryDeletionCallbacks(text, name, "createStep", indexes)
+    .map(callback => testPortProgram("const callback = " + callback.text));
   if (JSON.stringify(callbacks(nativeWorkflow, "validateInventoryLevelsDelete", [1])) !==
     JSON.stringify(callbacks(workflow, "validateInventoryLevelsDelete", [1])) ||
     JSON.stringify(callbacks(nativeStep, "deleteEntitiesStep", [1, 2])) !==
     JSON.stringify(callbacks(step, "deleteEntitiesStep", [1, 2])))
     throw new Error("Changed native Inventory Level deletion callback behavior");
+}
+
+/** Preserve the singular native Item root after authenticating its one authored
+ * checked-projection seam; all native guard and lifecycle callbacks erase only types.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step
+ * @param {string} nativeLink @param {string} link */
+export function verifyInventoryItemDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeLink, link) {
+  const failure = "Changed native Inventory Item deletion callback behavior";
+  /** @param {string} source @param {string} target @param {string} name @param {readonly number[]} indexes */
+  const sameCallbacks = (source, target, name, indexes) => {
+    const native = inventoryDeletionCallbacks(source, name, "createStep", indexes);
+    const promoted = inventoryDeletionCallbacks(target, name, "createStep", indexes);
+    if (native.some((callback, index) => testPortProgram("const callback = " + callback.text) !==
+      testPortProgram("const callback = " + promoted[index]?.text))) throw new Error(failure);
+  };
+  sameCallbacks(nativeStep, step, "validateInventoryDeleteStep", [1]);
+  sameCallbacks(nativeStep, step, "deleteInventoryItemStep", [1, 2]);
+  sameCallbacks(nativeLink, link, "removeRemoteLinkStep", [1, 2]);
+  const native = inventoryDeletionCallbacks(nativeWorkflow, "deleteInventoryItemWorkflow", "createWorkflow", [1])[0];
+  const promoted = inventoryDeletionCallbacks(workflow, "deleteInventoryItemWorkflow", "createWorkflow", [1])[0];
+  if (native === undefined || promoted === undefined || !ts.isBlock(promoted.callback.body)) throw new Error(failure);
+  const statements = promoted.callback.body.statements, query = statements[0], seam = statements[1];
+  const checkedProjection = `const inventoryItemsToDelete = transform(inventoryRows, (value) => Result.getOrThrow(decodeInventoryDeletionRows(value).pipe(
+    Result.mapError(() => new WorkflowDefinitionError({ reason: "unsupportedProfile", detail: "Inventory deletion requires checked reserved quantities" })),
+  )).map(row => ({ ...row })))`;
+  if (query === undefined || seam === undefined || testPortProgram(seam.getText(promoted.file)) !== testPortProgram(checkedProjection)) throw new Error(failure);
+  const queryText = query.getText(promoted.file);
+  if (queryText.split("inventoryRows").length !== 2) throw new Error(failure);
+  const restoredComposer = promoted.text.replace(seam.getText(promoted.file), "")
+    .replace(queryText, queryText.replace("inventoryRows", "inventoryItemsToDelete"));
+  if (testPortProgram("const callback = " + native.text) !== testPortProgram("const callback = " + restoredComposer)) throw new Error(failure);
+  // The older Product deletion consumer requires the existing eight-row native
+  // projection. A four-raw-ID standalone boundary must not reduce that decoder.
+  const decoderFile = ts.createSourceFile("item-deletion-projection.ts", workflow, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const decoders = decoderFile.statements.filter(ts.isVariableStatement).flatMap(statement =>
+    statement.declarationList.declarations.filter(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === "decodeInventoryDeletionRows"));
+  const decoder = decoders[0];
+  const expectedDecoder = `const decodeInventoryDeletionRows = Schema.decodeUnknownResult(Schema.Array(Schema.Struct({
+    id: Schema.String.check(Schema.isLengthBetween(1, 256)), reserved_quantity: Schema.Number.check(Schema.isFinite()),
+  })).check(Schema.isMaxLength(8)), { onExcessProperty: "error" })`;
+  if (decoders.length !== 1 || decoder === undefined || testPortProgram("const " + decoder.getText(decoderFile)) !== testPortProgram(expectedDecoder)) throw new Error(failure);
 }
 
 /** @param {string} source @param {string} target @param {Set<string>} names @param {boolean} verifySeed */
