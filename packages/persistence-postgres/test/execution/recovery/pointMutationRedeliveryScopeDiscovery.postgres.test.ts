@@ -17,13 +17,14 @@ import { runEffect } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
   withPostgresSequentialScansDisabled,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const LIMIT = 100;
 const CANONICAL_SCOPE_COUNT = 2_000;
 const LEGACY_SCOPE_COUNT = 3_000;
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPostgresPersistence = useFileScopedPostgresPersistence();
 
 const sharedLocator = Object.freeze({
   kind: "shared_database",
@@ -31,18 +32,22 @@ const sharedLocator = Object.freeze({
   schemaName: "public",
 }) satisfies SharedDatabaseScopePhysicalLocator;
 
-describePostgres("real Postgres O08-B2b2b2b1b2b1 scope discovery", () => {
+describePostgres("real Postgres O08-B2b2b2b1b2b1 scope discovery", { concurrent: false }, () => {
   it("gives duplicate scanners inert pages and defers scopes above the captured high water", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       await seedScopeDirectory(persistence);
       const repository = createPointMutationRedeliveryScopeDiscoveryV1(
         persistence.drizzle,
       );
 
-      const [left, right] = await Promise.all([
+      const scans = await Promise.allSettled([
         runEffect(repository.discoverEffect({ limit: LIMIT })),
         runEffect(repository.discoverEffect({ limit: LIMIT })),
       ]);
+      const [left, right] = scans.map(scan => {
+        if (scan.status === "rejected") throw scan.reason;
+        return scan.value;
+      });
       expect(right).toEqual(left);
       expect(left.candidates.length).toBeGreaterThan(0);
       expect(left.candidates.length).toBeLessThanOrEqual(LIMIT);
@@ -66,7 +71,7 @@ describePostgres("real Postgres O08-B2b2b2b1b2b1 scope discovery", () => {
   }, 60_000);
 
   it("uses bounded primary-key scans without a full-relation sort", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       await seedScopeDirectory(persistence);
       await persistence.query("analyze fx_control_scope");
       const statement = buildPointMutationRedeliveryScopeDiscoveryStatementV1({

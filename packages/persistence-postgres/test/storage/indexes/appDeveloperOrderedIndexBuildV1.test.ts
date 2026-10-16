@@ -1,13 +1,12 @@
 import { Cause, Effect, Exit } from "effect";
 import { eq } from "drizzle-orm";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
 } from "flarex-protocol/app-document";
 import {
-  appDocumentIdV1FromRowIdentity,
   decodeAppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
 import {
@@ -20,6 +19,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
+  projectScopeIdUuidV1,
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
@@ -53,7 +53,8 @@ import {
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../../src/execution/readCommittedTransactionFailure";
-import { fxSystemScopeClocks } from "../../../src/database/schema";
+import { fxSystemIndexBuildStates, fxSystemScopeClocks } from "../../../src/database/schema";
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 
@@ -63,7 +64,15 @@ const LOCATOR = Object.freeze({
   schemaName: "public",
 } as const);
 
-describe("C08 developer ordered-index build", () => {
+let sharedPersistence: PGliteFlarexPersistence;
+let dispose: (() => Promise<void>) | undefined;
+let nextScope = 10;
+beforeAll(async () => {
+  sharedPersistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
+}, 120_000);
+afterAll(async () => { await dispose?.(); }, 120_000);
+
+describe("C08 developer ordered-index build", { concurrent: false }, () => {
   it("backfills exact decimal order and refuses an invalid page atomically", async () => {
     const values = ["100", "20", "-1.2", "-1.21", "9007199254740993", "9007199254740992", "2e1", "0"];
     const fixture = await makeFixture("decimal", values.map((name, index) => ({ rowByte: index + 1, name })), true);
@@ -175,7 +184,7 @@ describe("C08 developer ordered-index build", () => {
 it("types historical append SQL rejection, rolls back, and preserves unrelated defects", async () => {
   const fixture = await makeFixture("append-sql", [
     { rowByte: 0x11, name: "Ada" },
-  ]);
+  ], false, await createMigratedPGlitePersistence());
   await buildStep(fixture, 1);
   await buildStep(fixture, 1);
   await fixture.persistence.query(
@@ -210,23 +219,26 @@ it("types historical append SQL rejection, rolls back, and preserves unrelated d
   const runner = createDefaultLocatedReadCommittedTransactionRunnerV1(
     fixture.persistence.drizzle,
   );
+  let injectedDefects = 0;
   const brokenTarget = createLocatedIndexBuildReconciliationTargetV1(
     fixture.persistence.drizzle,
     LOCATOR,
     (work) =>
-      runner((tx) =>
-        work(
-          new Proxy(tx, {
-            get(target, property, receiver) {
-              if (property === "insert")
-                return () => {
-                  throw defect;
-                };
-              return Reflect.get(target, property, receiver);
-            },
-          }),
-        ),
-      ),
+      runner(async tx => {
+        const update = tx.update.bind(tx);
+        const construction = vi.spyOn(tx, "update").mockImplementation(table => {
+          if (table === fxSystemIndexBuildStates) {
+            injectedDefects += 1;
+            throw defect;
+          }
+          return update(table);
+        });
+        try {
+          return await work(tx);
+        } finally {
+          construction.mockRestore();
+        }
+      }),
   );
   const exit = await Effect.runPromise(
     Effect.exit(
@@ -242,6 +254,7 @@ it("types historical append SQL rejection, rolls back, and preserves unrelated d
       ),
     ),
   );
+  expect(injectedDefects).toBe(1);
   expect(Exit.isFailure(exit)).toBe(true);
   if (Exit.isFailure(exit)) {
     expect(Cause.hasDies(exit.cause)).toBe(true);
@@ -315,7 +328,7 @@ it("types historical append SQL rejection, rolls back, and preserves unrelated d
       `update fx_app_row_rev
           set value_sha256 = decode(repeat('00', 32), 'hex')
         where scope_uuid = $1`,
-      ["c08d0000-0000-0000-0000-000000000001"],
+      [fixture.scopeUuid],
     );
 
     const failure = await runEffectFailure(buildAppDeveloperOrderedIndexV1Effect(
@@ -351,7 +364,7 @@ it("types historical append SQL rejection, rolls back, and preserves unrelated d
       [
         wrongDocument.canonicalBytes,
         wrongDocument.sha256,
-        "c08d0000-0000-0000-0000-000000000001",
+        fixture.scopeUuid,
       ],
     );
     const failure = await runEffectFailure(buildAppDeveloperOrderedIndexV1Effect(
@@ -387,6 +400,7 @@ interface Fixture {
   readonly persistence: PGliteFlarexPersistence;
   readonly deploymentId: string;
   readonly scopeId: ReturnType<typeof ScopeIdSchema.make>;
+  readonly scopeUuid: ReturnType<typeof projectScopeIdUuidV1>["scopeUuid"];
   readonly schemaVersionId: ReturnType<typeof CatalogSchemaVersionIdSchema.make>;
   readonly indexDefinitionId: ReturnType<typeof decodeCatalogIndexDefinitionId>;
   readonly intrinsicDefinitionId: ReturnType<
@@ -399,11 +413,11 @@ async function makeFixture(
   suffix: string,
   rows: ReadonlyArray<Readonly<{ rowByte: number; name: string }>>,
   decimalIndex = false,
+  persistence: PGliteFlarexPersistence = sharedPersistence,
 ): Promise<Fixture> {
-  const persistence = await createMigratedPGlitePersistence();
   const deploymentId = `deployment_c08_dev_${suffix}`;
-  const scopeId = ScopeIdSchema.make(
-    "scope_c08d0000-0000-0000-0000-000000000001",
+  const { scopeId, scopeUuid } = projectScopeIdUuidV1(
+    `scope_c08d0000-0000-0000-0000-${(nextScope++).toString().padStart(12, "0")}`,
   );
   const schemaVersionId = CatalogSchemaVersionIdSchema.make(
     `schema_c08_dev_${suffix}`,
@@ -498,6 +512,7 @@ async function makeFixture(
     persistence,
     deploymentId,
     scopeId,
+    scopeUuid,
     schemaVersionId,
     indexDefinitionId,
     intrinsicDefinitionId,
@@ -528,26 +543,31 @@ async function insertRow(
   if (clock === null) throw new Error("Developer index scope clock missing.");
   const commitSeq = CommitSeqSchema.make(commitSeqValue);
   await persistence.drizzle.transaction(async tx => {
-    await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-      kind: "live",
-      scopeId,
-      tableId,
-      rowId,
-      writeEpoch: clock.epoch,
-      commitSeq,
-      prevCommitSeq: null,
-      schemaVersionId,
-      creationTime,
-      value: {
-        codecVersion: document.codecVersion,
-        valueJson: document.valueJson,
-        canonicalBytes: document.canonicalBytes,
-        sha256: document.sha256,
-      },
-    });
-    await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq }).where(
-      eq(fxSystemScopeClocks.scopeId, scopeId),
-    );
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId,
+        tableId,
+        rowId,
+        writeEpoch: clock.epoch,
+        commitSeq,
+        prevCommitSeq: null,
+        schemaVersionId,
+        creationTime,
+        value: {
+          codecVersion: document.codecVersion,
+          valueJson: document.valueJson,
+          canonicalBytes: document.canonicalBytes,
+          sha256: document.sha256,
+        },
+      });
+      await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq }).where(
+        eq(fxSystemScopeClocks.scopeId, scopeId),
+      );
+    } finally {
+      closeInstallationAdmission(tx);
+    }
   });
 }
 
@@ -585,9 +605,9 @@ function currentIndexRows(fixture: Fixture) {
     `select encode(row_id, 'hex') as row_id_hex,
             encode(encoded_key, 'hex') as encoded_key_hex
        from fx_app_index_entry_current
-      where index_definition_id = $1
+      where index_definition_id = $1 and scope_uuid = $2
       order by encoded_key, row_id`,
-    [fixture.indexDefinitionId],
+    [fixture.indexDefinitionId, fixture.scopeUuid],
   ).then(result => result.rows);
 }
 
@@ -607,7 +627,7 @@ function indexRevisionCount(fixture: Fixture) {
   return fixture.persistence.query<{ count: string }>(
     `select count(*)::text as count
        from fx_app_index_entry_rev
-      where index_definition_id = $1`,
-    [fixture.indexDefinitionId],
+      where index_definition_id = $1 and scope_uuid = $2`,
+    [fixture.indexDefinitionId, fixture.scopeUuid],
   ).then(result => Number(result.rows[0]?.count ?? "0"));
 }

@@ -1,3 +1,4 @@
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import { eq } from "drizzle-orm";
 import { compileAppOrderedIndexBoundsV1, appOrderedIndexDocumentPathV1, orderedIndexValueFromFlarexValueV1 } from "flarex-protocol/ordered-index";
 import { scanCurrentAppIndexInTransactionEffect, scanCurrentPublicationIndexInTransactionEffect } from "../../../src/storage/indexes/appIndexEntries";
@@ -38,10 +39,11 @@ import { fxSystemScopeClocks } from "../../../src/database/schema";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPostgresPersistence = useFileScopedPostgresPersistence();
 const LOCATOR = Object.freeze({
   kind: "shared_database",
   databaseKey: "c08-developer-build-postgres",
@@ -57,9 +59,9 @@ describe("C08 developer ordered-index PostgreSQL environment", () => {
   });
 });
 
-describePostgres("real PostgreSQL C08 developer ordered-index build", () => {
+describePostgres("real PostgreSQL C08 developer ordered-index build", { concurrent: false }, () => {
   it("matches PostgreSQL numeric order and ranges through the shared decimal index", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPostgresPersistence(async persistence => {
       const values = ["100", "20", "-1.2", "-1.21", "9007199254740993", "9007199254740992", "2e1", "0", "-0.00", "20.00",
         "1e-16383", "-1e-16383", "1e131071", "-1e131071", ...Array.from({ length: 65 }, (_, i) => `${BigInt(i - 32) * 123456789012345678901n}e-25`), "987654321"];
       const fixture = await makeFixture(persistence, values);
@@ -107,7 +109,7 @@ describePostgres("real PostgreSQL C08 developer ordered-index build", () => {
   }, 180_000);
 
   it("proves rollback, scope-clock serialization, replay, and the validation access path", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const fixture = await makeFixture(persistence);
       const version = await persistence.query<{ server_version: string }>(
         "show server_version",
@@ -145,14 +147,34 @@ describePostgres("real PostgreSQL C08 developer ordered-index build", () => {
           },
         }),
       );
-      await clockLocked.promise;
-      const second = buildStep(fixture);
+      const pending: ReturnType<typeof buildStep>[] = [first];
+      const firstSettled = Promise.allSettled([first]);
+      let attempts: ReadonlyArray<PromiseSettledResult<Awaited<ReturnType<typeof buildStep>>>>;
       try {
-        await waitForBlockedScopeClock(persistence);
+        await Promise.race([
+          clockLocked.promise,
+          firstSettled.then(([attempt]) => {
+            if (attempt.status === "rejected") throw attempt.reason;
+            throw new Error("Developer-index builder settled before locking the scope clock.");
+          }),
+        ]);
+        const second = buildStep(fixture);
+        pending.push(second);
+        const settled = Promise.allSettled(pending);
+        try {
+          await waitForBlockedScopeClock(persistence);
+        } finally {
+          releaseClock.resolve();
+        }
+        attempts = await settled;
       } finally {
         releaseClock.resolve();
+        await Promise.allSettled(pending);
       }
-      const concurrent = await Promise.all([first, second]);
+      const concurrent = attempts.map(attempt => {
+        if (attempt.status === "rejected") throw attempt.reason;
+        return attempt.value;
+      });
       expect(concurrent.map((result) => result.lifecycle)).toEqual([
         "backfilling",
         "validating",
@@ -316,6 +338,7 @@ async function waitForBlockedScopeClock(
          from pg_stat_activity
         where datname = current_database()
           and wait_event_type = 'Lock'
+          and application_name = current_setting('application_name')
           and cardinality(pg_blocking_pids(pid)) > 0
           and query ilike '%fx_system_scope_clock%'`,
     );
@@ -362,27 +385,32 @@ async function insertRow(
   if (clock === null) throw new Error("Developer PostgreSQL clock missing.");
   const commitSeq = CommitSeqSchema.make(commitSeqValue);
   await persistence.drizzle.transaction(async (tx) => {
-    await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-      kind: "live",
-      scopeId,
-      tableId,
-      rowId,
-      writeEpoch: clock.epoch,
-      commitSeq,
-      prevCommitSeq: null,
-      schemaVersionId,
-      creationTime,
-      value: {
-        codecVersion: document.codecVersion,
-        valueJson: document.valueJson,
-        canonicalBytes: document.canonicalBytes,
-        sha256: document.sha256,
-      },
-    });
-    await tx
-      .update(fxSystemScopeClocks)
-      .set({ lastCommitSeq: commitSeq })
-      .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId,
+        tableId,
+        rowId,
+        writeEpoch: clock.epoch,
+        commitSeq,
+        prevCommitSeq: null,
+        schemaVersionId,
+        creationTime,
+        value: {
+          codecVersion: document.codecVersion,
+          valueJson: document.valueJson,
+          canonicalBytes: document.canonicalBytes,
+          sha256: document.sha256,
+        },
+      });
+      await tx
+        .update(fxSystemScopeClocks)
+        .set({ lastCommitSeq: commitSeq })
+        .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+    } finally {
+      closeInstallationAdmission(tx);
+    }
   });
 }
 

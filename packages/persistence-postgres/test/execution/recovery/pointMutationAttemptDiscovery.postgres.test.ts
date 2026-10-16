@@ -18,7 +18,7 @@ import type { SharedDatabaseScopePhysicalLocator } from
 import { runEffect } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 import {
   insertOpenTransactionJournalFixture,
@@ -46,10 +46,11 @@ const sharedLocator = Object.freeze({
 }) satisfies SharedDatabaseScopePhysicalLocator;
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPostgresPersistence = useFileScopedPostgresPersistence();
 
-describePostgres("real Postgres O08-B2b2b1 attempt discovery", () => {
+describePostgres("real Postgres O08-B2b2b1 attempt discovery", { concurrent: false }, () => {
   it("returns duplicate inert scans, preserves one horizon, and stays scope-local", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       await installAuthority(persistence);
       await persistence.insertScopeMetadata({
         scopeId: ScopeIdSchema.make(OTHER_SCOPE_ID),
@@ -62,7 +63,7 @@ describePostgres("real Postgres O08-B2b2b1 attempt discovery", () => {
       const repository = discovery(persistence);
       const before = await candidateStateCounts(persistence, SCOPE_UUID);
 
-      const [left, right] = await Promise.all([
+      const scans = await Promise.allSettled([
         runEffect(repository.discoverEffect({
           deploymentId: DEPLOYMENT_ID,
           scopeId: SCOPE_ID,
@@ -74,6 +75,10 @@ describePostgres("real Postgres O08-B2b2b1 attempt discovery", () => {
           limit: LIMIT,
         })),
       ]);
+      const [left, right] = scans.map(scan => {
+        if (scan.status === "rejected") throw scan.reason;
+        return scan.value;
+      });
 
       expect(right.candidates).toEqual(left.candidates);
       expect(left.candidates).toHaveLength(LIMIT);
@@ -112,7 +117,7 @@ describePostgres("real Postgres O08-B2b2b1 attempt discovery", () => {
   }, 60_000);
 
   it("uses both bounded discovery indexes without relation scans or full sorts", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       await installAuthority(persistence);
       await seedPlanPopulation(persistence);
       await persistence.query("analyze fx_system_tx_session");

@@ -1,6 +1,7 @@
 import { createTestPGlite } from "../support/pgliteSearchExtensions";
 import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { Effect, Exit } from "effect";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 } from "flarex-protocol/commit-protocol";
 import { isJsonObject } from "flarex-protocol/json";
 import {
@@ -8,9 +9,10 @@ import {
   TransactionIdentityAccessPolicySha256V1Schema,
   TransactionRequestSha256V1Schema,
 } from "flarex-protocol/transaction-session";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import * as persistenceRoot from "../../src";
+import { flarexSchema } from "../../src/database/schema";
 import {
   CommittedPointOutcomeCorruptionErrorV1,
   CommittedPointOutcomeInputErrorV1,
@@ -62,10 +64,13 @@ describe("O07-A committed point outcome resolver", () => {
       false,
     );
 
-    const persistence = await createMigratedPGlitePersistence();
+    const database = drizzle.mock({ schema: flarexSchema });
+    const query = vi.spyOn(database, "select").mockImplementation(() => {
+      throw new Error("Invalid committed-outcome input must not reach database access.");
+    });
     let statementCount = 0;
     const resolver = createCommittedPointOutcomeResolverV1(
-      persistence.drizzle,
+      database,
       { observeQuery: () => { statementCount += 1; } },
     );
     const invalid = { ...outcomeLookup("invalid"), extra: true };
@@ -145,6 +150,7 @@ describe("O07-A committed point outcome resolver", () => {
       runEffect(resolver.resolve(hiddenExtraInput)),
     ).rejects.toBeInstanceOf(CommittedPointOutcomeInputErrorV1);
     expect(statementCount).toBe(0);
+    expect(query).not.toHaveBeenCalled();
   });
 
   it("resolves missing, matching available, and matching expired outcomes", async () => {

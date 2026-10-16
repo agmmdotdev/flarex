@@ -17,7 +17,10 @@ import {
   type CatalogSchemaVersionId,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { Client } from "pg";
+import { makePhysicalSessionAccess } from "../../../src/database/physicalSession/drizzle";
+import { flarexSchema } from "../../../src/database/schema";
 
 import {
   AppSchemaVersionUniqueConstraintBindingConflictError,
@@ -150,23 +153,25 @@ describe("immutable app unique-constraint definitions", () => {
   });
 
   it("rejects structurally forged preparation tokens", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const failure = await persistence.drizzle.transaction((tx) =>
-      runEffectFailure(
-        ensureAppUniqueConstraintDefinitionBindingV1InTransaction(
-          tx,
-          Object.freeze({
-            deploymentId: "forged",
-            schemaVersionId: schemaId("forged"),
-            tableId: CatalogTableIdSchema.make(1),
-            descriptor: "by_email",
-          }) as PreparedAppUniqueConstraintDefinitionBindingV1,
-        ),
-      )
+    const transaction = makePhysicalSessionAccess(flarexSchema)(new Client()).transaction;
+    const query = vi.spyOn(transaction._.session, "prepareQuery").mockImplementation(() => {
+      throw new Error("Forged unique-constraint preparation must not reach database access.");
+    });
+    const failure = await runEffectFailure(
+      ensureAppUniqueConstraintDefinitionBindingV1InTransaction(
+        transaction,
+        Object.freeze({
+          deploymentId: "forged",
+          schemaVersionId: schemaId("forged"),
+          tableId: CatalogTableIdSchema.make(1),
+          descriptor: "by_email",
+        }) as PreparedAppUniqueConstraintDefinitionBindingV1,
+      ),
     );
     expect(failure).toBeInstanceOf(
       InvalidPreparedAppUniqueConstraintDefinitionError,
     );
+    expect(query).not.toHaveBeenCalled();
   });
 
   it("rejects decodable manifest JSON that disagrees with stored evidence", async () => {

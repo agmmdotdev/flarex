@@ -281,6 +281,9 @@ Wake-outbox cases share one database with distinct live scope identities.
 Index reconciliation cases share one serial database with distinct canonical
 scope identities, including locator-identity cases. Build-state row cases share
 one database; constraint and table corruption witnesses keep separate backends.
+Developer ordered-index cases also share distinct canonical scopes and scope
+their sidecar reads; the SQL-trigger rejection witness retains its own backend.
+Their row seeds acquire genuine installation admission before appending.
 Metadata-epoch contract cases reuse the image; their fresh-install and predecessor upgrade/failure cases still execute
 the original migration chain from their own empty databases.
 Bootstrap and split-provisioning PGlite cases use the same fixture and registered
@@ -366,6 +369,10 @@ drivers and closes that admission with its transaction.
 Retained-history maintenance, index-history compaction and session-schema cases
 also borrow the native file owner. Their parallel work drains before reset;
 session lookup-plan probes use the scoped planner-setting helper.
+Developer ordered-index and recovery discovery cases borrow that file owner.
+The gated builder releases its clock gate and drains started work before reset;
+duplicate discovery scans also settle before returning the borrow. Populated
+query-plan witnesses retain their full row populations and original budgets.
 Row-only native artifact admission/listing, journal validation and schema-artifact
 replay/size-gate cases reuse the same file owner. Dedicated backend, DDL, deadline,
 uncertain COMMIT and session-configuration witnesses keep separate fixtures.
@@ -407,6 +414,10 @@ Idempotency schema suites retain migration, constraint, uniqueness, plan and
 size-limit proofs. The fresh-install fixture starts its empty PGlite engine in
 setup; the case still executes and asserts both fresh migration and replay. Outcome classification and compaction races exercise the real
 committed-outcome resolver; there is no test-owned classification algorithm.
+Malformed-outcome input uses the official Drizzle mock; forged unique tokens
+use a real unconnected physical-session transaction. Both refuse unexpected
+query access without starting a database. SQL and closed-driver witnesses
+retain authentic backends.
 Native resolver cases share the existing row-reset fixture, release statement
 gates and drain pending resolvers before reset.
 
