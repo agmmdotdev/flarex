@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./inventory/update-inventory-items": "./src/inventory/workflows/update-inventory-items.ts",
+    "./inventory/update-inventory-items-step": "./src/inventory/steps/update-inventory-items.ts",
     "./fulfillment/create-shipping-profiles-step": "./src/fulfillment/steps/create-shipping-profiles.ts",
     "./common/create-remote-links-step": "./src/common/steps/create-remote-links.ts",
     "./product/create-products-step": "./src/product/steps/create-products.ts",

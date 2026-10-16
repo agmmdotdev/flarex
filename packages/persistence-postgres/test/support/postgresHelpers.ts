@@ -451,7 +451,10 @@ export async function withTemporaryPostgresPersistencePair(
         poolConfig: { options: `-c search_path=${targetSchema}`, application_name: targetSchema },
       }),
     ]);
-    await Promise.all([control.migrate(), target.migrate()]);
+    // These schemas share database-wide extension identities. Bootstrap them
+    // sequentially so concurrent CREATE EXTENSION IF NOT EXISTS cannot race.
+    await control.migrate();
+    await target.migrate();
     registerFrameworkMaintenanceFixture(control, { config: control.pool.options, schemaName: controlSchema,
       journal: { migrationsSchema: controlMigrationsSchema }, runtimePolicies: [] });
     registerFrameworkMaintenanceFixture(target, { config: target.pool.options, schemaName: targetSchema,

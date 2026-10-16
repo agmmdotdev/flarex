@@ -19,7 +19,7 @@ export const dmlSchemaOrigins: SchemaOrigins = {
 function columnType(column: SchemaColumn): LoweredColumn["type"] {
   switch (column.type) {
     case "id": case "enum": return "text";
-    case "number": return "integer";
+    case "number": return "doublePrecision";
     case "dateTime": return "timestamptz";
     case "json": case "array": return "jsonb";
     case "bigNumber": return "numeric";
@@ -35,7 +35,7 @@ function columnDefault(column: SchemaColumn): ColumnDefault {
   if (column.type === "bigNumber") return { kind: "exactNumericLiteral", value: String(value) };
   if (typeof value === "object") return { kind: "exactNumericRawLiteral", ...value };
   if (typeof value === "boolean") return { kind: "booleanLiteral", value };
-  if (typeof value === "number") return { kind: "integerLiteral", value };
+  if (typeof value === "number") return { kind: "doublePrecisionLiteral", value };
   return { kind: "textLiteral", value };
 }
 

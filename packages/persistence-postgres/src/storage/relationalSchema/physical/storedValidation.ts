@@ -641,6 +641,7 @@ function samePhysicalDefault(
     case "textLiteral":
     case "booleanLiteral":
     case "integerLiteral":
+    case "doublePrecisionLiteral":
     case "exactNumericLiteral":
       return right.kind === left.kind && left.value === right.value;
     case "exactNumericRawLiteral":
@@ -936,7 +937,7 @@ function isPhysicalColumn(input: unknown): input is RelationalPhysicalColumn {
   ]) &&
     isColumnIdentity(input.identity) &&
     isPhysicalIdentifier(input.name) &&
-    (input.type === "boolean" || input.type === "text" || input.type === "integer" ||
+    (input.type === "boolean" || input.type === "text" || input.type === "integer" || input.type === "double precision" ||
       input.type === "numeric" || input.type === "jsonb" ||
       input.type === "timestamp with time zone") &&
     typeof input.nullable === "boolean" &&
@@ -952,6 +953,7 @@ function isPhysicalDefault(input: unknown): boolean {
     return (input.kind === "booleanLiteral" && typeof input.value === "boolean") ||
       (input.kind === "textLiteral" && isPrivateValueText(input.value)) ||
       (input.kind === "integerLiteral" && isPostgresInteger(input.value)) ||
+      (input.kind === "doublePrecisionLiteral" && typeof input.value === "number" && Number.isFinite(input.value) && !Object.is(input.value, -0)) ||
       (input.kind === "exactNumericLiteral" && isExactNumeric(input.value));
   }
   return isExactPrivateValueRecord(input, ["kind", "value", "precision"]) &&
@@ -980,6 +982,8 @@ function physicalDefaultMatchesType(
       return columnType === "text";
     case "integerLiteral":
       return columnType === "integer";
+    case "doublePrecisionLiteral":
+      return columnType === "double precision";
     case "exactNumericLiteral":
       return columnType === "numeric";
     case "exactNumericRawLiteral":

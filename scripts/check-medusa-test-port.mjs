@@ -30,10 +30,20 @@ export function verifyCsvNormalizerTests(source, target, sourceFixtures, targetF
     throw new Error("Changed native CSV fixtures");
 }
 
-/** Two unchanged native item creation bodies; all other Inventory methods remain deferred.
+/** Two unchanged native item creation bodies.
  * @param {string} source @param {string} target */
 export function verifyInventoryCreateTests(source, target) {
-  const names = new Set(["should create an inventory item", "should create inventory items from array"]);
+  verifyInventoryTests(source, target, new Set(["should create an inventory item", "should create inventory items from array"]), false);
+}
+
+/** Preserve both native update bodies and their complete beforeEach seed.
+ * @param {string} source @param {string} target */
+export function verifyInventoryUpdateTests(source, target) {
+  verifyInventoryTests(source, target, new Set(["should update the inventory item", "should update multiple inventory items"]), true);
+}
+
+/** @param {string} source @param {string} target @param {Set<string>} names @param {boolean} verifySeed */
+function verifyInventoryTests(source, target, names, verifySeed) {
   /** @param {string} text @param {boolean} onlySelected */
   const tests = (text, onlySelected) => {
     const file = ts.createSourceFile("inventory.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
@@ -50,7 +60,17 @@ export function verifyInventoryCreateTests(source, target) {
         if (onlySelected && !names.has(name.text)) throw new Error("Invalid Inventory test selection");
         if (names.has(name.text)) {
           if (bodies.has(name.text)) throw new Error("Duplicate native Inventory selection");
-          bodies.set(name.text, JSON.stringify(testPortProgram(node.getText(file) + ";")));
+          let seed = "";
+          if (verifySeed) {
+            const block = node.parent.parent;
+            if (!ts.isBlock(block)) throw new Error("Missing native Inventory seed block");
+            const seeds = block.statements.filter(statement => ts.isExpressionStatement(statement) &&
+              ts.isCallExpression(statement.expression) && ts.isIdentifier(statement.expression.expression) &&
+              statement.expression.expression.text === "beforeEach");
+            if (seeds.length !== 1) throw new Error("Invalid native Inventory seed");
+            seed = seeds[0].getText(file) + ";\n";
+          }
+          bodies.set(name.text, JSON.stringify(testPortProgram(seed + node.getText(file) + ";")));
         }
       }
       ts.forEachChild(node, visit);

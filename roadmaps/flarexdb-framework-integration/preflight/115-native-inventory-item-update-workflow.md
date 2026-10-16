@@ -2,7 +2,8 @@
 
 ## Status And Authority
 
-Status: preflight complete; implementation pending after Stock Location deletion.
+Status: implemented private bounded native profile with the shared finite-number
+correction. Populated installation upgrades and hosted activation remain gated.
 Authority is the accepted Flarex design, package boundaries, Medusa adoption
 roadmap and Medusa 2.13.4 at `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`.
 The source island remains read-only. Chunked File import and Product export
@@ -110,9 +111,14 @@ Raw duplicates consume request bounds even when native selection deduplicates.
 Keep the existing 64-call/64-event envelope and ordinary 128-identity working set;
 prove the complete maximum before requesting any limit change. This path has no
 native sibling concurrency, so new borrowed scheduling or scope-exclusive
-locking is not statically required. No schema/lineage/installation/durable reset
-is implied. No shared-core blocker is presently identified; preserve actual
-failing evidence and fix its correct owner if implementation reveals one.
+locking is not statically required. Changed source definitions retain their
+installation gates; no lineage or durable-data reset is implied. Native SQLite
+execution preserves fractional dimensions and values
+beyond int32; current generic DML lowering incorrectly selects shared int32
+storage. The authorized [finite number correction](../../shared-logical-storage/60-native-finite-number-storage.md)
+adds the representation at its shared owner and selects it through generic DML
+lowering. It preserves integer limits and refuses stale populated source hashes;
+no migration, conversion or reset is included.
 
 ## Compensation And Verification
 

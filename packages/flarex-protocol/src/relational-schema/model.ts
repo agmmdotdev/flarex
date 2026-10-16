@@ -103,6 +103,7 @@ export type RelationalColumnType =
   | "text"
   | "boolean"
   | "integer"
+  | "doublePrecision"
   | "numeric"
   | "jsonb"
   | "timestamptz";
@@ -117,6 +118,10 @@ export type RelationalColumnDefault =
     }> & JsonObject)
   | (Readonly<{
       readonly kind: "integerLiteral";
+      readonly value: number;
+    }> & JsonObject)
+  | (Readonly<{
+      readonly kind: "doublePrecisionLiteral";
       readonly value: number;
     }> & JsonObject)
   | (Readonly<{

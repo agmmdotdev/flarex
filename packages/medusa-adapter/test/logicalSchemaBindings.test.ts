@@ -472,7 +472,9 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
         await internal.upsert([{ code: "zzz", name: "Existing row", symbol: "Z", symbol_native: "Z" }], context);
         await expect(repository.update([
           { entity: { code: "zzz" }, update: { name: "Valid earlier entry" } },
-          { entity: { code: "missing" }, update: scenario === "missingUpdate" ? { decimal_digits: 1.5 } : { unknown_column: "value" } },
+          // Invalid submitted values must refuse even when their row is absent.
+          // Finite fractions are valid native number values.
+          { entity: { code: "missing" }, update: scenario === "missingUpdate" ? { decimal_digits: "1.5" } : { unknown_column: "value" } },
         ], context)).rejects.toMatchObject({ reason: "invalidInput" });
         await expect(service.listCurrencies({}, {}, context)).rejects.toMatchObject({ reason: "rollbackOnly" });
         return null;
@@ -480,7 +482,7 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
       if (scenario === "invalid") {
         await expect(repository.upsert([
           { code: "xxx", name: "Valid batch entry", symbol: "X", symbol_native: "X" },
-          { code: "yyy", name: "Invalid integer", symbol: "Y", symbol_native: "Y", decimal_digits: 1.5 },
+          { code: "yyy", name: "Invalid native number", symbol: "Y", symbol_native: "Y", decimal_digits: "1.5" },
         ], context)).rejects.toMatchObject({ reason: "invalidInput" });
         await expect(service.listCurrencies({}, {}, context)).rejects.toMatchObject({ reason: "rollbackOnly" });
         return null;

@@ -60,6 +60,10 @@ with digest-bound table targets and the existing first-data and settlement owner
 scoped all-row reverse lookup correction exposed by native Stock Location Link
 restoration. Native Link endpoint integrity remains unchanged.
 
+[Native finite number storage](./60-native-finite-number-storage.md) owns the
+authorized finite binary64 correction exposed by Inventory Item dimensions.
+Existing integer and populated-source evolution boundaries remain distinct.
+
 - [Accepted database design](../../design-notes/flarex-db-accepted-design.md) and
   [shared logical storage decision](../../design-notes/flarexdb-shared-logical-storage.md)
   own the target, replacement authority and tradeoffs.

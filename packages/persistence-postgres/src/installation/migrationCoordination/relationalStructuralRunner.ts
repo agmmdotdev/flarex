@@ -2027,6 +2027,10 @@ const defaultSql = Effect.fn(
       ))}::text`;
     case "integerLiteral":
       return ` DEFAULT ${column.default.value}`;
+    case "doublePrecisionLiteral":
+      return ` DEFAULT ${yield* Effect.fromResult(dollarQuotedLiteralResult(
+        String(column.default.value), "execute", "table", tableName,
+      ))}::double precision`;
     case "exactNumericLiteral":
       if (!validNumericLiteral(column.default.value)) {
         return yield* Effect.fail(invalidAuthorityError(
@@ -2147,6 +2151,8 @@ const defaultExpressionMatches = Effect.fn(
     case "integerLiteral":
       return normalizedTypedNumericDefault(actual, "integer") ===
         String(expected.default.value);
+    case "doublePrecisionLiteral":
+      return actual === (yield* expectedLiteralExpression(transaction, String(expected.default.value), "double precision", context));
     case "exactNumericLiteral":
       return normalizedTypedNumericDefault(actual, "numeric") ===
         expected.default.value;
@@ -2173,7 +2179,7 @@ const expectedLiteralExpression = Effect.fn(
 )(function* (
   transaction: FlarexMetadataTransaction,
   value: string,
-  type: "text" | "jsonb",
+  type: "text" | "jsonb" | "double precision",
   context: CatalogContext,
 ): Effect.fn.Return<string, RelationalStructuralRunnerError> {
   const rows = type === "text"
@@ -2181,6 +2187,11 @@ const expectedLiteralExpression = Effect.fn(
       select quote_literal(${value}::text) || '::text'
         as expected_expression
     `, context)
+    : type === "double precision"
+      ? yield* catalogRows(transaction, sql`
+        select quote_literal((${value}::text)::double precision::text) || '::double precision'
+          as expected_expression
+      `, context)
     : yield* catalogRows(transaction, sql`
       select quote_literal((${value}::text)::jsonb::text) || '::jsonb'
         as expected_expression

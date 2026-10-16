@@ -69,16 +69,17 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
       ];
       for (const declaration of declarations) {
         const predicate = declaration.predicate;
-        // Relational integers are bounded to int32, stored with canonical zero,
-        // and use exact float64 ordered components. Timestamps are canonical UTC millisecond
-        // instants, whose fixed-width ISO text has the same chronological order.
+        // Relational integers remain int32. Finite binary64 scalars and integers
+        // use float64 ordered components after canonical zero normalization.
+        // Timestamps are canonical UTC millisecond instants, whose fixed-width
+        // ISO text has the same chronological order.
         // Predicate membership uses the same canonical null and text values
         // that relational validation admits for these columns.
         if (declaration.columns.some(column => {
           const type = table.columns.find(field => field.identity.columnId === column.columnId)?.type;
           const nullOnly = predicate?.kind === "isNull" && predicate.column.columnId === column.columnId;
           return column.columnId.includes(".") || (!nullOnly && type !== "text" && type !== "boolean" &&
-            type !== "integer" && type !== "timestamptz" && type !== "numeric");
+            type !== "integer" && type !== "doublePrecision" && type !== "timestamptz" && type !== "numeric");
         }) || (predicate !== null && (predicate.kind === "isNull"
           ? predicate.column.columnId.includes(".")
           : predicate.kind === "isNullAndTextEquals"
@@ -210,12 +211,12 @@ export function compileLogicalSourceUniqueConstraints(source: LogicalSchemaSourc
       for (const declaration of declarations) {
         const predicate = declaration.predicate;
         // Native decimal equality still needs a canonical value contract.
-        // Bounded int32 values are stored with canonical zero; canonical UTC
+        // Int32 and finite binary64 values use canonical zero; canonical UTC
         // instants have unambiguous equality in the shared key codec.
         if (declaration.columns.some(column => {
           const type = table.columns.find(field => field.identity.columnId === column.columnId)?.type;
           return column.columnId.includes(".") || (type !== "text" && type !== "boolean" &&
-            type !== "integer" && type !== "timestamptz");
+            type !== "integer" && type !== "doublePrecision" && type !== "timestamptz");
         }) || (predicate !== null && (predicate.kind !== "isNull" || predicate.column.columnId.includes(".")))) {
           return yield* Result.fail(failure(source));
         }

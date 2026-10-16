@@ -1,3 +1,4 @@
+import { makeInventoryItemUpdateCommands } from "./update-service";
 import { deniedCommerceRepository } from "../../repository/denied";
 import { Effect, Result, Schema } from "effect";
 import { InventoryItem, InventoryLevel, ReservationItem } from "@medusajs/inventory/models";
@@ -29,21 +30,14 @@ import { InventoryDeletionSelection, InventoryDeletionConfig, decodeInventoryDel
 import { inventoryDeletionFind, inventoryDeletionReadTable } from "./deletion-read";
 import { inventoryDeletionEventPolicy } from "./deletion-events";
 
-export const InventoryId = ScalarId;
-const Text = Schema.optionalKey(Schema.NullOr(Schema.String));
-const Dimension = Schema.optionalKey(Schema.NullOr(Schema.Number.check(Schema.isFinite())));
-export const InventoryItemInput = Schema.Struct({ id: Schema.optionalKey(InventoryId), sku: Text, origin_country: Text,
-  hs_code: Text, mid_code: Text, material: Text, weight: Dimension, length: Dimension, height: Dimension, width: Dimension,
-  requires_shipping: Schema.optionalKey(Schema.Boolean), description: Text, title: Text, thumbnail: Text,
-  metadata: Schema.optionalKey(Schema.NullOr(Schema.JsonObject)),
-});
+import { InventoryId, InventoryItemInput } from "./item-input";
 const Items = Schema.Array(InventoryItemInput).check(Schema.isMaxLength(4));
 const EmptyLevels = Schema.Array(Schema.Never).pipe(Schema.mutable);
 const decodeCreate = commerceDecoder(Schema.Union([InventoryItemInput, Items]), "invalidInput");
 const decodeRead = commerceDecoder(ScalarIdRead, "invalidInput");
 export const InventoryItemsOutput = Schema.Array(Schema.StructWithRest(Schema.Struct({ id: InventoryId }), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(4));
 
-export const makeLocalInventoryCommands = Effect.fn("InventoryAdapter.commands")(function* (admission: "items" | "levels" | "stock" | "product-deletions" | "product-batches" = "items") {
+const makeBasicInventoryCommands = Effect.fn("InventoryAdapter.commands")(function* (admission: "items" | "levels" | "stock" | "product-deletions" | "product-batches" = "items") {
   if (!["items", "levels", "stock", "product-deletions", "product-batches"].includes(admission)) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const metadata = yield* captureInventoryMetadata();
   const stock = admission === "stock", deletion = admission === "product-deletions" || admission === "product-batches";
@@ -186,3 +180,10 @@ export const makeLocalInventoryCommands = Effect.fn("InventoryAdapter.commands")
       logicalEventPolicy: policy };
   }));
 });
+
+
+export function makeLocalInventoryCommands(admission: "item-updates"): ReturnType<typeof makeInventoryItemUpdateCommands>;
+export function makeLocalInventoryCommands(admission?: "items" | "levels" | "stock" | "product-deletions" | "product-batches"): ReturnType<typeof makeBasicInventoryCommands>;
+export function makeLocalInventoryCommands(admission: "items" | "levels" | "stock" | "product-deletions" | "product-batches" | "item-updates" = "items") {
+  return admission === "item-updates" ? makeInventoryItemUpdateCommands() : makeBasicInventoryCommands(admission);
+}

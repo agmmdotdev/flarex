@@ -65,7 +65,7 @@ export const relationalValueAdmissionScenario = Effect.fn("RelationalValueAdmiss
     const result = yield* Effect.result(runEffectTransaction(callback => db.transaction(callback), "Value admission rollback",
       (tx: FlarexMetadataTransaction) => Effect.gen(function* () {
         yield* ensureSchemaVersionArtifactInTransactionEffect(tx, prepared);
-        if (column.type === "integer" || column.type === "timestamptz") {
+        if (column.type === "integer" || column.type === "doublePrecision" || column.type === "timestamptz") {
           const unique = yield* prepareRelationalUniqueDeclarations(tx, deploymentId, variantId, source.key);
           expect(unique).toHaveLength(1);
           expect(unique[0]?.descriptor).toBe("key/currency.primary");
@@ -73,7 +73,7 @@ export const relationalValueAdmissionScenario = Effect.fn("RelationalValueAdmiss
           expect(yield* Effect.result(prepareRelationalUniqueDeclarations(tx, deploymentId, variantId, source.key)))
             .toMatchObject({ _tag: "Failure", failure: { _tag: "RelationalStorageDefinitionError", reason: "unsupportedDefinition" } });
         }
-        if (column.type === "numeric" || column.type === "integer" || column.type === "timestamptz") {
+        if (column.type === "numeric" || column.type === "integer" || column.type === "doublePrecision" || column.type === "timestamptz") {
           const ordered = yield* ensureRelationalOrderedDefinitions(tx, deploymentId, variantId, source.key);
           expect(ordered[0]?.definition.physicalSpec.orderedFields[0]).toEqual({ kind: "documentPath", path: field,
             ...(column.type === "numeric" ? { valueFormat: "exactDecimal" } : {}) });

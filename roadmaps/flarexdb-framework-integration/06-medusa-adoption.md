@@ -73,8 +73,15 @@ actual-result Link cleanup, native module lifecycle events, retained compensatio
 and Addresses/Inventory/Store data. Its shared composite-key reverse path keeps
 active partial-index access distinct from all-row restoration. Additional default
 Fulfillment and Pricing cascade branches retain their separate connected admission.
+The bounded
+[native Inventory Item update](./preflight/115-native-inventory-item-update-workflow.md)
+profile preserves keyed final patches, native preimages and compensation,
+scalar/array service results and ID-only no-op behavior. Its finite dimensions
+use the shared binary64 representation selected by generic DML lowering;
+existing int32, exact-decimal and populated-source admission remain distinct.
+Inventory levels, reservations and rich Variant links retain their stored data.
 The next integration outcome is
-[native Inventory Item update](./preflight/115-native-inventory-item-update-workflow.md).
+[native absolute Inventory Level update](./preflight/116-native-inventory-level-update-workflow.md).
 Chunked File import and Product
 export are explicitly deferred; their File and Region dependencies are outside
 the current integration goal.

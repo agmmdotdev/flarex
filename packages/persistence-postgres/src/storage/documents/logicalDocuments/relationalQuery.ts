@@ -131,7 +131,7 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
     const orderColumn = columnForName(query.order.column);
     if (fields.length === 0 || fields.length > table.columns.length || new Set(fields).size !== fields.length ||
         fields.some(field => columnForName(field) === undefined) ||
-        (orderColumn?.type !== "text" && orderColumn?.type !== "integer") || orderColumn.nullable)
+        (orderColumn?.type !== "text" && orderColumn?.type !== "integer" && orderColumn?.type !== "doublePrecision") || orderColumn.nullable)
       return yield* Result.fail(error("invalidInput"));
     const take = query.take ?? pageRows;
     if (take > pageRows) return yield* Result.fail(error("limitExceeded"));

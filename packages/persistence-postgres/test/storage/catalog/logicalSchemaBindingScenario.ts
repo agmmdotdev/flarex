@@ -19,7 +19,7 @@ import { makeDataBindingHost, dataBindingActivationRequest } from "../../../src/
 import type { DataBindingSetFrame } from "../../../src/installation/frameworkSchema/binding/model";
 import { readAdmittedDataBinding } from "../../../src/installation/frameworkSchema/binding/selection";
 import { fxSystemDataBindingHeads, fxSystemDataBindingActivations, fxSystemDataBindingCandidates } from "../../../src/installation/frameworkSchema/binding/schema";
-import { fxSystemIndexBuildStates, fxControlSchemaVersionUniqueConstraintSets } from "../../../src/database/schema";
+import { fxControlSchemaVersionUniqueConstraintSets } from "../../../src/database/schema";
 import { runEffectTransaction } from "../../../src/database/effectTransaction";
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
 import { runDrizzleStatementEffect } from "../../../src/database/drizzleStatementEffect";
@@ -27,6 +27,7 @@ import { runDrizzleStatementEffect } from "../../../src/database/drizzleStatemen
 import type { PreparedLogicalSchemaCandidate } from "@flarex/analysis/internal/logical-schema-candidate";
 import { logicalRelationalAdmissionScenario } from "../../frameworks/logicalRelationalAdmissionScenario";
 import { logicalRelationalPublicationScenario } from "../documents/logicalRelationalPublicationScenario";
+import { prepareIndexBuildReadinessWitness } from "../documents/logicalReadIndexReadinessTestSupport";
 const query = <Value>(statement: PromiseLike<Value>) => runDrizzleStatementEffect(statement,
   cause => new Error("Binding fixture statement", { cause }));
 export const logicalSchemaBindingScenario = Effect.fn("LogicalSchemaBinding.scenario")(function* <Persistence extends ApplicationNativeMutationPersistence>(
@@ -99,13 +100,13 @@ export const logicalSchemaBindingScenario = Effect.fn("LogicalSchemaBinding.scen
   if (nativeTable === undefined) throw new Error("Missing native table");
   const nativeIndex = catalog.ordered.find(index => index.definition.access.tableId === nativeTable.tableId)?.definition;
   if (nativeIndex === undefined) throw new Error("Missing native index");
-  const setLifecycle = (lifecycle: "enabled" | "validating") => target.drizzle.update(fxSystemIndexBuildStates).set({ lifecycle }).where(and(
-    eq(fxSystemIndexBuildStates.scopeId, authority.scopeId), eq(fxSystemIndexBuildStates.indexDefinitionId, nativeIndex.indexDefinitionId)));
-  yield* query(setLifecycle("validating"));
-  expect((yield* Effect.result(host.activate(request)))).toMatchObject({ _tag: "Failure", failure: { reason: "logicalSchemaNotReady" } });
-  expect(yield* query(target.drizzle.select().from(fxSystemDataBindingHeads))).toHaveLength(0);
-  expect(yield* query(target.drizzle.select().from(fxSystemDataBindingActivations))).toHaveLength(0);
-  yield* query(setLifecycle("enabled"));
+  const candidateReadiness = yield* query(prepareIndexBuildReadinessWitness(target.drizzle,
+    authority.scopeId, nativeIndex.indexDefinitionId));
+  yield* Effect.acquireUseRelease(query(candidateReadiness.retire()), () => Effect.gen(function* () {
+    expect((yield* Effect.result(host.activate(request)))).toMatchObject({ _tag: "Failure", failure: { reason: "logicalSchemaNotReady" } });
+    expect(yield* query(target.drizzle.select().from(fxSystemDataBindingHeads))).toHaveLength(0);
+    expect(yield* query(target.drizzle.select().from(fxSystemDataBindingActivations))).toHaveLength(0);
+  }), () => query(candidateReadiness.restore()));
   const activated = (yield* host.activate(request));
   expect(Result.getOrThrow(activated.current).selected).toBe(true);
   expect(((yield* host.withCurrent(readAdmittedDataBinding))).frame).toEqual(frame);
@@ -115,12 +116,16 @@ export const logicalSchemaBindingScenario = Effect.fn("LogicalSchemaBinding.scen
   } else yield* native.hostProof(bindingTarget, schemaVersionId);
   const restarted = (yield* makeDataBindingHost(input));
   expect((yield* restarted.recover(request))).toEqual(activated);
-  yield* query(setLifecycle("validating"));
-  expect((yield* Effect.result(restarted.withCurrent(readAdmittedDataBinding)))).toMatchObject({ _tag: "Failure", failure: { reason: "logicalSchemaNotReady" } });
-  const staleRecovery = (yield* restarted.recover(request));
-  expect(staleRecovery.receipt).toEqual(activated.receipt);
-  expect(staleRecovery.current).toMatchObject({ _tag: "Failure", failure: { reason: "logicalSchemaNotReady" } });
-  yield* query(setLifecycle("enabled"));
+  // Activation has installed maintenance authority since the first capture.
+  // Retain this current complete row rather than restoring preactivation data.
+  const activeReadiness = yield* query(prepareIndexBuildReadinessWitness(target.drizzle,
+    authority.scopeId, nativeIndex.indexDefinitionId));
+  yield* Effect.acquireUseRelease(query(activeReadiness.retire()), () => Effect.gen(function* () {
+    expect((yield* Effect.result(restarted.withCurrent(readAdmittedDataBinding)))).toMatchObject({ _tag: "Failure", failure: { reason: "logicalSchemaNotReady" } });
+    const staleRecovery = (yield* restarted.recover(request));
+    expect(staleRecovery.receipt).toEqual(activated.receipt);
+    expect(staleRecovery.current).toMatchObject({ _tag: "Failure", failure: { reason: "logicalSchemaNotReady" } });
+  }), () => query(activeReadiness.restore()));
   expect(yield* query(target.drizzle.select().from(fxSystemDataBindingActivations))).toHaveLength(1);
   yield* Effect.acquireUseRelease(
     query(control.drizzle.delete(fxControlSchemaVersionUniqueConstraintSets).where(and(

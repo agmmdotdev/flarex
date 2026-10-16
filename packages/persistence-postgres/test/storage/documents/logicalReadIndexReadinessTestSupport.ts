@@ -45,7 +45,7 @@ export async function prepareLogicalReadIndexReadinessWitness(input: Readonly<{
   if (!isJsonObject(access)) throw new Error("Missing logical index selector");
   expect(access).toMatchObject({ fields: [input.field], predicate: expectedPredicate });
   const indexDefinitionId = Result.getOrThrow(Schema.decodeUnknownResult(CatalogIndexDefinitionIdSchema)(access.indexDefinitionId));
-  return captureReadinessRow(input.targetDb, input.scopeId, indexDefinitionId);
+  return prepareIndexBuildReadinessWitness(input.targetDb, input.scopeId, indexDefinitionId);
 }
 
 /** Ask the actual selector owner for the native scalar demand winner,
@@ -74,10 +74,13 @@ export async function prepareLogicalReadDemandReadinessWitness(input: Readonly<{
     }), cause => new Error("Native demand selection settlement", { cause }),
     { token: input.installation, database: input.controlDb },
   ));
-  return captureReadinessRow(input.targetDb, input.scopeId, selected);
+  return prepareIndexBuildReadinessWitness(input.targetDb, input.scopeId, selected);
 }
 
-async function captureReadinessRow(targetDb: FlarexMetadataDatabase, scopeId: ScopeId,
+/** Capture the actual build row before a temporary availability refusal. The
+ * maintenance pair must be cleared together when leaving enabled; restoration
+ * reinstates every prior authority, frontier and lifecycle field exactly. */
+export async function prepareIndexBuildReadinessWitness(targetDb: FlarexMetadataDatabase, scopeId: ScopeId,
   indexDefinitionId: CatalogIndexDefinitionId) {
   const predicate = and(eq(fxSystemIndexBuildStates.scopeId, scopeId),
     eq(fxSystemIndexBuildStates.indexDefinitionId, indexDefinitionId));

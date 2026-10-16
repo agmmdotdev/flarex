@@ -1,4 +1,3 @@
-import { and, eq } from "drizzle-orm";
 import { Effect, Scheduler, Tracer } from "effect";
 import { expect, vi } from "vitest";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
@@ -9,7 +8,7 @@ import { runEffectTransaction } from "../../../src/database/effectTransaction";
 import { runDrizzleStatementEffect } from "../../../src/database/drizzleStatementEffect";
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../../../src/scope/scopeClock";
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../../../src/scope/scopeAuthorityResolution";
-import { fxSystemIndexBuildStates } from "../../../src/database/schema";
+import { prepareIndexBuildReadinessWitness } from "./logicalReadIndexReadinessTestSupport";
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
 import type { ApplicationNativeMutationFixture, ApplicationNativeMutationPersistence } from "../../application/applicationNativeMutationTestFixture";
 
@@ -113,17 +112,17 @@ export const logicalSourceReadSelectionScenario = Effect.fn("LogicalSourceReadSe
       expect(count("AppRows.readTableWriteFrontiers")).toBe(4);
       const nativeIndex = selected.indexes[0];
       if (nativeIndex === undefined) return yield* Effect.die("Missing selected native index");
-      const lifecycle = (value: "enabled" | "validating") => runDrizzleStatementEffect(
-        target.drizzle.update(fxSystemIndexBuildStates).set({ lifecycle: value }).where(and(
-          eq(fxSystemIndexBuildStates.scopeId, authority.scopeId),
-          eq(fxSystemIndexBuildStates.indexDefinitionId, nativeIndex.indexDefinitionId))),
-        cause => new Error("Selected index lifecycle witness", { cause }));
-      yield* Effect.acquireUseRelease(lifecycle("validating"), () => Effect.gen(function* () {
+      const readiness = yield* runDrizzleStatementEffect(
+        prepareIndexBuildReadinessWitness(target.drizzle, authority.scopeId, nativeIndex.indexDefinitionId),
+        cause => new Error("Capture selected index readiness witness", { cause }));
+      yield* Effect.acquireUseRelease(runDrizzleStatementEffect(readiness.retire(),
+        cause => new Error("Retire selected index readiness witness", { cause })), () => Effect.gen(function* () {
         expect(yield* Effect.result(read())).toMatchObject({ _tag: "Failure", failure: { reason: "logicalSchemaNotReady" } });
         expect(entered).toBe(4);
         expect(count("LogicalStorageReadiness.selectSources")).toBe(firstCompilations);
         expect(count("LogicalStorageReadiness.inspectSelected")).toBe(5);
-      }), () => lifecycle("enabled"));
+      }), () => runDrizzleStatementEffect(readiness.restore(),
+        cause => new Error("Restore selected index readiness witness", { cause })));
       yield* read();
       expect(entered).toBe(5);
       const inspectionsBeforeClose = count("LogicalStorageReadiness.inspectSelected");

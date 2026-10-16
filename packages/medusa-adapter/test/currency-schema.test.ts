@@ -34,7 +34,7 @@ describe("actual Currency DML compatibility", () => {
     expect(policy.validate({ ...row, extra: "hidden" }, "storedCorruption"))
       .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
   });
-  it("validates the complete native seed and refuses values that physical columns previously checked", async () => {
+  it("validates complete native seeds and finite number values without accepting invalid scalar representations", async () => {
     const schema = await Effect.runPromise(translateCurrencySchema(Currency));
     const table = schema.tables[0];
     const seed = await Effect.runPromise(currencyInitialization());
@@ -44,13 +44,15 @@ describe("actual Currency DML compatibility", () => {
     for (const row of seed.rows) expect(Result.isSuccess(validateRelationalRowValues(table, complete(row)))).toBe(true);
     const row = complete(seed.rows[0]);
     for (const patch of [
-      { name: null }, { decimal_digits: 1.5 }, { decimal_digits: 2147483648 },
+      { name: null }, { decimal_digits: "1.5" }, { decimal_digits: NaN }, { decimal_digits: Infinity },
       { rounding: "NaN" }, { rounding: "1e131072" }, { rounding: "1e-16384" }, { rounding: "1\n" },
       { created_at: "not-a-date" }, { created_at: "2026-09-20T00:00:00+01:00" },
       { created_at: "0000-01-01T00:00:00.000Z" }, { created_at: "-010000-01-01T00:00:00.000Z" },
       { created_at: "+010000-01-01T00:00:00.000Z" },
       { symbol: "\ud800" }, { raw_rounding: { value: "\0" } }, { undeclared: "value" },
     ]) expect(Result.isFailure(validateRelationalRowValues(table, { ...row, ...patch }))).toBe(true);
+    for (const decimal_digits of [1.5, 2147483648, -2147483649, 1e30])
+      expect(Result.isSuccess(validateRelationalRowValues(table, { ...row, decimal_digits }))).toBe(true);
     const missing: Record<string, Json> = { ...row };
     delete missing.code;
     expect(validateRelationalRowValues(table, missing)).toMatchObject({ _tag: "Failure", failure: { reason: "missingColumn", column: "code" } });
@@ -60,11 +62,14 @@ describe("actual Currency DML compatibility", () => {
     expect(row.rounding).toBe(seed.rows[0].rounding);
   });
 
-  it("enforces row-local checks without conflating nullable checks with required columns", () => {
+  it("enforces explicit synthetic int32 and row-local checks without conflating nullable checks with required columns", () => {
     const source = expectedInput.tables[0];
     if (source === undefined) throw new Error("Missing native table input");
     const schema = Result.getOrThrow(normalizeRelationalSchema({ ...expectedInput, tables: [{ ...source,
-      columns: source.columns.map(column => column.columnId === "decimal_digits" ? { ...column, nullable: true } : column),
+      // This fixture explicitly owns an int32 column. Native DML number fields
+      // use binary64; integerRange must keep its separate integer contract.
+      columns: source.columns.map(column => column.columnId === "decimal_digits" ? { ...column, type: "integer", nullable: true,
+        default: { kind: "integerLiteral", value: 0 }, origin: { kind: "synthetic", sourceId: "value-test.integer" } } : column),
       constraints: [
         { constraintId: "digits.bound", kind: "integerRange", columnId: "decimal_digits", minimum: 0, maximum: 3, origin: { kind: "synthetic", sourceId: "value-test" } },
         { constraintId: "name.set", kind: "textSet", columnId: "name", values: ["Dollar", "Euro"], origin: { kind: "synthetic", sourceId: "value-test" } },
@@ -82,6 +87,12 @@ describe("actual Currency DML compatibility", () => {
     expect(Result.isSuccess(projection.inspect(row))).toBe(true);
     for (const raw_rounding of [{ value: "1", precision: 20 }, { value: "0", precision: 0 }, { value: "0" }])
       expect(projection.inspect({ ...row, raw_rounding })).toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+    for (const decimal_digits of [1.5, 2147483648, -2147483649]) {
+      expect(validateRelationalRowValues(table, { ...row, decimal_digits }))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "invalidValue", column: "decimal_digits" } });
+      expect(projection.inspect({ ...row, decimal_digits }))
+        .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+    }
     for (const patch of [{ decimal_digits: -1 }, { decimal_digits: 4 }, { name: "Pound" }]) {
       expect(validateRelationalRowValues(table, { ...row, ...patch })).toMatchObject({ _tag: "Failure", failure: { reason: "constraintViolation" } });
       expect(projection.inspect({ ...row, ...patch })).toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });

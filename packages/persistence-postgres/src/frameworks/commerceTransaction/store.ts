@@ -166,6 +166,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       const normalized = { ...row };
       for (const field of table.columns) {
         const value = normalized[field.identity.columnId];
+        if (field.type === "double precision" && Object.is(value, -0)) normalized[field.identity.columnId] = 0;
         if (field.type === "timestamp with time zone" && value !== undefined && value !== null) {
           const timestamp = databaseTimestampFromUnknown(value);
           if (timestamp === null) return yield* Effect.fail(commerceError("storedCorruption"));
@@ -196,7 +197,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     return { total: row.total, maximum: row.maximum, bytes: row.bytes };
   });
   const parameter = (field: RelationalPhysicalColumn, value: Json): Result.Result<SQL, CommerceTransactionError> => {
-    if (!isRelationalColumnValue(field.type === "timestamp with time zone" ? "timestamptz" : field.type, field.nullable, value))
+    if (!isRelationalColumnValue(field.type === "timestamp with time zone" ? "timestamptz" : field.type === "double precision" ? "doublePrecision" : field.type, field.nullable, value))
       return Result.fail(invalid());
     // Physical type names are the captured layout's closed scalar union. Typed
     // NULLs are required in VALUES tables, where PostgreSQL otherwise infers text.
@@ -205,6 +206,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       case "boolean": return Result.succeed(sql`${value}::boolean`);
       case "text": return Result.succeed(sql`${value}`);
       case "integer": return Result.succeed(sql`${value}::integer`);
+      case "double precision": return Result.succeed(sql`${value}::double precision`);
       case "numeric": return Result.succeed(sql`${String(value)}::numeric`);
       case "jsonb": return Result.succeed(sql`${JSON.stringify(value)}::jsonb`);
       case "timestamp with time zone": return Result.succeed(sql`${value}::timestamptz`);

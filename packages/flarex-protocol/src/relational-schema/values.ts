@@ -24,6 +24,7 @@ export function isRelationalColumnValue(type: RelationalColumnType, nullable: bo
     case "text": return typeof value === "string" && relationalText(value);
     case "boolean": return typeof value === "boolean";
     case "integer": return typeof value === "number" && Number.isSafeInteger(value) && value >= -2147483648 && value <= 2147483647;
+    case "doublePrecision": return typeof value === "number" && Number.isFinite(value);
     case "numeric": return ((typeof value === "number" && Number.isFinite(value)) ||
       (typeof value === "string" && value.length <= 1024 && /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?(?![\s\S])/.test(value))) &&
       Result.isSuccess(decodeExactDecimal(String(value)));
@@ -51,10 +52,10 @@ export function validateRelationalRowValues(table: RelationalTableDefinition, ro
     const name = column.identity.columnId;
     if (!Object.hasOwn(row, name)) return Result.fail(new RelationalRowValueError({ reason: "missingColumn", column: name }));
     const value = row[name];
-    // PostgreSQL integer input folds signed zero. Stored rows must have that
-    // canonical value before shared ordered and unique keys are derived.
+    // Native numeric equality identifies signed zero. Store one zero before
+    // shared ordered and unique keys are derived for integer and binary64.
     if (value === undefined || !isRelationalColumnValue(column.type, column.nullable, value) ||
-        (column.type === "integer" && Object.is(value, -0)))
+        ((column.type === "integer" || column.type === "doublePrecision") && Object.is(value, -0)))
       return Result.fail(new RelationalRowValueError({ reason: "invalidValue", column: name }));
   }
   for (const constraint of table.constraints) {

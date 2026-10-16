@@ -1022,6 +1022,8 @@ function physicalColumnType(
     case "numeric":
     case "jsonb":
       return type;
+    case "doublePrecision":
+      return "double precision";
     case "timestamptz":
       return "timestamp with time zone";
     default:
@@ -1041,6 +1043,7 @@ function copyPhysicalDefault(
       return Object.freeze({ kind: value.kind, value: value.value });
     case "textLiteral":
       return Object.freeze({ kind: value.kind, value: value.value });
+    case "doublePrecisionLiteral":
     case "integerLiteral":
       return Object.freeze({ kind: value.kind, value: value.value });
     case "exactNumericLiteral":
@@ -1251,6 +1254,8 @@ function columnCapabilityId(
       return "relational-schema.column.text";
     case "integer":
       return "relational-schema.column.integer";
+    case "doublePrecision":
+      return "relational-schema.column.doublePrecision";
     case "numeric":
       return "relational-schema.column.numeric";
     case "jsonb":
@@ -1274,6 +1279,8 @@ function defaultCapabilityId(
       return "relational-schema.default.textLiteral";
     case "integerLiteral":
       return "relational-schema.default.integerLiteral";
+    case "doublePrecisionLiteral":
+      return "relational-schema.default.doublePrecisionLiteral";
     case "exactNumericLiteral":
       return "relational-schema.default.exactNumericLiteral";
     case "exactNumericRawLiteral":

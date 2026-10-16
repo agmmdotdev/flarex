@@ -114,6 +114,7 @@ export type RelationalPhysicalColumnType =
   | "text"
   | "boolean"
   | "integer"
+  | "double precision"
   | "numeric"
   | "jsonb"
   | "timestamp with time zone";

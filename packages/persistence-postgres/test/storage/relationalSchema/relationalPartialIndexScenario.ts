@@ -356,7 +356,7 @@ export const relationalPartialIndexScenario = Effect.fn("RelationalPartialIndex.
     expect(reads).not.toContain("index");
     expect(reads).not.toContain("scan");
     if (fault === "nativeValue") yield* working.documents.patch(lifetime.context, id,
-      appDocumentIdV1FromRowIdentity({ tableId: definition.access.tableId, rowId: excluded }), { decimal_digits: 1.5 }, tableName);
+      appDocumentIdV1FromRowIdentity({ tableId: definition.access.tableId, rowId: excluded }), { decimal_digits: "1.5" }, tableName);
     if (fault === "nativeCompanion") yield* working.documents.patch(lifetime.context, id,
       appDocumentIdV1FromRowIdentity({ tableId: definition.access.tableId, rowId: excluded }),
       { rounding: "1", raw_rounding: { value: "2", precision: 20 } }, tableName);

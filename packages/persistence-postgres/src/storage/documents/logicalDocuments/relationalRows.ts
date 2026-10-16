@@ -106,12 +106,12 @@ function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
           case "currentTimestamp": row[name] = timestamp; break;
           case "emptyJsonArray": row[name] = []; break;
           case "exactNumericRawLiteral": row[name] = { value: value.value, precision: value.precision }; break;
-          case "booleanLiteral": case "textLiteral": case "integerLiteral": case "exactNumericLiteral": row[name] = value.value; break;
+          case "booleanLiteral": case "textLiteral": case "integerLiteral": case "doublePrecisionLiteral": case "exactNumericLiteral": row[name] = value.value; break;
         }
       }
       else if (managedUpdate === "advance") for (const column of managed) row[column] = timestamp;
       for (const column of table.columns) {
-        if (column.type === "integer" && Object.is(row[column.identity.columnId], -0))
+        if ((column.type === "integer" || column.type === "doublePrecision") && Object.is(row[column.identity.columnId], -0))
           row[column.identity.columnId] = 0;
       }
       // Row semantics do not own a request/document allowance. Keep capture's

@@ -93,7 +93,7 @@ describe("shared checked DML lowering", () => {
       type: "jsonb", default: { kind: "exactNumericRawLiteral", value: "9007199254740993.125", precision: 20 },
       origin: { kind: "derived", sourceId: "ledger.amount_data" },
     });
-    expect(table?.columns.find(column => column.identity.columnId === "quantity")).toMatchObject({ type: "integer", default: { kind: "integerLiteral", value: 0 } });
+    expect(table?.columns.find(column => column.identity.columnId === "quantity")).toMatchObject({ type: "doublePrecision", default: { kind: "doublePrecisionLiteral", value: 0 } });
     expect(table?.columns.find(column => column.identity.columnId === "enabled")).toMatchObject({ type: "boolean", default: { kind: "booleanLiteral", value: false } });
     expect(table?.columns.find(column => column.identity.columnId === "state")).toMatchObject({ type: "text", default: { kind: "textLiteral", value: "open" } });
     expect(table?.columns.find(column => column.identity.columnId === "created_at")).toMatchObject({ type: "timestamptz", default: { kind: "currentTimestamp" }, origin: { kind: "implicit" } });

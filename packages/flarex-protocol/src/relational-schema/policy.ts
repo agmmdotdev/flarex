@@ -1156,6 +1156,7 @@ function validateColumnDefault(
     (defaultValue.kind === "booleanLiteral" && column.type === "boolean") ||
     (defaultValue.kind === "textLiteral" && column.type === "text") ||
     (defaultValue.kind === "integerLiteral" && column.type === "integer") ||
+    (defaultValue.kind === "doublePrecisionLiteral" && column.type === "doublePrecision") ||
     (defaultValue.kind === "exactNumericLiteral" && column.type === "numeric") ||
     (defaultValue.kind === "exactNumericRawLiteral" && column.type === "jsonb") ||
     (defaultValue.kind === "emptyJsonArray" && column.type === "jsonb") ||
@@ -1197,6 +1198,13 @@ function decodeColumnDefault(
       const fields = yield* exactRecord(input, ["kind", "value"], path);
       const value = yield* decodePostgresInteger(fields.at(1), `${path}.value`);
       return Object.freeze({ kind, value });
+    }
+    if (kind === "doublePrecisionLiteral") {
+      const fields = yield* exactRecord(input, ["kind", "value"], path);
+      const value = fields.at(1);
+      if (typeof value !== "number" || !Number.isFinite(value))
+        return yield* Result.fail(RelationalSchemaError.invalidInput(`${path}.value`));
+      return Object.freeze({ kind, value: value === 0 ? 0 : value });
     }
     if (kind === "exactNumericLiteral") {
       const fields = yield* exactRecord(input, ["kind", "value"], path);
@@ -1249,6 +1257,7 @@ function decodeColumnType(
     case "boolean":
     case "text":
     case "integer":
+    case "doublePrecision":
     case "numeric":
     case "jsonb":
     case "timestamptz":
