@@ -99,9 +99,15 @@ with their current owners. The bounded
 profile retains computed reservation guards, complete Item/Level/Reservation
 cascades, eight rich Links and native retained inverses. Link preparation binds
 complete-history admission to its genuine immutable repository owner. Native
-raw-ID results and batched Link events retain their existing semantics. The next
-preflighted outcome is the
-[native Level batch workflow](./preflight/119-native-inventory-level-batch-workflow.md).
+raw-ID results and batched Link events retain their existing semantics. The
+bounded [native Level batch workflow](./preflight/119-native-inventory-level-batch-workflow.md)
+combines eight creates, four updates and four raw deletes through the genuine
+parallel composer and one Inventory participant. It preserves omitted deleted
+output, the direct create branch's scalar Location behavior, and distinct
+physical-create, update and restoration inverses within existing resource limits.
+The next preflighted outcome is
+[standalone Inventory Item creation](./preflight/120-native-inventory-item-create-workflow.md),
+including its required Stock Location reads.
 Chunked File import and Product
 export are explicitly deferred; their File and Region dependencies are outside
 the current integration goal.

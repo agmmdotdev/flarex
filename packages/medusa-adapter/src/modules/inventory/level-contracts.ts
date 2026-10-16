@@ -21,6 +21,7 @@ export const InventoryLevelRow = Schema.Struct({ ...StoredLevel.fields,
   raw_stocked_quantity: Schema.optionalKey(ExactNumericRaw), raw_reserved_quantity: Schema.optionalKey(ExactNumericRaw),
   raw_incoming_quantity: Schema.optionalKey(ExactNumericRaw) });
 export const InventoryLevelRows = Schema.Array(InventoryLevelRow).check(Schema.isMaxLength(4));
+export const InventoryLevelCreatedRows = Schema.Array(InventoryLevelRow).check(Schema.isMaxLength(8));
 
 export function compileInventoryLevelContracts(table: SchemaTable) {
   return Result.gen(function* () {
@@ -38,6 +39,7 @@ export function compileInventoryLevelContracts(table: SchemaTable) {
     });
     const decodeRow = commerceDecoder(InventoryLevelRow, "storedCorruption");
     const decodeRows = commerceDecoder(InventoryLevelRows, "storedCorruption");
+    const decodeCreatedRows = commerceDecoder(InventoryLevelCreatedRows, "storedCorruption");
     const project = inventoryQuantityProjection(table.columns);
     const matchesResult = Effect.fn("InventoryLevel.matchesResult")(function* (stored: JsonObject, input: Json) {
       const actual: JsonObject = yield* Effect.fromResult(decodeRow(input));
@@ -50,6 +52,6 @@ export function compileInventoryLevelContracts(table: SchemaTable) {
       }
       return true;
     });
-    return { numeric, decodeCompleteRow: complete, decodeStoredRow, decodeRow, decodeRows, matchesResult };
+    return { numeric, decodeCompleteRow: complete, decodeStoredRow, decodeRow, decodeRows, decodeCreatedRows, matchesResult };
   });
 }

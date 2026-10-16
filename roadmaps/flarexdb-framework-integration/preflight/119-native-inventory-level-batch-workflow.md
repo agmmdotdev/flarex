@@ -2,11 +2,11 @@
 
 ## Status And Authority
 
-Status: preflight complete; implementation pending. Native Inventory Item update
+Status: implemented for the bounded private native root. Native Inventory Item update
 (115), absolute Level update (116), and Level deletion (117) are implemented.
 Inventory Item deletion (118) is implemented. Shared core62 call-local row
-observations are implemented. These statuses do not establish this new batch
-root, deployment activation, or unbounded Inventory support. Chunked File Product
+observations are implemented. This admission does not establish deployment
+activation or unbounded Inventory support. Chunked File Product
 import and Product export remain deferred.
 
 Authority is the accepted Flarex design, package boundaries, owning adoption
@@ -15,8 +15,8 @@ roadmap, and Medusa 2.13.4 at
 `packages/core/core-flows/src/inventory/workflows/batch-inventory-item-levels.ts`
 inside the read-only source island. Its actual root is
 `batchInventoryItemLevelsWorkflow`, ID `batch-inventory-item-levels-workflow`.
-That composer is not yet promoted into `packages/medusa-core-flows`; its genuine
-create/update steps and deletion child already execute there. Do not substitute
+That composer is promoted into `packages/medusa-core-flows` with its genuine
+create/update steps and deletion child. Do not substitute
 `bulkCreateDeleteLevelsWorkflow`, a custom three-command sequence, or the
 standalone create-level workflow.
 
@@ -41,24 +41,30 @@ lifecycle membership, ordering, events and result maps remain independent.
 The pinned TypeScript output extends BatchWorkflowOutput, which declares a
 required deleted array, but the executable callback returns undefined when the
 input delete member is absent. Preserve this behavior. The promoted output type
-needs a narrow truthful optional deleted member, and the private JSON output
-schema must use an optional key. The genuine intermediate object retains its own
+uses a narrow truthful optional deleted member, and the private JSON output
+schema uses an optional key. The genuine intermediate object retains its own
 undefined member; existing captureWorkflowValue and private omission metadata
 already handle it. At final JSON settlement `{}` yields
 `{ created: [], updated: [] }`; explicit `{ delete: [] }` yields
 `{ created: [], updated: [], deleted: [] }`. Do not invent null, force deleted:[],
-rewrite the native transform, or bypass the existing capture owner. An explicit
-undefined option is omitted by the existing public JSON capture. Null/nonarray
-inputs remain outside the admitted typed boundary even though native JavaScript
-uses the broader || fallback.
+rewrite the native transform, or bypass the existing capture owner. The typed
+facade and its exact optional-key Schema admit an omitted delete key or an
+array; explicit `{ delete: undefined }` is outside that typed/Schema contract.
+At the foreign JavaScript `host.run` entry, the existing captureCommerceInput
+runs before Schema decoding and omits an enumerable own undefined object member,
+so that representation reaches the decoder as `{}`. Direct decodeInput/Schema
+calls do not use this capture and refuse the explicit undefined member. This
+input seam is separate from the native intermediate output and res[2] undefined
+slots preserved below. Null/nonarray input is refused by the current Schema
+after capture, even though native JavaScript uses the broader || fallback.
 
 The deletion child contributes a genuine positional undefined result in res[2].
 Reuse the existing intermediate capture solution introduced for Product batch;
 ordinary input/final JSON remains with its current owners. Keep the tuple and
-native branch grouping in preparation identity. The expanded graph is expected
-to contain six staged nodes: two direct steps, one child-workflow node, and the
-child's three steps. Verify that prepared count rather than raising the existing
-64-node ceiling; transforms themselves are deferred values, not staged steps.
+native branch grouping in preparation identity. The expanded graph contains six
+staged nodes: two direct steps, one child-workflow node, and the child's three
+steps. It retains the existing 64-node ceiling; transforms themselves are
+deferred values, not staged steps.
 
 ## Exact Service And Provider Closure
 
@@ -106,7 +112,7 @@ Query→Inventory order across the three parallel callbacks. Each branch's own
 resolution/call ordering remains exact. No stock-mutation or scope-exclusive
 locking profile is inferred from shared Inventory storage.
 
-## Retained Compensators And Missing Owner Work
+## Retained Compensators And Lifecycle Ownership
 
 All three genuine compensators remain transactionCovered. Root failure rollback
 and native compensation are distinct proofs; neither substitutes for the other.
@@ -121,13 +127,11 @@ afterDelete events for actual deleted identities. It imposes no stock/reservatio
 quantity guard at this inverse edge. The retained callback captures generated
 creation IDs, including an empty array on an empty forward call.
 
-Existing creation profiles grant createInventoryLevels but not its physical
-inverse; the scalar repository and quantity repository currently deny delete.
-This is a concrete missing **Medusa adapter lifecycle owner**, not an identified
-shared-core defect. Add the narrow retained physical Level-delete capability
-through medusaLifecycle(..., "delete") and actual generated/internal service,
-with full before/delete/after-null/returned-ID/event correlation. Reuse checked
-Level contracts and existing scalar event mechanics where applicable. There are
+The batch profile adds its retained physical Level-delete capability through
+medusaLifecycle(..., "delete") and the actual generated/internal service, with
+full before/delete/after-null/returned-ID/event correlation. Existing standalone
+creation profiles retain their prior capabilities. The shared Level lifecycle
+owner reuses checked contracts and native event dispatch. There are
 no outgoing Level cascades, and no mutable Item/Reservation/Stock/Link endpoint
 is granted. Existing scalarLifecycleReceipt authenticates only softDelete and
 restore; do not misapply it to physical delete or merely validate a void result.
@@ -154,7 +158,7 @@ inverse remains restoration. These operations share the deleted module-event
 name but have different storage evidence; distinguish them by authentic command
 identity and operation, not by event name alone.
 
-## Proposed Connected Implementation And Bounds
+## Implemented Composition And Bounds
 
 1. Promote exactly the pinned batch composer with direct narrow imports of the
    already promoted create/update steps and deletion workflow. Use portable SDK
@@ -188,6 +192,10 @@ identity and operation, not by event name alone.
    admits optional create≤8, update≤4, raw delete≤4 and boolean force. Repeated
    raw requests consume their respective bound. Output has complete created≤8,
    updated≤4 and optional deleted≤4 raw IDs, preserving omitted versus [].
+   Collection checks follow mutable-array construction: the installed Effect
+   conversion rebuilds array schemas without retaining earlier checks. The
+   facade must reject fifth raw delete requests before any native sibling runs;
+   downstream child refusal is not a substitute for this admission boundary.
 5. Keep genuine parallel callbacks and use existing trusted identity-bound
    operationScheduling:"queued" for their calls on one borrowed participant.
    Existing Product batches prove this scheduling mechanism. It serializes owned
@@ -204,10 +212,10 @@ reads can observe additional existing Level bodies within the existing 128-row
 working set. Retained inverse probes must also cover eight physical deletes,
 four native updates and four restores with their complete evidence. Do not
 substitute a create-only or disjoint reduced workload for the full maximum.
-Start with existing 64-call/64-event and byte/catalog/identity/node allowances;
-measure actual complete forward and inverse consumption before claiming them
-sufficient. Preserve any real overflow witness and correct the named resource
-owner within authorized scope rather than shrinking input or loosening defaults.
+The complete forward graph and retained inverses fit the existing 64-call/
+64-event and byte/catalog/identity/node allowances. No named or default limit is
+widened. Larger workloads need their own connected admission rather than smaller
+witnesses or a silently loosened default.
 
 Native parallel composition does not promise create→update→delete business
 serialization. Overlapping update/delete selectors and creates targeting an
@@ -257,17 +265,18 @@ quantity update, or add silent retries. Validate actual scopes, identical native
 keys/request keys and revoked continuations separately.
 
 Regress native Level create/stocking, 116 absolute update, 117 deletion, 118 Item
-cascade/Link deletion once complete, reservations/deltas, Product nested creation
+cascade/Link deletion, reservations/deltas, Product nested creation
 and batch, and shared call-local observation/lifecycle owners. Run affected
 source/promotion/browser guards, typechecks/builds, lint, required two read-only
-reviews and exact staged validation before one scoped commit. This preflight
-identifies an unpromoted composer, truthful optional-output type seam, missing
-combined Level profile and missing retained physical-delete binding; it does not
-identify a new core/schema/locking blocker from source alone. Connected witnesses
-may still expose one, and any such failure belongs to its real owner.
+reviews and exact staged validation before one scoped commit. This slice supplies
+the promoted composer, truthful optional-output type seam, combined Level profile
+and retained physical-delete binding. It reuses core62 without an additional
+core/schema/locking extension. Larger connected witnesses still belong to their
+actual owners.
 
-Following candidates remain standalone createInventoryItemsWorkflow (Items plus
-optional Levels) and deprecated bulkCreateDeleteLevelsWorkflow, each requiring
-its own exact-source preflight. Deprecation and existing module methods do not
-establish integration. File import, Product export and hosted activation remain
-deferred.
+The next preflighted root is
+[standalone createInventoryItemsWorkflow](./120-native-inventory-item-create-workflow.md)
+(Items plus optional Levels). Deprecated bulkCreateDeleteLevelsWorkflow remains
+a separate candidate requiring its own exact-source preflight. Deprecation and
+existing module methods do not establish integration. Chunked File import,
+Product export and hosted activation remain deferred.

@@ -73,7 +73,7 @@ function inventoryDeletionCallbacks(text, name, factory, indexes) {
     const callback = call.arguments[index];
     if (callback === undefined || (!ts.isFunctionExpression(callback) && !ts.isArrowFunction(callback)))
       throw new Error("Missing native Inventory deletion callback");
-    return { file, callback, text: callback.getText(file) };
+    return { file, call, callback, text: callback.getText(file) };
   });
 }
 
@@ -131,6 +131,46 @@ export function verifyInventoryItemDeleteCallbacks(nativeWorkflow, workflow, nat
     id: Schema.String.check(Schema.isLengthBetween(1, 256)), reserved_quantity: Schema.Number.check(Schema.isFinite()),
   })).check(Schema.isMaxLength(8)), { onExcessProperty: "error" })`;
   if (decoders.length !== 1 || decoder === undefined || testPortProgram("const " + decoder.getText(decoderFile)) !== testPortProgram(expectedDecoder)) throw new Error(failure);
+}
+
+/** The native Level batch composer and both direct step callbacks erase only
+ * types. Existing Level deletion provenance authenticates its nested child.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeCreate @param {string} create
+ * @param {string} nativeUpdate @param {string} update */
+export function verifyInventoryLevelBatchCallbacks(nativeWorkflow, workflow, nativeCreate, create, nativeUpdate, update) {
+  const failure = "Changed native Inventory Level batch callback behavior";
+  /** @type {readonly (readonly [string, string, string, string, readonly number[]])[]} */
+  const selections = [
+    [nativeWorkflow, workflow, "batchInventoryItemLevelsWorkflow", "createWorkflow", [1]],
+    [nativeCreate, create, "createInventoryLevelsStep", "createStep", [1, 2]],
+    [nativeUpdate, update, "updateInventoryLevelsStep", "createStep", [1, 2]],
+  ];
+  for (const [source, target, name, factory, indexes] of selections) {
+    // The tuple list above is deliberately literal; no caller chooses callbacks.
+    const original = inventoryDeletionCallbacks(source, name, factory, indexes);
+    const promoted = inventoryDeletionCallbacks(target, name, factory, indexes);
+    for (const [index, callback] of original.entries()) {
+      const selected = promoted[index];
+      if (selected === undefined || testPortProgram("const callback = " + callback.text) !== testPortProgram("const callback = " + selected.text)) throw new Error(failure);
+    }
+    if (factory === "createStep") {
+      const selected = promoted[0], options = selected?.call.arguments[0];
+      const id = name === "createInventoryLevelsStep" ? "createInventoryLevelsStepId" : "updateInventoryLevelsStepId";
+      if (selected === undefined || options === undefined || testPortProgram("const options = " + options.getText(selected.file)) !==
+        testPortProgram(`const options = { name: ${id}, compensation: "transactionCovered" }`)) throw new Error(failure);
+    }
+  }
+  const constant = "batchInventoryItemLevelsWorkflowId";
+  /** @param {string} text */
+  const identity = text => {
+    const file = ts.createSourceFile("level-batch-identity.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const matches = file.statements.filter(ts.isVariableStatement).flatMap(statement => statement.declarationList.declarations
+      .filter(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === constant));
+    if (matches.length !== 1 || matches[0] === undefined) throw new Error(failure);
+    return testPortProgram("const " + matches[0].getText(file));
+  };
+  if (identity(nativeWorkflow) !== identity(workflow)) throw new Error(failure);
 }
 
 /** @param {string} source @param {string} target @param {Set<string>} names @param {boolean} verifySeed */

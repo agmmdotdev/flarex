@@ -56,11 +56,11 @@ export function inventoryQuantityProjection(columns: readonly SchemaTable["colum
 /** Inventory's exact quantities extend shared scalar DAL mechanics. Native
  * services retain availability checks and reservation-to-level adjustments. */
 export function prepareInventoryQuantityRepository(table: SchemaTable, model: "InventoryLevel" | "ReservationItem",
-  profile: "read-only" | "stock-mutations" | "level-updates") {
+  profile: "read-only" | "stock-mutations" | "level-updates" | "level-batches") {
   return Result.gen(function* () {
-    if (!["read-only", "stock-mutations", "level-updates"].includes(profile) || profile === "level-updates" && model !== "InventoryLevel")
+    if (!["read-only", "stock-mutations", "level-updates", "level-batches"].includes(profile) || (profile === "level-updates" || profile === "level-batches") && model !== "InventoryLevel")
       return yield* Result.fail(commerceError("unsupportedProfile"));
-    const levelUpdates = profile === "level-updates", mutable = profile !== "read-only";
+    const levelUpdates = profile === "level-updates" || profile === "level-batches", mutable = profile !== "read-only";
     const numeric = table.columns.filter(column => column.type === "bigNumber");
     const project = inventoryQuantityProjection(table.columns);
     const scalar = yield* prepareScalarRepository(table, model, model === "InventoryLevel" ? inventoryLevelWhere : scalarIdWhere,
@@ -87,7 +87,7 @@ export function prepareInventoryQuantityRepository(table: SchemaTable, model: "I
         return decoded.map(row => structuredClone({ ...row }));
       });
       const repository: DAL.RepositoryService = { ...bound.repository,
-        create: levelUpdates ? bound.refuse : (input, shared) => bound.bridge.execute(shared, ctx => bound.bridge.checked(ctx, Effect.gen(function* () {
+        create: profile === "level-updates" ? bound.refuse : (input, shared) => bound.bridge.execute(shared, ctx => bound.bridge.checked(ctx, Effect.gen(function* () {
           if (!Array.isArray(input) || input.length > 8) return yield* ctx.refuse(commerceError("unsupportedProfile"));
           const rows: JsonObject[] = [];
           for (const row of input) rows.push(yield* captureExactNumericRow(row, numeric, true));

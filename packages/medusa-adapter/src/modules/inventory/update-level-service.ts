@@ -1,5 +1,7 @@
 import { compileInventoryLevelContracts } from "./level-contracts";
 import { Effect, Result, Schema } from "effect";
+import type { Context } from "@medusajs/framework/types";
+import type { PreparedCommerceModule } from "../../module/definition";
 import { InventoryItem, InventoryLevel, ReservationItem } from "@medusajs/inventory/models";
 import { InventoryModuleService, InventoryLevelService } from "@medusajs/inventory/services";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
@@ -50,15 +52,7 @@ export const makeInventoryLevelUpdateCommands = Effect.fn("InventoryAdapter.leve
         return { service: { listInventoryLevels: native.listInventoryLevels.bind(native), updateInventoryLevels: native.updateInventoryLevels.bind(native) }, context };
       },
     }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
-    const commands = commerceServiceCommands(module.use), prepare = commerceCommandPreparation("InventoryLevelUpdate.prepare");
-    const list = commands.read("inventoryLevelListForUpdate", prepare(decodeInventoryLevelUpdateReadInput), ({ service, context }, args) =>
-      service.listInventoryLevels({ $or: args.filters.$or.map(pair => ({ ...pair })) }, args.config, context));
-    const update = commands.write("inventoryLevelUpdateForWorkflow", prepare(decodeInventoryLevelUpdateCommandInput), ({ service, context }, input) =>
-      Array.isArray(input) ? service.updateInventoryLevels(input, context) : service.updateInventoryLevels(input, context));
-    const listInventoryLevels = yield* defineWorkflowMethod({ command: list,
-      arguments: decodeListArguments, encode: ([filters, config]) => ({ filters, config }), output: contracts.decodeRows });
-    const updateInventoryLevels = yield* defineWorkflowMethod({ command: update, arguments: decodeUpdateArguments, encode: ([updates]) => updates,
-      output: contracts.decodeRows, moduleEvents: [buildModuleResourceEventName({ prefix: Modules.INVENTORY, objectName: "inventory_level", action: "updated" })] });
+    const { list, update, listInventoryLevels, updateInventoryLevels } = yield* prepareInventoryLevelUpdateMethods(module.use, contracts);
     const admitted = [list, update];
     const workflow = yield* defineWorkflowModule({ name: Modules.INVENTORY, source: module.description,
       methods: { listInventoryLevels, updateInventoryLevels }, graph: { aliases: [], reads: [] },
@@ -67,3 +61,21 @@ export const makeInventoryLevelUpdateCommands = Effect.fn("InventoryAdapter.leve
       logicalEventPolicy: () => inventoryLevelUpdateEventPolicy(contracts) };
   }));
 });
+
+/** Reuse the exact native absolute-update ABI in the standalone and batch roots. */
+export function prepareInventoryLevelUpdateMethods<Service extends { readonly service: Pick<InventoryModuleService, "listInventoryLevels" | "updateInventoryLevels">; readonly context: Context }>(
+  use: PreparedCommerceModule<Service>["use"], contracts: Result.Result.Success<ReturnType<typeof compileInventoryLevelContracts>>,
+) {
+  return Result.gen(function* () {
+    const commands = commerceServiceCommands(use), prepare = commerceCommandPreparation("InventoryLevelUpdate.prepare");
+    const list = commands.read("inventoryLevelListForUpdate", prepare(decodeInventoryLevelUpdateReadInput), ({ service, context }, args) =>
+      service.listInventoryLevels({ $or: args.filters.$or.map(pair => ({ ...pair })) }, args.config, context));
+    const update = commands.write("inventoryLevelUpdateForWorkflow", prepare(decodeInventoryLevelUpdateCommandInput), ({ service, context }, input) =>
+      Array.isArray(input) ? service.updateInventoryLevels(input, context) : service.updateInventoryLevels(input, context));
+    const listInventoryLevels = yield* defineWorkflowMethod({ command: list,
+      arguments: decodeListArguments, encode: ([filters, config]) => ({ filters, config }), output: contracts.decodeRows });
+    const updateInventoryLevels = yield* defineWorkflowMethod({ command: update, arguments: decodeUpdateArguments, encode: ([updates]) => updates,
+      output: contracts.decodeRows, moduleEvents: [buildModuleResourceEventName({ prefix: Modules.INVENTORY, objectName: "inventory_level", action: "updated" })] });
+    return { list, update, listInventoryLevels, updateInventoryLevels };
+  });
+}

@@ -90,7 +90,8 @@
     "./stock-location/upsert-stock-location-addresses-step": "./src/stock-location/steps/upsert-stock-location-addresses.ts",
     "./inventory/delete-inventory-levels": "./src/inventory/workflows/delete-inventory-levels.ts",
     "./common/delete-entities-step": "./src/common/steps/delete-entities.ts",
-    "./inventory/delete-inventory-items": "./src/inventory/workflows/delete-inventory-items.ts"
+    "./inventory/delete-inventory-items": "./src/inventory/workflows/delete-inventory-items.ts",
+    "./inventory/batch-inventory-item-levels": "./src/inventory/workflows/batch-inventory-item-levels.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

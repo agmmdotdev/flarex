@@ -1,19 +1,19 @@
-import { Effect, Result, Schema } from "effect";
-import type { DAL, FindConfig, InventoryTypes } from "@medusajs/framework/types";
+import { Effect, Result } from "effect";
+import type { Context, DAL, FindConfig, InventoryTypes } from "@medusajs/framework/types";
 import { InventoryItem, InventoryLevel, ReservationItem } from "@medusajs/inventory/models";
 import { InventoryModuleService, InventoryLevelService } from "@medusajs/inventory/services";
 import { inventoryStaticResources } from "@medusajs/inventory/static-manifest";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import type { PreparedCommerceModule } from "../../module/definition";
 import { defineCommerceModule } from "../../module/definition";
 import { commerceServiceCommands, commerceCommandPreparation } from "../../module/commands";
 import { commerceModuleEventBus } from "../../module/events";
 import { defineWorkflowModule, defineWorkflowMethod } from "../../workflow/module";
 import { deniedCommerceRepository } from "../../repository/denied";
 import { prepareScalarRepository } from "../../repository/scalar";
-import { medusaLifecycle } from "../../repository/lifecycle";
+import { inventoryLevelLifecycleRepository } from "./level-lifecycle";
 import { moduleAliases, scalarGraphDefinition } from "../../local-graph/module";
-import { orderNativeIdRows } from "../../repository/result";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
 import type { GraphModuleDefinition } from "../../local-graph/model";
@@ -36,35 +36,10 @@ export const makeInventoryLevelDeletionCommands = Effect.fn("InventoryAdapter.le
     const contracts = yield* compileInventoryLevelContracts(table);
     const prepared = yield* prepareScalarRepository(table, "InventoryLevel", inventoryLevelDeletionWhere, inventoryQuantityProjection(table.columns));
     const bind = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
-      const bound = prepared.bind(ctx, owner), { bridge, events } = bound;
+      const bound = prepared.bind(ctx, owner), { bridge } = bound;
       const denied = deniedCommerceRepository(bound.repository, bound.refuse);
-      const lifecycle = (operation: "softDelete" | "restore"): DAL.RepositoryService["softDelete"] => (input, shared) =>
-        bridge.executeInput(shared, input, (current, captured) => bridge.checked(current, Effect.gen(function* () {
-          const ids = yield* Effect.fromResult(decodeInventoryLevelDeletionIds(captured));
-          const lifecycle = medusaLifecycle(current, { tables: metadata.frame.tables, entities: [{ table, model: "InventoryLevel" }] }, operation);
-          const roots = yield* lifecycle.roots(table, [...new Set(ids)]);
-          if (roots.length > 4) return yield* current.refuse(commerceError("unsupportedProfile"));
-          for (const row of roots) yield* contracts.decodeStoredRow(row);
-          const result = yield* (yield* lifecycle.plan(table, roots)).apply();
-          for (const row of result.roots) yield* contracts.decodeStoredRow(row);
-          if (shared === undefined || operation === "softDelete" && !events.isSubscribed(shared))
-            return yield* current.refuse(commerceError("unadmittedEvent"));
-          yield* events.cascades(result.cascades, shared, row => ({ entity: row,
-            originalEntity: { deleted_at: operation === "softDelete" ? null : row.updated_at } }));
-          return [result.roots, result.cascades] satisfies [object[], Record<string, unknown[]>];
-        })));
       const repository: DAL.RepositoryService = { ...denied, serialize: bound.repository.serialize,
-        findAndCount: (input, shared) => bridge.executeInput(shared, input, (current, captured) => bridge.checked(current, Effect.gen(function* () {
-          const result = yield* bound.find(current, captured, true);
-          if (result.count === undefined || result.count > 4 || result.rows.length > 4 || result.count !== result.rows.length) return yield* current.refuse(commerceError("unsupportedProfile"));
-          if (!Schema.is(Schema.JsonObject)(captured)) return yield* current.refuse(commerceError("unsupportedProfile"));
-          const rows = [];
-          for (const row of result.rows) {
-            if (typeof row.id !== "string") return yield* current.refuse(commerceError("storedCorruption"));
-            rows.push({ ...row, id: row.id });
-          }
-          return [structuredClone(orderNativeIdRows(rows, captured.where)), result.count] satisfies [object[], number];
-        }))), softDelete: lifecycle("softDelete"), restore: lifecycle("restore") };
+        ...inventoryLevelLifecycleRepository(bound, metadata.frame, table, contracts) };
       const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
         capture: message => bridge.current().captureLocalEvent(message), check: work => bridge.checked(ctx, work), refuse: bound.refuse });
       return { baseRepository: repository, repository: (model: typeof InventoryItem | typeof InventoryLevel | typeof ReservationItem) =>
@@ -84,7 +59,23 @@ export const makeInventoryLevelDeletionCommands = Effect.fn("InventoryAdapter.le
           softDeleteInventoryLevels: native.softDeleteInventoryLevels.bind(native), restoreInventoryLevels: native.restoreInventoryLevels.bind(native) }, context };
       },
     }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
-    const commands = commerceServiceCommands(module.use), prepare = commerceCommandPreparation("InventoryLevelDeletion.prepare");
+    const { count, softDeleteForWorkflow, restoreForWorkflow, softDeleteInventoryLevels, restoreInventoryLevels, graph } =
+      yield* prepareInventoryLevelDeletionMethods(module.use, prepared.table);
+    const admitted = [count, softDeleteForWorkflow, restoreForWorkflow];
+    const workflow = yield* defineWorkflowModule({ name: Modules.INVENTORY, source: module.description,
+      methods: { softDeleteInventoryLevels, restoreInventoryLevels }, graph,
+      logical: { ...inventoryLevelDeletionEventPolicy(contracts), commands: admitted } });
+    return { count, softDeleteForWorkflow, restoreForWorkflow, commands: admitted, workflow, graph, withService: module.use,
+      logicalEventPolicy: () => inventoryLevelDeletionEventPolicy(contracts) };
+  }));
+});
+
+/** Both supported roots share the genuine selected query and lifecycle ABI. */
+export function prepareInventoryLevelDeletionMethods<Service extends { readonly service: Pick<InventoryModuleService, "listAndCountInventoryLevels" | "softDeleteInventoryLevels" | "restoreInventoryLevels">; readonly context: Context }>(
+  use: PreparedCommerceModule<Service>["use"], readTable: Parameters<typeof scalarGraphDefinition>[3],
+) {
+  return Result.gen(function* () {
+    const commands = commerceServiceCommands(use), prepare = commerceCommandPreparation("InventoryLevelDeletion.prepare");
     const count = commands.read("inventoryLevelCountForDeletion", prepare(decodeInventoryLevelDeletionReadInput), ({ service, context }, args) =>
       service.listAndCountInventoryLevels(args.filters, args.config as FindConfig<InventoryTypes.InventoryLevelDTO> | undefined, context));
     const softDeleteForWorkflow = commands.write("inventoryLevelSoftDeleteForWorkflow", prepare(decodeInventoryLevelDeletionIds),
@@ -100,13 +91,8 @@ export const makeInventoryLevelDeletionCommands = Effect.fn("InventoryAdapter.le
     const joiner = inventoryStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const nativeGraph = yield* scalarGraphDefinition(yield* moduleAliases({ ...joiner,
-      alias: (Array.isArray(joiner.alias) ? joiner.alias : []).filter(alias => alias.entity === "InventoryLevel") }), "InventoryLevel", count, prepared.table);
+      alias: (Array.isArray(joiner.alias) ? joiner.alias : []).filter(alias => alias.entity === "InventoryLevel") }), "InventoryLevel", count, readTable);
     const graph: GraphModuleDefinition = { ...nativeGraph, reads: nativeGraph.reads.map(read => ({ ...read, allowOrFilters: true, selectedFieldsOnly: true })) };
-    const admitted = [count, softDeleteForWorkflow, restoreForWorkflow];
-    const workflow = yield* defineWorkflowModule({ name: Modules.INVENTORY, source: module.description,
-      methods: { softDeleteInventoryLevels, restoreInventoryLevels }, graph,
-      logical: { ...inventoryLevelDeletionEventPolicy(contracts), commands: admitted } });
-    return { count, softDeleteForWorkflow, restoreForWorkflow, commands: admitted, workflow, graph, withService: module.use,
-      logicalEventPolicy: () => inventoryLevelDeletionEventPolicy(contracts) };
-  }));
-});
+    return { count, softDeleteForWorkflow, restoreForWorkflow, softDeleteInventoryLevels, restoreInventoryLevels, graph };
+  });
+}

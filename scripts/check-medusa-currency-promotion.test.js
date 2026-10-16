@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -92,6 +92,60 @@ describe("native Inventory Item deletion callback provenance", () => {
     const changed = link.replace(before, after); expect(changed).not.toBe(link);
     expect(() => verifyInventoryItemDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeLink, changed))
       .toThrow("Changed native Inventory Item deletion callback behavior");
+  });
+});
+
+describe("native Inventory Level batch callback provenance", () => {
+  const nativeWorkflow = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/inventory/workflows/batch-inventory-item-levels.ts", "utf8");
+  const workflow = readFileSync("packages/medusa-core-flows/src/inventory/workflows/batch-inventory-item-levels.ts", "utf8");
+  const nativeCreate = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/inventory/steps/create-inventory-levels.ts", "utf8");
+  const create = readFileSync("packages/medusa-core-flows/src/inventory/steps/create-inventory-levels.ts", "utf8");
+  const nativeUpdate = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/inventory/steps/update-inventory-levels.ts", "utf8");
+  const update = readFileSync("packages/medusa-core-flows/src/inventory/steps/update-inventory-levels.ts", "utf8");
+  it("permits erased type/import seams while preserving all three parallel branches and retained callbacks", () => {
+    expect(() => verifyInventoryLevelBatchCallbacks(nativeWorkflow, workflow, nativeCreate, create, nativeUpdate, update)).not.toThrow();
+  });
+  it.each([
+    ["root identity", '"batch-inventory-item-levels-workflow"', '"batch-other-workflow"'],
+    ["create omission fallback", "data.create || []", "data.create"],
+    ["update omission fallback", "data.update || []", "data.update"],
+    ["delete omission fallback", "data.delete || []", "data.delete"],
+    ["false force normalization", "data.force ?? false", "data.force ?? true"],
+    ["native create input", "createInventoryLevelsStep(createInput)", "createInventoryLevelsStep([])"],
+    ["native update input", "updateInventoryLevelsStep(updateInput)", "updateInventoryLevelsStep([])"],
+    ["actual deletion child", "input: deleteInput", "input: {}"],
+    ["parallel branch grouping", "const res = parallelize(", "const res = ordered("],
+    ["created tuple position", "created: data.res[0]", "created: data.res[1]"],
+    ["updated tuple position", "updated: data.res[1]", "updated: data.res[0]"],
+    ["raw delete omission", "deleted: data.input.delete", "deleted: data.input.delete ?? []"],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = workflow.replace(before, after); expect(changed).not.toBe(workflow);
+    expect(() => verifyInventoryLevelBatchCallbacks(nativeWorkflow, changed, nativeCreate, create, nativeUpdate, update))
+      .toThrow("Changed native Inventory Level batch callback behavior");
+  });
+  it.each([
+    ["create empty invocation", "await service.createInventoryLevels(data)", "data.length ? await service.createInventoryLevels(data) : []"],
+    ["generated inverse IDs", "inventoryLevels.map((level) => level.id)", "[]"],
+    ["create inverse empty resolution", "if (!ids?.length)", "if (!ids)"],
+    ["physical inverse method", "await service.deleteInventoryLevels(ids)", "await service.softDeleteInventoryLevels(ids)"],
+    ["physical inverse IDs", "await service.deleteInventoryLevels(ids)", "await service.deleteInventoryLevels([])"],
+    ["transaction-covered inverse", 'compensation: "transactionCovered"', 'compensation: undefined'],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = create.replace(before, after); expect(changed).not.toBe(create);
+    expect(() => verifyInventoryLevelBatchCallbacks(nativeWorkflow, workflow, nativeCreate, changed, nativeUpdate, update))
+      .toThrow("Changed native Inventory Level batch callback behavior");
+  });
+  it.each([
+    ["empty update before resolution", "if (!input.length)", "if (false)"],
+    ["preimage pair lookup", "$or: input.map", "$or: [].map"],
+    ["native update payload", "await inventoryService.updateInventoryLevels(input)", "await inventoryService.updateInventoryLevels([])"],
+    ["preimage capture", "      dataBeforeUpdate,", "      dataBeforeUpdate: [],"],
+    ["update inverse omission", "if (!revertInput?.dataBeforeUpdate?.length)", "if (!revertInput)"],
+    ["inverse selected field conversion", "convertItemResponseToUpdateRequest(data, selects, relations)", "convertItemResponseToUpdateRequest(data, [], [])"],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = update.replace(before, after); expect(changed).not.toBe(update);
+    expect(() => verifyInventoryLevelBatchCallbacks(nativeWorkflow, workflow, nativeCreate, create, nativeUpdate, changed))
+      .toThrow("Changed native Inventory Level batch callback behavior");
   });
 });
 
