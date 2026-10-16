@@ -43,9 +43,8 @@ import {
   readyTaskRunAggregateV1,
   seedAdditionalTaskSystemRunV1,
   seedTaskSystemRunAttemptStoreV1,
+  seedTaskSystemParentV1,
 } from "./taskSystemRunAttemptStoreTestSupport";
-import { seedRegisteredTaskSystemParentV1 } from
-  "./taskSystemPostgresTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const runId = Result.getOrThrow(decodeTaskRunIdV1(TASK_RUN_ID));
@@ -61,10 +60,7 @@ const LIFECYCLE_UPDATE_ADVISORY_LOCK = 73_004_101;
 describePostgres("DTE04-B/E scope-bound Task System lifecycle store - PostgreSQL", () => {
   it("serializes same-run writers, reads time after the lock wait, and rolls decision failure back", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
-      const parent = await seedRegisteredTaskSystemParentV1(
-        persistence,
-        "dte04-b:task-store-parent",
-      );
+      const parent = await seedTaskSystemParentV1(persistence);
       const seeded = await seedTaskSystemRunAttemptStoreV1(persistence, {
         parent,
       });
@@ -172,7 +168,7 @@ describePostgres("DTE04-B/E scope-bound Task System lifecycle store - PostgreSQL
       expect(failure).toBe(expected);
       expect(await runVersion(persistence, scopeId)).toBe(before);
       expect(await counts(persistence)).toEqual({ attempts: 1, effects: 8 });
-    }, { historicalApplicationAnalysis: true });
+    });
   }, 480_000);
 
   it("orders terminal completion before a blocked heartbeat and returns the current terminal state", async () => {
@@ -465,10 +461,7 @@ async function withLifecycleFixture(
   run: (fixture: LifecycleFixture) => Promise<void>,
 ): Promise<void> {
   await withTemporaryPostgresPersistence(async persistence => {
-    const parent = await seedRegisteredTaskSystemParentV1(
-      persistence,
-      "dte04-e:task-lifecycle-parent",
-    );
+    const parent = await seedTaskSystemParentV1(persistence);
     const seeded = await seedTaskSystemRunAttemptStoreV1(persistence, {
       parent,
       ...(options.aggregate === undefined
@@ -496,7 +489,7 @@ async function withLifecycleFixture(
       store,
       layer: createLifecycleLayer(store),
     }));
-  }, { historicalApplicationAnalysis: true });
+  });
 }
 
 function shortLeaseReadyAggregate(): TaskRunAttemptAggregateV1 {
@@ -859,6 +852,7 @@ async function waitForBlockedTaskRunWriters(
   blockerPid: number,
   expectedCount: number,
 ): Promise<void> {
+  // The private blocker chain identifies these writers even when SQL text is truncated.
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     const result = await persistence.query<{ blocked_count: number }>(`
@@ -879,8 +873,6 @@ async function waitForBlockedTaskRunWriters(
       join pg_stat_activity as activity using (pid)
       where activity.datname = current_database()
         and activity.wait_event_type = 'Lock'
-        and activity.query ilike '%fx_system_durable_task_run_v1%'
-        and activity.query ilike '%for update%'
     `, [blockerPid]);
     if ((result.rows[0]?.blocked_count ?? 0) >= expectedCount) return;
     await delay(25);

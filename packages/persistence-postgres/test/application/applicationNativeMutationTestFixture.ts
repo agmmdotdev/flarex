@@ -124,6 +124,7 @@ import {
 } from "../../src/application/tasks/applicationTaskBindings";
 import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
+  type AppRowTransaction,
 } from "../../src/storage/documents/appRows";
 import {
   createAppDeveloperIndexDefinitionPortV1,
@@ -258,6 +259,21 @@ export interface ApplicationNativeMutationSourceBundle {
 export type ApplicationNativeMutationPersistence = FlarexPersistence & Readonly<{
   drizzle: FlarexMetadataDatabase;
 }>;
+
+/** Seed-only direct transactions use the actual installation admission owner. */
+export function withApplicationNativeFixtureTransaction<A>(
+  persistence: Pick<ApplicationNativeMutationPersistence, "drizzle">,
+  work: (tx: AppRowTransaction) => Promise<A>,
+): Promise<A> {
+  return persistence.drizzle.transaction(async tx => {
+    await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+    try {
+      return await work(tx);
+    } finally {
+      closeInstallationAdmission(tx);
+    }
+  });
+}
 
 export interface ApplicationNativeMutationRegisteredRevision {
   readonly source: ApplicationNativeMutationSourceBundle;

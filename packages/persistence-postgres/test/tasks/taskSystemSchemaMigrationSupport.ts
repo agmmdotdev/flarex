@@ -55,7 +55,7 @@ export async function restoreTaskSystemSchemaMigrationV1(
   return restoreMigrationFile(migrationPath, currentMigrationsFolder);
 }
 
-const PGLITE_SCOPE_A = "scope_70000000-0000-4000-8000-000000000001";
+const MIGRATION_SCOPE_ID = "scope_70000000-0000-4000-8000-000000000001";
 const SCOPE_B = "scope_70000000-0000-4000-8000-000000000002";
 const TASK_DEFINITION_ID =
   "taskdef_70000000-0000-4000-8000-000000000003";
@@ -64,62 +64,92 @@ const ATTEMPT_ID = "attempt_70000000-0000-4000-8000-000000000005";
 
 export interface TaskSystemSchemaContractParentV1 {
   readonly scopeId: string;
+  readonly deploymentId: string;
   readonly candidateSha256Hex: string;
   readonly applicationRevisionId: string;
 }
 
-/** PGlite-only upstream fixture; its embedded client has no pooled session. */
-export async function seedTaskSystemSchemaContractParentForPGliteV1(
+/** Inert rows at the 0046/0053 migration boundary, with all foreign keys enabled. */
+export async function seedTaskSystemSchemaContractParentV1(
   persistence: Pick<FlarexSqlClient, "query">,
 ): Promise<TaskSystemSchemaContractParentV1> {
   await persistence.query(`
     insert into fx_system_scope_clock
       (scope_id, storage_generation, epoch)
-    values ('${PGLITE_SCOPE_A}', 'flarexdb_v1',
+    values ('${MIGRATION_SCOPE_ID}', 'flarexdb_v1',
       'epoch_70000000-0000-4000-8000-000000000011')
   `);
 
-  await persistence.query("set session_replication_role = replica");
-  try {
-    await persistence.query(`
-      insert into fx_system_application_revision_v1 (
-        scope_id, candidate_sha256, revision_id, deployment_id,
-        attempt_sha256, registration_input_sha256,
-        semantic_attempt_identity_sha256, source_codec_identity,
-        package_sha256, artifact_runtime_identity, artifact_sha256,
-        schema_version_id, schema_version, manifest_codec_version,
-        manifest_byte_length, schema_artifact_sha256, schema_binding_sha256,
-        function_metadata_codec_version, function_metadata_byte_length,
-        function_metadata_sha256, function_metadata_bytes,
-        validator_root_sha256, declared_handler_set_sha256,
-        registration_root_sha256, registration_frame_count,
-        registration_frames_byte_length, registration_frames_bytes,
-        output_manifest_sha256, output_manifest_bytes, next_progress_sha256,
-        next_progress_bytes, receipt_sha256, receipt_bytes, status
-      ) values (
-        '${PGLITE_SCOPE_A}', decode(repeat('11', 32), 'hex'),
-        'apprev_task_contract_v1', 'deployment_task_contract_v1',
-        decode(repeat('12', 32), 'hex'), decode(repeat('13', 32), 'hex'),
-        decode(repeat('14', 32), 'hex'),
-        'flarex.source-artifact-v2/codec-v1',
-        decode(repeat('15', 32), 'hex'), 'dynamic-worker',
-        decode(repeat('16', 32), 'hex'), 'schema_task_contract_v1',
-        1, 1, 1, decode(repeat('17', 32), 'hex'),
-        decode(repeat('18', 32), 'hex'), 1, 1,
-        decode(repeat('19', 32), 'hex'), decode('01', 'hex'),
-        decode(repeat('1a', 32), 'hex'), decode(repeat('1b', 32), 'hex'),
-        decode(repeat('1c', 32), 'hex'), 0, 0, decode('', 'hex'),
-        decode(repeat('1d', 32), 'hex'), decode('01', 'hex'),
-        decode(repeat('1e', 32), 'hex'), decode('01', 'hex'),
-        decode(repeat('1f', 32), 'hex'), decode('01', 'hex'), 'inactive'
-      )
-    `);
-  } finally {
-    await persistence.query("set session_replication_role = origin");
-  }
+  await persistence.query(`
+    insert into deployments (deployment_id, project_id)
+    values ('deployment_task_contract_v1', 'project_task_contract_v1')
+  `);
+  await persistence.query(`
+    insert into fx_control_schema_version (
+      deployment_id, schema_version_id, version, manifest_codec_version,
+      manifest_json, manifest_bytes, manifest_sha256
+    ) values ('deployment_task_contract_v1', 'schema_task_contract_v1', 1, 1,
+      '{}'::jsonb, decode('01', 'hex'), decode(repeat('17', 32), 'hex'))
+  `);
+  await persistence.query(`
+    insert into fx_system_declarative_v2_candidate (
+      scope_id, candidate_sha256, storage_generation, storage_generation_fence,
+      epoch, frame_codec_version, frame_byte_length, frame_sha256, frame_bytes
+    ) values ('${MIGRATION_SCOPE_ID}', decode(repeat('11', 32), 'hex'), 'flarexdb_v1', 1,
+      'epoch_70000000-0000-4000-8000-000000000011', 1, 1,
+      decode(repeat('11', 32), 'hex'), decode('01', 'hex'))
+  `);
+  await persistence.query(`
+    insert into fx_system_declarative_v2_verifier_attempt_v2 (
+      scope_id, attempt_sha256, candidate_sha256, lifecycle,
+      identity_codec_version, identity_byte_length, identity_sha256, identity_bytes,
+      ceilings_codec_version, ceilings_byte_length, ceilings_sha256, ceilings_bytes,
+      usage_codec_version, usage_byte_length, usage_sha256, usage_bytes,
+      progress_codec_version, progress_byte_length, progress_sha256, progress_bytes
+    ) values ('${MIGRATION_SCOPE_ID}', decode(repeat('12', 32), 'hex'),
+      decode(repeat('11', 32), 'hex'), 'open',
+      2, 1, decode(repeat('12', 32), 'hex'), decode('01', 'hex'),
+      2, 1, decode(repeat('13', 32), 'hex'), decode('01', 'hex'),
+      2, 1, decode(repeat('14', 32), 'hex'), decode('01', 'hex'),
+      2, 1, decode(repeat('15', 32), 'hex'), decode('01', 'hex'))
+  `);
+  await persistence.query(`
+    insert into fx_system_application_revision_v1 (
+      scope_id, candidate_sha256, revision_id, deployment_id,
+      attempt_sha256, registration_input_sha256,
+      semantic_attempt_identity_sha256, source_codec_identity,
+      package_sha256, artifact_runtime_identity, artifact_sha256,
+      schema_version_id, schema_version, manifest_codec_version,
+      manifest_byte_length, schema_artifact_sha256, schema_binding_sha256,
+      function_metadata_codec_version, function_metadata_byte_length,
+      function_metadata_sha256, function_metadata_bytes,
+      validator_root_sha256, declared_handler_set_sha256,
+      registration_root_sha256, registration_frame_count,
+      registration_frames_byte_length, registration_frames_bytes,
+      output_manifest_sha256, output_manifest_bytes, next_progress_sha256,
+      next_progress_bytes, receipt_sha256, receipt_bytes, status
+    ) values (
+      '${MIGRATION_SCOPE_ID}', decode(repeat('11', 32), 'hex'),
+      'apprev_task_contract_v1', 'deployment_task_contract_v1',
+      decode(repeat('12', 32), 'hex'), decode(repeat('13', 32), 'hex'),
+      decode(repeat('14', 32), 'hex'),
+      'flarex.source-artifact-v2/codec-v1',
+      decode(repeat('15', 32), 'hex'), 'dynamic-worker',
+      decode(repeat('16', 32), 'hex'), 'schema_task_contract_v1',
+      1, 1, 1, decode(repeat('17', 32), 'hex'),
+      decode(repeat('18', 32), 'hex'), 1, 1,
+      decode(repeat('19', 32), 'hex'), decode('01', 'hex'),
+      decode(repeat('1a', 32), 'hex'), decode(repeat('1b', 32), 'hex'),
+      decode(repeat('1c', 32), 'hex'), 0, 0, decode('', 'hex'),
+      decode(repeat('1d', 32), 'hex'), decode('01', 'hex'),
+      decode(repeat('1e', 32), 'hex'), decode('01', 'hex'),
+      decode(repeat('1f', 32), 'hex'), decode('01', 'hex'), 'inactive'
+    )
+  `);
 
   return Object.freeze({
-    scopeId: PGLITE_SCOPE_A,
+    scopeId: MIGRATION_SCOPE_ID,
+    deploymentId: "deployment_task_contract_v1",
     candidateSha256Hex: "11".repeat(32),
     applicationRevisionId: "apprev_task_contract_v1",
   });

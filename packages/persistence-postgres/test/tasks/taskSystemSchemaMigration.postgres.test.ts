@@ -1,16 +1,8 @@
-import { webcrypto } from "node:crypto";
-import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
   createPostgresPersistence,
-  type PostgresFlarexPersistence,
 } from "../../src/database/postgres";
-import {
-  createPostgresLocatedApplicationRevisionRegistrationTargetV1,
-} from "../../src/testing/systemTestApplicationRevisionTargetsV1";
-import { runEffect } from "../support/effectTestRuntime";
 import {
   postgresUrl,
   withTemporaryPostgresSchema,
@@ -20,7 +12,7 @@ import {
   injectTaskSystemSchemaMigrationFailureV1,
   makeTaskSystemSchemaMigrationFixtureV1,
   restoreTaskSystemSchemaMigrationV1,
-  type TaskSystemSchemaContractParentV1,
+  seedTaskSystemSchemaContractParentV1,
   writeTaskSystemSchemaJournalThroughV1,
 } from "./taskSystemSchemaMigrationSupport";
 
@@ -85,7 +77,7 @@ describePostgres("DTE04-A3 Task System migration - PostgreSQL", () => {
             receipts: 47,
             uniques: 5,
           });
-          const parent = await seedRegisteredTaskDefinitionParent(current);
+          const parent = await seedTaskSystemSchemaContractParentV1(current);
           await assertTaskSystemSchemaContractV1(current, parent);
           const planClient = await current.pool.connect();
           try {
@@ -115,49 +107,6 @@ describePostgres("DTE04-A3 Task System migration - PostgreSQL", () => {
     }
   }, 480_000);
 });
-
-async function seedRegisteredTaskDefinitionParent(
-  persistence: PostgresFlarexPersistence,
-): Promise<TaskSystemSchemaContractParentV1> {
-  if (globalThis.crypto === undefined) {
-    Object.defineProperty(globalThis, "crypto", {
-      configurable: true,
-      value: webcrypto,
-    });
-  }
-  const state = globalThis as typeof globalThis & {
-    __flarexRegistrationFixtureOnlyV1?: boolean;
-  };
-  state.__flarexRegistrationFixtureOnlyV1 = true;
-  const { authenticatedRegistrationFixtureForPersistence } =
-    await import("../application/revision/applicationRevisionRegistrationV1.test");
-  const target =
-    createPostgresLocatedApplicationRevisionRegistrationTargetV1(
-      persistence,
-      Object.freeze({
-        kind: "shared_database" as const,
-        databaseKey: "primary",
-        schemaName: "public",
-      }),
-    );
-  return runEffect(Effect.scoped(Effect.gen(function* () {
-    const fixture = yield* authenticatedRegistrationFixtureForPersistence(
-      persistence,
-      target,
-    );
-    const registration = yield* fixture.context.register(
-      fixture.analysis,
-      "dte04-a3:task-schema-parent",
-    );
-    return Object.freeze({
-      scopeId: "scope_61000000-0000-0000-0000-000000000001",
-      candidateSha256Hex: encodeBytesToLowercaseHex(
-        fixture.preparation.candidateSha256,
-      ),
-      applicationRevisionId: registration.revisionId,
-    });
-  })));
-}
 
 async function inventory(
   persistence: Awaited<ReturnType<typeof createPostgresPersistence>>,

@@ -28,11 +28,10 @@ import {
   postgresUrl,
   withTemporaryPostgresPersistence,
 } from "../support/postgresHelpers";
-import { seedRegisteredTaskSystemParentV1 } from
-  "./taskSystemPostgresTestSupport";
 import {
   seedAdditionalTaskSystemRunV1,
   seedTaskSystemRunAttemptStoreV1,
+  seedTaskSystemParentV1,
 } from "./taskSystemRunAttemptStoreTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
@@ -51,10 +50,7 @@ describe("DTE05-D PostgreSQL acceptance environment", () => {
 describePostgres("DTE05-D fresh Queue scheduler resolution - PostgreSQL", () => {
   it("publishes after commit and repairs omitted publication through later discovery", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      const parent = await seedRegisteredTaskSystemParentV1(
-        persistence,
-        "dte05-d:task-queue-wake-parent",
-      );
+      const parent = await seedTaskSystemParentV1(persistence);
       await seedTaskSystemRunAttemptStoreV1(persistence, { parent });
       const published: Array<Readonly<{
         readonly kind: TaskWakeRequestedEffectV1["effect"]["kind"];
@@ -112,7 +108,7 @@ describePostgres("DTE05-D fresh Queue scheduler resolution - PostgreSQL", () => 
         runId: MISSED_RUN_ID,
         disposition: "accepted",
       });
-    }, { historicalApplicationAnalysis: true });
+    });
   });
 });
 

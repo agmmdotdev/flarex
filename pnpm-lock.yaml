@@ -1454,9 +1454,6 @@ importers:
       '@flarex/executor':
         specifier: workspace:*
         version: link:../executor
-      '@flarex/executor-http':
-        specifier: workspace:*
-        version: link:../executor-http
       '@flarex/function-runtime':
         specifier: workspace:*
         version: link:../function-runtime
@@ -1469,9 +1466,6 @@ importers:
       '@flarex/source-analyzer-v2':
         specifier: workspace:*
         version: link:../../apps/analyzer
-      '@flarex/standard-application-analysis':
-        specifier: workspace:*
-        version: link:../standard-application-analysis
       '@flarex/standard-application-definition':
         specifier: workspace:*
         version: link:../standard-application-definition

@@ -142,6 +142,25 @@ It reuses this package's native fixture and detached inspection rather than
 reconstructing persistence behavior. See the [system test guide](../../system-test/README.md)
 for the driver entries and the distinct historical proof obligation.
 
+## Task Fixture Boundaries
+
+Task lifecycle, creation, read and compute-delivery owner tests use current
+scope authority and the existing legacy-definition Task rows. Native fixtures
+reuse the same scope and Task seed owners as PGlite; they do not run historical
+Application analysis or import another test suite. Directory/resolver fixtures
+also seed their deployment/scope metadata.
+
+The native read suite reuses the existing file-scoped persistence fixture and
+bulk-seeds its representative query-plan population. Paired PGlite read,
+creation and lifecycle suites restore isolated migrated images with automatic
+cleanup. Native delivery tests keep their distinct pools and deadline policies
+because connection replacement and lock settlement are part of the contract.
+
+Historical 0046 schema and 0053 pending-backfill proofs use bounded journals and
+the shared Task migration parent with foreign keys enabled. They do not execute
+current scope or registration logic. Current Application Task admission and
+execution-principal tests retain their separate current-authority fixtures.
+
 ## Driver And Runtime Lanes
 
 An unsuffixed `*.test.ts` may execute PGlite. It is not automatically a unit test.

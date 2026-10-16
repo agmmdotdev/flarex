@@ -8,7 +8,7 @@ import {
   injectTaskSystemSchemaMigrationFailureV1,
   makeTaskSystemSchemaMigrationFixtureV1,
   restoreTaskSystemSchemaMigrationV1,
-  seedTaskSystemSchemaContractParentForPGliteV1,
+  seedTaskSystemSchemaContractParentV1,
   writeTaskSystemSchemaJournalThroughV1,
 } from "./taskSystemSchemaMigrationSupport";
 
@@ -70,7 +70,7 @@ describe("DTE04-A3 Task System migration - PGlite", () => {
         uniques: 5,
       });
       const parent =
-        await seedTaskSystemSchemaContractParentForPGliteV1(current);
+        await seedTaskSystemSchemaContractParentV1(current);
       await assertTaskSystemSchemaContractV1(current, parent);
     } finally {
       await db.close();

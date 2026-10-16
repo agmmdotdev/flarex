@@ -1,3 +1,5 @@
+import { withApplicationNativeFixtureTransaction } from
+  "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
@@ -108,12 +110,14 @@ describePostgres("C07 private point-mutation correctness gate — PostgreSQL", (
           } as const;
           await runSystemTestEffectV1(reconcilePublishedIndexBuildsV1Effect(ports, {
             deploymentId: input.deploymentId,
+            scopeId: input.scopeId,
             schemaVersionId: input.schemaVersionId,
           }));
           for (let step = 0; step < 8; step += 1) {
             const result = await runSystemTestEffectV1(
               buildIntrinsicCreationTimeIndexV1Effect(ports, {
                 deploymentId: input.deploymentId,
+                scopeId: input.scopeId,
                 indexDefinitionId: decodeCatalogIndexDefinitionId(1),
                 pageSize: 8,
               }),
@@ -173,9 +177,10 @@ describePostgres("C07 private point-mutation correctness gate — PostgreSQL", (
            (select backfill_cursor_row_id is null
               from fx_system_index_build_state limit 1) as cursor_is_null`,
       );
+      // Body-only patches keep the same creation-time membership lineage.
       expect(intrinsic.rows).toEqual([{
-        revisions: "3",
-        current_commit_seq: "3",
+        revisions: "1",
+        current_commit_seq: "1",
         lifecycle: "validating",
         cursor_is_null: true,
       }]);
@@ -196,7 +201,7 @@ async function seedBaselineLiveRow(
     input.value,
     "appDocument",
   );
-  await persistence.drizzle.transaction(async (tx) => {
+  await withApplicationNativeFixtureTransaction(persistence, async tx => {
     await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
       kind: "live",
       scopeId: input.scopeId,

@@ -1,3 +1,4 @@
+import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   RunAttemptLifecycle,
@@ -35,20 +36,21 @@ import {
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../support/postgresHelpers";
-import { seedRegisteredTaskSystemParentV1 } from
-  "./taskSystemPostgresTestSupport";
 import {
   ACCEPTED_ATTEMPT_UUID,
   TASK_LOCATOR,
   TASK_RUN_ID,
   locatedTaskAuthorityV1,
   seedAdditionalTaskSystemRunV1,
+  seedAdditionalTaskSystemRunsV1,
   seedTaskSystemRunAttemptStoreV1,
+  seedTaskSystemParentV1,
 } from "./taskSystemRunAttemptStoreTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withReadPersistence = useFileScopedPostgresPersistence();
 const EARLY_RUN_ID = "run_72000000-0000-4000-8000-000000000001";
 const LATE_RUN_ID = "run_72000000-0000-4000-8000-000000000005";
 const FOREIGN_READER_SCOPE_ID =
@@ -310,11 +312,10 @@ describePostgres("DTE04-E Task System reads - PostgreSQL", () => {
         lockVerifier.release();
       }
 
-      await fixture.persistence.query(`
-        with root as (insert into fx_system_scope_clock (scope_id) values ($1) returning scope_id)
-      insert into fx_system_scope_execution_authority (scope_id,storage_generation,epoch)
-      select root.scope_id,'flarexdb_v1','epoch_72000000-0000-4000-8000-000000000097' from root
-      `, [FOREIGN_READER_SCOPE_ID]);
+      await insertCurrentScopeClockFixture(fixture.persistence.drizzle, {
+        scopeId: FOREIGN_READER_SCOPE_ID,
+        epoch: "epoch_72000000-0000-4000-8000-000000000097",
+      });
       const foreignLocated = await locatedTaskAuthorityV1(
         fixture.persistence.drizzle,
         fixture.located.target,
@@ -339,16 +340,13 @@ describePostgres("DTE04-E Task System reads - PostgreSQL", () => {
 async function withReadFixture(
   run: (fixture: Awaited<ReturnType<typeof makeReadFixture>>) => Promise<void>,
 ): Promise<void> {
-  await withTemporaryPostgresPersistence(async persistence => {
+  await withReadPersistence(async persistence => {
     await run(await makeReadFixture(persistence));
-  }, { historicalApplicationAnalysis: true });
+  });
 }
 
 async function makeReadFixture(persistence: PostgresFlarexPersistence) {
-  const parent = await seedRegisteredTaskSystemParentV1(
-    persistence,
-    "dte04-e:task-read-parent",
-  );
+  const parent = await seedTaskSystemParentV1(persistence);
   const seeded = await seedTaskSystemRunAttemptStoreV1(persistence, { parent });
   const target = createPostgresLocatedTaskSystemRunAttemptTargetV1(
     persistence,
@@ -442,13 +440,12 @@ async function seedRepresentativePlanPopulation(
   persistence: PostgresFlarexPersistence,
   scopeId: string,
 ): Promise<void> {
-  for (let ordinal = 1; ordinal <= PLAN_RUN_COUNT; ordinal += 1) {
-    await seedAdditionalTaskSystemRunV1(
-      persistence,
-      `run_73000000-0000-4000-8000-${String(ordinal).padStart(12, "0")}`,
-      scopeId,
-    );
-  }
+  await seedAdditionalTaskSystemRunsV1(
+    persistence,
+    Array.from({ length: PLAN_RUN_COUNT }, (_, index) =>
+      `run_73000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`),
+    scopeId,
+  );
   await persistence.query(`
     insert into fx_system_durable_task_requested_effect_v1 (
       scope_id, run_id, sequence, accepted_run_version, kind,
@@ -486,6 +483,8 @@ async function waitForBlockedTaskRunReader(
   persistence: PostgresFlarexPersistence,
   blockerPid: number,
 ): Promise<void> {
+  // The reader's SELECT can exceed track_activity_query_size. The private
+  // blocker PID identifies this lock wait without parsing truncated SQL text.
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     const result = await persistence.query<{ blocked_count: number }>(`
@@ -494,8 +493,6 @@ async function waitForBlockedTaskRunReader(
       where $1::int = any(pg_blocking_pids(activity.pid))
         and activity.datname = current_database()
         and activity.wait_event_type = 'Lock'
-        and activity.query ilike '%fx_system_durable_task_run_v1%'
-        and activity.query ilike '%for share%'
     `, [blockerPid]);
     if ((result.rows[0]?.blocked_count ?? 0) >= 1) return;
     await delay(25);

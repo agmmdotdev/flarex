@@ -1,3 +1,4 @@
+import { seedTaskSystemSchemaContractParentV1 } from "./taskSystemSchemaMigrationSupport";
 import { copyDrizzleMigrations } from "../support/migrationFixtureSupport";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -42,9 +43,10 @@ describe("DTE06-C3 compute pending migration", () => {
 
       const previous = await createPGlitePersistence({ db, migrationsFolder });
       await previous.migrate();
+      const parent = await seedTaskSystemSchemaContractParentV1(previous);
       const seeded = await seedTaskComputeDeliverySchemaV1(
         previous,
-        undefined,
+        parent,
         { legacySchema: true },
       );
       await previous.query(`

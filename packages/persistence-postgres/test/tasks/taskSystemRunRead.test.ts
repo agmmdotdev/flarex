@@ -1,6 +1,4 @@
 import { fxSystemScopeExecutionAuthorities } from "../../src/database/schema";
-import { PGlite } from "@electric-sql/pglite";
-import { newTestPGlite } from "../support/pgliteSearchExtensions";
 import {
   RunAttemptLifecycle,
   RunAttemptLifecycleLive,
@@ -19,11 +17,15 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../support/pgliteTestFixture";
 
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
-  createPGlitePersistence,
+  type PGliteFlarexPersistence,
 } from "../../src/database/pglite";
 import { makeTaskSystemRunAttemptStoreV1 } from
   "../../src/tasks/taskSystemRunAttemptStoreV1";
@@ -77,6 +79,8 @@ const crossScopeEpoch = ScopeEpochSchema.make(
 const staleScopeEpoch = ScopeEpochSchema.make(
   "epoch_72000000-0000-4000-8000-000000000099",
 );
+
+beforeAll(() => migratedPGliteDataDir(), 120_000);
 
 describe("DTE04-D scope-bound Task System reads - PGlite", () => {
   it("discovers a stable, bounded due snapshot in exact keyset order", async () => {
@@ -384,17 +388,10 @@ function lifecycleLayer(
 async function withFixture(
   run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
 ): Promise<void> {
-  const raw = newTestPGlite();
-  try {
-    await run(await makeFixture(raw));
-  } finally {
-    await raw.close();
-  }
+  await run(await makeFixture(await createMigratedPGlitePersistence()));
 }
 
-async function makeFixture(raw: PGlite) {
-  const persistence = await createPGlitePersistence({ db: raw });
-  await persistence.migrate();
+async function makeFixture(persistence: PGliteFlarexPersistence) {
   await seedTaskSystemRunAttemptStoreV1(persistence);
   const target = createPGliteLocatedTaskSystemRunAttemptTargetV1(
     persistence,
@@ -408,7 +405,7 @@ async function makeFixture(raw: PGlite) {
 }
 
 async function taskCounts(
-  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  persistence: PGliteFlarexPersistence,
 ) {
   const [[runs], [attempts], [effects]] = await Promise.all([
     persistence.drizzle.select({ count: count() }).from(
@@ -429,7 +426,7 @@ async function taskCounts(
 }
 
 async function seedCrossScopeRun(
-  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  persistence: PGliteFlarexPersistence,
   crossScopeRunId: TaskRunIdV1,
 ): Promise<void> {
   await persistence.drizzle.transaction(async authorityTx => {

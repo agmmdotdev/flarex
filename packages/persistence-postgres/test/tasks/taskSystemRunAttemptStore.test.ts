@@ -1,6 +1,4 @@
 import { fxSystemScopeExecutionAuthorities } from "../../src/database/schema";
-import { PGlite } from "@electric-sql/pglite";
-import { newTestPGlite } from "../support/pgliteSearchExtensions";
 import {
   RunAttemptLifecycle,
   RunAttemptLifecycleLive,
@@ -31,11 +29,15 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../support/pgliteTestFixture";
 
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
-  createPGlitePersistence,
+  type PGliteFlarexPersistence,
 } from "../../src/database/pglite";
 import {
   createLocatedTaskSystemRunAttemptTargetV1,
@@ -85,6 +87,8 @@ const cancellationOne = Result.getOrThrow(
 const acceptedAttemptId = Result.getOrThrow(
   decodeTaskAttemptIdV1(`attempt_${ACCEPTED_ATTEMPT_UUID}`),
 );
+
+beforeAll(() => migratedPGliteDataDir(), 120_000);
 
 describe("DTE04-B scope-bound Task System lifecycle store - PGlite", () => {
   it("commits lifecycle state, immutable attempt identity, ordered effects, replay, and inspection", async () => {
@@ -667,18 +671,10 @@ describe("DTE04-B scope-bound Task System lifecycle store - PGlite", () => {
 async function withStore(
   run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
 ): Promise<void> {
-  const raw = newTestPGlite();
-  try {
-    const fixture = await makeFixture(raw);
-    await run(fixture);
-  } finally {
-    await raw.close();
-  }
+  await run(await makeFixture(await createMigratedPGlitePersistence()));
 }
 
-async function makeFixture(raw: PGlite) {
-  const persistence = await createPGlitePersistence({ db: raw });
-  await persistence.migrate();
+async function makeFixture(persistence: PGliteFlarexPersistence) {
   await seedTaskSystemRunAttemptStoreV1(persistence);
   const target = createPGliteLocatedTaskSystemRunAttemptTargetV1(
     persistence,
@@ -733,7 +729,7 @@ function taskPendingWhere(sequence: TaskRequestedEffectSequenceV1) {
 }
 
 async function counts(
-  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  persistence: PGliteFlarexPersistence,
 ) {
   const [[attempts], [effects], [pendingComputeDeliveries]] =
     await Promise.all([
@@ -755,7 +751,7 @@ async function counts(
 }
 
 async function runState(
-  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  persistence: PGliteFlarexPersistence,
 ) {
   const [result] = await persistence.drizzle.select({
     runVersion: fxSystemDurableTaskRunsV1.runVersion,

@@ -25,8 +25,6 @@ import {
   postgresUrl,
   withTemporaryPostgresPersistence,
 } from "../support/postgresHelpers";
-import { seedRegisteredTaskSystemParentV1 } from
-  "./taskSystemPostgresTestSupport";
 import {
   TASK_SYSTEM_CREATION_RUN_UUID_A,
   TASK_SYSTEM_CREATION_RUN_UUID_B,
@@ -41,6 +39,7 @@ import {
   TASK_LOCATOR,
   locatedTaskAuthorityV1,
   seedTaskSystemRunAttemptStoreV1,
+  seedTaskSystemParentV1,
 } from "./taskSystemRunAttemptStoreTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
@@ -238,14 +237,11 @@ async function withCreationFixture(
 ): Promise<void> {
   await withTemporaryPostgresPersistence(async persistence => {
     await run(await makeCreationFixture(persistence));
-  }, { historicalApplicationAnalysis: true });
+  });
 }
 
 async function makeCreationFixture(persistence: PostgresFlarexPersistence) {
-  const parent = await seedRegisteredTaskSystemParentV1(
-    persistence,
-    "dte04-e:task-creation-parent",
-  );
+  const parent = await seedTaskSystemParentV1(persistence);
   const seeded = await seedTaskSystemRunAttemptStoreV1(persistence, { parent });
   await persistence.query(`
     delete from fx_system_durable_task_run_v1

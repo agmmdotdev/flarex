@@ -36,9 +36,9 @@ import {
 import {
   TASK_LOCATOR,
   locatedTaskAuthorityV1,
+  seedTaskSystemParentV1,
+  seedAdditionalTaskSystemRunsV1,
 } from "./taskSystemRunAttemptStoreTestSupport";
-import { seedRegisteredTaskSystemParentV1 } from
-  "./taskSystemPostgresTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const DISCOVERY_DEADLINE_POLICY = Object.freeze({
@@ -96,10 +96,7 @@ describePostgres("real PostgreSQL DTE06-C3 compute-delivery discovery", () => {
         );
         expect(version.rows[0]?.server_version).toMatch(/^18\./);
 
-        const parent = await seedRegisteredTaskSystemParentV1(
-          persistence,
-          "dte06-c3:compute-delivery-discovery",
-        );
+        const parent = await seedTaskSystemParentV1(persistence);
         const seeded = await seedTaskComputeDeliverySchemaV1(
           persistence,
           parent,
@@ -189,6 +186,7 @@ describePostgres("real PostgreSQL DTE06-C3 compute-delivery discovery", () => {
         await persistence.query(
           "analyze fx_system_durable_task_compute_cancellation_v1",
         );
+        await persistence.query("analyze fx_system_durable_task_run_v1");
         const scopeId = ReplacementScopeIdV1Schema.make(seeded.scopeId);
         const dialect = new PgDialect();
         const plans = await Promise.all([
@@ -273,45 +271,14 @@ async function seedLargeComputeDeliveryHistory(
     readonly runId: string;
   }>,
 ): Promise<void> {
-  await persistence.query(`
-    with generated as materialized (
-      select format(
-        'run_%s-0000-4000-8000-%s',
-        lpad(to_hex(value), 8, '0'),
-        lpad(to_hex(value), 12, '0')
-      ) as run_id
-      from generate_series(1, 2000) as value
-    )
-    insert into fx_system_durable_task_run_v1 (
-      scope_id, run_id, definition_generation, task_definition_revision_id, created_at_ms,
-      input_codec, input_store, input_value_codec, input_object_key,
-      input_byte_length, input_sha256, input_retention,
-      creation_authority_codec_version, creation_authority_byte_length,
-      creation_authority_sha256, creation_authority_bytes,
-      aggregate_codec_version, aggregate_byte_length, aggregate_json,
-      run_version, phase, due_kind, due_at_ms, current_attempt_id,
-      execution_fence_basis, current_lease_version,
-      current_lease_expires_at_ms, cancellation_generation,
-      requested_effect_sequence
-    )
-    select source.scope_id, generated.run_id, source.definition_generation,
-           source.task_definition_revision_id, source.created_at_ms,
-           source.input_codec, source.input_store, source.input_value_codec,
-           source.input_object_key, source.input_byte_length,
-           source.input_sha256, source.input_retention,
-           source.creation_authority_codec_version,
-           source.creation_authority_byte_length,
-           source.creation_authority_sha256, source.creation_authority_bytes,
-           source.aggregate_codec_version, source.aggregate_byte_length,
-           source.aggregate_json, source.run_version, source.phase,
-           source.due_kind, source.due_at_ms, source.current_attempt_id,
-           source.execution_fence_basis, source.current_lease_version,
-           source.current_lease_expires_at_ms,
-           source.cancellation_generation, source.requested_effect_sequence
-    from fx_system_durable_task_run_v1 as source
-    cross join generated
-    where source.scope_id = $1 and source.run_id = $2
-  `, [seeded.scopeId, seeded.runId]);
+  await seedAdditionalTaskSystemRunsV1(
+    persistence,
+    Array.from({ length: 2000 }, (_, index) => {
+      const suffix = (index + 1).toString(16);
+      return `run_${suffix.padStart(8, "0")}-0000-4000-8000-${suffix.padStart(12, "0")}`;
+    }),
+    seeded.scopeId,
+  );
   const classifyDispatchHistory = () => persistence.query(`
     with generated as materialized (
       select value,

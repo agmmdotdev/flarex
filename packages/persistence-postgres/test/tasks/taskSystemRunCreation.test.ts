@@ -1,6 +1,4 @@
 import { fxSystemScopeExecutionAuthorities } from "../../src/database/schema";
-import { PGlite } from "@electric-sql/pglite";
-import { newTestPGlite } from "../support/pgliteSearchExtensions";
 import {
   RunAttemptLifecycle,
   RunAttemptLifecycleLive,
@@ -22,11 +20,15 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+} from "../support/pgliteTestFixture";
 
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
-  createPGlitePersistence,
+  type PGliteFlarexPersistence,
 } from "../../src/database/pglite";
 import {
   TaskSystemRunCreationBindingError,
@@ -73,6 +75,8 @@ const taskRunCreationAuthoritySha256 =
 const staleScopeEpoch = ScopeEpochSchema.make(
   "epoch_73000000-0000-4000-8000-000000000009",
 );
+
+beforeAll(() => migratedPGliteDataDir(), 120_000);
 
 describe("DTE04-C scope-bound Task System run creation - PGlite", () => {
   it("creates the only legal initial state and interoperates with lifecycle", async () => {
@@ -361,17 +365,10 @@ describe("DTE04-C scope-bound Task System run creation - PGlite", () => {
 async function withFixture(
   run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
 ): Promise<void> {
-  const raw = newTestPGlite();
-  try {
-    await run(await makeFixture(raw));
-  } finally {
-    await raw.close();
-  }
+  await run(await makeFixture(await createMigratedPGlitePersistence()));
 }
 
-async function makeFixture(raw: PGlite) {
-  const persistence = await createPGlitePersistence({ db: raw });
-  await persistence.migrate();
+async function makeFixture(persistence: PGliteFlarexPersistence) {
   await seedTaskSystemRunAttemptStoreV1(persistence);
   await persistence.drizzle
     .delete(fxSystemDurableTaskRunsV1)

@@ -3814,13 +3814,15 @@ then publishes and replays only the parent outcome. The historical SAP06-A3
 expectation that catching a child result-validation failure permits publication
 is obsolete: current runtime failures remain sticky across that catch.
 
-FSV03's standalone analyzer/C07 entries and session-finalizer test still consume
-the historical analyzer harness. Their removal gate is disposition against the
-current Application Analysis composition and mutation owners. They retain a
-schema/runtime gap and do not establish current Application acceptance. Do not
-create a hybrid historical schema or bypass admission to make them pass.
-Remaining legacy production invocation/query adapters have separate source
-consumers and are not removed by this fixture cleanup.
+The remaining FSV03 analyzer/C07 entries and their preparation harness are
+retired. Their cloned-selection and digest checks belonged to a test-owned
+inactive selector; current activation/publication/query owners retain genuine
+capability and corruption refusal. Current Application Analysis and lifecycle
+composition own real analysis, cold replay and publication, while native mutation
+and the independent C07 proof retain execution and durable agreement. The unused
+analyzer bridge exports and sources, harness-only finalizer and registration
+fixture are removed. Legacy production invocation/query adapters still have
+separate source consumers and are not retired by this test cleanup.
 
 The retained granular verifier repository proofs use the pre-0064 journal and
 historical scope seed with the shared READ COMMITTED transaction/settlement
@@ -3831,21 +3833,25 @@ backend lineage composition case is removed in favor of current Application
 Analysis composition proofs. The unused connected-Client verifier adapter and
 its package route are retired; its real Client transaction-serialization witness
 remains with the current connected-Client persistence tests. This repository-only
-fixture disposition does not resolve the retained FSV03 or native Task gaps.
+fixture disposition is distinct from the current Task owner fixtures below.
 The earlier verifier V1-retirement proof is bounded at migration 0044, where V2
 progress remains present; migration 0064 owns its subsequent retirement.
 
-The retained native Task fixtures have the same registered-parent ownership
-gap. `taskSystemRunRead.postgres.test.ts` caps its schema before 0064 but invokes
-the current registration runtime through `seedRegisteredTaskSystemParentV1`.
-`taskComputeDeliveryRepositoryV1.postgres.test.ts` installs the current schema
-but calls that historical seed, which writes the retired scope-clock
-`storage_generation` column before reaching Task or Session work. Their existing
-behavioral assertions remain with the matched-runtime or explicit
-consumer-migration disposition above. Import and construction organization does
-not establish native Task acceptance for these fixtures. Do not restore retired
-columns or combine historical registration rows with current authority to make
-them pass.
+Native Task owner suites use the current scope clock/execution-authority pair
+and the existing legacy-definition Task fixtures. Their retired registration
+runtime, test-suite import and pre-0064 runtime journal caps are removed. They
+retain native lock ordering, post-lock database time, concurrency, rollback,
+uncertain outcomes, cancellation, query plans and pool cleanup. These low-level
+legacy-definition proofs remain distinct from current Application Task admission
+and execution-principal coverage.
+
+The genuine 0046 Task schema and 0053 pending-compute migration tests remain
+bounded to those historical schemas. Both drivers share the historical parent
+fixture with its candidate, verifier-attempt and schema foreign keys enabled;
+no current runtime or privileged replication bypass is involved. Other retained
+historical registration/repository consumers still own their separate retirement
+gates. Do not restore retired columns or combine historical registration rows
+with current execution authority.
 
 Stop here. `AA-R9` routing, bindings, deployment, caller selection, auth and
 production cutover remain unauthorized.

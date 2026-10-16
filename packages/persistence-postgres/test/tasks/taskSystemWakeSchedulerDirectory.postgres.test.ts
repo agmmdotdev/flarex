@@ -19,10 +19,9 @@ import {
   postgresUrl,
   withTemporaryPostgresPersistence,
 } from "../support/postgresHelpers";
-import { seedRegisteredTaskSystemParentV1 } from
-  "./taskSystemPostgresTestSupport";
 import {
   seedTaskSystemRunAttemptStoreV1,
+  seedTaskSystemParentV1,
 } from "./taskSystemRunAttemptStoreTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
@@ -40,10 +39,7 @@ describe("DTE05-C2 PostgreSQL acceptance environment", () => {
 describePostgres("DTE05-C2 trusted Task scheduler directory - PostgreSQL", () => {
   it("reconstructs fresh authority and a C1 scheduler after settlement", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      const parent = await seedRegisteredTaskSystemParentV1(
-        persistence,
-        "dte05-c2:task-scheduler-directory-parent",
-      );
+      const parent = await seedTaskSystemParentV1(persistence);
       await seedTaskSystemRunAttemptStoreV1(persistence, { parent });
 
       const first = makeDirectory(persistence, attemptUuidSequence(701));
@@ -98,7 +94,7 @@ describePostgres("DTE05-C2 trusted Task scheduler directory - PostgreSQL", () =>
         candidatesHandled: 0,
         continuation: null,
       });
-    }, { historicalApplicationAnalysis: true });
+    });
   });
 });
 

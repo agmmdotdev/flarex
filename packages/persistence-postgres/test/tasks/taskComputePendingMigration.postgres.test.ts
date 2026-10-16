@@ -13,8 +13,8 @@ import {
 } from "../support/postgresHelpers";
 import { seedTaskComputeDeliverySchemaV1 } from
   "./taskComputeDeliverySchemaV1TestSupport";
-import { seedRegisteredTaskSystemParentV1 } from
-  "./taskSystemPostgresTestSupport";
+import { seedTaskSystemSchemaContractParentV1 } from
+  "./taskSystemSchemaMigrationSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
@@ -45,10 +45,8 @@ describePostgres("real PostgreSQL DTE06-C3 compute pending migration", () => {
             can_create_database: false,
             can_create_role: false,
           }]);
-          const parent = await seedRegisteredTaskSystemParentV1(
-            previous,
-            "dte06-c3:compute-pending-migration",
-          );
+          const parent = await seedTaskSystemSchemaContractParentV1(
+            previous);
           const seeded = await seedTaskComputeDeliverySchemaV1(
             previous,
             parent,

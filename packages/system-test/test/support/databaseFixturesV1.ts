@@ -16,9 +16,6 @@ import { trimToNonBlankOrNull } from "@flarex/utils/strings";
 import { Pool, type PoolConfig } from "pg";
 import { expect, onTestFinished } from "vitest";
 
-import {
-  withHistoricalApplicationAnalysisMigrations,
-} from "./historicalApplicationAnalysisMigrations";
 
 let migratedDataDirPromise: Promise<Blob | File> | undefined;
 const pgliteExtensions = { pg_trgm, btree_gin };
@@ -86,34 +83,10 @@ export async function createMigratedSplitPGlitePersistence(): Promise<
   return Object.freeze({ control, target });
 }
 
-export async function createHistoricalApplicationAnalysisPGlitePersistence(): Promise<
-  PGliteFlarexPersistence
-> {
-  const db = new PGlite({ extensions: pgliteExtensions });
-  try {
-    const persistence = await withHistoricalApplicationAnalysisMigrations(
-      async migrationsFolder => {
-        const current = await createPGlitePersistence({
-          db,
-          migrationsFolder,
-        });
-        await current.migrate();
-        return current;
-      },
-    );
-    onTestFinished(() => db.close());
-    return persistence;
-  } catch (cause: unknown) {
-    await db.close();
-    throw cause;
-  }
-}
-
 export async function withTemporaryPostgresPersistence(
   run: (persistence: PostgresFlarexPersistence) => Promise<void>,
   options: Readonly<{
     readonly migrationsFolder?: string;
-    readonly historicalApplicationAnalysis?: boolean;
   }> = {},
 ): Promise<void> {
   if (postgresUrl === null) {
@@ -138,9 +111,7 @@ export async function withTemporaryPostgresPersistence(
       await current.migrate();
       return current;
     };
-    persistence = options.historicalApplicationAnalysis === true
-      ? await withHistoricalApplicationAnalysisMigrations(create)
-      : await create(options.migrationsFolder);
+    persistence = await create(options.migrationsFolder);
     await run(persistence);
   } catch (cause: unknown) {
     primaryCause = cause;

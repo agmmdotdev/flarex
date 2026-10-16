@@ -15,8 +15,8 @@ import {
   seedTaskComputePendingConstraintRowV1,
   settleTaskComputeDeliverySchemaV1,
 } from "./taskComputeDeliverySchemaV1TestSupport";
-import { seedRegisteredTaskSystemParentV1 } from
-  "./taskSystemPostgresTestSupport";
+import { seedTaskSystemParentV1 } from
+  "./taskSystemRunAttemptStoreTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
@@ -32,10 +32,7 @@ describe("DTE06-C1 PostgreSQL acceptance environment", () => {
 describePostgres("real PostgreSQL DTE06-C1 compute delivery schema", () => {
   it("migrates with an ordinary role and enforces both state machines", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
-      const parent = await seedRegisteredTaskSystemParentV1(
-        persistence,
-        "dte06-c1:compute-delivery-schema",
-      );
+      const parent = await seedTaskSystemParentV1(persistence);
       const seeded = await seedTaskComputeDeliverySchemaV1(
         persistence,
         parent,
@@ -84,6 +81,6 @@ describePostgres("real PostgreSQL DTE06-C1 compute delivery schema", () => {
           )
       `);
       expect(result.rows).toEqual([{ count: 3 }]);
-    }, { historicalApplicationAnalysis: true });
+    });
   }, 480_000);
 });

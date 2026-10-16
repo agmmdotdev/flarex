@@ -66,10 +66,15 @@ recovery, digest capture and transaction cleanup. The current native query suite
 retains PostgreSQL snapshot/writer locking and retained-floor checks; the native
 mutation suite exercises nested calls through a real Worker and shared journal.
 
-FSV03's standalone analyzer/C07 entries and session-finalizer test still consume
-the historical analyzer harness. Their removal gate is disposition against
-current Application Analysis and mutation coverage. The separate historical
-native Task parent seeds retain their registration/runtime gap. Neither is
-current Application acceptance. The
+The remaining FSV03 analyzer/C07 entries, their fixture-only selector/finalizer,
+and orphan analyzer bridge are retired. Current Application Analysis, lifecycle,
+activation and native mutation suites own their live behavior; the independent
+C07 execution proof remains.
+
+Native Task owner suites use current scope authority and legacy-definition
+fixtures without invoking retired Application registration. The genuine 0046
+schema and 0053 pending-backfill tests retain bounded historical journals and a
+shared parent fixture with foreign keys enabled. See the
 [analysis retirement owner](../../roadmaps/49-application-analysis-migration.md)
-owns these remaining gates; do not extend historical schemas or bypass admission.
+for the boundary between current consumer coverage and historical migration
+coverage. Do not extend historical schemas or bypass admission.
