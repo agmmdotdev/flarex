@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./inventory/update-inventory-levels": "./src/inventory/workflows/update-inventory-levels.ts",
+    "./inventory/update-inventory-levels-step": "./src/inventory/steps/update-inventory-levels.ts",
     "./inventory/update-inventory-items": "./src/inventory/workflows/update-inventory-items.ts",
     "./inventory/update-inventory-items-step": "./src/inventory/steps/update-inventory-items.ts",
     "./fulfillment/create-shipping-profiles-step": "./src/fulfillment/steps/create-shipping-profiles.ts",

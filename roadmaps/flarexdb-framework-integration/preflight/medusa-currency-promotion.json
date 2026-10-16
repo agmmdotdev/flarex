@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "06ab044b6173e923a43dd7602c85574c7355d194cdab01e7007d82fd1e11effe"
+      "targetSha256": "6037367c31de160a053750902b505ae3fbad2bb5085691248d7da20dfc81a0b9"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -5543,7 +5543,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/inventory/service.ts",
       "classification": "authored",
-      "targetSha256": "ace4af7866ebe0352acaf05a37600efdf650ba599ec43adbf372b60b2178cdbc"
+      "targetSha256": "f267eaa72385801779722a0d65c34305b4122ae0dea03a9f826e72cf820cc784"
     },
     {
       "target": "packages/medusa-adapter/src/composition/product-variant-inventory-schema.ts",
@@ -5608,7 +5608,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-inventory-fixture.ts",
       "classification": "authored",
-      "targetSha256": "9e100c1cbea31da42578aef0cd60fe98bfdd47f1ad211e0de5afd0d05b943ba3"
+      "targetSha256": "cd93ebca19780ead612fbe4dc50b2a1c33ed35a4a0a86211326a0312eb92f7f6"
     },
     {
       "target": "packages/medusa-core-flows/src/common/workflows/create-links.ts",
@@ -6114,7 +6114,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/inventory/quantity-repository.ts",
       "classification": "authored",
-      "targetSha256": "cfa9d95c9945d34ea5f530aebfa01b4cb0ee4584bdd2cff7361f673d1f891c1d"
+      "targetSha256": "18f0843d10ebf188f581116b9bba29a0a2a1b55d84d36c64b07c3e2b2dc5d765"
     },
     {
       "target": "packages/medusa-adapter/src/modules/inventory/reservation-input.ts",
@@ -8045,7 +8045,7 @@
     {
       "target": "packages/medusa-adapter/src/value/complete-row.ts",
       "classification": "authored",
-      "targetSha256": "1a33574a9b5735f8792c0f73f4330b8d7979bd25014999a5792e894c404af82e"
+      "targetSha256": "02d5a5d6b81d19aeabc0661c044f903c0ce6d8c24ea63b846ad4920d9d7d51d2"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/sales-channel/create.ts",
@@ -8097,7 +8097,7 @@
     {
       "target": "packages/medusa-adapter/src/repository/result.ts",
       "classification": "authored",
-      "targetSha256": "6ace6afa53e9c22e1ae966d1912d76645cb61831eaaa7f40a2f8d30eefea9a45"
+      "targetSha256": "b1998ab6f5b728f621970041ee23a3a6b4cdf58b49c5c76ec825386e6ba5cd14"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/sales-channel/update.ts",
@@ -8519,7 +8519,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/inventory/update-events.ts",
       "classification": "authored",
-      "targetSha256": "f905680082309b72eab16d855626f2e21051026940e286b8977c84fa492d264b"
+      "targetSha256": "3013b86901b000129f0b30b64dcb5bdb90609cb99b82b93549608207dc7af538"
     },
     {
       "target": "packages/medusa-adapter/src/modules/inventory/update-input.ts",
@@ -8574,7 +8574,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-inventory-item-update-fixture.ts",
       "classification": "authored",
-      "targetSha256": "8c7e5e98400031bcb614f68a27dda5ed6bc79c80e5365e4c577b29538917380e"
+      "targetSha256": "5e0556d70db73a6fd792484f229677f61e0a20fbdd0d44f95725edf702e644f4"
     },
     {
       "target": "packages/medusa-core-flows/src/inventory/steps/update-inventory-items.ts",
@@ -8589,6 +8589,75 @@
       "targetSha256": "197cc55c726f07a4548c463713541818832aa624d7bf268a816f8b7e8126ddf2",
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/inventory/workflows/update-inventory-items.ts",
       "sourceSha256": "3bec3142e86f8c2322eebf9b55d2398be1a769470d921b56af9a3f7b239330be"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/inventory/update-level-events.ts",
+      "classification": "authored",
+      "targetSha256": "bff9cac4d70d64ef210b221f6330171489b5ec4b56ad0c53e6f56e5605d9ec38"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/inventory/update-level-input.ts",
+      "classification": "authored",
+      "targetSha256": "e2f2825372d0d9ad1d3160bb0adf50747c9fd5281516a25ef21170194205b100"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/inventory/update-level-service.ts",
+      "classification": "authored",
+      "targetSha256": "2b032ad1859ec5f8f43393b5f141d12958f98cad9afdb44ea6f278e034640504"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/inventory/update-levels.ts",
+      "classification": "authored",
+      "targetSha256": "df1caf8382b9b10997884988d7470184ce634e5a318bebe3e3f2235e4d007fa2"
+    },
+    {
+      "target": "packages/medusa-adapter/test/inventory-level-update-composer.test.ts",
+      "classification": "authored",
+      "targetSha256": "3b27e6c49fcb6c479f511a94c9afa74a2356c25729963b442ebe867bc0cd908f"
+    },
+    {
+      "target": "packages/medusa-adapter/test/inventory-level-update-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "a40783179ad65bd912a1019c8863b32eb7ccbcec2aab174ccbf5135bce325a98"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-inventory-level-update-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "54a4f8d07e67a85985f20eaeb26a99256342d34d4e3807c94ed7029e5bf3cb22"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/inventory-level-update-native-tests.ts",
+      "classification": "authored",
+      "targetSha256": "89bb904f37e19376a95a1f575dcbca8e481c1bd9682a4505c8f06ede742440cd"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-inventory-level-update-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "fa4f2fe6ca8f001f14e9f96b574c44779679afe5686626381cdd0a2c6e681d71"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-inventory-maintenance-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "4773851b1a6bffd917d52b541888ba31aac83474d67af45257882fea0090f4e1"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/inventory/steps/update-inventory-levels.ts",
+      "classification": "workflowFork",
+      "targetSha256": "9ae559950699f636329d15678f4501b5663933bf43166745c3b4ccaea861bdc5",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/inventory/steps/update-inventory-levels.ts",
+      "sourceSha256": "767a7b1470dc4551627e44f0161801622402d980939fad2cf576858d0cc8416a"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/inventory/workflows/update-inventory-levels.ts",
+      "classification": "workflowFork",
+      "targetSha256": "42c8280ff7c4454f0d43691bc978dbb2b663bcbdc665b0227e528fcb1162270d",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/inventory/workflows/update-inventory-levels.ts",
+      "sourceSha256": "b012e3b8473daa6ece3049fb5cdfe204afaac93a5ab24b57f894fb1ee5942c1b"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-conjunctive-point-access.test.ts",
+      "classification": "authored",
+      "targetSha256": "225ed7a1019c432a8f7530a9aecab117205acbdb9ccb780c636f5b9e5da2e1f3"
     }
   ],
   "dependencies": {
@@ -8992,6 +9061,8 @@
         "@medusajs/orchestration": "workspace:*"
       },
       "exports": [
+        "./inventory/update-inventory-levels",
+        "./inventory/update-inventory-levels-step",
         "./inventory/update-inventory-items",
         "./inventory/update-inventory-items-step",
         "./fulfillment/create-shipping-profiles-step",

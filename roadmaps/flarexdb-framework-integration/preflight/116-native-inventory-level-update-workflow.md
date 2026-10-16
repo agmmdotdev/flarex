@@ -2,7 +2,8 @@
 
 ## Status And Authority
 
-Status: preflight complete; implementation pending after Inventory Item update.
+Status: implemented for the bounded private absolute-Level update profile,
+including the shared conjunctive point-planning correction.
 Authority is the accepted Flarex design, package boundaries, Medusa adoption
 roadmap and Medusa 2.13.4 at `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`.
 The source island remains read-only. Chunked File import and Product export
@@ -112,7 +113,8 @@ explicit IDs differ from pair-derived rows. Bound actual touched Levels by four.
 Retain the default 64-call/64-event envelope, existing bytes/catalog bounds and
 ordinary 128-identity working sets; prove the complete maximum before any limit
 change. No schema, source lineage, installation or durable reset is required by
-the static closure. No shared-core blocker is identified. The existing exact
+the static closure. The runtime shared-owner correction is recorded below.
+The existing exact
 numeric row owner already supports these quantities; any actual mismatch must
 be preserved as a failing witness and corrected at its owner.
 
@@ -127,6 +129,15 @@ reservation and delta roots. Do not let an absolute update overwrite a newly
 committed reserved_quantity, silently lose a delta or claim key-level exclusion.
 A discovered shared-owner defect is covered by continuing core-change authority,
 but an adapter mutex/retry/extra transaction is not a correction.
+
+Actual PostgreSQL execution exposes broad scalar-prefix dependency reads for
+complete native tuples, including extra same-Location Levels and an existing
+other-Location Level for a missing tuple. Results are native-correct, but strict
+receipts refuse those extra bodies. The authorized
+[conjunctive point correction](../../shared-logical-storage/61-conjunctive-composite-point-access.md)
+must select the existing complete composite access path through shared demand,
+coverage and dependency proofs. Receipt checks, native queries and limits remain
+unchanged.
 
 The compensation callback skips missing/empty preimages; otherwise it restores
 only fields selected by the genuine `convertItemResponseToUpdateRequest` helper
@@ -156,5 +167,7 @@ Regress stocking, stock adjustments/individual reservations, Product Inventory,
 item updates and the exact numeric/shared keyed owners as affected. Complete
 both database lanes, affected types/builds, provenance/portability/source guards,
 configured lint and both required read-only reviews before one scoped commit.
-Inventory deletion, level deletion/batching, larger batches and hosted activation
+The next connected outcome is
+[native Level deletion](./117-native-inventory-level-delete-workflow.md).
+Inventory Item deletion, level batching, larger batches and hosted activation
 remain separate pending outcomes.

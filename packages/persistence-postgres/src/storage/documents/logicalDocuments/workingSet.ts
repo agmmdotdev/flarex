@@ -773,7 +773,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     const retained = preparation?.retained;
     const prepared = retained?.table === table ? retained.prepared : yield* Effect.fromResult(prepareLogicalRelationalRead(table.relational, state.relationalCapabilities,
       input, limits.pageRows, error, table.relationalMechanics));
-    const access = yield* nativeIndexesFor(table, prepared.demand);
+    let access = yield* nativeIndexesFor(table, prepared.demand);
+    const pointDemand = prepared.pointDemand(access);
+    if (pointDemand !== prepared.demand) access = yield* nativeIndexesFor(table, pointDemand);
     // Access consumption stays per execution. Only the exact immutable source
     // mechanics may retain the selection compiler's interpretation.
     if ((writeMechanics !== undefined || readMechanics !== undefined) && retained?.table === table && preparation?.compiled !== undefined) return preparation.compiled;

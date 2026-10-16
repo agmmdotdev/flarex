@@ -81,9 +81,21 @@ interface Filter<Failure> {
   /** Every matching row has these null fields, including across OR branches. */
   readonly requiredNulls: ReadonlySet<string>;
   readonly search: readonly LogicalSearchPattern[] | null;
+  /** Scalar memberships implied by this conjunct; OR branches stay separate. */
+  readonly equalities?: ReadonlyMap<string, readonly (string | boolean)[]>;
   readonly json?: Readonly<{ column: string; value: Json }>;
   readonly matches: (row: JsonObject) => boolean;
 }
+
+const compoundIndexes = (equalities: ReadonlyMap<string, readonly (string | boolean)[]>,
+  indexes: RelationalTableDefinition["indexes"]) => {
+  return indexes.filter(index => {
+    if (index.kind !== "uniqueBtree" || index.columns.length < 2 || index.columns.length > 4 ||
+      !index.columns.every(column => equalities.has(column.columnId))) return false;
+    const count = index.columns.reduce((size, column) => size * (equalities.get(column.columnId)?.length ?? 0), 1);
+    return count > 0 && count <= 16;
+  });
+};
 
 /** Match the pinned SQL LIKE contract: ASCII-only case folding, percent and
  * underscore wildcards, and literal backslashes. Greedy wildcard matching
@@ -152,6 +164,17 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
     };
     const demandedFields = new Set<string>(), demandedNulls = new Set<string>();
     const demandedPoints = new Map<string, readonly string[]>();
+    const equalityGroups: ReadonlyMap<string, readonly (string | boolean)[]>[] = [];
+    const pointPlan = (columns: readonly string[], values: readonly (readonly (string | boolean)[])[],
+      requiredNulls: ReadonlySet<string>, access?: LogicalRelationalReadAccess): SelectionPlan | null => {
+      const index = (access?.indexes ?? table.indexes).find(candidate => candidate.kind === "uniqueBtree" &&
+        candidate.columns.length === columns.length && candidate.columns.every((column, offset) => column.columnId === columns[offset]) &&
+        (candidate.predicate === null || candidate.predicate.kind === "isNull" && requiredNulls.has(candidate.predicate.column.columnId)));
+      if (index === undefined) return null;
+      const nullColumn = index.predicate?.kind === "isNull" ? index.predicate.column.columnId : undefined;
+      return { selections: values.map(point => ({ kind: "point", columns, values: point,
+        ...(nullColumn === undefined ? {} : { nullColumn }) })), unindexedText: false };
+    };
     let nodes = 0;
     let operands = 0;
     const visit = (inputNode: unknown, depth: number): Result.Result<Filter<Failure>, Failure> => Result.gen(function* () {
@@ -183,7 +206,7 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
           const nullColumn = conditional?.predicate?.kind === "isNull" ? conditional.predicate.column.columnId : undefined;
           return Result.succeed({ selections: [...keys].map(value => ({ column: node.column, value,
             ...(nullColumn === undefined ? {} : { nullColumn }) })), unindexedText: false });
-        }, requiredNulls: new Set<string>(), search: null,
+        }, requiredNulls: new Set<string>(), search: null, equalities: new Map([[node.column, [...keys]]]),
           matches: row => { const value = row[node.column]; return (typeof value === "string" || typeof value === "boolean") && keys.has(value); } };
       }
       if (node.kind === "indexedPoints") {
@@ -202,15 +225,8 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         demandedPoints.set(JSON.stringify(node.columns), Object.freeze([...node.columns]));
         const points = new Set(node.values.map(point => JSON.stringify(point)));
         return { select: (requiredNulls: ReadonlySet<string>, access?: LogicalRelationalReadAccess) => {
-          const indexes = access?.indexes ?? table.indexes;
-          const index = indexes.find(candidate => candidate.kind === "uniqueBtree" &&
-            candidate.columns.length === node.columns.length && candidate.columns.every((column, offset) =>
-              column.columnId === node.columns[offset]) && (candidate.predicate === null ||
-                candidate.predicate.kind === "isNull" && requiredNulls.has(candidate.predicate.column.columnId)));
-          if (index === undefined) return Result.fail(error("invalidInput"));
-          const nullColumn = index.predicate?.kind === "isNull" ? index.predicate.column.columnId : undefined;
-          return Result.succeed({ selections: node.values.map(values => ({ kind: "point" as const,
-            columns: node.columns, values, ...(nullColumn === undefined ? {} : { nullColumn }) })), unindexedText: false });
+          const plan = pointPlan(node.columns, node.values, requiredNulls, access);
+          return plan === null ? Result.fail(error("invalidInput")) : Result.succeed(plan);
         }, requiredNulls: new Set<string>(), search: null,
           matches: row => points.has(JSON.stringify(node.columns.map(column => row[column]))) };
       }
@@ -280,6 +296,18 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         }
         if (node.kind === "or") for (const field of requiredNulls) if (!child.requiredNulls.has(field)) requiredNulls.delete(field);
       }
+      const equalities = new Map<string, readonly (string | boolean)[]>();
+      if (node.kind === "and") for (const child of children) for (const [column, values] of child.equalities ?? []) {
+        const prior = equalities.get(column);
+        equalities.set(column, prior === undefined ? values : prior.filter(value => values.includes(value)));
+      }
+      if (equalities.size >= 2) {
+        equalityGroups.push(equalities);
+        for (const index of compoundIndexes(equalities, table.indexes)) {
+          const columns = Object.freeze(index.columns.map(column => column.columnId));
+          demandedPoints.set(JSON.stringify(columns), columns);
+        }
+      }
       const jsonChild = node.kind === "and" ? children.find(child => child.json !== undefined) : undefined;
       return { select: (inheritedNulls: ReadonlySet<string>, access?: LogicalRelationalReadAccess) => Result.gen(function* () {
         const available = node.kind === "and" ? new Set([...inheritedNulls, ...requiredNulls]) : inheritedNulls;
@@ -296,8 +324,22 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
               selections = candidate.selections;
           } else selections = selections === null || candidate.selections === null ? null : [...selections, ...candidate.selections];
         }
+        if (node.kind === "and") {
+          if ([...equalities.values()].some(values => values.length === 0)) selections = [];
+          // Retain empty and previously selected unique points. Otherwise a
+          // complete admitted tuple avoids hydrating a broad scalar prefix.
+          else if (selections?.length !== 0 && !isBoundedUniquePoints(selections, access)) {
+            for (const index of compoundIndexes(equalities, access?.indexes ?? table.indexes)) {
+              const columns = index.columns.map(column => column.columnId);
+              let points: readonly (readonly (string | boolean)[])[] = [[]];
+              for (const column of columns) points = points.flatMap(point => (equalities.get(column) ?? []).map(value => [...point, value]));
+              const plan = pointPlan(columns, points, available, access);
+              if (plan !== null) { selections = plan.selections; break; }
+            }
+          }
+        }
         return { selections, unindexedText };
-      }), requiredNulls,
+      }), requiredNulls, ...(node.kind === "and" ? { equalities } : {}),
         search: node.kind === "and"
           ? children.find(child => child.search !== null && child.search.every(pattern => hasMandatorySearchTrigram(pattern.pattern)))?.search
             ?? children.find(child => child.search !== null)?.search ?? null
@@ -310,6 +352,18 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
     const demand: LogicalRelationalReadDemand = Object.freeze({ fields: Object.freeze([...demandedFields].toSorted()),
       nulls: Object.freeze([...demandedNulls].toSorted()), points: Object.freeze([...demandedPoints].toSorted(([left], [right]) =>
         left === right ? 0 : left < right ? -1 : 1).map(([, columns]) => columns)) });
+    // Compact read frames intentionally omit native indexes. Their existing
+    // scalar access facts can reveal an eligible ordered tuple; request that
+    // exact nativePoint facet before compiling, without catalog enumeration.
+    const pointDemand = (access?: LogicalRelationalReadAccess): LogicalRelationalReadDemand => {
+      const points = new Map(demand.points.map(columns => [JSON.stringify(columns), columns]));
+      for (const equalities of equalityGroups) for (const index of compoundIndexes(equalities, access?.indexes ?? table.indexes)) {
+        const columns = Object.freeze(index.columns.map(column => column.columnId));
+        points.set(JSON.stringify(columns), columns);
+      }
+      return points.size === demand.points.length ? demand : Object.freeze({ ...demand,
+        points: Object.freeze([...points].toSorted(([left], [right]) => left === right ? 0 : left < right ? -1 : 1).map(([, columns]) => columns)) });
+    };
     const compile = (access?: LogicalRelationalReadAccess) => Result.gen(function* () {
       const indexes = access?.indexes ?? table.indexes;
       const planned = yield* filter.select(new Set(), access);
@@ -354,6 +408,6 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         }),
       });
     });
-    return Object.freeze({ demand, compile });
+    return Object.freeze({ demand, pointDemand, compile });
   });
 }

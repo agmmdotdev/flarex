@@ -12,6 +12,7 @@ function compileColumnValues(table: SchemaTable) {
       const scalar = column.type === "id" || column.type === "text" || column.type === "dateTime" ? Schema.String :
         column.type === "boolean" ? Schema.Boolean : column.type === "json" ? Schema.Json :
           column.type === "number" ? Schema.Number.check(Schema.isFinite()) :
+          column.type === "bigNumber" ? Schema.Union([Schema.String, Schema.Number.check(Schema.isFinite())]) :
           column.type === "array" ? Schema.Array(Schema.String) :
             column.type === "enum" && column.options?.choices !== undefined ? Schema.Literals(column.options.choices) : undefined;
       if (scalar === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));

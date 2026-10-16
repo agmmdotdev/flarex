@@ -80,8 +80,14 @@ scalar/array service results and ID-only no-op behavior. Its finite dimensions
 use the shared binary64 representation selected by generic DML lowering;
 existing int32, exact-decimal and populated-source admission remain distinct.
 Inventory levels, reservations and rich Variant links retain their stored data.
+The bounded
+[native absolute Inventory Level update](./preflight/116-native-inventory-level-update-workflow.md)
+profile preserves native tuple lookup, caller-ID precedence, keyed final patches,
+exact quantities, reserved stock and tuple-only writes/events. Shared conjunctive
+point planning keeps complete tuple reads confined to their existing compound
+index, including absent tuples, without weakening receipts or resource limits.
 The next integration outcome is
-[native absolute Inventory Level update](./preflight/116-native-inventory-level-update-workflow.md).
+[native Inventory Level deletion](./preflight/117-native-inventory-level-delete-workflow.md).
 Chunked File import and Product
 export are explicitly deferred; their File and Region dependencies are outside
 the current integration goal.

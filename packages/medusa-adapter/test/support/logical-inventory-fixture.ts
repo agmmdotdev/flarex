@@ -13,13 +13,17 @@ import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "..
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 
-/** Native scalar/array tests use the same atomic event receipt boundary. */
-export async function prepareInventoryCreateHost(fixture: LogicalCurrencyFixture, inventory: LogicalInventoryHosts["inventory"]) {
+/** Native Item creation and explicit array-Level seeds share their genuine
+ * module receipt owner. The default retains the existing Item command identity. */
+export async function prepareInventoryCreateHost(fixture: LogicalCurrencyFixture, inventory: LogicalInventoryHosts["inventory"],
+  kind: "items" | "levels" = "items") {
   const participant = defineAtomicCommerceParticipant("inventory");
   const policy = inventory.runtime.logicalEventPolicy();
-  const name = "inventory.inventory-item.created";
+  const name = kind === "levels" ? "inventory.inventory-level.created" : "inventory.inventory-item.created";
   const contract = defineCommerceEventContract({ name, revision: "1".repeat(64), internal: true, decode: policy.capture });
-  const create = defineAtomicCommerceCommand("nativeInventoryCreate", (ctx, input) => ctx.call(participant, inventory.runtime.create, input));
+  const command = kind === "levels" ? inventory.runtime.createLevels : inventory.runtime.create;
+  const create = defineAtomicCommerceCommand(kind === "levels" ? "nativeInventoryCreateLevels" : "nativeInventoryCreate",
+    (ctx, input) => ctx.call(participant, command, input));
   const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
     participants: [{ participant, logicalStorage: inventory.hostInput.logicalStorage, commands: inventory.runtime.commands,
       validateLogicalCall: policy.validateLogicalCall, events: { contracts: [contract], select: message =>

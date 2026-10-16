@@ -1,13 +1,11 @@
 import { Effect, Result, Schema } from "effect";
 import { Modules, buildModuleResourceEventName, isPresent } from "@medusajs/framework/utils/portable";
-import { preservePrimaryKeyOrFilterOrder } from "@medusajs/drizzle/relation-query";
 import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
 import { mergeMetadata } from "@medusajs/utils/common/merge-metadata";
-import { compareBytesLexicographically } from "@flarex/utils/bytes";
 import { jsonEqual } from "flarex-protocol/json";
 import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { moduleEventDecoder } from "../../module/events";
-import { matchesPublicRow, projectNativeRow } from "../../repository/result";
+import { matchesPublicRow, projectNativeRow, orderNativeIdRows } from "../../repository/result";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
 import { compileInventoryItemUpdateContracts, decodeInventoryItemUpdateCommandInput, decodeInventoryItemUpdateReadInput } from "./update-input";
 
@@ -18,9 +16,6 @@ const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.INVENTORY), object: Schema.Literal("inventory_item"), action: Schema.Literal("updated") }),
   data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 4))]) }),
 }), defaultCommerceResources);
-const encoder = new TextEncoder();
-const orderRows = <Row extends JsonObject>(rows: readonly Row[], where: unknown) => preservePrimaryKeyOrFilterOrder([...rows].sort((left, right) =>
-  compareBytesLexicographically(encoder.encode(String(left.id)), encoder.encode(String(right.id)))), where, ["id"], [["id", "ASC"]]);
 
 /** Authenticate the native selected final patch for each ID against full stored
  * rows. Native metadata merging is reused; no independent update is executed. */
@@ -49,7 +44,7 @@ export function inventoryItemUpdateEventPolicy(contracts: Contracts) {
       const input = yield* Effect.fromResult(decodeInventoryItemUpdateReadInput(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
       const requested = new Set(input.filters.id);
       if ([...observed.keys()].some(id => !requested.has(id))) return yield* Effect.fail(commerceError("receiptMismatch"));
-      const selected = orderRows([...observed.values()].filter(row => row.deleted_at === null), buildQuery(input.filters, { order: { id: "ASC" } }).where);
+      const selected = orderNativeIdRows([...observed.values()].filter(row => row.deleted_at === null), buildQuery(input.filters, { order: { id: "ASC" } }).where);
       if (result.length !== selected.length || selected.some((row, index) => !matchesPublicRow(row, result[index] ?? null)))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       return;
@@ -73,7 +68,7 @@ export function inventoryItemUpdateEventPolicy(contracts: Contracts) {
     }
     if ([...observed.keys()].some(id => !patches.has(id))) return yield* Effect.fail(commerceError("receiptMismatch"));
     const where = buildQuery({ $or: input.map(({ id }) => ({ id })) }, { order: { id: "ASC" } }).where;
-    const selected = orderRows([...observed.values()].filter(row => row.deleted_at === null && typeof row.id === "string" && patches.has(row.id)), where);
+    const selected = orderNativeIdRows([...observed.values()].filter(row => row.deleted_at === null && typeof row.id === "string" && patches.has(row.id)), where);
     if (selected.length !== patches.size || result.length !== selected.length) return yield* Effect.fail(commerceError("receiptMismatch"));
     const changed: string[] = [];
     for (const [index, before] of selected.entries()) {

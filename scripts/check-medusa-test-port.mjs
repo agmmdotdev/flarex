@@ -42,6 +42,12 @@ export function verifyInventoryUpdateTests(source, target) {
   verifyInventoryTests(source, target, new Set(["should update the inventory item", "should update multiple inventory items"]), true);
 }
 
+/** Preserve both native absolute Level update bodies and their original seed.
+ * @param {string} source @param {string} target */
+export function verifyInventoryLevelUpdateTests(source, target) {
+  verifyInventoryTests(source, target, new Set(["should update inventory level", "should fail to update inventory level for item in location that isn't stocked"]), true);
+}
+
 /** @param {string} source @param {string} target @param {Set<string>} names @param {boolean} verifySeed */
 function verifyInventoryTests(source, target, names, verifySeed) {
   /** @param {string} text @param {boolean} onlySelected */

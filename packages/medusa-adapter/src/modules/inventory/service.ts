@@ -1,4 +1,5 @@
 import { makeInventoryItemUpdateCommands } from "./update-service";
+import { makeInventoryLevelUpdateCommands } from "./update-level-service";
 import { deniedCommerceRepository } from "../../repository/denied";
 import { Effect, Result, Schema } from "effect";
 import { InventoryItem, InventoryLevel, ReservationItem } from "@medusajs/inventory/models";
@@ -57,8 +58,8 @@ const makeBasicInventoryCommands = Effect.fn("InventoryAdapter.commands")(functi
     if (!item || !level || !reservation) return yield* Result.fail(commerceError("unsupportedProfile"));
     const prepared = yield* prepareScalarRepository(item, "InventoryItem", scalarIdWhere,
       deletion ? undefined : inventoryQuantityProjection([...level.columns, ...reservation.columns]));
-    const levels = yield* prepareInventoryQuantityRepository(level, "InventoryLevel", stock);
-    const reservations = yield* prepareInventoryQuantityRepository(reservation, "ReservationItem", stock);
+    const levels = yield* prepareInventoryQuantityRepository(level, "InventoryLevel", stock ? "stock-mutations" : "read-only");
+    const reservations = yield* prepareInventoryQuantityRepository(reservation, "ReservationItem", stock ? "stock-mutations" : "read-only");
     const bind = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const bound = prepared.bind(ctx, owner);
       const find = inventoryDeletionFind(bound);
@@ -183,7 +184,9 @@ const makeBasicInventoryCommands = Effect.fn("InventoryAdapter.commands")(functi
 
 
 export function makeLocalInventoryCommands(admission: "item-updates"): ReturnType<typeof makeInventoryItemUpdateCommands>;
+export function makeLocalInventoryCommands(admission: "level-updates"): ReturnType<typeof makeInventoryLevelUpdateCommands>;
 export function makeLocalInventoryCommands(admission?: "items" | "levels" | "stock" | "product-deletions" | "product-batches"): ReturnType<typeof makeBasicInventoryCommands>;
-export function makeLocalInventoryCommands(admission: "items" | "levels" | "stock" | "product-deletions" | "product-batches" | "item-updates" = "items") {
-  return admission === "item-updates" ? makeInventoryItemUpdateCommands() : makeBasicInventoryCommands(admission);
+export function makeLocalInventoryCommands(admission: "items" | "levels" | "stock" | "product-deletions" | "product-batches" | "item-updates" | "level-updates" = "items") {
+  return admission === "item-updates" ? makeInventoryItemUpdateCommands()
+    : admission === "level-updates" ? makeInventoryLevelUpdateCommands() : makeBasicInventoryCommands(admission);
 }

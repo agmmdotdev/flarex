@@ -1,3 +1,5 @@
+import { preservePrimaryKeyOrFilterOrder } from "@medusajs/drizzle/relation-query";
+import { compareBytesLexicographically } from "@flarex/utils/bytes";
 import { jsonEqual } from "flarex-protocol/json";
 import { isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 
@@ -16,3 +18,10 @@ export function matchesPublicRow(stored: JsonObject, returned: Json): boolean {
     return actual !== undefined && expected !== undefined && jsonEqual(actual, expected);
   });
 }
+
+const encoder = new TextEncoder();
+/** Authenticate the native scalar repository's default ID order and its actual
+ * caller-filter override. Native DAL mutation order remains with Medusa. */
+export const orderNativeIdRows = <Row extends JsonObject & Readonly<{ id: string }>>(rows: readonly Row[], where: unknown) =>
+  preservePrimaryKeyOrFilterOrder([...rows].sort((left, right) =>
+    compareBytesLexicographically(encoder.encode(left.id), encoder.encode(right.id))), where, ["id"], [["id", "ASC"]]);

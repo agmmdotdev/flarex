@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests } from "./check-medusa-test-port.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -152,6 +152,10 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyInventoryUpdateTests(
     readFileSync(path.join(root, sourcePrefix + "packages/modules/inventory/integration-tests/__tests__/inventory-module-service.spec.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/test/support/inventory-update-native-tests.ts"), "utf8"),
+  );
+  verifyInventoryLevelUpdateTests(
+    readFileSync(path.join(root, sourcePrefix + "packages/modules/inventory/integration-tests/__tests__/inventory-module-service.spec.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-adapter/test/support/inventory-level-update-native-tests.ts"), "utf8"),
   );
   const csvSource = sourcePrefix + "packages/core/utils/src/product/__tests__/";
   const csvTarget = "packages/medusa-utils/src/product/__tests__/";

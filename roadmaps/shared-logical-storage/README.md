@@ -64,6 +64,10 @@ restoration. Native Link endpoint integrity remains unchanged.
 authorized finite binary64 correction exposed by Inventory Item dimensions.
 Existing integer and populated-source evolution boundaries remain distinct.
 
+[Conjunctive composite point access](./61-conjunctive-composite-point-access.md)
+owns the authorized shared planning correction exposed by native Inventory
+Level tuple reads. It retains existing point coverage and partial-index proofs.
+
 - [Accepted database design](../../design-notes/flarex-db-accepted-design.md) and
   [shared logical storage decision](../../design-notes/flarexdb-shared-logical-storage.md)
   own the target, replacement authority and tradeoffs.
