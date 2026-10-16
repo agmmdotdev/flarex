@@ -115,6 +115,14 @@ core code belongs in the recorded fork closure, with its source and license.
 
 ### Connected Source Closure
 
+The [exact-source and RunStore query annex](./73-trigger-source-and-run-store-query-closure.md)
+records the pinned method/branch closure, Q01–Q17 read shapes, connected writes,
+direct-client dependencies, source limits and remaining evidence. Its static
+inventory is established; executable dependency admission, finite typed store
+contracts and runtime proofs remain open. In particular, `RunStore` injection
+alone leaves direct control-plane Prisma reads, Redis queue authority and worker
+publication outside the accepting transaction.
+
 Engine paths in this table refer to the pinned
 [`run-engine/src`](../../../third_party/trigger.dev/upstream/internal-packages/run-engine/src)
 directory; `systems/` and `controlPlaneResolver.ts` are under its `engine/`
@@ -128,7 +136,7 @@ methods; the table is not permission to stub reachable behavior.
 | `systems/dequeueSystem.ts`: `dequeueFromWorkerQueue`; `run-queue/index.ts` eligibility/reservation operations | Replace Redis/Lua and product-worker selection at their real seams. Preserve atomic eligibility and permit acquisition; no per-command Redis emulation. |
 | `systems/runAttemptSystem.ts`: `startRunAttempt`, `completeRunAttempt`, `attemptFailed`, `tryNackAndRequeue`, `cancelRun` and reachable terminal/retry helpers | Retain task rules; borrow one authoritative context, remove root-Prisma bypasses, and persist dispatch/retry/cancellation effects atomically. |
 | `systems/executionSnapshotSystem.ts`: snapshot creation, `heartbeatRun`, heartbeat expiry/restart paths | Keep ordering and stale-snapshot decisions; use database time/fences and durable heartbeat work, with delivery after commit. |
-| `systems/waitpointSystem.ts`: associated-run waitpoint creation/completion required by the basic engine | Include required terminal/waitpoint propagation in the first closure; do not remove it merely to make the baseline smaller. |
+| `systems/waitpointSystem.ts`: associated-run waitpoint creation/completion required by the basic engine | Preserve lazy creation for standalone runs and eager creation for a waiting parent, plus required terminal propagation. Do not remove reachable waitpoint behavior merely to make the baseline smaller. |
 | `systems/waitpointSystem.ts`: `createManualWaitpoint`, `blockRunWithWaitpoint`, `completeWaitpoint`, `continueRunIfUnblocked` and reachable helpers | Connect trusted-workflow suspension/resolution; preserve blocking/completion races and native workflow decision ownership. |
 | `systems/systems.ts`, `controlPlaneResolver.ts`, store types in `internal-packages/run-store/src/types.ts` | Replace concrete Prisma/Redis/product dependencies with scoped capabilities and immutable runtime projections. No fabricated Trigger organization/project records. |
 
@@ -137,6 +145,12 @@ closure when reachable from the admitted path. Otherwise refuse their entry
 points. Fairness algorithms may be retained with replacement snapshot inputs
 when admitted; a bounded single-queue proof does not establish fair-queue,
 batch, arbitrary concurrency-key or product parity.
+
+The retained closure includes `retrying.ts`, terminal helpers and the engine's
+stalled/repair callbacks. Audit feature defaults and worker jobs as well as
+entry points: configured default TTL can make expiry reachable without an
+explicit TTL argument; missing-version parking needs a real recovery or rejection
+disposition. The full upstream constructor is not an admitted minimal runtime.
 
 ## Accepted Semantic Store And Transaction Contract
 
@@ -150,6 +164,15 @@ must retain enough durable work/progress for another pass; it cannot silently
 omit affected runs. Derive concrete query shapes and numeric limits from the
 retained call graph and existing core limits, then prove their bounds. Arbitrary
 Prisma queries and speculative broad limits are not admitted.
+
+The source inspection identifies unbounded completion fan-out, cancellation
+children, per-run blockers and snapshot waitpoint hydration. Upstream history's
+50-snapshot limit and 100-waitpoint hydration chunks do not establish exhaustive
+progress or a total byte bound. The annex separates those limits from current
+core budgets and records the required access paths. Before store admission,
+each operation needs exact result fields, indexed scope-bound predicates,
+numeric input/output/write budgets and a rejection or durable-continuation
+disposition. A partial blocker page cannot authorize resume.
 
 The outer Task transaction runner acquires an authenticated scope/placement and
 bounded database resource. It lends an opaque transaction-bound store to trusted
@@ -167,6 +190,12 @@ admitted database work; remote effects and execution happen after settlement.
 | Complete/retry/cancel | Update run, attempt and snapshot; release/retain reservations according to admitted policy; publish ordered durable effects and stable replay evidence together. |
 | Block/resolve/resume | Couple checkpoint reference, wait identity and blocked state; serialize confirmation/timeout/cancellation; publish one winning resume intent and revalidate on claim. |
 | Inspect/history/result | Scope-bound bounded reads over the authoritative representation, preserving intended result/reference, cancellation and history contracts. |
+
+Upstream `createRun` throws on idempotency-key collision; it does not supply the
+accepted Flarex binding/input replay-or-conflict contract. Preserve that
+responsibility at creation. Likewise, upstream `findRunOnPrimary` is not a
+transaction-bound read merely because it uses a writer: every accepting path
+must use the borrowed store, including retry/context and checkpoint helpers.
 
 Use per-run serialization with the selected domain order:
 
@@ -225,6 +254,13 @@ method with new identities or repeat an external effect blindly.
    preserving framework-specific definitions and actual durable identities.
 
 ## Reserved Logical Records And Core Admission
+
+Trigger's process checkpoint (`type`, `location`, `imageRef`, `reason`) and the
+pending native workflow checkpoint are different representations. Retain the
+engine's suspend/resume decisions with an explicit native checkpoint mapping;
+do not fabricate process/image fields to fit the upstream type. The mapping must
+cover `continueRunIfUnblocked`'s suspended-with-checkpoint requirement as well as
+atomic save/block, replay and fresh execution authority.
 
 The selected record responsibilities are immutable definition bindings, runs, attempts,
 execution snapshots, creation/completion/resolution receipts, due work,
@@ -427,7 +463,7 @@ none is implied by current file presence or by accepting this preflight.
 
 | Remaining gate | Owner and decisive evidence |
 | --- | --- |
-| Source and query closure | Fork/store owners inventory every reachable method, dependency, license, result shape, indexed query and concrete limit; prove bounded discovery continues without omissions. |
+| Source and query closure | [Annex 73](./73-trigger-source-and-run-store-query-closure.md) establishes the pinned static method/branch and Q01–Q17 query inventory. Fork/store owners must still close the adapted executable symbol/test/license graph, finite typed results, installed logical index mapping and numeric budgets; prove borrowed-store confinement, fresh visibility and bounded progress without omissions. Static inspection does not close these execution gates. |
 | Physical concurrency and visibility | Shared storage/transaction owners reconcile the selected domain order with all physical locks and prove competing claim/complete/cancel/waitpoint paths plus fresh READ COMMITTED statement visibility on ordinary-role Postgres. |
 | Private schema admission | Shared schema/storage owners prove platform installation/readiness, inaccessible ordinary writes, authorized reads and scope/placement isolation for all Task record access paths. |
 | Claim/start mapping | Engine/runtime owners prove one accepted execution before handler code, stable reservation/start replay, stale takeover rejection, lost responses and independent dispatch/business retry accounting. |
