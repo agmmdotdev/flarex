@@ -24,6 +24,7 @@ import {
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
+  useFileScopedPostgresPersistence,
   withTemporaryPostgresPersistence,
 } from "../../support/postgresHelpers";
 
@@ -43,8 +44,10 @@ const getSchemaVersionArtifactByVersion = (
 ) => runEffect(getSchemaVersionArtifactByVersionEffect(...args));
 
 describePostgres("real Postgres schema version artifacts", () => {
+  const withPersistence = useFileScopedPostgresPersistence();
+
   it("converges concurrent exact artifact replays", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await persistence.insertDeploymentMetadata({
         deploymentId: "deployment_schema_artifact_replay",
         projectId: "project_schema_artifact_replay",
@@ -158,7 +161,7 @@ describePostgres("real Postgres schema version artifacts", () => {
   }, 30_000);
 
   it("size-gates oversized stored evidence before worker hashing", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_schema_artifact_size_gate";
       await persistence.insertDeploymentMetadata({
         deploymentId,

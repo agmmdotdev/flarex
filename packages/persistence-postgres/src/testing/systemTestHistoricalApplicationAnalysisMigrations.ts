@@ -1,10 +1,11 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { isNonArrayRecord } from "@flarex/utils/records";
 
 import { defaultMigrationsFolder } from "../installation/defaultMigrationsFolder";
+import { copyDrizzleMigrations } from "./systemTestMigrationFiles";
 
 const APPLICATION_ANALYSIS_RETIREMENT_MIGRATION_INDEX = 64;
 
@@ -17,7 +18,7 @@ export async function withHistoricalApplicationAnalysisMigrations<T>(
   );
   const migrationsFolder = resolve(root, "drizzle");
   try {
-    await cp(defaultMigrationsFolder(), migrationsFolder, { recursive: true });
+    await copyDrizzleMigrations(defaultMigrationsFolder(), migrationsFolder);
     const journalPath = resolve(migrationsFolder, "meta/_journal.json");
     const journal = migrationJournalBeforeRetirement(
       await readFile(journalPath, "utf8"),

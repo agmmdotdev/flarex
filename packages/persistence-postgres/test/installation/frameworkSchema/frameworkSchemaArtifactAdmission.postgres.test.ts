@@ -55,6 +55,7 @@ import {
   type BlockedPostgresDeploymentLockWaiter,
   type HeldPostgresDeploymentLock,
   postgresUrl,
+  useFileScopedPostgresPersistence,
   rollbackAndReleasePostgresClient,
   waitForBlockedPostgresDeploymentLockWaiters,
   withTemporaryPostgresPersistence,
@@ -103,8 +104,10 @@ afterEach(() => {
 describePostgres(
   "private framework schema artifact admission - PostgreSQL",
   () => {
+    const withPersistence = useFileScopedPostgresPersistence();
+
     it("converges concurrent exact admissions to one parent and one edge set", async () => {
-      await withTemporaryPostgresPersistence(async persistence => {
+      await withPersistence(async persistence => {
         await expectPostgres18OrdinaryRole(persistence);
         await insertDeployment(persistence);
         const repository = makePostgresArtifactRepository(persistence);
@@ -182,7 +185,7 @@ describePostgres(
     }, 180_000);
 
     it("proves contenders wait on the deployment row and observe the winner", async () => {
-      await withTemporaryPostgresPersistence(async persistence => {
+      await withPersistence(async persistence => {
         await expectPostgres18OrdinaryRole(persistence);
         await insertDeployment(persistence);
         const repository = makePostgresArtifactRepository(persistence);
@@ -216,7 +219,7 @@ describePostgres(
     }, 180_000);
 
     it("serializes concurrent canonical collisions to one stored winner", async () => {
-      await withTemporaryPostgresPersistence(async persistence => {
+      await withPersistence(async persistence => {
         await expectPostgres18OrdinaryRole(persistence);
         await insertDeployment(persistence);
         const repository = makePostgresArtifactRepository(persistence);
@@ -341,7 +344,7 @@ describePostgres(
     }, 180_000);
 
     it("isolates owner and lineage coordinates under deployment contention", async () => {
-      await withTemporaryPostgresPersistence(async persistence => {
+      await withPersistence(async persistence => {
         await expectPostgres18OrdinaryRole(persistence);
         await insertDeployment(persistence);
         const repository = makePostgresArtifactRepository(persistence);
@@ -480,7 +483,7 @@ describePostgres(
     }, 180_000);
 
     it("rolls back a parent queued before its missing dependency", async () => {
-      await withTemporaryPostgresPersistence(async persistence => {
+      await withPersistence(async persistence => {
         await expectPostgres18OrdinaryRole(persistence);
         await insertDeployment(persistence);
         const repository = makePostgresArtifactRepository(persistence);
@@ -565,7 +568,7 @@ describePostgres(
     }, 180_000);
 
     it("observes a dependency committed by the earlier queued waiter", async () => {
-      await withTemporaryPostgresPersistence(async persistence => {
+      await withPersistence(async persistence => {
         await expectPostgres18OrdinaryRole(persistence);
         await insertDeployment(persistence);
         const repository = makePostgresArtifactRepository(persistence);
@@ -865,7 +868,7 @@ describePostgres(
     }, 180_000);
 
     it("does not serialize an independent deployment behind a held lock", async () => {
-      await withTemporaryPostgresPersistence(async persistence => {
+      await withPersistence(async persistence => {
         await expectPostgres18OrdinaryRole(persistence);
         const blockedDeploymentId = `${DEFAULT_DEPLOYMENT_ID}-blocked`;
         const independentDeploymentId = `${DEFAULT_DEPLOYMENT_ID}-independent`;

@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 import { PGlite } from "@electric-sql/pglite";
 import { newTestPGlite } from "../../support/pgliteSearchExtensions";
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import * as persistenceRoot from "../../../src";
@@ -118,143 +119,129 @@ describe("framework coordinator metadata storage - PGlite", () => {
   });
 
   it("rejects incomplete nullable tuples instead of accepting SQL unknown", async () => {
-    const testRoot = await mkdtemp(resolve(
-      tmpdir(),
-      "flarex-framework-coordinator-tuples-",
-    ));
-    const db = newTestPGlite(resolve(testRoot, "database"));
+    const persistence = await createMigratedPGlitePersistence();
+    const authority = await insertTupleCheckAuthority(persistence);
 
-    try {
-      const persistence = await createPGlitePersistence({ db });
-      await persistence.migrate();
-      const authority = await insertTupleCheckAuthority(persistence);
+    await expectSqlFailure(insertAttemptTerminal(persistence, authority, {
+      outcomeKind: "failed",
+      requiredStepSetDigestHex: null,
+      failureReason: null,
+      evidenceDigestHex: "5b".repeat(32),
+      lastReceiptStorageId: null,
+      lastStepReceiptDigestHex: null,
+      terminalDigestHex: "59".repeat(32),
+    }), "23514", "fx_framework_migration_terminal_identity_check");
+    await expectSqlFailure(insertAttemptTerminal(persistence, authority, {
+      outcomeKind: "succeeded",
+      requiredStepSetDigestHex: TUPLE_REQUIRED_STEP_SET_SHA256,
+      failureReason: null,
+      evidenceDigestHex: null,
+      lastReceiptStorageId: null,
+      lastStepReceiptDigestHex: null,
+      terminalDigestHex: "5a".repeat(32),
+    }), "23514", "fx_framework_migration_terminal_identity_check");
 
-      await expectSqlFailure(insertAttemptTerminal(persistence, authority, {
-        outcomeKind: "failed",
-        requiredStepSetDigestHex: null,
-        failureReason: null,
-        evidenceDigestHex: "5b".repeat(32),
-        lastReceiptStorageId: null,
-        lastStepReceiptDigestHex: null,
-        terminalDigestHex: "59".repeat(32),
-      }), "23514", "fx_framework_migration_terminal_identity_check");
-      await expectSqlFailure(insertAttemptTerminal(persistence, authority, {
+    await expectSqlFailure(persistence.query(`
+      insert into ${MIGRATION_EVENT_TABLE}
+        (collision_storage_id, event_sequence, event_sha256, event_kind,
+         subject_sha256, lease_attempt_id, lease_attempt_fence,
+         lease_owner_id, lease_expires_at, frame_format, frame_version,
+         canonical_byte_length, canonical_bytes)
+      values
+        ($1, 0, decode(repeat('5c', 32), 'hex'), 'leaseRenewed', null,
+         '${TUPLE_ATTEMPT_ID}', null, 'lease_owner_tuple_checks',
+         '2030-01-02T03:04:05.123Z', 'flarex.framework-migration-event',
+         1, 2, decode('7b7d', 'hex'))
+    `, [authority.collisionStorageId]), "23514",
+    "fx_framework_migration_event_identity_check");
+
+    await expectSqlFailure(persistence.query(`
+      insert into ${MIGRATION_COLLISION_HEAD_TABLE}
+        (collision_storage_id, current_plan_storage_id, current_plan_sha256,
+         current_admission_storage_id, current_admission_sha256,
+         head_revision, attempt_fence, current_attempt_storage_id,
+         current_attempt_id, current_attempt_fence, current_lease_owner_id,
+         current_lease_expires_at, collision_head_sha256, frame_format,
+         frame_version, canonical_byte_length, canonical_bytes, completed_step_count)
+      values
+        ($1, $2, decode($3, 'hex'), $4, decode($5, 'hex'), 0, 1, $6,
+         '${TUPLE_ATTEMPT_ID}', null, 'lease_owner_tuple_checks',
+         '2030-01-02T03:04:05.123Z', decode(repeat('5d', 32), 'hex'),
+         'flarex.framework-migration-collision-head', 1, 2,
+         decode('7b7d', 'hex'), 0)
+    `, [
+      authority.collisionStorageId,
+      authority.planStorageId,
+      TUPLE_PLAN_SHA256,
+      authority.admissionStorageId,
+      TUPLE_ADMISSION_SHA256,
+      authority.attemptStorageId,
+    ]), "23514", "fx_framework_migration_collision_head_identity_check");
+
+    await expectSqlFailure(persistence.query(`
+      insert into ${MIGRATION_COLLISION_HEAD_TABLE}
+        (collision_storage_id, current_plan_storage_id, current_plan_sha256,
+         current_admission_storage_id, current_admission_sha256,
+         head_revision, attempt_fence, last_event_storage_id,
+         last_event_sequence, last_event_sha256, collision_head_sha256,
+         frame_format, frame_version, canonical_byte_length, canonical_bytes,
+         completed_step_count)
+      values
+        ($1, $2, decode($3, 'hex'), $4, decode($5, 'hex'), 0, 1, 999,
+         null, decode(repeat('5e', 32), 'hex'),
+         decode(repeat('5f', 32), 'hex'),
+         'flarex.framework-migration-collision-head', 1, 2,
+         decode('7b7d', 'hex'), 0)
+    `, [
+      authority.collisionStorageId,
+      authority.planStorageId,
+      TUPLE_PLAN_SHA256,
+      authority.admissionStorageId,
+      TUPLE_ADMISSION_SHA256,
+    ]), "23514", "fx_framework_migration_collision_head_identity_check");
+
+    const receiptStorageId = await insertTupleCheckReceipt(
+      persistence,
+      authority,
+    );
+    const terminalStorageId = await insertAttemptTerminal(
+      persistence,
+      authority,
+      {
         outcomeKind: "succeeded",
         requiredStepSetDigestHex: TUPLE_REQUIRED_STEP_SET_SHA256,
         failureReason: null,
         evidenceDigestHex: null,
-        lastReceiptStorageId: null,
-        lastStepReceiptDigestHex: null,
-        terminalDigestHex: "5a".repeat(32),
-      }), "23514", "fx_framework_migration_terminal_identity_check");
+        lastReceiptStorageId: receiptStorageId,
+        lastStepReceiptDigestHex: "60".repeat(32),
+        terminalDigestHex: "61".repeat(32),
+      },
+    );
+    const installationStorageId = await insertTupleCheckInstallation(
+      persistence,
+      authority,
+      terminalStorageId,
+    );
+    const readinessStorageId = await insertTupleCheckReadiness(
+      persistence,
+      installationStorageId,
+    );
 
-      await expectSqlFailure(persistence.query(`
-        insert into ${MIGRATION_EVENT_TABLE}
-          (collision_storage_id, event_sequence, event_sha256, event_kind,
-           subject_sha256, lease_attempt_id, lease_attempt_fence,
-           lease_owner_id, lease_expires_at, frame_format, frame_version,
-           canonical_byte_length, canonical_bytes)
-        values
-          ($1, 0, decode(repeat('5c', 32), 'hex'), 'leaseRenewed', null,
-           '${TUPLE_ATTEMPT_ID}', null, 'lease_owner_tuple_checks',
-           '2030-01-02T03:04:05.123Z', 'flarex.framework-migration-event',
-           1, 2, decode('7b7d', 'hex'))
-      `, [authority.collisionStorageId]), "23514",
-      "fx_framework_migration_event_identity_check");
-
-      await expectSqlFailure(persistence.query(`
-        insert into ${MIGRATION_COLLISION_HEAD_TABLE}
-          (collision_storage_id, current_plan_storage_id, current_plan_sha256,
-           current_admission_storage_id, current_admission_sha256,
-           head_revision, attempt_fence, current_attempt_storage_id,
-           current_attempt_id, current_attempt_fence, current_lease_owner_id,
-           current_lease_expires_at, collision_head_sha256, frame_format,
-           frame_version, canonical_byte_length, canonical_bytes)
-        values
-          ($1, $2, decode($3, 'hex'), $4, decode($5, 'hex'), 0, 1, $6,
-           '${TUPLE_ATTEMPT_ID}', null, 'lease_owner_tuple_checks',
-           '2030-01-02T03:04:05.123Z', decode(repeat('5d', 32), 'hex'),
-           'flarex.framework-migration-collision-head', 1, 2,
-           decode('7b7d', 'hex'))
-      `, [
-        authority.collisionStorageId,
-        authority.planStorageId,
-        TUPLE_PLAN_SHA256,
-        authority.admissionStorageId,
-        TUPLE_ADMISSION_SHA256,
-        authority.attemptStorageId,
-      ]), "23514", "fx_framework_migration_collision_head_identity_check");
-
-      await expectSqlFailure(persistence.query(`
-        insert into ${MIGRATION_COLLISION_HEAD_TABLE}
-          (collision_storage_id, current_plan_storage_id, current_plan_sha256,
-           current_admission_storage_id, current_admission_sha256,
-           head_revision, attempt_fence, last_event_storage_id,
-           last_event_sequence, last_event_sha256, collision_head_sha256,
-           frame_format, frame_version, canonical_byte_length, canonical_bytes)
-        values
-          ($1, $2, decode($3, 'hex'), $4, decode($5, 'hex'), 0, 1, 999,
-           null, decode(repeat('5e', 32), 'hex'),
-           decode(repeat('5f', 32), 'hex'),
-           'flarex.framework-migration-collision-head', 1, 2,
-           decode('7b7d', 'hex'))
-      `, [
-        authority.collisionStorageId,
-        authority.planStorageId,
-        TUPLE_PLAN_SHA256,
-        authority.admissionStorageId,
-        TUPLE_ADMISSION_SHA256,
-      ]), "23514", "fx_framework_migration_collision_head_identity_check");
-
-      const receiptStorageId = await insertTupleCheckReceipt(
-        persistence,
-        authority,
-      );
-      const terminalStorageId = await insertAttemptTerminal(
-        persistence,
-        authority,
-        {
-          outcomeKind: "succeeded",
-          requiredStepSetDigestHex: TUPLE_REQUIRED_STEP_SET_SHA256,
-          failureReason: null,
-          evidenceDigestHex: null,
-          lastReceiptStorageId: receiptStorageId,
-          lastStepReceiptDigestHex: "60".repeat(32),
-          terminalDigestHex: "61".repeat(32),
-        },
-      );
-      const installationStorageId = await insertTupleCheckInstallation(
-        persistence,
-        authority,
-        terminalStorageId,
-      );
-      const readinessStorageId = await insertTupleCheckReadiness(
-        persistence,
-        installationStorageId,
-      );
-
-      await expectSqlFailure(persistence.query(`
-        insert into ${SCHEMA_AVAILABILITY_HISTORY_TABLE}
-          (installation_storage_id, readiness_storage_id, readiness_sha256,
-           availability_sequence, status, reason_sha256, history_sha256,
-           previous_history_storage_id, previous_availability_sequence,
-           previous_history_sha256, previous_status, frame_format,
-           frame_version, canonical_byte_length, canonical_bytes)
-        values
-          ($1, $2, decode(repeat('65', 32), 'hex'), 2, 'withdrawn',
-           decode(repeat('67', 32), 'hex'), decode(repeat('68', 32), 'hex'),
-           999, null, decode(repeat('69', 32), 'hex'), 'ready',
-           'flarex.framework-schema-availability-history', 1, 2,
-           decode('7b7d', 'hex'))
-      `, [installationStorageId, readinessStorageId]), "23514",
-      "fx_framework_availability_history_identity_check");
-    } finally {
-      try {
-        await db.close();
-      } finally {
-        await rm(testRoot, { recursive: true, force: true });
-      }
-    }
+    await expectSqlFailure(persistence.query(`
+      insert into ${SCHEMA_AVAILABILITY_HISTORY_TABLE}
+        (installation_storage_id, readiness_storage_id, readiness_sha256,
+         availability_sequence, status, reason_sha256, history_sha256,
+         previous_history_storage_id, previous_availability_sequence,
+         previous_history_sha256, previous_status, frame_format,
+         frame_version, canonical_byte_length, canonical_bytes)
+      values
+        ($1, $2, decode(repeat('65', 32), 'hex'), 2, 'withdrawn',
+         decode(repeat('67', 32), 'hex'), decode(repeat('68', 32), 'hex'),
+         999, null, decode(repeat('69', 32), 'hex'), 'ready',
+         'flarex.framework-schema-availability-history', 1, 2,
+         decode('7b7d', 'hex'))
+    `, [installationStorageId, readinessStorageId]), "23514",
+    "fx_framework_availability_history_identity_check");
   }, 120_000);
 
   it("installs and enforces the private target and collision roots", async () => {

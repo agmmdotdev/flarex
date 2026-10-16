@@ -199,7 +199,9 @@ The PGlite lane builds a fresh schema-only image once per invocation using
 file-backed Worker restarts reopen their modified data, never the baseline.
 Direct focused invocations without that config retain per-file image creation.
 Historical/upgrade migration tests still create their own fresh databases.
-Migration-copy fixtures retain SQL and the journal, omitting generator snapshots.
+Migration-copy fixtures, including historical verifier setup, share
+`src/testing/systemTestMigrationFiles` to retain SQL and the journal without
+copying generator snapshots.
 
 The base Vitest configuration keeps transformed modules on disk between runs
 with `fsModuleCache`. This caches compilation, not test results or mutable
@@ -252,8 +254,9 @@ Suite setup prepares the baseline before the first case even on direct runs.
 Relation build/readiness fixtures also keep independent image restores. Row
 seeding acquires installation admission before the scope clock and closes that
 admission with its transaction. The Application readiness fixture restores its
-owned control, target and foreign-control databases from the image; supplied
-instrumented targets retain their caller-owned driver and migration path.
+owned control, target and foreign-control databases from the image. Supplied
+instrumented targets arrive migrated, and callers register their raw-driver
+cleanup before wrapping them for faults or observation.
 Journal/session fixtures with raw-driver fault injection pass
 `loadDataDir: await migratedPGliteDataDir()` to their existing driver owner and
 retain its cleanup. Empty-schema admission witnesses and historical migration
@@ -270,6 +273,10 @@ the existing lease lifecycle case. The connected Client serialization witness
 lives in `database/postgresClient.test.ts` with its current installed fixture.
 Historical runtime/registration fixtures have a separate schema/runtime gap;
 these repository fixtures do not establish their acceptance.
+Inert candidate repository cases use this same historical owner. Hash/input
+refusal and injected uncertain settlement use only their transaction capability;
+they do not allocate a database. Candidate byte ownership, budgets, corruption,
+foreign keys and native convergence retain real independent historical stores.
 The earlier V1-retirement migration proof uses the journal through 0044 and
 retains its fresh-install and nine-table refusal witnesses. Migration 0064
 separately proves removal of the later V2 graph.
@@ -308,6 +315,9 @@ Application readiness and relation build/readiness suites also borrow independen
 control/target file fixtures. Their concurrent writers and lock witnesses drain
 before reset, and failed callbacks rebuild both stores. Gate waits race unexpected
 operation settlement so a setup failure can release and drain the other work.
+Row-only native artifact admission/listing, journal validation and schema-artifact
+replay/size-gate cases reuse the same file owner. Dedicated backend, DDL, deadline,
+uncertain COMMIT and session-configuration witnesses keep separate fixtures.
 Plan probes use `withPostgresSequentialScansDisabled` to bind `SET LOCAL` and
 EXPLAIN to one client and roll back the setting before reuse.
 Validate converted suites as whole files, including failure-triggered rebuilds.

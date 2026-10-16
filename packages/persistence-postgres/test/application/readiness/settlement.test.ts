@@ -1,8 +1,9 @@
 import { webcrypto } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { Effect, Result } from "effect";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, onTestFinished, describe, expect, it } from "vitest";
 import { newTestPGlite } from "../../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import {
   isRetryableApplicationMutationAdmissionCause,
 } from "../../../src/application/applicationMutationAdmission";
@@ -13,18 +14,20 @@ import { readinessFixture } from "../support/readinessFixture";
 import { prepareReadinessAuthorities } from "../support/readinessPreparation";
 import { scalarCount } from "../support/readinessEvidence";
 
-beforeAll(() => {
+beforeAll(async () => {
   if (globalThis.crypto === undefined) {
     Object.defineProperty(globalThis, "crypto", {
       configurable: true,
       value: webcrypto,
     });
   }
-});
+  await migratedPGliteDataDir();
+}, 120_000);
 
 describe("Application readiness/settlement", { timeout: 30_000 }, () => {
   it("keeps ordered selected-row refusal and classifies joined PGlite SQL failures", async () => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
+    onTestFinished(() => db.close());
     let faultCode: "42P01" | "40001" | null = null;
     let injected = 0;
     const targetPersistence = await createPGlitePersistence({

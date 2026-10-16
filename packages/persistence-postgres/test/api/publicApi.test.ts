@@ -25,7 +25,10 @@ describe("@flarex/persistence-postgres public API", () => {
       "commitInvokeSessionWritesInTransaction",
     );
   });
-  it("keeps migration coordinator capabilities source-private", () => {
+  it("keeps private repository and migration capabilities source-private", () => {
+    expect(packageManifest.exports).not.toHaveProperty(
+      "./declarative-v2-inert-repository",
+    );
     for (const name of [
       "FrameworkMigrationRepositoryError",
       "appendFrameworkMigrationEventInTransactionEffect",

@@ -27,7 +27,7 @@ import {
 } from "./frameworkSchemaArtifactStorageTestSupport";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
@@ -46,8 +46,10 @@ interface ExecutedArtifactListQuery {
 describePostgres(
   "private framework schema artifact identity listing - PostgreSQL",
   () => {
+    const withPersistence = useFileScopedPostgresPersistence();
+
     it("paginates in native bytea order with exact coordinate isolation and lookahead", async () => {
-      await withTemporaryPostgresPersistence(async persistence => {
+      await withPersistence(async persistence => {
         await insertDeployments(persistence);
         const orderedDigests = [
           `00${"ff".repeat(31)}`,
@@ -193,7 +195,7 @@ describePostgres(
     }, 180_000);
 
     it("uses the natural identity index for the exact initial and resumed list statements", async () => {
-      await withTemporaryPostgresPersistence(async persistence => {
+      await withPersistence(async persistence => {
         await insertDeployments(persistence);
         await insertRawArtifactRange(
           persistence,

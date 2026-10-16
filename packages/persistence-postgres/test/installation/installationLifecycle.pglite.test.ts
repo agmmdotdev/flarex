@@ -1,12 +1,15 @@
 import { getTableName, sql } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { Effect } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createPGlitePersistence } from "../../src/database/pglite";
 import { closeInstallationAdmission, initializeFullProofInstallation, loadManagedInstallation,
   lockInstallationForCurrentTransaction, verifyInstallationWriterProtection } from "../../src/installation/installationLifecycle";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { fxSystemTransactionJournalPoints } from "../../src/database/schema";
+
+beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
 
 describe("installation full-proof compatibility", () => {
   it("retires all ordinary pure routines while preserving the current installation proof", async () => {
@@ -21,7 +24,7 @@ describe("installation full-proof compatibility", () => {
     } finally { await db.close(); }
   }, 180_000);
   it("attests the journal CHECK and cleans native parser references on nested success and rollback", async () => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     const persistence = await createPGlitePersistence({ db });
     const table = fxSystemTransactionJournalPoints;
     const check = getTableConfig(table).checks.find(value => value.name === "fx_system_tx_journal_point_dependency_check");
@@ -31,7 +34,6 @@ describe("installation full-proof compatibility", () => {
     )).rows;
     const rollback = new Error("exact cold verification rollback");
     try {
-      await persistence.migrate();
       await persistence.drizzle.transaction(async tx => {
         for (let index = 0; index < 2; index += 1) {
           await Effect.runPromise(verifyInstallationWriterProtection(tx, "public"));
@@ -71,10 +73,9 @@ describe("installation full-proof compatibility", () => {
     } finally { await db.close(); }
   }, 180_000);
   it("refuses overlapping complete maintenance commands across wrappers of the actual backend", async () => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     const first = await createPGlitePersistence({ db });
     const second = await createPGlitePersistence({ db });
-    await first.migrate();
     const query = db.query.bind(db);
     let signalDrained!: () => void;
     let resume!: () => void;
@@ -118,9 +119,8 @@ describe("installation full-proof compatibility", () => {
     "incarnation=gen_random_uuid()",
     "structural_generation=structural_generation+1",
   ])("keeps maintenance draining when its exact reopen identity changes: %s", async change => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     const persistence = await createPGlitePersistence({ db });
-    await persistence.migrate();
     const query = db.query.bind(db);
     let tampered = false;
     const observe = vi.spyOn(db, "query").mockImplementation(async (...args) => {
@@ -147,9 +147,8 @@ describe("installation full-proof compatibility", () => {
   }, 180_000);
 
   it("rejects truncated and malformed actual maintenance gate results before draining", async () => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     const persistence = await createPGlitePersistence({ db });
-    await persistence.migrate();
     const query = db.query.bind(db);
     try {
       for (const malformed of ["missingPresence", "missingGate", "schemaAbsent", "oidOverflow", "missingLocks"] as const) {
@@ -189,10 +188,9 @@ describe("installation full-proof compatibility", () => {
   }, 180_000);
 
   it("joins the active gate, refuses inactive serving and detects removed writer protection", async () => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     const persistence = await createPGlitePersistence({ db });
     try {
-      await persistence.migrate();
       await persistence.drizzle.transaction(async tx => {
         await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
         closeInstallationAdmission(tx);

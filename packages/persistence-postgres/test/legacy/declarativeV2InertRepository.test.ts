@@ -14,11 +14,6 @@ import {
   DeclarativeV2Sha256ResourceV1Error,
 } from "../../src/legacy/declarativeV2Sha256";
 import {
-  createPGliteLocatedPointMutationSessionActivationTargetV1,
-  createPGlitePersistence,
-} from "../../src/database/pglite";
-import {
-  isLocatedReadCommittedAttemptTargetV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
 } from "../../src/database/locatedTransactionIdentity";
@@ -28,8 +23,9 @@ import {
 import {
   SESSION_TEST_EPOCH_UUID,
   SESSION_TEST_SCOPE_UUID,
-  insertSessionTestScope,
+  insertLegacySessionTestScope,
 } from "../execution/session/support/sessionStorage";
+import { historicalVerifierTarget, useHistoricalVerifierPGlite } from "./historicalVerifierFixture";
 import {
   runEffect,
   runEffectFailure,
@@ -42,22 +38,17 @@ const generousCodecBudget = {
   maximumCanonicalBytes: 1_000_000,
 } as const;
 
+const createPersistence = useHistoricalVerifierPGlite();
+
+async function targetFixture() {
+  const persistence = await createPersistence();
+  await insertLegacySessionTestScope(persistence);
+  return { persistence, target: historicalVerifierTarget(persistence.drizzle) };
+}
+
 describe("Declarative V2 inert repository", () => {
   it("inserts, exactly replays, and metadata-first reloads owned evidence", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
-    await insertSessionTestScope(persistence);
-    const target = createPGliteLocatedPointMutationSessionActivationTargetV1(
-      persistence,
-      {
-        kind: "shared_database",
-        databaseKey: "primary",
-        schemaName: "public",
-      },
-    );
-    if (!isLocatedReadCommittedAttemptTargetV1(target)) {
-      throw new Error("Expected a located READ COMMITTED target.");
-    }
+    const { persistence, target } = await targetFixture();
     const repository = makeDeclarativeV2InertRepositoryV1(target);
     const candidate = candidateFixture();
     const encoded = Result.getOrThrow(
@@ -265,8 +256,10 @@ describe("Declarative V2 inert repository", () => {
     expect(v1Counts.rows).toEqual([{ count: "0" }]);
   });
 
-  it("preserves typed hash resource failures and package-private surfaces", async () => {
-    const { target } = await targetFixture();
+  it("preserves typed hash resource failures before transaction work", async () => {
+    const target = { [RUN_LOCATED_READ_COMMITTED_V1]: async () => {
+      throw new Error("Hash refusal must not execute a transaction");
+    } };
     const resourceError = new DeclarativeV2Sha256ResourceV1Error({
       reason: "unavailable",
     });
@@ -291,16 +284,12 @@ describe("Declarative V2 inert repository", () => {
       _tag: "DeclarativeV2Sha256ResourceV1Error",
     });
 
-    const packageJson = await import("../../package.json", {
-      with: { type: "json" },
-    });
-    expect(packageJson.default.exports).not.toHaveProperty(
-      "./declarative-v2-inert-repository",
-    );
   });
 
   it("rejects blank authority values before hashing or transaction work", async () => {
-    const { target } = await targetFixture();
+    const target = { [RUN_LOCATED_READ_COMMITTED_V1]: async () => {
+      throw new Error("Invalid input must not execute a transaction");
+    } };
     let hashes = 0;
     const repository = makeDeclarativeV2InertRepositoryV1(
       target,
@@ -331,19 +320,15 @@ describe("Declarative V2 inert repository", () => {
   });
 
   it("returns an owned observation key after decision-uncertain insert settlement", async () => {
-    const { target } = await targetFixture();
-    const uncertainTarget = Object.create(target) as
-      LocatedReadCommittedAttemptTargetV1;
     const settlementCause = new Error("settlement unknown");
-    Object.defineProperty(uncertainTarget, RUN_LOCATED_READ_COMMITTED_V1, {
-      configurable: true,
-      value: async () => {
+    const uncertainTarget = {
+      [RUN_LOCATED_READ_COMMITTED_V1]: async () => {
         throw new LocatedReadCommittedTransactionFailureV1({
           kind: "decisionUncertain",
           settlementCause,
         });
       },
-    });
+    };
     const repository = makeDeclarativeV2InertRepositoryV1(uncertainTarget);
     const candidate = candidateFixture();
     const encoded = Result.getOrThrow(
@@ -516,30 +501,6 @@ async function fixture() {
     persistence,
     repository: makeDeclarativeV2InertRepositoryV1(target),
   };
-}
-
-async function targetFixture() {
-  if (globalThis.crypto === undefined) {
-    Object.defineProperty(globalThis, "crypto", {
-      configurable: true,
-      value: webcrypto,
-    });
-  }
-  const persistence = await createPGlitePersistence();
-  await persistence.migrate();
-  await insertSessionTestScope(persistence);
-  const target = createPGliteLocatedPointMutationSessionActivationTargetV1(
-    persistence,
-    {
-      kind: "shared_database",
-      databaseKey: "primary",
-      schemaName: "public",
-    },
-  );
-  if (!isLocatedReadCommittedAttemptTargetV1(target)) {
-    throw new Error("Expected a located READ COMMITTED target.");
-  }
-  return { persistence, target };
 }
 
 function candidateFixture(): DeclarativeV2CandidateFrameV1 {

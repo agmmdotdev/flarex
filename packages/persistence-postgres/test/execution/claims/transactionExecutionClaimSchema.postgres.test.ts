@@ -1,4 +1,4 @@
-import { copyDrizzleMigrations } from "../../support/migrationFixtureSupport";
+import { copyDrizzleMigrations } from "../../../src/testing/systemTestMigrationFiles";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";

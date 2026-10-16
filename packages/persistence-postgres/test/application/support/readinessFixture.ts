@@ -72,6 +72,7 @@ import { uuidSequence, sha256Hex } from "./readinessEvidence";
 export type TestPersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
 
 export interface ReadinessFixtureOptions {
+  /** Already migrated; its instrumented driver remains owned by the caller. */
   readonly targetPersistence?: TestPersistence;
   readonly registerTaskCatalog?: boolean;
   readonly includeFunction?: boolean;
@@ -89,7 +90,6 @@ export async function readinessFixture(options: ReadinessFixtureOptions = {}) {
     createReadinessPGlitePersistence(),
     options.targetPersistence ?? createReadinessPGlitePersistence(),
   ]);
-  if (options.targetPersistence !== undefined) await target.migrate();
   const schemaControl = options.foreignSchemaControl === true
     ? await createReadinessPGlitePersistence()
     : control;

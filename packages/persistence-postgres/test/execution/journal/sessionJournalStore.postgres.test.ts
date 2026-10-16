@@ -1,4 +1,4 @@
-import { copyDrizzleMigrations } from "../../support/migrationFixtureSupport";
+import { copyDrizzleMigrations } from "../../../src/testing/systemTestMigrationFiles";
 import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
@@ -187,7 +187,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
   });
 
   it("rolls back invalid syscall-time validation before journal acceptance", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPostgresPersistence(async persistence => {
       const current = await scenario(persistence, "c03v_validation");
       const validator = issueSetupSeededSyscallValidatorProofV1({
         scopeId: current.anchor.scopeId,
@@ -222,7 +222,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
   }, 120_000);
 
   it("validates authority and documents before a PostgreSQL limit receipt", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPostgresPersistence(async persistence => {
       const current = await scenario(persistence, "c03v_limit_priority");
       const validator = issueSetupSeededSyscallValidatorProofV1({
         scopeId: current.anchor.scopeId,

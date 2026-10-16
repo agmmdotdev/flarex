@@ -1,14 +1,16 @@
 import { Effect } from "effect";
-import { expect, it } from "vitest";
+import { beforeAll, expect, it } from "vitest";
 import { createPGlitePersistence } from "../../src/database/pglite";
 import { initializeFullProofInstallation, verifyInstallationWriterProtection } from "../../src/installation/installationLifecycle";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
+
+beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
 
 it.each(["child", "ancestor"] as const)("refuses metadata %s inheritance at the actual PGlite reopen owner", async direction => {
-  const db = newTestPGlite();
+  const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
   const persistence = await createPGlitePersistence({ db });
   try {
-    await persistence.migrate();
     await Effect.runPromise(verifyInstallationWriterProtection(persistence.drizzle, "public"));
     const uncovered = direction === "child" ? "metadata_inheriting_child" : "metadata_uncovered_ancestor";
     await persistence.query(direction === "child" ? `create table ${uncovered} () inherits(fx_control_table)` :

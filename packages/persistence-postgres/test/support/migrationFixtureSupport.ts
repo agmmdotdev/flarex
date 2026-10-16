@@ -1,7 +1,8 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { copyDrizzleMigrations } from "../../src/testing/systemTestMigrationFiles";
 
 export interface DrizzleCopyFixture {
   readonly root: string;
@@ -47,22 +48,6 @@ export async function makeDrizzleCopyFixture(
     temporaryJournal,
     migrationPath,
     cleanup: () => rm(root, { recursive: true, force: true }),
-  });
-}
-
-/** Drizzle executes SQL and its journal; generator snapshots are not runtime inputs. */
-export async function copyDrizzleMigrations(
-  source: string,
-  destination: string,
-): Promise<void> {
-  await cp(source, destination, {
-    recursive: true,
-    filter: path => {
-      const entry = relative(source, path);
-      return entry === "" || entry === "meta" ||
-        entry === join("meta", "_journal.json") ||
-        (dirname(entry) === "." && entry.endsWith(".sql"));
-    },
   });
 }
 

@@ -5,8 +5,9 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Cause, Effect, Exit, Result, Schema, Scope, Tracer } from "effect";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, onTestFinished, describe, expect, it, vi } from "vitest";
 import { newTestPGlite } from "../../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import {
   prepareFiniteApplicationMutationAdmission,
   readPreparedFiniteApplicationMutationInputs,
@@ -76,14 +77,15 @@ import { prepareReadinessAuthorities, enablePhysicalBuilds } from "../support/re
 import { uuidSequence } from "../support/readinessEvidence";
 import { applicationMutationActivationInput } from "../admission/support/mutationActivation";
 
-beforeAll(() => {
+beforeAll(async () => {
   if (globalThis.crypto === undefined) {
     Object.defineProperty(globalThis, "crypto", {
       configurable: true,
       value: webcrypto,
     });
   }
-});
+  await migratedPGliteDataDir();
+}, 120_000);
 
 describe("Application activation/finitePreparation", { timeout: 30_000 }, () => {
   it("prepares private finite mutation inputs with detached getters and fresh unprotected acceptance", async () => {
@@ -425,7 +427,8 @@ describe("Application activation/finitePreparation", { timeout: 30_000 }, () => 
   })
 
   it("refuses aggregate function bytes and oversized cold receipts before driver payload capture", async () => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
+    onTestFinished(() => db.close());
     let observing = false;
     const driverBytes: number[] = [];
     const observeBytes = (value: unknown): void => {

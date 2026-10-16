@@ -3,8 +3,9 @@ import { webcrypto } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { CommitSeqSchema } from "flarex-protocol/storage-authority";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, onTestFinished, describe, expect, it, vi } from "vitest";
 import { newTestPGlite } from "../../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import {
   claimApplicationExecutableActiveSelection,
   isApplicationBindingPreparation,
@@ -53,20 +54,22 @@ import { readinessFixture } from "../support/readinessFixture";
 import { prepareReadinessAuthorities, enablePhysicalBuilds } from "../support/readinessPreparation";
 import { createAdditionalApplicationRevision } from "../support/readinessPublication";
 
-beforeAll(() => {
+beforeAll(async () => {
   if (globalThis.crypto === undefined) {
     Object.defineProperty(globalThis, "crypto", {
       configurable: true,
       value: webcrypto,
     });
   }
-});
+  await migratedPGliteDataDir();
+}, 120_000);
 
 describe("Application activation/bindingPreparation", { timeout: 30_000 }, () => {
   it("captures standalone binding evidence once outside hashing and refreshes the current head per request", async () => {
     let targetOpen = false;
     const capturedSql: string[] = [];
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
+    onTestFinished(() => db.close());
     const targetPersistence = await createPGlitePersistence({ db: {
       exec: db.exec.bind(db), query: db.query.bind(db),
       transaction: run => db.transaction(tx => run({ exec: tx.exec.bind(tx),
@@ -136,7 +139,8 @@ describe("Application activation/bindingPreparation", { timeout: 30_000 }, () =>
 
   it.each(["missing", "malformed", "foreign"] as const)("refuses %s capture clocks with no active head before issuing either preparation profile", async mode => {
     let capturing = false;
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
+    onTestFinished(() => db.close());
     const targetPersistence = await createPGlitePersistence({ db: {
       exec: db.exec.bind(db), query: db.query.bind(db),
       transaction: run => db.transaction(tx => run({ exec: tx.exec.bind(tx),

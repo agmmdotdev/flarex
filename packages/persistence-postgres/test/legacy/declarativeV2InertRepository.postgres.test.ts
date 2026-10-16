@@ -8,12 +8,7 @@ import {
 import {
   makeDeclarativeV2InertRepositoryV1,
 } from "../../src/legacy/declarativeV2InertRepository";
-import {
-  createPostgresLocatedPointMutationSessionActivationTargetV1,
-} from "../../src/database/postgres";
-import {
-  isLocatedReadCommittedAttemptTargetV1,
-} from "../../src/database/locatedTransactionIdentity";
+import { historicalVerifierTarget } from "./historicalVerifierFixture";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
@@ -22,7 +17,7 @@ import { runEffect } from "../support/effectTestRuntime";
 import {
   SESSION_TEST_EPOCH_UUID,
   SESSION_TEST_SCOPE_UUID,
-  insertSessionTestScope,
+  insertLegacySessionTestScope,
 } from "../execution/session/support/sessionStorage";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
@@ -47,19 +42,8 @@ describePostgres("real Postgres Declarative V2 inert foundation", () => {
         check_count: "55",
         foreign_key_count: "20",
       }]);
-      await insertSessionTestScope(persistence);
-      const target =
-        createPostgresLocatedPointMutationSessionActivationTargetV1(
-          persistence,
-          {
-            kind: "shared_database",
-            databaseKey: "primary",
-            schemaName: "public",
-          },
-        );
-      if (!isLocatedReadCommittedAttemptTargetV1(target)) {
-        throw new Error("Expected a located READ COMMITTED target.");
-      }
+      await insertLegacySessionTestScope(persistence);
+      const target = historicalVerifierTarget(persistence.drizzle);
       const repository = makeDeclarativeV2InertRepositoryV1(target);
       const candidate = candidateFixture();
       const encoded = Result.getOrThrow(
@@ -111,7 +95,7 @@ describePostgres("real Postgres Declarative V2 inert foundation", () => {
         heads: "0",
         legacy_packages: "0",
       }]);
-    });
+    }, { historicalApplicationAnalysis: true });
   }, 60_000);
 });
 
