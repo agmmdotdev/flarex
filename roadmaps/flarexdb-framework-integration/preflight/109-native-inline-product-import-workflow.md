@@ -6,11 +6,16 @@ Status: pinned-source and current-owner preflight complete. Native CSV
 normalization and the Notification service/model/local-provider prerequisites
 are implemented privately. Their source availability does not admit a complete
 import or standalone Notification facade. Durable confirmation,
-cross-commit child invocation, compensation/event eligibility, native Notification
+native child invocation, compensation/event decision bridging, native Notification
 admission and connected import implementation remain proposed. Bounded native
 orchestration has executed with storage and business test ports; database,
 provider, elapsed-timeout and Redis conformance remain unproven. This is not
 implemented import support.
+
+Private shared prerequisites now include authentic Task execution subjects,
+finite commerce child invocation and bounded cross-commit delivery eligibility.
+Their connected command proof is framework-neutral. They do not yet connect the
+native Product composer, confirmation, Notification persistence or interpreter.
 
 The continuing Medusa integration goal authorizes necessary correct-owner
 changes, implementation, review and scoped commits. Authority is the accepted
@@ -30,8 +35,10 @@ is developed.
 
 ## Next Connected Outcome
 
-Select native `importProductsWorkflow` with inline CSV text and filename before
-the chunked File import or export composer. It avoids File, Region and Node
+Complete native `importProductsWorkflow` with inline CSV text and filename.
+Chunked File import and Product export are explicitly deferred and are not next
+integration work. After inline import, select another pending Medusa workflow.
+The selected inline workflow avoids File, Region and Node
 stream dependencies. Its connected closure is still broader than CSV parsing:
 native normalization and summary, durable confirmation with a one-hour timeout,
 one background native Product batch, genuine success Notification and genuine
@@ -188,14 +195,14 @@ observation and establishes no additional native contract.
 | `packages/medusa-workflows-sdk/src/definition.ts`: `createStep`, `createWorkflow`, `runAsStep`; `src/runtime.ts`: `executeWorkflow` | Authentic definitions, finite child frames, conditions and queued sibling execution through caller-owned ports. | Step options admit only `name` and `compensation: "transactionCovered"`; `.config` admits name only. Native async/timeout/background and irreversible compensation remain refused. Add a separate explicit execution profile rather than loosening atomic definitions. |
 | `packages/medusa-adapter/src/workflow/host.ts`: `prepareWorkflowComposition`, `prepareAtomicWorkflowHost`; `src/workflow/runtime.ts`: `runNativeMedusaWorkflow` | Checked resources, authentic module methods and bounded fresh callback lifetimes for one atomic root. | All callbacks borrow `AtomicCommerceContext`. No continuation, confirmed resume or provider boundary exists here; do not hold this context across them. |
 | `packages/medusa-adapter/src/workflows/product/batch.ts`: `prepareProductBatchWorkflow` | Genuine bounded Product batch and native Product/Pricing/Inventory/Link children. | A fenced durable caller must invoke one prepared child with a retained stable request key and recover its exact outcome; it cannot regenerate a key on resume. Cross-commit compensation and delayed event eligibility need their actual owners. |
-| `packages/persistence-postgres/src/frameworks/atomicCommerce/commands.ts`: `AtomicCommerceHost.run(requestKey, command, args)` and `close`; `host.ts`: `makeAtomicCommerceHost` | Single child settlement, exact request equivalence, retained committed outcome, fresh authority and uncertain-result recovery. | Task/continuation execution fencing is not implied by possession of a command token. Add authenticated subject-to-child binding at the appropriate execution owner; no raw transaction capability crosses out. |
+| `packages/persistence-postgres/src/frameworks/atomicCommerce/commands.ts`: `AtomicCommerceHost.run` and private `TaskAtomicCommerceHost.runTaskChild`; `host.ts`: `makeAtomicCommerceHost` | Single settlement, exact replay and uncertain recovery; Task child entry and final lease checks under an explicitly admitted authentic binding and scope-exclusive profile. | The native interpreter must bind its exact plan to this finite child. No Product import or continuation follows from the neutral command proof. |
 | `packages/durable-task/src/runAttempt/Services/RunAttemptLifecycle.ts`: `startAttempt`, `heartbeatAttempt`, `completeAttempt`, `requestCancellation`, `handleLeaseExpiry`, `inspectCurrentAttempt` | Existing Task state, versions, fences, lease/cancellation and terminal meaning. | Current aggregates are ready, attempt_granted, executing, retry_waiting and terminal; none is a durable confirmation wait. Do not relabel retry delay or keep an executing lease alive for an hour. |
 | `packages/durable-task/src/scheduling/TaskWakeScheduler.ts`: `makeTaskWakeSchedulerV1(...).run(request)` | Scope-bound bounded due discovery, cursor correlation and existing candidate handling. | A confirmed/expired import continuation has no admitted candidate kind or lifecycle correlation yet. Queue hints may wake work, but PostgreSQL owns eligibility and the winning transition. |
 | `packages/standard-application-invocation/src/ApplicationTaskSystem.ts`: `createApplicationTaskRun` / `ApplicationTaskSystemApi.createRun` | Current Application task selection, immutable runtime/principal binding and scoped run creation. | It selects Application tasks, not Medusa workflow definitions. Do not fabricate an Application function/runtime binding to host commerce. |
-| `packages/durable-task/src/runCreation/TrustedWorkflowBinding.ts`: `prepareTrustedWorkflowTaskBinding`; persistence `tasks/trustedWorkflowTaskRunCreation.ts`: `makeTrustedWorkflowTaskRunCreationStore`; `taskSystemRunAttemptStoreV1.ts`: `makeTrustedWorkflowTaskSystemRunAttemptStore` | Implemented private trusted workflow binding, exact scoped creation/replay and existing lifecycle decisions under a separate definition reference. | Compute/due-discovery admission, authenticated execution-subject issuance, continuation waits and commerce effects remain absent. The future issuer must check canonical persisted binding/policy/principal as well as the current attempt and lease. |
+| `packages/durable-task/src/runCreation/TrustedWorkflowBinding.ts`; persistence `tasks/trustedWorkflowTaskRunCreation.ts`, `taskSystemRunAttemptStoreV1.ts` and `trustedWorkflowExecutionSubject.ts` | Private exact scoped creation/replay, existing lifecycle and authentic execution subjects checking canonical binding/policy/principal plus current executing attempt and database lease. | Compute/due-discovery and continuation waits remain absent. Native policy interpretation belongs to the selected framework owner. |
 | `packages/standard-application-invocation/src/ApplicationTaskMutationAuthority.ts`: external-effect session `prepare`, `declareDispatch`, `confirm`, `reconcile`, `close`; persistence `tasks/taskExternalEffectAuthority.ts`: corresponding child-mutation operations | Existing ordinal, stable request identity, fenced subject and uncertain dispatch evidence are concrete reuse references. | Inputs/subjects bind Application task launches and `TransactionFunctionPathV1`. They grant no arbitrary commerce/provider authority. Correct the real owner for a named additional subject/operation rather than laundering Medusa through a fake function path. |
 | `roadmaps/durable-task-engine/preflight/55-dte07-clean-task-await-contract.md`: `awaitTask` | Bounded scope-authorized status observation and one final result read. | Caller-side polling is not durable suspension, authenticated confirmation or a wake mechanism. |
-| `packages/persistence-postgres/src/commit/events/` and workflow-foundations topic07 | Existing immutable event intents, commit correlation, claims and durable subscriber outcomes. | Groups spanning multiple committed steps remain deferred. Immediate child event eligibility does not implement parent release/clear. Extend the actual eligibility owner without a competing event feed/outbox or mutable committed facts. |
+| `packages/persistence-postgres/src/commit/events/` and workflow-foundations topic07 | Immutable event intents, digest-witnessed bounded eligibility groups, fresh conjunctive claim gating and existing subscriber outcomes. | Native parent release/clear must be authenticated by the live Task interpreter; the scope-bound group capability alone supplies no workflow decision. |
 
 [Workflow foundations 02](../../workflow-foundations/02-durable-operations-and-recovery.md),
 [03](../../workflow-foundations/03-continuations-waits-and-signals.md),
@@ -351,6 +358,12 @@ receive exact owned paths/checkpoint/contracts and both database results before
 the scoped commit. No hosted support, general providers, arbitrary Task/API
 exposure, arbitrary workflow graphs, File/Region integration or destructive data
 migration is admitted here.
+
+## Deferred Product Import And Export Variants
+
+Chunked File import and Product export are outside the current integration goal.
+Their dependencies below remain an exclusion inventory, not a prerequisite or
+an ordered follow-up to inline import.
 
 Chunked import additionally needs native
 `product/steps/normalize-products-to-chunks.ts` and

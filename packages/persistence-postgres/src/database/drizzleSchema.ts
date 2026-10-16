@@ -158,5 +158,6 @@ export {
 export { fxSystemFrameworkMigrationPlanBases } from "../installation/migrationCoordination/baseSchema";
 export { fxSystemApplicationWriteOwnership } from "../application/ownership/Schema";
 export { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../commit/events/schema";
+export { fxSystemCommitEventEligibilityGroups, fxSystemCommitEventEligibilityMembers } from "../commit/events/eligibilitySchema";
 export { fxSystemDataBindingCandidates, fxSystemDataBindingPhysicalLanes,
   fxSystemDataBindingActivations, fxSystemDataBindingHeads } from "../installation/frameworkSchema/binding/schema";

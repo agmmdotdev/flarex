@@ -3,19 +3,17 @@ import {
   type PrivateSha256V1ErrorPolicy,
 } from "@flarex/analysis/internal/private-sha256-v1";
 import {
+  decodeTaskExecutionPrincipalObjectV1,
   decodeTaskExecutionPrincipalReferenceV1,
   makeTaskExecutionPrincipalReferenceV1,
   MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1,
+  ownPrincipalObject,
+  type TaskExecutionPrincipalObjectV1,
   type TaskExecutionPrincipalReferenceV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
 import { copyBytes } from "@flarex/utils/bytes";
 import { Data, Effect, Result, Schema } from "effect";
-import {
-  decodeExecutionIdentityEffect,
-  type ExecutionIdentity,
-  UserIdentitySchema,
-} from "flarex-protocol/auth";
-import type { Json } from "flarex-protocol/json";
+import { decodeExecutionIdentityEffect } from "flarex-protocol/auth";
 import {
   ReplacementScopeIdV1Schema,
   type ReplacementScopeIdV1,
@@ -39,16 +37,11 @@ import {
   type ImmutableR2Bucket,
 } from "../immutableR2/ImmutableR2ByteStore.js";
 
-export type TaskExecutionPrincipalIdentity = Extract<
-  ExecutionIdentity,
-  { readonly kind: "user" }
->;
-
-export interface TaskExecutionPrincipalObjectV1 {
-  readonly version: 1;
-  readonly scopeId: ReplacementScopeIdV1;
-  readonly executionIdentity: TaskExecutionPrincipalIdentity;
-}
+export {
+  decodeTaskExecutionPrincipalObjectV1,
+  type TaskExecutionPrincipalIdentity,
+  type TaskExecutionPrincipalObjectV1,
+} from "@flarex/durable-task/internal/run-creation-v1";
 
 export interface StoredTaskExecutionPrincipal {
   readonly reference: TaskExecutionPrincipalReferenceV1;
@@ -142,19 +135,6 @@ export type TaskExecutionPrincipalSha256 = (
 ) => Effect.Effect<Uint8Array, TaskExecutionPrincipalSha256ResourceError>;
 
 const decodeScopeId = Schema.decodeUnknownResult(ReplacementScopeIdV1Schema);
-const STRICT_PARSE_OPTIONS = { onExcessProperty: "error" } as const;
-const PrincipalObjectSchema = Schema.Struct({
-  version: Schema.Literal(1),
-  scopeId: ReplacementScopeIdV1Schema,
-  executionIdentity: Schema.Struct({
-    kind: Schema.Literal("user"),
-    user: UserIdentitySchema,
-  }).annotate({ parseOptions: STRICT_PARSE_OPTIONS }),
-}).annotate({ parseOptions: STRICT_PARSE_OPTIONS });
-const decodePrincipalObject = Schema.decodeUnknownResult(
-  PrincipalObjectSchema,
-  STRICT_PARSE_OPTIONS,
-);
 const resourceCauses = new WeakMap<
   TaskExecutionPrincipalStoreResourceError,
   unknown
@@ -184,15 +164,6 @@ export function makeTaskExecutionPrincipalStore(
   return decodeScopeId(scopeIdInput).pipe(
     Result.mapError(() => inputErrorValue("create", "invalidScope")),
     Result.map(scopeId => makeStore(scopeId, bucket, sha256)),
-  );
-}
-
-export function decodeTaskExecutionPrincipalObjectV1(
-  input: unknown,
-): Result.Result<TaskExecutionPrincipalObjectV1, void> {
-  return decodePrincipalObject(input).pipe(
-    Result.map(ownPrincipalObject),
-    Result.mapError(() => undefined),
   );
 }
 
@@ -333,34 +304,6 @@ function captureIdentityInput(
     try: () => structuredClone(input),
     catch: () => inputErrorValue("issue", "invalidIdentity"),
   });
-}
-
-function ownPrincipalObject(
-  input: TaskExecutionPrincipalObjectV1,
-): TaskExecutionPrincipalObjectV1 {
-  const executionIdentity = structuredClone(input.executionIdentity);
-  for (const value of Object.values(executionIdentity.user)) {
-    if (value !== undefined) freezeJson(value);
-  }
-  Object.freeze(executionIdentity.user);
-  Object.freeze(executionIdentity);
-  return Object.freeze({
-    version: 1,
-    scopeId: input.scopeId,
-    executionIdentity,
-  });
-}
-
-function freezeJson(value: Json): void {
-  if (Array.isArray(value)) {
-    for (const member of value) freezeJson(member);
-    Object.freeze(value);
-    return;
-  }
-  if (typeof value === "object" && value !== null) {
-    for (const member of Object.values(value)) freezeJson(member);
-    Object.freeze(value);
-  }
 }
 
 function copyReference(

@@ -13,6 +13,100 @@ import {
 } from "./check-trigger-compatibility-boundary.mjs";
 
 describe("Trigger compatibility boundary checker", () => {
+  const trustedWorkflowContracts = [
+    {
+      relativePath: "packages/durable-task/src/runCreation/TaskExecutionPrincipalObject.ts",
+      specifier: "flarex-protocol/auth",
+      text: 'import { UserIdentitySchema } from "flarex-protocol/auth";',
+    },
+    {
+      relativePath: "packages/flarex-backend/src/taskExecutionPrincipal/TaskExecutionPrincipalStore.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: `import { decodeTaskExecutionPrincipalObjectV1, decodeTaskExecutionPrincipalReferenceV1,
+        makeTaskExecutionPrincipalReferenceV1, MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1,
+        ownPrincipalObject, type TaskExecutionPrincipalObjectV1, type TaskExecutionPrincipalReferenceV1
+      } from "@flarex/durable-task/internal/run-creation-v1";`,
+    },
+    {
+      relativePath: "packages/flarex-backend/src/taskExecutionPrincipal/TaskExecutionPrincipalStore.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: `export { decodeTaskExecutionPrincipalObjectV1, type TaskExecutionPrincipalIdentity,
+        type TaskExecutionPrincipalObjectV1 } from "@flarex/durable-task/internal/run-creation-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/frameworks/atomicCommerce/configuration.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: `import { inspectTrustedWorkflowTaskBinding, type TrustedWorkflowTaskBinding }
+        from "@flarex/durable-task/internal/run-creation-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowExecutionSubject.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: `import { decodeTaskExecutionPrincipalReferenceV1, decodeTaskExecutionPrincipalObjectV1,
+        inspectTrustedWorkflowTaskBinding, trustedWorkflowPrincipalMatches,
+        type TaskExecutionPrincipalReferenceV1, type TrustedWorkflowTaskBinding,
+        type TrustedWorkflowTaskBindingState, type TaskExecutionPrincipalObjectV1
+      } from "@flarex/durable-task/internal/run-creation-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowExecutionSubject.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: `import { TaskRunIdV1Schema, TaskAttemptIdV1Schema, TaskAttemptNumberV1Schema,
+        TaskExecutionFenceV1Schema } from "@flarex/durable-task/internal/run-attempt-v1";`,
+    },
+  ];
+
+  it("admits the exact portable trusted-workflow contract declarations", () => {
+    expect(analyzeTriggerCompatibilityBoundary([], trustedWorkflowContracts).errors).toEqual([]);
+  });
+
+  it("refuses contract declarations from neighboring owners or specifiers", () => {
+    for (const contract of trustedWorkflowContracts) {
+      expect(analyzeTriggerCompatibilityBoundary([], [{ ...contract,
+        relativePath: contract.relativePath.replace(/\.ts$/, "Neighbor.ts"),
+      }]).errors).toHaveLength(1);
+      expect(analyzeTriggerCompatibilityBoundary([], [{ ...contract,
+        text: contract.text.replace(contract.specifier, `${contract.specifier}/neighbor`),
+      }]).errors).toHaveLength(1);
+    }
+  });
+
+  it("preserves contract symbol modes and refuses added symbols", () => {
+    for (const contract of trustedWorkflowContracts) {
+      const typeOnly = contract.text.replace(/\btype /g, "").replace(/^(import|export) /, "$1 type ");
+      expect(analyzeTriggerCompatibilityBoundary([], [{ ...contract, text: typeOnly }]).errors).toHaveLength(1);
+      expect(analyzeTriggerCompatibilityBoundary([], [{ ...contract,
+        text: contract.text.replace("{", "{ makeRunAttemptLifecycleV1,"),
+      }]).errors).toHaveLength(1);
+    }
+    for (const contract of trustedWorkflowContracts.filter(value => value.text.includes("type "))) {
+      expect(analyzeTriggerCompatibilityBoundary([], [{ ...contract,
+        text: contract.text.replace(/\btype /g, ""),
+      }]).errors).toHaveLength(1);
+    }
+  });
+
+  it("keeps principal contract re-exports exact and blocks alternate loading forms", () => {
+    const principal = trustedWorkflowContracts[0];
+    const store = trustedWorkflowContracts[2];
+    for (const text of [
+      'import * as auth from "flarex-protocol/auth";',
+      'import auth from "flarex-protocol/auth";',
+      'import "flarex-protocol/auth";',
+      'void import("flarex-protocol/auth");',
+      'const auth = require("flarex-protocol/auth");',
+    ]) expect(analyzeTriggerCompatibilityBoundary([], [{ ...principal, text }]).errors).toHaveLength(1);
+    for (const text of [
+      store.text.replace("decodeTaskExecutionPrincipalObjectV1,", "decodeTaskExecutionPrincipalObjectV1 as anotherDecoder,"),
+      'export * from "@flarex/durable-task/internal/run-creation-v1";',
+      'export type * from "@flarex/durable-task/internal/run-creation-v1";',
+      'export { ownPrincipalObject } from "@flarex/durable-task/internal/run-creation-v1";',
+    ]) expect(analyzeTriggerCompatibilityBoundary([], [{ ...store, text }]).errors).toHaveLength(1);
+    expect(analyzeTriggerCompatibilityBoundary([], [{ ...store,
+      text: `${trustedWorkflowContracts[1].text}\nexport { decodeTaskExecutionPrincipalObjectV1 };`,
+    }]).errors).toEqual([`${store.relativePath}:5 production source must not re-export an admitted compatibility binding beyond its owning file.`]);
+  });
+
   it("accepts ordinary Flarex dependencies and imports", () => {
     expect(analyzeTriggerCompatibilityBoundary(
       [{
@@ -1680,6 +1774,7 @@ describe("Trigger compatibility boundary checker", () => {
       text: `
         import {
           createLocatedTaskExternalEffectAuthorityTarget,
+          createLocatedTaskExternalEffectAuthorityTargetFromPolicyInternal,
           type LocatedTaskExternalEffectAuthorityTarget,
           type TaskExternalEffectAuthorityConfigurationError,
         } from "../tasks/taskExternalEffectAuthority";
@@ -2320,5 +2415,29 @@ describe("Trigger compatibility boundary checker", () => {
       'packages/durable-task/src/runAttempt/Policy.ts:4 must not use prohibited durable-task global "crypto".',
       'packages/durable-task/src/runAttempt/Policy.ts:5 must not use prohibited durable-task global "performance".',
     ]);
+  });
+});
+
+
+describe("deadline-owned Task persistence target construction boundary", () => {
+  const relativePath = "packages/persistence-postgres/src/database/pglite.ts";
+  const specifier = "../tasks/taskExternalEffectAuthority";
+  const factory = "createLocatedTaskExternalEffectAuthorityTargetFromPolicyInternal";
+  const admitted = 'import { createLocatedTaskExternalEffectAuthorityTarget, ' + factory +
+    ', type LocatedTaskExternalEffectAuthorityTarget, type TaskExternalEffectAuthorityConfigurationError } from "' + specifier + '";';
+  /** @param {string} text @param {string} [owner] */
+  const errors = (text, owner = relativePath) => analyzeTriggerCompatibilityBoundary([], [{ relativePath: owner, text }]).errors;
+  it("admits only the existing PGlite owner's named value construction import", () => {
+    expect(errors(admitted)).toEqual([]);
+    for (const text of [
+      'import { ' + factory + ' } from "' + specifier + '";',
+      'import type { ' + factory + ' } from "' + specifier + '";',
+      'import * as target from "' + specifier + '";',
+      'export { ' + factory + ' } from "' + specifier + '";',
+      'const target = import("' + specifier + '");',
+      'import { ' + factory + ', issueApplicationTaskExternalEffectSubject } from "' + specifier + '";',
+    ]) expect(errors(text).length).toBeGreaterThan(0);
+    expect(errors(admitted,
+      "packages/persistence-postgres/src/database/pglite-neighbor.ts").length).toBeGreaterThan(0);
   });
 });

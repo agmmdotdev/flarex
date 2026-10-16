@@ -24,6 +24,9 @@ import type { FlarexMetadataTransaction } from "../../database/metadataTransacti
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
 import type { ScopeClockRecord } from "../../scope/scopeClock";
 import type { DataBindingHeadToken } from "../../installation/frameworkSchema/binding/model";
+import { bindCommitEventEligibility, enrollCommitEventEligibilityInTransaction,
+  validatePreparedCommitEventEligibilityInTransaction,
+  type PreparedCommitEventEligibility } from "../../commit/events/eligibility";
 
 /** Authenticated domain contribution; allocation and settlement belong to the root. */
 export const consumeCommerceContribution = Effect.fn("CommerceCommit.consumeContribution")(function* (
@@ -41,7 +44,8 @@ type CommerceCommitInput = Readonly<{ kind: "logical"; closure: LogicalCommerceC
     additional: readonly Readonly<{ admission: CommerceAdmission; closure: CommerceRowClosure }>[];
     events?: CommerceEventClosure }> |
   Readonly<{ kind: "atomic"; factLimit: number; participants: readonly (Readonly<{ kind: "physical"; admission: CommerceAdmission; closure: CommerceRowClosure }> |
-    Readonly<{ kind: "logical"; closure: LogicalCommerceClosure }>)[]; events?: CommerceEventClosure }>;
+    Readonly<{ kind: "logical"; closure: LogicalCommerceClosure }>)[]; events?: CommerceEventClosure;
+    eligibility?: PreparedCommitEventEligibility }>;
 
 type CommonState = Readonly<{ tx: FlarexMetadataTransaction; authority: TrustedScopeAuthority; clock: ScopeClockRecord;
   head: DataBindingHeadToken | null }>;
@@ -138,6 +142,15 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   const atomicEvents = atomic?.deferredEvents === undefined ? atomic?.events :
     yield* consumeCommerceEvents(atomic.deferredEvents, lifetime);
   const clock = { record: publicationClock, scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid };
+  const eligibility = input.kind === "atomic" ? input.eligibility : undefined;
+  if (eligibility !== undefined) yield* validatePreparedCommitEventEligibilityInTransaction(state.tx, clock, eligibility)
+    .pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
+  const originalEvents = physical?.events ?? atomicEvents;
+  const heldEvents = eligibility === undefined || originalEvents === undefined || originalEvents.values.length === 0
+    ? undefined : yield* bindCommitEventEligibility(originalEvents.values, eligibility)
+      .pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
+  if (heldEvents !== undefined) yield* Effect.fromResult(lifetime.charge(heldEvents.additionalBytes));
+  const events = heldEvents ?? originalEvents;
   const now = yield* publishCommerceAtoms(() => readScopePublicationDatabaseTime(state.tx, scope.scopeId, options));
   const allocation = yield* Effect.fromResult(allocateScopePublicationResult(clock, now))
     .pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
@@ -149,7 +162,7 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
     rowIntents: [], identityAccessPolicySha256: identity.expectedIdentityAccessPolicySha256,
     requestSha256: identity.expectedRequestSha256, resultSha256, successfulResult: result,
     ...((physical ?? atomic) === undefined ? {} : { relationalFacts }),
-    ...(physical?.events !== undefined ? { events: physical.events } : atomicEvents !== undefined ? { events: atomicEvents } : {}),
+    ...(events === undefined ? {} : { events }),
   };
   const adjacencyChanges: ScopePublicationKernel["relationAdjacencyChanges"][number][] = [];
   const kernel: ScopePublicationKernel = { clock, ...allocation,
@@ -200,6 +213,9 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   }
   if (physical?.state.bootstrap || (logical !== undefined && input.kind === "logical" && input.initialization !== undefined))
     yield* publishCommerceAtoms(() => reproveScopePublicationPrefix(prefix));
+  if (eligibility !== undefined && events !== undefined && events.values.length > 0)
+    yield* enrollCommitEventEligibilityInTransaction(state.tx, { ...clock, commitSeq: allocation.commitSeq }, eligibility)
+      .pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
   yield* acceptCommercePublication(advanceScopePublicationClock(state.tx, contribution, kernel, options));
   return allocation.commitSeq;
 });

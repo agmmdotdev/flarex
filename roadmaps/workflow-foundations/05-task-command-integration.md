@@ -1,8 +1,9 @@
 # Task Command Integration
 
-Status: the trusted workflow Task binding, run creation and lifecycle prerequisite
-is implemented privately. Commerce invocation, execution-subject issuance and
-continuation admission below remain pending. This
+Status: trusted workflow binding, run creation, lifecycle, execution-subject
+issuance and a finite Task-to-commerce child boundary are implemented privately.
+The connected proof uses a neutral commerce command. Native Product import,
+continuations, compute delivery and provider execution remain pending. This
 is a general capability outline; the
 [folder index](./README.md) owns scope and the one-capability-at-a-time process.
 
@@ -57,7 +58,7 @@ the retained Application and legacy codecs. The
 owns its additive storage contract. Existing compute and due-discovery profiles
 refuse this generation until an authentic execution adapter is admitted.
 
-A separately admitted `child_commerce` external effect must bind the actual
+A separately admitted `child_commerce` external effect binds the actual
 prepared commerce command, policy, captured arguments and stable run/occurrence
 identity. It must not fill an Application mutation function-path field with a
 synthetic target. Commerce owns its request evidence and exact committed outcome
@@ -69,7 +70,59 @@ authority/clock, run, then effect lock ordering. Use database wall time for the
 live lease check and bound the finite child by the remaining lease and settlement
 budget. A dispatch-time check alone grants no settlement authority.
 
-This binding milestone does not admit suspension, confirmations, provider calls,
+The issuer authenticates an in-process binding against stored canonical bytes,
+the complete attempt policy and principal reference. It verifies the existing
+canonical principal object and its scope, current executing attempt, cancellation
+state, immutable attempt identity and database wall-clock lease. Inspection
+returns owned immutable facts; it grants no live verdict. Revocation invalidates
+the authentic handle. Principal object decoding now lives with the shared Task
+contract; the backend object store retains storage and authenticated issuance.
+
+Run creation and subject issuance require an authentic deadline-owned Task
+persistence target. The existing PostgreSQL resource owns bounded pool
+acquisition and startup lock/statement/transaction deadlines, including
+installation admission; the shared Task transaction seam reapplies its captured
+policy before authority/run locks. Generic targets fail before I/O. The explicit
+PGlite test owner proves SQL behavior, without claiming pool acquisition or
+remote connection bounds. The original transaction owner retains drain,
+rollback and connection cleanup.
+Caller interruption remains deferred while that owner drains foreign work. If
+the masked operation ends in a deadline failure, the original projected failure
+Cause is retained; this does not claim an early driver abort or an interrupted
+Exit. Error projection occurs at the foreign transaction boundary, so pending
+interruption cannot bypass a later owner-error conversion.
+
+The commerce host must explicitly select the authentic `taskBinding` and
+`scopeExclusive` isolation. Omission preserves ordinary command identity and
+refuses Task children. The selected binding is included in host policy identity;
+the binding's opaque workflow policy remains the framework interpreter's
+responsibility. A subject for another binding cannot enter that host.
+
+This profile admits occurrences 1 through 16. The stable request key hashes
+scope, logical run and occurrence, excluding binding, attempt and fence. Exact
+request evidence separately binds the immutable workflow binding, command,
+arguments, current installations, host policy and optional event eligibility.
+The ordinary command API refuses the reserved Task request-key namespace.
+
+Preparation, dispatch declaration, business publication and confirmed effect
+receipt share the existing commerce transaction. This finite database-only
+child has no remote dispatch gap. A fresh attempt reuses the same occurrence
+and retained outcome; a missing, conflicting or expired receipt never authorizes
+another business call. The existing uncertain-settlement recovery owner remains
+responsible; no additional retry engine is introduced.
+
+Entry requires the complete configured command budget plus a one-second
+settlement reserve within both the live lease and maximum attempt duration.
+The original absolute command deadline remains in force through settlement.
+Fresh database lease checks surround publication and finish after the effect
+receipt update, so refusal rolls back business data, facts, events and receipt.
+No transaction or connection spans waiting or provider work.
+
+The [event eligibility owner](./07-durable-workflow-events.md#cross-commit-delivery-eligibility)
+can hold this child's committed intents under two conjunctive groups. Task-bound
+release/clear decisions and native workflow interpretation remain separate gates.
+
+This capability does not admit suspension, confirmations, provider calls,
 arbitrary workflows or a new scheduler. Those need their own explicit lifecycle
 and eligibility contracts. The framework interpreter remains framework-owned;
 Task owns durable authority rather than the native business graph.

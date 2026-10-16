@@ -53,7 +53,10 @@ same-installation atomic participants and is complete. Arbitrary configured
 module sets remain unadmitted. Medusa services
 remain above the existing Flarex transaction and publication owners.
 
-The user-selected next integration outcome is full Product workflow execution.
+The user-selected next integration outcome is inline Product import completion,
+followed by another pending Medusa workflow. Chunked File import and Product
+export are explicitly deferred; their File and Region dependencies are outside
+the current integration goal.
 With performance optimization paused, the approved bounded connected admission is
 [Product Variant Inventory](./preflight/95-product-variant-inventory-workflow.md):
 managed/default InventoryItems and rich Variant–InventoryItem Links, retaining
@@ -207,8 +210,8 @@ Bounded native orchestration distinguishes
 a completed default batch from its subsequently failed parent invocation:
 the uncheckpointed child cannot be found for cancellation, so business undo
 must not be invented. Durable integration, real module/provider persistence and
-release-failure recovery remain unimplemented; chunked File import and Region/File
-export retain their separate dependencies.
+release-failure recovery remain unimplemented. Chunked File import and Region/File
+export are deferred, with their separate dependencies excluded from this goal.
 
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,

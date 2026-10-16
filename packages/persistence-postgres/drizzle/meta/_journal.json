@@ -1030,6 +1030,13 @@
       "when": 1792097890772,
       "tag": "0146_trusted_workflow_task_binding",
       "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1792120750697,
+      "tag": "0147_trusted_workflow_child_commerce",
+      "breakpoints": true
     }
   ]
 }

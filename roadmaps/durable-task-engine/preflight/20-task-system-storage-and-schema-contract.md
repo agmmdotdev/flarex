@@ -478,13 +478,25 @@ owners operate on its current-reference envelope. Retained Application and
 legacy persistence codecs remain separate.
 
 This prerequisite has no compute delivery or due-discovery admission. Those
-existing profiles explicitly refuse trusted workflow runs. A future execution
-subject issuer must validate the persisted canonical binding, policy and
-principal against authentic construction evidence as well as the current
-attempt and live lease. Lifecycle row/digest correlation alone is insufficient.
+existing profiles explicitly refuse trusted workflow runs. The private execution
+subject issuer validates persisted canonical binding bytes, policy and principal
+against authentic construction evidence, then the current executing attempt,
+cancellation state, attempt identity and database wall-clock lease. The shared
+Task principal object decoder owns its canonical object shape and detached,
+deeply frozen value. Lifecycle row/digest correlation alone is insufficient.
+
+The [Task command integration](../../workflow-foundations/05-task-command-integration.md)
+adds a separate `child_commerce` kind to existing external-effect evidence.
+Its finite database-only prepare/dispatch/confirmation phases commit with the
+commerce child and retained result. A partial unique scope/request-key index
+correlates the same logical occurrence across attempts. Existing HTTP and
+Application mutation rows keep their prior fields and semantics; no Application
+function path or runtime identity represents commerce. The additive migration
+preserves existing rows and enrolls new event eligibility tables in installation
+writer protection.
 
 The concrete consumer is the
 [inline Product import preflight](../../flarexdb-framework-integration/preflight/109-native-inline-product-import-workflow.md).
-Confirmation, durable checkpoints, commerce child effects, provider recovery and
-event eligibility remain separate connected gates; this table is not an
+Confirmation, durable checkpoints, native child admission, provider recovery and
+Task-bound event decisions remain separate connected gates; this table is not an
 independent workflow engine or scheduler.

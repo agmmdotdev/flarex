@@ -22,6 +22,8 @@ import {
   type AtomicCommandDefinition,
 } from "./commands";
 import type { PreparedAtomicCommerceConfiguration } from "./configuration";
+import type { CapturedAtomicCommerceTaskChild } from "./taskChild";
+import { inspectCommitEventEligibility } from "../../commit/events/eligibility";
 
 const decodeKey = Schema.decodeUnknownEffect(TransactionRequestKeyV1Schema);
 export const hashAtomicCommerceBytes = (
@@ -35,6 +37,7 @@ export interface CapturedAtomicCommerceRequest {
   readonly key: typeof TransactionRequestKeyV1Schema.Type;
   readonly definition: AtomicCommandDefinition;
   readonly args: Json;
+  readonly taskChild?: CapturedAtomicCommerceTaskChild;
 }
 
 export interface AtomicCommerceRequestEvidence {
@@ -90,6 +93,12 @@ export const prepareAtomicCommerceRequestEvidence = Effect.fn("AtomicCommerce.pr
       bindingHead: admitted.head,
       operation: request.definition.name,
       args: request.args,
+      ...(request.taskChild === undefined ? {} : { taskChild: {
+        ...request.taskChild.identity, occurrence: request.taskChild.ordinal.toString(),
+        eligibility: request.taskChild.eligibility === undefined ? [] :
+          yield* Effect.fromResult(inspectCommitEventEligibility(request.taskChild.eligibility))
+            .pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause))),
+      } }),
       participants: members.map((member) => ({
         name: member.name,
         ...(member.kind === "physical" ? { installation: member.reference }

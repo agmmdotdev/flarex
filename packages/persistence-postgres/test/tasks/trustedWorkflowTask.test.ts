@@ -11,8 +11,11 @@ import { decideTrustedWorkflowStartAttempt, decideTrustedWorkflowHeartbeatAttemp
 import { makeTrustedWorkflowTaskRunCreationStore } from "../../src/tasks/trustedWorkflowTaskRunCreation";
 import { makeTrustedWorkflowTaskSystemRunAttemptStore, type LocatedTaskSystemRunAttemptTargetV1 } from "../../src/tasks/taskSystemRunAttemptStoreV1";
 import { fxSystemDurableTaskRunsV1, fxSystemScopeExecutionAuthorities, fxSystemTrustedWorkflowTaskBindings } from "../../src/database/schema";
-import { createPGlitePersistence, createPGliteLocatedTaskSystemRunAttemptTargetV1 } from "../../src/database/pglite";
+import { createPGlitePersistence, createPGliteLocatedTaskSystemRunAttemptTargetV1,
+  createPGliteDeadlineOwnedTaskPersistenceTarget } from "../../src/database/pglite";
 import { createPostgresLocatedTaskSystemRunAttemptTargetV1 } from "../../src/database/postgres";
+import { createPostgresTaskExternalEffectAuthorityResource } from "../../src/tasks/postgresTaskExternalEffectAuthority";
+import type { DeadlineOwnedTaskPersistenceTarget } from "../../src/tasks/taskPersistenceTransaction";
 import type { FlarexMetadataDatabase } from "../../src/application/deployments";
 import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
@@ -22,9 +25,11 @@ import { locatedTaskAuthorityV1, readyTaskRunAggregateV1, TASK_LOCATOR } from ".
 
 const hash = (bytes: Uint8Array) => Effect.sync(() => new Uint8Array(createHash("sha256").update(bytes).digest()));
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
+const deadlines = { connectionTimeoutMilliseconds: 500, lockTimeoutMilliseconds: 1000,
+  statementTimeoutMilliseconds: 4000, transactionTimeoutMilliseconds: 8000, settlementReserveMilliseconds: 10000 };
 describe(`trusted workflow Task creation and existing lifecycle - ${driver}`, () => {
   it("creates without Application metadata, converges replay, refuses conflicts and persists fenced lifecycle", async () => {
-    await withFixture(async ({ db, target }) => {
+    await withFixture(async ({ db, target, transactionTarget }) => {
       const scopeId = ScopeIdSchema.make(`scope_${randomUUID()}`);
       await insertCurrentScopeClockFixture(db, { scopeId, epoch: `epoch_${randomUUID()}` });
       const located = await locatedTaskAuthorityV1(db, target, scopeId, "trusted-workflow-fixture");
@@ -35,7 +40,7 @@ describe(`trusted workflow Task creation and existing lifecycle - ${driver}`, ()
         principalSha256: encodeBytesToLowercaseHex(principal.sha256), boundPolicy: readyTaskRunAggregateV1().boundPolicy }, hash));
       const state = Result.getOrThrow(inspectTrustedWorkflowTaskBinding(binding));
       const make = (selected = binding, randomUuid?: () => string) => makeTrustedWorkflowTaskRunCreationStore({ authority: located.authority,
-        target, binding: selected, sha256: hash, ...(randomUuid === undefined ? {} : { randomUuid }) });
+        target: transactionTarget, binding: selected, sha256: hash, ...(randomUuid === undefined ? {} : { randomUuid }) });
       const request = { requestKey: "one", input, principal };
       const created = await runEffect(make().createRun(request));
       const noAllocation = make(binding, () => { throw new Error("Replay allocated another run"); });
@@ -105,13 +110,20 @@ describe(`trusted workflow Task creation and existing lifecycle - ${driver}`, ()
   }, 480_000);
 });
 
-async function withFixture(run: (fixture: { readonly db: FlarexMetadataDatabase; readonly target: LocatedTaskSystemRunAttemptTargetV1 }) => Promise<void>) {
-  if (driver === "postgres") return withTemporaryPostgresPersistence(persistence => run({ db: persistence.drizzle,
-    target: createPostgresLocatedTaskSystemRunAttemptTargetV1(persistence, TASK_LOCATOR) }));
+async function withFixture(run: (fixture: { readonly db: FlarexMetadataDatabase; readonly target: LocatedTaskSystemRunAttemptTargetV1;
+  readonly transactionTarget: DeadlineOwnedTaskPersistenceTarget }) => Promise<void>) {
+  if (driver === "postgres") return withTemporaryPostgresPersistence(async persistence => {
+    const resource = Result.getOrThrow(createPostgresTaskExternalEffectAuthorityResource({
+      connectionString: persistence.pool.options.connectionString, options: persistence.pool.options.options, max: 2,
+    }, TASK_LOCATOR, deadlines));
+    try { return await run({ db: persistence.drizzle, target: createPostgresLocatedTaskSystemRunAttemptTargetV1(persistence, TASK_LOCATOR),
+      transactionTarget: resource.target }); } finally { await resource.close(); }
+  });
   const raw = newTestPGlite();
   try {
     const persistence = await createPGlitePersistence({ db: raw });
     await persistence.migrate();
-    return await run({ db: persistence.drizzle, target: createPGliteLocatedTaskSystemRunAttemptTargetV1(persistence, TASK_LOCATOR) });
+    return await run({ db: persistence.drizzle, target: createPGliteLocatedTaskSystemRunAttemptTargetV1(persistence, TASK_LOCATOR),
+      transactionTarget: Result.getOrThrow(createPGliteDeadlineOwnedTaskPersistenceTarget(persistence, TASK_LOCATOR, deadlines)) });
   } finally { await raw.close(); }
 }

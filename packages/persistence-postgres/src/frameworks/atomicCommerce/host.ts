@@ -17,7 +17,7 @@ import {
   projectCommerceRequestFailure as projectCommerceFailure,
 } from "../commerceTransaction/request";
 import { PhysicalSessionDeadlineIssue } from "../../database/physicalSession/errors";
-import type { AtomicCommerceHost } from "./commands";
+import type { AtomicCommerceHost, TaskAtomicCommerceHost } from "./commands";
 import { withAtomicCommerceAdmissions } from "./admission";
 import {
   captureAtomicCommerceConfiguration,
@@ -27,6 +27,9 @@ import {
 import type { RequestLimits } from "../../execution/preparation/boundedRequestLifetime";
 import { captureAtomicCommerceRequest, prepareAtomicCommerceRequestEvidence } from "./request";
 import { executeAtomicCommerceRequest } from "./execution";
+import { captureAtomicCommerceTaskChild, lockAtomicCommerceTaskChild, prepareAtomicCommerceTaskChild,
+  requireAtomicCommerceTaskChildOutcome, requireAtomicCommerceTaskChildSettlement,
+  type CapturedAtomicCommerceTaskChild } from "./taskChild";
 
 export type { AtomicCommerceHostInput } from "./configuration";
 const projectCommerceRequestFailure = (cause: unknown) => cause instanceof PhysicalSessionDeadlineIssue ? commerceError("deadlineExceeded", cause) :
@@ -36,16 +39,19 @@ const projectCommerceRequestFailure = (cause: unknown) => cause instanceof Physi
  * service. Each invocation enters the existing bounded relational owner once. */
 export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(function* <Failure>(
   input: AtomicCommerceHostInput<Failure>,
-): Effect.fn.Return<AtomicCommerceHost, CommerceTransactionError> {
+): Effect.fn.Return<TaskAtomicCommerceHost, CommerceTransactionError> {
   const retained = yield* retainPreparedHost(input.hostRuntime, composeAtomicCommerceHost(input)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))));
   return Object.freeze({ close: retained.close, newRequestKey: () => `commerce/atomic/${crypto.randomUUID()}`,
     run: (key, command, args) => withExecutionDiagnosticDefaults(retained.use(host => host.run(key, command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))))),
-  } satisfies AtomicCommerceHost);
+    runTaskChild: (subject, occurrence, command, args, eligibility) => withExecutionDiagnosticDefaults(
+      retained.use(host => host.runTaskChild(subject, occurrence, command, args, eligibility))
+        .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))))),
+  } satisfies TaskAtomicCommerceHost);
 });
 
 const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(function* <Failure>(
   input: AtomicCommerceHostInput<Failure>,
-): Effect.fn.Return<Omit<AtomicCommerceHost, "close">, CommerceTransactionError> {
+): Effect.fn.Return<Omit<TaskAtomicCommerceHost, "close">, CommerceTransactionError> {
   const captured = yield* captureAtomicCommerceConfiguration(input);
   const { database, session, target, application } = captured;
   let initialLimits: RequestLimits | undefined;
@@ -64,16 +70,21 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
   const limits = Object.freeze({ ...initialLimits });
   initialLimits = undefined;
   yield* chargeHostPreparation(limits).pipe(Effect.mapError(projectCommerceRequestFailure));
-  const run: AtomicCommerceHost["run"] = Effect.fnUntraced(function* (requestKey, token, args) {
-    const request = yield* captureAtomicCommerceRequest(
+  const runRequest = Effect.fnUntraced(function* (requestKey: string, token: Parameters<AtomicCommerceHost["run"]>[1],
+    args: Parameters<AtomicCommerceHost["run"]>[2], taskChild?: CapturedAtomicCommerceTaskChild) {
+    const capturedRequest = yield* captureAtomicCommerceRequest(
       captured.allowed,
       limits.commandBytes,
       requestKey,
       token,
       args,
     );
+    if (taskChild === undefined && capturedRequest.key.startsWith("commerce/atomic/task/"))
+      return yield* commerceError("invalidInput");
+    const request = taskChild === undefined ? capturedRequest : { ...capturedRequest, taskChild };
     const deadline = yield* startRelationalRequestDeadline(limits.commandMs).pipe(Effect.mapError(projectCommerceRequestFailure));
     const attempt = Effect.fnUntraced(function* (recoverOnly: boolean) {
+      let lockedChild: Effect.Success<ReturnType<typeof lockAtomicCommerceTaskChild>> | undefined;
       return yield* preparation.withEntry(({ binding: active, payload: configuration }, enter) => runRelationalSession(session, "command", {
         enter: (tx, requireInstallation) => enter(tx, requireInstallation, Effect.gen(function* () {
             yield* runDrizzleStatementEffect(
@@ -82,8 +93,16 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
               ),
               (cause) => commerceError("statementFailure", cause),
             );
-            yield* lockCommerceRequest(tx, captured.scopeId, request.key);
+            if (request.taskChild === undefined) yield* lockCommerceRequest(tx, captured.scopeId, request.key);
           }), ({ clock, authority: entryAuthority, checked }) => Effect.scoped(Effect.gen(function* () {
+            if (request.taskChild !== undefined) {
+              if (configuration.executionIsolation !== "scopeExclusive" || configuration.taskBindingSha256 === undefined)
+                return yield* commerceError("unsupportedProfile");
+              if (configuration.taskBindingSha256 !== request.taskChild.identity.bindingSha256)
+                return yield* commerceError("invalidAuthority");
+              lockedChild = yield* lockAtomicCommerceTaskChild(tx, request.taskChild, entryAuthority, limits.commandMs);
+              yield* lockCommerceRequest(tx, captured.scopeId, request.key);
+            }
             return yield* withAtomicCommerceAdmissions(
               configuration.members,
               target,
@@ -108,11 +127,22 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
                   const retained = yield* createCommittedJsonOutcomeResolver(tx)
                     .resolve(evidence.lookup)
                     .pipe(Effect.mapError(projectCommerceRequestFailure));
-                  if (retained.kind === "available") return retained.successfulResult.valueJson;
+                  const existingChild = request.taskChild === undefined ? undefined :
+                    lockedChild === undefined ? yield* Effect.die(new Error("Task child did not enter the run lock")) :
+                      yield* prepareAtomicCommerceTaskChild(tx, request.taskChild, lockedChild, evidence,
+                        request.definition.name, request.args);
+                  if (retained.kind === "available") {
+                    if (request.taskChild !== undefined) {
+                      yield* requireAtomicCommerceTaskChildOutcome(existingChild, retained.successfulResult.sha256);
+                      yield* requireAtomicCommerceTaskChildSettlement(tx, request.taskChild, entryAuthority);
+                    }
+                    return retained.successfulResult.valueJson;
+                  }
                   if (retained.kind === "expired")
                     return yield* Effect.fail(commerceError("resultUnavailable"));
                   if (recoverOnly) return yield* Effect.fail(commerceError("decisionUncertain"));
-                  return yield* executeAtomicCommerceRequest(configuration, request, evidence, admissions, tx);
+                  if (existingChild !== undefined) return yield* commerceError("storedCorruption");
+                  return yield* executeAtomicCommerceRequest(configuration, request, evidence, admissions, tx, entryAuthority);
                 }), checked,
             );
           })), configuration.executionIsolation === "scopeExclusive" ? "ordinaryWrite" : undefined),
@@ -124,5 +154,11 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
       isDecisionUncertain: (error) => error.reason === "decisionUncertain",
     })).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))));
   }, work => observeExecution("AtomicCommerce.run", work, "caller"));
-  return Object.freeze({ newRequestKey: () => `commerce/atomic/${crypto.randomUUID()}`, run });
+  const run: AtomicCommerceHost["run"] = (key, command, args) => runRequest(key, command, args);
+  const runTaskChild: TaskAtomicCommerceHost["runTaskChild"] = Effect.fn("AtomicCommerce.runTaskChild")(
+    function* (subject, occurrence, command, args, eligibility) {
+      const child = yield* captureAtomicCommerceTaskChild(subject, occurrence, eligibility);
+      return yield* runRequest(child.key, command, args, child);
+    });
+  return Object.freeze({ newRequestKey: () => `commerce/atomic/${crypto.randomUUID()}`, run, runTaskChild });
 });

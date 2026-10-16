@@ -10,6 +10,8 @@ const sourceExtensions = new Set([".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts",
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
 const durableTaskManifestPath = "packages/durable-task/package.json";
 const durableTaskSourcePrefix = "packages/durable-task/";
+const taskPrincipalContractPath =
+  "packages/durable-task/src/runCreation/TaskExecutionPrincipalObject.ts";
 const standardApplicationDefinitionManifestPath =
   "packages/standard-application-definition/package.json";
 const standardApplicationInvocationManifestPath =
@@ -453,6 +455,7 @@ const admittedApplicationTaskMutationAuthorityExternalEffectImports = new Map([
 ]);
 const admittedPGliteTaskExternalEffectAuthorityImports = new Map([
   ["createLocatedTaskExternalEffectAuthorityTarget", "value"],
+  ["createLocatedTaskExternalEffectAuthorityTargetFromPolicyInternal", "value"],
   ["LocatedTaskExternalEffectAuthorityTarget", "type"],
   ["TaskExternalEffectAuthorityConfigurationError", "type"],
 ]);
@@ -613,6 +616,49 @@ const admittedBackendTaskResultBodyQueryImports = new Map([
   ["TaskRunResultQuery", "value"],
   ["TaskRunResultQueryApi", "type"],
   ["TaskRunResultQueryError", "type"],
+]);
+/** Portable contract consumers only. These declarations grant no host or
+ * scheduler activation and do not admit neighboring files or Task exports. */
+const admittedTrustedWorkflowContractImports = [
+  makeExactImportAdmission(
+    taskPrincipalContractPath,
+    "flarex-protocol/auth",
+    { values: ["UserIdentitySchema"] },
+  ),
+  makeExactImportAdmission(
+    flarexBackendTaskExecutionPrincipalStorePath,
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: ["decodeTaskExecutionPrincipalObjectV1", "decodeTaskExecutionPrincipalReferenceV1",
+        "makeTaskExecutionPrincipalReferenceV1", "MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1", "ownPrincipalObject"],
+      types: ["TaskExecutionPrincipalObjectV1", "TaskExecutionPrincipalReferenceV1"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/frameworks/atomicCommerce/configuration.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    { values: ["inspectTrustedWorkflowTaskBinding"], types: ["TrustedWorkflowTaskBinding"] },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowExecutionSubject.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: ["decodeTaskExecutionPrincipalReferenceV1", "decodeTaskExecutionPrincipalObjectV1",
+        "inspectTrustedWorkflowTaskBinding", "trustedWorkflowPrincipalMatches"],
+      types: ["TaskExecutionPrincipalReferenceV1", "TrustedWorkflowTaskBinding",
+        "TrustedWorkflowTaskBindingState", "TaskExecutionPrincipalObjectV1"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowExecutionSubject.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    { values: ["TaskRunIdV1Schema", "TaskAttemptIdV1Schema", "TaskAttemptNumberV1Schema", "TaskExecutionFenceV1Schema"] },
+  ),
+];
+const admittedPrincipalContractReExports = new Map([
+  ["decodeTaskExecutionPrincipalObjectV1", "value"],
+  ["TaskExecutionPrincipalIdentity", "type"],
+  ["TaskExecutionPrincipalObjectV1", "type"],
 ]);
 const admittedLaterDurableTaskImports = [
   makeExactImportAdmission(
@@ -1374,7 +1420,7 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && isProductionSource(relativePath)
         && !isForbiddenModuleSpecifier(specifier)
         && !isDurableTaskCompatibilityHarnessSpecifier(specifier, relativePath)
-        && !isAllowedDurableTaskProductionSpecifier(specifier, relativePath)
+        && !isAllowedDurableTaskProductionSpecifier(specifier, relativePath, node)
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
         errors.push(`${relativePath}:${line} must not import non-portable durable-task module "${specifier}".`);
@@ -2108,8 +2154,9 @@ function isForbiddenDependencyReference(reference) {
   return target === "@trigger.dev" || target.startsWith("@trigger.dev/") || [...forbiddenInternalPackages].some((name) => target === name || target.startsWith(`${name}@`) || target.startsWith(`${name}/`));
 }
 
-/** @param {string} specifier @param {string} relativePath */
-function isAllowedDurableTaskProductionSpecifier(specifier, relativePath) {
+/** @param {string} specifier @param {string} relativePath @param {ts.Node} node */
+function isAllowedDurableTaskProductionSpecifier(specifier, relativePath, node) {
+  if (matchesExactAdmittedImport(admittedTrustedWorkflowContractImports, relativePath, specifier, node)) return true;
   const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
   if (normalized === "effect" || normalized.startsWith("effect/")) return true;
@@ -2674,6 +2721,20 @@ function isAdmittedDurableTaskConsumerDependency(
  * @param {ts.Node} node
  */
 function isAdmittedDurableTaskConsumerImport(relativePath, specifier, node) {
+  if (matchesExactAdmittedImport(admittedTrustedWorkflowContractImports, relativePath, specifier, node)) return true;
+  if (relativePath === flarexBackendTaskExecutionPrincipalStorePath
+    && specifier === "@flarex/durable-task/internal/run-creation-v1"
+    && ts.isExportDeclaration(node) && node.exportClause !== undefined
+    && ts.isNamedExports(node.exportClause)
+    && node.exportClause.elements.length === admittedPrincipalContractReExports.size) {
+    const names = new Set();
+    return node.exportClause.elements.every(element => {
+      if (element.propertyName !== undefined || names.has(element.name.text)) return false;
+      names.add(element.name.text);
+      return admittedPrincipalContractReExports.get(element.name.text) ===
+        (node.isTypeOnly || element.isTypeOnly ? "type" : "value");
+    });
+  }
   if (matchesExactAdmittedImport(
     admittedLaterDurableTaskImports,
     relativePath,

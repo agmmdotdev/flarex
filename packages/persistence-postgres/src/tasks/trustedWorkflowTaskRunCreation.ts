@@ -14,14 +14,15 @@ import { decodeTaskDatabaseTimeMsV1, decodeTaskRunIdV1,
   encodeTrustedWorkflowTaskRunAttemptAggregateJson, projectCurrentTaskRunAttemptPersistence,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import { fxSystemScopeClocks, fxSystemDurableTaskRunsV1, fxSystemDurableTaskRunRequestsV1, fxSystemTrustedWorkflowTaskBindings } from "../database/schema";
-import { runLocatedEffectQuery, runLocatedEffectTransaction } from "../database/locatedEffectTransaction";
-import type { LocatedReadCommittedAttemptTargetV1 } from "../database/locatedTransactionIdentity";
+import { runLocatedEffectQuery } from "../database/locatedEffectTransaction";
+import { requireDeadlineOwnedTaskPersistenceTarget, runDeadlineOwnedTaskPersistenceTransaction,
+  type DeadlineOwnedTaskPersistenceTarget } from "./taskPersistenceTransaction";
 import type { TrustedScopeAuthority } from "../scope/scopeAuthorityResolution";
 import { captureTaskSystemTrustedScopeAuthorityV1, requireLockedTaskSystemScopeAuthorityV1 } from "./taskSystemScopeAuthorityV1";
 import { decodeAndCorrelateTaskSystemRunRowV1 } from "./taskSystemRunRowV1";
 
 export class TrustedWorkflowTaskRunCreationError extends Data.TaggedError("TrustedWorkflowTaskRunCreationError")<{
-  readonly reason: "invalidBinding" | "invalidRequest" | "requestConflict" | "staleAuthority" | "storedCorruption" | "storeFailure";
+  readonly reason: "invalidTarget" | "invalidBinding" | "invalidRequest" | "requestConflict" | "staleAuthority" | "storedCorruption" | "storeFailure";
   readonly cause?: unknown;
 }> {}
 const fail = (reason: TrustedWorkflowTaskRunCreationError["reason"], cause?: unknown) =>
@@ -38,7 +39,7 @@ const canonical = (value: Json) => utf8.encode(encodeCanonicalJson(value,
  * supplies Application metadata, a database transaction or finalization port. */
 export function makeTrustedWorkflowTaskRunCreationStore<HashFailure>(input: {
   readonly authority: TrustedScopeAuthority;
-  readonly target: LocatedReadCommittedAttemptTargetV1;
+  readonly target: DeadlineOwnedTaskPersistenceTarget;
   readonly binding: TrustedWorkflowTaskBinding;
   readonly sha256: (bytes: Uint8Array) => Effect.Effect<Uint8Array, HashFailure>;
   readonly randomUuid?: () => string;
@@ -55,6 +56,8 @@ export function makeTrustedWorkflowTaskRunCreationStore<HashFailure>(input: {
   const createRun = Effect.fn("TrustedWorkflowTask.createRun")(function* (raw: {
     readonly requestKey: unknown; readonly input: unknown; readonly principal: unknown;
   }) {
+    yield* Effect.fromResult(requireDeadlineOwnedTaskPersistenceTarget(target)).pipe(
+      Effect.mapError(cause => fail("invalidTarget", cause)));
     const selected = yield* Effect.fromResult(inspectTrustedWorkflowTaskBinding(binding))
       .pipe(Effect.mapError(cause => fail("invalidBinding", cause)));
     if (selected.definition.scopeId !== authority.scopeId) return yield* fail("staleAuthority");
@@ -79,7 +82,7 @@ export function makeTrustedWorkflowTaskRunCreationStore<HashFailure>(input: {
     });
     const creationAuthoritySha256 = authorityDigest(yield* hash(authorityBytes));
     const query = <Row>(value: PromiseLike<ReadonlyArray<Row>>) => runLocatedEffectQuery(value, "trustedWorkflowTask", (_operation, cause) => fail("storeFailure", cause));
-    return yield* runLocatedEffectTransaction(target, "trustedWorkflowTask.createRun", tx => Effect.gen(function* () {
+    return yield* runDeadlineOwnedTaskPersistenceTransaction(target, "trustedWorkflowTask.createRun", tx => Effect.gen(function* () {
       yield* Effect.tryPromise({ try: () => requireLockedTaskSystemScopeAuthorityV1(tx, authority, target,
         mismatch => fail("staleAuthority", mismatch)), catch: cause => cause instanceof TrustedWorkflowTaskRunCreationError ? cause : fail("storeFailure", cause) });
       yield* query(tx.select({ locked: sql`pg_advisory_xact_lock(hashtextextended(${JSON.stringify(["flarex.task.creation", authority.scopeId, encodeBytesToLowercaseHex(requestKeySha256)])}, 0))` }).from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, authority.scopeId)).limit(1));
@@ -136,7 +139,7 @@ export function makeTrustedWorkflowTaskRunCreationStore<HashFailure>(input: {
         requestCodecVersion: 1, requestSha256, runId, receiptVersion: 1 }).returning());
       return Object.freeze({ status: "created" as const, runId, trustedWorkflowBindingSha256: selected.sha256, createdAtMs,
         requestKeySha256, requestSha256, creationAuthoritySha256 });
-    }), (_operation, cause) => fail("storeFailure", cause), "Trusted workflow Task creation rolled back");
+    }), cause => fail(cause.reason, cause));
   });
   return Object.freeze({ createRun });
 }

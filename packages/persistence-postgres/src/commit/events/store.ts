@@ -1,34 +1,21 @@
 import { and, asc, eq, gt, lte, or, sql } from "drizzle-orm";
 import { Effect, Option, Schema } from "effect";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
-import { projectScopeIdUuidV1Result, projectScopeEpochUuidV1Result, MAX_PERSISTED_SIGNED_INT64_V1, type CommitSeq, type ScopeId } from "flarex-protocol/storage-authority";
+import { MAX_PERSISTED_SIGNED_INT64_V1, type CommitSeq } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
-import type { FlarexMetadataDatabase } from "../../application/deployments";
 import { capturePrivateJsonData } from "../../values/privateJsonData";
-import { captureExactTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect,
-  TrustedScopeAuthorityPortError, TrustedScopeAuthorityResolutionError,
-  type ExactTrustedScopeAuthorityResolutionPorts } from "../../scope/scopeAuthorityResolution";
-import {
-  hasLocatedReadCommittedTargetDatabaseV1,
-  type LocatedReadCommittedAttemptTargetV1,
-} from "../../database/locatedTransactionIdentity";
-import { hasRelationalSessionDatabase, runRelationalSession, type RelationalSession } from "../../database/relationalTransaction/session";
-import { lockScopeClockForShareInTransactionEffect } from "../../scope/scopeClock";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
-import { fxSystemCommits, fxSystemScopeClocks } from "../../database/schema";
+import { fxSystemCommits } from "../../database/schema";
 import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "./schema";
 import { eventError, CommitEventError, EventEnvelope, commitEventLimits, type CommitEventSubscriber, type CommitEventMessage } from "./model";
 import { commitEventsDigest } from "./digest";
+import { makeCommitEventTransactionRunner, type CommitEventTransactionInput } from "./transaction";
+import { readCommitEventEligibilityInTransaction } from "./eligibility";
 import { observeDrizzleQuery } from "../../database/drizzleQueryObservation";
 
 export interface CommitEventQuery { readonly name: "eventDirectory" | "eventFamily" | "deliveryPage"; readonly sql: string; readonly params: readonly unknown[] }
 
-export interface CommitEventStoreInput {
-  readonly database: FlarexMetadataDatabase;
-  readonly session: RelationalSession;
-  readonly deploymentId: string;
-  readonly scopeId: ScopeId;
-  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
+export interface CommitEventStoreInput extends CommitEventTransactionInput {
   readonly observeQuery?: (query: CommitEventQuery) => void;
 }
 type Delivery = typeof fxSystemCommitEventDeliveries.$inferSelect;
@@ -46,32 +33,12 @@ const sameDelivery = (row: Delivery) => and(sameCommit(fxSystemCommitEventDelive
 
 /** Dynamic scope host. Claims retain data only; every operation reacquires authority and a short session. */
 export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function* (input: CommitEventStoreInput) {
-  const { database, session, deploymentId, scopeId, observeQuery } = input;
-  if (!hasRelationalSessionDatabase(session, database)) return yield* Effect.fail(eventError("invalidAuthority"));
-  const authority = captureExactTrustedScopeAuthorityResolutionPorts(input.authority);
+  const { observeQuery } = input;
   const claims = new WeakMap<object, Delivery>();
   const verifiedFamilies = new WeakMap<object, { readonly pins: Pick<Delivery, "scopeUuid" | "epochUuid" | "commitSeq">;
     readonly events: readonly (typeof fxSystemCommitEvents.$inferSelect)["envelope"][];
     cursor?: { readonly ordinal: number; readonly subscriberId: string } }>();
-  const transact = Effect.fn("CommitEvents.transaction")(function* <A>(work: (tx: FlarexMetadataTransaction,
-    pins: Pick<Delivery, "scopeUuid" | "epochUuid">, now: Date, lastCommitSeq: CommitSeq) => Effect.Effect<A, CommitEventError>) {
-    const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect({ deploymentId, scopeId }, authority).pipe(
-      Effect.mapError(cause => eventError(cause instanceof TrustedScopeAuthorityPortError ||
-        (cause instanceof TrustedScopeAuthorityResolutionError && cause.failure.reason === "scopeClockTargetResolutionFailed")
-        ? "resourceFailure" : "invalidAuthority", cause)));
-    if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(eventError("invalidAuthority"));
-    const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(located.authority.scopeId)).pipe(Effect.mapError(cause => eventError("invalidAuthority", cause)));
-    return yield* runRelationalSession(session, "command", tx => Effect.gen(function* () {
-      yield* statement(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`));
-      const clock = yield* lockScopeClockForShareInTransactionEffect(tx, located.authority.scopeId).pipe(Effect.mapError(cause => eventError("invalidAuthority", cause)));
-      if (clock.epoch !== located.authority.epoch || clock.storageGeneration !== located.authority.storageGeneration || clock.storageGenerationFence !== located.authority.storageGenerationFence) return yield* Effect.fail(eventError("invalidAuthority"));
-      const epoch = yield* Effect.fromResult(projectScopeEpochUuidV1Result(clock.epoch)).pipe(Effect.mapError(cause => eventError("invalidAuthority", cause)));
-      const times = yield* statement(tx.select({ now: sql<string>`clock_timestamp()::text` }).from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeUuid, scope.scopeUuid)));
-      const now = new Date(times[0]?.now ?? "");
-      if (finiteDateMilliseconds(now) === undefined) return yield* Effect.fail(eventError("storedCorruption"));
-      return yield* work(tx, { scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid }, now, clock.lastCommitSeq);
-    })).pipe(Effect.mapError(cause => cause instanceof CommitEventError ? cause : eventError("resourceFailure", cause)));
-  });
+  const transact = yield* makeCommitEventTransactionRunner(input);
   const family = Effect.fn("CommitEvents.readFamily")(function* (tx: FlarexMetadataTransaction,
     pins: Pick<Delivery, "scopeUuid" | "epochUuid" | "commitSeq">, lockDeliveries = true) {
     const headers = yield* statement(tx.select().from(fxSystemCommits).where(and(eq(fxSystemCommits.scopeUuid, pins.scopeUuid), eq(fxSystemCommits.epochUuid, pins.epochUuid), eq(fxSystemCommits.commitSeq, pins.commitSeq))));
@@ -83,7 +50,6 @@ export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function
     const rows = yield* statement(eventQuery);
     if (rows.length !== header.eventCount) return yield* Effect.fail(eventError("storedCorruption"));
     const deliveryQuery = tx.select().from(fxSystemCommitEventDeliveries).where(sameCommit(fxSystemCommitEventDeliveries, pins)).orderBy(asc(fxSystemCommitEventDeliveries.eventOrdinal), asc(fxSystemCommitEventDeliveries.subscriberId)).limit(commitEventLimits.messages * commitEventLimits.subscribers + 1);
-    const deliveries = yield* statement(lockDeliveries ? deliveryQuery.for("update") : deliveryQuery);
     const expected = new Map<string, string>();
     const events = [];
     for (const [ordinal, row] of rows.entries()) {
@@ -100,16 +66,18 @@ export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function
       }
       events.push(envelope);
     }
+    const digest = events.length === 0 ? null : yield* commitEventsDigest(events, "storedVerification")
+      .pipe(Effect.mapError(cause => eventError("storedCorruption", cause)));
+    if (header.eventSha256 !== digest) return yield* Effect.fail(eventError("storedCorruption"));
+    const eligible = yield* readCommitEventEligibilityInTransaction(tx, pins, events);
+    const deliveries = yield* statement(lockDeliveries ? deliveryQuery.for("update") : deliveryQuery);
     for (const row of deliveries) {
       const key = `${row.eventOrdinal}:${row.subscriberId}`;
       if (expected.get(key) !== row.handlerRevision || !validDelivery(row)) return yield* Effect.fail(eventError("storedCorruption"));
       expected.delete(key);
     }
     if (expected.size !== 0) return yield* Effect.fail(eventError("storedCorruption"));
-    const digest = events.length === 0 ? null : yield* commitEventsDigest(events, "storedVerification")
-      .pipe(Effect.mapError(cause => eventError("storedCorruption", cause)));
-    if (header.eventSha256 !== digest) return yield* Effect.fail(eventError("storedCorruption"));
-    return { events, deliveries };
+    return { events, deliveries, eligible };
   });
   const nextCommit = Effect.fn("CommitEvents.nextCommit")((after: bigint = 0n) => transact((tx, pins) => Effect.gen(function* () {
     if (typeof after !== "bigint" || after < 0n || after > MAX_PERSISTED_SIGNED_INT64_V1) return yield* Effect.fail(eventError("invalidInput"));
@@ -140,6 +108,8 @@ export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function
       verified.pins.epochUuid !== pins.epochUuid) return yield* Effect.fail(eventError("invalidAuthority"));
     if (verified.pins.commitSeq > lastCommitSeq || !Number.isSafeInteger(maximum) ||
       maximum < 1 || maximum > commitEventLimits.claimBatch) return yield* Effect.fail(eventError("invalidInput"));
+    if (!(yield* readCommitEventEligibilityInTransaction(tx, verified.pins, verified.events)))
+      return Object.freeze<CommitEventClaim[]>([]);
     const identities = or(...registered.map(handler => and(eq(fxSystemCommitEventDeliveries.subscriberId, handler.id),
       eq(fxSystemCommitEventDeliveries.handlerRevision, handler.revision))));
     if (identities === undefined) {
@@ -200,7 +170,9 @@ export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function
     if (typeof commitSeq !== "bigint" || commitSeq < 1n || commitSeq > lastCommitSeq ||
       !Number.isSafeInteger(maximum) || maximum < 1 || maximum > commitEventLimits.claimBatch)
       return yield* Effect.fail(eventError("invalidInput"));
-    const { events, deliveries } = yield* family(tx, { ...pins, commitSeq });
+    const { events, deliveries, eligible } = yield* family(tx, { ...pins, commitSeq });
+    if (!eligible)
+      return Object.freeze<CommitEventClaim[]>([]);
     const selected: CommitEventClaim[] = [];
     for (const row of deliveries) {
       if (!registered.some(handler => handler.id === row.subscriberId && handler.revision === row.handlerRevision)) continue;

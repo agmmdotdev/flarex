@@ -4,7 +4,9 @@
 
 Status: implemented for private atomic Product-tag creation, update and deletion, together with
 [native Medusa integration](./10-medusa-workflow-integration.md).
-Groups spanning multiple committed steps remain deferred.
+Bounded delivery eligibility across committed children is also implemented
+privately. Native workflow orchestration and Task-authenticated group decisions
+remain pending.
 
 The [native workflow composition capability](./15-native-workflow-composition.md)
 replaces the private single-contract participant slot with finite authenticated
@@ -130,6 +132,35 @@ This bounds trusted work; it cannot preempt arbitrary synchronous JavaScript.
 Ordinary commit-history compaction excludes all event-bearing headers, including
 terminal deliveries. Root-result expiry is independent. Automatic event pruning
 is unimplemented, so this private profile intentionally retains those families.
+
+## Cross-Commit Delivery Eligibility
+
+The separate trusted workflow child profile can bind committed intents to one
+or two authentic, scope/epoch-bound eligibility groups. Groups have immutable
+owner identity, policy revision and a maximum of 16 committed families. An
+envelope's native `group` string remains descriptive and grants no authority.
+Ordinary atomic commits retain their original bytes and immediate eligibility.
+
+The optional canonical eligibility references are part of the existing ordered
+event digest. The settlement owner authenticates the opaque preparation, holds
+sorted group locks and inserts complete membership in the same transaction as
+the original commit. Added metadata consumes the original byte budgets.
+Zero-event children validate the groups but create no membership.
+
+A group transitions from held to released or cleared. Repeating the same
+decision replays; the opposite decision conflicts. A terminal group admits no
+new family. Claims require every referenced group to be released, with fresh
+membership/count validation under sorted group locks before delivery locks.
+Clearing never deletes committed rows, facts, outcomes or intents, and never
+reverses a delivered event. Release cannot subsequently become clear.
+
+Private repair scans revisit held families after a complete pass resets its
+cursor. The existing at-least-once delivery lease and subscriber settlement
+remain unchanged. Group management requires trusted scope authority and opaque
+capabilities; connecting native parent decisions to a live Task subject is still
+the workflow interpreter's obligation. These groups are delivery eligibility,
+not a second outbox, rollback authority or workflow scheduler. Automatic pruning
+remains closed with the existing event-family retention gate.
 
 ## Delivery And Recovery
 

@@ -39,6 +39,8 @@ import {
   invalidateAcceptedApplicationBindingInTransaction,
 } from "../../application/activation/acceptedBinding";
 import type { LogicalCommerceCallObservation } from "./participants";
+import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
+import { confirmAtomicCommerceTaskChild, requireAtomicCommerceTaskChildSettlement } from "./taskChild";
 import {
   hashAtomicCommerceBytes,
   type CapturedAtomicCommerceRequest,
@@ -369,6 +371,7 @@ export const executeAtomicCommerceRequest = Effect.fnUntraced(function* (
   evidence: AtomicCommerceRequestEvidence,
   admissions: readonly AtomicCommerceAdmission[],
   tx: FlarexMetadataTransaction,
+  authority: TrustedScopeAuthority,
 ): Effect.fn.Return<Json, CommerceTransactionError> {
   const first = admissions[0];
   if (first === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
@@ -429,14 +432,20 @@ export const executeAtomicCommerceRequest = Effect.fnUntraced(function* (
     );
     invalidateAcceptedApplicationBindingInTransaction(tx);
     const { root, additional, events } = yield* execution.closeContributions();
+    const resultSha256 = yield* hashAtomicCommerceBytes(result.canonicalBytes);
+    if (request.taskChild !== undefined)
+      yield* requireAtomicCommerceTaskChildSettlement(tx, request.taskChild, authority);
     yield* finalizeCommerceCommit(
       { kind: "atomic", participants: [root, ...additional], factLimit: configuration.factLimit,
-        ...(events === undefined ? {} : { events }) },
+        ...(events === undefined ? {} : { events }),
+        ...(request.taskChild?.eligibility === undefined ? {} : { eligibility: request.taskChild.eligibility }) },
       lifetime,
       evidence.lookup,
       result,
-      yield* hashAtomicCommerceBytes(result.canonicalBytes),
+      resultSha256,
     );
+    if (request.taskChild !== undefined)
+      yield* confirmAtomicCommerceTaskChild(tx, request.taskChild, authority, resultSha256);
     return result.valueJson;
   }).pipe(
     Effect.timeoutOrElse({

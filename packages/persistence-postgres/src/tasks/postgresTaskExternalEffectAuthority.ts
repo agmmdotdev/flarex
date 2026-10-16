@@ -17,9 +17,11 @@ import {
   createTaskRepairPostgresDeadlinePolicyV1,
   type TaskRepairPostgresDeadlinePolicyInputV1,
 } from "./taskRepairPostgresDeadlinePolicyV1";
+import { retainDeadlineOwnedTaskPersistenceTargetInternal,
+  type DeadlineOwnedTaskPersistenceTarget } from "./taskPersistenceTransaction";
 
 export interface PostgresTaskExternalEffectAuthorityResource {
-  readonly target: LocatedTaskExternalEffectAuthorityTarget;
+  readonly target: LocatedTaskExternalEffectAuthorityTarget & DeadlineOwnedTaskPersistenceTarget;
   readonly pool: Pool;
   readonly close: () => Promise<void>;
 }
@@ -61,13 +63,13 @@ export function createPostgresTaskExternalEffectAuthorityResource(
           try: () => {
             const pool = new Pool(configured);
             const db = drizzle(pool, { schema: flarexSchema });
-            const target =
+            const target = retainDeadlineOwnedTaskPersistenceTargetInternal(
               createLocatedTaskExternalEffectAuthorityTargetFromPolicyInternal(
                 db,
                 physicalLocator,
                 createPostgresLocatedReadCommittedTransactionRunnerV1(pool),
                 deadlinePolicy,
-              );
+              ), deadlinePolicy, "postgres");
             return Object.freeze({
               target,
               pool,

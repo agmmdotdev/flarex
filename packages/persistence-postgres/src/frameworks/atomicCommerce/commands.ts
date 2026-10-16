@@ -3,6 +3,8 @@ import type { Json } from "flarex-protocol/json";
 import type { CommerceCommand } from "../commerceTransaction/commands";
 import type { CommerceTransactionError } from "../commerceTransaction/model";
 import type { CommerceEventContract } from "./events";
+import type { TrustedWorkflowExecutionSubject } from "../../tasks/trustedWorkflowExecutionSubject";
+import type { PreparedCommitEventEligibility } from "../../commit/events/eligibility";
 
 declare const participantBrand: unique symbol;
 export interface AtomicCommerceParticipant { readonly [participantBrand]: true }
@@ -48,4 +50,12 @@ export interface AtomicCommerceHost {
   readonly close: Effect.Effect<void>;
   readonly newRequestKey: () => string;
   readonly run: (requestKey: string, command: AtomicCommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
+}
+
+/** Private trusted Task integration. Every child enters the original commerce
+ * owner with a live authenticated subject; no transaction escapes the host. */
+export interface TaskAtomicCommerceHost extends AtomicCommerceHost {
+  readonly runTaskChild: (subject: TrustedWorkflowExecutionSubject, occurrence: bigint,
+    command: AtomicCommerceCommand, args: Json, eligibility?: PreparedCommitEventEligibility
+  ) => Effect.Effect<Json, CommerceTransactionError>;
 }

@@ -37,7 +37,7 @@ export type { CommerceCommand, CommerceCommandContext, CommerceHost } from "./co
 export type { BoundedRequestContext } from "../../execution/preparation/boundedRequestLifetime";
 export { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../atomicCommerce/commands";
 export { requireAtomicCommerceScopeExclusion } from "../atomicCommerce/execution";
-export type { AtomicCommerceCommand, AtomicCommerceContext, AtomicCommerceParticipant, AtomicCommerceHost } from "../atomicCommerce/commands";
+export type { AtomicCommerceCommand, AtomicCommerceContext, AtomicCommerceParticipant, AtomicCommerceHost, TaskAtomicCommerceHost } from "../atomicCommerce/commands";
 export type { AtomicCommerceHostInput } from "../atomicCommerce/configuration";
 export type { AtomicCommerceParticipantInput, LogicalCommerceCallObservation,
   LogicalCommerceEventValidation, LogicalCommerceCallValidation, PreparedAtomicCommerceLogicalParticipant } from "../atomicCommerce/participants";

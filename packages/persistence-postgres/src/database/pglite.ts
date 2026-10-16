@@ -74,6 +74,7 @@ import {
 } from "../tasks/taskSystemRunAttemptStoreV1";
 import {
   createLocatedTaskExternalEffectAuthorityTarget,
+  createLocatedTaskExternalEffectAuthorityTargetFromPolicyInternal,
   type LocatedTaskExternalEffectAuthorityTarget,
   type TaskExternalEffectAuthorityConfigurationError,
 } from "../tasks/taskExternalEffectAuthority";
@@ -83,8 +84,12 @@ import {
   type TaskComputeDeliveryControlDirectoryTarget,
 } from "../tasks/taskComputeDeliveryControlDirectoryTarget";
 import {
+  createTaskRepairPostgresDeadlinePolicyV1,
+  type TaskRepairPostgresDeadlineConfigurationV1Error,
   type TaskRepairPostgresDeadlinePolicyInputV1,
 } from "../tasks/taskRepairPostgresDeadlinePolicyV1";
+import { retainDeadlineOwnedTaskPersistenceTargetInternal, TaskPersistenceTransactionError,
+  type DeadlineOwnedTaskPersistenceTarget } from "../tasks/taskPersistenceTransaction";
 import type { LocatedScopeClockReader } from "../scope/scopeAuthorityResolution";
 import type {
   ScopePhysicalLocator,
@@ -124,6 +129,7 @@ type PGliteTransactionLike = {
 // PGlite serializes individual statements, but its single PostgreSQL backend
 // reenters session advisory locks. The actual client owns the complete command.
 const activePGliteMaintenance = new WeakSet<PGliteLike>();
+const ownedPGliteDatabases = new WeakSet<object>();
 
 export interface PGlitePersistenceOptions {
   dataDir?: string;
@@ -253,6 +259,22 @@ export function createPGliteLocatedTaskExternalEffectAuthorityTarget(
   );
 }
 
+/** Explicit SQL-semantics test lane. It makes no PostgreSQL pool-acquisition
+ * claim and accepts only a database created by this PGlite persistence owner. */
+export function createPGliteDeadlineOwnedTaskPersistenceTarget(
+  persistence: Pick<PGliteFlarexPersistence, "drizzle">,
+  physicalLocator: ScopePhysicalLocator,
+  deadlineInput: TaskRepairPostgresDeadlinePolicyInputV1,
+): Result.Result<DeadlineOwnedTaskPersistenceTarget,
+  TaskPersistenceTransactionError | TaskRepairPostgresDeadlineConfigurationV1Error> {
+  if (!ownedPGliteDatabases.has(persistence.drizzle)) return Result.fail(new TaskPersistenceTransactionError({
+    reason: "invalidTarget", operation: "pgliteTestTarget" }));
+  return createTaskRepairPostgresDeadlinePolicyV1(deadlineInput).pipe(Result.map(policy =>
+    retainDeadlineOwnedTaskPersistenceTargetInternal(createLocatedTaskExternalEffectAuthorityTargetFromPolicyInternal(
+      persistence.drizzle, physicalLocator, createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle), policy,
+    ), policy, "pgliteTest")));
+}
+
 export function createPGliteLocatedApplicationActionAuthorityTargetV1(
   persistence: Pick<PGliteFlarexPersistence, "drizzle">,
   physicalLocator: ScopePhysicalLocator,
@@ -341,6 +363,7 @@ export async function createPGlitePersistence(
     schema: flarexSchema,
   });
   const immutableCatalog = options.immutableCatalog ?? drizzleDb;
+  ownedPGliteDatabases.add(drizzleDb);
   const runtime = createFlarexRuntimePersistence({
     drizzle: drizzleDb,
     sql: createPGliteSqlClient(drizzleDb, db),

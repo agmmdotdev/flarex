@@ -10,6 +10,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import type {
@@ -261,7 +262,7 @@ export const fxSystemExternalEffectAttemptsV1 = pgTable(
     subjectFence: bigint("subject_fence", { mode: "bigint" }).notNull(),
     effectOrdinal: bigint("effect_ordinal", { mode: "bigint" }).notNull(),
     effectKind: text("effect_kind").$type<
-      "outbound_http" | "child_mutation"
+      "outbound_http" | "child_mutation" | "child_commerce"
     >().notNull(),
     stableEffectKey: text("stable_effect_key").notNull(),
     requestIdentitySha256: bytea("request_identity_sha256").notNull(),
@@ -273,6 +274,10 @@ export const fxSystemExternalEffectAttemptsV1 = pgTable(
     childMutationRequestKey: text("child_mutation_request_key"),
     childMutationFunctionPath: text("child_mutation_function_path"),
     childMutationArgumentsSha256: bytea("child_mutation_arguments_sha256"),
+    childCommerceRequestKey: text("child_commerce_request_key"),
+    childCommerceCommandName: text("child_commerce_command_name"),
+    childCommerceArgumentsSha256: bytea("child_commerce_arguments_sha256"),
+    childCommercePolicySha256: bytea("child_commerce_policy_sha256"),
     state: text("state").$type<
       "prepared" | "failed_before_dispatch" | "dispatching" | "confirmed" |
         "uncertain"
@@ -289,6 +294,7 @@ export const fxSystemExternalEffectAttemptsV1 = pgTable(
     responseByteLength: bigint("response_byte_length", { mode: "bigint" }),
     responseSha256: bytea("response_sha256"),
     childMutationOutcomeSha256: bytea("child_mutation_outcome_sha256"),
+    childCommerceOutcomeSha256: bytea("child_commerce_outcome_sha256"),
     terminalCode: text("terminal_code"),
   },
   table => [
@@ -304,13 +310,15 @@ export const fxSystemExternalEffectAttemptsV1 = pgTable(
       columns: [table.scopeId],
       foreignColumns: [fxSystemScopeClocks.scopeId],
     }).onDelete("restrict"),
+    uniqueIndex("fx_external_effect_commerce_key_idx").on(table.scopeUuid, table.stableEffectKey)
+      .where(sql`${table.effectKind} = 'child_commerce'`),
     check(
       "fx_external_effect_attempt_v1_identity_check",
       sql`${table.subjectKind} in ('direct_action', 'durable_task_attempt')
         and octet_length(${table.subjectIdentitySha256}) = 32
         and ${table.subjectFence} >= 1
         and ${table.effectOrdinal} >= 1
-        and ${table.effectKind} in ('outbound_http', 'child_mutation')
+        and ${table.effectKind} in ('outbound_http', 'child_mutation', 'child_commerce')
         and ${nonBlankText(table.stableEffectKey)}
         and octet_length(convert_to(${table.stableEffectKey}, 'UTF8')) <= 2048
         and octet_length(${table.requestIdentitySha256}) = 32`,
@@ -341,8 +349,32 @@ export const fxSystemExternalEffectAttemptsV1 = pgTable(
           and ${nonBlankText(table.childMutationFunctionPath)}
           and octet_length(convert_to(${table.childMutationFunctionPath}, 'UTF8')) <= 2048
           and octet_length(${table.childMutationArgumentsSha256}) = 32)
+        or (${table.effectKind} = 'child_commerce'
+          and ${table.subjectKind} = 'durable_task_attempt'
+          and ${table.effectOrdinal} between 1 and 16
+          and ${table.requestStoreIdentity} is null
+          and ${table.requestCodecIdentity} is null
+          and ${table.requestObjectKey} is null
+          and ${table.requestByteLength} is null
+          and ${table.requestSha256} is null
+          and ${table.childMutationRequestKey} is null
+          and ${table.childMutationFunctionPath} is null
+          and ${table.childMutationArgumentsSha256} is null
+          and ${table.childCommerceRequestKey} is not null
+          and ${table.childCommerceRequestKey} = ${table.stableEffectKey}
+          and ${table.childCommerceCommandName} is not null
+          and ${table.childCommerceCommandName} ~ '^[a-zA-Z][a-zA-Z0-9._-]{0,127}$'
+          and ${table.childCommerceArgumentsSha256} is not null
+          and octet_length(${table.childCommerceArgumentsSha256}) = 32
+          and ${table.childCommercePolicySha256} is not null
+          and octet_length(${table.childCommercePolicySha256}) = 32)
       )`,
     ),
+    check("fx_external_effect_commerce_columns_check", sql`
+      ${table.effectKind} = 'child_commerce' or (
+        ${table.childCommerceRequestKey} is null and ${table.childCommerceCommandName} is null
+        and ${table.childCommerceArgumentsSha256} is null and ${table.childCommercePolicySha256} is null
+        and ${table.childCommerceOutcomeSha256} is null)`),
     check(
       "fx_external_effect_attempt_v1_state_check",
       sql`(
@@ -397,8 +429,22 @@ export const fxSystemExternalEffectAttemptsV1 = pgTable(
           and ${table.responseByteLength} is null
           and ${table.responseSha256} is null
           and octet_length(${table.childMutationOutcomeSha256}) = 32)
+        or (${table.state} = 'confirmed'
+          and ${table.effectKind} = 'child_commerce'
+          and ${table.responseStoreIdentity} is null
+          and ${table.responseCodecIdentity} is null
+          and ${table.responseObjectKey} is null
+          and ${table.responseByteLength} is null
+          and ${table.responseSha256} is null
+          and ${table.childMutationOutcomeSha256} is null
+          and ${table.childCommerceOutcomeSha256} is not null
+          and octet_length(${table.childCommerceOutcomeSha256}) = 32)
       )`,
     ),
+    check("fx_external_effect_commerce_state_check", sql`
+      ${table.effectKind} <> 'child_commerce' or (
+        (${table.state} = 'confirmed' and ${table.childCommerceOutcomeSha256} is not null)
+        or (${table.state} <> 'confirmed' and ${table.childCommerceOutcomeSha256} is null))`),
     check(
       "fx_external_effect_attempt_v1_timestamp_check",
       sql`isfinite(${table.preparedAt})
