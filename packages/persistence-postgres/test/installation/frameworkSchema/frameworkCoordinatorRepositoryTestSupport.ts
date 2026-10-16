@@ -1,3 +1,4 @@
+import { isNonArrayRecord, type UnknownRecord } from "@flarex/utils/records";
 import type { FlarexMetadataTransaction } from
   "../../../src/database/metadataTransaction";
 import {
@@ -319,10 +320,29 @@ export async function storeSuccessfulAvailabilityHistoryGraphInTransaction(
 export function rejectingSelectTransaction(
   transaction: FlarexMetadataTransaction,
   cause: unknown,
+  matchesSelection?: (selection: unknown) => boolean,
 ): FlarexMetadataTransaction {
+  function rejectAtLimit(input: UnknownRecord): UnknownRecord {
+    return new Proxy(input, {
+      get(target, property, receiver) {
+        const member = Reflect.get(target, property, receiver);
+        if (typeof member !== "function") return member;
+        if (property === "limit") return () => Promise.reject(cause);
+        return (...args: unknown[]) => {
+          const next = Reflect.apply(member, target, args);
+          if (!isNonArrayRecord(next)) {
+            throw new TypeError("Coordinator read builder must remain an object");
+          }
+          return rejectAtLimit(next);
+        };
+      },
+    });
+  }
+
   return new Proxy(transaction, {
     get(target, property, receiver) {
-      if (property === "select") {
+      if (property !== "select") return Reflect.get(target, property, receiver);
+      if (matchesSelection === undefined) {
         return () => ({
           from: () => ({
             where: () => ({
@@ -331,7 +351,16 @@ export function rejectingSelectTransaction(
           }),
         });
       }
-      return Reflect.get(target, property, receiver);
+      const select = Reflect.get(target, property, receiver);
+      if (typeof select !== "function") return select;
+      return (...args: unknown[]) => {
+        const query = Reflect.apply(select, target, args);
+        if (!matchesSelection(args[0])) return query;
+        if (!isNonArrayRecord(query)) {
+          throw new TypeError("Coordinator select must return an object");
+        }
+        return rejectAtLimit(query);
+      };
     },
   });
 }

@@ -1,8 +1,5 @@
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
-import {
-  isNonArrayRecord,
-  type UnknownRecord,
-} from "@flarex/utils/records";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { asc, eq } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 import { describe, expect, it } from "vitest";
@@ -29,6 +26,7 @@ import type { FrameworkMigrationRepositoryError } from
   "../../../src/installation/migrationCoordination/repositoryErrors";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
+  rejectingSelectTransaction,
   createSuccessfulTerminalPlanValues,
   storeSuccessfulInstallationGraphInTransaction,
 } from "./frameworkCoordinatorRepositoryTestSupport";
@@ -273,7 +271,7 @@ describe("framework coordinator schema-readiness repository", () => {
     const failure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFrameworkSchemaReadinessInTransactionEffect(
-          rejectingReadinessRootSelectTransaction(transaction, cause),
+          rejectingSelectTransaction(transaction, cause, isReadinessRootSelection),
           prepared.graph.installation,
           prepared.readiness,
         ),
@@ -401,44 +399,6 @@ async function expectStoredCorruption(
 
 function canonicalBytes(value: Readonly<{ canonicalJson: string }>): Uint8Array {
   return new TextEncoder().encode(value.canonicalJson);
-}
-
-function rejectingReadinessRootSelectTransaction(
-  transaction: FlarexMetadataTransaction,
-  cause: unknown,
-): FlarexMetadataTransaction {
-  function rejectAtLimit(input: UnknownRecord): UnknownRecord {
-    return new Proxy(input, {
-      get(target, property, receiver) {
-        const member = Reflect.get(target, property, receiver);
-        if (typeof member !== "function") return member;
-        if (property === "limit") return () => Promise.reject(cause);
-        return (...args: unknown[]) => {
-          const next = Reflect.apply(member, target, args);
-          if (!isNonArrayRecord(next)) {
-            throw new TypeError("Readiness read builder must remain an object");
-          }
-          return rejectAtLimit(next);
-        };
-      },
-    });
-  }
-
-  return new Proxy(transaction, {
-    get(target, property, receiver) {
-      if (property !== "select") return Reflect.get(target, property, receiver);
-      const select = Reflect.get(target, property, receiver);
-      if (typeof select !== "function") return select;
-      return (...args: unknown[]) => {
-        const query = Reflect.apply(select, target, args);
-        if (!isReadinessRootSelection(args[0])) return query;
-        if (!isNonArrayRecord(query)) {
-          throw new TypeError("Readiness select must return an object");
-        }
-        return rejectAtLimit(query);
-      };
-    },
-  });
 }
 
 function isReadinessRootSelection(input: unknown): boolean {

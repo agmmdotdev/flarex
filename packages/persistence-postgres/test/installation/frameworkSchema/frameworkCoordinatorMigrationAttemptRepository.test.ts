@@ -1,8 +1,6 @@
+import { rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
-import {
-  isNonArrayRecord,
-  type UnknownRecord,
-} from "@flarex/utils/records";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { eq } from "drizzle-orm";
 import { Encoding, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
@@ -878,7 +876,7 @@ describe("framework coordinator migration-attempt repository", () => {
     const driverFailure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFrameworkMigrationAttemptStartInTransactionEffect(
-          rejectingAttemptRootSelectTransaction(transaction, driverCause),
+          rejectingSelectTransaction(transaction, driverCause, isAttemptRootSelection),
           admission,
           null,
           attempt,
@@ -1052,44 +1050,6 @@ async function attemptCount(
   const row = result.rows[0];
   if (row === undefined) throw new Error("Missing attempt count row");
   return row.count;
-}
-
-function rejectingAttemptRootSelectTransaction(
-  transaction: FlarexMetadataTransaction,
-  cause: unknown,
-): FlarexMetadataTransaction {
-  function rejectAtLimit(input: UnknownRecord): UnknownRecord {
-    return new Proxy(input, {
-      get(target, property, receiver) {
-        const member = Reflect.get(target, property, receiver);
-        if (typeof member !== "function") return member;
-        if (property === "limit") return () => Promise.reject(cause);
-        return (...args: unknown[]) => {
-          const next = Reflect.apply(member, target, args);
-          if (!isNonArrayRecord(next)) {
-            throw new TypeError("Attempt read builder must remain an object");
-          }
-          return rejectAtLimit(next);
-        };
-      },
-    });
-  }
-
-  return new Proxy(transaction, {
-    get(target, property, receiver) {
-      if (property !== "select") return Reflect.get(target, property, receiver);
-      const select = Reflect.get(target, property, receiver);
-      if (typeof select !== "function") return select;
-      return (...args: unknown[]) => {
-        const query = Reflect.apply(select, target, args);
-        if (!isAttemptRootSelection(args[0])) return query;
-        if (!isNonArrayRecord(query)) {
-          throw new TypeError("Attempt select must return a query object");
-        }
-        return rejectAtLimit(query);
-      };
-    },
-  });
 }
 
 function isAttemptRootSelection(input: unknown): boolean {

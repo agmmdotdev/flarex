@@ -1,7 +1,4 @@
-import {
-  isNonArrayRecord,
-  type UnknownRecord,
-} from "@flarex/utils/records";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { eq } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 import { describe, expect, it } from "vitest";
@@ -46,6 +43,7 @@ import type { FrameworkMigrationRepositoryError } from
   "../../../src/installation/migrationCoordination/repositoryErrors";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
+  rejectingSelectTransaction,
   createSuccessfulTerminalPlanValues,
   storeSuccessfulAvailabilityHistoryGraphInTransaction,
 } from "./frameworkCoordinatorRepositoryTestSupport";
@@ -480,7 +478,7 @@ describe("framework coordinator schema-availability-head repository", () => {
     const failure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFrameworkSchemaAvailabilityHeadInTransactionEffect(
-          rejectingAvailabilityHeadRootSelectTransaction(transaction, cause),
+          rejectingSelectTransaction(transaction, cause, isAvailabilityHeadRootSelection),
           prepared.histories.initial.installation,
         ),
       ),
@@ -652,46 +650,6 @@ async function expectStoredCorruption(
 
 function canonicalBytes(value: Readonly<{ canonicalJson: string }>): Uint8Array {
   return new TextEncoder().encode(value.canonicalJson);
-}
-
-function rejectingAvailabilityHeadRootSelectTransaction(
-  transaction: FlarexMetadataTransaction,
-  cause: unknown,
-): FlarexMetadataTransaction {
-  function rejectAtLimit(input: UnknownRecord): UnknownRecord {
-    return new Proxy(input, {
-      get(target, property, receiver) {
-        const member = Reflect.get(target, property, receiver);
-        if (typeof member !== "function") return member;
-        if (property === "limit") return () => Promise.reject(cause);
-        return (...args: unknown[]) => {
-          const next = Reflect.apply(member, target, args);
-          if (!isNonArrayRecord(next)) {
-            throw new TypeError(
-              "Availability-head read builder must remain an object",
-            );
-          }
-          return rejectAtLimit(next);
-        };
-      },
-    });
-  }
-
-  return new Proxy(transaction, {
-    get(target, property, receiver) {
-      if (property !== "select") return Reflect.get(target, property, receiver);
-      const select = Reflect.get(target, property, receiver);
-      if (typeof select !== "function") return select;
-      return (...args: unknown[]) => {
-        const query = Reflect.apply(select, target, args);
-        if (!isAvailabilityHeadRootSelection(args[0])) return query;
-        if (!isNonArrayRecord(query)) {
-          throw new TypeError("Availability-head select must return an object");
-        }
-        return rejectAtLimit(query);
-      };
-    },
-  });
 }
 
 function isAvailabilityHeadRootSelection(input: unknown): boolean {

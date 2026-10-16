@@ -373,7 +373,10 @@ helper allocation details. Preserve behavioral, durable-data, rollback and
 compatibility witnesses; an old checkpoint label alone does not make one obsolete.
 
 Coordinator driver-error mapping assertions run beside their existing authentic
-parent/read/replay scenarios and share the repository fault helper. Graph-pass
+parent/read/replay scenarios and share the repository fault helper. Root-selection
+predicates stay with each repository; matching faults reject at `limit`, while
+prerequisite queries use the genuine transaction and builder. Two-argument fault
+calls retain their unconditional SELECT rejection. Graph-pass
 policy and lifetime cases share one file-owned database without row changes;
 the cross-transaction witness retains its second independent database. Typed
 maintenance converter cases restore independent control/target images before

@@ -1,8 +1,5 @@
 import { administrativelyRepairFrameworkMetadata, withAdministrativeFrameworkMetadataRepair } from "./frameworkMetadataRepairTestSupport";
-import {
-  isNonArrayRecord,
-  type UnknownRecord,
-} from "@flarex/utils/records";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import type { CanonicalIsoInstant } from "@flarex/time/iso-instant";
 import { asc, eq, sql } from "drizzle-orm";
 import { Brand, Effect, Encoding, Option } from "effect";
@@ -48,6 +45,7 @@ import {
 } from "../../../src/installation/migrationCoordination/storedEventRestoration";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
+  rejectingSelectTransaction,
   createSuccessfulTerminalPlanValues,
   storeSuccessfulReadinessGraphInTransaction,
 } from "./frameworkCoordinatorRepositoryTestSupport";
@@ -659,7 +657,7 @@ describe("framework coordinator migration-event repository", () => {
     const failure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFrameworkMigrationEventInTransactionEffect(
-          rejectingEventRootSelectTransaction(transaction, cause),
+          rejectingSelectTransaction(transaction, cause, isEventRootSelection),
           prepared.graph.collision,
           null,
           prepared.first.subject,
@@ -923,44 +921,6 @@ async function expectStoredCorruption(
 
 function canonicalBytes(value: Readonly<{ canonicalJson: string }>): Uint8Array {
   return new TextEncoder().encode(value.canonicalJson);
-}
-
-function rejectingEventRootSelectTransaction(
-  transaction: FlarexMetadataTransaction,
-  cause: unknown,
-): FlarexMetadataTransaction {
-  function rejectAtLimit(input: UnknownRecord): UnknownRecord {
-    return new Proxy(input, {
-      get(target, property, receiver) {
-        const member = Reflect.get(target, property, receiver);
-        if (typeof member !== "function") return member;
-        if (property === "limit") return () => Promise.reject(cause);
-        return (...args: unknown[]) => {
-          const next = Reflect.apply(member, target, args);
-          if (!isNonArrayRecord(next)) {
-            throw new TypeError("Event read builder must remain an object");
-          }
-          return rejectAtLimit(next);
-        };
-      },
-    });
-  }
-
-  return new Proxy(transaction, {
-    get(target, property, receiver) {
-      if (property !== "select") return Reflect.get(target, property, receiver);
-      const select = Reflect.get(target, property, receiver);
-      if (typeof select !== "function") return select;
-      return (...args: unknown[]) => {
-        const query = Reflect.apply(select, target, args);
-        if (!isEventRootSelection(args[0])) return query;
-        if (!isNonArrayRecord(query)) {
-          throw new TypeError("Event select must return an object");
-        }
-        return rejectAtLimit(query);
-      };
-    },
-  });
 }
 
 function isEventRootSelection(input: unknown): boolean {
