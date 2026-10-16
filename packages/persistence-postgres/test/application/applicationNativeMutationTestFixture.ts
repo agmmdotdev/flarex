@@ -230,6 +230,7 @@ export interface ApplicationNativeMutationFixtureOptions {
   readonly includeUserNameIndex?: boolean;
   readonly initialUserDocuments?: readonly ApplicationNativeMutationUserDocument[];
   readonly includeProductLaunch?: boolean;
+  readonly includeInternalCalls?: boolean;
   readonly includeTask?: boolean;
   readonly taskMaximumDurationInSeconds?: number;
   readonly taskRetryMinimumTimeoutInMs?: number;
@@ -555,7 +556,8 @@ async function createApplicationNativeMutationFixture<
     } } }, returns: { type: "null" }, partition: null,
   } as const));
   const source = options.analysis?.source ?? await mutationSourceBundle(options.includeProductLaunch === true,
-    options.acceptanceScale?.extraFunctions ?? 0, options.acceptanceScale?.functionPaddingBytes ?? 0);
+    options.acceptanceScale?.extraFunctions ?? 0, options.acceptanceScale?.functionPaddingBytes ?? 0,
+    options.includeInternalCalls === true);
   const fixtureManifest = {
       format: "flarex.application-manifest",
       version: 1,
@@ -645,7 +647,14 @@ async function createApplicationNativeMutationFixture<
         args: { type: "any" },
         returns: { type: "any" },
         partition: null,
-      }, ...extraFunctions],
+      }, ...(options.includeInternalCalls === true ? [
+        { path: "users:deleteThroughInternal", moduleName: "users", exportName: "deleteThroughInternal",
+          kind: "mutation", visibility: "public", args: { type: "any" }, returns: { type: "any" }, partition: null },
+        { path: "users:deleteInternal", moduleName: "users", exportName: "deleteInternal",
+          kind: "mutation", visibility: "internal", args: { type: "any" }, returns: { type: "any" }, partition: null },
+        { path: "users:getInternal", moduleName: "users", exportName: "getInternal",
+          kind: "query", visibility: "internal", args: { type: "any" }, returns: { type: "any" }, partition: null },
+      ] as const : []), ...extraFunctions].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0),
     } as const;
   const analyses = makeApplicationAnalysisRepository(target.drizzle, {
     randomUuid: fixtureUuidSequence(11, 12, 13),
@@ -1301,11 +1310,12 @@ function resolveTaskPublication(
 }
 
 async function mutationSourceBundle(includeProductLaunch = false, extraFunctionCount = 0,
-  functionPaddingBytes = 0): Promise<ApplicationNativeMutationSourceBundle> {
+  functionPaddingBytes = 0, includeInternalCalls = false): Promise<ApplicationNativeMutationSourceBundle> {
   const execution = [
     'import { query } from "flarex/server";',
     'import { mutation } from "flarex/server";',
     'import { internalMutation } from "flarex/server";',
+    ...(includeInternalCalls ? ['import { internalQuery } from "flarex/server";'] : []),
     'import { action } from "flarex/server";',
     ...(extraFunctionCount > 0 ? ['import { v } from "flarex/values";'] : []),
     'import * as users from "../functions/users.js";',
@@ -1315,6 +1325,11 @@ async function mutationSourceBundle(includeProductLaunch = false, extraFunctionC
     "  create: mutation({ handler: users.create }),",
     "  createInternal: internalMutation({ handler: users.createInternal }),",
     "  notify: action({ handler: users.notify }),",
+    ...(includeInternalCalls ? [
+      "  deleteThroughInternal: mutation({ handler: users.deleteThroughInternal }),",
+      "  deleteInternal: internalMutation({ handler: users.deleteInternal }),",
+      "  getInternal: internalQuery({ handler: users.getInternal }),",
+    ] : []),
     ...Array.from({ length: extraFunctionCount }, (_, index) => {
       const name = `scale${index.toString().padStart(3, "0")}`;
       return `  ${name}: query({ args: { padding: v.optional(v.literal(${JSON.stringify("p".repeat(functionPaddingBytes))})) }, returns: v.null(), handler: users.${name} }),`;
@@ -1336,6 +1351,19 @@ async function mutationSourceBundle(includeProductLaunch = false, extraFunctionC
     "export async function createInternal(ctx, args) {",
     "  return await ctx.db.insert(\"users\", { name: args.name });",
     "}",
+    ...(includeInternalCalls ? [
+      "export async function deleteThroughInternal(ctx, args) {",
+      "  const before = await ctx.runQuery('users:getInternal', args);",
+      "  const child = await ctx.runMutation('users:deleteInternal', args);",
+      "  const after = await ctx.runQuery('users:getInternal', args);",
+      "  return { before: before.name, child, after };",
+      "}",
+      "export async function deleteInternal(ctx, args) {",
+      "  await ctx.db.delete(args.id);",
+      "  return await ctx.runQuery('users:getInternal', args);",
+      "}",
+      "export async function getInternal(ctx, args) { return await ctx.db.get(args.id); }",
+    ] : []),
     "export async function notify(_ctx, args) {",
     "  return { delivered: args.message };",
     "}",

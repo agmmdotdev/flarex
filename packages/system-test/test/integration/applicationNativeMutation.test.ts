@@ -1,11 +1,23 @@
+import { createApplicationNativeMutationPGliteFixtureWithPersistence } from "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
+import { defineApplicationNestedMutationContract } from "../contracts/applicationNativeMutationContract";
+import { createMigratedSplitPGlitePersistence } from "../support/databaseFixturesV1";
 import { describe, expect, it } from "vitest";
 
-import { proveApplicationNativeMutation } from
+import { APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS, proveApplicationNativeMutation } from
   "../../support/applicationNativeMutationHarness";
 
 describe("Application-native Standard mutation - PGlite", () => {
+  defineApplicationNestedMutationContract({
+    runScenario: async scenario => scenario(await createApplicationNativeMutationPGliteFixtureWithPersistence(
+      APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS,
+      await createMigratedSplitPGlitePersistence(),
+    )),
+  });
   it("composes active Application authority through the shared commit tail", async () => {
-    const proof = await proveApplicationNativeMutation();
+    const proof = await proveApplicationNativeMutation(async () => createApplicationNativeMutationPGliteFixtureWithPersistence(
+      { runtimeHostIdentity: APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS.runtimeHostIdentity, compatibilityDate: APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS.compatibilityDate },
+      await createMigratedSplitPGlitePersistence(),
+    ));
     expect(proof).toMatchObject({
       invalidInputRejectedBeforeActiveRead: true,
       externalInternalMutationRejected: true,

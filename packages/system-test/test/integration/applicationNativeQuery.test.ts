@@ -1,4 +1,5 @@
-import { createApplicationNativeMutationPGliteFixture } from
+import { createMigratedSplitPGlitePersistence } from "../support/databaseFixturesV1";
+import { createApplicationNativeMutationPGliteFixtureWithPersistence } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import { describe } from "vitest";
 
@@ -9,9 +10,10 @@ import { defineApplicationNativeQueryContract } from
 
 describe("Application-native Standard query - PGlite", () => {
   defineApplicationNativeQueryContract({
-    runScenario: scenario => scenario(() =>
-      createApplicationNativeMutationPGliteFixture(
+    runScenario: scenario => scenario(async () =>
+      createApplicationNativeMutationPGliteFixtureWithPersistence(
         APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS,
+        await createMigratedSplitPGlitePersistence(),
       )
     ),
   });

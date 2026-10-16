@@ -1,3 +1,4 @@
+import { decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import {
   createApplicationMutationGrantVerificationKernelV1,
@@ -71,7 +72,17 @@ import {
 } from "flarex-protocol/transaction-session";
 import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
 
+import { MiniflareApplicationWorkerLoader } from "./applicationNativeQueryHarness";
+
 const COMPATIBILITY_DATE = "2026-06-14";
+const NESTED_USER_DOCUMENT_ID = "1:00000000-0000-0000-0000-000000000011";
+export const APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS = Object.freeze({
+  runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
+  compatibilityDate: COMPATIBILITY_DATE,
+  includeInternalCalls: true,
+  // Build the initial row into intrinsic indexes before activation.
+  initialUserDocuments: [{ name: "Ada", rowId: decodeAppRowIdHexV1("00".repeat(15) + "11") }],
+});
 const RETENTION = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
   maximumGrantLifetimeMilliseconds: 120_000,
   maximumFutureIssuedAtSkewMilliseconds: 30_000,
@@ -1082,6 +1093,31 @@ export async function proveApplicationNativeMutation(
     feedCount: afterFailure.feed,
     outboxCount: afterFailure.outbox,
   });
+}
+
+export async function proveApplicationNestedMutation(fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>) {
+  const before = await durableCounts(fixture.target);
+  const loader = new MiniflareApplicationWorkerLoader();
+  try {
+    const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
+    const invoke = () => runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
+      TransactionFunctionPathV1Schema.make("users:deleteThroughInternal"),
+      { id: NESTED_USER_DOCUMENT_ID },
+      TransactionRequestKeyV1Schema.make("application-native:nested-delete"),
+    ).pipe(Effect.provide(layer))));
+    const published = await invoke();
+    const replayed = await invoke();
+    const after = await durableCounts(fixture.target);
+    const tombstones = await fixture.target.query<{ count: number }>(`
+      select count(*)::int as count from fx_app_row_current as current_row
+      join fx_app_row_rev as revision using (scope_uuid, table_id, row_id, commit_seq)
+      where revision.is_tombstone
+    `);
+    return { published, replayed, before, after, workerLoads: loader.loads,
+      tombstones: tombstones.rows[0]?.count };
+  } finally {
+    await loader.dispose();
+  }
 }
 
 function observeApplicationMutationConfiguration(

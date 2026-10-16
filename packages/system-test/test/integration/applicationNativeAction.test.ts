@@ -1,3 +1,6 @@
+import { createApplicationNativeMutationPGliteFixtureWithPersistence } from "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
+import { APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS } from "../../support/applicationNativeQueryHarness";
+import { createMigratedSplitPGlitePersistence } from "../support/databaseFixturesV1";
 import { describe, expect, it, vi } from "vitest";
 
 const legacyOperations = vi.hoisted(() => ({ readActive: vi.fn() }));
@@ -16,7 +19,9 @@ import {
 
 describe("Application-native Standard action", () => {
   it("proves the exclusive Application service cut and durable effects", async () => {
-    await expect(proveApplicationNativeAction()).resolves.toMatchObject({
+    await expect(proveApplicationNativeAction(async () => createApplicationNativeMutationPGliteFixtureWithPersistence(
+      APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS, await createMigratedSplitPGlitePersistence(),
+    ))).resolves.toMatchObject({
       completed: true,
       exactReplay: true,
       conflictingReuseRejected: true,

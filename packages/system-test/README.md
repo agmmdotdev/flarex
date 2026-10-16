@@ -58,10 +58,18 @@ tests own their live behavioral coverage. The two migration-0043 ownership
 regressions live with persistence's historical migration tests, share assertions
 across drivers, and stop at 0043 rather than replaying unrelated later migrations.
 
-The FSV04/FSV05 preparation helpers still serve FSV06, PQV, SAP and action
-fixtures. Those consumers retain a schema/runtime gap and do not establish
-current Application acceptance. Their removal gate is migration of those named
-consumers to current owners. Do not add current installation/authority tables to
-their historical schema or bypass admission. The
+The displaced FSV06/PQV/SAP query, mutation and action runtime entries and their
+FSV04/FSV05 preparation chain are retired. Current native consumer suites own
+execution coverage. The action authority matrix now uses the current split
+Application fixture and canonical execution authority, retaining races, rollback,
+recovery, digest capture and transaction cleanup. The current native query suite
+retains PostgreSQL snapshot/writer locking and retained-floor checks; the native
+mutation suite exercises nested calls through a real Worker and shared journal.
+
+FSV03's standalone analyzer/C07 entries and session-finalizer test still consume
+the historical analyzer harness. Their removal gate is disposition against
+current Application Analysis and mutation coverage. The separate historical
+native Task parent seeds retain their registration/runtime gap. Neither is
+current Application acceptance. The
 [analysis retirement owner](../../roadmaps/49-application-analysis-migration.md)
-owns that remaining disposition.
+owns these remaining gates; do not extend historical schemas or bypass admission.

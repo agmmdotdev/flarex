@@ -3802,13 +3802,25 @@ active head does not invalidate an already admitted immutable session schema.
 The two genuine 0043 ownership migration regressions remain with persistence,
 share assertions across PGlite and PostgreSQL, and stop at the 0043 boundary.
 
-The historical FSV04/FSV05 preparation helper chain remains an executing
-dependency of FSV06, PQV, SAP and action-authority fixtures. Its pre-0064 journals
-omit installation and split scope-authority state required by the shared current
-runtime. Those consumers still have a schema/runtime gap; their removal gate is
-migration to current consumer owners. They do not establish current Application
-acceptance. Do not create a hybrid historical schema or bypass admission to make
-them pass.
+The displaced FSV06/PQV/SAP runtime suites and FSV04/FSV05 preparation chain
+are retired. Their current consumer coverage belongs to native Application
+query, mutation and action suites. The action authority failure matrix uses
+current canonical execution authority and split Application fixtures; it retains
+admission races, effect ordering, rollback, conservative recovery, lost responses,
+digest capture and interrupted-transaction joins. Native query coverage retains
+snapshot/writer locking, retained-floor refusal and client cleanup. A current
+Worker mutation composes internal mutation and queries on one staged journal,
+then publishes and replays only the parent outcome. The historical SAP06-A3
+expectation that catching a child result-validation failure permits publication
+is obsolete: current runtime failures remain sticky across that catch.
+
+FSV03's standalone analyzer/C07 entries and session-finalizer test still consume
+the historical analyzer harness. Their removal gate is disposition against the
+current Application Analysis composition and mutation owners. They retain a
+schema/runtime gap and do not establish current Application acceptance. Do not
+create a hybrid historical schema or bypass admission to make them pass.
+Remaining legacy production invocation/query adapters have separate source
+consumers and are not removed by this fixture cleanup.
 
 The retained granular verifier repository proofs use the pre-0064 journal and
 historical scope seed with the shared READ COMMITTED transaction/settlement
@@ -3819,7 +3831,7 @@ backend lineage composition case is removed in favor of current Application
 Analysis composition proofs. The unused connected-Client verifier adapter and
 its package route are retired; its real Client transaction-serialization witness
 remains with the current connected-Client persistence tests. This repository-only
-fixture disposition does not resolve the remaining historical consumer gap above.
+fixture disposition does not resolve the retained FSV03 or native Task gaps.
 The earlier verifier V1-retirement proof is bounded at migration 0044, where V2
 progress remains present; migration 0064 owns its subsequent retirement.
 

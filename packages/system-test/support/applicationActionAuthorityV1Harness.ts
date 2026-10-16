@@ -3,65 +3,53 @@ import { createHash } from "node:crypto";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Effect, Exit, Fiber, Result } from "effect";
 import {
-  encodeApplicationActionInvocationRequestV1,
+  encodeApplicationActionInvocationRequestV2,
   makeExecutionEvidenceBodyReferenceV1,
   type CanonicalExecutionEvidenceFrameV1,
-  type ApplicationActionInvocationRequestFrameV1,
+  type ApplicationActionInvocationRequestFrameV2,
 } from "flarex-protocol/internal/execution-evidence-v1";
 
 import {
-  admitDirectActionInvocationV1,
-  claimDirectActionExecutionV1,
+  admitApplicationAuthorityActionInvocation,
+  createLocatedApplicationActionAuthorityTargetV1,
+  claimApplicationAuthorityActionExecution,
   confirmExternalEffectAttemptV1,
   declareExternalEffectDispatchV1,
   failExternalEffectBeforeDispatchV1,
-  inspectDirectActionInvocationV1,
+  inspectApplicationAuthorityActionInvocation,
   markExternalEffectUncertainV1,
   prepareExternalEffectAttemptV1,
-  recoverExpiredDirectActionExecutionV1,
-  requestDirectActionCancellationV1,
-  settleDirectActionInvocationV1,
+  recoverExpiredApplicationAuthorityActionExecution,
+  requestApplicationAuthorityActionCancellation,
+  settleApplicationAuthorityActionInvocation,
   type ApplicationActionAuthorityContextV1,
   type ApplicationActionAuthorityTransactionStepV1,
   type LocatedApplicationActionAuthorityTargetV1,
 } from "@flarex/persistence-postgres/internal/application-action-authority-v1";
 import {
-  activateApplicationRevisionV1,
-  readActiveApplicationRevisionV1,
-  type LocatedApplicationRevisionActivationTargetV1,
-} from "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
+  selectApplicationActionAdmission,
+} from "@flarex/persistence-postgres/internal/application-action-admission";
+import type {
+  ApplicationNativeMutationFixture,
+  ApplicationNativeMutationPersistence,
+} from "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import {
-  claimApplicationRevisionActionRuntimeTargetAuthorityV1,
-} from "@flarex/persistence-postgres/internal/system-test/application-revision-action-runtime-target-v1";
-import type { LocatedApplicationRevisionRegistrationTargetV1 } from
-  "@flarex/persistence-postgres/internal/system-test/applicationRevisionRegistrationV1";
-import type { PGliteFlarexPersistence } from "@flarex/persistence-postgres/pglite";
-import type { PostgresFlarexPersistence } from "@flarex/persistence-postgres/postgres";
-import {
-  resolveLocatedTrustedScopeAuthorityEffect,
-} from "@flarex/persistence-postgres/internal/system-test/scopeAuthorityResolution";
-import type { ScopePhysicalLocator } from "@flarex/persistence-postgres/internal/system-test/scopeMetadataTypes";
-import { prepareFsv05ReadyRevisionFixtureV1 } from
-  "./fsv05ApplicationRevisionActivationHarness";
-import { makeMemoryRuntimeArtifactStoreV1 } from
-  "./memoryRuntimeArtifactStoreV1";
+  RUN_LOCATED_READ_COMMITTED_V1,
+} from "@flarex/persistence-postgres/internal/system-test/session-kernel";
 
-type Persistence = PGliteFlarexPersistence | PostgresFlarexPersistence;
+type Persistence = ApplicationNativeMutationPersistence;
+type Fixture = ApplicationNativeMutationFixture<Persistence>;
+type ActionAdmission = Effect.Success<
+  ReturnType<typeof selectApplicationActionAdmission>
+>;
+type ActionContext = ApplicationActionAuthorityContextV1<never> & Readonly<{
+  admission: ActionAdmission;
+}>;
 
-export const AAV_A1_LOCATOR = Object.freeze({
-  kind: "shared_database",
-  databaseKey: "primary",
-  schemaName: "public",
-} as const satisfies ScopePhysicalLocator);
-
-export interface ApplicationActionAuthorityLaneV1 {
+interface ApplicationActionAuthorityLaneV1 {
   readonly name: "pglite" | "postgres";
   readonly persistence: Persistence;
-  readonly registrationTarget: LocatedApplicationRevisionRegistrationTargetV1;
-  readonly activationTarget: LocatedApplicationRevisionActivationTargetV1;
-  readonly actionTarget: LocatedApplicationActionAuthorityTargetV1;
-  readonly makeLostResponseTarget: () =>
-    LocatedApplicationActionAuthorityTargetV1;
+  readonly makeLostResponseTarget: () => LocatedApplicationActionAuthorityTargetV1;
   readonly makeBlockedTransactionTarget: (
     onBlocked: () => void,
     onFinished: () => void,
@@ -94,63 +82,72 @@ export interface ApplicationActionAuthorityProofV1 {
 }
 
 export async function proveApplicationActionAuthorityV1(
-  lane: ApplicationActionAuthorityLaneV1,
+  fixture: Fixture,
+  name: "pglite" | "postgres",
 ): Promise<ApplicationActionAuthorityProofV1> {
-  const artifacts = makeMemoryRuntimeArtifactStoreV1();
-  const ready = await prepareFsv05ReadyRevisionFixtureV1({
-    name: lane.name,
-    persistence: lane.persistence,
-    registrationTarget: lane.registrationTarget,
-    makeActivationTarget: () => lane.activationTarget,
-  }, artifacts, `aav-a1-${lane.name}`, true);
-  await run(Effect.scoped(activateApplicationRevisionV1(
-    ready.revisionId,
-    null,
-    ready.context,
-  )));
-  const actionRuntimeTarget = await run(Effect.scoped(Effect.gen(function* () {
-    const active = yield* readActiveApplicationRevisionV1(ready.context);
-    return yield* claimApplicationRevisionActionRuntimeTargetAuthorityV1(
-      active.selection,
-      "actions:send",
-    );
-  })));
-  const located = await Effect.runPromise(
-    resolveLocatedTrustedScopeAuthorityEffect(
-      actionRuntimeTarget.scopeAuthority.deploymentId,
-      {
-      scopeMetadata: lane.persistence,
-      provisioningReceipts: {
-        getScopeAuthorityProvisioningReceipt: async () => {
-          throw new Error("shared AAV-A1 scope must not read split receipts");
-        },
-      },
-      scopeClockTargets: { resolve: async () => lane.actionTarget },
-      },
-    ),
-  );
-  const context: ApplicationActionAuthorityContextV1<never> = Object.freeze({
-    target: located.target,
-    authority: located.authority,
+  const admission = await run(selectApplicationActionAdmission(
+    fixture.active.selection,
+    "users:notify",
+    {
+      deploymentId: fixture.deploymentId,
+      controlDb: fixture.control.drizzle,
+      schema: fixture.schema,
+      authority: fixture.authorityPorts,
+    },
+  ));
+  const locator = admission.basis.authority.physicalLocator;
+  const base = createLocatedApplicationActionAuthorityTargetV1(fixture.target.drizzle, locator);
+  const lane: ApplicationActionAuthorityLaneV1 = {
+    name,
+    persistence: fixture.target,
+    makeLostResponseTarget: () => {
+      let injected = false;
+      return createLocatedApplicationActionAuthorityTargetV1(fixture.target.drizzle, locator, async work => {
+        const result = await base[RUN_LOCATED_READ_COMMITTED_V1](work);
+        if (!injected) {
+          injected = true;
+          throw new Error("injected action authority lost response");
+        }
+        return result;
+      });
+    },
+    makeBlockedTransactionTarget: (onBlocked, onFinished, release) =>
+      createLocatedApplicationActionAuthorityTargetV1(fixture.target.drizzle, locator, async work => {
+        try {
+          return await base[RUN_LOCATED_READ_COMMITTED_V1](async tx => {
+            onBlocked();
+            await release;
+            return work(tx);
+          });
+        } finally {
+          onFinished();
+        }
+      }),
+  };
+  const context: ActionContext = Object.freeze({
+    target: base,
+    authority: admission.basis.authority,
     sha256: SHA256,
+    admission,
   });
-  const candidateSha256 = actionRuntimeTarget.candidateSha256;
-  const applicationRevisionId = actionRuntimeTarget.metadata.applicationRevisionId;
-  const actionBindingSha256 = actionRuntimeTarget.function.entryReference.sha256;
-  const mainRequest = request(
-    context.authority.scopeId,
-    "aav-a1:concurrent",
-    applicationRevisionId,
-    candidateSha256,
-    actionBindingSha256,
-  );
+  const mainRequest = actionRequest(context, "aav-a1:concurrent");
   const admitted = await Promise.all([
-    run(admitDirectActionInvocationV1(
-      { request: mainRequest, invocationId: uuid(1) },
+    run(admitApplicationAuthorityActionInvocation(
+      {
+        selection: context.admission.selection,
+        executionAuthority: context.admission.executionAuthority,
+        request: mainRequest,
+        invocationId: uuid(1),
+      },
       context,
     )),
-    run(admitDirectActionInvocationV1(
-      { request: mainRequest, invocationId: uuid(2) },
+    run(admitApplicationAuthorityActionInvocation(
+      {
+        selection: context.admission.selection,
+        executionAuthority: context.admission.executionAuthority,
+        request: mainRequest,
+        invocationId: uuid(2),
+      },
       context,
     )),
   ]);
@@ -162,14 +159,12 @@ export async function proveApplicationActionAuthorityV1(
     admitted[0].invocation.invocationId !== admitted[1].invocation.invocationId
   ) throw new Error("AAV-A1 exact concurrent admission did not converge.");
 
-  const contradictory = await failure(admitDirectActionInvocationV1(
+  const contradictory = await failure(admitApplicationAuthorityActionInvocation(
     {
-      request: request(
-        context.authority.scopeId,
-        "aav-a1:concurrent",
-        applicationRevisionId,
-        candidateSha256,
-        digest("binding:contradictory"),
+      selection: context.admission.selection,
+      executionAuthority: context.admission.executionAuthority,
+      request: actionRequest(
+        context, "aav-a1:concurrent", digest("execution-identity:contradictory"),
       ),
       invocationId: uuid(3),
     },
@@ -178,13 +173,13 @@ export async function proveApplicationActionAuthorityV1(
   requireTag(contradictory, "ApplicationActionRequestKeyConflictV1Error");
 
   const claims = await Promise.all([
-    exit(claimDirectActionExecutionV1(
+    exit(claimApplicationAuthorityActionExecution(
       mainRequest.frame.requestKey,
       60_000,
       digest("random:main"),
       context,
     )),
-    exit(claimDirectActionExecutionV1(
+    exit(claimApplicationAuthorityActionExecution(
       mainRequest.frame.requestKey,
       60_000,
       digest("random:other"),
@@ -243,7 +238,7 @@ export async function proveApplicationActionAuthorityV1(
     },
     context,
   ));
-  const completed = await run(settleDirectActionInvocationV1(
+  const completed = await run(settleApplicationAuthorityActionInvocation(
     subject,
     {
       lifecycle: "completed",
@@ -254,8 +249,13 @@ export async function proveApplicationActionAuthorityV1(
   if (completed.lifecycle !== "completed" || completed.result === null) {
     throw new Error("AAV-A1 completed result was not persisted.");
   }
-  const replayed = await run(admitDirectActionInvocationV1(
-    { request: mainRequest, invocationId: uuid(4) },
+  const replayed = await run(admitApplicationAuthorityActionInvocation(
+    {
+        selection: context.admission.selection,
+        executionAuthority: context.admission.executionAuthority,
+        request: mainRequest,
+        invocationId: uuid(4),
+      },
     context,
   ));
   if (
@@ -265,8 +265,8 @@ export async function proveApplicationActionAuthorityV1(
   ) throw new Error("AAV-A1 completed replay was not exact.");
 
   const cancellationKey = "aav-a1:cancel";
-  await admit(context, cancellationKey, applicationRevisionId, candidateSha256, actionBindingSha256, 5);
-  const cancelled = await run(requestDirectActionCancellationV1(
+  await admit(context, cancellationKey, 5);
+  const cancelled = await run(requestApplicationAuthorityActionCancellation(
     cancellationKey,
     context,
   ));
@@ -278,12 +278,9 @@ export async function proveApplicationActionAuthorityV1(
   await admit(
     context,
     cancellationRecoveryKey,
-    applicationRevisionId,
-    candidateSha256,
-    actionBindingSha256,
     12,
   );
-  const cancellationRecoveryClaim = await run(claimDirectActionExecutionV1(
+  const cancellationRecoveryClaim = await run(claimApplicationAuthorityActionExecution(
     cancellationRecoveryKey,
     60_000,
     digest("random:cancel-recovery"),
@@ -301,18 +298,18 @@ export async function proveApplicationActionAuthorityV1(
     },
     context,
   ));
-  await run(requestDirectActionCancellationV1(
+  await run(requestApplicationAuthorityActionCancellation(
     cancellationRecoveryKey,
     context,
   ));
   await expire(lane.persistence, cancellationRecoveryKey);
   const cancellationRecovered = await run(
-    recoverExpiredDirectActionExecutionV1(cancellationRecoveryKey, context),
+    recoverExpiredApplicationAuthorityActionExecution(cancellationRecoveryKey, context),
   );
   if (cancellationRecovered.lifecycle !== "cancelled") {
     throw new Error("AAV-A1 cancelled execution was resurrected by recovery.");
   }
-  requireTag(await failure(claimDirectActionExecutionV1(
+  requireTag(await failure(claimApplicationAuthorityActionExecution(
     cancellationRecoveryKey,
     60_000,
     digest("random:cancel-recovery:forbidden"),
@@ -325,8 +322,8 @@ export async function proveApplicationActionAuthorityV1(
   );
 
   const recoverKey = "aav-a1:recover";
-  await admit(context, recoverKey, applicationRevisionId, candidateSha256, actionBindingSha256, 6);
-  const recoverClaim = await run(claimDirectActionExecutionV1(
+  await admit(context, recoverKey, 6);
+  const recoverClaim = await run(claimApplicationAuthorityActionExecution(
     recoverKey,
     60_000,
     digest("random:recover:1"),
@@ -341,14 +338,14 @@ export async function proveApplicationActionAuthorityV1(
     childMutationArgumentsSha256: digest("child:recover:args"),
   }, context));
   await expire(lane.persistence, recoverKey);
-  const recovered = await run(recoverExpiredDirectActionExecutionV1(
+  const recovered = await run(recoverExpiredApplicationAuthorityActionExecution(
     recoverKey,
     context,
   ));
   if (recovered.lifecycle !== "admitted") {
     throw new Error("AAV-A1 safe recovery did not return to admitted.");
   }
-  const secondGeneration = await run(claimDirectActionExecutionV1(
+  const secondGeneration = await run(claimApplicationAuthorityActionExecution(
     recoverKey,
     60_000,
     digest("random:recover:2"),
@@ -359,8 +356,8 @@ export async function proveApplicationActionAuthorityV1(
   }
 
   const uncertainKey = "aav-a1:uncertain";
-  await admit(context, uncertainKey, applicationRevisionId, candidateSha256, actionBindingSha256, 7);
-  const uncertainClaim = await run(claimDirectActionExecutionV1(
+  await admit(context, uncertainKey, 7);
+  const uncertainClaim = await run(claimApplicationAuthorityActionExecution(
     uncertainKey,
     60_000,
     digest("random:uncertain"),
@@ -382,7 +379,7 @@ export async function proveApplicationActionAuthorityV1(
     context,
   ));
   await expire(lane.persistence, uncertainKey);
-  const uncertain = await run(recoverExpiredDirectActionExecutionV1(
+  const uncertain = await run(recoverExpiredApplicationAuthorityActionExecution(
     uncertainKey,
     context,
   ));
@@ -399,12 +396,9 @@ export async function proveApplicationActionAuthorityV1(
   await admit(
     context,
     mixedDispatchKey,
-    applicationRevisionId,
-    candidateSha256,
-    actionBindingSha256,
     15,
   );
-  const mixedDispatchClaim = await run(claimDirectActionExecutionV1(
+  const mixedDispatchClaim = await run(claimApplicationAuthorityActionExecution(
     mixedDispatchKey,
     60_000,
     digest("random:mixed-dispatch-recovery"),
@@ -439,7 +433,7 @@ export async function proveApplicationActionAuthorityV1(
   ));
   await expire(lane.persistence, mixedDispatchKey);
   if (
-    (await run(recoverExpiredDirectActionExecutionV1(
+    (await run(recoverExpiredApplicationAuthorityActionExecution(
       mixedDispatchKey,
       context,
     ))).lifecycle !== "uncertain"
@@ -455,12 +449,9 @@ export async function proveApplicationActionAuthorityV1(
   await admit(
     context,
     mixedConfirmedKey,
-    applicationRevisionId,
-    candidateSha256,
-    actionBindingSha256,
     16,
   );
-  const mixedConfirmedClaim = await run(claimDirectActionExecutionV1(
+  const mixedConfirmedClaim = await run(claimApplicationAuthorityActionExecution(
     mixedConfirmedKey,
     60_000,
     digest("random:mixed-confirmed-recovery"),
@@ -508,7 +499,7 @@ export async function proveApplicationActionAuthorityV1(
   ));
   await expire(lane.persistence, mixedConfirmedKey);
   if (
-    (await run(recoverExpiredDirectActionExecutionV1(
+    (await run(recoverExpiredApplicationAuthorityActionExecution(
       mixedConfirmedKey,
       context,
     ))).lifecycle !== "uncertain"
@@ -521,8 +512,8 @@ export async function proveApplicationActionAuthorityV1(
   );
 
   const transitionKey = "aav-a1:mark-uncertain";
-  await admit(context, transitionKey, applicationRevisionId, candidateSha256, actionBindingSha256, 8);
-  const transitionClaim = await run(claimDirectActionExecutionV1(
+  await admit(context, transitionKey, 8);
+  const transitionClaim = await run(claimApplicationAuthorityActionExecution(
     transitionKey,
     60_000,
     digest("random:mark-uncertain"),
@@ -549,7 +540,7 @@ export async function proveApplicationActionAuthorityV1(
     "dispatch_response_lost",
     context,
   ));
-  await run(settleDirectActionInvocationV1(
+  await run(settleApplicationAuthorityActionInvocation(
     transitionClaim.subject,
     { lifecycle: "uncertain", terminalCode: "dispatch_response_lost" },
     context,
@@ -559,12 +550,9 @@ export async function proveApplicationActionAuthorityV1(
   await admit(
     context,
     settleUncertainKey,
-    applicationRevisionId,
-    candidateSha256,
-    actionBindingSha256,
     13,
   );
-  const settleUncertainClaim = await run(claimDirectActionExecutionV1(
+  const settleUncertainClaim = await run(claimApplicationAuthorityActionExecution(
     settleUncertainKey,
     60_000,
     digest("random:settle-uncertain"),
@@ -588,7 +576,7 @@ export async function proveApplicationActionAuthorityV1(
     settleUncertainEffect.effectOrdinal,
     context,
   ));
-  await run(settleDirectActionInvocationV1(
+  await run(settleApplicationAuthorityActionInvocation(
     settleUncertainClaim.subject,
     { lifecycle: "uncertain", terminalCode: "host_response_lost" },
     context,
@@ -603,12 +591,9 @@ export async function proveApplicationActionAuthorityV1(
   await admit(
     context,
     malformedReferenceKey,
-    applicationRevisionId,
-    candidateSha256,
-    actionBindingSha256,
     14,
   );
-  const malformedReferenceClaim = await run(claimDirectActionExecutionV1(
+  const malformedReferenceClaim = await run(claimApplicationAuthorityActionExecution(
     malformedReferenceKey,
     60_000,
     digest("random:malformed-reference"),
@@ -637,12 +622,14 @@ export async function proveApplicationActionAuthorityV1(
   const rollbackRequest = actionRequest(
     context,
     rollbackKey,
-    applicationRevisionId,
-    candidateSha256,
-    actionBindingSha256,
   );
-  const rollbackExit = await exit(admitDirectActionInvocationV1(
-    { request: rollbackRequest, invocationId: uuid(9) },
+  const rollbackExit = await exit(admitApplicationAuthorityActionInvocation(
+    {
+        selection: context.admission.selection,
+        executionAuthority: context.admission.executionAuthority,
+        request: rollbackRequest,
+        invocationId: uuid(9),
+      },
     {
       ...context,
       proofAfterTransactionStep: step => {
@@ -651,7 +638,7 @@ export async function proveApplicationActionAuthorityV1(
     },
   ));
   if (Exit.isSuccess(rollbackExit)) throw new Error("AAV-A1 rollback fault escaped.");
-  const missingAfterRollback = await failure(inspectDirectActionInvocationV1(
+  const missingAfterRollback = await failure(inspectApplicationAuthorityActionInvocation(
     rollbackKey,
     context,
   ));
@@ -661,18 +648,25 @@ export async function proveApplicationActionAuthorityV1(
   const lostRequest = actionRequest(
     context,
     lostKey,
-    applicationRevisionId,
-    candidateSha256,
-    actionBindingSha256,
   );
   const lostContext = Object.freeze({ ...context, target: lane.makeLostResponseTarget() });
-  const lost = await failure(admitDirectActionInvocationV1(
-    { request: lostRequest, invocationId: uuid(10) },
+  const lost = await failure(admitApplicationAuthorityActionInvocation(
+    {
+        selection: context.admission.selection,
+        executionAuthority: context.admission.executionAuthority,
+        request: lostRequest,
+        invocationId: uuid(10),
+      },
     lostContext,
   ));
   requireTag(lost, "ApplicationActionAuthorityIntegrationV1Error");
-  const lostReplay = await run(admitDirectActionInvocationV1(
-    { request: lostRequest, invocationId: uuid(11) },
+  const lostReplay = await run(admitApplicationAuthorityActionInvocation(
+    {
+        selection: context.admission.selection,
+        executionAuthority: context.admission.executionAuthority,
+        request: lostRequest,
+        invocationId: uuid(11),
+      },
     context,
   ));
   if (lostReplay.disposition !== "replayed") {
@@ -682,16 +676,10 @@ export async function proveApplicationActionAuthorityV1(
   await proveWriteBoundaryRollbacks(
     lane.persistence,
     context,
-    applicationRevisionId,
-    candidateSha256,
-    actionBindingSha256,
   );
   await proveInterruptionAndDigestCapture(
     lane,
     context,
-    applicationRevisionId,
-    candidateSha256,
-    actionBindingSha256,
   );
 
   await lane.persistence.query(
@@ -699,7 +687,7 @@ export async function proveApplicationActionAuthorityV1(
       where scope_id = $1`,
     [context.authority.scopeId],
   );
-  const stale = await failure(inspectDirectActionInvocationV1(
+  const stale = await failure(inspectApplicationAuthorityActionInvocation(
     mainRequest.frame.requestKey,
     context,
   ));
@@ -708,7 +696,7 @@ export async function proveApplicationActionAuthorityV1(
   const columns = await lane.persistence.query<{ count: string }>(`
     select count(*)::text as count
     from information_schema.columns
-    where table_schema = 'public'
+    where table_schema = current_schema()
       and table_name in (
         'fx_system_application_action_invocation_v1',
         'fx_system_external_effect_attempt_v1'
@@ -766,21 +754,15 @@ export async function proveApplicationActionAuthorityV1(
 
 async function proveWriteBoundaryRollbacks(
   persistence: Persistence,
-  context: ApplicationActionAuthorityContextV1<never>,
-  revisionId: string,
-  candidateSha256: Uint8Array,
-  actionBindingSha256: Uint8Array,
+  context: ActionContext,
 ) {
   const hashFailureKey = "aav-a1:rollback:claim-hash";
   await admit(
     context,
     hashFailureKey,
-    revisionId,
-    candidateSha256,
-    actionBindingSha256,
     19,
   );
-  const hashFailure = await failure(claimDirectActionExecutionV1(
+  const hashFailure = await failure(claimApplicationAuthorityActionExecution(
     hashFailureKey,
     60_000,
     digest("rollback:claim-hash"),
@@ -795,7 +777,7 @@ async function proveWriteBoundaryRollbacks(
     throw new Error("AAV-A1 claim did not preserve its typed hash failure.");
   }
   if (
-    (await run(inspectDirectActionInvocationV1(hashFailureKey, context)))
+    (await run(inspectApplicationAuthorityActionInvocation(hashFailureKey, context)))
       .lifecycle !== "admitted"
   ) throw new Error("AAV-A1 claim hash failure exposed a transition.");
 
@@ -803,21 +785,18 @@ async function proveWriteBoundaryRollbacks(
   await admit(
     context,
     lifecycleKey,
-    revisionId,
-    candidateSha256,
-    actionBindingSha256,
     20,
   );
-  await requireRollback(claimDirectActionExecutionV1(
+  await requireRollback(claimApplicationAuthorityActionExecution(
     lifecycleKey,
     60_000,
     digest("rollback:claim"),
     faultContext(context, "afterClaimUpdate"),
   ));
-  if ((await run(inspectDirectActionInvocationV1(lifecycleKey, context))).lifecycle !== "admitted") {
+  if ((await run(inspectApplicationAuthorityActionInvocation(lifecycleKey, context))).lifecycle !== "admitted") {
     throw new Error("AAV-A1 claim rollback exposed a transition.");
   }
-  const claimed = await run(claimDirectActionExecutionV1(
+  const claimed = await run(claimApplicationAuthorityActionExecution(
     lifecycleKey,
     60_000,
     digest("rollback:claim:success"),
@@ -878,7 +857,7 @@ async function proveWriteBoundaryRollbacks(
     },
     context,
   ));
-  await requireRollback(settleDirectActionInvocationV1(
+  await requireRollback(settleApplicationAuthorityActionInvocation(
     claimed.subject,
     {
       lifecycle: "completed",
@@ -886,10 +865,10 @@ async function proveWriteBoundaryRollbacks(
     },
     faultContext(context, "afterSettlementUpdate"),
   ));
-  if ((await run(inspectDirectActionInvocationV1(lifecycleKey, context))).lifecycle !== "executing") {
+  if ((await run(inspectApplicationAuthorityActionInvocation(lifecycleKey, context))).lifecycle !== "executing") {
     throw new Error("AAV-A1 settlement rollback exposed a terminal state.");
   }
-  await run(settleDirectActionInvocationV1(
+  await run(settleApplicationAuthorityActionInvocation(
     claimed.subject,
     {
       lifecycle: "completed",
@@ -902,16 +881,13 @@ async function proveWriteBoundaryRollbacks(
   await admit(
     context,
     cancellationKey,
-    revisionId,
-    candidateSha256,
-    actionBindingSha256,
     21,
   );
-  await requireRollback(requestDirectActionCancellationV1(
+  await requireRollback(requestApplicationAuthorityActionCancellation(
     cancellationKey,
     faultContext(context, "afterCancellationUpdate"),
   ));
-  if ((await run(inspectDirectActionInvocationV1(cancellationKey, context))).lifecycle !== "admitted") {
+  if ((await run(inspectApplicationAuthorityActionInvocation(cancellationKey, context))).lifecycle !== "admitted") {
     throw new Error("AAV-A1 cancellation rollback exposed a terminal state.");
   }
 
@@ -919,12 +895,9 @@ async function proveWriteBoundaryRollbacks(
   await admit(
     context,
     recoveryKey,
-    revisionId,
-    candidateSha256,
-    actionBindingSha256,
     22,
   );
-  const recoveryClaim = await run(claimDirectActionExecutionV1(
+  const recoveryClaim = await run(claimApplicationAuthorityActionExecution(
     recoveryKey,
     60_000,
     digest("rollback:recovery:claim"),
@@ -941,31 +914,28 @@ async function proveWriteBoundaryRollbacks(
     context,
   ));
   await expire(persistence, recoveryKey);
-  await requireRollback(recoverExpiredDirectActionExecutionV1(
+  await requireRollback(recoverExpiredApplicationAuthorityActionExecution(
     recoveryKey,
     faultContext(context, "afterRecoveryPreparedEffectUpdate"),
   ));
   await requireEffectState(persistence, "rollback:recovery:child", "prepared");
-  await requireRollback(recoverExpiredDirectActionExecutionV1(
+  await requireRollback(recoverExpiredApplicationAuthorityActionExecution(
     recoveryKey,
     faultContext(context, "afterRecoveryParentUpdate"),
   ));
   await requireEffectState(persistence, "rollback:recovery:child", "prepared");
-  if ((await run(inspectDirectActionInvocationV1(recoveryKey, context))).lifecycle !== "executing") {
+  if ((await run(inspectApplicationAuthorityActionInvocation(recoveryKey, context))).lifecycle !== "executing") {
     throw new Error("AAV-A1 recovery rollback exposed a parent transition.");
   }
-  await run(recoverExpiredDirectActionExecutionV1(recoveryKey, context));
+  await run(recoverExpiredApplicationAuthorityActionExecution(recoveryKey, context));
 
   const settlementEffectKey = "aav-a1:rollback:settlement-effect";
   await admit(
     context,
     settlementEffectKey,
-    revisionId,
-    candidateSha256,
-    actionBindingSha256,
     23,
   );
-  const settlementEffectClaim = await run(claimDirectActionExecutionV1(
+  const settlementEffectClaim = await run(claimApplicationAuthorityActionExecution(
     settlementEffectKey,
     60_000,
     digest("rollback:settlement-effect:claim"),
@@ -989,7 +959,7 @@ async function proveWriteBoundaryRollbacks(
     settlementEffect.effectOrdinal,
     context,
   ));
-  await requireRollback(settleDirectActionInvocationV1(
+  await requireRollback(settleApplicationAuthorityActionInvocation(
     settlementEffectClaim.subject,
     { lifecycle: "uncertain", terminalCode: "rollback:settlement-effect" },
     faultContext(context, "afterSettlementEffectUpdate"),
@@ -1000,10 +970,10 @@ async function proveWriteBoundaryRollbacks(
     "dispatching",
   );
   if (
-    (await run(inspectDirectActionInvocationV1(settlementEffectKey, context)))
+    (await run(inspectApplicationAuthorityActionInvocation(settlementEffectKey, context)))
       .lifecycle !== "executing"
   ) throw new Error("AAV-A1 effect settlement rollback exposed a parent transition.");
-  await run(settleDirectActionInvocationV1(
+  await run(settleApplicationAuthorityActionInvocation(
     settlementEffectClaim.subject,
     { lifecycle: "uncertain", terminalCode: "settlement-effect-uncertain" },
     context,
@@ -1013,12 +983,9 @@ async function proveWriteBoundaryRollbacks(
   await admit(
     context,
     recoveryDispatchKey,
-    revisionId,
-    candidateSha256,
-    actionBindingSha256,
     24,
   );
-  const recoveryDispatchClaim = await run(claimDirectActionExecutionV1(
+  const recoveryDispatchClaim = await run(claimApplicationAuthorityActionExecution(
     recoveryDispatchKey,
     60_000,
     digest("rollback:recovery-dispatch:claim"),
@@ -1056,7 +1023,7 @@ async function proveWriteBoundaryRollbacks(
     context,
   ));
   await expire(persistence, recoveryDispatchKey);
-  await requireRollback(recoverExpiredDirectActionExecutionV1(
+  await requireRollback(recoverExpiredApplicationAuthorityActionExecution(
     recoveryDispatchKey,
     faultContext(context, "afterRecoveryDispatchingEffectUpdate"),
   ));
@@ -1071,10 +1038,10 @@ async function proveWriteBoundaryRollbacks(
     "prepared",
   );
   if (
-    (await run(inspectDirectActionInvocationV1(recoveryDispatchKey, context)))
+    (await run(inspectApplicationAuthorityActionInvocation(recoveryDispatchKey, context)))
       .lifecycle !== "executing"
   ) throw new Error("AAV-A1 dispatch recovery rollback exposed a parent transition.");
-  await run(recoverExpiredDirectActionExecutionV1(
+  await run(recoverExpiredApplicationAuthorityActionExecution(
     recoveryDispatchKey,
     context,
   ));
@@ -1093,12 +1060,9 @@ async function proveWriteBoundaryRollbacks(
   await admit(
     context,
     recoveryConfirmedKey,
-    revisionId,
-    candidateSha256,
-    actionBindingSha256,
     25,
   );
-  const recoveryConfirmedClaim = await run(claimDirectActionExecutionV1(
+  const recoveryConfirmedClaim = await run(claimApplicationAuthorityActionExecution(
     recoveryConfirmedKey,
     60_000,
     digest("rollback:recovery-confirmed:claim"),
@@ -1147,7 +1111,7 @@ async function proveWriteBoundaryRollbacks(
     context,
   ));
   await expire(persistence, recoveryConfirmedKey);
-  await requireRollback(recoverExpiredDirectActionExecutionV1(
+  await requireRollback(recoverExpiredApplicationAuthorityActionExecution(
     recoveryConfirmedKey,
     faultContext(context, "afterRecoveryPreparedEffectUpdate"),
   ));
@@ -1162,10 +1126,10 @@ async function proveWriteBoundaryRollbacks(
     "prepared",
   );
   if (
-    (await run(inspectDirectActionInvocationV1(recoveryConfirmedKey, context)))
+    (await run(inspectApplicationAuthorityActionInvocation(recoveryConfirmedKey, context)))
       .lifecycle !== "executing"
   ) throw new Error("AAV-A1 confirmed recovery rollback exposed a parent transition.");
-  await run(recoverExpiredDirectActionExecutionV1(
+  await run(recoverExpiredApplicationAuthorityActionExecution(
     recoveryConfirmedKey,
     context,
   ));
@@ -1183,25 +1147,19 @@ async function proveWriteBoundaryRollbacks(
 
 async function proveInterruptionAndDigestCapture(
   lane: ApplicationActionAuthorityLaneV1,
-  context: ApplicationActionAuthorityContextV1<never>,
-  revisionId: string,
-  candidateSha256: Uint8Array,
-  actionBindingSha256: Uint8Array,
+  context: ActionContext,
 ) {
   const requestKey = "aav-a1:captured-digests";
   await admit(
     context,
     requestKey,
-    revisionId,
-    candidateSha256,
-    actionBindingSha256,
     26,
   );
 
   const randomSeedSha256 = digest("captured-digests:random-seed");
   const expectedRandomSeedSha256 = randomSeedSha256.slice();
   const claimGate = transactionGate();
-  const claimPromise = run(claimDirectActionExecutionV1(
+  const claimPromise = run(claimApplicationAuthorityActionExecution(
     requestKey,
     60_000,
     randomSeedSha256,
@@ -1323,7 +1281,7 @@ async function proveInterruptionAndDigestCapture(
   );
 
   const interruptionGate = transactionGate();
-  const interruptedFiber = Effect.runFork(inspectDirectActionInvocationV1(
+  const interruptedFiber = Effect.runFork(inspectApplicationAuthorityActionInvocation(
     requestKey,
     Object.freeze({
       ...context,
@@ -1391,9 +1349,9 @@ function requireCapturedDigest(
 }
 
 function faultContext(
-  context: ApplicationActionAuthorityContextV1<never>,
+  context: ActionContext,
   expected: ApplicationActionAuthorityTransactionStepV1,
-): ApplicationActionAuthorityContextV1<never> {
+): ActionContext {
   return Object.freeze({
     ...context,
     proofAfterTransactionStep: (step: ApplicationActionAuthorityTransactionStepV1) => {
@@ -1440,57 +1398,30 @@ async function requireEffectState(
 }
 
 async function admit(
-  context: ApplicationActionAuthorityContextV1<never>,
+  context: ActionContext,
   requestKey: string,
-  revisionId: string,
-  candidateSha256: Uint8Array,
-  actionBindingSha256: Uint8Array,
   id: number,
 ) {
-  return run(admitDirectActionInvocationV1({
-    request: actionRequest(
-      context,
-      requestKey,
-      revisionId,
-      candidateSha256,
-      actionBindingSha256,
-    ),
+  return run(admitApplicationAuthorityActionInvocation({
+    selection: context.admission.selection,
+    executionAuthority: context.admission.executionAuthority,
+    request: actionRequest(context, requestKey),
     invocationId: uuid(id),
   }, context));
 }
 
 function actionRequest(
-  context: ApplicationActionAuthorityContextV1<never>,
+  context: ActionContext,
   requestKey: string,
-  revisionId: string,
-  candidateSha256: Uint8Array,
-  actionBindingSha256: Uint8Array,
-) {
-  return request(
-    context.authority.scopeId,
+  executionIdentitySha256 = digest("execution-identity"),
+): CanonicalExecutionEvidenceFrameV1<ApplicationActionInvocationRequestFrameV2> {
+  return Result.getOrThrow(encodeApplicationActionInvocationRequestV2({
+    scopeId: context.authority.scopeId,
     requestKey,
-    revisionId,
-    candidateSha256,
-    actionBindingSha256,
-  );
-}
-
-function request(
-  scopeId: string,
-  requestKey: string,
-  applicationRevisionId: string,
-  candidateSha256: Uint8Array,
-  actionBindingSha256: Uint8Array,
-): CanonicalExecutionEvidenceFrameV1<ApplicationActionInvocationRequestFrameV1> {
-  return Result.getOrThrow(encodeApplicationActionInvocationRequestV1({
-    scopeId,
-    requestKey,
-    applicationRevisionId,
-    candidateSha256,
-    actionFunctionPath: "actions:send",
-    actionBindingSha256,
-    executionIdentitySha256: digest("execution-identity"),
-    compatibilityDate: "2026-08-04",
+    executionAuthoritySha256: context.admission.executionAuthority.sha256,
+    actionFunctionPath: "users:notify",
+    executionIdentitySha256,
+    compatibilityDate: context.admission.basis.compatibilityDate,
     hostPolicySha256: digest("host-policy"),
     arguments: bodyReference("action_arguments", `args:${requestKey}`),
   }));

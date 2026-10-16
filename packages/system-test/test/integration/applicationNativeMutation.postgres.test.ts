@@ -1,3 +1,4 @@
+import { defineApplicationNestedMutationContract } from "../contracts/applicationNativeMutationContract";
 import {
   createApplicationNativeMutationPostgresFixture,
 } from
@@ -6,7 +7,7 @@ import { APPLICATION_RUNTIME_HOST_IDENTITY } from
   "flarex-backend/artifact-runtime";
 import { describe, expect, it } from "vitest";
 
-import { proveApplicationNativeMutation } from
+import { APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS, proveApplicationNativeMutation } from
   "../../support/applicationNativeMutationHarness";
 import {
   postgresUrl,
@@ -26,6 +27,13 @@ describe("Application-native mutation PostgreSQL acceptance environment", () => 
 });
 
 describePostgres("Application-native Standard mutation - PostgreSQL", () => {
+  defineApplicationNestedMutationContract({
+    runScenario: scenario => withTemporarySplitPostgresPersistence(async persistence => scenario(
+      await createApplicationNativeMutationPostgresFixture(
+        APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS, persistence,
+      ),
+    )),
+  });
   it("composes active Application authority through the shared commit tail", async () => {
     await withTemporarySplitPostgresPersistence(async persistence => {
       const proof = await proveApplicationNativeMutation(() =>

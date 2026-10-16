@@ -31,7 +31,7 @@ import {
 } from "./systemTestStructuredCloneBridgeV1";
 import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
 
-const RUNTIME_HOST_IDENTITY = "flarex-application-runtime-host-v1";
+import { APPLICATION_RUNTIME_HOST_IDENTITY } from "flarex-backend/artifact-runtime";
 const COMPATIBILITY_DATE = "2026-06-14";
 
 const USERS_GET_REFERENCE = defineModule({
@@ -67,7 +67,7 @@ const USERS_GET_MISMATCH_REFERENCE = defineModule({
 }).reference("get");
 
 export const APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS = Object.freeze({
-  runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
+  runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
   compatibilityDate: COMPATIBILITY_DATE,
 });
 
