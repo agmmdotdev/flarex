@@ -148,6 +148,28 @@ describe("graph registration and metadata ownership", () => {
     paths: [], orderable: ["key"], uniqueOrder: ["key"], multipleOrder: false, decode: decodeGraphCount,
   }] });
 
+  it("admits OR grammar only for an explicitly captured read and preserves selectors for its command owner", async () => {
+    const source = definition(), read = source.reads[0];
+    if (read === undefined) throw new Error("Missing fixture read");
+    const filters = { $or: [{ key: "first" }, { key: "second" }] }, calls: Json[] = [];
+    const input = { ...query("item", ["key"]), filters };
+    const ordinary = Result.getOrThrow(prepareLocalGraph([{ participant, module: source }]));
+    expect(await runEffectFailure(ordinary.bind(context([[], 0], calls)).graph(input))).toMatchObject({ reason: "unsupportedProfile" });
+    expect(calls).toEqual([]);
+    const selected = { ...read, allowOrFilters: true } satisfies typeof read;
+    const graph = Result.getOrThrow(prepareLocalGraph([{ participant, module: { ...source, reads: [selected] } }]));
+    Reflect.set(selected, "allowOrFilters", false);
+    expect(prepareLocalGraph([{ participant, module: { ...source, reads: [selected] } }])).toMatchObject({ _tag: "Failure" });
+    expect(await runEffect(graph.bind(context([[], 0], calls)).graph(input))).toEqual({ data: [], metadata: { count: 0, skip: 0, take: 2 } });
+    expect(calls).toEqual([{ filters, config: { select: ["key"], relations: [], order: { key: "ASC" }, skip: 0, take: 2 } }]);
+    for (const unsupported of [{ $or: { key: "first" } }, { $or: ["first"] }, { $or: [{ key: { $in: ["first"] } }] },
+      { $and: [{ key: "first" }] }, { $or: [{ $not: { key: "first" } }] }]) {
+      expect(await runEffectFailure(graph.bind(context([[], 0], calls)).graph({ ...input, filters: unsupported })))
+        .toMatchObject({ reason: "unsupportedProfile" });
+    }
+    expect(calls).toHaveLength(1);
+  });
+
   it("binds unsuffixed neutral composite aliases without treating a key component or non-key ID as unique", async () => {
     const module: GraphModuleDefinition = {
       aliases: [{ name: "shelf_copy", model: "ShelfCopy" }, { name: "shelf_copies", model: "ShelfCopy" }],
@@ -171,6 +193,28 @@ describe("graph registration and metadata ownership", () => {
       expect(prepareLocalGraph([{ participant, module: { ...module, reads: [{ ...read, table: { ...read.table, primaryKeys } }] } }]))
         .toMatchObject({ _tag: "Failure" });
     }
+  });
+
+  it("fetches numeric companions but masks them only for a captured selected-fields read", async () => {
+    const source = definition(), read = source.reads[0];
+    if (read === undefined) throw new Error("Missing fixture read");
+    const table = { ...read.table, columns: ["key", "amount", "raw_amount"], companions: { amount: "raw_amount" } };
+    const rows: Json = [[{ key: "a", amount: 1.25, raw_amount: { value: "1.2500000000000000000", precision: 20 } }], 1];
+    const withProjection = (selectedFieldsOnly?: true) => ({ ...source, reads: [{ ...read, table,
+      ...(selectedFieldsOnly === undefined ? {} : { selectedFieldsOnly }) }] });
+    const ordinary = Result.getOrThrow(prepareLocalGraph([{ participant, module: withProjection() }]));
+    expect((await runEffect(ordinary.bind(context(rows)).graph(query("item", ["amount"])))).data)
+      .toEqual([{ amount: 1.25, raw_amount: { value: "1.2500000000000000000", precision: 20 } }]);
+    const selected = withProjection(true), calls: Json[] = [];
+    const graph = Result.getOrThrow(prepareLocalGraph([{ participant, module: selected }]));
+    const captured = selected.reads[0];
+    if (captured === undefined) throw new Error("Missing selected read");
+    Reflect.set(captured, "selectedFieldsOnly", false);
+    expect(prepareLocalGraph([{ participant, module: selected }])).toMatchObject({ _tag: "Failure" });
+    expect((await runEffect(graph.bind(context(rows, calls)).graph(query("item", ["amount"])))).data).toEqual([{ amount: 1.25 }]);
+    expect(calls[0]).toMatchObject({ config: { select: ["amount", "raw_amount"] } });
+    expect((await runEffect(graph.bind(context(rows)).graph(query("item", ["amount", "raw_amount"])))).data)
+      .toEqual([{ amount: 1.25, raw_amount: { value: "1.2500000000000000000", precision: 20 } }]);
   });
 
   it("expands scalar wildcards against detached metadata", async () => {

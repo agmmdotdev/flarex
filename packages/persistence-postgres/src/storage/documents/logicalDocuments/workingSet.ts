@@ -44,7 +44,7 @@ import type { LocatedAppIndexDefinitionV1 } from "../../indexes/appIndexDefiniti
 import { readLogicalIndexRange, readLogicalIndexPage, logicalIndexReadFailureReason, type LogicalIndexRead, type LogicalIndexPageRead } from "./indexReads";
 import { readLogicalSearchRange, type LogicalSearchMember, type LogicalSearchRead } from "./searchReads";
 import { readLogicalJsonContainsRange } from "./jsonContains";
-import { selectLogicalJsonSearchDefinition } from "./searchEntries";
+import { selectLogicalJsonSearchDefinition, type LogicalSearchDefinition } from "./searchEntries";
 import { decodeCapturedAppIndexSnapshotPageEffect,
   MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, type AppIndexRangeCursorV1, type AppIndexRangePageV1 } from "../../indexes/appIndexEntries";
 import { decodeLogicalFindQuery, isLogicalRange, selectLogicalIndex, selectLogicalPageIndex, prepareLogicalQueryPredicate, logicalWhereValues, logicalSelectionWhere, selectLogicalUniqueValues, selectLogicalIndexValues, type LogicalSelectionValues, type LogicalWhere } from "./query";
@@ -76,6 +76,9 @@ const uniqueReadKey = (definition: LocatedAppUniqueConstraintDefinitionV1, proje
   projected.kind === "claim"
     ? JSON.stringify([definition.uniqueConstraintDefinitionId, projected.localeKey, projected.encodedKey])
     : null;
+const indexKeyWithinBounds = (key: string, bounds: LogicalIndexRead["bounds"]) =>
+  (bounds.startInclusive === undefined || key >= String(bounds.startInclusive)) &&
+  (bounds.endExclusive === undefined || key < String(bounds.endExclusive));
 
 export interface PendingDocument {
   readonly tableId: CatalogTableId;
@@ -144,6 +147,8 @@ export interface LogicalDocumentChanges {
 export type LogicalDocumentActivity = Pick<LogicalDocumentChanges,
   "attempts" | "lifecycle" | "observedRows" | "setNull" | "referenceReplacements">;
 export interface LogicalDocumentActivityCursor {
+  /** Last row-use ordinal issued by this exact working-set owner. */
+  readonly observations: number;
   readonly attempts: number;
   readonly lifecycle: number;
   readonly setNull: number;
@@ -795,6 +800,21 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     return charged;
   };
   const charge = (bytes: number) => Effect.fromResult(chargeResult(bytes));
+  // Root dependencies and aggregate rows remain complete. A call cursor only
+  // selects identities actually used since that cursor, including cached reads.
+  // One charged entry per identity avoids a journal growing with repeated calls.
+  const rowUses = new Map<AppDocumentIdV1, number>();
+  let observationOrdinal = 0;
+  const markRowUse = (documentId: AppDocumentIdV1): Result.Result<void, Failure> => Result.gen(function* () {
+    if (observationOrdinal >= Number.MAX_SAFE_INTEGER) return yield* Result.fail(error("limitExceeded"));
+    if (!rowUses.has(documentId)) {
+      if (rowUses.size >= limits.identities) return yield* Result.fail(error("limitExceeded"));
+      yield* chargeResult(32);
+    }
+    rowUses.set(documentId, ++observationOrdinal);
+  });
+  const markPendingUse = (pending: PendingDocument | undefined) => pending?.current == null
+    ? Result.succeed(undefined) : markRowUse(pending.documentId);
   const derivedKeyDocuments = root?.derivedKeyDocuments ?? new Set<CanonicalFlarexValueV1>();
   const keyOwner = { identity: derivedKeyDocuments, error,
     retain: (document: CanonicalFlarexValueV1, bytes: number) => chargeResult(bytes).pipe(Result.map(() => { derivedKeyDocuments.add(document); })) };
@@ -818,7 +838,10 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     readAt = scanned.get(tableId) ?? state.snapshotCommitSeq ?? state.clock.lastCommitSeq,
   ): Result.Result<void, Failure> => Result.gen(function* () {
     const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
-    if (dependencies.has(documentId)) return;
+    if (dependencies.has(documentId)) {
+      if (base?.kind === "live") yield* markRowUse(documentId);
+      return;
+    }
     if (dependencies.size >= limits.identities) return yield* Result.fail(error("limitExceeded"));
     yield* chargeResult(128);
     const observed: PointCommitDependencyV1["dependency"]["observed"] = base?.kind === "live"
@@ -828,6 +851,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         : Object.freeze({ kind: "tombstone", revisionCommitSeq: base.commitSeq }) });
     dependencies.set(documentId, Object.freeze({ documentId, tableId, rowId, readAt,
       dependency: Object.freeze({ kind: "appRowPoint", documentId, observed }) }));
+    if (base?.kind === "live") yield* markRowUse(documentId);
   });
   const observe = (...input: Parameters<typeof observeResult>) =>
     Effect.suspend(() => Effect.fromResult(observeResult(...input)));
@@ -1197,7 +1221,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     const read = Effect.gen(function* () {
       if (!dependencies.has(identity.id) && !scanned.has(identity.tableId)) yield* readBase(identity.tableId, identity.rowId, undefined, checkedTx);
       if (!dependencies.has(identity.id)) yield* observe(identity.tableId, identity.rowId, null);
-      return { identity, pending: rows.get(identity.id) };
+      const pending = rows.get(identity.id);
+      yield* Effect.fromResult(markPendingUse(pending));
+      return { identity, pending };
     });
     const selection = { tableId: identity.tableId, rowIds: [identity.rowId] };
     return yield* (pendingSeeds(selection).length > 0 && checkedTx === undefined
@@ -1363,7 +1389,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     after: CanonicalFlarexValueV1 | null) => {
     const attempt = Object.freeze({ ordinal: attempts.length, documentId: pending.documentId, operation,
       tableId: pending.tableId, tableName: localTableName(pending.tableId) ?? pending.tableName, before: pending.current, after });
-    return consumeTableMetadataResult(pending.tableId, "writeClosure").pipe(Result.flatMap(() => chargeResult(128)), Result.map(() => {
+    return consumeTableMetadataResult(pending.tableId, "writeClosure").pipe(Result.flatMap(() => chargeResult(128)),
+      Result.flatMap(() => markRowUse(pending.documentId)), Result.map(() => {
       pending.attempts.push(attempt.ordinal);
       attempts.push(attempt);
     }));
@@ -1428,7 +1455,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         for (const identity of missing) if (!dependencies.has(identity.id)) yield* observe(identity.tableId, identity.rowId, null);
         return Object.freeze(yield* Effect.forEach(identities, identity => {
           const pending = rows.get(identity.id);
-          return pending?.current == null ? Effect.succeed(null) : Effect.fromResult(output(pending.current, true));
+          if (pending?.current == null) return Effect.succeed(null);
+          const document = pending.current;
+          return Effect.fromResult(markRowUse(pending.documentId).pipe(Result.flatMap(() => output(document, true))));
         }));
       });
       const selection = { tableId: table.tableId, rowIds: identities.map(identity => identity.rowId) };
@@ -1520,8 +1549,26 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       const usesKey = !scanned.has(table.tableId) || uniqueReads.has(readKey);
       const prepared = yield* prepareUniqueStorageSelection(definition, projected);
       return yield* continueSelection(usesKey && !uniqueReads.has(readKey), Effect.gen(function* () {
-        if (!usesKey) return rows.values();
+        // Pending rows contribute current key membership before residual
+        // evaluation, independently of their original storage membership.
+        for (const row of rows.values()) {
+          if (row.tableId !== table.tableId || row.current === null ||
+            row.borrowedOverlay !== true && row.attempts.length === 0) continue;
+          const currentKey = yield* Effect.fromResult(lowerUnique(definition, row.current, "storedCorruption"));
+          if (uniqueReadKey(definition, currentKey) === readKey) yield* Effect.fromResult(markPendingUse(row));
+        }
+        if (!usesKey) {
+          // The complete scan replaces storage access, not the requested key's
+          // membership. Original bases retain that access before local edits.
+          for (const row of rows.values()) {
+            if (row.tableId !== table.tableId || row.base?.kind !== "live") continue;
+            const baseKey = yield* Effect.fromResult(lowerUnique(definition, row.base.document, "storedCorruption"));
+            if (uniqueReadKey(definition, baseKey) === readKey) yield* Effect.fromResult(markPendingUse(row));
+          }
+          return rows.values();
+        }
         const ownerId = yield* locateUnique(definition, projected, Effect.succeed(prepared));
+        if (ownerId !== null) yield* Effect.fromResult(markPendingUse(rows.get(ownerId)));
         return [...rows.values()].filter(row => row.tableId === table.tableId &&
           (row.documentId === ownerId || row.borrowedOverlay === true || row.attempts.length > 0));
       }), prepared.demand);
@@ -1535,6 +1582,10 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       if (indexedOnly || values.fields.some(field => isLogicalRange(values.value(field)))) return yield* Effect.fail(error("invalidInput"));
       return yield* continueSelection(!scanned.has(table.tableId), Effect.gen(function* () {
         if (!scanned.has(table.tableId)) yield* readBase(table.tableId);
+        // An unindexed read requests every current table row, including
+        // pending insertions later excluded by the residual predicate.
+        for (const row of rows.values()) if (row.tableId === table.tableId && row.current !== null)
+          yield* Effect.fromResult(markPendingUse(row));
         return rows.values();
       }), { kind: "rows", tableId: table.tableId });
     }
@@ -1548,7 +1599,20 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     }
     const usesIndex = !scanned.has(table.tableId) || indexReads.has(selection.identity);
     return yield* continueSelection(usesIndex && !indexReads.has(selection.identity), Effect.gen(function* () {
-      if (!usesIndex) return rows.values();
+      for (const row of rows.values()) {
+        if (row.tableId !== table.tableId || row.current === null ||
+          row.borrowedOverlay !== true && row.attempts.length === 0) continue;
+        const currentKey = yield* Effect.fromResult(lowerIndex(selection.definition, row.current, row.creationTime, "storedCorruption"));
+        if (currentKey !== null && indexKeyWithinBounds(currentKey, selection.bounds)) yield* Effect.fromResult(markPendingUse(row));
+      }
+      if (!usesIndex) {
+        for (const row of rows.values()) {
+          if (row.tableId !== table.tableId || row.base?.kind !== "live") continue;
+          const baseKey = yield* Effect.fromResult(lowerIndex(selection.definition, row.base.document, row.base.creationTime, "storedCorruption"));
+          if (baseKey !== null && indexKeyWithinBounds(baseKey, selection.bounds)) yield* Effect.fromResult(markPendingUse(row));
+        }
+        return rows.values();
+      }
       let read = indexReads.get(selection.identity);
       if (read === undefined) {
         if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
@@ -1583,6 +1647,10 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         indexReads.set(selection.identity, read);
       }
       const members = new Set(read.entries.map(entry => appDocumentIdV1FromRowIdentity(entry)));
+      // Retained index membership is still a real scoped read on a cache hit.
+      // Unrelated pending overlays are inspected below without acquiring use
+      // provenance merely because they reside in the shared row map.
+      for (const documentId of members) yield* Effect.fromResult(markPendingUse(rows.get(documentId)));
       return [...rows.values()].filter(row => row.tableId === table.tableId &&
         (members.has(row.documentId) || row.borrowedOverlay === true || row.attempts.length > 0));
     }), { kind: "index", tableId: table.tableId, indexDefinitionId: selection.definition.indexDefinitionId });
@@ -1603,7 +1671,10 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         if (row.tableId !== table.tableId || row.current === null) continue;
         const document = row.current.value;
         if (!isNonArrayRecord(document)) return yield* Effect.fail(error("storedCorruption"));
-        if (yield* Effect.fromResult(matches(document))) matched.push({ id: row.documentId, document: row.current });
+        if (yield* Effect.fromResult(matches(document))) {
+          yield* Effect.fromResult(markRowUse(row.documentId));
+          matched.push({ id: row.documentId, document: row.current });
+        }
       }
       matched.sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
       const docs = yield* Effect.forEach(matched.slice(query.offset, query.offset + query.limit), row => Effect.fromResult(output(row.document, true)));
@@ -1631,7 +1702,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       if (Option.isSome(index)) { completeSelection = candidate; indexedNullAnchor = true; break; }
     }
     if (query.requiresIndexedNullAnchor && !indexedNullAnchor) return yield* Effect.fail(error("invalidInput"));
-    let usedSearchCandidates = false;
+    let usedSearchDefinition: LogicalSearchDefinition | undefined;
     if (query.json !== null || query.search !== null && query.selections === null) {
       const searchPatterns = query.search;
       const jsonPattern = query.json;
@@ -1686,7 +1757,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         return matches;
       }));
       if (entries !== undefined) {
-        usedSearchCandidates = true;
+        usedSearchDefinition = definition;
         const members = new Set(entries.map(entry => entry.rowId));
         for (const entry of entries) {
           const { pending } = yield* locate(appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId: entry.rowId }));
@@ -1697,7 +1768,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
           (members.has(row.rowId) || row.borrowedOverlay === true || row.attempts.length > 0)) selected.set(row.documentId, row);
       }
     }
-    if (!usedSearchCandidates) {
+    if (usedSearchDefinition === undefined) {
       // Retain the declared anchor: a membership-null field must not win a
       // physical-index tie against the scalar selection it qualifies.
       const selections = query.selections === null ? [{ values: logicalWhereValues(completeSelection) }] :
@@ -1732,7 +1803,15 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         const current = row.current;
         const document = yield* output(current, true);
         const inspected = yield* query.inspect(document, current);
-        if (inspected.matches) matched.push({ document, order: inspected.order, documentId: row.documentId });
+        // A selected pending search member is observed before residuals just
+        // like its committed counterpart. An unrelated overlay is not a member.
+        if (usedSearchDefinition !== undefined && (row.borrowedOverlay === true || row.attempts.length > 0) &&
+          (usedSearchDefinition.nullPredicateField === null || document[usedSearchDefinition.nullPredicateField] === null) &&
+          query.matchesSearchAnchor(document)) yield* markRowUse(row.documentId);
+        if (inspected.matches) {
+          yield* markRowUse(row.documentId);
+          matched.push({ document, order: inspected.order, documentId: row.documentId });
+        }
       }
       matched.sort((left, right) => {
         const ordered = compareBytesLexicographically(left.order, right.order) * (query.direction === "asc" ? 1 : -1);
@@ -1793,8 +1872,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     const add = (row: PendingDocument) => observeExecution("LogicalDocuments.pageMember", Effect.gen(function* () {
       if (row.current === null) return;
       const key = yield* Effect.fromResult(lowerIndex(selection.definition, row.current, row.creationTime, "storedCorruption"));
-      if (key === null || selection.bounds.startInclusive !== undefined && String(key) < String(selection.bounds.startInclusive) ||
-        selection.bounds.endExclusive !== undefined && String(key) >= String(selection.bounds.endExclusive)) return;
+      if (key === null || !indexKeyWithinBounds(key, selection.bounds)) return;
+      yield* Effect.fromResult(markRowUse(row.documentId));
       const document = row.current;
       const inspected = yield* Effect.fromResult(Result.gen(function* () {
         const runtime = yield* output(document, true);
@@ -1974,6 +2053,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
           }
           if (pending === undefined && (operation === "update" || operation === "delete" || operation === "softDelete" || operation === "restore")) return yield* changeRows(position + 1);
           if (pending !== undefined && operation === "insert") return yield* Effect.fail(error("uniqueConflict"));
+          // Unchanged lifecycle operations still use their selected row, even
+          // when a complete scan supplied it without a keyed storage probe.
+          yield* Effect.fromResult(markPendingUse(pending));
           const previous = pending?.current == null ? null : yield* Effect.fromResult(
             nativeLogicalRelationalCanonicalRow(relationalMechanics, pending.current, limits.documentBytes, error));
           if (operation === "delete") {
@@ -2190,7 +2272,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
   let preparedActivity: Readonly<{ key: string; observedRows: readonly LogicalDocumentObservedRow[];
     contribution: LogicalDocumentActivityContribution }> | undefined;
   let aggregateActivity: Readonly<{ key: string; activity: LogicalDocumentActivity }> | undefined;
-  const activityKey = () => `${root?.activityGeneration ?? activityGeneration}/${rows.size}/${dependencies.size}/${attempts.length}/${lifecycle.length}/${setNull.length}/${referenceReplacements.length}`;
+  const activityKey = () => `${root?.activityGeneration ?? activityGeneration}/${observationOrdinal}/${rows.size}/${dependencies.size}/${attempts.length}/${lifecycle.length}/${setNull.length}/${referenceReplacements.length}`;
   const prepareActivity = Effect.gen(function* () {
     if (closed || root?.closed) return yield* Effect.fail(error("closed"));
     // Close-time reference checks can hydrate rows without opening another
@@ -2244,8 +2326,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         Object.freeze({ ...attempt, ordinal: attempt.ordinal - attemptOffset }))),
       lifecycle: Object.freeze(lifecycle.slice(localCursor.lifecycle + (cursor?.lifecycle ?? 0)).map(observation => Object.freeze({ ...observation,
         attemptOrdinal: observation.attemptOrdinal === null ? null : observation.attemptOrdinal - attemptOffset }))),
-      observedRows: source === undefined ? prepared.observedRows :
-        Object.freeze(prepared.observedRows.filter(row => source.tablesById.has(row.tableId))),
+      observedRows: cursor === undefined && source === undefined ? prepared.observedRows :
+        Object.freeze(prepared.observedRows.filter(row => (cursor === undefined || (rowUses.get(row.documentId) ?? 0) > cursor.observations) &&
+          (source === undefined || source.tablesById.has(row.tableId)))),
       setNull: Object.freeze(setNull.slice(localCursor.setNull + (cursor?.setNull ?? 0))),
       referenceReplacements: Object.freeze(referenceReplacements.slice(localCursor.referenceReplacements + (cursor?.referenceReplacements ?? 0))),
     });
@@ -2279,17 +2362,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       return projectActivityData(prepared, cursor, source?.closed === true ? undefined : source);
     });
   });
-  const activitySnapshot = (cursor?: Readonly<{
-    attempts: number; lifecycle: number; setNull: number; referenceReplacements: number;
-  }>) => observeExecution("LogicalDocuments.activitySnapshot", Effect.suspend(() => activityData.pipe(Effect.map(activity => structuredClone(cursor === undefined ? activity : {
-    ...activity,
-    attempts: activity.attempts.slice(cursor.attempts).map(attempt =>
-      ({ ...attempt, ordinal: attempt.ordinal - cursor.attempts })),
-    lifecycle: activity.lifecycle.slice(cursor.lifecycle).map(observation => ({ ...observation,
-      attemptOrdinal: observation.attemptOrdinal === null ? null : observation.attemptOrdinal - cursor.attempts })),
-    setNull: activity.setNull.slice(cursor.setNull),
-    referenceReplacements: activity.referenceReplacements.slice(cursor.referenceReplacements),
-  })))));
+  const activitySnapshot = (cursor?: LogicalDocumentActivityCursor) => observeExecution("LogicalDocuments.activitySnapshot", Effect.suspend(() =>
+    activityContribution.pipe(Effect.flatMap(contribution => readActivityContribution(contribution, cursor)), Effect.map(activity => structuredClone(activity)))));
   const close = () => observeExecution("LogicalDocuments.close", Effect.gen(function* (): Effect.fn.Return<LogicalDocumentChanges, Failure> {
     if (closed || root?.closed || !lifetime.isClosing()) return yield* Effect.fail(error("invalidAuthority"));
     yield* state.requireAdmission;
@@ -2381,7 +2455,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     readTransactionTime: (context: BoundedRequestContext, id: PresentedTransactionId) =>
       runOperation(context, id, "read", transactionTime),
     activityCursor: () => {
-      const cursor = Object.freeze({ attempts: attempts.length - localCursor.attempts,
+      const cursor = Object.freeze({ observations: observationOrdinal, attempts: attempts.length - localCursor.attempts,
         lifecycle: lifecycle.length - localCursor.lifecycle,
         setNull: setNull.length - localCursor.setNull,
         referenceReplacements: referenceReplacements.length - localCursor.referenceReplacements });

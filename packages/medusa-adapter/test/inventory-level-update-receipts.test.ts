@@ -1,9 +1,10 @@
+import { compileInventoryLevelContracts } from "../src/modules/inventory/level-contracts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCallReceiptValidation } from "../src/repository/call-receipt";
 import { captureInventoryMetadata } from "../src/modules/inventory/schema";
-import { compileInventoryLevelUpdateContracts, decodeInventoryLevelUpdates } from "../src/modules/inventory/update-level-input";
+import { decodeInventoryLevelUpdates } from "../src/modules/inventory/update-level-input";
 import { inventoryLevelUpdateEventPolicy } from "../src/modules/inventory/update-level-events";
 import { inventoryQuantityProjection } from "../src/modules/inventory/quantity-repository";
 import { captureExactNumericRow } from "../src/value/exact-numeric";
@@ -11,7 +12,7 @@ import { captureExactNumericRow } from "../src/value/exact-numeric";
 type Call = Parameters<LogicalCallReceiptValidation>[0];
 type Activity = Parameters<LogicalCallReceiptValidation>[1];
 let policy: ReturnType<typeof inventoryLevelUpdateEventPolicy>;
-let contracts: Result.Result.Success<ReturnType<typeof compileInventoryLevelUpdateContracts>>;
+let contracts: Result.Result.Success<ReturnType<typeof compileInventoryLevelContracts>>;
 let project: ReturnType<typeof inventoryQuantityProjection>;
 const time = "2026-10-16T00:00:00.000Z", later = "2026-10-16T00:01:00.000Z";
 const tuple = (id: string) => ({ inventory_item_id: "item-" + id, location_id: "location-" + id });
@@ -41,7 +42,7 @@ const refused = async (receipt: Call, activity: Activity) =>
 beforeAll(async () => {
   const metadata = await Effect.runPromise(captureInventoryMetadata()), table = metadata.frame.tables.find(table => table.name === "inventory_level");
   if (table === undefined) throw new Error("Missing InventoryLevel DML");
-  contracts = Result.getOrThrow(compileInventoryLevelUpdateContracts(table));
+  contracts = Result.getOrThrow(compileInventoryLevelContracts(table));
   policy = inventoryLevelUpdateEventPolicy(contracts); project = inventoryQuantityProjection(table.columns);
 });
 

@@ -1,3 +1,4 @@
+import { compileInventoryLevelContracts } from "./level-contracts";
 import { Effect, Result, Schema } from "effect";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
@@ -7,9 +8,9 @@ import { moduleEventDecoder } from "../../module/events";
 import { projectNativeRow, orderNativeIdRows } from "../../repository/result";
 import { captureExactNumericRow } from "../../value/exact-numeric";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
-import { compileInventoryLevelUpdateContracts, decodeInventoryLevelUpdateCommandInput, decodeInventoryLevelUpdateReadInput } from "./update-level-input";
+import { decodeInventoryLevelUpdateCommandInput, decodeInventoryLevelUpdateReadInput } from "./update-level-input";
 
-type Contracts = Result.Result.Success<ReturnType<typeof compileInventoryLevelUpdateContracts>>;
+type Contracts = Result.Result.Success<ReturnType<typeof compileInventoryLevelContracts>>;
 type Level = Effect.Success<ReturnType<Contracts["decodeStoredRow"]>>;
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,

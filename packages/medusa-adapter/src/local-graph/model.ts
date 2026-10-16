@@ -23,6 +23,12 @@ export interface GraphReadDefinition {
   /** Individually unique columns; composite primary-key components are not. */
   readonly uniqueOrder: readonly string[];
   readonly multipleOrder: boolean;
+  /** Explicit module-owned OR grammar; the read command still decodes its
+   * admitted selector shape and bounds. Other operators remain unavailable. */
+  readonly allowOrFilters?: true;
+  /** Fetch and authenticate numeric companions, then return exactly the native
+   * requested fields. Existing profiles retain companion projection. */
+  readonly selectedFieldsOnly?: true;
   readonly decode: (value: Json) => Result.Result<readonly [readonly JsonObject[], number], CommerceTransactionError>;
 }
 

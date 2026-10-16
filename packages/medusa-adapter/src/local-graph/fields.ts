@@ -26,10 +26,12 @@ export function planGraphFields(read: GraphReadDefinition, fields: readonly stri
       if (column === undefined || table === undefined || (column !== "*" && !table.columns.includes(column))) return yield* Result.fail(commerceError("unsupportedProfile"));
       for (let index = 1; index <= parts.length; index++) requested.add(parts.slice(0, index).join("."));
     }
-    const root = yield* fieldProjection(toPopulateTree(fields), read.table, paths, "");
+    const tree = toPopulateTree(fields);
+    const root = yield* fieldProjection(tree, read.table, paths, "", read.selectedFieldsOnly !== true);
+    const fetch = read.selectedFieldsOnly === true ? yield* fieldProjection(tree, read.table, paths, "", true) : root;
     // Hydration may need root keys not selected by the caller. Fetch all root
     // columns for relation reads, then mask them; all intermediate budgets apply.
-    const select = root.children.length === 0 ? [...root.fields] : [...read.table.columns];
+    const select = fetch.children.length === 0 ? [...fetch.fields] : [...read.table.columns];
     return { node: root, select, relations: read.paths.filter(relation => requested.has(relation.path)).map(relation => relation.path),
       project: rows => projectRows(rows, root) };
   });
@@ -37,7 +39,8 @@ export function planGraphFields(read: GraphReadDefinition, fields: readonly stri
 
 /** Native-only policy: expand a node wildcard against its admitted columns and
  * require selected scalars. Prefix normalization and row projection are reused. */
-function fieldProjection(tree: PopulateTree, table: ReadTable, paths: ReadonlyMap<string, GraphRelationPath>, prefix: string): Result.Result<ProjectionNode, CommerceTransactionError> {
+function fieldProjection(tree: PopulateTree, table: ReadTable, paths: ReadonlyMap<string, GraphRelationPath>, prefix: string,
+  companions: boolean): Result.Result<ProjectionNode, CommerceTransactionError> {
   return Result.gen(function* () {
     const fields = new Set<string>();
     const children: Array<ProjectionNode["children"][number]> = [];
@@ -46,14 +49,14 @@ function fieldProjection(tree: PopulateTree, table: ReadTable, paths: ReadonlyMa
         for (const column of name === "*" ? table.columns : [name]) {
           fields.add(column);
           const companion = Object.hasOwn(table.companions, column) ? table.companions[column] : undefined;
-          if (companion !== undefined) fields.add(companion);
+          if (companions && companion !== undefined) fields.add(companion);
         }
       } else {
         const path = prefix + name;
         const relation = paths.get(path);
         if (relation === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
         children.push({ name, many: relation.many, optional: relation.optional === true,
-          node: yield* fieldProjection(child, relation.table, paths, path + ".") });
+          node: yield* fieldProjection(child, relation.table, paths, path + ".", companions) });
       }
     }
     return { fields, children, nullRelations: [], requireFields: true };

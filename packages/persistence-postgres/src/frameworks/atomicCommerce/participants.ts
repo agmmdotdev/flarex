@@ -47,7 +47,9 @@ export type LogicalCommerceEventValidation = (calls: readonly LogicalCommerceCal
   => Effect.Effect<void, ReturnType<typeof commerceError>>;
 
 /** Immediate evidence for exactly one successful outer command. Ordinals start
- * at zero; observed rows are the pending view at this call's completion. */
+ * at zero; observed rows are bodies used by this command, including cached
+ * rereads, in their pending view at completion. Whole-root evidence remains
+ * available separately through aggregate validation and settlement. */
 export type LogicalCommerceCallValidation = (call: LogicalCommerceCallObservation,
   activity: Readonly<{ mutations: readonly LogicalCommerceMutation[];
     lifecycle: readonly LogicalCommerceLifecycleObservation[];

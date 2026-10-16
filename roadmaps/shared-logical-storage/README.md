@@ -68,6 +68,10 @@ Existing integer and populated-source evolution boundaries remain distinct.
 owns the authorized shared planning correction exposed by native Inventory
 Level tuple reads. It retains existing point coverage and partial-index proofs.
 
+[Call-local row observations](./62-call-local-row-observations.md) owns the
+authorized activity-provenance correction exposed by composed Level reads and
+deletion. Root dependency and settlement evidence remain complete.
+
 - [Accepted database design](../../design-notes/flarex-db-accepted-design.md) and
   [shared logical storage decision](../../design-notes/flarexdb-shared-logical-storage.md)
   own the target, replacement authority and tradeoffs.

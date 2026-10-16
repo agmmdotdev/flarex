@@ -86,8 +86,16 @@ profile preserves native tuple lookup, caller-ID precedence, keyed final patches
 exact quantities, reserved stock and tuple-only writes/events. Shared conjunctive
 point planning keeps complete tuple reads confined to their existing compound
 index, including absent tuples, without weakening receipts or resource limits.
-The next integration outcome is
-[native Inventory Level deletion](./preflight/117-native-inventory-level-delete-workflow.md).
+The bounded
+[native Inventory Level deletion](./preflight/117-native-inventory-level-delete-workflow.md)
+profile preserves selected native IDs, exact four-field guard projection,
+Level-only soft deletion and retained restoration. Its named graph admission
+authenticates complete bodies before the native field mask; shared
+[call-local activity](../shared-logical-storage/62-call-local-row-observations.md)
+distinguishes genuine cached and pending candidate use from earlier calls while
+retaining complete settlement dependencies. Existing OCC, calls and events stay
+with their current owners. The next preflighted integration outcome is
+[native Inventory Item deletion](./preflight/118-native-inventory-item-delete-workflow.md).
 Chunked File import and Product
 export are explicitly deferred; their File and Region dependencies are outside
 the current integration goal.

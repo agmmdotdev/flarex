@@ -308,7 +308,8 @@ it("selects observed rows by the original admitted source while retaining shared
       expect(projected.observedRows).toHaveLength(1);
       expect(projected.mutations.map(row => row.table)).toEqual(["items", "others"]);
       const complete = yield* working.readActivityContribution(issued, cursor);
-      expect(complete.observedRows).toHaveLength(3);
+      expect(complete.observedRows.map(row => row.value.name).toSorted()).toEqual(["changed", "shared-mutation"]);
+      expect((yield* working.readActivityContribution(issued)).observedRows).toHaveLength(3);
       expect(projected.observedRows[0]?.row).toMatchObject({ nested: { label: "original" } });
       expect(Reflect.set(projected.observedRows[0]?.row ?? {}, "name", "escaped")).toBe(false);
     } finally { yield* lifetime.close; root.close(); }
@@ -427,23 +428,59 @@ it("invalidates prepared activity for work after a snapshot and preserves root t
     } finally { yield* lifetime.close; root.close(); }
   })));
 
-it("detaches only cursor activity while retaining complete observed rows and relative ordinals", () =>
+it("records cached point and batch rereads after their cursor without replaying unrelated retained rows", () =>
+  runEffect(Effect.gen(function* () {
+    const { root, lifetime, id, working, readCalls } = yield* make();
+    try {
+      const selected = yield* working.documents.insert(lifetime.context, id, "items", { name: "selected" });
+      const unrelated = yield* working.documents.insert(lifetime.context, id, "items", { name: "unrelated" });
+      if (typeof selected._id !== "string" || typeof unrelated._id !== "string") throw new Error("Missing cached reread identities");
+      const cursor = working.activityCursor();
+      expect((yield* working.activitySnapshot(cursor)).observedRows).toEqual([]);
+      yield* working.documents.get(lifetime.context, id, selected._id, "items");
+      const first = yield* working.readActivityContribution(yield* working.activityContribution, cursor);
+      expect(first.observedRows.map(row => row.value.name)).toEqual(["selected"]);
+      expect(first.attempts).toEqual([]);
+      const project = makeLogicalCommerceActivityProjection(new Map([[tableId, "items"]]));
+      const policy = yield* project(first);
+      yield* working.documents.getMany(lifetime.context, id, "items", [selected._id]);
+      const repeated = yield* working.readActivityContribution(yield* working.activityContribution, cursor);
+      expect(repeated.observedRows).toHaveLength(1);
+      expect((yield* project(repeated)).observedRows[0]?.row).toBe(policy.observedRows[0]?.row);
+      const next = working.activityCursor();
+      expect((yield* working.activitySnapshot(next)).observedRows).toEqual([]);
+      yield* working.documents.get(lifetime.context, id, unrelated._id, "items");
+      expect((yield* working.activitySnapshot(next)).observedRows.map(row => row.value.name)).toEqual(["unrelated"]);
+      expect((yield* working.activitySnapshot()).observedRows).toHaveLength(2);
+      expect(yield* Effect.result(working.activitySnapshot({ ...next })))
+        .toMatchObject({ _tag: "Failure", failure: new Error("invalidAuthority") });
+      expect(readCalls()).toBe(0);
+      yield* lifetime.seal;
+      const closed = yield* working.close();
+      expect(closed.observedRows.map(row => row.value.name).toSorted()).toEqual(["selected", "unrelated"]);
+      expect(closed.attempts).toHaveLength(2);
+    } finally { yield* lifetime.close; root.close(); }
+  })));
+
+it("detaches call-local cursor activity while retaining complete aggregate rows and relative ordinals", () =>
   runEffect(Effect.gen(function* () {
     const { root, lifetime, id, working } = yield* make();
     try {
       const changed = yield* working.documents.insert(lifetime.context, id, "items", { name: "Ada", nested: { label: "before" } });
       yield* working.documents.insert(lifetime.context, id, "items", { name: "untouched" });
       if (typeof changed._id !== "string") throw new Error("Missing cursor document identity");
+      const completeBefore = yield* working.activitySnapshot();
       const cursor = working.activityCursor();
       const before = yield* working.activitySnapshot(cursor);
       expect(before.attempts).toEqual([]);
-      expect(before.observedRows).toHaveLength(2);
+      expect(before.observedRows).toEqual([]);
       yield* working.documents.patch(lifetime.context, id, changed._id, { name: "Grace" }, "items");
       const delta = yield* working.activitySnapshot(cursor);
       expect(delta.attempts.map(member => member.ordinal)).toEqual([0]);
       expect(delta.attempts[0]?.operation).toBe("patch");
-      expect(delta.observedRows.map(row => row.value.name).toSorted()).toEqual(["Grace", "untouched"]);
-      expect(before.observedRows.map(row => row.value.name).toSorted()).toEqual(["Ada", "untouched"]);
+      expect(delta.observedRows.map(row => row.value.name)).toEqual(["Grace"]);
+      expect(before.observedRows).toEqual([]);
+      expect(completeBefore.observedRows.map(row => row.value.name).toSorted()).toEqual(["Ada", "untouched"]);
       const after = delta.attempts[0]?.after;
       if (after == null) throw new Error("Missing cursor canonical value");
       after.canonicalBytes.fill(0);
@@ -457,7 +494,7 @@ it("detaches only cursor activity while retaining complete observed rows and rel
       const next = yield* working.activitySnapshot(cursor);
       expect(next.attempts[0]?.after?.canonicalBytes.some(byte => byte !== 0)).toBe(true);
       expect(next.attempts[0]?.after?.valueJson).toMatchObject({ nested: { label: "before" } });
-      expect(next.observedRows.map(row => row.value.name).toSorted()).toEqual(["Grace", "untouched"]);
+      expect(next.observedRows.map(row => row.value.name)).toEqual(["Grace"]);
       yield* lifetime.seal;
       const closed = yield* working.close();
       expect(closed.attempts.map(member => member.ordinal)).toEqual([0, 1, 2]);

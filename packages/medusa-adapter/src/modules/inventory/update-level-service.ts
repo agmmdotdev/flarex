@@ -1,3 +1,4 @@
+import { compileInventoryLevelContracts } from "./level-contracts";
 import { Effect, Result, Schema } from "effect";
 import { InventoryItem, InventoryLevel, ReservationItem } from "@medusajs/inventory/models";
 import { InventoryModuleService, InventoryLevelService } from "@medusajs/inventory/services";
@@ -13,7 +14,7 @@ import { deniedCommerceRepository } from "../../repository/denied";
 import { commerceDecoder } from "../../value/decoder";
 import { captureInventoryMetadata } from "./schema";
 import { prepareInventoryQuantityRepository } from "./quantity-repository";
-import { compileInventoryLevelUpdateContracts, InventoryLevelUpdates, InventoryLevelUpdateReadInput,
+import { InventoryLevelUpdates, InventoryLevelUpdateReadInput,
   decodeInventoryLevelUpdateCommandInput, decodeInventoryLevelUpdateReadInput } from "./update-level-input";
 import { inventoryLevelUpdateEventPolicy } from "./update-level-events";
 
@@ -27,7 +28,7 @@ export const makeInventoryLevelUpdateCommands = Effect.fn("InventoryAdapter.leve
   return yield* Effect.fromResult(Result.gen(function* () {
     const table = metadata.frame.tables.find(table => table.name === "inventory_level");
     if (table === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const contracts = yield* compileInventoryLevelUpdateContracts(table);
+    const contracts = yield* compileInventoryLevelContracts(table);
     const prepared = yield* prepareInventoryQuantityRepository(table, "InventoryLevel", "level-updates");
     const bind = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const bound = prepared.bind(ctx, owner), denied = deniedCommerceRepository(bound.repository, bound.refuse);

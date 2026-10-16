@@ -156,7 +156,9 @@ function captureGraphDefinition(input: GraphModuleDefinition) {
     for (const source of yield* captureWorkflowArray(definition.reads)) {
       const read = yield* captureWorkflowRecord(source);
       const metadata = yield* captureCommerceInput({ table: read.table, paths: read.paths, orderable: read.orderable, uniqueOrder: read.uniqueOrder }).pipe(Result.flatMap(decodeGraphMetadata));
-      if (typeof read.model !== "string" || typeof read.decode !== "function" || typeof read.multipleOrder !== "boolean") return yield* Result.fail(commerceError("unsupportedProfile"));
+      if (typeof read.model !== "string" || typeof read.decode !== "function" || typeof read.multipleOrder !== "boolean" ||
+        read.allowOrFilters !== undefined && read.allowOrFilters !== true ||
+        read.selectedFieldsOnly !== undefined && read.selectedFieldsOnly !== true) return yield* Result.fail(commerceError("unsupportedProfile"));
       reads.push(Object.freeze({ ...read, ...metadata }));
     }
     const remotePaths = definition.remotePaths === undefined ? undefined : yield* captureCommerceInput(definition.remotePaths).pipe(Result.flatMap(decodeGraphRemotePaths));

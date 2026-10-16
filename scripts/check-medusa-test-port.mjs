@@ -48,6 +48,43 @@ export function verifyInventoryLevelUpdateTests(source, target) {
   verifyInventoryTests(source, target, new Set(["should update inventory level", "should fail to update inventory level for item in location that isn't stocked"]), true);
 }
 
+/** Preserve the exact emitted native deletion guard and generic callbacks.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyInventoryLevelDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  /** @param {string} text @param {string} name @param {readonly number[]} indexes */
+  const callbacks = (text, name, indexes) => {
+    const file = ts.createSourceFile("inventory-level-delete.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    /** @type {ts.CallExpression[]} */
+    const calls = [];
+    /** @param {ts.Node} node */
+    const visit = node => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
+        if (calls.length !== 0 || node.initializer === undefined || !ts.isCallExpression(node.initializer)
+          || !ts.isIdentifier(node.initializer.expression) || node.initializer.expression.text !== "createStep")
+          throw new Error("Invalid native Inventory deletion callback declaration");
+        calls.push(node.initializer);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(file);
+    const call = calls[0];
+    if (call === undefined) throw new Error("Missing native Inventory deletion callback declaration");
+    const arguments_ = call.arguments;
+    return indexes.map(index => {
+      const callback = arguments_[index];
+      if (callback === undefined || (!ts.isFunctionExpression(callback) && !ts.isArrowFunction(callback)))
+        throw new Error("Missing native Inventory deletion callback");
+      return testPortProgram("const callback = " + callback.getText(file));
+    });
+  };
+  if (JSON.stringify(callbacks(nativeWorkflow, "validateInventoryLevelsDelete", [1])) !==
+    JSON.stringify(callbacks(workflow, "validateInventoryLevelsDelete", [1])) ||
+    JSON.stringify(callbacks(nativeStep, "deleteEntitiesStep", [1, 2])) !==
+    JSON.stringify(callbacks(step, "deleteEntitiesStep", [1, 2])))
+    throw new Error("Changed native Inventory Level deletion callback behavior");
+}
+
 /** @param {string} source @param {string} target @param {Set<string>} names @param {boolean} verifySeed */
 function verifyInventoryTests(source, target, names, verifySeed) {
   /** @param {string} text @param {boolean} onlySelected */

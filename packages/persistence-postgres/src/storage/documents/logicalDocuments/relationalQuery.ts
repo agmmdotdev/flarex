@@ -384,6 +384,18 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
       return Object.freeze({ key, selections, search: json !== null ? null : search, json,
         requiresIndexedNullAnchor: selections === null && planned.unindexedText && search === null && json === null,
         requiredNulls: Object.freeze([...filter.requiredNulls]),
+        // Native text access unions its validated patterns; JSON access uses
+        // the same containment owner as the complete predicate below.
+        matchesSearchAnchor: (row: JsonObject) => {
+          if (json !== null) {
+            const value = row[json.column];
+            return value !== null && value !== undefined && jsonbContains(value, json.value);
+          }
+          return search?.some(pattern => {
+            const value = row[pattern.column];
+            return typeof value === "string" && matchesTextLikeAscii(value, pattern.pattern);
+          }) ?? false;
+        },
         offset: query.skip ?? 0, limit: take, direction: query.order.direction, orderColumn: query.order.column, fields: Object.freeze([...fields]),
         inspect: (row: JsonObject, document?: CanonicalFlarexValueV1) => Result.gen(function* () {
           // Read the complete native row before projecting, including exact numeric

@@ -22,10 +22,12 @@ export const decodeGraphCount = commerceDecoder(Schema.Tuple([
   Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: commerceLimits.catalogRows })),
 ]), "storedCorruption");
 
-function nativeFilters(value: Json): boolean {
-  if (Array.isArray(value)) return value.every(nativeFilters);
+function nativeFilters(value: Json, allowOr: boolean): boolean {
+  if (Array.isArray(value)) return value.every(member => nativeFilters(member, allowOr));
   if (!isJsonObject(value)) return true;
-  return Object.entries(value).every(([key, member]) => !key.startsWith("$") && nativeFilters(member));
+  return Object.entries(value).every(([key, member]) => key === "$or"
+    ? allowOr && Array.isArray(member) && member.every(branch => isJsonObject(branch) && nativeFilters(branch, allowOr))
+    : !key.startsWith("$") && nativeFilters(member, allowOr));
 }
 
 function graphOrder(read: GraphReadDefinition, supplied: Readonly<Record<string, "ASC" | "DESC">> | undefined): Result.Result<JsonObject, CommerceTransactionError> {
@@ -44,9 +46,9 @@ function planQuery(input: unknown, entries: ReadonlyMap<string, GraphReadSelecti
   return Result.gen(function* () {
     const captured = yield* capturePrivateJsonData(input, commerceLimits.commandBytes, commerceError);
     const args = yield* decodeInput(captured.value);
-    if (!nativeFilters(args.filters ?? {})) return yield* Result.fail(commerceError("unsupportedProfile"));
     const entry = entries.get(args.entity);
     if (entry === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (!nativeFilters(args.filters ?? {}, entry.read.allowOrFilters === true)) return yield* Result.fail(commerceError("unsupportedProfile"));
     return { entry, args, fields: yield* planGraphFields(entry.read, args.fields), order: yield* graphOrder(entry.read, args.pagination.order) };
   });
 }
@@ -68,6 +70,8 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
       const models = new Map<string, GraphReadDefinition>();
       for (const input of module.reads) {
         if (!input.model.trim() || models.has(input.model) || !isGraphReadCommand(input.command)
+          || input.allowOrFilters !== undefined && input.allowOrFilters !== true
+          || input.selectedFieldsOnly !== undefined && input.selectedFieldsOnly !== true
           || input.table.primaryKeys.length === 0 || input.table.primaryKeys.length > 16
           || new Set(input.table.primaryKeys).size !== input.table.primaryKeys.length) return yield* Result.fail(commerceError("unsupportedProfile"));
         // Reuse the read catalog's owned metadata snapshots; its relation map is

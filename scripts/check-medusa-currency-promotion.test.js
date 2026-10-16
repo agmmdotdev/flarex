@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyInventoryLevelDeleteCallbacks } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -8,6 +8,40 @@ import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-
 const root = process.cwd();
 const promotion = verifyCurrencyPromotion(root);
 const source = "packages/medusa-currency/src/models/currency.ts";
+
+describe("native Inventory Level deletion callback provenance", () => {
+  const nativeWorkflow = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/inventory/workflows/delete-inventory-levels.ts", "utf8");
+  const nativeStep = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/common/steps/delete-entities.ts", "utf8");
+  const workflow = readFileSync("packages/medusa-core-flows/src/inventory/workflows/delete-inventory-levels.ts", "utf8");
+  const step = readFileSync("packages/medusa-core-flows/src/common/steps/delete-entities.ts", "utf8");
+  it("permits only erased type changes in the genuine inline guard and both generic callbacks", () => {
+    expect(() => verifyInventoryLevelDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step)).not.toThrow();
+  });
+  it.each([
+    ["incoming predicate", "i.incoming_quantity! > 0", "i.incoming_quantity! >= 0"],
+    ["reservation guard skip", "if (undeleteableDueToReservation.length)", "if (false)"],
+    ["reservation before stock classification", "i.reserved_quantity > 0 || i.incoming_quantity! > 0", "i.reserved_quantity > 0 || i.incoming_quantity! > 0 || !force && i.stocked_quantity > 0"],
+    ["stock guard skip", "if (undeleteableDueToStock.length)", "if (false)"],
+    ["force inversion", "!force && i.stocked_quantity > 0", "force && i.stocked_quantity > 0"],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = workflow.replace(before, after);
+    expect(changed).not.toBe(workflow);
+    expect(() => verifyInventoryLevelDeleteCallbacks(nativeWorkflow, changed, nativeStep, step))
+      .toThrow("Changed native Inventory Level deletion callback behavior");
+  });
+  it.each([
+    ["deletion skip", "data.length ? await module[invokeMethod]!(data) : []", "false ? await module[invokeMethod]!(data) : []"],
+    ["result-map exposure", "return new StepResponse(void 0,", "return new StepResponse(data,"],
+    ["compensation identity drift", "entityIdentifiers: input.data", "entityIdentifiers: []"],
+    ["compensation invocation drift", "await module[compensateMethod]!(entityIdentifiers)", "await module[compensateMethod]!([])"],
+    ["undefined compensation guard", "} = compensateInput!", "} = compensateInput ?? {}"],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = step.replace(before, after);
+    expect(changed).not.toBe(step);
+    expect(() => verifyInventoryLevelDeleteCallbacks(nativeWorkflow, workflow, nativeStep, changed))
+      .toThrow("Changed native Inventory Level deletion callback behavior");
+  });
+});
 
 describe("exact Currency promotion", () => {
   it("authenticates source, transformed inputs, package exports, and available build outputs", () => {

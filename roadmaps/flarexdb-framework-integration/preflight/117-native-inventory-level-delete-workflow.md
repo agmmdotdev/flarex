@@ -2,7 +2,10 @@
 
 ## Status And Authority
 
-Status: preflight complete; implementation pending after absolute Level update.
+Status: implemented private bounded root after absolute Level update. The genuine
+composer, selected-field graph read, Level lifecycle and retained compensator use
+one default-OCC settlement with existing call and event allowances. Larger
+graphs and hosted activation remain outside this admission.
 Authority is the accepted Flarex design, package boundaries, Medusa adoption
 roadmap and Medusa 2.13.4 at `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`.
 The source island remains read-only. Chunked File import and Product export
@@ -55,11 +58,24 @@ projection; this path does not check availability or actual Reservation rows.
 
 Projected remote query results must remain the requested four-field records,
 even if their authenticated storage receipts observe complete Level bodies.
+The pinned RemoteJoiner field mask confirms that numeric companions, incoming
+quantity and available quantity are absent from this scalar selection. The
+existing private graph retains numeric companions for Currency and Product;
+the first Level execution therefore refused its extra projected fields at the
+strict workflow boundary. This read captures `selectedFieldsOnly: true` so the
+graph still fetches and authenticates companions, then applies the exact native
+field mask. Existing projection profiles keep their admitted companion policy.
 The portable query step requires a complete bounded result; a fifth match must
 refuse before deletion, not become a page tail. Empty selectors select all active
 Levels within the admitted bound. Empty ID arrays, missing IDs and already-deleted
 IDs yield zero matches without native missing-key errors. Duplicate requested
 IDs do not create duplicate selected rows or repeated lifecycle transitions.
+The graph owner retains operator-free grammar for existing reads. This named
+Level read explicitly captures `allowOrFilters: true`, permitting only native
+OR arrays before its module-owned bounded tuple decoder. Other operators remain
+refused, and the captured admission participates in workflow graph identity.
+This extends graph translation, not shared persistence or query authority.
+
 The query's native filter/primary-key ordering drives actual deletion and
 compensation IDs; retain ID-array ordering through the existing native helper.
 
@@ -98,7 +114,7 @@ actually absent incoming field faithfully and preserve emitted native guard
 behavior. Any type-only guard correction must retain its missing-field runtime
 witness and existing source-promotion equality checks.
 
-## Implementation Plan And Bounds
+## Implementation And Bounds
 
 1. Promote the genuine workflow, inline guard and generic deletion step with
    narrow portable imports and transaction-covered callback. Reuse existing
@@ -118,6 +134,12 @@ witness and existing source-promotion equality checks.
    owner. Authenticate complete before/after rows, actual active transitions,
    preserved non-lifecycle data, generated result maps and exact native deleted/
    restored module events. Read/empty roots permit no extra writes/events.
+   Read receipts authenticate every bounded candidate body in the requested
+   scalar-membership/tuple envelope, then apply the complete AND selector to
+   correlate actual returned rows. A primary-ID access may legitimately hydrate
+   a requested ID excluded by another selector field; it is not a returned
+   match. Foreign candidates, malformed excluded bodies, forged rows/counts and
+   extra side effects remain refused. Index selection stays with persistence.
 5. Add src/workflows/inventory/delete-levels.ts using the genuine composer,
    exact source/profile/method identity, Level graph enabled, module-only events
    and one atomic settlement. Keep default OCC and existing resource allowances.
@@ -129,7 +151,12 @@ bounds. Keep default 64 calls/64 events, bytes/catalog limits and ordinary
 reset is implied. The complete composite point-access correction identified by
 Level update remains its shared owner prerequisite for tuple reads; do not
 repair broad coverage in this adapter or weaken receipt checks. No additional
-static core/locking blocker is identified.
+static locking blocker is identified. Execution exposes cumulative observed
+rows in the following lifecycle call after a native selector read hydrates an
+excluded candidate. The authorized
+[call-local activity correction](../../shared-logical-storage/62-call-local-row-observations.md)
+retains aggregate dependencies while scoping each receipt to actual row use.
+The strict scalar lifecycle receipt remains unchanged.
 
 Default OCC must bind the guard's quantity observations and lifecycle write.
 There is no native Locking.execute/callback exclusion promise to emulate.
@@ -162,5 +189,7 @@ Regress Level updates and stocking, stock adjustments/individual reservations,
 Product Inventory deletion/batching and the shared lifecycle/point-read owners
 as affected. Complete affected types/builds, provenance/source/promotion/browser
 guards, configured lint and both required read-only reviews before one scoped
-commit. InventoryItem deletion, Level batch/bulk roots, larger graphs and hosted
-activation remain pending; File import and Product export remain deferred.
+commit. The next outcome is the preflighted
+[native Inventory Item deletion](./118-native-inventory-item-delete-workflow.md).
+Level batch/bulk roots, larger graphs and hosted activation remain pending;
+File import and Product export remain deferred.
