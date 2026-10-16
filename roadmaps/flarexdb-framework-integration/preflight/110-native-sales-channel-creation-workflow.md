@@ -2,8 +2,8 @@
 
 ## Status And Authority
 
-Status: preflight complete; implementation pending.
-The next connected admission is native `createSalesChannelsWorkflow` for zero
+Status: complete for the bounded private profile.
+The connected admission is native `createSalesChannelsWorkflow` for zero
 to four Sales Channels. Chunked File import and Product export remain deferred.
 
 Authority is the accepted Flarex design, package boundaries, Medusa adoption
@@ -28,7 +28,7 @@ Region dependency is required. Empty input still resolves Sales Channel and
 EventBus, returns `[]`, and emits no messages. Explicit native compensation with
 an empty returned ID array still invokes `deleteSalesChannels([])`.
 
-## Proposed Admission
+## Admitted Profile
 
 Admit `salesChannelsData` with zero to four entries. Creation accepts optional
 `id`, required `name`, optional nullable `description`, optional `is_disabled`,

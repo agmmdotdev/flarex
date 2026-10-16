@@ -5,7 +5,7 @@ import { makeLocalSalesChannelCommands } from "../../src/modules/sales-channel/s
 import type { CommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
 
-interface LogicalSalesChannelHostFixture {
+export interface LogicalSalesChannelHostFixture {
   readonly definition: NonNullable<LogicalCurrencyFixture["salesChannelDefinition"]>;
   readonly runtime: Effect.Success<ReturnType<typeof makeLocalSalesChannelCommands>>;
   readonly hostInput: LogicalCommerceHostInput<unknown>;

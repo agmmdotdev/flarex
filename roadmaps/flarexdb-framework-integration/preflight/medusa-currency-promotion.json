@@ -442,7 +442,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/sales-channel/service.ts",
       "classification": "authored",
-      "targetSha256": "2e5e5005f103f4c2ec20215f5cdf6b0ca52185d7c9f5c20873deaca497db6024"
+      "targetSha256": "b335470962a689d13557a6830632dbb7f78b3e7ba6f5a3983472b3c945e42f39"
     },
     {
       "target": "packages/medusa-adapter/src/schema/compiled.ts",
@@ -907,7 +907,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/events.ts",
       "classification": "authored",
-      "targetSha256": "40496f4eb47ab310215a53ddcb84fe18b293fcb51a687889dc6f22144049bf7d"
+      "targetSha256": "731e300a78270092c42a5e5e9d243f32b6612ed44b0614ba4b224d6264ad57ec"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/host.ts",
@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "cb6ef5f790bd6199d3f6e30ade526f2f86fcf6328b031d71c01e47babbbbe150"
+      "targetSha256": "af0ddda82375d72c919c9ed5de3062b737edb68c34ff067d2fb740f28411af6c"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -4466,7 +4466,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-sales-channel-fixture.ts",
       "classification": "authored",
-      "targetSha256": "edda5c9cfb3f48d0999e54226e8e227bba53d867271ad2ec37f96bd73519b740"
+      "targetSha256": "427610e23f997afa2924db162e46185b1c6e9dd629879f27e67c4755a57e1d1b"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-shipping-profile-fixture.ts",
@@ -5558,7 +5558,7 @@
     {
       "target": "packages/medusa-adapter/src/workflows/product/events.ts",
       "classification": "authored",
-      "targetSha256": "fce23f62054340214537713ce6ae6a53ff8aa965d13d933e07593925c3fa20eb"
+      "targetSha256": "d84168ef0c6d45b67469519a4c2fe47b0cbffae096c368393025d4d2aaa9f5da"
     },
     {
       "target": "packages/medusa-adapter/src/repository/scalar-id-read.ts",
@@ -7361,7 +7361,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/notification/contracts.ts",
       "classification": "authored",
-      "targetSha256": "27ccd940447f62a3aa4d61077bb6c86256f66ba91c9dfd1e671005c33fb0be04"
+      "targetSha256": "3e753b2f734b71d2771521369a0cfdd9f93831e4770b149daf1f5d7b175f0985"
     },
     {
       "target": "packages/medusa-adapter/src/modules/notification/schema.ts",
@@ -8036,6 +8036,48 @@
       "target": "packages/medusa-adapter/test/durable-native-checkpoint-profile.test.ts",
       "classification": "authored",
       "targetSha256": "5c742c4b2845a6ae6a1831d6bd371098f77e8c094b1ff541ad6f5792c87cd2c7"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/sales-channel/create-input.ts",
+      "classification": "authored",
+      "targetSha256": "f252ee464d585c8451d8ee8f400e5143b6724dd562e041335b8ca1c240e8cbd7"
+    },
+    {
+      "target": "packages/medusa-adapter/src/value/complete-row.ts",
+      "classification": "authored",
+      "targetSha256": "a322c34a30ee1ed8f8a4a89a7bcc2a200acfb0948eebaa41a46cdbe059cefcc9"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/sales-channel/create.ts",
+      "classification": "authored",
+      "targetSha256": "f4edc71835d6dd5bf2c81457ad968df999b23c6fd7dedec2fcc74f22a0b3135b"
+    },
+    {
+      "target": "packages/medusa-adapter/test/sales-channel-create-composer.test.ts",
+      "classification": "authored",
+      "targetSha256": "b5aafffca4bdb4c925638c7273b0a00b4b9e215a8715ca6a94bf100696718a0b"
+    },
+    {
+      "target": "packages/medusa-adapter/test/sales-channel-create-contracts.test.ts",
+      "classification": "authored",
+      "targetSha256": "534c19ae7b1c2dcbea408adf5bc9eb2cd0faed01ac44738e1fde33ff9f5f6a21"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/sales-channel/workflows/create-sales-channels.ts",
+      "classification": "workflowFork",
+      "targetSha256": "8ee78c3f87fadccbeb31e54cea46d0d251f83103f8184d6180635be91332253e",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/sales-channel/workflows/create-sales-channels.ts",
+      "sourceSha256": "e265765835068c183430ecb6b1338c12e126230feedd907aaddf22d33228426c"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-sales-channel-creation-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "cfcbb9731a4e91efd4d961cb1db324a6971cc00d4ab7ad476b2b909d9f4cf558"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-sales-channel-creation-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "047ce6a72b405a822050587c38a04be4bee4d3a3715dfd661203f12eca969631"
     }
   ],
   "dependencies": {
@@ -8486,6 +8528,7 @@
         "./product/normalize-products-step",
         "./product/csvtojson",
         "./product/normalize-products-from-csv",
+        "./sales-channel/create-sales-channels",
         "./durable/product/import-products",
         "./durable/product/normalize-products-step",
         "./durable/product/batch-products",

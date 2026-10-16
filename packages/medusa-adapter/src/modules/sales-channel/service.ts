@@ -17,16 +17,11 @@ import { commerceDecoder } from "../../value/decoder";
 import { prepareSalesChannelRepository } from "./repository";
 import { salesChannelLogicalEventPolicy } from "./events";
 import { captureSalesChannelMetadata } from "./schema";
+import { compileSalesChannelCreateContracts } from "./create-input";
 import { QueryLimit, QueryOffset } from "../../query/decoder";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 export const SimpleSalesChannelInput = Schema.Struct({ id: Schema.optionalKey(Id), name: Schema.String });
-const decodeCreateArguments = commerceDecoder(Schema.Tuple([
-  Schema.Array(SimpleSalesChannelInput).check(Schema.isMaxLength(256)),
-]), "invalidInput");
-const decodeCreatedChannels = commerceDecoder(Schema.Array(Schema.StructWithRest(
-  Schema.Struct({ id: Id, name: Schema.String }), [Schema.Record(Schema.String, Schema.Json)],
-)).check(Schema.isMaxLength(256)), "storedCorruption");
 const Create = Schema.StructWithRest(Schema.Struct({ name: Schema.String }), [Schema.Record(Schema.String, Schema.Json)]);
 const decodeCreate = commerceDecoder(Schema.Union([Create, Schema.Array(Create).check(Schema.isMaxLength(256))]), "invalidInput");
 // Native update normalization spreads data after the selected ID. Admit the
@@ -63,6 +58,9 @@ export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.comm
   const metadata = yield* captureSalesChannelMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
     const { bind, table } = yield* prepareSalesChannelRepository(metadata.frame);
+    const sourceTable = metadata.frame.tables[0];
+    if (sourceTable === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const createContracts = yield* compileSalesChannelCreateContracts(sourceTable);
     const module = yield* defineCommerceModule({
       name: "flarex-sales-channel-local", models: [SalesChannel],
       profile: { name: "sales-channel", capabilities: [], bind: (ctx, owner) => {
@@ -98,8 +96,8 @@ export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.comm
     const joiner = salesChannelStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const graph = yield* scalarGraphDefinition(yield* moduleAliases(joiner), "SalesChannel", count, table);
-    const createSalesChannels = yield* defineWorkflowMethod({ command: create, arguments: decodeCreateArguments,
-      encode: ([channels]) => channels, output: decodeCreatedChannels,
+    const createSalesChannels = yield* defineWorkflowMethod({ command: create, arguments: createContracts.decodeArguments,
+      encode: ([channels]) => channels, output: createContracts.decodeRows,
       moduleEvents: [buildModuleResourceEventName({ prefix: Modules.SALES_CHANNEL, objectName: "sales_channel", action: "created" })] });
     const workflow = yield* defineWorkflowModule({ name: Modules.SALES_CHANNEL, source: module.description, methods: { createSalesChannels }, graph, logical: { ...salesChannelLogicalEventPolicy(), commands: [create, update, remove, list, count, retrieve] } });
     return { create, update, delete: remove, list, count, retrieve, graph, workflow,

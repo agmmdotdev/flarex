@@ -53,6 +53,7 @@
     "./product/normalize-products-step": "./src/product/steps/normalize-products.ts",
     "./product/csvtojson": "./src/product/utils/csvtojson.ts",
     "./product/normalize-products-from-csv": "./src/product/utils/normalize-products-from-csv.ts",
+    "./sales-channel/create-sales-channels": "./src/sales-channel/workflows/create-sales-channels.ts",
     "./durable/product/import-products": {
       "types": "./dist/durable/product/workflows/import-products.d.ts",
       "source": "./src/durable/product/workflows/import-products.ts",

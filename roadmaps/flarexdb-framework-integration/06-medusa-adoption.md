@@ -54,8 +54,10 @@ module sets remain unadmitted. Medusa services
 remain above the existing Flarex transaction and publication owners.
 
 The private inline Product import is complete for its bounded admitted profile.
-The next integration outcome is
-[native Sales Channel creation](./preflight/110-native-sales-channel-creation-workflow.md).
+The bounded [native Sales Channel creation](./preflight/110-native-sales-channel-creation-workflow.md)
+profile is complete. The next integration outcome is
+[native Sales Channel selector update](./preflight/111-native-sales-channel-update-workflow.md),
+starting with its intermediate-result and empty-update boundary witnesses.
 Chunked File import and Product
 export are explicitly deferred; their File and Region dependencies are outside
 the current integration goal.
