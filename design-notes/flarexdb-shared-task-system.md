@@ -2,12 +2,13 @@
 
 ## Status And Authority
 
-Status: owner-selected replacement direction recorded for design and planning.
+Status: accepted replacement direction and admission decisions; implementation
+not authorized.
 The [focused replacement preflight](../roadmaps/durable-task-engine/preflight/72-shared-trigger-engine-replacement.md)
-records the proposed connected source closure, store contract, trusted-workflow
-cutover and acceptance gates. This is documentation-only planning; implementation
-is not authorized yet. Neither document authorizes runtime changes, storage
-migration, data deletion, public APIs or production activation.
+records the accepted source scope, store contract, trusted-workflow cutover and
+remaining proof gates. Design acceptance is documentation-only; neither document
+authorizes runtime changes, storage migration, data deletion, public APIs or
+production activation.
 
 The owner wants one task primitive that Flarex Application, Payload and Medusa
 can build on. Preserve actual Trigger.dev task implementations in maintained
@@ -33,6 +34,23 @@ engine does not make independently committed framework operations atomic or
 extend an admitted mixed execution profile. Coordinate with active shared-storage
 and native workflow work before selecting implementation ownership and a stable
 core checkpoint.
+
+## Accepted Admission Decisions
+
+These choices govern the replacement. Their implementation and correctness
+remain subject to the preflight's explicit proof gates.
+
+| Decision | Accepted choice | Remaining proof or disposition |
+| --- | --- | --- |
+| Fork ownership | One private `@flarex/trigger-run-engine` package retains actual engine methods and their connected dependencies. Adapted store contracts stay with the fork initially; `@flarex/durable-task` retains needed Flarex integration contracts and loses displaced algorithms. | Exact transitive source/test/license inventory, dependency and bundle admission; no workspace package is created by this decision. |
+| Store and visibility | Finite semantic RunStore operations over logical storage, bounded indexed discovery with resumable progress, and a short trusted READ COMMITTED Task profile. | Exact query shapes/limits, fresh-statement waitpoint visibility, atomic claims and publication through shared core. |
+| Concurrency | Per-run serialization, consistent domain lock order and bounded durable continuation work for shared waitpoints. | Verify the complete physical lock graph, including core index/uniqueness/publication locks and competing operations; no new scope-wide exclusive lock as a shortcut. |
+| Claim and start | Claim reserves capacity and fenced dispatch ownership; the retained start method alone accepts execution before handler code runs. | Stable dispatch/start receipts, lost-response recovery, takeover and separate dispatch/business retry accounting. |
+| Schema authority | Platform-installed private logical Task schemas with capability-controlled writes; co-locate each run and its required transactional records initially. | Enforce authority across every access path, readiness/installation and scope/placement isolation. Cross-partition dependencies require a separate durable protocol. |
+| Checkpoint bodies | Bounded Postgres-backed logical records first, settling checkpoint revision/digest and blocked state together. | Measure the complete encoded record against existing core limits and retention needs. Larger required checkpoints need explicit object-storage admission, not automatic fallback. |
+| Native workflow ownership | Trigger owns task attempts/recovery; Medusa owns step retries and compensation; Flarex owns durable resolution, fencing, receipts and delivery. | Exact failure/budget mapping, native timeout races, fresh control authority, stable child replay and visibly unresolved exhausted cleanup. |
+| Data cutover | Clean replacement; explicit reset for confirmed disposable development data, migration for actual surviving records and obligations. | Inventory each environment and approve its exact disposition before reset/deletion. Preserve external and committed-child identities. |
+| Business enqueue | Durable intent through the existing business publication/outbox owner followed by idempotent run creation. | Rollback, crash-before-dispatch and replay/conflict proofs. Direct enlisted creation requires proved common settlement and placement. |
 
 ## Current Implementation And Concurrent Workflow Work
 
@@ -235,10 +253,15 @@ reservations and durable effects; add waitpoints, dependencies, batches and
 checkpoints only with their connected capabilities.
 
 Use shared logical definition, index, constraint, relation, installation and
-readiness machinery. Task tables retain private system ownership and trusted
+readiness machinery. The platform installs Task schemas independently of each
+framework's configuration. Co-locate a run and its required transactional records
+for the first admission; cross-partition waits/dependencies require a separate
+durable protocol. Task tables retain private system ownership and trusted
 scope binding. Ordinary Application `ctx.db`, Payload collection writes and
 Medusa repositories must not alter lifecycle state. Task schema installation is
-a platform responsibility, not per-framework physical DDL.
+a platform responsibility, not per-framework physical DDL. Reserved names alone
+grant no protection: every application-visible access path must enforce the
+private read/write authority contract.
 
 Preserve useful upstream fields, relationships and statuses where they fit the
 retained implementation. Do not force Trigger into our current custom aggregate
@@ -276,11 +299,23 @@ Required proofs include:
 - cancellation versus completion and waitpoint completion versus blocking races;
 - confirmed rollback versus uncertain commit and fresh-host recovery.
 
+The selected Task profile uses short trusted READ COMMITTED transactions while
+Application OCC and framework execution profiles retain their semantics.
 A `find` followed by `write` is not by itself an atomic claim. A mutex or wake
 message is not authority for a stale worker to commit. Keep fencing checks with
 the authoritative writes. Do not assume a snapshot execution profile provides
 the same behavior as Trigger's READ COMMITTED operations: its waitpoint store
 deliberately performs a separate statement to observe concurrent completion.
+
+The selected domain order is core authority/admission, run, waitpoint/checkpoint,
+queue reservation, then child-effect records, with stable ordering within each
+class and all required run locks before shared-resource locks. Verify this order
+against actual core index, uniqueness and publication locks before admission;
+avoid unsafe lock upgrades and preserve the shared owner's discipline. No new
+scope-wide exclusive lock substitutes for that proof. Shared waitpoint completion
+records its winning resolution and durable continuation work, then processes
+affected runs in bounded transactions. Preserve blocking/completion races and
+resumable discovery so a scan budget or crash cannot strand an affected run.
 
 ### Necessary Changes Inside Retained Source
 
@@ -298,9 +333,11 @@ Current source provides concrete examples to address in the fork:
 4. Trigger's queue permit release during cancellation is not identical to an
    active operating-system process count. Preserve or explicitly revise that
    policy; do not change it incidentally while replacing storage.
-5. Flarex currently grants an attempt before dispatch, while Trigger has a
-   runner-initiated start path. Resolve that difference in one lifecycle owner;
-   retaining both start authorities is not an integration solution.
+5. Replace Flarex's pre-dispatch execution grant with fenced dispatch reservation
+   followed by the retained Trigger start method's atomic execution acceptance.
+   Handler code requires that acceptance. Duplicate delivery recovers the same
+   reservation/start receipt; takeover rejects stale dispatch identities. Prove
+   lost responses and keep dispatch retries distinct from business attempts.
 
 These changes must be visible in the source adaptation inventory and tested as
 such. They are not grounds for replacing all retained orchestration with another
@@ -372,7 +409,7 @@ mechanics. Assign every retry and cancellation decision to one owner.
 ### Trusted Workflow Continuation Cutover
 
 Continuation support must be accounted for before removing a lifecycle used by
-an admitted durable workflow. The proposed mapping uses retained Trigger
+an admitted durable workflow. The accepted mapping uses retained Trigger
 waitpoint/block/unblock methods for shared suspension, with Flarex-owned atomic
 checkpoint-reference publication, resolution identity, fencing and wake repair.
 Native Medusa confirmation, timeout and compensation decisions remain with its
@@ -388,8 +425,21 @@ transaction to couple the accepted checkpoint descriptor and blocking state,
 fresh execution authority on resume, and stable commerce-child identities
 across attempts. No live SQL transaction, connection or execution lease is kept
 across the wait. Checkpoint bytes are framework state, distinct from task
-input/result bodies; their final storage and retention contract needs explicit
-admission and migration disposition.
+input/result bodies. Store admitted bounded checkpoints in Postgres-backed
+logical records first, atomically with their revision/digest and blocking state.
+The pending 1 MiB payload cap does not prove that encoding plus record metadata
+fits the eventual logical envelope. Measure the complete record within existing
+core limits; do not silently enlarge limits or reduce a supported payload
+contract. If required native checkpoints exceed that envelope, admit immutable
+object storage explicitly with verified publication, atomic reference attachment
+and orphan cleanup. No automatic database/object-store fallback is selected.
+
+Task recovery resumes the native checkpoint with stable child-occurrence keys.
+Medusa owns step/compensation retry decisions; Trigger owns task-attempt and
+dispatch recovery. Map each failure to exactly one policy/budget. Cancellation
+stops ordinary business execution while explicitly admitted compensation/event
+cleanup uses fresh fenced control authority and bounded retries. Exhausted
+cleanup remains visibly unresolved, never successful cancellation by omission.
 
 For task requests originating in business transactions:
 
@@ -399,8 +449,9 @@ For task requests originating in business transactions:
 - a replay must retain the intended immutable definition and authorization;
 - separate framework calls retain their own transaction boundaries.
 
-Use task creation enlisted in the same trusted settlement where proved, or
-record an outbox intent atomically and create the run idempotently. A plain
+The default is durable task intent through the existing business publication/
+outbox owner and idempotent run creation. Direct enlisted creation is admitted
+only where common trusted settlement and placement are proved. A plain
 after-commit callback leaves a crash gap. Cross-database placement requires a
 durable handoff, not an implied distributed transaction.
 
@@ -414,6 +465,14 @@ extend the shared publication capability rather than creating a separate outbox
 per framework.
 
 ## Source And Package Admission
+
+Use one private maintained fork package, `@flarex/trigger-run-engine`, preserving
+recognizable upstream system/method paths. Keep adapted RunStore, record and
+coordination contracts with that fork initially; split only for a real dependency
+need. `@flarex/durable-task` can retain required Flarex integration contracts and
+depend on the fork, but must lose migrated lifecycle/retry algorithms. The fork
+must not depend on persistence or framework/runtime hosts. This package decision
+does not itself admit an executable workspace dependency.
 
 Start from the connected run-engine systems, their existing store/resolver
 contracts and required core types/tests. Package-by-package adoption must follow
@@ -470,7 +529,10 @@ pending delivery/cancellation, repair cursors and R2 input/result/principal
 references. Existence of a codec alone does not establish a shipped obligation;
 absence of production activation does not prove all persistent data is disposable.
 
-Use an explicit migration or owner-approved reset. Temporary retention requires
+Prefer explicit reset for confirmed disposable development environments; migrate
+actual surviving data and obligations. An environment inventory and approval of
+its exact disposition are required before reset or deletion; this design approves
+no specific destructive operation. Temporary retention requires
 a named consumer and removal gate. Do not introduce production dual execution,
 dual writes or fallback to the old engine. Differential execution belongs in
 isolated tests. Completion means one lifecycle authority and accounted-for data.
@@ -536,13 +598,14 @@ justify preserving an old engine for hypothetical compatibility.
 
 ## Recommended Implementation Sequence
 
-### 1. Agree The Connected Fork And Core Contract
+### 1. Close Admission Evidence For The Accepted Contract
 
 Use the [focused replacement preflight](../roadmaps/durable-task-engine/preflight/72-shared-trigger-engine-replacement.md)
-for the proposed lifecycle source closure, store/read operations, logical
+for the accepted lifecycle source scope, store/read operations, logical
 definitions/indexes, transaction/claim semantics, trusted-workflow contract,
-deliberate upstream differences and retirement plan. Resolve its open admission
-decisions before implementation. Reconcile old source-admission policy and
+deliberate upstream differences and retirement plan. Complete its open proofs
+and concrete data dispositions before cutover, and obtain implementation
+authorization before code changes. Reconcile old source-admission policy and
 package guards, required core corrections and active ownership. Do not make a
 helper-only extraction or a general Prisma emulator the first deliverable.
 
@@ -597,11 +660,13 @@ validation, review, cleanup and one scoped commit under repository policy.
 - Reconcile the owning roadmaps when durable domain truth changes. Complete
   consumer/data disposition and remove displaced code, dependencies and tests.
 
-Outstanding design questions are the exact store query contract, system logical
-schema admission, claim/reservation primitives, transaction visibility required
-by waitpoints, attempt-start ownership, task-intent publication and migration of
-existing durable identities. Resolve them with the first connected proof rather
-than assuming the current logical CRUD interface already supplies them.
+The architecture choices above are accepted; their proofs remain open. These
+include exact source/query closure and numeric limits, the physical lock graph,
+private schema access, fresh-statement visibility, atomic claim/start receipts,
+checkpoint envelope/retention, native failure-budget mapping, durable intent
+delivery and each environment's data disposition. The preflight names their
+owners and witnesses. Current logical CRUD does not establish those guarantees,
+and design acceptance does not authorize implementation or activation.
 
 The desired endpoint is a maintained Trigger implementation operating through
 Flarex-owned logical persistence and execution, with Application, Payload and

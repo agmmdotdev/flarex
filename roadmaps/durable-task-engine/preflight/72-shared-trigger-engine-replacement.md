@@ -2,7 +2,7 @@
 
 ## Status And Scope
 
-Status: **proposed focused contract, prepared for design review; implementation
+Status: **accepted design/admission decisions; proof gates open; implementation
 not authorized**. This preflight turns the
 [selected replacement direction](../../../design-notes/flarexdb-shared-task-system.md)
 into a connected source, storage, consumer and retirement plan. It records no
@@ -26,9 +26,10 @@ guard, schema or data change follows from preparing these documents.
 The [accepted database design](../../../design-notes/flarex-db-accepted-design.md),
 [shared logical storage](../../../design-notes/flarexdb-shared-logical-storage.md)
 and [package boundaries](../../16-package-boundaries.md) govern authority and
-placement. The replacement design owns the selected destination; this preflight
-proposes its implementation contract. Existing DTE records remain evidence for
-the custom baseline. Their inactive-only source policy must be reconciled in an
+placement. The replacement design owns the accepted architectural decisions;
+this preflight records their contract and remaining proof gates. Existing DTE
+records remain evidence for the custom baseline. Their inactive-only source
+policy must be reconciled in an
 approved admission, not bypassed by this document.
 
 The frozen [Trigger source pin](../../../third_party/trigger.dev/SOURCE.json)
@@ -65,8 +66,9 @@ does not establish business-to-Task atomic enqueue.
 The working tree contains continuation work in the custom lifecycle, model,
 schema and persistence projection, plus proposed files
 `packages/durable-task/src/runAttempt/WorkflowContinuation.ts`,
-`packages/persistence-postgres/src/tasks/trustedWorkflowCheckpoint.ts` and
-`trustedWorkflowCheckpointSchema.ts`. It also contains native orchestration
+`packages/persistence-postgres/src/tasks/trustedWorkflowCheckpoint.ts`,
+`trustedWorkflowCheckpointSchema.ts`, `trustedWorkflowContinuationStore.ts` and
+`trustedWorkflowCallback.ts`. It also contains native orchestration
 promotion under `packages/medusa-orchestration/` and
 `packages/medusa-workflows-sdk/src/durable/`, with native-runtime and continuation
 tests. These paths are an overlap inventory, not an admission or validation
@@ -75,21 +77,26 @@ already contain.
 
 Observed work adds `continuation_waiting`/`continuation_ready`, checkpoint
 revision/digest references, registration/resolution receipts, confirmation,
-timeout, cancellation and control-mode resume. The workflow owner must establish
+timeout, cancellation and control-mode resume. The pending continuation store
+borrows the existing Task transaction to couple checkpoint persistence and
+suspension, while still calling custom lifecycle decisions. That is useful
+atomicity structure, not a validated retained-engine replacement.
+The workflow owner must establish
 which behavior lands and which remains proposed before Gate 1. Refresh the
 inventory rather than treating file presence or a test name as completion.
 Preserve landed native business semantics, and replace duplicate shared task
 decisions in the same consumer cutover. This planning change neither interrupts
 nor absorbs another owner's uncommitted implementation.
 
-## Proposed Fork And Package Boundary
+## Accepted Fork And Package Boundary
 
-Use one private maintained fork package, provisionally
+Use one private maintained fork package,
 `@flarex/trigger-run-engine`, for the connected retained implementation. Preserve
 recognizable upstream engine/system paths and a file/method/test source map.
 Keep its adapted `RunStore`, record types and coordination contracts with that
 fork initially; split a contract package only for an actual dependency need.
-The package name is a proposal, not an admitted workspace entry.
+The package identity is selected; creating its workspace entry and admitting
+its executable dependency graph remain gated implementation work.
 
 `@flarex/durable-task` may retain necessary host-neutral Flarex admission and
 integration contracts and depend on the fork. It must lose migrated lifecycle
@@ -108,9 +115,11 @@ core code belongs in the recorded fork closure, with its source and license.
 
 ### Connected Source Closure
 
-All paths in this table are relative to the pinned
+Engine paths in this table refer to the pinned
 [`run-engine/src`](../../../third_party/trigger.dev/upstream/internal-packages/run-engine/src)
-directory. Follow transitive calls and types before promoting the selected
+directory; `systems/` and `controlPlaneResolver.ts` are under its `engine/`
+subdirectory. The store path is relative to the upstream root. Follow transitive
+calls and types before promoting the selected
 methods; the table is not permission to stub reachable behavior.
 
 | Retained source/method | Required adaptation and proof |
@@ -129,12 +138,18 @@ points. Fairness algorithms may be retained with replacement snapshot inputs
 when admitted; a bounded single-queue proof does not establish fair-queue,
 batch, arbitrary concurrency-key or product parity.
 
-## Proposed Semantic Store And Transaction Contract
+## Accepted Semantic Store And Transaction Contract
 
 Retain useful upstream operation names/results, narrowed to actual call shapes.
 Replace Prisma `where/select/include` and generated payloads with finite typed
 queries and domain records. Do not build a general Prisma emulator or retain
 the old aggregate as an artificial compatibility format.
+
+Indexed discovery returns bounded pages and resumable progress. Budget exhaustion
+must retain enough durable work/progress for another pass; it cannot silently
+omit affected runs. Derive concrete query shapes and numeric limits from the
+retained call graph and existing core limits, then prove their bounds. Arbitrary
+Prisma queries and speculative broad limits are not admitted.
 
 The outer Task transaction runner acquires an authenticated scope/placement and
 bounded database resource. It lends an opaque transaction-bound store to trusted
@@ -146,19 +161,34 @@ admitted database work; remote effects and execution happen after settlement.
 | Operation family | Required atomic unit and result |
 | --- | --- |
 | Create/replay | Request-key exclusion, immutable binding/input/principal comparison, run plus required associated waitpoint and initial due intent; return the original run or an explicit conflict. |
-| Discover/claim | Bounded indexed selection is advisory; recheck eligibility, scope and capacity in the accepting transaction. Reserve capacity and execution ownership with conditional writes/fences. |
-| Start | Advance attempt identity/ordinal, create the executing snapshot and lease, and record required heartbeat/dispatch evidence together. |
+| Discover/claim | Bounded indexed selection is advisory; recheck eligibility, scope and capacity in the accepting transaction. Reserve capacity and fenced dispatch ownership with conditional writes and durable dispatch intent; this does not authorize handler execution. |
+| Start | Validate the current dispatch reservation, advance attempt identity/ordinal, create the executing snapshot and lease, and record a stable start receipt and required heartbeat evidence together. Only this acceptance authorizes handler execution. |
 | Heartbeat/expiry | Check live attempt/snapshot/fence and database time; renew or expire atomically. A stale callback cannot renew a newer attempt. |
 | Complete/retry/cancel | Update run, attempt and snapshot; release/retain reservations according to admitted policy; publish ordered durable effects and stable replay evidence together. |
 | Block/resolve/resume | Couple checkpoint reference, wait identity and blocked state; serialize confirmation/timeout/cancellation; publish one winning resume intent and revalidate on claim. |
 | Inspect/history/result | Scope-bound bounded reads over the authoritative representation, preserving intended result/reference, cancellation and history contracts. |
 
-Preserve existing scope/clock, run, then child-effect lock order where those
-owners compose. Before adding queue/reservation/waitpoint locks, define one
-compatible total order covering every operation and deterministic ordering for
-multiple runs/keys. A claim must never lock queue then run while completion
-locks run then queue. The exact multi-entity order is an admission blocker until
-the concrete query closure is selected and competing-operation witnesses pass.
+Use per-run serialization with the selected domain order:
+
+```text
+core authority/admission -> run -> waitpoint/checkpoint
+  -> queue reservations -> child-effect records
+```
+
+Sort multiple identities within a class consistently and acquire all required
+run locks before shared-resource locks. Preserve the existing scope/run/effect
+relationship where those owners compose. This domain order is accepted; the
+complete physical order remains a proof gate covering core index, uniqueness,
+relation and publication locks, foreign-key checks and lock upgrades. Reuse the
+core owner's discipline. A new scope-wide exclusive lock is not a substitute
+for that proof, and a claim cannot lock queue then run while completion locks
+run then queue.
+
+For a shared waitpoint, commit the winning resolution and durable continuation
+work, then process affected runs in bounded transactions. Retain Trigger's
+completion-to-continuation flow rather than locking every dependent run in one
+transaction. Prove that concurrent edge insertion/blocking, bounded discovery,
+crashes and duplicate continuation cannot strand work or resume it twice.
 
 Use a trusted short READ COMMITTED Task profile for retained methods requiring
 fresh statement visibility. This does not replace Application OCC or select a
@@ -180,10 +210,14 @@ method with new identities or repeat an external effect blindly.
 2. Replace Redis nack-before-run-update in `tryNackAndRequeue` with one accepting
    transition plus durable delivery. Route `attemptFailed` through its borrowed
    store rather than a root client.
-3. Resolve Flarex's pre-dispatch attempt grant against Trigger's runner-start
-   model. Proposed split: claim reserves fenced dispatch ownership; the retained
-   start method alone accepts execution. Map existing grant/callback evidence
-   explicitly and prove lost dispatch/start responses before choosing this split.
+3. Claim reserves capacity and fenced dispatch ownership; the retained start
+   method alone accepts execution before handler code runs. Adapt Flarex's
+   current pre-dispatch execution grant and callback evidence to this split.
+   Duplicate delivery recovers the same reservation/start receipt; takeover
+   rejects obsolete dispatch identities. Resolve lost start responses by durable
+   acceptance lookup, not another attempt allocation. Keep transport/dispatch
+   retry accounting distinct from business attempt accounting; prove exact
+   limits and transitions before admission.
 4. Preserve the distinction between queue permit release and actual process
    termination. Cancellation delivery and cleanup remain runtime-owned; a permit
    release does not prove the process stopped or authorize stale writes.
@@ -192,7 +226,7 @@ method with new identities or repeat an external effect blindly.
 
 ## Reserved Logical Records And Core Admission
 
-The proposed minimum model has immutable definition bindings, runs, attempts,
+The selected record responsibilities are immutable definition bindings, runs, attempts,
 execution snapshots, creation/completion/resolution receipts, due work,
 reservations and durable requested effects. Add waitpoints and run-wait edges
 where required by the retained closure. Trusted workflow checkpoints retain
@@ -202,10 +236,17 @@ tables or force every record into the old aggregate JSON.
 Required access paths include scoped request-key uniqueness, run identity,
 run/attempt ordinal and fence uniqueness, ordered snapshot/effect sequences,
 bounded due ordering, reservation ownership, waitpoint-to-run reverse traversal
-and checkpoint revision comparison. System schema installation and readiness
-use shared logical machinery; ordinary `ctx.db`, Payload or Medusa repositories
-cannot write these records. Select concrete keys, limits, indexes and private
-write authority before implementing a store method.
+and checkpoint revision comparison. The platform installs private Task schemas
+through shared logical installation/readiness machinery independently of framework
+configuration. Lifecycle write capabilities remain with the engine/store;
+ordinary `ctx.db`, Payload or Medusa repositories cannot write these records.
+Reserved naming alone is insufficient: prove private read/write policy on every
+application-visible access path, including logical storage APIs.
+
+Initially co-locate each run and its required transactional records within its
+authenticated scope/placement. Cross-partition waits/dependencies require a
+separately proved durable protocol. Select concrete keys, limits, indexes and
+private write capability construction before implementing a store method.
 
 Core admission must establish conditional claims/reservations, atomic multi-row
 publication, required fresh-read visibility and private system-schema access.
@@ -214,14 +255,23 @@ witness and explicit correction scope. No adapter raw SQL, unbounded scan,
 local uniqueness map, extra settlement path or fallback engine may compensate.
 Existing physical Task SQL is migration evidence, not a logical-store shortcut.
 
-Checkpoint bytes are framework state rather than task output. The pending code
-proposes bounded database bytes and revision/digest descriptors. Decide whether
-that representation meets logical-row and retention bounds or needs immutable
-object storage before admission. If bodies live outside the accepting database
-transaction, publish only a verified durable reference, account for orphan
-cleanup, and atomically bind that reference to the blocked run. Do not infer an
-R2 requirement from ordinary task input/output policy or claim external bytes
-are part of a SQL transaction.
+Checkpoint bytes are framework state rather than task output. The accepted first
+storage profile is bounded Postgres-backed logical records, settling checkpoint
+revision/digest and blocked state together. Preserve the useful atomicity in the
+pending borrowed checkpoint/continuation transaction while replacing its custom
+lifecycle decisions and physical representation.
+
+Measure the complete encoded record, including metadata, against the admitted
+core envelope and retention policy. The pending payload cap is 1 MiB and the
+current Application document semantic limit is also 1 MiB; equality of those
+numbers does not prove the eventual logical Task record fits. Establish the
+actual Task profile's encoding and bounds. Do not silently enlarge core limits,
+truncate a checkpoint or reduce an already supported payload contract.
+
+If required native checkpoints exceed the proved envelope, immutable object
+storage requires an explicit additional admission: verified publication, atomic
+reference attachment, recovery and orphan cleanup. Automatic database/object
+fallback is excluded. External bytes are never part of the SQL transaction.
 
 ## Trusted Workflow And Framework Contract
 
@@ -236,9 +286,17 @@ compensation and grouped-event decisions. Trigger owns admitted run attempts,
 queue policy and waitpoint blocking/unblocking. Flarex supplies durable storage,
 publication, authenticated resolution and execution authority. Task attempt
 recovery must resume the native checkpoint; it must not restart already committed
-business work with fresh occurrence keys. Specify which failures consume an
-engine attempt, a native step retry or a compensation retry, including control
-attempts after cancellation, before connecting the interpreter.
+business work with fresh occurrence keys.
+
+| Decision | Accepted owner | Remaining proof |
+| --- | --- | --- |
+| Execution loss, dispatch recovery and task-attempt policy | Retained Trigger engine | Exact failure classification and dispatch/attempt counters; a transport redelivery does not allocate a new business attempt. |
+| Native step retries and compensation retries | Medusa interpreter | Preserve native retry eligibility, limits and checkpointed outcomes without multiplied retries from the outer task. |
+| Durable resolution, fencing, receipts and wake delivery | Flarex persistence/execution owners | Atomic/idempotent transitions, stale-authority rejection and fresh-host recovery. |
+
+Map each concrete failure to one responsible policy and budget before connecting
+the interpreter. Task recovery resumes the checkpoint and reuses child-occurrence
+identities; it does not reset native retry budgets or committed outcomes.
 
 For the inline import, preserve the native race recorded by its owner: timeout
 is eligible at `now > startedAt + timeout`; confirmation can win until an actual
@@ -247,7 +305,11 @@ supplies that decision under authenticated authority. A shared waitpoint records
 one resolution and one resumable state; it must not add an independent stricter
 confirmation deadline. Ordinary cancellation cannot erase required compensation
 or event-clear work; any admitted control resume is fenced from ordinary business
-execution and has explicit retry limits.
+execution and has explicit retry limits. Cancellation stops ordinary business
+execution while explicitly admitted compensation/event cleanup uses fresh
+fenced control authority. Exhausted cleanup remains visibly unresolved; it must
+not be reported as successful cancellation. Preserve that distinction in stored
+outcomes and read APIs, not only logs.
 
 Checkpoint acceptance and blocking must be atomic. Resolution must be idempotent
 across lost replies, reject a mismatched wait/binding, and survive a crash before
@@ -275,7 +337,7 @@ workflow through the same retained engine before claiming the shared primitive.
 
 ### Reliable Business-To-Task Enqueue
 
-Prefer task intent in the business operation's existing atomic publication,
+The default is task intent in the business operation's existing atomic publication,
 followed by idempotent run creation with pinned definition/principal evidence.
 Direct enlisted creation is permissible only if the same trusted settlement and
 storage placement are proved. Cross-database placement requires durable handoff.
@@ -295,8 +357,11 @@ inventory; an Application-only cutover cannot establish shared-engine completion
 Account for run/attempt IDs, definition generations, request keys, fences,
 completion and resolution receipts, pending retry/dispatch/cancellation work,
 repair cursors, principal/input/result references, child outcomes, event groups,
-and any landed waits/checkpoints. Choose an approved migration or explicit
-environment reset. Never infer that production-inert code has no durable data.
+and any landed waits/checkpoints. Prefer explicit reset for confirmed disposable
+development environments, and migrate actual surviving records/obligations.
+Inventory each environment and approve its exact reset or migration disposition
+before any destructive operation. Agreement to this policy does not approve a
+specific reset. Never infer that production-inert code has no durable data.
 Preserve external identity or supply its approved mapping; migration must not
 turn an already committed child into a new operation.
 
@@ -313,7 +378,7 @@ owners merely because their task policies are replaced.
 
 | Gate | Exit criteria |
 | --- | --- |
-| 1. Admission and overlap | Implementation is explicitly authorized. Reconcile landed trusted-workflow work, exact source closure/package identity, data disposition, private schema authority, multi-entity lock order, claim/start semantics, checkpoint representation and framework retry ownership. Record any approved core correction scope; preserve unsupported gates. |
+| 1. Authorization and concrete admission | Design choices are accepted; obtain implementation authorization before code changes. Refresh landed trusted-workflow work and close the concrete source/query closure, physical lock graph, private schema contract, claim/start receipt mapping, checkpoint envelope/retention, failure-budget mapping and environment disposition. Record authorized core correction scope; preserve unsupported gates. |
 | 2. Retained lifecycle proof | Execute actual retained Trigger creation/enqueue/claim/start/heartbeat/complete/retry/cancel methods through real Flarex logical storage and existing runtime owners. Prove atomic effects, races, stale callbacks and fresh-host recovery on both database lanes. No helper-only or custom-decider proxy counts. |
 | 3. Trusted workflow proof | Execute the admitted native interpreter with atomic checkpoint/block, winning resolution, fresh resume, fenced commerce child, exact replay and native compensation/event decisions. Include every landed continuation behavior required by migrating consumers. |
 | 4. Shared producers and handoff | Real Application, Payload and Medusa producers use the same engine. Prove native contexts, scope isolation, binding/principal stability and atomic business intent/recoverable enqueue. Unsupported framework features fail closed. |
@@ -322,7 +387,8 @@ owners merely because their task policies are replaced.
 Gates are dependency order, not permission to leave a consumer half migrated.
 An isolated proof can precede cutover, but each activated replacement includes
 its consumers, regression coverage and removal obligations. No gate above has
-passed for this retained-engine replacement.
+passed for this retained-engine replacement. Acceptance of the design choices
+does not mark a runtime, database or migration proof complete.
 
 ### Required Witnesses And Validation Owners
 
@@ -345,7 +411,7 @@ both required read-only project reviewers for significant implementation.
 Stop owned test databases, Workers and temporary runtimes. Git owns validation
 receipts; this document owns the gates, not a test log.
 
-## Convex Compatibility And Remaining Decisions
+## Convex Compatibility And Remaining Proof Gates
 
 The local Convex scheduling model in
 [`crates/model/src/scheduled_jobs/mod.rs`](../../../../../crates/model/src/scheduled_jobs/mod.rs)
@@ -356,9 +422,21 @@ native framework workflows and Flarex's partitioned Postgres/Cloudflare executio
 are deliberate additional profiles; they do not imply full Trigger or Convex
 scheduler compatibility. Backend analysis and managed artifacts remain private.
 
-The concrete lock order, admitted query shapes/limits, private logical schema
-installation, claim-versus-start evidence mapping, checkpoint body placement,
-native retry/cancellation mapping and live-data disposition still need Gate 1
-decisions. These are bounded admission questions for the selected architecture,
-not evidence of already implemented core defects or authority to work around
-them. Implementation remains stopped at this documentation boundary.
+The architecture choices are accepted. The following evidence remains required;
+none is implied by current file presence or by accepting this preflight.
+
+| Remaining gate | Owner and decisive evidence |
+| --- | --- |
+| Source and query closure | Fork/store owners inventory every reachable method, dependency, license, result shape, indexed query and concrete limit; prove bounded discovery continues without omissions. |
+| Physical concurrency and visibility | Shared storage/transaction owners reconcile the selected domain order with all physical locks and prove competing claim/complete/cancel/waitpoint paths plus fresh READ COMMITTED statement visibility on ordinary-role Postgres. |
+| Private schema admission | Shared schema/storage owners prove platform installation/readiness, inaccessible ordinary writes, authorized reads and scope/placement isolation for all Task record access paths. |
+| Claim/start mapping | Engine/runtime owners prove one accepted execution before handler code, stable reservation/start replay, stale takeover rejection, lost responses and independent dispatch/business retry accounting. |
+| Checkpoint envelope and retention | Workflow/storage owners measure real native serialized checkpoints plus encoding/metadata, prove atomic save/block, CAS/replay and retention. Larger required bodies trigger explicit object-storage admission. |
+| Native failure and cancellation mapping | Workflow/engine owners specify exact errors, budgets, control authority and observable unresolved cleanup; prove native timeout races, checkpoint resume, child replay and compensation/event failures. |
+| Durable enqueue | Business publication/Task owners prove rollback exclusion, committed intent after crash, duplicate delivery and binding/input conflict. Direct enlisted creation needs common settlement/placement evidence. |
+| Environment and removal disposition | Task/data owners inventory real records and approve each reset/migration; prove identity/outcome preservation and removal of displaced executable paths without fallback. |
+
+These are proofs and concrete dispositions for the accepted architecture, not
+authority to work around a shared-owner gap. Runtime proofs follow implementation
+authorization; they are not claimed by this documentation change. Implementation
+remains stopped at this documentation boundary.
