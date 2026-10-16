@@ -50,7 +50,8 @@ import {
 } from "../application/applicationNativeMutationTestFixture";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistencePair,
+  rollbackAndReleasePostgresClient,
+  useFileScopedPostgresPersistence,
 } from "../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
@@ -71,10 +72,13 @@ const SETTLED_DEADLINE_POLICY = Object.freeze({
 
 describePostgres(
   "DTE06-F0b Task external-effect lease lock race on PostgreSQL",
-  { timeout: 180_000 },
+  { timeout: 180_000, concurrent: false },
   () => {
+    const withControl = useFileScopedPostgresPersistence();
+    const withTarget = useFileScopedPostgresPersistence();
+
     it("rejects a transaction that began before expiry but acquired the run lock after expiry", async () => {
-      await withTemporaryPostgresPersistencePair(async (control, target) => {
+      await withControl(control => withTarget(async target => {
         const setup = await makeExecutingApplicationTask(control, target);
         const leaseRows = await target.query<{ expires_at_ms: string }>(
           `select current_lease_expires_at_ms::text as expires_at_ms
@@ -87,7 +91,7 @@ describePostgres(
 
         const blocker = await target.pool.connect();
         let blockerReleased = false;
-        let operation: Promise<unknown> | undefined;
+        let operationSettled: Promise<unknown> | undefined;
         try {
           await blocker.query("begin");
           await blocker.query(
@@ -103,7 +107,7 @@ describePostgres(
             throw new Error("Expected the blocker backend PID.");
           }
 
-          operation = runEffectFailure(prepareTaskChildMutationEffect(
+          const operation = runEffectFailure(prepareTaskChildMutationEffect(
             setup.subject,
             Object.freeze({
               effectOrdinal: 1n,
@@ -113,6 +117,7 @@ describePostgres(
             }),
             setup.context,
           ));
+          operationSettled = Promise.allSettled([operation]);
           const transactionStartedAtMs = await waitForBlockedRunLock(
             target,
             blockerPid,
@@ -135,17 +140,17 @@ describePostgres(
           );
           expect(evidenceRows.rows[0]?.count).toBe("0");
         } finally {
-          if (!blockerReleased) {
-            await blocker.query("rollback").catch(() => undefined);
-            blocker.release();
+          try {
+            if (!blockerReleased) await rollbackAndReleasePostgresClient(blocker);
+          } finally {
+            await operationSettled;
           }
-          if (operation !== undefined) await operation;
         }
-      });
+      }));
     });
 
     it("settles a server lock timeout, releases the client, and safely reuses the bounded pool", async () => {
-      await withTemporaryPostgresPersistencePair(async (control, target) => {
+      await withControl(control => withTarget(async target => {
         const setup = await makeExecutingApplicationTask(control, target);
         const resource = Result.getOrThrow(
           createPostgresTaskExternalEffectAuthorityResource(
@@ -158,26 +163,50 @@ describePostgres(
             SETTLED_DEADLINE_POLICY,
           ),
         );
-        const context = Object.freeze({
-          ...setup.context,
-          target: resource.target,
-        });
-        const subject = await runEffect(
-          issueApplicationTaskExternalEffectSubject(setup.dispatch, context),
-        );
-        const blocker = await target.pool.connect();
-        let blockerReleased = false;
         try {
-          await blocker.query("begin");
-          await blocker.query(
-            `select 1 from fx_system_durable_task_run_v1
-              where scope_id = $1 and run_id = $2 for update`,
-            [context.authority.scopeId, setup.dispatch.identity.runId],
+          const context = Object.freeze({
+            ...setup.context,
+            target: resource.target,
+          });
+          const subject = await runEffect(
+            issueApplicationTaskExternalEffectSubject(setup.dispatch, context),
           );
+          const blocker = await target.pool.connect();
+          let blockerReleased = false;
+          try {
+            await blocker.query("begin");
+            await blocker.query(
+              `select 1 from fx_system_durable_task_run_v1
+              where scope_id = $1 and run_id = $2 for update`,
+              [context.authority.scopeId, setup.dispatch.identity.runId],
+            );
 
-          const startedAt = performance.now();
-          const failure = await runEffectFailure(
-            prepareTaskChildMutationEffect(
+            const startedAt = performance.now();
+            const failure = await runEffectFailure(
+              prepareTaskChildMutationEffect(
+                subject,
+                Object.freeze({
+                  effectOrdinal: 1n,
+                  requestIdentitySha256: digest(0xc1),
+                  functionPath: "users:write",
+                  argumentsSha256: digest(0xc2),
+                }),
+                context,
+              ),
+            );
+            expect(performance.now() - startedAt).toBeLessThan(
+              SETTLED_DEADLINE_POLICY.settlementReserveMilliseconds,
+            );
+            expect(postgresCode(failure)).toBe("55P03");
+            expect(resource.pool.waitingCount).toBe(0);
+            expect(resource.pool.totalCount).toBe(1);
+            expect(resource.pool.idleCount).toBe(1);
+
+            await blocker.query("rollback");
+            blocker.release();
+            blockerReleased = true;
+
+            await expect(runEffect(prepareTaskChildMutationEffect(
               subject,
               Object.freeze({
                 effectOrdinal: 1n,
@@ -186,44 +215,20 @@ describePostgres(
                 argumentsSha256: digest(0xc2),
               }),
               context,
-            ),
-          );
-          expect(performance.now() - startedAt).toBeLessThan(
-            SETTLED_DEADLINE_POLICY.settlementReserveMilliseconds,
-          );
-          expect(postgresCode(failure)).toBe("55P03");
-          expect(resource.pool.waitingCount).toBe(0);
-          expect(resource.pool.totalCount).toBe(1);
-          expect(resource.pool.idleCount).toBe(1);
-
-          await blocker.query("rollback");
-          blocker.release();
-          blockerReleased = true;
-
-          await expect(runEffect(prepareTaskChildMutationEffect(
-            subject,
-            Object.freeze({
-              effectOrdinal: 1n,
-              requestIdentitySha256: digest(0xc1),
-              functionPath: "users:write",
-              argumentsSha256: digest(0xc2),
-            }),
-            context,
-          ))).resolves.toMatchObject({
-            disposition: "applied",
-            effect: { state: "prepared" },
-          });
-          expect(resource.pool.waitingCount).toBe(0);
-          expect(resource.pool.totalCount).toBe(1);
-          expect(resource.pool.idleCount).toBe(1);
-        } finally {
-          if (!blockerReleased) {
-            await blocker.query("rollback").catch(() => undefined);
-            blocker.release();
+            ))).resolves.toMatchObject({
+              disposition: "applied",
+              effect: { state: "prepared" },
+            });
+            expect(resource.pool.waitingCount).toBe(0);
+            expect(resource.pool.totalCount).toBe(1);
+            expect(resource.pool.idleCount).toBe(1);
+          } finally {
+            if (!blockerReleased) await rollbackAndReleasePostgresClient(blocker);
           }
+        } finally {
           await resource.close();
         }
-      });
+      }));
     });
   },
 );

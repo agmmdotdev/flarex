@@ -7,7 +7,7 @@ import {
   type SchemaManifestJson,
 } from "flarex-protocol/schema-manifest";
 import { Cause, Effect, Exit, Fiber } from "effect";
-import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import type {
   EnsureSchemaVersionArtifactInput,
@@ -94,7 +94,7 @@ const manifestB = {
   tables: [{ name: "users", fields: { name: "string" } }],
 } satisfies SchemaManifestJson;
 
-describe("schema version artifacts", () => {
+describe("schema version artifacts", { concurrent: false }, () => {
   it("keeps computed fields out of input and registration transaction-only", () => {
     expectTypeOf<CallerComputedArtifactAccepted>().toEqualTypeOf<false>();
     expectTypeOf<PublicSchemaVersionWriter>().toEqualTypeOf<never>();
@@ -148,349 +148,6 @@ describe("schema version artifacts", () => {
     });
   });
 
-  it("persists one canonical artifact and replays reordered JSON exactly", async () => {
-    const persistence = await migratedPGlite("canonical");
-    const created = await ensure(persistence, {
-      deploymentId: "deployment_schema_canonical",
-      schemaVersionId: schemaVersionA,
-      version: version1,
-      manifest: manifestA,
-    });
-    const replay = await ensure(persistence, {
-      deploymentId: "deployment_schema_canonical",
-      schemaVersionId: schemaVersionA,
-      version: version1,
-      manifest: reorderedManifestA,
-    });
-
-    expect(created.status).toBe("created");
-    expect(created.artifact.manifestCodecVersion).toBe(1);
-    expect(created.artifact.manifestSha256).toHaveLength(32);
-    expect(replay).toEqual({
-      status: "existing",
-      artifact: created.artifact,
-    });
-    await expect(
-      getSchemaVersionArtifactById(
-        persistence.drizzle,
-        "deployment_schema_canonical",
-        schemaVersionA,
-      ),
-    ).resolves.toEqual(created.artifact);
-    await expect(
-      getSchemaVersionArtifactByVersion(
-        persistence.drizzle,
-        "deployment_schema_canonical",
-        version1,
-      ),
-    ).resolves.toEqual(created.artifact);
-    await expect(
-      getSchemaVersionArtifactById(
-        persistence.drizzle,
-        "deployment_schema_canonical",
-        schemaVersionB,
-      ),
-    ).resolves.toBeNull();
-  });
-
-  it("reads canonical numbers whose JSONB text representation expands", async () => {
-    const persistence = await migratedPGlite("jsonb_number_expansion");
-    const deploymentId = "deployment_schema_jsonb_number_expansion";
-    const created = await ensure(persistence, {
-      deploymentId,
-      schemaVersionId: schemaVersionA,
-      version: version1,
-      manifest: { literal: 1e-323 },
-    });
-    const measurement = await persistence.query<{ jsonBytes: number }>(
-      `
-        select octet_length(manifest_json::text)::int as "jsonBytes"
-        from fx_control_schema_version
-        where deployment_id = $1 and schema_version_id = $2
-      `,
-      [deploymentId, schemaVersionA],
-    );
-
-    expect(measurement.rows[0]?.jsonBytes).toBeGreaterThan(
-      created.artifact.manifestBytes.byteLength,
-    );
-    await expect(
-      getSchemaVersionArtifactById(
-        persistence.drizzle,
-        deploymentId,
-        schemaVersionA,
-      ),
-    ).resolves.toEqual(created.artifact);
-  });
-
-  it("corroborates timestamps without losing stored microseconds", async () => {
-    const persistence = await migratedPGlite("timestamp_precision");
-    const deploymentId = "deployment_schema_timestamp_precision";
-    await ensure(persistence, {
-      deploymentId,
-      schemaVersionId: schemaVersionA,
-      version: version1,
-      manifest: manifestA,
-    });
-    await persistence.query(
-      `
-        update fx_control_schema_version
-        set created_at = '2026-01-01 00:00:00.123456+00'::timestamptz
-        where deployment_id = $1 and schema_version_id = $2
-      `,
-      [deploymentId, schemaVersionA],
-    );
-
-    const read = await getSchemaVersionArtifactById(
-      persistence.drizzle,
-      deploymentId,
-      schemaVersionA,
-    );
-    expect(read?.createdAt.toISOString()).toBe("2026-01-01T00:00:00.123Z");
-    const replay = await ensure(persistence, {
-      deploymentId,
-      schemaVersionId: schemaVersionA,
-      version: version1,
-      manifest: manifestA,
-    });
-    expect(replay.status).toBe("existing");
-    expect(replay.artifact.createdAt.toISOString())
-      .toBe("2026-01-01T00:00:00.123Z");
-  });
-
-  it("maps infinite stored timestamps to typed corruption", async () => {
-    const persistence = await migratedPGlite("infinite_timestamp");
-    const deploymentId = "deployment_schema_infinite_timestamp";
-    await ensure(persistence, {
-      deploymentId,
-      schemaVersionId: schemaVersionA,
-      version: version1,
-      manifest: manifestA,
-    });
-    const digest = vi.spyOn(crypto.subtle, "digest");
-    try {
-      for (const timestamp of ["infinity", "-infinity"] as const) {
-        await persistence.query(
-          `
-            update fx_control_schema_version
-            set created_at = $3::timestamptz
-            where deployment_id = $1 and schema_version_id = $2
-          `,
-          [deploymentId, schemaVersionA, timestamp],
-        );
-        const failure = await runEffectFailure(
-          getSchemaVersionArtifactByIdEffect(
-            persistence.drizzle,
-            deploymentId,
-            schemaVersionA,
-          ),
-        );
-        expect(failure).toMatchObject({
-          _tag: "SchemaVersionArtifactCorruptionError",
-          detail: "creation timestamp is invalid",
-        });
-        await expect(persistence.query("select 1 as ok"))
-          .resolves.toMatchObject({ rows: [{ ok: 1 }] });
-      }
-      expect(digest).not.toHaveBeenCalled();
-    } finally {
-      digest.mockRestore();
-    }
-  });
-
-  it("maps finite-to-infinite timestamp drift to typed corruption", async () => {
-    const persistence = await migratedPGlite("timestamp_drift_infinite");
-    const deploymentId = "deployment_schema_timestamp_drift_infinite";
-    await ensure(persistence, {
-      deploymentId,
-      schemaVersionId: schemaVersionA,
-      version: version1,
-      manifest: manifestA,
-    });
-    const driftingDatabase = beforeSelectedQuery(
-      persistence.drizzle,
-      2,
-      async () => {
-        await persistence.query(
-          `
-            update fx_control_schema_version
-            set created_at = 'infinity'::timestamptz
-            where deployment_id = $1 and schema_version_id = $2
-          `,
-          [deploymentId, schemaVersionA],
-        );
-      },
-    );
-
-    const failure = await runEffectFailure(
-      getSchemaVersionArtifactByIdEffect(
-        driftingDatabase,
-        deploymentId,
-        schemaVersionA,
-      ),
-    );
-    expect(failure).toMatchObject({
-      _tag: "SchemaVersionArtifactCorruptionError",
-      detail:
-        "stored manifest JSON or immutable evidence changed during verification",
-    });
-    await expect(persistence.query("select 1 as ok"))
-      .resolves.toMatchObject({ rows: [{ ok: 1 }] });
-  });
-
-  it("rejects ID, version, and immutable-artifact reuse independently", async () => {
-    const persistence = await migratedPGlite("conflict");
-    await ensure(persistence, {
-      deploymentId: "deployment_schema_conflict",
-      schemaVersionId: schemaVersionA,
-      version: version1,
-      manifest: manifestA,
-    });
-
-    await expect(
-      ensure(persistence, {
-        deploymentId: "deployment_schema_conflict",
-        schemaVersionId: schemaVersionA,
-        version: version2,
-        manifest: manifestA,
-      }),
-    ).rejects.toMatchObject({
-      name: "SchemaVersionArtifactConflictError",
-      conflict: { reason: "schemaVersionIdReused" },
-    });
-    await expect(
-      ensure(persistence, {
-        deploymentId: "deployment_schema_conflict",
-        schemaVersionId: schemaVersionB,
-        version: version1,
-        manifest: manifestA,
-      }),
-    ).rejects.toMatchObject({
-      name: "SchemaVersionArtifactConflictError",
-      conflict: { reason: "versionReused" },
-    });
-    await expect(
-      ensure(persistence, {
-        deploymentId: "deployment_schema_conflict",
-        schemaVersionId: schemaVersionA,
-        version: version1,
-        manifest: manifestB,
-      }),
-    ).rejects.toMatchObject({
-      name: "SchemaVersionArtifactConflictError",
-      conflict: { reason: "artifactMismatch" },
-    });
-
-    const repeatedContent = await ensure(persistence, {
-      deploymentId: "deployment_schema_conflict",
-      schemaVersionId: schemaVersionB,
-      version: version2,
-      manifest: reorderedManifestA,
-    });
-    expect(repeatedContent.status).toBe("created");
-  });
-
-  it("isolates schema identities and versions by deployment", async () => {
-    const persistence = await migratedPGlite("isolated_a");
-    await persistence.insertDeploymentMetadata({
-      deploymentId: "deployment_schema_isolated_b",
-      projectId: "project_schema_isolated_b",
-    });
-    const [left, right] = await Promise.all([
-      ensure(persistence, {
-        deploymentId: "deployment_schema_isolated_a",
-        schemaVersionId: schemaVersionA,
-        version: version1,
-        manifest: manifestA,
-      }),
-      ensure(persistence, {
-        deploymentId: "deployment_schema_isolated_b",
-        schemaVersionId: schemaVersionA,
-        version: version1,
-        manifest: manifestB,
-      }),
-    ]);
-
-    expect(left.status).toBe("created");
-    expect(right.status).toBe("created");
-    expect(left.artifact.manifestSha256).not.toEqual(
-      right.artifact.manifestSha256,
-    );
-    await expect(
-      getSchemaVersionArtifactById(
-        persistence.drizzle,
-        "deployment_schema_isolated_a",
-        schemaVersionA,
-      ),
-    ).resolves.toEqual(left.artifact);
-    await expect(
-      getSchemaVersionArtifactById(
-        persistence.drizzle,
-        "deployment_schema_isolated_b",
-        schemaVersionA,
-      ),
-    ).resolves.toEqual(right.artifact);
-  });
-
-  it("fails closed for missing ownership, invalid manifests, and computed fields", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    await expect(
-      ensure(persistence, {
-        deploymentId: "missing_schema_deployment",
-        schemaVersionId: schemaVersionA,
-        version: version1,
-        manifest: manifestA,
-      }),
-    ).rejects.toBeInstanceOf(SchemaVersionArtifactDeploymentNotFoundError);
-
-    await persistence.insertDeploymentMetadata({
-      deploymentId: "deployment_schema_invalid",
-      projectId: "project_schema_invalid",
-    });
-    await expect(
-      prepareSchemaVersionArtifact({
-        deploymentId: "deployment_schema_invalid",
-        schemaVersionId: schemaVersionA,
-        version: version1,
-        // @ts-expect-error Schema manifests must be JSON objects.
-        manifest: [],
-      }),
-    ).rejects.toBeInstanceOf(InvalidSchemaVersionArtifactInputError);
-    await expect(
-      prepareSchemaVersionArtifact({
-        deploymentId: "deployment_schema_invalid",
-        schemaVersionId: schemaVersionA,
-        version: version1,
-        manifest: manifestA,
-        // @ts-expect-error Callers cannot provide a manifest digest.
-        manifestSha256: new Uint8Array(32),
-      }),
-    ).rejects.toMatchObject({
-      name: "InvalidSchemaVersionArtifactInputError",
-      field: "manifestSha256",
-    });
-    const forgedPreparedArtifact = {
-      deploymentId: "deployment_schema_invalid",
-      schemaVersionId: schemaVersionA,
-      version: version1,
-    };
-    const forgedFailure = await persistence.drizzle.transaction((tx) =>
-      runEffectFailure(
-        ensureSchemaVersionArtifactInTransactionEffect(
-          tx,
-          // @ts-expect-error Transactional insertion accepts only prepared tokens.
-          forgedPreparedArtifact,
-        ),
-      )
-    );
-    expect(forgedFailure).toBeInstanceOf(
-      InvalidPreparedSchemaVersionArtifactError,
-    );
-    expect(forgedFailure).toMatchObject({
-      _tag: "InvalidPreparedSchemaVersionArtifactError",
-    });
-  });
-
   it("preserves caller input accessor failures as defects", async () => {
     const defect = new Error("schema-version input accessor defect");
     const input = {
@@ -539,67 +196,6 @@ describe("schema version artifacts", () => {
     }
   });
 
-  it("preserves reader canonicalization rejection as a defect", async () => {
-    const persistence = await migratedPGlite("reader_canonical_failure");
-    await ensure(persistence, {
-      deploymentId: "deployment_schema_reader_canonical_failure",
-      schemaVersionId: schemaVersionA,
-      version: version1,
-      manifest: manifestA,
-    });
-    const rejection = new Error("reader canonical digest unavailable");
-    const digest = vi
-      .spyOn(crypto.subtle, "digest")
-      .mockRejectedValue(rejection);
-    try {
-      const exit = await Effect.runPromiseExit(
-        getSchemaVersionArtifactByIdEffect(
-          persistence.drizzle,
-          "deployment_schema_reader_canonical_failure",
-          schemaVersionA,
-        ),
-      );
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        expect(Cause.hasDies(exit.cause)).toBe(true);
-        expect(Cause.hasFails(exit.cause)).toBe(false);
-        expect(exit.cause.toString()).toContain(rejection.message);
-      }
-    } finally {
-      digest.mockRestore();
-    }
-  });
-
-  it("preserves an invalid Web Crypto digest result as a defect", async () => {
-    const persistence = await migratedPGlite("reader_digest_defect");
-    await ensure(persistence, {
-      deploymentId: "deployment_schema_reader_digest_defect",
-      schemaVersionId: schemaVersionA,
-      version: version1,
-      manifest: manifestA,
-    });
-    const digest = vi.spyOn(crypto.subtle, "digest").mockResolvedValue(
-      new ArrayBuffer(31),
-    );
-    try {
-      const exit = await Effect.runPromiseExit(
-        getSchemaVersionArtifactByIdEffect(
-          persistence.drizzle,
-          "deployment_schema_reader_digest_defect",
-          schemaVersionA,
-        ),
-      );
-
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        expect(Cause.hasDies(exit.cause)).toBe(true);
-        expect(Cause.hasFails(exit.cause)).toBe(false);
-      }
-    } finally {
-      digest.mockRestore();
-    }
-  });
-
   it("maps malformed canonical manifest bytes to catalog corruption", async () => {
     const deploymentId = "deployment_schema_manifest_json_corruption";
     const row = {
@@ -621,71 +217,6 @@ describe("schema version artifacts", () => {
       deploymentId,
       detail: "canonical manifest JSON is invalid",
     });
-  });
-
-  it("rejects hostile canonical bytes without poisoning PGlite", async () => {
-    const persistence = await migratedPGlite("hostile_canonical_bytes");
-    const deploymentId = "deployment_schema_hostile_canonical_bytes";
-    await ensure(persistence, {
-      deploymentId,
-      schemaVersionId: schemaVersionA,
-      version: version1,
-      manifest: manifestA,
-    });
-    const digest = vi.spyOn(crypto.subtle, "digest");
-    try {
-      await persistence.query(
-        `
-          update fx_control_schema_version
-          set manifest_bytes = $3
-          where deployment_id = $1 and schema_version_id = $2
-        `,
-        [deploymentId, schemaVersionA, new Uint8Array([0xff])],
-      );
-      const invalidUtf8 = await runEffectFailure(
-        getSchemaVersionArtifactByIdEffect(
-          persistence.drizzle,
-          deploymentId,
-          schemaVersionA,
-        ),
-      );
-      expect(invalidUtf8).toMatchObject({
-        _tag: "SchemaVersionArtifactCorruptionError",
-        detail: "canonical manifest bytes are invalid",
-      });
-      await expect(persistence.query("select 1 as ok"))
-        .resolves.toMatchObject({ rows: [{ ok: 1 }] });
-
-      const nestedManifest = new TextEncoder().encode(
-        '{"format":"flarexdb-schema-manifest","manifest":{"value":' +
-          "[".repeat(10_000) + "null" + "]".repeat(10_000) +
-          '},"manifestCodecVersion":1}',
-      );
-      await persistence.query(
-        `
-          update fx_control_schema_version
-          set manifest_bytes = $3
-          where deployment_id = $1 and schema_version_id = $2
-        `,
-        [deploymentId, schemaVersionA, nestedManifest],
-      );
-      const excessiveNesting = await runEffectFailure(
-        getSchemaVersionArtifactByIdEffect(
-          persistence.drizzle,
-          deploymentId,
-          schemaVersionA,
-        ),
-      );
-      expect(excessiveNesting).toMatchObject({
-        _tag: "SchemaVersionArtifactCorruptionError",
-        detail: "canonical manifest JSON is invalid",
-      });
-      await expect(persistence.query("select 1 as ok"))
-        .resolves.toMatchObject({ rows: [{ ok: 1 }] });
-      expect(digest).not.toHaveBeenCalled();
-    } finally {
-      digest.mockRestore();
-    }
   });
 
   it("rejects oversized manifest evidence before payload access or hashing", async () => {
@@ -725,50 +256,6 @@ describe("schema version artifacts", () => {
       digest.mockRestore();
     }
   });
-
-  it("size-gates an oversized stored payload in the SQL projection", async () => {
-    const persistence = await migratedPGlite("reader_size_gate");
-    const deploymentId = "deployment_schema_reader_size_gate";
-    await ensure(persistence, {
-      deploymentId,
-      schemaVersionId: schemaVersionA,
-      version: version1,
-      manifest: manifestA,
-    });
-    await persistence.query(
-      `
-        update fx_control_schema_version
-        set manifest_bytes = $3
-        where deployment_id = $1 and schema_version_id = $2
-      `,
-      [
-        deploymentId,
-        schemaVersionA,
-        new Uint8Array(
-          MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES + 1,
-        ),
-      ],
-    );
-    const digest = vi.spyOn(crypto.subtle, "digest");
-    try {
-      const failure = await runEffectFailure(
-        getSchemaVersionArtifactByIdEffect(
-          persistence.drizzle,
-          deploymentId,
-          schemaVersionA,
-        ),
-      );
-
-      expect(failure).toBeInstanceOf(SchemaVersionArtifactCorruptionError);
-      expect(failure).toMatchObject({
-        deploymentId,
-        detail: "manifest evidence exceeds the artifact read limit",
-      });
-      expect(digest).not.toHaveBeenCalled();
-    } finally {
-      digest.mockRestore();
-    }
-  }, 30_000);
 
   it("short-circuits malformed stored columns as typed corruption", async () => {
     const deploymentId = "deployment_schema_stored_column_corruption";
@@ -826,7 +313,8 @@ describe("schema version artifacts", () => {
   });
 
   it("maps SQL rejection at the owning artifact query boundary", async () => {
-    const persistence = await migratedPGlite("query_failure");
+    const persistence = await createMigratedPGlitePersistence();
+    await seedDeployment(persistence, "query_failure");
     const prepared = await prepareSchemaVersionArtifact({
       deploymentId: "deployment_schema_query_failure",
       schemaVersionId: schemaVersionA,
@@ -947,63 +435,585 @@ describe("schema version artifacts", () => {
     }
   });
 
-  it("rolls registration back without leaving an artifact", async () => {
-    const persistence = await migratedPGlite("rollback");
-    const prepared = await prepareSchemaVersionArtifact({
-      deploymentId: "deployment_schema_rollback",
-      schemaVersionId: schemaVersionA,
-      version: version1,
-      manifest: manifestA,
+  describe("database-backed catalog cases", { concurrent: false }, () => {
+    let persistence: PGlitePersistence;
+    let dispose: (() => Promise<void>) | undefined;
+
+    beforeAll(async () => {
+      persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
+    }, 120_000);
+
+    afterAll(async () => { await dispose?.(); }, 120_000);
+
+    it("persists one canonical artifact and replays reordered JSON exactly", async () => {
+      await seedDeployment(persistence, "canonical");
+      const created = await ensure(persistence, {
+        deploymentId: "deployment_schema_canonical",
+        schemaVersionId: schemaVersionA,
+        version: version1,
+        manifest: manifestA,
+      });
+      const replay = await ensure(persistence, {
+        deploymentId: "deployment_schema_canonical",
+        schemaVersionId: schemaVersionA,
+        version: version1,
+        manifest: reorderedManifestA,
+      });
+
+      expect(created.status).toBe("created");
+      expect(created.artifact.manifestCodecVersion).toBe(1);
+      expect(created.artifact.manifestSha256).toHaveLength(32);
+      expect(replay).toEqual({
+        status: "existing",
+        artifact: created.artifact,
+      });
+      await expect(
+        getSchemaVersionArtifactById(
+          persistence.drizzle,
+          "deployment_schema_canonical",
+          schemaVersionA,
+        ),
+      ).resolves.toEqual(created.artifact);
+      await expect(
+        getSchemaVersionArtifactByVersion(
+          persistence.drizzle,
+          "deployment_schema_canonical",
+          version1,
+        ),
+      ).resolves.toEqual(created.artifact);
+      await expect(
+        getSchemaVersionArtifactById(
+          persistence.drizzle,
+          "deployment_schema_canonical",
+          schemaVersionB,
+        ),
+      ).resolves.toBeNull();
     });
-    const rolledBackArtifacts: SchemaVersionArtifact[] = [];
-    await expect(
-      persistence.drizzle.transaction(async (tx) => {
-        const result = await ensureSchemaVersionArtifactInTransaction(
-          tx,
-          prepared,
+
+    it("reads canonical numbers whose JSONB text representation expands", async () => {
+      await seedDeployment(persistence, "jsonb_number_expansion");
+      const deploymentId = "deployment_schema_jsonb_number_expansion";
+      const created = await ensure(persistence, {
+        deploymentId,
+        schemaVersionId: schemaVersionA,
+        version: version1,
+        manifest: { literal: 1e-323 },
+      });
+      const measurement = await persistence.query<{ jsonBytes: number }>(
+        `
+        select octet_length(manifest_json::text)::int as "jsonBytes"
+        from fx_control_schema_version
+        where deployment_id = $1 and schema_version_id = $2
+      `,
+        [deploymentId, schemaVersionA],
+      );
+
+      expect(measurement.rows[0]?.jsonBytes).toBeGreaterThan(
+        created.artifact.manifestBytes.byteLength,
+      );
+      await expect(
+        getSchemaVersionArtifactById(
+          persistence.drizzle,
+          deploymentId,
+          schemaVersionA,
+        ),
+      ).resolves.toEqual(created.artifact);
+    });
+
+    it("corroborates timestamps without losing stored microseconds", async () => {
+      await seedDeployment(persistence, "timestamp_precision");
+      const deploymentId = "deployment_schema_timestamp_precision";
+      await ensure(persistence, {
+        deploymentId,
+        schemaVersionId: schemaVersionA,
+        version: version1,
+        manifest: manifestA,
+      });
+      await persistence.query(
+        `
+        update fx_control_schema_version
+        set created_at = '2026-01-01 00:00:00.123456+00'::timestamptz
+        where deployment_id = $1 and schema_version_id = $2
+      `,
+        [deploymentId, schemaVersionA],
+      );
+
+      const read = await getSchemaVersionArtifactById(
+        persistence.drizzle,
+        deploymentId,
+        schemaVersionA,
+      );
+      expect(read?.createdAt.toISOString()).toBe("2026-01-01T00:00:00.123Z");
+      const replay = await ensure(persistence, {
+        deploymentId,
+        schemaVersionId: schemaVersionA,
+        version: version1,
+        manifest: manifestA,
+      });
+      expect(replay.status).toBe("existing");
+      expect(replay.artifact.createdAt.toISOString())
+        .toBe("2026-01-01T00:00:00.123Z");
+    });
+
+    it("maps infinite stored timestamps to typed corruption", async () => {
+      await seedDeployment(persistence, "infinite_timestamp");
+      const deploymentId = "deployment_schema_infinite_timestamp";
+      await ensure(persistence, {
+        deploymentId,
+        schemaVersionId: schemaVersionA,
+        version: version1,
+        manifest: manifestA,
+      });
+      const digest = vi.spyOn(crypto.subtle, "digest");
+      try {
+        for (const timestamp of ["infinity", "-infinity"] as const) {
+          await persistence.query(
+            `
+            update fx_control_schema_version
+            set created_at = $3::timestamptz
+            where deployment_id = $1 and schema_version_id = $2
+          `,
+            [deploymentId, schemaVersionA, timestamp],
+          );
+          const failure = await runEffectFailure(
+            getSchemaVersionArtifactByIdEffect(
+              persistence.drizzle,
+              deploymentId,
+              schemaVersionA,
+            ),
+          );
+          expect(failure).toMatchObject({
+            _tag: "SchemaVersionArtifactCorruptionError",
+            detail: "creation timestamp is invalid",
+          });
+          await expect(persistence.query("select 1 as ok"))
+            .resolves.toMatchObject({ rows: [{ ok: 1 }] });
+        }
+        expect(digest).not.toHaveBeenCalled();
+      } finally {
+        digest.mockRestore();
+      }
+    });
+
+    it("maps finite-to-infinite timestamp drift to typed corruption", async () => {
+      await seedDeployment(persistence, "timestamp_drift_infinite");
+      const deploymentId = "deployment_schema_timestamp_drift_infinite";
+      await ensure(persistence, {
+        deploymentId,
+        schemaVersionId: schemaVersionA,
+        version: version1,
+        manifest: manifestA,
+      });
+      const driftingDatabase = beforeSelectedQuery(
+        persistence.drizzle,
+        2,
+        async () => {
+          await persistence.query(
+            `
+            update fx_control_schema_version
+            set created_at = 'infinity'::timestamptz
+            where deployment_id = $1 and schema_version_id = $2
+          `,
+            [deploymentId, schemaVersionA],
+          );
+        },
+      );
+
+      const failure = await runEffectFailure(
+        getSchemaVersionArtifactByIdEffect(
+          driftingDatabase,
+          deploymentId,
+          schemaVersionA,
+        ),
+      );
+      expect(failure).toMatchObject({
+        _tag: "SchemaVersionArtifactCorruptionError",
+        detail:
+          "stored manifest JSON or immutable evidence changed during verification",
+      });
+      await expect(persistence.query("select 1 as ok"))
+        .resolves.toMatchObject({ rows: [{ ok: 1 }] });
+    });
+
+    it("rejects ID, version, and immutable-artifact reuse independently", async () => {
+      await seedDeployment(persistence, "conflict");
+      await ensure(persistence, {
+        deploymentId: "deployment_schema_conflict",
+        schemaVersionId: schemaVersionA,
+        version: version1,
+        manifest: manifestA,
+      });
+
+      await expect(
+        ensure(persistence, {
+          deploymentId: "deployment_schema_conflict",
+          schemaVersionId: schemaVersionA,
+          version: version2,
+          manifest: manifestA,
+        }),
+      ).rejects.toMatchObject({
+        name: "SchemaVersionArtifactConflictError",
+        conflict: { reason: "schemaVersionIdReused" },
+      });
+      await expect(
+        ensure(persistence, {
+          deploymentId: "deployment_schema_conflict",
+          schemaVersionId: schemaVersionB,
+          version: version1,
+          manifest: manifestA,
+        }),
+      ).rejects.toMatchObject({
+        name: "SchemaVersionArtifactConflictError",
+        conflict: { reason: "versionReused" },
+      });
+      await expect(
+        ensure(persistence, {
+          deploymentId: "deployment_schema_conflict",
+          schemaVersionId: schemaVersionA,
+          version: version1,
+          manifest: manifestB,
+        }),
+      ).rejects.toMatchObject({
+        name: "SchemaVersionArtifactConflictError",
+        conflict: { reason: "artifactMismatch" },
+      });
+
+      const repeatedContent = await ensure(persistence, {
+        deploymentId: "deployment_schema_conflict",
+        schemaVersionId: schemaVersionB,
+        version: version2,
+        manifest: reorderedManifestA,
+      });
+      expect(repeatedContent.status).toBe("created");
+    });
+
+    it("isolates schema identities and versions by deployment", async () => {
+      await seedDeployment(persistence, "isolated_a");
+      await persistence.insertDeploymentMetadata({
+        deploymentId: "deployment_schema_isolated_b",
+        projectId: "project_schema_isolated_b",
+      });
+      const [left, right] = await Promise.all([
+        ensure(persistence, {
+          deploymentId: "deployment_schema_isolated_a",
+          schemaVersionId: schemaVersionA,
+          version: version1,
+          manifest: manifestA,
+        }),
+        ensure(persistence, {
+          deploymentId: "deployment_schema_isolated_b",
+          schemaVersionId: schemaVersionA,
+          version: version1,
+          manifest: manifestB,
+        }),
+      ]);
+
+      expect(left.status).toBe("created");
+      expect(right.status).toBe("created");
+      expect(left.artifact.manifestSha256).not.toEqual(
+        right.artifact.manifestSha256,
+      );
+      await expect(
+        getSchemaVersionArtifactById(
+          persistence.drizzle,
+          "deployment_schema_isolated_a",
+          schemaVersionA,
+        ),
+      ).resolves.toEqual(left.artifact);
+      await expect(
+        getSchemaVersionArtifactById(
+          persistence.drizzle,
+          "deployment_schema_isolated_b",
+          schemaVersionA,
+        ),
+      ).resolves.toEqual(right.artifact);
+    });
+
+    it("fails closed for missing ownership, invalid manifests, and computed fields", async () => {
+      await expect(
+        ensure(persistence, {
+          deploymentId: "missing_schema_deployment",
+          schemaVersionId: schemaVersionA,
+          version: version1,
+          manifest: manifestA,
+        }),
+      ).rejects.toBeInstanceOf(SchemaVersionArtifactDeploymentNotFoundError);
+
+      await persistence.insertDeploymentMetadata({
+        deploymentId: "deployment_schema_invalid",
+        projectId: "project_schema_invalid",
+      });
+      await expect(
+        prepareSchemaVersionArtifact({
+          deploymentId: "deployment_schema_invalid",
+          schemaVersionId: schemaVersionA,
+          version: version1,
+          // @ts-expect-error Schema manifests must be JSON objects.
+          manifest: [],
+        }),
+      ).rejects.toBeInstanceOf(InvalidSchemaVersionArtifactInputError);
+      await expect(
+        prepareSchemaVersionArtifact({
+          deploymentId: "deployment_schema_invalid",
+          schemaVersionId: schemaVersionA,
+          version: version1,
+          manifest: manifestA,
+          // @ts-expect-error Callers cannot provide a manifest digest.
+          manifestSha256: new Uint8Array(32),
+        }),
+      ).rejects.toMatchObject({
+        name: "InvalidSchemaVersionArtifactInputError",
+        field: "manifestSha256",
+      });
+      const forgedPreparedArtifact = {
+        deploymentId: "deployment_schema_invalid",
+        schemaVersionId: schemaVersionA,
+        version: version1,
+      };
+      const forgedFailure = await persistence.drizzle.transaction((tx) =>
+        runEffectFailure(
+          ensureSchemaVersionArtifactInTransactionEffect(
+            tx,
+            // @ts-expect-error Transactional insertion accepts only prepared tokens.
+            forgedPreparedArtifact,
+          ),
+        )
+      );
+      expect(forgedFailure).toBeInstanceOf(
+        InvalidPreparedSchemaVersionArtifactError,
+      );
+      expect(forgedFailure).toMatchObject({
+        _tag: "InvalidPreparedSchemaVersionArtifactError",
+      });
+    });
+
+    it("preserves reader canonicalization rejection as a defect", async () => {
+      await seedDeployment(persistence, "reader_canonical_failure");
+      await ensure(persistence, {
+        deploymentId: "deployment_schema_reader_canonical_failure",
+        schemaVersionId: schemaVersionA,
+        version: version1,
+        manifest: manifestA,
+      });
+      const rejection = new Error("reader canonical digest unavailable");
+      const digest = vi
+        .spyOn(crypto.subtle, "digest")
+        .mockRejectedValue(rejection);
+      try {
+        const exit = await Effect.runPromiseExit(
+          getSchemaVersionArtifactByIdEffect(
+            persistence.drizzle,
+            "deployment_schema_reader_canonical_failure",
+            schemaVersionA,
+          ),
         );
-        rolledBackArtifacts.push(result.artifact);
-        throw new Error("injected schema artifact rollback");
-      }),
-    ).rejects.toThrow("injected schema artifact rollback");
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Cause.hasDies(exit.cause)).toBe(true);
+          expect(Cause.hasFails(exit.cause)).toBe(false);
+          expect(exit.cause.toString()).toContain(rejection.message);
+        }
+      } finally {
+        digest.mockRestore();
+      }
+    });
 
-    const rolledBackArtifact = rolledBackArtifacts[0];
-    if (rolledBackArtifact === undefined) {
-      throw new Error("Rollback test did not capture the created artifact.");
-    }
-    mutateFirstByte(rolledBackArtifact.manifestBytes);
-    mutateFirstByte(rolledBackArtifact.manifestSha256);
-    await expect(
-      getSchemaVersionArtifactById(
-        persistence.drizzle,
-        "deployment_schema_rollback",
-        schemaVersionA,
-      ),
-    ).resolves.toBeNull();
+    it("preserves an invalid Web Crypto digest result as a defect", async () => {
+      await seedDeployment(persistence, "reader_digest_defect");
+      await ensure(persistence, {
+        deploymentId: "deployment_schema_reader_digest_defect",
+        schemaVersionId: schemaVersionA,
+        version: version1,
+        manifest: manifestA,
+      });
+      const digest = vi.spyOn(crypto.subtle, "digest").mockResolvedValue(
+        new ArrayBuffer(31),
+      );
+      try {
+        const exit = await Effect.runPromiseExit(
+          getSchemaVersionArtifactByIdEffect(
+            persistence.drizzle,
+            "deployment_schema_reader_digest_defect",
+            schemaVersionA,
+          ),
+        );
 
-    const retried = await persistence.drizzle.transaction((tx) =>
-      ensureSchemaVersionArtifactInTransaction(tx, prepared),
-    );
-    expect(retried.status).toBe("created");
-    mutateFirstByte(retried.artifact.manifestBytes);
-    mutateFirstByte(retried.artifact.manifestSha256);
-    const replayed = await persistence.drizzle.transaction((tx) =>
-      ensureSchemaVersionArtifactInTransaction(tx, prepared),
-    );
-    expect(replayed.status).toBe("existing");
-    await expect(
-      getSchemaVersionArtifactById(
-        persistence.drizzle,
-        "deployment_schema_rollback",
-        schemaVersionA,
-      ),
-    ).resolves.toEqual(replayed.artifact);
-  });
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Cause.hasDies(exit.cause)).toBe(true);
+          expect(Cause.hasFails(exit.cause)).toBe(false);
+        }
+      } finally {
+        digest.mockRestore();
+      }
+    });
 
-  it("enforces physical constraints and detects stored-byte drift", async () => {
-    const persistence = await migratedPGlite("constraints");
-    await expect(
-      persistence.query(`
+    it("rejects hostile canonical bytes without poisoning PGlite", async () => {
+      await seedDeployment(persistence, "hostile_canonical_bytes");
+      const deploymentId = "deployment_schema_hostile_canonical_bytes";
+      await ensure(persistence, {
+        deploymentId,
+        schemaVersionId: schemaVersionA,
+        version: version1,
+        manifest: manifestA,
+      });
+      const digest = vi.spyOn(crypto.subtle, "digest");
+      try {
+        await persistence.query(
+          `
+          update fx_control_schema_version
+          set manifest_bytes = $3
+          where deployment_id = $1 and schema_version_id = $2
+        `,
+          [deploymentId, schemaVersionA, new Uint8Array([0xff])],
+        );
+        const invalidUtf8 = await runEffectFailure(
+          getSchemaVersionArtifactByIdEffect(
+            persistence.drizzle,
+            deploymentId,
+            schemaVersionA,
+          ),
+        );
+        expect(invalidUtf8).toMatchObject({
+          _tag: "SchemaVersionArtifactCorruptionError",
+          detail: "canonical manifest bytes are invalid",
+        });
+        await expect(persistence.query("select 1 as ok"))
+          .resolves.toMatchObject({ rows: [{ ok: 1 }] });
+
+        const nestedManifest = new TextEncoder().encode(
+          '{"format":"flarexdb-schema-manifest","manifest":{"value":' +
+            "[".repeat(10_000) + "null" + "]".repeat(10_000) +
+            '},"manifestCodecVersion":1}',
+        );
+        await persistence.query(
+          `
+          update fx_control_schema_version
+          set manifest_bytes = $3
+          where deployment_id = $1 and schema_version_id = $2
+        `,
+          [deploymentId, schemaVersionA, nestedManifest],
+        );
+        const excessiveNesting = await runEffectFailure(
+          getSchemaVersionArtifactByIdEffect(
+            persistence.drizzle,
+            deploymentId,
+            schemaVersionA,
+          ),
+        );
+        expect(excessiveNesting).toMatchObject({
+          _tag: "SchemaVersionArtifactCorruptionError",
+          detail: "canonical manifest JSON is invalid",
+        });
+        await expect(persistence.query("select 1 as ok"))
+          .resolves.toMatchObject({ rows: [{ ok: 1 }] });
+        expect(digest).not.toHaveBeenCalled();
+      } finally {
+        digest.mockRestore();
+      }
+    });
+
+    it("size-gates an oversized stored payload in the SQL projection", async () => {
+      await seedDeployment(persistence, "reader_size_gate");
+      const deploymentId = "deployment_schema_reader_size_gate";
+      await ensure(persistence, {
+        deploymentId,
+        schemaVersionId: schemaVersionA,
+        version: version1,
+        manifest: manifestA,
+      });
+      await persistence.query(
+        `
+        update fx_control_schema_version
+        set manifest_bytes = $3
+        where deployment_id = $1 and schema_version_id = $2
+      `,
+        [
+          deploymentId,
+          schemaVersionA,
+          new Uint8Array(
+            MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES + 1,
+          ),
+        ],
+      );
+      const digest = vi.spyOn(crypto.subtle, "digest");
+      try {
+        const failure = await runEffectFailure(
+          getSchemaVersionArtifactByIdEffect(
+            persistence.drizzle,
+            deploymentId,
+            schemaVersionA,
+          ),
+        );
+
+        expect(failure).toBeInstanceOf(SchemaVersionArtifactCorruptionError);
+        expect(failure).toMatchObject({
+          deploymentId,
+          detail: "manifest evidence exceeds the artifact read limit",
+        });
+        expect(digest).not.toHaveBeenCalled();
+      } finally {
+        digest.mockRestore();
+      }
+    }, 30_000);
+
+    it("rolls registration back without leaving an artifact", async () => {
+      await seedDeployment(persistence, "rollback");
+      const prepared = await prepareSchemaVersionArtifact({
+        deploymentId: "deployment_schema_rollback",
+        schemaVersionId: schemaVersionA,
+        version: version1,
+        manifest: manifestA,
+      });
+      const rolledBackArtifacts: SchemaVersionArtifact[] = [];
+      await expect(
+        persistence.drizzle.transaction(async (tx) => {
+          const result = await ensureSchemaVersionArtifactInTransaction(
+            tx,
+            prepared,
+          );
+          rolledBackArtifacts.push(result.artifact);
+          throw new Error("injected schema artifact rollback");
+        }),
+      ).rejects.toThrow("injected schema artifact rollback");
+
+      const rolledBackArtifact = rolledBackArtifacts[0];
+      if (rolledBackArtifact === undefined) {
+        throw new Error("Rollback test did not capture the created artifact.");
+      }
+      mutateFirstByte(rolledBackArtifact.manifestBytes);
+      mutateFirstByte(rolledBackArtifact.manifestSha256);
+      await expect(
+        getSchemaVersionArtifactById(
+          persistence.drizzle,
+          "deployment_schema_rollback",
+          schemaVersionA,
+        ),
+      ).resolves.toBeNull();
+
+      const retried = await persistence.drizzle.transaction((tx) =>
+        ensureSchemaVersionArtifactInTransaction(tx, prepared),
+      );
+      expect(retried.status).toBe("created");
+      mutateFirstByte(retried.artifact.manifestBytes);
+      mutateFirstByte(retried.artifact.manifestSha256);
+      const replayed = await persistence.drizzle.transaction((tx) =>
+        ensureSchemaVersionArtifactInTransaction(tx, prepared),
+      );
+      expect(replayed.status).toBe("existing");
+      await expect(
+        getSchemaVersionArtifactById(
+          persistence.drizzle,
+          "deployment_schema_rollback",
+          schemaVersionA,
+        ),
+      ).resolves.toEqual(replayed.artifact);
+    });
+
+    it("enforces physical constraints and detects stored-byte drift", async () => {
+      await seedDeployment(persistence, "constraints");
+      await expect(
+        persistence.query(`
         insert into fx_control_schema_version (
           deployment_id, schema_version_id, version,
           manifest_codec_version, manifest_json, manifest_bytes,
@@ -1014,9 +1024,9 @@ describe("schema version artifacts", () => {
           decode(repeat('00', 32), 'hex')
         )
       `),
-    ).rejects.toThrow();
-    await expect(
-      persistence.query(`
+      ).rejects.toThrow();
+      await expect(
+        persistence.query(`
         insert into fx_control_schema_version (
           deployment_id, schema_version_id, version,
           manifest_codec_version, manifest_json, manifest_bytes,
@@ -1027,9 +1037,9 @@ describe("schema version artifacts", () => {
           decode(repeat('00', 32), 'hex')
         )
       `),
-    ).rejects.toThrow();
-    await expect(
-      persistence.query(`
+      ).rejects.toThrow();
+      await expect(
+        persistence.query(`
         insert into fx_control_schema_version (
           deployment_id, schema_version_id, version,
           manifest_codec_version, manifest_json, manifest_bytes,
@@ -1040,77 +1050,79 @@ describe("schema version artifacts", () => {
           decode(repeat('00', 32), 'hex')
         )
       `),
-    ).rejects.toThrow();
+      ).rejects.toThrow();
 
-    await ensure(persistence, {
-      deploymentId: "deployment_schema_constraints",
-      schemaVersionId: schemaVersionA,
-      version: version1,
-      manifest: manifestA,
-    });
-    await persistence.query(`
+      await ensure(persistence, {
+        deploymentId: "deployment_schema_constraints",
+        schemaVersionId: schemaVersionA,
+        version: version1,
+        manifest: manifestA,
+      });
+      await persistence.query(`
       update fx_control_schema_version
       set manifest_bytes = decode('00', 'hex')
       where deployment_id = 'deployment_schema_constraints'
     `);
-    await expect(
-      getSchemaVersionArtifactById(
-        persistence.drizzle,
-        "deployment_schema_constraints",
-        schemaVersionA,
-      ),
-    ).rejects.toBeInstanceOf(SchemaVersionArtifactCorruptionError);
+      await expect(
+        getSchemaVersionArtifactById(
+          persistence.drizzle,
+          "deployment_schema_constraints",
+          schemaVersionA,
+        ),
+      ).rejects.toBeInstanceOf(SchemaVersionArtifactCorruptionError);
 
-    await ensure(persistence, {
-      deploymentId: "deployment_schema_constraints",
-      schemaVersionId: schemaVersionB,
-      version: version2,
-      manifest: manifestB,
-    });
-    await persistence.query(`
+      await ensure(persistence, {
+        deploymentId: "deployment_schema_constraints",
+        schemaVersionId: schemaVersionB,
+        version: version2,
+        manifest: manifestB,
+      });
+      await persistence.query(`
       update fx_control_schema_version
       set manifest_json = '{"tampered": true}'::jsonb
       where deployment_id = 'deployment_schema_constraints'
         and schema_version_id = 'schema_version_b'
     `);
-    await expect(
-      getSchemaVersionArtifactById(
-        persistence.drizzle,
-        "deployment_schema_constraints",
-        schemaVersionB,
-      ),
-    ).rejects.toBeInstanceOf(SchemaVersionArtifactCorruptionError);
-    await persistence.query(`
+      await expect(
+        getSchemaVersionArtifactById(
+          persistence.drizzle,
+          "deployment_schema_constraints",
+          schemaVersionB,
+        ),
+      ).rejects.toBeInstanceOf(SchemaVersionArtifactCorruptionError);
+      await persistence.query(`
       update fx_control_schema_version
       set manifest_json = '{"tables":[{"name":"users","fields":{"name":"string"}}]}'::jsonb
       where deployment_id = 'deployment_schema_constraints'
         and schema_version_id = 'schema_version_b'
     `);
-    await persistence.query(`
+      await persistence.query(`
       update fx_control_schema_version
       set manifest_sha256 = decode(repeat('00', 32), 'hex')
       where deployment_id = 'deployment_schema_constraints'
         and schema_version_id = 'schema_version_b'
     `);
-    await expect(
-      getSchemaVersionArtifactById(
-        persistence.drizzle,
-        "deployment_schema_constraints",
-        schemaVersionB,
-      ),
-    ).rejects.toBeInstanceOf(SchemaVersionArtifactCorruptionError);
+      await expect(
+        getSchemaVersionArtifactById(
+          persistence.drizzle,
+          "deployment_schema_constraints",
+          schemaVersionB,
+        ),
+      ).rejects.toBeInstanceOf(SchemaVersionArtifactCorruptionError);
+    });
   });
 });
 
 type PGlitePersistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
-async function migratedPGlite(suffix: string): Promise<PGlitePersistence> {
-  const persistence = await createMigratedPGlitePersistence();
+async function seedDeployment(
+  persistence: PGlitePersistence,
+  suffix: string,
+): Promise<void> {
   await persistence.insertDeploymentMetadata({
     deploymentId: `deployment_schema_${suffix}`,
     projectId: `project_schema_${suffix}`,
   });
-  return persistence;
 }
 
 async function ensure(

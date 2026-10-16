@@ -4,6 +4,7 @@ import {
   type TaskRunCreationReceiptV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
 import { Effect, Encoding, Result } from "effect";
+import type { PoolClient } from "pg";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -23,7 +24,7 @@ import {
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../support/postgresHelpers";
 import {
   TASK_SYSTEM_CREATION_RUN_UUID_A,
@@ -44,8 +45,9 @@ import {
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const CREATION_INSERT_ADVISORY_LOCK = 73_004_001;
+const withPersistence = useFileScopedPostgresPersistence();
 
-describePostgres("DTE04-E Task System run creation - PostgreSQL", () => {
+describePostgres("DTE04-E Task System run creation - PostgreSQL", { concurrent: false }, () => {
   it("converges two blocked exact creators and reads database time after the lock", async () => {
     await withCreationFixture(async fixture => {
       const stores = [
@@ -235,7 +237,7 @@ async function withCreationFixture(
     fixture: Awaited<ReturnType<typeof makeCreationFixture>>,
   ) => Promise<void>,
 ): Promise<void> {
-  await withTemporaryPostgresPersistence(async persistence => {
+  await withPersistence(async persistence => {
     await run(await makeCreationFixture(persistence));
   });
 }
@@ -290,9 +292,11 @@ async function runBehindScopeBlocker<Value>(
   readonly releasedAfterMs: number;
   readonly values: ReadonlyArray<Value>;
 }>> {
-  await installCreationInsertBarrier(persistence);
-  const blocker = await persistence.pool.connect();
-  try {
+  let blocker: PoolClient | undefined;
+  const pendingSettlements: Promise<ReadonlyArray<PromiseSettledResult<Value>>>[] = [];
+  const [outcome] = await Promise.allSettled([(async () => {
+    await installCreationInsertBarrier(persistence);
+    blocker = await persistence.pool.connect();
     await blocker.query(
       "select pg_advisory_lock($1::bigint)",
       [CREATION_INSERT_ADVISORY_LOCK],
@@ -309,10 +313,11 @@ async function runBehindScopeBlocker<Value>(
     );
     const blockerPid = pidResult.rows[0]?.pid;
     if (blockerPid === undefined) throw new Error("missing blocker pid");
-    const pending = operations.map(operation => operation().then(
-      value => Object.freeze({ kind: "success" as const, value }),
-      cause => Object.freeze({ kind: "failure" as const, cause }),
-    ));
+    const pending = operations.map(operation => {
+      const current = Promise.resolve().then(operation);
+      pendingSettlements.push(Promise.allSettled([current]));
+      return current;
+    });
     await waitForBlockedCreationReaders(
       persistence,
       blockerPid,
@@ -335,24 +340,46 @@ async function runBehindScopeBlocker<Value>(
       "select pg_advisory_unlock($1::bigint)",
       [CREATION_INSERT_ADVISORY_LOCK],
     );
-    const settled = await Promise.all(pending);
-    const failed = settled.find(result => result.kind === "failure");
-    if (failed?.kind === "failure") throw failed.cause;
+    const values = await Promise.all(pending);
     return Object.freeze({
       releasedAfterMs: Number(milliseconds),
-      values: Object.freeze(settled.map(result => {
-        if (result.kind === "failure") throw result.cause;
-        return result.value;
-      })),
+      values: Object.freeze(values),
     });
-  } finally {
-    await blocker.query("rollback").catch(() => undefined);
-    await blocker.query(
-      "select pg_advisory_unlock($1::bigint)",
-      [CREATION_INSERT_ADVISORY_LOCK],
-    ).catch(() => undefined);
-    blocker.release();
+  })()]);
+
+  const failures: unknown[] = [];
+  if (outcome.status === "rejected") failures.push(outcome.reason);
+  if (blocker !== undefined) {
+    let discard = false;
+    try { await blocker.query("rollback"); }
+    catch (cause: unknown) { discard = true; failures.push(cause); }
+    try {
+      await blocker.query(
+        "select pg_advisory_unlock($1::bigint)",
+        [CREATION_INSERT_ADVISORY_LOCK],
+      );
+    } catch (cause: unknown) { discard = true; failures.push(cause); }
+    try { blocker.release(discard); }
+    catch (cause: unknown) { failures.push(cause); }
   }
+  for (const results of await Promise.all(pendingSettlements)) {
+    for (const result of results) {
+      if (result.status === "rejected" && !failures.includes(result.reason)) {
+        failures.push(result.reason);
+      }
+    }
+  }
+  try {
+    await persistence.query(`
+      drop trigger if exists fx_test_task_creation_insert_barrier_v1
+        on fx_system_durable_task_run_v1;
+      drop function if exists fx_test_task_creation_insert_barrier_v1();
+    `);
+  } catch (cause: unknown) { failures.push(cause); }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, "Creation barrier and cleanup failed");
+  if (outcome.status === "rejected") throw outcome.reason;
+  return outcome.value;
 }
 
 async function installCreationInsertBarrier(

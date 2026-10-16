@@ -253,7 +253,10 @@ cases retain independent backends. Raw admission/interruption cases register
 backend closure, and interruption releases and drains its pending transaction
 before closure.
 
-Scope, catalog and index fixtures also restore independent migrated images.
+Scope, catalog and index fixtures use the migrated image. Schema-artifact and
+index-definition database cases each share a file-owned backend with distinct
+deployment identities and serial execution. Their pure token/driver-fault cases
+need no database; the artifact table-drop witness keeps its own backend.
 Application analysis/relation/task-binding repositories use the same owner,
 including automatic cleanup. Instrumented task-binding drivers restore the
 image through their existing raw-driver owner. Retained-history suites keep
@@ -300,7 +303,9 @@ current analyzer composition proofs; lease contention and query ordering share
 the existing lease lifecycle case. The connected Client serialization witness
 lives in `database/postgresClient.test.ts` with its current installed fixture.
 Historical runtime/registration fixtures have a separate schema/runtime gap;
-these repository fixtures do not establish their acceptance.
+these repository fixtures do not establish their acceptance. The unused verifier
+derivation producer and its isolated suite are removed; retained repository,
+registration and SHA-adapter proofs keep their separate obligations.
 Inert candidate repository cases use this same historical owner. Hash/input
 refusal and injected uncertain settlement use only their transaction capability;
 they do not allocate a database. Candidate byte ownership, budgets, corruption,
@@ -359,9 +364,11 @@ Unique-workspace reclamation borrows separate control/target file owners and
 resets target rows before control rows. Scheduler checkpoint cases retain
 independent fixtures because the ordinary row reset does not restore their
 migration-created singleton.
-Native Task attempt lifecycle cases share the existing file owner. Their row
+Native Task creation and attempt lifecycle cases share the existing file owner. Their row
 and advisory blockers release before writer drainage; temporary barrier and
 effect-rejection triggers/functions are removed before the borrow returns.
+Task external-effect races reuse separate control/target file owners; their
+bounded authority pool still has its own lifetime and closes before reset.
 `database/postgresRuntime.postgres.test.ts` keeps real installation admission
 on its test-owned connection while injecting only transaction-command failures.
 
