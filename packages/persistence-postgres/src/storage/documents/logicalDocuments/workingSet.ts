@@ -18,7 +18,7 @@ import { compileAppOrderedIndexBoundsV1, InvalidOrderedIndexRangeV1Error,
 import { FlarexValueCodecV1Error } from "flarex-protocol/value";
 import type { CommitSeq } from "flarex-protocol/storage-authority";
 import { isJsonArray, isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
-import { relationalForeignKeyReverseColumns } from "flarex-protocol/internal/relational-schema";
+import { relationalReverseIndexes } from "flarex-protocol/internal/relational-schema";
 import { canonicalizeFlarexValueV1Effect, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import { consumeBoundedAppRowsAtSnapshotInTransactionEffect, consumeCapturedAppRowsAtSnapshotEffect, readAppRowAtSnapshotInTransactionEffect, readBoundedCurrentAppRowsInTransactionEffect, MAX_BOUNDED_APP_ROW_READ_IDENTITIES,
   MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES,
@@ -348,7 +348,7 @@ const issueWriteMechanics = Effect.fnUntraced(function* <Failure>(
   const relationalFields = new Map(tables.flatMap(table => table.relational === undefined ? [] : [[table.tableId, {
     indexes: fieldCandidates(table.relational.indexes, index => index.columns[0]?.columnId, candidateEntries),
     keys: fieldCandidates(table.relational.keys, key => key.columns[0]?.columnId, candidateEntries),
-    scalarColumns: new Set<string>(relationalForeignKeyReverseColumns(table.relational).map(column => column.columnId)),
+    scalarColumns: new Set<string>(relationalReverseIndexes(table.relational).map(index => index.column.columnId)),
   }] as const]));
   const indexCandidates = (tableId: CatalogTableId, fields: readonly string[]) => indexFields.get(tableId)?.(fields) ?? [];
   const uniqueCandidates = (tableId: CatalogTableId, fields: readonly string[]) => uniqueFields.get(tableId)?.(fields) ?? [];

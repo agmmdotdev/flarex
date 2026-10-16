@@ -11,7 +11,7 @@ const decodeRows = commerceDecoder(Rows, "storedCorruption");
 const decodeRead = commerceDecoder(Schema.Struct({ filters: Schema.JsonObject, config: Schema.JsonObject }), "invalidInput");
 const decodeReadArguments = commerceDecoder(Schema.Tuple([Schema.JsonObject, Schema.JsonObject]), "invalidInput");
 interface LinkWorkflowServiceDefinition {
-  readonly admission: "create" | "dismiss" | "cascade" | "product-deletions" | "inventory-deletions" | "sales-channel-deletions";
+  readonly admission: "create" | "dismiss" | "cascade" | "product-deletions" | "inventory-deletions" | "sales-channel-deletions" | "stock-location-deletions";
   readonly routing: Effect.Success<ReturnType<typeof prepareLinkService>>["routing"];
   readonly createMethod: WorkflowMethod<readonly unknown[], readonly JsonObject[]>;
   readonly listMethod: WorkflowMethod<readonly unknown[], readonly JsonObject[]>;
@@ -71,9 +71,9 @@ export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<t
       encode: ([selector, config]) => ({ selector, config }),
       output: decodeLifecycle,
       moduleEvents: [prepared.entityName + ".detached"] });
-    // Restoration is admitted only by the connected Sales Channel deletion
-    // profile, whose retained native compensator supplies the same endpoint.
-    const restoration = admission === "sales-channel-deletions" ? yield* Result.gen(function* () {
+    // Restoration belongs to the connected endpoint-deletion profiles, whose
+    // retained native compensators supply the authenticated forward endpoint.
+    const restoration = (admission === "sales-channel-deletions" || admission === "stock-location-deletions") ? yield* Result.gen(function* () {
       const restoreName = prefix + "NativeRestore";
       const restore = commands.write(restoreName, prepare(decodeSoftDelete), ({ service, context }, input) =>
         service.restore(input.selector, { returnLinkableKeys: [...input.config.returnLinkableKeys] }, context));
@@ -82,7 +82,7 @@ export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<t
         moduleEvents: [prepared.entityName + ".attached"] });
       return { restore, restoreName, restoreMethod };
     }) : undefined;
-    const deletes = admission === "cascade" || admission === "product-deletions" || admission === "inventory-deletions" || admission === "sales-channel-deletions";
+    const deletes = admission === "cascade" || admission === "product-deletions" || admission === "inventory-deletions" || admission === "sales-channel-deletions" || admission === "stock-location-deletions";
     const result = Object.freeze({ create, list, createName, createMethod, listMethod, routing: structuredClone(prepared.routing),
       ...(admission === "create" ? {} : { dismiss, dismissName, dismissMethod }),
       ...(deletes ? { softDelete, softDeleteName, softDeleteMethod } : {}), ...restoration });

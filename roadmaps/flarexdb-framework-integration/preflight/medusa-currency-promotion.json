@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "4858a412c0e82917fc4628366f04bc261d7257ceb5f1bb1eee80f177332f6784"
+      "targetSha256": "b1aa593e7c151e9920ec07885476991b2f919ade2e2ae2341f198d40870af465"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -5573,7 +5573,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/stock-location/service.ts",
       "classification": "authored",
-      "targetSha256": "360390bf37ef776b2989823ffe2a9398bb2939094607edbac2f5e356508a8380"
+      "targetSha256": "231650a3fc29f9818af9b3a650bc4f44742e6256e03f2039d0a347fb8bcb6869"
     },
     {
       "target": "packages/medusa-adapter/src/links/variant-definition.ts",
@@ -5946,7 +5946,7 @@
     {
       "target": "packages/medusa-adapter/src/links/workflow-service.ts",
       "classification": "authored",
-      "targetSha256": "f0679798b60b650ec9d56e17e0afb2bbfc7670b59392abe8d53205c9ce4cf67d"
+      "targetSha256": "cfc6a912919221df1b46c3d00d6ece23eb5545bf6394eb2b5f3bf044770d0e2c"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/product/create-input.ts",
@@ -8299,7 +8299,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/sales-channel/delete-receipt.ts",
       "classification": "authored",
-      "targetSha256": "3428ed7258c1b8d6bef955720d23c05d36bc352b00e726ab02b9fc267a5e2f9c"
+      "targetSha256": "18b0ef69d280324d7e41b65e76464ab8b972ba50071fca2e9a5c2df0a8a7eb48"
     },
     {
       "target": "packages/medusa-adapter/src/modules/store/input.ts",
@@ -8431,6 +8431,85 @@
       "target": "packages/medusa-adapter/test/stock-location-update-receipts.test.ts",
       "classification": "authored",
       "targetSha256": "f164b1f2a263bd2e2f9614758bb77b50f1669984054f6009d80853b9eea95bbd"
+    },
+    {
+      "target": "packages/medusa-adapter/src/links/stock-location-deletion.ts",
+      "classification": "authored",
+      "targetSha256": "7f770566f103727e07f4791bbd8b02b622f61a9d7bc57b736c035cbd443f24e4"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/stock-location/delete-input.ts",
+      "classification": "authored",
+      "targetSha256": "f39ca7177e7fac94a2f0095fbe7ea409a9d9617f5c3822315c3b17b50a0aef23"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/stock-location/delete-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "f877fc30597641ba8faef4d01be932899e47fe5b86ba05865a7d79808ddac060"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/stock-location/delete-repository.ts",
+      "classification": "authored",
+      "targetSha256": "41e324893e062d3a239b895317112f02a8f03dbc2f90012a13413f269b284963"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/stock-location/delete-service.ts",
+      "classification": "authored",
+      "targetSha256": "15ec1df836fb4bd0effe791a94913daa8e8097a7000b47a6cd6d29ffd9e34e6d"
+    },
+    {
+      "target": "packages/medusa-adapter/src/repository/scalar-lifecycle-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "54a2a721466053c33034736cb80c557b1b6efce307860caefb481971a6efe4aa"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/stock-location/delete.ts",
+      "classification": "authored",
+      "targetSha256": "1bef7afaeba338137c793062b96f3fabab584135b547a5ff6e3b13d87cb44dd7"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-stock-location-deletion-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "bcc9823426eed14ae6e66191e3bf60068a9ac8183de5560931476096d50a424c"
+    },
+    {
+      "target": "packages/medusa-adapter/test/native-stock-location-deletion-link-resource.test.ts",
+      "classification": "authored",
+      "targetSha256": "a710e05627d0286cbade7ff925a171a9c47504572e698dde30eb78a57574dadd"
+    },
+    {
+      "target": "packages/medusa-adapter/test/stock-location-delete-composer.test.ts",
+      "classification": "authored",
+      "targetSha256": "8f723132913585c12f75ed8ec7fd14d591502792af706b0bb20e359956f2b4d7"
+    },
+    {
+      "target": "packages/medusa-adapter/test/stock-location-delete-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "6a133a4278a7490e7190d5142c0f4970e41660d1f8e8adf731432b3c67505423"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-stock-location-deletion-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "ddc90e38f3add0ba25919c8fae29f9d85c7249ac6e8a2bf21c00f0dfc690fc38"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/stock-location/steps/delete-stock-locations.ts",
+      "classification": "workflowFork",
+      "targetSha256": "cacceebf420e0ded16e883e362ddb920e1dcbe3ecdefa3abda4a31d0634c9d20",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/stock-location/steps/delete-stock-locations.ts",
+      "sourceSha256": "dd674bdd518da0b8662319b320e3817d0d9aab2f6205684469258606bdd4886c"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/stock-location/workflows/delete-stock-locations.ts",
+      "classification": "workflowFork",
+      "targetSha256": "d5fb61350fafa2d9ee0e59d40b33c3ae5cbf0fb0607b55a347ecad6d063746e4",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/stock-location/workflows/delete-stock-locations.ts",
+      "sourceSha256": "a79356ecdc15138f2951bd0e5c0960a8863fea3843add8b01c31a5e90f3acf19"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-composite-key-reverse.test.ts",
+      "classification": "authored",
+      "targetSha256": "02ff5245fbd9b2903654f38ff3e248e85d2ac7a80643df2645dce9c1bbbee8fb"
     }
   ],
   "dependencies": {
@@ -8893,6 +8972,8 @@
         "./durable/product/normalize-products-step",
         "./durable/product/batch-products",
         "./durable/product/wait-confirmation-product-import-step",
+        "./stock-location/delete-stock-locations",
+        "./stock-location/delete-stock-locations-step",
         "./stock-location/update-stock-locations",
         "./stock-location/update-stock-locations-step",
         "./stock-location/upsert-stock-location-addresses-step"

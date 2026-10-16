@@ -56,6 +56,10 @@ with digest-bound table targets and the existing first-data and settlement owner
 
 ## Current Sources Of Truth
 
+[Composite key reverse access](./59-composite-key-reverse-access.md) owns the
+scoped all-row reverse lookup correction exposed by native Stock Location Link
+restoration. Native Link endpoint integrity remains unchanged.
+
 - [Accepted database design](../../design-notes/flarex-db-accepted-design.md) and
   [shared logical storage decision](../../design-notes/flarexdb-shared-logical-storage.md)
   own the target, replacement authority and tradeoffs.

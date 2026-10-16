@@ -8,7 +8,7 @@ import { decodeAppOrderedIndexPhysicalSpecV1Result, lowerAppDeveloperOrderedInde
 import { APP_UNIQUE_KEY_CODEC_IDENTITY_V1, APP_UNIQUE_KEY_CODEC_VERSION_V1,
   decodeAppUniqueConstraintPhysicalSpecV1Result, lowerLogicalDocumentUniqueConstraint,
   type AppUniqueConstraintPhysicalSpecV1 } from "./app-unique-constraint-definition";
-import { relationalForeignKeyReverseColumns } from "./relational-schema/access";
+import { relationalReverseIndexes } from "./relational-schema/access";
 
 export class LogicalStorageRequirementError extends Data.TaggedError("LogicalStorageRequirementError")<{
   readonly reason: "unsupportedDefinition";
@@ -64,8 +64,8 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
         ...table.indexes.filter(index => index.kind !== "jsonContainment").map(index => ({
           name: `index/${index.identity.indexId}`, columns: index.columns, predicate: index.predicate,
           kind: index.kind })),
-        ...relationalForeignKeyReverseColumns(table).map(column => ({ name: `fk-reverse/${column.columnId}`,
-          columns: [column], predicate: null, kind: "btree" as const })),
+        ...relationalReverseIndexes(table).map(index => ({ name: index.descriptor,
+          columns: [index.column], predicate: null, kind: "btree" as const })),
       ];
       for (const declaration of declarations) {
         const predicate = declaration.predicate;

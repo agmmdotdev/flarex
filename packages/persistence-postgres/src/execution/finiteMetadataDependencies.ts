@@ -7,7 +7,7 @@ import { LogicalMetadataKeySchema, LogicalMetadataReadDependencySchema, Metadata
   type LogicalMetadataKey, type LogicalMetadataReadDependency, type MetadataSequence } from "flarex-protocol/commit-protocol";
 import { encodeCanonicalJson, isJson, type Json, type JsonObject } from "flarex-protocol/json";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
-import { relationalForeignKeyReverseColumns } from "flarex-protocol/internal/relational-schema";
+import { relationalReverseIndexes } from "flarex-protocol/internal/relational-schema";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { SchemaManifestAppSchemaV1 } from "flarex-protocol/schema-manifest";
 import type { LocatedAppIndexDefinitionV1 } from "../storage/indexes/appIndexDefinitions";
@@ -380,7 +380,7 @@ export const prepareFiniteMetadataProjection = Effect.fn("FiniteMetadata.prepare
         if (original === undefined) return yield* Effect.fail(failure("invalidProjection"));
         for (const index of original.indexes) member("nativeIndex", index.columns[0]?.columnId, index);
         for (const key of original.keys) member("nativeKey", key.columns[0]?.columnId, key);
-        for (const column of relationalForeignKeyReverseColumns(original)) member("reverse", column.columnId, column);
+        for (const index of relationalReverseIndexes(original)) member("reverse", index.column.columnId, index.column);
       }
       for (const family of families.values()) yield* add(owner,
         finiteMetadataContractKey("accessFamily", binding.localName, family.family, family.leadingField), family.values);

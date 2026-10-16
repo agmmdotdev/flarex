@@ -1,3 +1,4 @@
+import { makeStockLocationDeletionCommands } from "./delete-service";
 import { makeStockLocationUpdateCommands } from "./update-service";
 import { deniedCommerceRepository } from "../../repository/denied";
 import { Effect, Result, Schema } from "effect";
@@ -81,8 +82,10 @@ const makeBasicStockLocationCommands = Effect.fn("StockLocationAdapter.commands"
   }));
 });
 
+export function makeStockLocationCommands(admission: "delete"): ReturnType<typeof makeStockLocationDeletionCommands>;
 export function makeStockLocationCommands(admission: "update"): ReturnType<typeof makeStockLocationUpdateCommands>;
 export function makeStockLocationCommands(admission?: "read" | "create"): ReturnType<typeof makeBasicStockLocationCommands>;
-export function makeStockLocationCommands(admission: "read" | "create" | "update" = "read") {
-  return admission === "update" ? makeStockLocationUpdateCommands() : makeBasicStockLocationCommands(admission);
+export function makeStockLocationCommands(admission: "read" | "create" | "update" | "delete" = "read") {
+  return admission === "delete" ? makeStockLocationDeletionCommands()
+    : admission === "update" ? makeStockLocationUpdateCommands() : makeBasicStockLocationCommands(admission);
 }

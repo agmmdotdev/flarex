@@ -2,7 +2,10 @@
 
 ## Status And Authority
 
-Status: preflight complete; implementation pending after Stock Location update.
+Status: implemented private bounded native workflow for the installed Stock
+Location and SalesChannelLocation graph, including the shared reverse access
+correction below. Hosted activation and additional default graph admission
+remain pending.
 Authority is the accepted Flarex design, package boundaries, Medusa adoption
 roadmap and Medusa 2.13.4 at `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`.
 The source island remains read-only. Chunked File import and Product export
@@ -46,6 +49,13 @@ Levels, Reservations and Store defaults: this workflow contains no cleanup or
 validation for those records. Native Location and Link lifecycle events remain
 required and use `internalModuleWorkflowEvents`.
 
+The pinned restore path has no internal mutation subscriber. Its genuine
+conventional Drizzle dispatcher derives `stock` from `StockLocation` and emits
+`stock.stock-location.restored` with source `stock`. Subscribed forward deletion
+uses `stock_location.stock-location.deleted` and source `stock_location`.
+Preserve and authenticate these distinct native spellings; do not rename the
+restoration message to match the module key.
+
 ## Implementation Plan And Owners
 
 1. Promote the native composer and deletion step with narrow imports/exports,
@@ -73,8 +83,15 @@ Admit zero to four raw requested IDs and at most eight affected active pivots.
 Refuse overflow without truncation and roll back the entire root. Retain current
 call/event/byte/catalog/identity limits pending the connected maximum proof. No
 new schema, source lineage, initialization or durable reset is implied. There
-is no statically identified core blocker; preserve any actual failing witness
-and correct its owner under the continuing authorization.
+was no statically identified core blocker. The preserved connected witness
+exposed a shared access gap: forward deletion succeeded, but all-row reverse
+pivot reads and retained native Link restore failed `invalidInput` because the
+Stock Location endpoint had only an active-row partial index. The owning
+[composite-key reverse access correction](../../shared-logical-storage/59-composite-key-reverse-access.md)
+implements a derived all-row path in shared logical storage under the continuing
+core authorization. Active queries retain eligible native partial-index anchors
+instead of loading deleted history. Native DML, partial indexes, aliases and compensation stay intact;
+no adapter scan or weaker query admission is permitted.
 
 ## Compensation And Verification
 

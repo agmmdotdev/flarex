@@ -66,10 +66,15 @@ profile implements optional Address reads, native partial patches and mixed
 Address upsert. It preserves scalar-first results, successful absence, standalone
 Address creation and cumulative selector metadata. Its explicit borrowed-operation
 scheduling selects the shared owner without changing existing profiles or limits.
-The next integration outcome is
+The bounded
 [native Stock Location deletion](./preflight/114-native-stock-location-delete-workflow.md)
-for the installed Sales Channel Link graph. Additional default Fulfillment and
-Pricing cascade branches retain their separate connected admission.
+profile is implemented for the installed Sales Channel Link graph. It retains
+actual-result Link cleanup, native module lifecycle events, retained compensation
+and Addresses/Inventory/Store data. Its shared composite-key reverse path keeps
+active partial-index access distinct from all-row restoration. Additional default
+Fulfillment and Pricing cascade branches retain their separate connected admission.
+The next integration outcome is
+[native Inventory Item update](./preflight/115-native-inventory-item-update-workflow.md).
 Chunked File import and Product
 export are explicitly deferred; their File and Region dependencies are outside
 the current integration goal.

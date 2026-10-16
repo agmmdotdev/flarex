@@ -14,7 +14,8 @@ import { runEffectTransaction } from "../../../src/database/effectTransaction";
 import { runDrizzleStatementEffect } from "../../../src/database/drizzleStatementEffect";
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
 
-/** A fixture-owned witness for one actual active-row index selector. It keeps
+/** A fixture-owned witness for one actual scalar index selector. Active rows
+ * remain the default; all-row reverse reads request visibility explicitly. It keeps
  * SQL and complete readiness-row restoration with persistence test support. */
 export async function prepareLogicalReadIndexReadinessWitness(input: Readonly<{
   controlDb: FlarexMetadataDatabase;
@@ -25,7 +26,9 @@ export async function prepareLogicalReadIndexReadinessWitness(input: Readonly<{
   sourceKey: string;
   localName: string;
   field: string;
+  visibility?: "all";
 }>) {
+  const expectedPredicate = input.visibility === "all" ? null : { kind: "fieldIsNull", field: "deleted_at" };
   const rows = await input.controlDb.select().from(fxControlLogicalReadAccess).where(and(
     eq(fxControlLogicalReadAccess.deploymentId, input.deploymentId),
     eq(fxControlLogicalReadAccess.schemaVersionId, input.schemaVersionId),
@@ -35,12 +38,12 @@ export async function prepareLogicalReadIndexReadinessWitness(input: Readonly<{
     eq(fxControlLogicalReadAccess.leadingField, input.field),
     eq(fxControlLogicalReadAccess.prefixLength, 1),
     sql`${fxControlLogicalReadAccess.projectionJson}->'predicate' =
-      ${JSON.stringify({ kind: "fieldIsNull", field: "deleted_at" })}::jsonb`,
+      ${JSON.stringify(expectedPredicate)}::jsonb`,
   ));
   expect(rows).toHaveLength(1);
   const access = Result.getOrThrow(Schema.decodeUnknownResult(Schema.Json)(rows[0]?.projectionJson));
   if (!isJsonObject(access)) throw new Error("Missing logical index selector");
-  expect(access).toMatchObject({ fields: [input.field], predicate: { kind: "fieldIsNull", field: "deleted_at" } });
+  expect(access).toMatchObject({ fields: [input.field], predicate: expectedPredicate });
   const indexDefinitionId = Result.getOrThrow(Schema.decodeUnknownResult(CatalogIndexDefinitionIdSchema)(access.indexDefinitionId));
   return captureReadinessRow(input.targetDb, input.scopeId, indexDefinitionId);
 }
@@ -85,7 +88,7 @@ async function captureReadinessRow(targetDb: FlarexMetadataDatabase, scopeId: Sc
     indexDefinitionId,
     retire: async () => {
       const changed = await targetDb.update(fxSystemIndexBuildStates).set({ lifecycle: "retiring",
-        maintenanceActivationSequence: null, }).where(predicate).returning();
+        maintenanceActivationSequence: null, maintenanceAuthorityKind: null }).where(predicate).returning();
       expect(changed).toHaveLength(1);
       expect(changed[0]?.lifecycle).toBe("retiring");
     },

@@ -79,6 +79,8 @@
       "source": "./src/durable/product/steps/wait-confirmation-product-import.ts",
       "default": "./dist/durable/product/steps/wait-confirmation-product-import.js"
     },
+    "./stock-location/delete-stock-locations": "./src/stock-location/workflows/delete-stock-locations.ts",
+    "./stock-location/delete-stock-locations-step": "./src/stock-location/steps/delete-stock-locations.ts",
     "./stock-location/update-stock-locations": "./src/stock-location/workflows/update-stock-locations.ts",
     "./stock-location/update-stock-locations-step": "./src/stock-location/steps/update-stock-locations.ts",
     "./stock-location/upsert-stock-location-addresses-step": "./src/stock-location/steps/upsert-stock-location-addresses.ts"

@@ -169,10 +169,14 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         const keys = new Set(node.values);
         return { select: (requiredNulls: ReadonlySet<string>, access?: LogicalRelationalReadAccess) => {
           const indexes = access?.indexes ?? table.indexes, tableKeys = access?.keys ?? table.keys;
+          const declaredUnconditional = tableKeys.some(tableKey => tableKey.columns[0]?.columnId === node.column) ||
+            indexes.some(index => index.predicate === null && index.kind !== "jsonContainment" && index.columns[0]?.columnId === node.column);
           const unconditional = access === undefined ? relationalHasIndexedScalarPrefix(table, node.column) :
-            tableKeys.some(tableKey => tableKey.columns[0]?.columnId === node.column) || indexes.some(index => index.predicate === null && index.kind !== "jsonContainment" && index.columns[0]?.columnId === node.column) ||
-              access.scalarColumns.includes(node.column);
-          const conditional = unconditional ? undefined : indexes.find(candidate => candidate.columns[0]?.columnId === node.column &&
+            declaredUnconditional || access.scalarColumns.includes(node.column);
+          // Derived reverse access supplies the missing all-row path. It must
+          // not displace a native active-row index and expand an active query's
+          // bounded candidate set to deleted rows. Keep declared prefix order.
+          const conditional = declaredUnconditional ? undefined : indexes.find(candidate => candidate.columns[0]?.columnId === node.column &&
             candidate.predicate?.kind === "isNull" && requiredNulls.has(candidate.predicate.column.columnId));
           if (!unconditional && conditional === undefined)
             return Result.succeed({ selections: null, unindexedText: column.type === "text" });

@@ -6,7 +6,7 @@ import { CatalogTableIdSchema, CatalogIndexIdSchema, CatalogIndexDefinitionIdSch
 import { encodeCanonicalJson, isJson, isJsonObject, type JsonObject } from "flarex-protocol/json";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
-import { decodeRelationalSchemaMetadata, relationalSchemaSourceFromDefinition, relationalForeignKeyReverseColumns, type RelationalSchema,
+import { decodeRelationalSchemaMetadata, relationalSchemaSourceFromDefinition, relationalReverseIndexes, type RelationalSchema,
   type RelationalPersistenceCapability, type RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import { CatalogSchemaVersionIdSchema, SchemaManifestAppTableDeclarationV1Schema,
   type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
@@ -267,7 +267,7 @@ const publishTableAccess = Effect.fn("LogicalReadMetadata.publishAccess")(functi
   }
   for (const [ordinal, nativeKey] of (nativeTable?.keys ?? []).entries())
     add(nativeKey.columns.length === 1 ? "nativeKey:single" : "nativeKey:composite", nativeKey.columns.slice(0, 1).map(column => column.columnId), null, ordinal, { nativeKey });
-  if (nativeTable !== undefined) for (const column of relationalForeignKeyReverseColumns(nativeTable)) add("nativeReverse", [column.columnId], null, 0, {});
+  if (nativeTable !== undefined) for (const index of relationalReverseIndexes(nativeTable)) add("nativeReverse", [index.column.columnId], null, 0, {});
   for (const [ordinal, definition] of searches.entries()) add("search", definition.columns,
     definition.nullPredicateField === null ? null : { kind: "fieldIsNull", field: definition.nullPredicateField }, ordinal,
     { logicalIndexId: definition.logicalIndexId, kind: definition.kind, sourceSha256: definition.sourceSha256,

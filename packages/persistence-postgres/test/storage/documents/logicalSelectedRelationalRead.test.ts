@@ -1,6 +1,6 @@
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
-import { normalizeRelationalSchema, relationalForeignKeyReverseColumns } from "flarex-protocol/internal/relational-schema";
+import { normalizeRelationalSchema, relationalReverseIndexes } from "flarex-protocol/internal/relational-schema";
 import { compileLogicalRelationalRead, prepareLogicalRelationalRead } from "../../../src/storage/documents/logicalDocuments/relationalQuery";
 import { prepareLogicalRelationalTableMechanics } from "../../../src/storage/documents/logicalDocuments/relationalRows";
 import { syntheticSchemaInput } from "../../installation/frameworkSchema/frameworkMigrationValueFixtures";
@@ -112,7 +112,7 @@ describe("selected relational read access", () => {
     const query = { order: { column: "id", direction: "asc" }, predicate: { kind: "in", column: "parent_id", values: ["parent_a"] } };
     const full = Result.getOrThrow(compileLogicalRelationalRead(original, schema.capabilities, query, 10, failure));
     const selected = Result.getOrThrow(compileLogicalRelationalRead(compact, [], query, 10, failure, mechanics,
-      { indexes: [], keys: [], scalarColumns: relationalForeignKeyReverseColumns(original).map(column => column.columnId) }));
+      { indexes: [], keys: [], scalarColumns: relationalReverseIndexes(original).map(index => index.column.columnId) }));
     expect(selected.selections).toEqual(full.selections);
     expect(selected.selections).toEqual([{ column: "parent_id", value: "parent_a" }]);
     expect(selected.inspect({ id: "child_a", parent_id: "parent_a", ordinal: -1 }))
@@ -142,4 +142,55 @@ describe("selected relational read access", () => {
     expect(compileLogicalRelationalRead(mismatched, [], query, 10, failure, mechanics,
       { indexes: original.indexes, keys: [], scalarColumns: [] })).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
   });
+
+  it("uses the authenticated composite-key suffix reverse fact without treating a partial index as complete", () => {
+    const origin = { kind: "authored", sourceId: "fixture.composite-reverse" };
+    const schemaInput = { owner: "medusa", lineageId: "composite-reverse", capabilities: [], tables: [{
+      tableId: "pairs", origin, columns: ["left_id", "right_id", "unindexed", "deleted_at"].map(columnId => ({
+        columnId, type: "text", nullable: columnId === "deleted_at", default: { kind: "none" }, origin,
+      })), keys: [{ keyId: "pair", kind: "primary", columns: ["left_id", "right_id"], origin }],
+      indexes: [{ indexId: "right-active", kind: "btree", columns: ["right_id"],
+        predicate: { kind: "isNull", columnId: "deleted_at" }, origin }], constraints: [], relationships: [],
+    }] };
+    const schema = Result.getOrThrow(normalizeRelationalSchema(schemaInput));
+    const original = schema.tables[0];
+    if (original === undefined) throw new Error("Missing pair fixture");
+    const compact = { ...original, indexes: [] }, mechanics = prepareLogicalRelationalTableMechanics(compact, []);
+    const query = { order: { column: "left_id", direction: "asc" }, predicate: { kind: "in", column: "right_id", values: ["selected"] } };
+    const full = Result.getOrThrow(compileLogicalRelationalRead(original, [], query, 10, failure));
+    const access = { indexes: original.indexes, keys: original.keys, scalarColumns: relationalReverseIndexes(original).map(index => index.column.columnId) };
+    const selected = Result.getOrThrow(compileLogicalRelationalRead(compact, [], query, 10, failure, mechanics, access));
+    expect(selected.selections).toEqual(full.selections);
+    expect(selected.selections).toEqual([{ column: "right_id", value: "selected" }]);
+    expect(selected.requiredNulls).toEqual([]);
+    expect(Result.getOrThrow(selected.inspect({ left_id: "a", right_id: "selected", unindexed: "retained", deleted_at: "deleted" })).matches).toBe(true);
+    const activeQuery = { ...query, predicate: { kind: "and", children: [query.predicate, { kind: "isNull", column: "deleted_at" }] } };
+    const activeFull = Result.getOrThrow(compileLogicalRelationalRead(original, [], activeQuery, 8, failure));
+    const activeSelected = Result.getOrThrow(compileLogicalRelationalRead(compact, [], activeQuery, 8, failure, mechanics, access));
+    expect(activeSelected.selections).toEqual(activeFull.selections);
+    expect(activeSelected.selections).toEqual([{ column: "right_id", value: "selected", nullColumn: "deleted_at" }]);
+    expect(activeSelected.requiredNulls).toEqual(["deleted_at"]);
+    expect(Result.getOrThrow(activeSelected.inspect({ left_id: "a", right_id: "selected", unindexed: "retained", deleted_at: "deleted" })).matches).toBe(false);
+    expect(Result.getOrThrow(activeSelected.inspect({ left_id: "a", right_id: "selected", unindexed: "retained", deleted_at: null })).matches).toBe(true);
+    // Declared unconditional prefixes keep their existing selection priority;
+    // derived all-row alternatives yield to a native partial.
+    const declaredSchema = Result.getOrThrow(normalizeRelationalSchema({ ...schemaInput,
+      tables: schemaInput.tables.map(table => ({ ...table, indexes: [...table.indexes,
+        { indexId: "right-complete", kind: "btree", columns: ["right_id"], predicate: null, origin }] })),
+    }));
+    const declared = declaredSchema.tables[0];
+    if (declared === undefined) throw new Error("Missing native complete index fixture");
+    const declaredFull = Result.getOrThrow(compileLogicalRelationalRead(declared, [], activeQuery, 8, failure));
+    const declaredSelected = Result.getOrThrow(compileLogicalRelationalRead(compact, [], activeQuery, 8, failure, mechanics,
+      { ...access, indexes: declared.indexes, scalarColumns: [] }));
+    expect(declaredSelected.selections).toEqual(declaredFull.selections);
+    expect(declaredSelected.selections).toEqual([{ column: "right_id", value: "selected" }]);
+    // The real owner must issue the new complete reverse fact. A native active
+    // index alone still cannot authorize an all-row query or a composite suffix.
+    expect(compileLogicalRelationalRead(compact, [], query, 10, failure, mechanics, { ...access, scalarColumns: [] }))
+      .toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
+    expect(compileLogicalRelationalRead(compact, [], { ...query, predicate: { kind: "in", column: "unindexed", values: ["retained"] } }, 10, failure, mechanics, access))
+      .toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
+  });
+
 });
