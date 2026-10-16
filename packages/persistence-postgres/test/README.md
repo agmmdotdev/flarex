@@ -239,14 +239,19 @@ suites restore fresh databases from the shared
 image through `createMigratedPGlitePersistence`; they retain foreign-database
 identity witnesses and register runtime/database cleanup rather than migrating
 or leaving a backend open for each case.
-Publication preparation, table-only artifact compatibility and table-binding
-cases share one serial file-owned migrated backend, with distinct deployments
+Publication preparation, table-only artifact compatibility and table/app-schema
+binding cases share one serial file-owned migrated backend, with distinct deployments
 and deployment-local allocation frontiers. The table-wide RETURNING-corruption
-trigger and suspended table-artifact transaction owner keep independent backends.
+trigger and suspended table-artifact/combined-plan owners keep independent backends.
 The native-time and historical-read logical working-set scenarios retain separate
 scope/deployment identities within one file-owned backend. Their budget cases
 keep independent backends for suspended driver calls. Transaction observations,
 spies and host lifetimes still settle inside each case.
+Settled authorization-epoch target failure cases borrow the existing storage
+fixture in their own suite. Provisioning, corruption and unmigrated-admission
+cases retain independent backends. Raw admission/interruption cases register
+backend closure, and interruption releases and drains its pending transaction
+before closure.
 
 Scope, catalog and index fixtures also restore independent migrated images.
 Application analysis/relation/task-binding repositories use the same owner,
@@ -354,6 +359,9 @@ Unique-workspace reclamation borrows separate control/target file owners and
 resets target rows before control rows. Scheduler checkpoint cases retain
 independent fixtures because the ordinary row reset does not restore their
 migration-created singleton.
+Native Task attempt lifecycle cases share the existing file owner. Their row
+and advisory blockers release before writer drainage; temporary barrier and
+effect-rejection triggers/functions are removed before the borrow returns.
 `database/postgresRuntime.postgres.test.ts` keeps real installation admission
 on its test-owned connection while injecting only transaction-command failures.
 

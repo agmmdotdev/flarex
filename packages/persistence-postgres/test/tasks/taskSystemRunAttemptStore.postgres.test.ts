@@ -16,6 +16,7 @@ import {
   type TaskRunAttemptAggregateV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import { Effect, Exit, Layer, Result } from "effect";
+import type { PoolClient } from "pg";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -32,7 +33,8 @@ import {
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  rollbackAndReleasePostgresClient,
+  useFileScopedPostgresPersistence,
 } from "../support/postgresHelpers";
 import {
   ACCEPTED_ATTEMPT_UUID,
@@ -56,10 +58,11 @@ const acceptedAttemptId = Result.getOrThrow(
   decodeTaskAttemptIdV1(`attempt_${ACCEPTED_ATTEMPT_UUID}`),
 );
 const LIFECYCLE_UPDATE_ADVISORY_LOCK = 73_004_101;
+const withPersistence = useFileScopedPostgresPersistence();
 
-describePostgres("DTE04-B/E scope-bound Task System lifecycle store - PostgreSQL", () => {
+describePostgres("DTE04-B/E scope-bound Task System lifecycle store - PostgreSQL", { concurrent: false }, () => {
   it("serializes same-run writers, reads time after the lock wait, and rolls decision failure back", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withPersistence(async persistence => {
       const parent = await seedTaskSystemParentV1(persistence);
       const seeded = await seedTaskSystemRunAttemptStoreV1(persistence, {
         parent,
@@ -93,6 +96,7 @@ describePostgres("DTE04-B/E scope-bound Task System lifecycle store - PostgreSQL
         });
       }).pipe(Effect.provide(layer)));
       const blocker = await persistence.pool.connect();
+      const pending: Promise<Result.Result<Awaited<ReturnType<typeof start>>, unknown>>[] = [];
       let releasedAfterMs: number;
       let simultaneous: Awaited<ReturnType<typeof start>>[];
       try {
@@ -108,7 +112,7 @@ describePostgres("DTE04-B/E scope-bound Task System lifecycle store - PostgreSQL
         );
         const blockerPid = pidResult.rows[0]?.pid;
         if (blockerPid === undefined) throw new Error("missing blocker pid");
-        const pending = [start(), start()];
+        pending.push(settle(start()), settle(start()));
         await waitForBlockedTaskRunWriters(persistence, blockerPid, 2);
         const clockResult = await blocker.query<{ milliseconds: string }>(`
           select floor(
@@ -119,10 +123,10 @@ describePostgres("DTE04-B/E scope-bound Task System lifecycle store - PostgreSQL
         if (milliseconds === undefined) throw new Error("missing server clock");
         releasedAfterMs = Number(milliseconds);
         await blocker.query("commit");
-        simultaneous = await Promise.all(pending);
+        simultaneous = (await Promise.all(pending)).map(Result.getOrThrow);
       } finally {
-        await blocker.query("rollback").catch(() => undefined);
-        blocker.release();
+        try { await rollbackAndReleasePostgresClient(blocker); }
+        finally { await Promise.all(pending); }
       }
       expect(simultaneous.map(receipt => receipt.disposition).sort())
         .toEqual(["accepted", "idempotent"]);
@@ -289,17 +293,18 @@ describePostgres("DTE04-B/E scope-bound Task System lifecycle store - PostgreSQL
   it("rolls back aggregate and partial effects together, then fills the next sequence without a gap", async () => {
     await withLifecycleFixture({}, async fixture => {
       const grant = await startGrantedAttempt(fixture.layer);
-      await installRequestedEffectRejection(fixture.persistence, 6);
-
-      const rejected = await runEffect(Effect.exit(
-        completeSucceededEffect(grant).pipe(Effect.provide(fixture.layer)),
-      ));
-      expect(Exit.isFailure(rejected)).toBe(true);
-      expect(await runVersion(fixture.persistence, fixture.scopeId)).toBe("2");
-      expect(await effectSequences(fixture.persistence, fixture.scopeId))
-        .toEqual([1, 2, 3, 4]);
-
-      await removeRequestedEffectRejection(fixture.persistence);
+      try {
+        await installRequestedEffectRejection(fixture.persistence, 6);
+        const rejected = await runEffect(Effect.exit(
+          completeSucceededEffect(grant).pipe(Effect.provide(fixture.layer)),
+        ));
+        expect(Exit.isFailure(rejected)).toBe(true);
+        expect(await runVersion(fixture.persistence, fixture.scopeId)).toBe("2");
+        expect(await effectSequences(fixture.persistence, fixture.scopeId))
+          .toEqual([1, 2, 3, 4]);
+      } finally {
+        await removeRequestedEffectRejection(fixture.persistence);
+      }
       const accepted = await completeSucceeded(fixture.layer, grant);
       expect(accepted).toMatchObject({
         disposition: "accepted",
@@ -460,7 +465,7 @@ async function withLifecycleFixture(
   options: Readonly<{ readonly aggregate?: TaskRunAttemptAggregateV1 }>,
   run: (fixture: LifecycleFixture) => Promise<void>,
 ): Promise<void> {
-  await withTemporaryPostgresPersistence(async persistence => {
+  await withPersistence(async persistence => {
     const parent = await seedTaskSystemParentV1(persistence);
     const seeded = await seedTaskSystemRunAttemptStoreV1(persistence, {
       parent,
@@ -601,10 +606,11 @@ async function runWithForcedFirstLifecycleWriter<First, Second>(
   first: () => Promise<First>,
   second: () => Promise<Second>,
 ): Promise<readonly [First, Second]> {
-  await installLifecycleUpdateBarrier(persistence, barrier);
-  const blocker = await persistence.pool.connect();
+  let blocker: PoolClient | undefined;
   const pendingSettlements: Promise<unknown>[] = [];
-  try {
+  const outcome = await settle((async () => {
+    await installLifecycleUpdateBarrier(persistence, barrier);
+    blocker = await persistence.pool.connect();
     await blocker.query(
       "select pg_advisory_lock($1::bigint)",
       [LIFECYCLE_UPDATE_ADVISORY_LOCK],
@@ -632,21 +638,25 @@ async function runWithForcedFirstLifecycleWriter<First, Second>(
     const firstValue = Result.getOrThrow(firstResult);
     const secondValue = Result.getOrThrow(secondResult);
     return Object.freeze([firstValue, secondValue] as const);
-  } finally {
-    const unlockFailure = await blocker.query(
+  })());
+
+  const failures: unknown[] = [];
+  if (Result.isFailure(outcome)) failures.push(outcome.failure);
+  if (blocker !== undefined) {
+    const unlocked = await settle(blocker.query(
       "select pg_advisory_unlock($1::bigint)",
       [LIFECYCLE_UPDATE_ADVISORY_LOCK],
-    ).then(
-      () => undefined,
-      cause => cause,
-    );
-    blocker.release(unlockFailure === undefined
-      ? undefined
-      : unlockFailure instanceof Error
-      ? unlockFailure
-      : new Error("failed to release lifecycle advisory lock"));
-    await Promise.all(pendingSettlements);
+    ));
+    if (Result.isFailure(unlocked)) failures.push(unlocked.failure);
+    try { blocker.release(Result.isFailure(unlocked)); }
+    catch (cause: unknown) { failures.push(cause); }
   }
+  await Promise.all(pendingSettlements);
+  try { await removeLifecycleUpdateBarrier(persistence); }
+  catch (cause: unknown) { failures.push(cause); }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, "Lifecycle barrier and cleanup failed");
+  return Result.getOrThrow(outcome);
 }
 
 function settle<Value>(
@@ -684,6 +694,16 @@ async function installLifecycleUpdateBarrier(
     create trigger fx_test_task_lifecycle_update_barrier_v1
     before update on fx_system_durable_task_run_v1
     for each row execute function fx_test_task_lifecycle_update_barrier_v1()
+  `);
+}
+
+async function removeLifecycleUpdateBarrier(
+  persistence: PostgresFlarexPersistence,
+): Promise<void> {
+  await persistence.query(`
+    drop trigger if exists fx_test_task_lifecycle_update_barrier_v1
+      on fx_system_durable_task_run_v1;
+    drop function if exists fx_test_task_lifecycle_update_barrier_v1();
   `);
 }
 
@@ -767,10 +787,10 @@ async function removeRequestedEffectRejection(
   persistence: PostgresFlarexPersistence,
 ): Promise<void> {
   await persistence.query(`
-    drop trigger fx_test_task_effect_rejection_v1
-    on fx_system_durable_task_requested_effect_v1
+    drop trigger if exists fx_test_task_effect_rejection_v1
+      on fx_system_durable_task_requested_effect_v1;
+    drop function if exists fx_test_task_effect_rejection_v1();
   `);
-  await persistence.query("drop function fx_test_task_effect_rejection_v1()");
 }
 
 async function effectSequences(
@@ -832,7 +852,7 @@ async function lifecycleStorageSnapshot(
 }
 
 async function counts(
-  persistence: Parameters<Parameters<typeof withTemporaryPostgresPersistence>[0]>[0],
+  persistence: PostgresFlarexPersistence,
 ) {
   const result = await persistence.query<{
     attempts: number;
@@ -848,7 +868,7 @@ async function counts(
 }
 
 async function waitForBlockedTaskRunWriters(
-  persistence: Parameters<Parameters<typeof withTemporaryPostgresPersistence>[0]>[0],
+  persistence: PostgresFlarexPersistence,
   blockerPid: number,
   expectedCount: number,
 ): Promise<void> {
@@ -883,7 +903,7 @@ async function waitForBlockedTaskRunWriters(
 }
 
 async function runVersion(
-  persistence: Parameters<Parameters<typeof withTemporaryPostgresPersistence>[0]>[0],
+  persistence: PostgresFlarexPersistence,
   scopeId: string,
 ): Promise<string> {
   const result = await persistence.query<{ run_version: string }>(`
