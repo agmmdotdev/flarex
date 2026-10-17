@@ -43,6 +43,9 @@ export interface ReplacedGraph {
  * A replacement invocation owns all mutable plans and scoped store handles. */
 export interface ReplacementProfile {
   readonly catalog: GraphCatalog;
+  /** Complete deleted-child DTOs still need the accepting core's exact
+   * same-root deletion proof; this policy never grants timestamp authority. */
+  readonly allowReconstitution?: true;
   readonly allowedRelations: (entity: GraphEntity) => readonly string[];
   readonly ownedToOne: (entity: GraphEntity) => readonly string[];
   readonly mutableForeignKeys: (entity: GraphEntity) => boolean;

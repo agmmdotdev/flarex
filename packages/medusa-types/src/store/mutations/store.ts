@@ -103,5 +103,5 @@ export interface UpdateStoreDTO {
   /**
    * Holds custom data in key-value pairs.
    */
-  metadata?: Record<string, any> | null
+  metadata?: Record<string, any> | null | undefined
 }

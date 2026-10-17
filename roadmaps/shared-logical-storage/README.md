@@ -72,6 +72,11 @@ Level tuple reads. It retains existing point coverage and partial-index proofs.
 authorized activity-provenance correction exposed by composed Level reads and
 deletion. Root dependency and settlement evidence remain complete.
 
+[Same-root row reconstitution](./63-same-root-row-reconstitution.md) owns checked
+reuse of complete physically deleted preimages within a trusted live logical
+root. Ordinary creation and persisted-history restoration keep their separate
+boundaries; native Store update retains its connected admission gate.
+
 - [Accepted database design](../../design-notes/flarex-db-accepted-design.md) and
   [shared logical storage decision](../../design-notes/flarexdb-shared-logical-storage.md)
   own the target, replacement authority and tradeoffs.

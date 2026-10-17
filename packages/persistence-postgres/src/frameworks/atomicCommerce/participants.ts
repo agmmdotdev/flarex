@@ -73,6 +73,7 @@ interface AtomicCommerceParticipantBase {
   readonly validateLogicalCall?: LogicalCommerceCallValidation;
   readonly allowSetNull?: true;
   readonly allowReferenceReplacement?: true;
+  readonly allowReconstitution?: true;
   readonly derivedIdEvent?: CommerceDerivedIdEvent;
   readonly events?: ParticipantEventSelection;
 }
@@ -84,15 +85,15 @@ export type AtomicCommerceParticipantInput = AtomicCommerceParticipantBase & (
 );
 export const isCommerceDefinitionName = (name: string) => /^[a-z][a-zA-Z0-9_-]{0,63}$/.test(name) && name !== "initialize";
 
-function captureParticipant(member: AtomicCommerceParticipantInput, logicalPublication: "mixed" | undefined) {
+function captureParticipant(member: AtomicCommerceParticipantInput, logicalPublication: "mixed" | undefined, allowReconstitution: true | undefined) {
   const logicalStorage = member.logicalStorage;
-  if (logicalPublication !== undefined && logicalStorage === undefined)
+  if ((logicalPublication !== undefined || allowReconstitution === true) && logicalStorage === undefined)
     return Result.fail(commerceError("unsupportedProfile"));
   const derived = member.derivedIdEvent;
   return Result.succeed(Object.freeze({ factoryInput: member, participant: member.participant,
     commands: Object.freeze([...member.commands]), validate: member.validate, validateLogical: member.validateLogical,
     validateLogicalCall: member.validateLogicalCall,
-    allowSetNull: member.allowSetNull, allowReferenceReplacement: member.allowReferenceReplacement,
+    allowSetNull: member.allowSetNull, allowReferenceReplacement: member.allowReferenceReplacement, allowReconstitution,
     derivedIdEvent: derived === undefined ? undefined : Object.freeze({ contract: derived.contract }),
     events: captureParticipantEvents(member.events),
     ...(logicalStorage === undefined
@@ -104,6 +105,7 @@ function captureParticipant(member: AtomicCommerceParticipantInput, logicalPubli
 }
 export type CapturedAtomicCommerceParticipants = readonly Result.Result.Success<ReturnType<typeof captureParticipant>>[];
 const decodeLogicalPublication = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal("mixed")));
+const decodeReconstitution = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal(true)));
 const preparedLogicalMembers = new WeakMap<object, Readonly<{ factory: AtomicCommerceParticipantInput;
   commands: readonly CommerceCommand[]; lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>> }>>();
 
@@ -117,7 +119,9 @@ export function captureAtomicCommerceParticipants(input: readonly AtomicCommerce
     for (const member of input) {
       const publication = yield* decodeLogicalPublication(member.logicalPublication)
         .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
-      captured.push(yield* captureParticipant(member, publication));
+      const reconstitution = yield* decodeReconstitution(member.allowReconstitution)
+        .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
+      captured.push(yield* captureParticipant(member, publication, reconstitution));
     }
     return Object.freeze(captured);
   });
@@ -155,12 +159,13 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     const common = { participant: member.participant, name, commands,
       commandNames: [...commandNames].toSorted(compareUtf16Strings), validate: member.validate,
       validateLogical: member.validateLogical, validateLogicalCall: member.validateLogicalCall, allowSetNull: member.allowSetNull,
-      allowReferenceReplacement: member.allowReferenceReplacement, derivedIdEvent, events };
+      allowReferenceReplacement: member.allowReferenceReplacement, allowReconstitution: member.allowReconstitution, derivedIdEvent, events };
     if (member.kind === "logical") {
       const validated = member.validateLogical !== undefined || member.validateLogicalCall !== undefined;
       if (location === undefined || member.validate !== undefined ||
         (events !== undefined && !validated)
         || (member.allowSetNull === true && !validated)
+        || (member.allowReconstitution === true && !validated)
         || (member.allowReferenceReplacement === true && (!validated ||
           derivedIdEvent === undefined || events === undefined ||
           !events.contracts.includes(derivedIdEvent.contract))) ||
@@ -207,7 +212,7 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     if (member.profile === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
     const descriptor = yield* requireCommerceProfile(member.profile);
     if (member.validateLogical !== undefined || member.validateLogicalCall !== undefined || member.allowSetNull === true ||
-      member.allowReferenceReplacement === true || derivedIdEvent !== undefined)
+      member.allowReferenceReplacement === true || member.allowReconstitution === true || derivedIdEvent !== undefined)
       return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (descriptor.localOnly !== (member.validate !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (!sameBindingValue({ ...descriptor.artifact.identity }, reference.installation.artifact))

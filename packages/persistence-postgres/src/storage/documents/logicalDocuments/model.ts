@@ -63,6 +63,9 @@ export interface LogicalRelationalStore<Failure> {
   readonly write: (context: BoundedRequestContext, mode: "insert" | "upsert" | "update", rows: unknown) => Effect.Effect<readonly JsonObject[], Failure>;
   readonly delete: (context: BoundedRequestContext, keys: unknown) => Effect.Effect<readonly JsonObject[], Failure>;
   readonly lifecycle: (context: BoundedRequestContext, operation: "softDelete" | "restore", keys: unknown) => Effect.Effect<readonly JsonObject[], Failure>;
+  /** Explicit trusted admission only. Exact complete preimages must have been
+   * physically deleted in this live root; no persisted-history reconstruction. */
+  readonly reconstitute?: (context: BoundedRequestContext, rows: unknown) => Effect.Effect<readonly JsonObject[], Failure>;
 }
 
 export interface LogicalDocumentWrite {
@@ -169,6 +172,7 @@ export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
   readonly snapshotCommitSeq?: CommitSeq;
   readonly tables: readonly LogicalDocumentTable[];
   readonly relationalCapabilities?: readonly RelationalPersistenceCapability[];
+  readonly allowReconstitution?: true;
   readonly searchDefinitions?: readonly LogicalSearchDefinition[];
   readonly lifetime: BoundedRequestLifetime<Failure>;
   /** Durable operations check live admission here. A finite root supplies a

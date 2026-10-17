@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -818,5 +818,61 @@ describe("native Reservation Line Item deletion callback provenance", () => {
     const changed = promoted[1].replace("return new StepResponse(void 0, ids)", "return new StepResponse(");
     expect(changed).not.toBe(promoted[1]);
     expect(() => verify(promoted[0], changed)).toThrow("Invalid native Reservation Line Item callback syntax");
+  });
+});
+
+
+describe("native Store update callback provenance", () => {
+  const paths = ["store/workflows/update-stores.ts", "store/steps/update-stores.ts"];
+  const native = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const promoted = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const verify = (workflow = promoted[0], step = promoted[1]) => verifyStoreUpdateCallbacks(native[0], workflow, native[1], step);
+  it("admits only the complete native runtime and erased annotations", () => {
+    expect(() => verify()).not.toThrow();
+    expect(() => verify(promoted[0].replace("input: WorkflowData<StoreWorkflow.UpdateStoreWorkflowInput>", "input: WorkflowData<StoreWorkflow.UpdateStoreWorkflowInput> /* erased */"))).not.toThrow();
+  });
+  it.each([
+    ["root ID", '"update-stores"', '"update-other-stores"'],
+    ["selected Store import", 'from "../steps/update-stores"', 'from "../steps"'],
+    ["selected Pricing import", 'from "../../pricing/steps/update-price-preferences-as-array"', 'from "../../pricing"'],
+    ["empty normalization branch", "if (!data.input.update.supported_currencies?.length)", "if (!data.input.update.supported_currencies)"],
+    ["native Store selector", "selector: data.input.selector", "selector: {}"],
+    ["raw currency case", "currency_code: currency.currency_code", "currency_code: currency.currency_code.toLowerCase()"],
+    ["native default projection", "is_default: currency.is_default", "is_default: currency.is_default ?? false"],
+    ["condition", "return !!data.input.update.supported_currencies?.length", "return true"],
+    ["Pricing original input", "transform({ input }, (data) => {\n        return data.input.update", "transform({ normalizedInput }, (data) => {\n        return data.normalizedInput.update"],
+    ["raw tax flag", "is_tax_inclusive: currency.is_tax_inclusive", "is_tax_inclusive: currency.is_tax_inclusive ?? false"],
+    ["Store invocation", "updateStoresStep(normalizedInput)", "updateStoresStep(input)"],
+    ["Pricing invocation", "updatePricePreferencesAsArrayStep(upsertPricePreferences)", "updatePricePreferencesAsArrayStep([])"],
+    ["native output", "new WorkflowResponse(stores)", "new WorkflowResponse([])"],
+    ["extra unused statement", "return new WorkflowResponse(stores)", "void stores; return new WorkflowResponse(stores)"],
+    ["extra runtime import", 'from "@medusajs/workflows-sdk"', 'from "@medusajs/workflows-sdk"; import "node:fs"'],
+  ])("rejects changed root %s", (_label, before, after) => {
+    const changed = promoted[0].replace(before, after); expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native Store update callback behavior");
+  });
+  it.each([
+    ["step ID", '"update-stores"', '"update-other-stores"'],
+    ["covered metadata", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["Store resolution", "Modules.STORE", "Modules.PRICING"],
+    ["list selector", "listStores(data.selector,", "listStores({},"],
+    ["list projection", "select: selects", "select: []"],
+    ["list relations", "relations,", "relations: [],"],
+    ["list await", "await service.listStores", "service.listStores"],
+    ["update selector", "updateStores(data.selector, data.update)", "updateStores({}, data.update)"],
+    ["update payload", "updateStores(data.selector, data.update)", "updateStores(data.selector, {})"],
+    ["update await", "await service.updateStores", "service.updateStores"],
+    ["retained preimage", "new StepResponse(stores, prevData)", "new StepResponse(stores, stores)"],
+    ["empty inverse skip", "if (!prevData?.length)", "if (!prevData)"],
+    ["native inverse", "service.upsertStores(", "service.updateStores("],
+    ["null metadata semantics", "metadata: r.metadata || undefined", "metadata: r.metadata"],
+    ["portable utils", 'from "@medusajs/framework/utils/portable"', 'from "@medusajs/framework/utils"'],
+    ["extra inverse effect", "    await service.upsertStores(", '    container.resolve("query"); await service.upsertStores('],
+  ])("rejects changed step %s", (_label, before, after) => {
+    const changed = promoted[1].replace(before, after); expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Changed native Store update callback behavior");
+  });
+  it("rejects malformed native callback syntax", () => {
+    expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(stores, prevData)", "return new StepResponse("))).toThrow("Invalid native Store update callback syntax");
   });
 });

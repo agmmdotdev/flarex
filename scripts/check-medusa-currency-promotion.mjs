@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks } from "./check-medusa-test-port.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -292,6 +292,12 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/reservation/steps/delete-reservations-by-line-items.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/reservation/steps/delete-reservations-by-line-items.ts"), "utf8"),
   );
+  verifyStoreUpdateCallbacks(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/store/workflows/update-stores.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/store/workflows/update-stores.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/store/steps/update-stores.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/store/steps/update-stores.ts"), "utf8"),
+  );
   verifyStoreCreateCallbacks(
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/store/workflows/create-stores.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/store/workflows/create-stores.ts"), "utf8"),
@@ -532,7 +538,8 @@ export function verifyStoreCreationTypeFork(source, target, file) {
   verifyModuleTypeFork(source, target);
   let expected = source.replace(/\r\n/g, "\n");
   if (file === "packages/medusa-types/src/store/mutations/store.ts") {
-    expected = expected.replace("  is_default?: boolean\n", "  is_default?: boolean | undefined\n");
+    expected = expected.replace("  is_default?: boolean\n", "  is_default?: boolean | undefined\n")
+      .replace("  metadata?: Record<string, any> | null\n", "  metadata?: Record<string, any> | null | undefined\n");
   } else if (file === "packages/medusa-types/src/pricing/common/price-preference.ts") {
     expected = expected.replace("  id?: string\n", "  id?: string | undefined\n")
       .replace("  attribute?: string | null\n", "  attribute?: string | null | undefined\n")

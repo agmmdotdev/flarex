@@ -36,6 +36,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
   const state = new Map<string, JsonObject[]>();
   const selectedKeys = new Set<string>();
   const inserts = new Map<string, Map<string, JsonObject>>();
+  const reconstitutions = new Map<string, Map<string, JsonObject>>();
   const updates = new Map<string, Map<string, JsonObject>>();
   const deletes = new Map<string, Map<string, JsonObject>>();
   const visited = new Set<string>();
@@ -90,7 +91,8 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
   const remove = (table: Table, row: JsonObject) => observeExecution("MedusaGraph.remove", Effect.gen(function* (): Effect.fn.Return<void, CommerceTransactionError> {
     const token = identity(table, row);
     if (deletes.get(table.name)?.has(token)) return;
-    if (inserts.get(table.name)?.has(token) || updates.get(table.name)?.has(token)) return yield* Effect.fail(commerceError("invalidInput"));
+    if (inserts.get(table.name)?.has(token) || reconstitutions.get(table.name)?.has(token) || updates.get(table.name)?.has(token))
+      return yield* Effect.fail(commerceError("invalidInput"));
     for (const child of catalog.tables) {
       for (const fk of child.foreignKeys.filter(key => key.referencedTable === table.name && key.onDelete === "cascade")) {
         const childColumn = fk.columns[0], parentColumn = fk.referencedColumns[0];
@@ -117,7 +119,10 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
     if (Object.entries(owner).some(([name, value]) => (row[name] !== undefined && row[name] !== value) || (existing !== undefined && existing[name] !== value)))
       return yield* Effect.fail(commerceError("invalidInput"));
     const scalar: Record<string, Json> = { ...Object.fromEntries(Object.entries(row).filter(([name]) => target.table.columns.some(column => column.name === name))), ...owner, [target.keyColumn]: id };
+    const reconstitution = existing === undefined && !root && profile.allowReconstitution === true &&
+      ["created_at", "updated_at", "deleted_at"].some(name => scalar[name] !== undefined);
     for (const name of ["created_at", "updated_at", "deleted_at"]) {
+      if (reconstitution) continue;
       if (scalar[name] !== undefined && (existing === undefined || scalar[name] !== existing[name])) return yield* Effect.fail(commerceError("invalidInput"));
       delete scalar[name];
     }
@@ -150,7 +155,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
         delete scalar[name];
       }
       if (root || hasChangedFields(existing, scalar, [target.keyColumn])) put(updates, target.table, scalar);
-    } else put(inserts, target.table, scalar);
+    } else put(reconstitution ? reconstitutions : inserts, target.table, scalar);
     const next = { ...existing, ...scalar };
     state.set(target.table.name, [...(state.get(target.table.name) ?? []).filter(value => value[target.keyColumn] !== id), next]);
     for (const [name, descriptor] of catalog.queryRelations.get(target.table.name) ?? []) {
@@ -265,21 +270,32 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
     ordered.push(table);
   }
   const performedActions = emptyPerformedActions();
-  const apply = (table: Table, operation: "insert" | "update" | "delete", group: Map<string, Map<string, JsonObject>>) => observeExecution("MedusaGraph.apply", Effect.gen(function* () {
+  const apply = (table: Table, operation: "insert" | "update" | "delete" | "reconstitute", group: Map<string, Map<string, JsonObject>>) => observeExecution("MedusaGraph.apply", Effect.gen(function* () {
     const rows = [...group.get(table.name)?.values() ?? []];
     if (rows.length === 0) return;
     const store = yield* getStore(table);
-    const written = operation === "delete" ? yield* store.delete(ctx.manager, rows.map(row => Object.fromEntries(keys(table).map(key => [key, row[key]]))))
-      : yield* store.write(ctx.manager, operation, rows);
+    let written: readonly JsonObject[];
+    if (operation === "delete") {
+      written = yield* store.delete(ctx.manager, rows.map(row => Object.fromEntries(keys(table).map(key => [key, row[key]]))));
+    } else if (operation === "reconstitute") {
+      const reconstitute = store.reconstitute;
+      if (reconstitute === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+      written = yield* reconstitute(ctx.manager, rows);
+    } else {
+      written = yield* store.write(ctx.manager, operation, rows);
+    }
     const model = catalog.entities.find(value => value.table === table);
-    if (model !== undefined) for (const row of written) addPerformedAction(performedActions, operation === "insert" ? "created" : operation === "update" ? "updated" : "deleted", model.model, { ...row }, [model.keyColumn]);
+    if (model !== undefined) for (const row of written) addPerformedAction(performedActions, operation === "insert" || operation === "reconstitute" ? "created" : operation === "update" ? "updated" : "deleted", model.model, { ...row }, [model.keyColumn]);
     if (operation !== "delete") {
       const changed = new Set(written.map(row => identity(table, row)));
       state.set(table.name, [...(state.get(table.name) ?? []).filter(row => !changed.has(identity(table, row))), ...written]);
     }
   }));
   for (const table of [...ordered].reverse()) yield* apply(table, "delete", deletes);
-  for (const table of ordered) yield* apply(table, "insert", inserts);
+  for (const table of ordered) {
+    yield* apply(table, "insert", inserts);
+    yield* apply(table, "reconstitute", reconstitutions);
+  }
   for (const table of ordered) yield* apply(table, "update", updates);
   const paths = profile.projectionPaths(entity, relations);
   // Keep returned write rows and their framework order. Select any previously

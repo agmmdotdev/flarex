@@ -667,31 +667,51 @@ export function verifyReservationLineItemDeletionCallbacks(nativeWorkflow, workf
     .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
     .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
     .replace("  deleteReservationsByLineItemsStepId,", '  { name: deleteReservationsByLineItemsStepId, compensation: "transactionCovered" },');
-  // Unlike test ports, executable workflow files admit no unused-result or
-  // test-runner exceptions. Every emitted statement and import participates.
-  /** @param {string} source */
-  const program = source => {
-    const emitted = ts.transpileModule(source, { reportDiagnostics: true, compilerOptions: {
-      target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext, removeComments: true,
-      newLine: ts.NewLineKind.LineFeed, moduleDetection: ts.ModuleDetectionKind.Force,
-    } });
-    if (emitted.diagnostics?.some(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error))
-      throw new Error("Invalid native Reservation Line Item callback syntax");
-    const file = ts.createSourceFile("workflow.js", emitted.outputText, ts.ScriptTarget.ESNext, true, ts.ScriptKind.JS);
-    /** @param {ts.Node} node @returns {unknown} */
-    const shape = node => {
-      /** @type {unknown[]} */
-      const children = [];
-      ts.forEachChild(node, child => { children.push(shape(child)); });
-      return [node.kind, ts.isIdentifier(node) || ts.isLiteralExpression(node) ? node.text : undefined,
-        ts.isVariableDeclarationList(node) ? node.flags & ts.NodeFlags.BlockScoped : undefined,
-        ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node) ? node.operator : undefined,
-        ts.isTemplateLiteralToken(node) ? node.rawText : undefined,
-        ts.isMetaProperty(node) ? node.keywordToken : undefined,
-        ts.isImportAttributes(node) ? node.token : undefined, children];
-    };
-    return JSON.stringify(shape(file));
-  };
+  const program = (/** @type {string} */ source) => nativeWorkflowProgram(source, "Invalid native Reservation Line Item callback syntax");
   if (program(expectedWorkflow) !== program(workflow) || program(expectedStep) !== program(step))
     throw new Error("Changed native Reservation Line Item deletion callback behavior");
+}
+
+/** Complete emitted runtime shape: no unused-result or test-runner exceptions.
+ * @param {string} source @param {string} syntaxFailure */
+function nativeWorkflowProgram(source, syntaxFailure) {
+  const emitted = ts.transpileModule(source, { reportDiagnostics: true, compilerOptions: {
+    target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext, removeComments: true,
+    newLine: ts.NewLineKind.LineFeed, moduleDetection: ts.ModuleDetectionKind.Force,
+  } });
+  if (emitted.diagnostics?.some(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error))
+    throw new Error(syntaxFailure);
+  const file = ts.createSourceFile("workflow.js", emitted.outputText, ts.ScriptTarget.ESNext, true, ts.ScriptKind.JS);
+  /** @param {ts.Node} node @returns {unknown} */
+  const shape = node => {
+    /** @type {unknown[]} */
+    const children = [];
+    ts.forEachChild(node, child => { children.push(shape(child)); });
+    return [node.kind, ts.isIdentifier(node) || ts.isLiteralExpression(node) ? node.text : undefined,
+      ts.isVariableDeclarationList(node) ? node.flags & ts.NodeFlags.BlockScoped : undefined,
+      ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node) ? node.operator : undefined,
+      ts.isTemplateLiteralToken(node) ? node.rawText : undefined,
+      ts.isMetaProperty(node) ? node.keywordToken : undefined,
+      ts.isImportAttributes(node) ? node.token : undefined, children];
+  };
+  return JSON.stringify(shape(file));
+}
+
+/** Authenticate the complete native Store update root, selectors, projections,
+ * retained callback, transform and conditional Pricing branch.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyStoreUpdateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const expectedWorkflow = nativeWorkflow
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/update-stores"')
+    .replace('from "../../pricing"', 'from "../../pricing/steps/update-price-preferences-as-array"');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  updateStoresStepId,", '  { name: updateStoresStepId, compensation: "transactionCovered" },');
+  const failure = "Invalid native Store update callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, failure) !== nativeWorkflowProgram(workflow, failure) ||
+    nativeWorkflowProgram(expectedStep, failure) !== nativeWorkflowProgram(step, failure))
+    throw new Error("Changed native Store update callback behavior");
 }

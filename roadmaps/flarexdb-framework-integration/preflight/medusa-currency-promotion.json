@@ -912,12 +912,12 @@
     {
       "target": "packages/medusa-adapter/src/workflow/host.ts",
       "classification": "authored",
-      "targetSha256": "e9fe3a33b2168f55a6daaf8124a1a3fd59f45e776096253b98bf0a8ef2df52e4"
+      "targetSha256": "4f92f5d622f619beb8653554e29b84bd890b6cd100b223995ec08b003c65e723"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/module.ts",
       "classification": "authored",
-      "targetSha256": "5c0eb4cf27ea7ceaec24de0273438c5f1b77aadbdb3bf9ab28150676b2da9d6e"
+      "targetSha256": "4119f3e105eccce8e281969fd542e012c06782c13845e87838605fb887b1908c"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/resources.ts",
@@ -932,7 +932,7 @@
     {
       "target": "packages/medusa-adapter/src/write/graph-model.ts",
       "classification": "authored",
-      "targetSha256": "2ce580968b09f52da80591a51812c3ab678c38d3ba903beadab8c2e18d54d9ae"
+      "targetSha256": "12176bebeb93c820bd5028dc1b83d16fbbbfa4a51e9c36db70d1dddee7aab506"
     },
     {
       "target": "packages/medusa-adapter/src/write/keyed.ts",
@@ -942,7 +942,7 @@
     {
       "target": "packages/medusa-adapter/src/write/replace.ts",
       "classification": "authored",
-      "targetSha256": "20f296611badd7fb9983213e2ffe94e8cec0ea9e70f6c9bc41a82f50d7ff5472"
+      "targetSha256": "84c272261f145b457a2eb63bb8b981966e75acd86f1a6091ac933ed7d359f385"
     },
     {
       "target": "packages/medusa-adapter/test/adapter-boundaries.test.ts",
@@ -1092,7 +1092,7 @@
     {
       "target": "packages/medusa-adapter/test/shared-graph.test.ts",
       "classification": "authored",
-      "targetSha256": "96150b95f2a96bdcdfa29135b82f38543a8ad1dd84cbc6bdbc5c1ee0756249b6"
+      "targetSha256": "c53fed43422d6067dcd39acf5709846e6ba8c98c39779c3408456260a91fd078"
     },
     {
       "target": "packages/medusa-adapter/test/shared-module.test.ts",
@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "2ed1591d0937388ef962e3ff75a91282bd86f030130f978313f6045406cb78b8"
+      "targetSha256": "e664b62b68ee81e5ee421717efcbbe98196b787b941c72f9cd58a95f7c371618"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -1707,7 +1707,7 @@
       "target": "packages/medusa-framework/src/types/index.ts",
       "sourceSha256": "aebbcbfa32002b1f5862fd1bad5f7d3622629c333a655a69e72e63752f19b2cd",
       "classification": "selectedExportFacade",
-      "targetSha256": "1e75b99400a71f04a62d550d3d04765ccde3fdc54efdf8e2941de4e6cee52c07"
+      "targetSha256": "ed808f28ab8fbc78eaf917f85426de9c36b33f3d24a00a1c40f3d2956e79ae8d"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/framework/src/utils/index.ts",
@@ -3373,7 +3373,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/policy.ts",
       "classification": "authored",
-      "targetSha256": "3e3ba406a14cffbc3955a679633e8a69ede955c3a27bf6b258898aa573b35c61"
+      "targetSha256": "fb536089316260e59b67166955574ae3620d874123e4a13fafaddba6d3b65ab0"
     },
     {
       "target": "packages/medusa-adapter/src/links/product-shipping-profile-schema.ts",
@@ -6299,7 +6299,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/preimage.ts",
       "classification": "authored",
-      "targetSha256": "b960f74e7a111752b355291f557b9a8887dc5fe99022495abab6b9768c000099"
+      "targetSha256": "a99c795ccff60502de17f5d57983b9bb99f7de8f96bfd4752d9a4180d9e28697"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/product/variant-update.ts",
@@ -8243,7 +8243,7 @@
       "source": "third_party/medusa/upstream/packages/core/types/src/store/mutations/store.ts",
       "target": "packages/medusa-types/src/store/mutations/store.ts",
       "sourceSha256": "6c5e3a93bbe353869a5e5d16bd1d6c222a3649724f1f754b905e725dd507ac82",
-      "targetSha256": "2b6511243277a5c92b0846699f40348a9437b4ae674a796e4dbccf8fd4eb5c5b",
+      "targetSha256": "b9712c6f42dad7aeebfb2ca5e81bbaf53b15139254e0c1e78efaa2ec503bd0d5",
       "classification": "storeCreationTypeFork"
     },
     {
@@ -9094,7 +9094,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/store/create-graph.ts",
       "classification": "authored",
-      "targetSha256": "332b8359a170f6aa0dbf6d771d1bbfea687576d4821238421e48f3cbfadcf3c5"
+      "targetSha256": "2cc1d99c268c3259d008ef299f66219c4331d5e33797e7ea9f9378c90e1646f7"
     },
     {
       "target": "packages/medusa-adapter/src/modules/store/create-input.ts",
@@ -9194,6 +9194,85 @@
       "targetSha256": "a0cb2b61d53ce75708b2880cc575ef4590a1c4960c9208ff87d85ac2c7678635",
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/reservation/workflows/delete-reservations-by-line-items.ts",
       "sourceSha256": "3c956a46a31e9f765dc2db3e571c720fe1c959f650bb6881b972e06124b6bf04"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/store/graph.ts",
+      "classification": "authored",
+      "targetSha256": "cc2113bb43fc05f127abd52089c5cab5f474aca65f90aa7b78bf82c7c5dbc39f"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/store/update-input.ts",
+      "classification": "authored",
+      "targetSha256": "e421186823f02db4ad1bf13ac4ab9d0b3e905516b1b65af7aa5f2fb400089d3a"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/store/update-query.ts",
+      "classification": "authored",
+      "targetSha256": "fc66c9a085d23f235a8938dd638639f1f572854b9034c6c1701d943babccaee1"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/store/update-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "7b67115664d8e0ea08d970cc5702d75422ab5131cacc8e0a0ba8a1f604a6a20a"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/store/update-repository.ts",
+      "classification": "authored",
+      "targetSha256": "64fe1646cd3d20a38a8cbc64d7787ee5c6df3f1f94b40fcea94b4a67938b1e35"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/store/update-service.ts",
+      "classification": "authored",
+      "targetSha256": "b119dd18bba2aa2aca6118abfe28cc5ac24cd150cb4f79dcc68db3c3efa87556"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/store/update.ts",
+      "classification": "authored",
+      "targetSha256": "4b3f30de9acecaaaf77664f679f64601fe17edde546405a20541d208266b9f96"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-reconstitution.test.ts",
+      "classification": "authored",
+      "targetSha256": "3ec30a03804fa1e5037c7283d549d676f63d773e60ddb538c70cced3d2489e16"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-store-update-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "c31498708aa033359a85500e7420f3e9bacee70b988f5036f5e952eb8e32265d"
+    },
+    {
+      "target": "packages/medusa-adapter/test/store-update-input.test.ts",
+      "classification": "authored",
+      "targetSha256": "4469b9d8a0cdf05a8bb20f422c445ffcc44248e26c1c7e282dcf0e64dd4eb491"
+    },
+    {
+      "target": "packages/medusa-adapter/test/store-update-native-callbacks.test.ts",
+      "classification": "authored",
+      "targetSha256": "60f984d2ae8b1485f7d94dff3af6fe632b3abe26358a117fcc57bf8904c826cb"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-store-update-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "15a6124bf7827aa0b2c897cf9606a310831e038a129d444d97f28de9180d792e"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/store/steps/update-stores.ts",
+      "classification": "workflowFork",
+      "targetSha256": "7ac66e6dd7f04462f26df187abc6da116882e68f2d58c905212a73d7a4764e33",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/store/steps/update-stores.ts",
+      "sourceSha256": "8ee6d3dbcfcf0c55e1d9a9b71761ed66b97d8c1d77e8d9082390d2e6901c3aee"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/store/workflows/update-stores.ts",
+      "classification": "workflowFork",
+      "targetSha256": "ad6538d6ac1933579982d0a791e9446a137784193f57548e8e63de0f9e634d45",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/store/workflows/update-stores.ts",
+      "sourceSha256": "3775d1a9512dcad9028450ed02fbf6d6411c74d5e4cc6a499d6a28e7fff7aedd"
+    },
+    {
+      "target": "packages/medusa-adapter/test/store-update-read-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "4e6c2ee5f13aeb641a5b49ee0f19d7c20cf33fc680642f13608f8216a07a4f0f"
     }
   ],
   "dependencies": {
@@ -9676,7 +9755,9 @@
         "./store/create-stores-step",
         "./pricing/update-price-preferences-as-array-step",
         "./reservation/delete-reservations-by-line-items",
-        "./reservation/delete-reservations-by-line-items-step"
+        "./reservation/delete-reservations-by-line-items-step",
+        "./store/update-stores",
+        "./store/update-stores-step"
       ]
     },
     {
@@ -10749,12 +10830,12 @@
     },
     {
       "target": "packages/medusa-framework/dist/types/index.d.ts",
-      "targetSha256": "04104ade510cedd01aa6545b0cb6caf62f52e8bcaa345464f173e10bdcd21382",
+      "targetSha256": "9cfe3c4489932056a2ae46bfee35ae2fb5148c6daecab12d8fb3401227104a91",
       "input": "packages/medusa-framework/src/types/index.ts"
     },
     {
       "target": "packages/medusa-framework/dist/types/index.d.ts.map",
-      "targetSha256": "92abfe2ca98fd228d558708be6be1adbb1f5addedfdb240866b5bcb03186a7cf",
+      "targetSha256": "b653a4518feaa81ac0a585d0e6f0fa153247a347dad097764441d0c534f8649f",
       "input": "packages/medusa-framework/src/types/index.ts"
     },
     {
@@ -10764,7 +10845,7 @@
     },
     {
       "target": "packages/medusa-framework/dist/types/index.js.map",
-      "targetSha256": "f13c3fd13cb5a173527436393fd0f806d5d697d02998841a9f31e5f65bf73268",
+      "targetSha256": "17881639b18c25776f9197470b340cb3389a49c974b5b74ba5f3cb9de072fdc7",
       "input": "packages/medusa-framework/src/types/index.ts"
     },
     {
@@ -19290,12 +19371,12 @@
     {
       "target": "packages/medusa-types/dist/store/mutations/store.d.ts",
       "input": "packages/medusa-types/src/store/mutations/store.ts",
-      "targetSha256": "5a247c2e8f58de87ded2866faa426ff15809b7c61ab3b42a0877b020e72102bf"
+      "targetSha256": "88f767d78f48da4345057ca028f4f63f9d5a44da1c9621b0c1d8daa0e1db4293"
     },
     {
       "target": "packages/medusa-types/dist/store/mutations/store.d.ts.map",
       "input": "packages/medusa-types/src/store/mutations/store.ts",
-      "targetSha256": "a92da1d1c111e72c194ead3fab20261782be7a5ea87530d40fe14088cab56087"
+      "targetSha256": "2b93963a9f553d4c6edcc6a4f982b924a6f325d0a9bc151fc9c93ca600780153"
     },
     {
       "target": "packages/medusa-types/dist/store/mutations/store.js",

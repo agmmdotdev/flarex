@@ -142,7 +142,17 @@ Pricing preference keys. Native normalization, cross-Store raw-key selection,
 complete DTOs, required empty calls and retained physical/previous-DTO inverses
 use existing shared owners under one settlement. Its separate trusted profile
 selects 128 calls and existing root/borrowed FIFO scheduling; other resource
-limits retain their defaults. Store update remains a separate admission.
+limits retain their defaults. The bounded
+[Store update workflow](./preflight/125-native-store-update-workflow.md) admits
+four selected Stores with eight historical rows per child family and at most
+two active children per family per Store. Native selector/projection,
+normalization, physical replacement and original-input Pricing behavior remain
+intact. A separate identity-bound profile selects scope exclusion, FIFO
+scheduling and 128 calls. An explicitly admitted neutral core operation proves
+same-root deleted-row identity and managed fields for the genuine retained
+full-child inverse. Native dotted-metadata and historical-tombstone inverse
+limitations remain; exact failed-root rollback is separate from external saga
+compensation, which is not admitted.
 Chunked File import and Product
 export are explicitly deferred; their File and Region dependencies are outside
 the current integration goal.

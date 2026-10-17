@@ -104,6 +104,53 @@ const seeded = new Map<string, readonly JsonObject[]>([
   [references.name, [{ volume_isbn: "v1", edition_serial: "old" }]],
 ]);
 
+describe("checked complete-child reconstitution delegation", () => {
+  const datedEdition = entity("editions", "Edition", "serial",
+    ["volume_isbn", "label", "created_at", "updated_at", "deleted_at"], edition.table.foreignKeys);
+  const datedCatalog: GraphCatalog = { ...catalog,
+    entities: catalog.entities.map(value => value === edition ? datedEdition : value),
+    tables: catalog.tables.map(value => value === edition.table ? datedEdition.table : value),
+  };
+  const ordinary: ReplacementProfile = { ...replacement, catalog: datedCatalog };
+  const selected: ReplacementProfile = { ...ordinary, allowReconstitution: true };
+  const previous: JsonObject = { serial: "old", volume_isbn: "v1", label: "Old",
+    created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-02T00:00:00.000Z", deleted_at: null };
+  const state = () => new Map([...seeded, ["editions", []], [references.name, []]]);
+  const input = [{ isbn: "v1", editions: [previous] }];
+
+  it.each([
+    { profile: ordinary, reason: "invalidInput" },
+    { profile: selected, reason: "unsupportedProfile" },
+  ])("refuses managed child fields without both policy and checked port: $reason", async ({ profile, reason }) => {
+    await run(Effect.gen(function* () {
+      const base = yield* fixture(state());
+      const result = yield* replaceGraphRows(base.ctx, profile, volume, input, { relations: ["editions"] }).pipe(Effect.result);
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason } });
+      expect(base.calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+    }));
+  });
+
+  it("passes the complete DTO unchanged to its checked owner and uses actual returned rows", async () => {
+    await run(Effect.gen(function* () {
+      const base = yield* fixture(state()), captured: unknown[] = [];
+      const written = { ...previous, updated_at: "2026-02-01T00:00:00.000Z" };
+      // A scripted write receipt pins this adapter boundary only. Authentic
+      // deletion history and timestamp authority are proved by real core tests.
+      const ctx: typeof base.ctx = { ...base.ctx, table: name => base.ctx.table(name).pipe(Effect.map(table =>
+        name === datedEdition.table.name ? { ...table,
+          reconstitute: (manager: typeof base.ctx.manager, rows: unknown) => Effect.sync(() => {
+            expect(manager).toBe(base.ctx.manager); captured.push(rows); return [written];
+          }),
+        } : table)) };
+      const result = yield* replaceGraphRows(ctx, selected, volume, input, { relations: ["editions"] });
+      expect(captured).toEqual([[previous]]);
+      expect(result.entities[0]?.editions).toEqual([written]);
+      expect(result.performedActions.created.Edition).toEqual([{ serial: "old" }]);
+      expect(base.calls.some(call => call.operation === "insert:editions")).toBe(false);
+    }));
+  });
+});
+
 describe("shared graph planning over renamed module keys", () => {
   it("keeps arbitrary action keys distinct from Product's checked Medusa id contract", () => {
     expectTypeOf<Effect.Success<ReturnType<typeof replaceGraphRows>>["performedActions"]>().not.toMatchTypeOf<PerformedActions>();

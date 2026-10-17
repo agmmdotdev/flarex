@@ -52,4 +52,4 @@ export { BatchWorkflowInput, BatchWorkflowOutput } from "@medusajs/types";
 
 export { ReservationWorkflow } from "@medusajs/types";
 
-export { StoreTypes, IStoreModuleService, StoreDTO, CreateStoreDTO, StoreWorkflow, PricingWorkflow } from "@medusajs/types";
+export { StoreTypes, IStoreModuleService, StoreDTO, CreateStoreDTO, FilterableStoreProps, UpdateStoreDTO, StoreWorkflow, PricingWorkflow } from "@medusajs/types";

@@ -9,7 +9,7 @@ export const NativePreimageConfig = Schema.Struct({
 /** Pinned Drizzle's explicit-field preimage reads retain primary keys and
  * ignore DTO-only fields. Keep this compatibility at named workflow methods;
  * ordinary Product/Pricing reads retain strict projection admission. */
-export function nativePreimageSelection(config: typeof NativePreimageConfig.Type, read: GraphReadDefinition,
+export function nativePreimageSelection(config: typeof NativePreimageConfig.Type, read: Pick<GraphReadDefinition, "table" | "paths">,
   dtoOnlyRelations: readonly string[] = [],
 ) {
   // Only a named module view identifies its transient DTO paths. Unknown or

@@ -99,7 +99,9 @@
     "./store/create-stores-step": "./src/store/steps/create-stores.ts",
     "./pricing/update-price-preferences-as-array-step": "./src/pricing/steps/update-price-preferences-as-array.ts",
     "./reservation/delete-reservations-by-line-items": "./src/reservation/workflows/delete-reservations-by-line-items.ts",
-    "./reservation/delete-reservations-by-line-items-step": "./src/reservation/steps/delete-reservations-by-line-items.ts"
+    "./reservation/delete-reservations-by-line-items-step": "./src/reservation/steps/delete-reservations-by-line-items.ts",
+    "./store/update-stores": "./src/store/workflows/update-stores.ts",
+    "./store/update-stores-step": "./src/store/steps/update-stores.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",
