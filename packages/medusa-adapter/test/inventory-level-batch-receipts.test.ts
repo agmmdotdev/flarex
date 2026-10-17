@@ -14,7 +14,7 @@ type Activity = Parameters<LogicalCallReceiptValidation>[1];
 let contracts: Result.Result.Success<ReturnType<typeof compileInventoryLevelContracts>>;
 let policy: ReturnType<typeof inventoryLevelBatchEventPolicy>;
 const time = "2026-10-17T00:00:00.000Z";
-const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], referenceReplacements: [] });
+const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const event = (id: string, action: "created" | "updated" | "deleted" | "restored"): Json => ({
   name: `inventory.inventory-level.${action}`, metadata: { source: "inventory", object: "inventory_level", action }, data: { id },
 });

@@ -24,7 +24,7 @@ const event = (object: "stock_location" | "stock_location_address", action: "cre
 const evidence = (table: string, before: readonly JsonObject[], after: readonly JsonObject[]): Activity => ({
   observedRows: before.map(row => ({ table, row })),
   mutations: after.map((row, ordinal) => ({ ordinal, table, operation: "patch", before: before[ordinal] ?? null, after: row })),
-  lifecycle: [], setNull: [], referenceReplacements: [],
+  lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [],
 });
 const call = (commandName: string, input: Call["input"], result: Call["result"], events: Call["events"]): Call => ({
   commandName, input, result, events, mode: "write", fromAttempt: 0, toAttempt: events.length, fromLifecycle: 0, toLifecycle: 0,

@@ -10,7 +10,7 @@ import type { LogicalCallReceiptValidation } from "../src/repository/call-receip
 type Activity = Parameters<LogicalCallReceiptValidation>[1];
 type Receipt = Parameters<LogicalCallReceiptValidation>[0];
 let catalog: ProductRuntimeMetadata;
-const empty = (): Activity => ({ mutations: [], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] });
+const empty = (): Activity => ({ mutations: [], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const receipt = (commandName: string, input: Json, result: Json, activity: Activity, events: readonly Json[] = []): Receipt => ({
   commandName, mode: "write", input, result, events, fromAttempt: 0, toAttempt: activity.mutations.length,
   fromLifecycle: 0, toLifecycle: activity.lifecycle.length,
@@ -229,7 +229,7 @@ describe("native Collection workflow receipts", () => {
   it("retains the existing single-Collection sealed replacement profile without admitting Product attempts", async () => {
     const before = { id: "single", title: "Single", handle: "single", metadata: null, deleted_at: null };
     const activity: Activity = { ...empty(), mutations: [{ ordinal: 0, table: catalog.collection.table.name,
-      operation: "patch", before, after: before }], referenceReplacements: [{
+      operation: "patch", before, after: before }], relationalReads: [], referenceReplacements: [{
       sourceTable: catalog.product.table.name, sourceColumn: "collection_id", targetTable: catalog.collection.table.name,
       targetColumn: "id", targetKey: "single", desiredKeys: ["requested"],
     }] };

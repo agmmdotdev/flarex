@@ -1,6 +1,6 @@
 import { observeExecution } from "../../execution/diagnostics/operation";
 // Quiet calls retain lazy operation bodies; actual caller/SDK policy owns diagnostic spans.
-import { Clock, Effect } from "effect";
+import { Clock, Effect, Schema } from "effect";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { isJsonObject, type JsonObject } from "flarex-protocol/json";
@@ -15,6 +15,7 @@ import { bindPreparedLogicalRelationalRows, detachLogicalRelationalActivityJson 
 import { commerceError, logicalCommerceError, type CommerceTransactionError } from "./model";
 import { projectCommerceRequestFailure } from "./request";
 import { defaultCommerceResources, logicalCommerceWorkingSetLimits, type CommerceResources } from "./resources";
+import { useCapturedPrivateJsonData } from "../../values/privateJsonData";
 
 /** A selected read borrows only read mechanics and its accepting transaction. */
 export const makeLogicalCommerceReadParticipant = Effect.fn("LogicalCommerce.makeReadParticipant")(function* (
@@ -61,6 +62,9 @@ export interface LogicalCommerceObservedRow {
   readonly table: string;
   readonly row: JsonObject;
 }
+const ReadCount = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }));
+const decodeRelationalRead = Schema.decodeUnknownEffect(Schema.Struct({ query: Schema.Json, total: ReadCount, returned: ReadCount })
+  .check(Schema.makeFilter(value => value.returned <= value.total)), { onExcessProperty: "error" });
 export interface LogicalCommerceSetNull {
   readonly sourceTable: string;
   readonly sourceColumn: string;
@@ -199,7 +203,7 @@ export const inspectLogicalCommerceActivity = Effect.fnUntraced(function* (
  * Neither view carries a storage or settlement capability. */
 export const projectLogicalCommerceActivity = Effect.fnUntraced(function* (
   names: Pick<ReadonlyMap<CatalogTableId, string>, "get">,
-  activity: Pick<LogicalDocumentChanges, "attempts" | "lifecycle" | "observedRows" | "setNull" | "referenceReplacements">,
+  activity: LogicalDocumentActivity,
 ) {
   const mutations: LogicalCommerceMutation[] = [];
   for (const attempt of activity.attempts) {
@@ -225,6 +229,17 @@ export const projectLogicalCommerceActivity = Effect.fnUntraced(function* (
     if (table === undefined || table !== observation.tableName || !isJsonObject(observation.value))
       return yield* Effect.fail(commerceError("storedCorruption"));
     observedRows.push(Object.freeze({ table, row: observation.value }));
+  }
+  const relationalReads = [];
+  for (const observation of activity.relationalReads) {
+    const table = names.get(observation.tableId);
+    if (table === undefined || table !== observation.tableName) return yield* Effect.fail(commerceError("storedCorruption"));
+    const captured = yield* Effect.fromResult(useCapturedPrivateJsonData({ query: observation.query, total: observation.total, returned: observation.returned },
+      Number.MAX_SAFE_INTEGER, (_reason, cause) => commerceError("storedCorruption", cause)));
+    const selected = yield* decodeRelationalRead(captured.value)
+      .pipe(Effect.mapError(cause => commerceError("storedCorruption", cause)));
+    relationalReads.push(Object.freeze({ table, query: detachLogicalRelationalActivityJson(selected.query),
+      total: selected.total, returned: selected.returned }));
   }
   const setNull: LogicalCommerceSetNull[] = [];
   for (const intent of activity.setNull) {
@@ -254,6 +269,7 @@ export const projectLogicalCommerceActivity = Effect.fnUntraced(function* (
       key: Object.freeze({ ...observation.key }), rowAtOperation: detachLogicalRelationalActivityJson(observation.rowAtOperation) }))),
     observedRows: Object.freeze(observedRows.map(observation => Object.freeze({ ...observation,
       row: detachLogicalRelationalActivityJson(observation.row) }))),
+    relationalReads: Object.freeze(relationalReads),
     setNull: Object.freeze(setNull.map(intent => Object.freeze({ ...intent }))),
     referenceReplacements: Object.freeze(referenceReplacements.map(intent => Object.freeze({ ...intent,
       desiredKeys: Object.freeze([...intent.desiredKeys]) }))),

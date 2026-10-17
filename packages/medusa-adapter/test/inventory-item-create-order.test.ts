@@ -18,7 +18,7 @@ describe("shared Inventory Item create result authentication", () => {
       input: [{ sku: "item-a" }, { sku: "item-b" }], result: [...rows].reverse(),
       events: rows.map(value => ({ name: "inventory.inventory-item.created", metadata: { source: "inventory", object: "inventory_item", action: "created" }, data: { id: value.id ?? null } })),
       fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 0 };
-    const activity: Parameters<LogicalCallReceiptValidation>[1] = { observedRows: [], lifecycle: [], setNull: [], referenceReplacements: [],
+    const activity: Parameters<LogicalCallReceiptValidation>[1] = { observedRows: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [],
       mutations: rows.map((after, ordinal) => ({ ordinal, table: "inventory_item", operation: "insert", before: null, after })) };
     expect(await Effect.runPromise(Effect.result(inventoryCreateEventPolicy().validateLogicalCall(call, activity))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });

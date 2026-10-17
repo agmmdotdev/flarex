@@ -703,7 +703,7 @@ describe("native Product creation on shared logical storage", () => {
       { ordinal: 2, table: relation.join.pivotTable, operation: "insert" as const, before: null,
         after: { [categoryColumn]: id, [productColumn]: "unrequested" } },
     ];
-    await expect(Effect.runPromise(policy.validateLogicalCall(call, { mutations: mutations, lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] })))
+    await expect(Effect.runPromise(policy.validateLogicalCall(call, { mutations: mutations, lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] })))
       .rejects.toMatchObject({ reason: "receiptMismatch" });
   });
 

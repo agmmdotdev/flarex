@@ -23,7 +23,7 @@ const nativeReceipt = (selector: JsonObject, order: readonly string[], update: J
     metadata: { keep: "old", remove: "old", nested: { before: true } }, deleted_at: null }));
   const after = before.map(row => ({ ...row, ...afterFields, updated_at: "2026-10-17T01:00:00.000Z" }));
   const activity: Activity = { mutations: before.map((row, ordinal) => ({ ordinal, table: catalog.type.table.name,
-    operation: "patch", before: row, after: after[ordinal] ?? null })), lifecycle: [], setNull: [], referenceReplacements: [],
+    operation: "patch", before: row, after: after[ordinal] ?? null })), lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [],
   observedRows: after.map(row => ({ table: catalog.type.table.name, row })) };
   const call: Receipt = { commandName: "productUpdateTypesBySelector", mode: "write", input: { selector, update }, result: after,
     events: order.map(id => event(id)), fromAttempt: 0, toAttempt: activity.mutations.length, fromLifecycle: 0, toLifecycle: 0 };

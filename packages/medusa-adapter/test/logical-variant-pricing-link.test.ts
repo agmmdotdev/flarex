@@ -75,7 +75,7 @@ describe("native Variant–PriceSet Link on shared logical storage", () => {
     const policy = link.runtime.logicalEventPolicy();
     expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ commandName: "linkCreate", mode: "write", input: [], result: [], events: [], fromAttempt: 0, toAttempt: 1,
         fromLifecycle: 0, toLifecycle: 0 }, { mutations: [{ ordinal: 0, table: "product_variant_price_set", operation: "insert", before: null,
-      after: { id: "pvps_orphan", variant_id: "variant", price_set_id: "pset", deleted_at: null } }], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))))
+      after: { id: "pvps_orphan", variant_id: "variant", price_set_id: "pset", deleted_at: null } }], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
   });
 

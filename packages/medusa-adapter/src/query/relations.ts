@@ -1,4 +1,4 @@
-import { Effect, type Result } from "effect";
+import { Effect, Option, Result } from "effect";
 import {
   groupHasManyRows, groupManyToManyRows, toPopulateTree, tupleKey,
   type PopulateTree, type ToManyRelation,
@@ -22,6 +22,37 @@ export type CommerceRelationReadContext = Pick<CommerceCommandContext, "manager"
   readonly admitSelection?: (table: string, rows: readonly JsonObject[]) => Result.Result<void, CommerceTransactionError>;
 };
 
+/** One complete-set query shape for execution and authenticated read receipts. */
+export function commerceRelationReadQuery(resources: Pick<CommerceCommandContext["resources"], "queryRows">,
+  predicate: Json, order = "id"): JsonObject {
+  return { take: resources.queryRows, order: { column: order, direction: "asc" }, predicate };
+}
+
+/** The native population owner prepares its indexed selection independently of
+ * presentation. None means no usable parent identity and performs no read. */
+export function prepareCommerceRelationPopulation(columns: readonly string[], parents: readonly JsonObject[],
+  parentColumns: readonly string[], softDelete: boolean, withDeleted: boolean, predicate?: Predicate) {
+  return Result.gen(function* () {
+    const column = columns[0], parentColumn = parentColumns[0];
+    if (columns.length !== 1 || parentColumns.length !== 1 || column === undefined || parentColumn === undefined)
+      return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (parents.length === 0) return Option.none();
+    const values: string[] = [];
+    for (const parent of parents) {
+      const value = parent[parentColumn];
+      if (value === null) continue;
+      if (typeof value !== "string") return yield* Result.fail(commerceError("storedCorruption"));
+      values.push(value);
+    }
+    if (values.length === 0) return Option.none();
+    const children: Json[] = [{ kind: "in", column, values: [...new Set(values)] }];
+    if (softDelete && !withDeleted) children.push({ kind: "isNull", column: "deleted_at" });
+    if (predicate !== undefined) children.push(predicate);
+    const selected: JsonObject = { kind: "and", children };
+    return Option.some({ column, values, predicate: selected });
+  });
+}
+
 /** The selected store must return a complete bounded relation set or refuse.
  * Shared logical storage uses an indexed complete-set read; the retained
  * physical profile enforces its own catalog bound. A truncated population
@@ -31,7 +62,7 @@ export const readCommerceRelationRows = Effect.fn("MedusaAdapter.readRelationRow
   ctx: CommerceRelationReadContext, table: string, predicate: Json, order: string = "id",
 ) {
   const store = yield* ctx.table(table);
-  const query = { take: ctx.resources.queryRows, order: { column: order, direction: "asc" }, predicate } satisfies JsonObject;
+  const query = commerceRelationReadQuery(ctx.resources, predicate, order);
   const rows = yield* store.find(ctx.manager, query);
   if (rows.length > ctx.resources.queryRows) return yield* Effect.fail(commerceError("storedCorruption"));
   if (ctx.admitSelection !== undefined) yield* Effect.fromResult(ctx.admitSelection(table, rows));
@@ -59,20 +90,9 @@ const readPopulationRelation = Effect.fn("MedusaAdapter.readRelation")(function*
   parentColumns: readonly string[], softDelete: boolean, order: string, primaryLookup = false, predicate?: Predicate,
 ) {
   const { ctx, fetched, withDeleted } = population;
-  const column = columns[0];
-  const parentColumn = parentColumns[0];
-  if (columns.length !== 1 || parentColumns.length !== 1 || column === undefined || parentColumn === undefined) {
-    return yield* Effect.fail(commerceError("unsupportedProfile"));
-  }
-  if (parents.length === 0) return [];
-  const values: string[] = [];
-  for (const parent of parents) {
-    const value = parent[parentColumn];
-    if (value === null) continue;
-    if (typeof value !== "string") return yield* Effect.fail(commerceError("storedCorruption"));
-    values.push(value);
-  }
-  if (values.length === 0) return [];
+  const selection = yield* Effect.fromResult(prepareCommerceRelationPopulation(columns, parents, parentColumns, softDelete, withDeleted, predicate));
+  if (Option.isNone(selection)) return [];
+  const { column, values } = selection.value;
   const cacheKey = JSON.stringify([targetTable, softDelete, order, predicate ?? null]);
   const previous = fetched.get(cacheKey);
   if (primaryLookup && previous !== undefined) {
@@ -80,10 +100,7 @@ const readPopulationRelation = Effect.fn("MedusaAdapter.readRelation")(function*
     const matching = previous.filter(row => typeof row[column] === "string" && ids.has(row[column]));
     if (matching.length === ids.size) return matching;
   }
-  const children: Json[] = [{ kind: "in", column, values: [...new Set(values)] }];
-  if (softDelete && !withDeleted) children.push({ kind: "isNull", column: "deleted_at" });
-  if (predicate !== undefined) children.push(predicate);
-  const loaded = yield* readCommerceRelationRows(ctx, targetTable, { kind: "and", children }, order);
+  const loaded = yield* readCommerceRelationRows(ctx, targetTable, selection.value.predicate, order);
   fetched.set(cacheKey, loaded);
   return loaded;
 });

@@ -237,13 +237,13 @@ describe("native SalesChannel service on shared logical storage", () => {
     ] as const;
     const mutation = [{ ordinal: 0, table: "sales_channel", operation: "insert", before: null,
       after: { id: "orphan-channel", name: "Orphan", deleted_at: null } }] as const;
-    expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall(attempted[0], { mutations: mutation, lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))))
+    expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall(attempted[0], { mutations: mutation, lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
     const attached = { name: eventName("created"), metadata: { source: Modules.SALES_CHANNEL,
       object: "sales_channel", action: "created" }, data: { id: "orphan-channel" } };
     for (const emitted of [[attached, attached], [{ ...attached, data: { id: "forged-channel" } }]]) {
       expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ ...attempted[0], events: emitted },
-        { mutations: mutation, lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] })))).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+        { mutations: mutation, lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] })))).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
     }
     const { host, create, update } = await prepareNativeHost();
     const reader = await Effect.runPromise(makeCommerceHost(sales.hostInput));

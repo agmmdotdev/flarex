@@ -23,7 +23,7 @@ describe("native Collection creation handle receipts", () => {
         const row = { id: "collection", title, handle, metadata: null, deleted_at: null };
         const activity: Parameters<LogicalCallReceiptValidation>[1] = { mutations: [{ ordinal: 0,
           table: catalog.collection.table.name, operation: "insert", before: null, after: row }],
-        lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] };
+        lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] };
         const call: Parameters<LogicalCallReceiptValidation>[0] = {
           commandName, mode: "write", input: [input], result: [{ ...row, products: [] }],
           events: [{ name: catalog.collection.createdEvent, metadata: { source: "product",

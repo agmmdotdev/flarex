@@ -15,7 +15,7 @@ const row = (id: string, deleted_at: string | null = null): JsonObject => ({ id,
   metadata: { keep: true }, created_at: time, updated_at: time, deleted_at });
 const event = (id: string, action: "deleted" | "restored"): Json => ({ name: `sales_channel.sales-channel.${action}`,
   metadata: { source: "sales_channel", object: "sales_channel", action }, data: { id } });
-const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], referenceReplacements: [] });
+const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const call = (input: Json, result: Json, events: readonly Json[] = [], restore = false): Call => ({
   commandName: restore ? "salesChannelRestoreForWorkflow" : "salesChannelSoftDeleteForWorkflow", mode: "write", input, result, events,
   fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 0,

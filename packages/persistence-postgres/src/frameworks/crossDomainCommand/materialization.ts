@@ -34,6 +34,7 @@ const captureChanges = (value: LogicalDocumentChanges): LogicalDocumentChanges =
   changes: Object.freeze([...value.changes]), attempts: Object.freeze([...value.attempts]),
   lifecycle: Object.freeze([...value.lifecycle]),
   observedRows: Object.freeze([...value.observedRows]),
+  relationalReads: Object.freeze([...value.relationalReads]),
   noFinalRows: Object.freeze([...value.noFinalRows]), dependencies: Object.freeze([...value.dependencies]),
   scans: Object.freeze([...value.scans]), uniqueReads: Object.freeze([...value.uniqueReads]),
   indexReads: Object.freeze([...value.indexReads]), setNull: Object.freeze([...value.setNull]),

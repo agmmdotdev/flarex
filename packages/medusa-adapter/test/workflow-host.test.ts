@@ -147,7 +147,7 @@ describe("workflow registration and scoped resource composition", () => {
     expect(participant.validateLogical).toBe(aggregate);
     const call = { commandName: "sampleRead", mode: "read" as const, input: "input", result: "result", events: [],
       fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 0 };
-    const activity = { mutations: [], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] };
+    const activity = { mutations: [], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] };
     await Effect.runPromise(participant.validateLogicalCall(call, activity, command));
     expect(perCall).toHaveBeenCalledExactlyOnceWith(call, activity, command);
     expect(await Effect.runPromise(Effect.result(participant.validateLogical([call], [], [], [], [], []))))

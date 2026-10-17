@@ -92,7 +92,7 @@ import { createFileScopedPostgresFixture, postgresUrl } from "../../support/post
 
 const emptyChanges = Object.freeze({ changes: [], attempts: [], lifecycle: [], observedRows: [],
   noFinalRows: [], dependencies: [], scans: [], uniqueReads: [], indexReads: [], pageReads: [],
-  searchReads: [], setNull: [], referenceReplacements: [] });
+  searchReads: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 
 async function sourceBundleFixture(driver: "pglite" | "postgres", options: { runtimeHostIdentity: string; compatibilityDate: string }) {
   return await (async () => {

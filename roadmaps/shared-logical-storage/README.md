@@ -77,6 +77,13 @@ reuse of complete physically deleted preimages within a trusted live logical
 root. Ordinary creation and persisted-history restoration keep their separate
 boundaries; native Store update retains its connected admission gate.
 
+[Executed relational read evidence](./64-executed-relational-read-evidence.md)
+owns the authorized in-memory activity correction exposed by native Shipping
+Profile deletion: successful empty selections retain their actual query and
+counts for call authentication. Query planning and durable dependencies retain
+their existing owners. Shipping Profile and Inventory Item Link receipts
+authenticate their actual complete matching selection.
+
 - [Accepted database design](../../design-notes/flarex-db-accepted-design.md) and
   [shared logical storage decision](../../design-notes/flarexdb-shared-logical-storage.md)
   own the target, replacement authority and tradeoffs.

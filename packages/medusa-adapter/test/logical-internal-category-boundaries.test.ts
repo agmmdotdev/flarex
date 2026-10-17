@@ -151,13 +151,13 @@ describe("internal Category boundaries on shared logical Product storage", () =>
     const rootDelete = { ordinal: 0, table: catalog.category.table.name, operation: "delete" as const,
       before, after: null };
     const policy = productCallReceipts(catalog);
-    await run(policy.validateLogicalCall(deletion, { mutations: [rootDelete], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }));
+    await run(policy.validateLogicalCall(deletion, { mutations: [rootDelete], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }));
     await expect(run(policy.validateLogicalCall({ ...deletion, toAttempt: 2 }, { mutations: [rootDelete, {
       ordinal: 1, table: relation.pivotTable, operation: "delete" as const,
       before: { id: "forged", [relation.sourceColumns[0] ?? "category_id"]: "unselected" }, after: null,
-    }], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))).rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+    }], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }))).rejects.toMatchObject({ _tag: "CommerceTransactionError" });
     await expect(run(policy.validateLogicalCall({ ...deletion, events: [{ ...deletedEvent,
-      data: { id: "unselected" } }] }, { mutations: [rootDelete], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] })))
+      data: { id: "unselected" } }] }, { mutations: [rootDelete], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] })))
       .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
 
     const updatePolicy = productCallReceipts(catalog);
@@ -170,13 +170,13 @@ describe("internal Category boundaries on shared logical Product storage", () =>
       events: [updatedEvent], fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 };
     const updateMutation = { ordinal: 0, table: catalog.category.table.name, operation: "patch" as const,
       before, after: updatedRow };
-    await run(updatePolicy.validateLogicalCall(updateReceipt, { mutations: [updateMutation], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }));
+    await run(updatePolicy.validateLogicalCall(updateReceipt, { mutations: [updateMutation], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }));
     await expect(run(updatePolicy.validateLogicalCall({ ...updateReceipt,
-      result: { ...updatedRow, name: "Fabricated" } }, { mutations: [updateMutation], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] })))
+      result: { ...updatedRow, name: "Fabricated" } }, { mutations: [updateMutation], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] })))
       .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
     const { name: _omittedName, ...missingName } = updatedRow;
     await expect(run(updatePolicy.validateLogicalCall({ ...updateReceipt,
-      result: missingName }, { mutations: [updateMutation], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] })))
+      result: missingName }, { mutations: [updateMutation], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] })))
       .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
   }, 120_000);
 
@@ -288,7 +288,7 @@ describe("internal Category boundaries on shared logical Product storage", () =>
     await expect(run(product.runtime.logicalPolicy.validateLogicalCall({
       commandName: "productInternalCategoryupdate", mode: "write", input: [], result: [],
       events: [], fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 0,
-    }, { mutations: [], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }, counterfeit)))
+    }, { mutations: [], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }, counterfeit)))
       .rejects.toMatchObject({ reason: "invalidAuthority" });
   }, 120_000);
 

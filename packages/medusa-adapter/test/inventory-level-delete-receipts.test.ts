@@ -17,7 +17,7 @@ const time = "2026-10-16T00:00:00.000Z", later = "2026-10-16T00:01:00.000Z";
 const row = (id: string, changes: JsonObject = {}) => Effect.runPromise(captureExactNumericRow({ id,
   inventory_item_id: "item-" + id, location_id: "location-" + id, stocked_quantity: 0, reserved_quantity: 0, incoming_quantity: 1.25,
   metadata: { keep: true }, created_at: time, updated_at: time, deleted_at: null, ...changes }, contracts.numeric, true));
-const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], referenceReplacements: [] });
+const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const event = (id: string, action: "deleted" | "restored"): Json => ({ name: `inventory.inventory-level.${action}`,
   metadata: { source: "inventory", object: "inventory_level", action }, data: { id } });
 const call = (input: Json, result: Json, events: readonly Json[] = [], restore = false): Call => ({

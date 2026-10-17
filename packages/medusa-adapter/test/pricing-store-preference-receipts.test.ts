@@ -15,7 +15,7 @@ const stamp = "2026-10-17T01:00:00.000Z", changed = "2026-10-17T02:00:00.000Z";
 const row = (id: string, value: string, flag = false, fields: JsonObject = {}): JsonObject => ({ id,
   attribute: "currency_code", value, is_tax_inclusive: flag, created_at: stamp, updated_at: stamp, deleted_at: null, ...fields });
 const activity = (mutations: Activity["mutations"] = [], observed: readonly JsonObject[] = []): Activity => ({
-  mutations, observedRows: observed.map(row => ({ table: "price_preference", row })), lifecycle: [], setNull: [], referenceReplacements: [],
+  mutations, observedRows: observed.map(row => ({ table: "price_preference", row })), lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [],
 });
 const receipt = (commandName: string, input: Json, result: Json, events: Json[], evidence: Activity): Receipt => ({
   commandName, mode: commandName === "pricingStorePreferenceList" ? "read" : "write", input, result, events,

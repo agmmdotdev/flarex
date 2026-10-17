@@ -17,7 +17,7 @@ const row = (id: string, deleted_at: string | null = null): JsonObject => ({ id,
 const output = (ids: readonly string[]): Json => ({ stock_location_id: [...ids], location_id: [...ids] });
 const event = (id: string, action: "deleted" | "restored"): Json => ({ name: `${action === "deleted" ? "stock_location" : "stock"}.stock-location.${action}`,
   metadata: { source: action === "deleted" ? "stock_location" : "stock", object: "stock_location", action }, data: { id } });
-const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], referenceReplacements: [] });
+const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const call = (input: Json, result: Json, events: readonly Json[] = [], restore = false): Call => ({
   commandName: restore ? "stockLocationRestoreForWorkflow" : "stockLocationSoftDeleteForWorkflow", mode: "write", input, result, events,
   fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 0,

@@ -701,7 +701,7 @@ describe("private relational schema values", () => {
         .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
       if (!isJsonObject(document.valueJson)) throw new Error("Missing canonical activity JSON");
       const observed = { documentId, tableId, tableName: "currency", value: document.valueJson };
-      const activity = { attempts: [], lifecycle: [], observedRows: [observed], setNull: [], referenceReplacements: [] };
+      const activity = { attempts: [], lifecycle: [], observedRows: [observed], setNull: [], relationalReads: [], referenceReplacements: [] };
       const project = makeLogicalCommerceActivityProjection(new Map([[tableId, "currency"]]));
       const first = yield* project(activity), next = yield* project({ ...activity });
       expect(next.observedRows[0]?.row).toBe(first.observedRows[0]?.row);

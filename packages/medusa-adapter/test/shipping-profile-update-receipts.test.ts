@@ -13,7 +13,7 @@ const stamp = "2026-10-17T00:00:00.000Z", changed = "2026-10-17T01:00:00.000Z";
 const row = (id: string, extra: JsonObject = {}): JsonObject => ({ id, name: id, type: "custom", metadata: null,
   created_at: stamp, updated_at: stamp, deleted_at: null, ...extra });
 const activity = (before: readonly JsonObject[] = [], mutations: Activity["mutations"] = []): Activity => ({
-  observedRows: before.map(row => ({ table: "shipping_profile", row })), mutations, lifecycle: [], setNull: [], referenceReplacements: [],
+  observedRows: before.map(row => ({ table: "shipping_profile", row })), mutations, lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [],
 });
 const patch = (before: JsonObject, after: JsonObject, ordinal = 0): Activity["mutations"][number] =>
   ({ ordinal, table: "shipping_profile", operation: "patch", before, after });

@@ -10,7 +10,7 @@ import type { LogicalDocumentChanges, LogicalUniqueRead } from "../../src/storag
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 
 const empty = (): LogicalDocumentChanges => ({ changes: [], attempts: [], lifecycle: [], observedRows: [], noFinalRows: [],
-  dependencies: [], scans: [], uniqueReads: [], indexReads: [], pageReads: [], searchReads: [], setNull: [], referenceReplacements: [] });
+  dependencies: [], scans: [], uniqueReads: [], indexReads: [], pageReads: [], searchReads: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const tableId = CatalogTableIdSchema.make(1), rowId = decodeAppRowIdHexV1("01".repeat(16));
 const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
 const point = { tableId, rowId, documentId, readAt: CommitSeqSchema.make(1n),

@@ -14,7 +14,7 @@ const event = (id: string) => ({ name: "sales_channel.sales-channel.updated",
 const activity = (before: readonly JsonObject[], after: readonly JsonObject[]): Activity => ({
   observedRows: before.map(row => ({ table: "sales_channel", row })),
   mutations: after.map((row, index) => ({ ordinal: index, table: "sales_channel", operation: "patch", before: before[index] ?? null, after: row })),
-  lifecycle: [], setNull: [], referenceReplacements: [],
+  lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [],
 });
 const call = (input: JsonObject, result: Call["result"], events: Call["events"]): Call => ({
   commandName: "salesChannelUpdateBySelector", mode: "write", input, result, events,

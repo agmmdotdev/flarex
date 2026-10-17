@@ -11,7 +11,7 @@ type Activity = Parameters<LogicalCallReceiptValidation>[1];
 type Receipt = Parameters<LogicalCallReceiptValidation>[0];
 let catalog: ProductRuntimeMetadata;
 const timestamp = "2026-10-15T02:00:00.000Z";
-const empty = (): Activity => ({ mutations: [], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] });
+const empty = (): Activity => ({ mutations: [], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const receipt = (commandName: string, input: Json, result: Json, activity: Activity, events: readonly Json[] = []): Receipt => ({
   commandName, mode: "write", input, result, events, fromAttempt: 0, toAttempt: activity.mutations.length,
   fromLifecycle: 0, toLifecycle: activity.lifecycle.length,

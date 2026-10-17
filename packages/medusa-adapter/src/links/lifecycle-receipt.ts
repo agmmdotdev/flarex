@@ -6,6 +6,8 @@ import { compileCompleteRow } from "../value/complete-row";
 import { commerceDecoder } from "../value/decoder";
 import { projectNativeRow } from "../repository/result";
 import type { LogicalCallReceiptValidation } from "../repository/call-receipt";
+import { QueryLimit } from "../query/decoder";
+import type { prepareLinkRepository } from "./repository";
 
 /** Authenticate a single generated Link family's complete endpoint lifecycle.
  * Native repositories retain selection/cascade authority; this reads only the
@@ -18,6 +20,7 @@ export function compileLinkLifecycleReceipt(configuration: {
   readonly restoreCommand: string;
   readonly maximumEndpoints: number;
   readonly maximumRows: number;
+  readonly selectionPlan: Result.Result.Success<ReturnType<typeof prepareLinkRepository>>["lifecycleReadPlan"];
 }) {
   return Result.gen(function* () {
     const complete = yield* compileCompleteRow(configuration.table);
@@ -33,6 +36,8 @@ export function compileLinkLifecycleReceipt(configuration: {
       [foreign]: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(configuration.maximumRows))),
     }), "receiptMismatch");
     const integer = commerceDecoder(Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: -2147483648, maximum: 2147483647 })), "receiptMismatch");
+    const decodeReadWindow = commerceDecoder(Schema.StructWithRest(Schema.Struct({ take: QueryLimit }),
+      [Schema.Record(Schema.String, Schema.Json)]), "receiptMismatch");
     const decodeRow = (value: JsonObject) => complete(projectNativeRow(value)).pipe(Result.flatMap(row => Result.gen(function* () {
       for (const column of configuration.table.columns) if (column.type === "number") yield* integer(row[column.name]);
       if (typeof row.id !== "string" || typeof row[primary] !== "string" || typeof row[foreign] !== "string")
@@ -51,6 +56,16 @@ export function compileLinkLifecycleReceipt(configuration: {
       const selector = Object.entries(input.selector)[0];
       if (selector === undefined) return yield* Effect.fail(mismatch());
       const [endpoint, ids] = selector, requested = new Set(ids);
+      // Successful core-issued selection evidence authenticates absence as well
+      // as rows. Use the executing DAL's planner and retain its resource window;
+      // count/returned equality below proves that window contains the full set.
+      const firstRead = activity.relationalReads[0];
+      if (firstRead === undefined || activity.relationalReads.length !== 2) return yield* Effect.fail(mismatch());
+      const window = yield* Effect.fromResult(decodeReadWindow(firstRead.query));
+      const plan = yield* Effect.fromResult(configuration.selectionPlan(operation, input.selector, window.take))
+        .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+      if (activity.relationalReads.some(read => read.table !== configuration.table.name || !jsonEqual(read.query, plan.query) ||
+        read.total > configuration.maximumRows || read.returned !== read.total)) return yield* Effect.fail(mismatch());
       const observed = new Map<string, JsonObject>();
       const record = Effect.fn("LinkReceipt.observeLifecycleRow")(function* (table: string, value: JsonObject) {
         if (table !== configuration.table.name) return yield* Effect.fail(mismatch());
@@ -71,7 +86,9 @@ export function compileLinkLifecycleReceipt(configuration: {
       // An actual table/index access can observe additional candidate bodies.
       // Authenticate them above, then select only the native endpoint members.
       const members = [...observed].filter(([, row]) => typeof row[endpoint] === "string" && requested.has(row[endpoint]));
-      if (members.length > configuration.maximumRows) return yield* Effect.fail(mismatch());
+      const selected = members.filter(([, row]) => plan.withDeleted || row.deleted_at === null);
+      if (members.length > configuration.maximumRows || activity.relationalReads.some(read => read.total !== selected.length))
+        return yield* Effect.fail(mismatch());
       const pending = new Map(members.filter(([, row]) => operation === "restore" || row.deleted_at === null));
       const matched = new Set<number>(), ordered: JsonObject[] = [];
       for (const change of activity.lifecycle) {

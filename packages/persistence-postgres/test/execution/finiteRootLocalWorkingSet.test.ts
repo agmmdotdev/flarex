@@ -37,6 +37,8 @@ import {
   makeLogicalCommerceActivityProjection,
 } from "../../src/frameworks/commerceTransaction/logicalParticipant";
 import { ExecutionDiagnostics } from "../../src/execution/diagnostics/operation";
+import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
+import { isJsonObject } from "flarex-protocol/json";
 import { prepareLogicalCanonicalDocumentSemantics } from "../../src/storage/documents/logicalDocuments/relationalRows";
 import { decodeStoredAppRowRevisionEvidenceEffect, inspectStoredAppDocumentEvidence } from "../../src/storage/documents/appRowCanonicalEvidence";
 
@@ -740,4 +742,79 @@ it("transfers one detached original and graph while preserving their canonical i
       expect(root.point(tableId, rowId)).toBeUndefined();
       expect(root.points()).toEqual([]);
     } finally { root.close(); }
+  })));
+
+it("retains genuine empty relational selections with exact cursor and source isolation", () =>
+  runEffect(Effect.gen(function* () {
+    const otherId = CatalogTableIdSchema.make(2);
+    const failure = (reason: string) => new Error(reason);
+    const origin = { kind: "synthetic", sourceId: "read-evidence-fixture" };
+    const schema = Result.getOrThrow(normalizeRelationalSchema({ owner: "medusa", lineageId: "neutral-read-evidence", capabilities: [],
+      tables: ["items", "others"].map(tableId => ({ tableId, origin,
+        columns: [{ columnId: "id", type: "text" as const, nullable: false, default: { kind: "none" as const }, origin }],
+        keys: [{ keyId: tableId + ".primary", kind: "primary" as const, columns: ["id"], origin }],
+        indexes: [], constraints: [], relationships: [],
+      })),
+    }));
+    const items = schema.tables[0], others = schema.tables[1];
+    if (items === undefined || others === undefined) throw new Error("Missing neutral read evidence tables");
+    const first = yield* prepareLogicalWriteMechanics({ tables: [{ tableId, logicalName: "items", relational: items }],
+      relationalCapabilities: [], indexes: [], unique: [] }, failure);
+    const second = yield* prepareLogicalWriteMechanics({ tables: [{ tableId: otherId, logicalName: "others", relational: others }],
+      relationalCapabilities: [], indexes: [], unique: [] }, failure);
+    const combined = yield* combineLogicalWriteMechanics([first, second], failure);
+    const { root, lifetime, id, working, readCalls } = yield* make(undefined, 64, combined);
+    try {
+      const itemStore = yield* working.relationalTable(lifetime.context, id, "items");
+      const otherStore = yield* working.relationalTable(lifetime.context, id, "others");
+      const query = { fields: ["id"], take: 8, order: { column: "id", direction: "asc" },
+        predicate: { kind: "in", column: "id", values: [] } };
+      const expectedQuery = structuredClone(query), program = itemStore.prepareRead(query);
+      const before = working.activityCursor();
+      expect(yield* program.find(lifetime.context)).toEqual([]);
+      // The prepared program owns its original first-execution capture.
+      query.take = 4;
+      expect(yield* program.count(lifetime.context)).toBe(0);
+      const next = working.activityCursor();
+      expect(yield* otherStore.count(lifetime.context, expectedQuery)).toBe(0);
+      const issued = yield* working.activityContribution;
+      const selected = yield* working.readActivityContribution(issued, before, first);
+      expect(selected.relationalReads).toEqual([0, 1].map(() => ({ tableId, tableName: "items", query: expectedQuery, total: 0, returned: 0 })));
+      expect(selected.observedRows).toEqual([]);
+      const current = yield* working.readActivityContribution(issued, next);
+      expect(current.relationalReads).toEqual([{ tableId: otherId, tableName: "others", query: expectedQuery, total: 0, returned: 0 }]);
+      expect((yield* working.readActivityContribution(issued, next, first)).relationalReads).toEqual([]);
+      const projection = makeLogicalCommerceActivityProjection(new Map([[tableId, "items"], [otherId, "others"]]));
+      const projected = yield* projection(selected);
+      expect(projected.relationalReads).toEqual([0, 1].map(() => ({ table: "items", query: expectedQuery, total: 0, returned: 0 })));
+      const ownedQuery = projected.relationalReads[0]?.query;
+      if (ownedQuery === undefined || !isJsonObject(ownedQuery)) throw new Error("Missing captured query object");
+      expect(Reflect.set(ownedQuery, "take", 100)).toBe(false);
+      expect((yield* working.activitySnapshot()).relationalReads).toHaveLength(3);
+      expect((yield* working.activitySnapshot(working.activityCursor())).relationalReads).toEqual([]);
+      expect(readCalls()).toBe(0);
+      yield* lifetime.seal;
+      expect((yield* working.close()).relationalReads).toHaveLength(3);
+      expect(root.snapshot().relationalReads).toHaveLength(3);
+    } finally { yield* lifetime.close; root.close(); }
+  })));
+
+it("refuses corrupt relational selection evidence and detaches foreign query objects", () =>
+  runEffect(Effect.gen(function* () {
+    const projection = makeLogicalCommerceActivityProjection(new Map([[tableId, "items"]]));
+    const query = { fields: ["id"], order: { column: "id", direction: "asc" } };
+    const observation = { tableId, tableName: "items", query, total: 2, returned: 1 };
+    const activity = { attempts: [], lifecycle: [], observedRows: [], relationalReads: [observation], setNull: [], referenceReplacements: [] };
+    const first = yield* projection(activity);
+    query.fields.push("mutated");
+    expect(first.relationalReads[0]?.query).toEqual({ fields: ["id"], order: { column: "id", direction: "asc" } });
+    expect((yield* projection(activity)).relationalReads[0]?.query).toEqual(query);
+    for (const change of [{ tableName: "foreign" }, { total: -1 }, { returned: 3 }, { total: 1.5 }, { returned: Number.POSITIVE_INFINITY }])
+      expect(yield* Effect.result(projection({ ...activity, relationalReads: [{ ...observation, ...change }] })))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+    let getterCalls = 0;
+    const foreign = Object.defineProperty({}, "order", { enumerable: true, get: () => { getterCalls++; return query.order; } });
+    expect(yield* Effect.result(projection({ ...activity, relationalReads: [{ ...observation, query: foreign }] })))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+    expect(getterCalls).toBe(0);
   })));

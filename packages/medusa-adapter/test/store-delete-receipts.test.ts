@@ -28,7 +28,7 @@ const event = (object: "store" | "store_currency" | "store_locale", id: string, 
 });
 const events = (action: "deleted" | "restored" = "deleted") => [event("store", "store-a", action),
   event("store_currency", "currency-a", action), event("store_locale", "locale-a", action)];
-const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], referenceReplacements: [] });
+const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const call = (restore = false): Call => ({ commandName: restore ? "storeRestoreForWorkflow" : "storeSoftDeleteForWorkflow",
   mode: "write", input: ["store-a", "store-a", "missing"], result: output, events: events(restore ? "restored" : "deleted"),
   fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 0 });

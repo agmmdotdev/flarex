@@ -60,7 +60,7 @@ describe("native Pricing on shared logical storage", () => {
     const activity = { mutations: [{ ordinal: 0, table: "price_preference", operation: "insert" as const,
       before: null, after: { id: "prpref_test", attribute: "currency_code", value: "USD",
         is_tax_inclusive: false, deleted_at: null } }], lifecycle: [], observedRows: [],
-      setNull: [], referenceReplacements: [] };
+      setNull: [], relationalReads: [], referenceReplacements: [] };
     await Effect.runPromise(policy.validateLogicalCall(call, activity));
     expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ ...call,
       result: [{ ...call.result[0], is_tax_inclusive: true }] }, activity))))

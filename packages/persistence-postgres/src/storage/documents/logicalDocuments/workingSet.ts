@@ -126,6 +126,15 @@ export interface LogicalDocumentObservedRow {
   readonly tableName: string;
   readonly value: JsonObject;
 }
+/** A successful executed relational selection, including genuine empty sets.
+ * Its charged query and complete count remain owned by the original source. */
+export interface LogicalRelationalReadObservation {
+  readonly tableId: CatalogTableId;
+  readonly tableName: string;
+  readonly query: Json;
+  readonly total: number;
+  readonly returned: number;
+}
 export interface LogicalDocumentChanges {
   /** Present only for the attempt-fixed finite execution profile. */
   readonly metadataDependencies?: readonly LogicalMetadataReadDependency[];
@@ -134,6 +143,7 @@ export interface LogicalDocumentChanges {
   readonly attempts: readonly LogicalDocumentAttempt[];
   readonly lifecycle: readonly LogicalRelationalLifecycleObservation[];
   readonly observedRows: readonly LogicalDocumentObservedRow[];
+  readonly relationalReads: readonly LogicalRelationalReadObservation[];
   readonly noFinalRows: readonly AppDocumentIdV1[];
   readonly dependencies: readonly LogicalDocumentPointEvidence[];
   readonly scans: readonly Readonly<{ tableId: CatalogTableId; frontier: CommitSeq | null }>[];
@@ -145,12 +155,13 @@ export interface LogicalDocumentChanges {
   readonly referenceReplacements: readonly LogicalReferenceReplacementIntent[];
 }
 export type LogicalDocumentActivity = Pick<LogicalDocumentChanges,
-  "attempts" | "lifecycle" | "observedRows" | "setNull" | "referenceReplacements">;
+  "attempts" | "lifecycle" | "observedRows" | "relationalReads" | "setNull" | "referenceReplacements">;
 export interface LogicalDocumentActivityCursor {
   /** Last row-use ordinal issued by this exact working-set owner. */
   readonly observations: number;
   readonly attempts: number;
   readonly lifecycle: number;
+  readonly relationalReads: number;
   readonly setNull: number;
   readonly referenceReplacements: number;
 }
@@ -698,7 +709,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
   const searchReads: LogicalSearchRead[] = root?.searchReads ?? [];
   const attempts: LogicalDocumentAttempt[] = root?.attempts ?? [];
   const lifecycle: LogicalRelationalLifecycleObservation[] = root?.lifecycle ?? [];
-  const localCursor = Object.freeze({ attempts: attempts.length, lifecycle: lifecycle.length,
+  const relationalReads: LogicalRelationalReadObservation[] = root?.relationalReads ?? [];
+  const localCursor = Object.freeze({ attempts: attempts.length, lifecycle: lifecycle.length, relationalReads: relationalReads.length,
     dependencies: dependencies.size, scans: scans.size, uniqueReads: uniqueReads.size,
     indexReads: indexReads.size, pageReads: pageReads.length, searchReads: searchReads.length,
     setNull: setNull.length, referenceReplacements: referenceReplacements.length });
@@ -1796,7 +1808,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     }
     // Selection has settled. Inspection, ordering and projection are bounded
     // synchronous owner work; retain lazy row order inside one Result fold.
-    return yield* Effect.fromResult(Result.gen(function* () {
+    const result = yield* Effect.fromResult(Result.gen(function* () {
       const matched: { document: JsonObject; order: Uint8Array; documentId: AppDocumentIdV1 }[] = [];
       for (const row of selected.values()) {
         if (row.current === null) continue;
@@ -1829,6 +1841,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       }
       return Object.freeze({ docs: Object.freeze(docs), total: matched.length });
     }));
+    relationalReads.push(Object.freeze({ tableId: table.tableId, tableName: table.logicalName,
+      query: captured.value, total: result.total, returned: result.docs.length }));
+    return result;
   }));
   const executeRelationalFind = (context: BoundedRequestContext,
     id: PresentedTransactionId, tableName: string, input: unknown, preparation?: ReadPreparation) => observeExecution("LogicalDocuments.relationalFind", Effect.suspend(() => runOperation(context, id, "read", readRelationalSelection(tableName, input, false, preparation))));
@@ -2295,7 +2310,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
   let preparedActivity: Readonly<{ key: string; observedRows: readonly LogicalDocumentObservedRow[];
     contribution: LogicalDocumentActivityContribution }> | undefined;
   let aggregateActivity: Readonly<{ key: string; activity: LogicalDocumentActivity }> | undefined;
-  const activityKey = () => `${root?.activityGeneration ?? activityGeneration}/${observationOrdinal}/${rows.size}/${dependencies.size}/${attempts.length}/${lifecycle.length}/${setNull.length}/${referenceReplacements.length}`;
+  const activityKey = () => `${root?.activityGeneration ?? activityGeneration}/${observationOrdinal}/${rows.size}/${dependencies.size}/${attempts.length}/${lifecycle.length}/${relationalReads.length}/${setNull.length}/${referenceReplacements.length}`;
   const prepareActivity = Effect.gen(function* () {
     if (closed || root?.closed) return yield* Effect.fail(error("closed"));
     // Close-time reference checks can hydrate rows without opening another
@@ -2352,6 +2367,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       observedRows: cursor === undefined && source === undefined ? prepared.observedRows :
         Object.freeze(prepared.observedRows.filter(row => (cursor === undefined || (rowUses.get(row.documentId) ?? 0) > cursor.observations) &&
           (source === undefined || source.tablesById.has(row.tableId)))),
+      relationalReads: Object.freeze(relationalReads.slice(localCursor.relationalReads + (cursor?.relationalReads ?? 0))
+        .filter(read => source === undefined || source.tablesById.has(read.tableId))),
       setNull: Object.freeze(setNull.slice(localCursor.setNull + (cursor?.setNull ?? 0))),
       referenceReplacements: Object.freeze(referenceReplacements.slice(localCursor.referenceReplacements + (cursor?.referenceReplacements ?? 0))),
     });
@@ -2405,6 +2422,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       const changed = new Set(localAttempts.map(attempt => attempt.documentId));
       return detachLogicalDocumentChanges(Object.freeze({ attempts: Object.freeze(localAttempts),
         lifecycle: Object.freeze(localLifecycle), observedRows: Object.freeze(activity.observedRows.filter(row => changed.has(row.documentId))),
+        relationalReads: activity.relationalReads,
         changes: Object.freeze([]), noFinalRows: Object.freeze([]), dependencies: Object.freeze([]), scans: Object.freeze([]),
         uniqueReads: Object.freeze([]), indexReads: Object.freeze([]), pageReads: Object.freeze([]), searchReads: Object.freeze([]),
         setNull: activity.setNull, referenceReplacements: activity.referenceReplacements }));
@@ -2482,7 +2500,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       runOperation(context, id, "read", transactionTime),
     activityCursor: () => {
       const cursor = Object.freeze({ observations: observationOrdinal, attempts: attempts.length - localCursor.attempts,
-        lifecycle: lifecycle.length - localCursor.lifecycle,
+        lifecycle: lifecycle.length - localCursor.lifecycle, relationalReads: relationalReads.length - localCursor.relationalReads,
         setNull: setNull.length - localCursor.setNull,
         referenceReplacements: referenceReplacements.length - localCursor.referenceReplacements });
       activityCursors.add(cursor);

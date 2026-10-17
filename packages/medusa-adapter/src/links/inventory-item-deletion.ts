@@ -86,7 +86,7 @@ export const prepareInventoryItemDeletionLinks = Effect.fn("InventoryItemDeletio
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const validateLifecycle = yield* Effect.fromResult(compileLinkLifecycleReceipt({ table: metadata.frame,
     endpoints: ["variant_id", "inventory_item_id"], returnLinkableKeys, maximumEndpoints: 4, maximumRows: 8,
-    softDeleteCommand: softDeleteName, restoreCommand: restoreName }));
+    softDeleteCommand: softDeleteName, restoreCommand: restoreName, selectionPlan: inventory.prepared.lifecycleReadPlan }));
   const basePolicy = linkLogicalEventPolicy(inventory.prepared.table.name, inventory.serviceName, inventory.entityName,
     ["variant_id", "inventory_item_id"], [native.createName], [], [softDeleteName], [restoreName]);
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("InventoryItemDeletionLinks.validateCall")(function* (call, activity) {

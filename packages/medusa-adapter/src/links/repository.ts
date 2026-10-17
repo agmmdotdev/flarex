@@ -10,7 +10,7 @@ import type { CommercePromiseOwner } from "../module/promise-owner";
 import { QueryEnvelope, QueryLimit, QueryOffset } from "../query/decoder";
 import { makeReadCatalog } from "../query/catalog";
 import { compileProjection } from "../query/projection";
-import { compileWhere, type WherePolicy } from "../query/predicate";
+import { compileWhere, type Predicate, type WherePolicy } from "../query/predicate";
 import { executeRead, type ReadPlan } from "../query/read";
 import type { captureLinkMetadata } from "./schema";
 
@@ -35,6 +35,17 @@ const readOptions = (primary: string) => commerceDecoder(Schema.Struct({
   filters: Schema.optionalKey(Schema.Struct({ softDeletable: Schema.Struct({ withDeleted: Schema.Boolean }) })),
 }), "unsupportedProfile");
 
+/** Native Link services wrap one endpoint selector in unary $or/$in nodes.
+ * A unary conjunction/disjunction has exactly its child's meaning; empty and
+ * multi-branch predicates retain their distinct native selection semantics. */
+function unwrapUnaryPredicate(predicate: Predicate): Predicate {
+  if ((predicate.kind === "and" || predicate.kind === "or") && predicate.children.length === 1) {
+    const child = predicate.children[0];
+    if (child !== undefined) return unwrapUnaryPredicate(child);
+  }
+  return predicate;
+}
+
 /** Several prepared Links may coexist. Each bind borrows only its command's
  * transaction; no global service, raw database or second lifetime. */
 export function prepareLinkRepository(metadata: Effect.Success<ReturnType<typeof captureLinkMetadata>>["frame"], idPrefix: string, maximumLifecycleRows?: 8, completeLifecycleHistory?: true) {
@@ -57,7 +68,7 @@ export function prepareLinkRepository(metadata: Effect.Success<ReturnType<typeof
     const query = (input: unknown, maximum: number) => Result.gen(function* () {
       const envelope = yield* decodeEnvelope(input);
       const options = yield* decodeOptions(envelope.options ?? {});
-      const predicate = yield* compileWhere(envelope.where ?? {}, wherePolicy);
+      const predicate = unwrapUnaryPredicate(yield* compileWhere(envelope.where ?? {}, wherePolicy));
       const projection = yield* compileProjection(catalog, table.name, options.fields, [], {
         keys: "retain", storageKeys: "last", joinKeys: "storage", selectableRelations: [], nested: new Map(),
       });
@@ -69,6 +80,11 @@ export function prepareLinkRepository(metadata: Effect.Success<ReturnType<typeof
         window: { kind: "database", countAt: "afterPopulation" },
       } satisfies ReadPlan;
     });
+    const lifecycleReadPlan = (operation: "softDelete" | "restore", selector: JsonObject, maximum: number) => query({
+      where: selector, options: { filters: { softDeletable: {
+        withDeleted: operation === "restore" || completeLifecycleHistory === true,
+      } } },
+    }, maximum);
     const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const bridge = commerceRepositoryContext(root, owner);
       const refuse = () => owner.run(root.refuse(commerceError("unsupportedProfile")));
@@ -78,7 +94,10 @@ export function prepareLinkRepository(metadata: Effect.Success<ReturnType<typeof
       });
       const lifecycle = (operation: "softDelete" | "restore", input: unknown, shared: unknown) =>
         bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-          const selected = yield* find(ctx, { where: input, options: { filters: { softDeletable: { withDeleted: operation === "restore" || completeLifecycleHistory === true } } } }, maximumLifecycleRows !== undefined);
+          const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
+          const selector = yield* Effect.fromResult(decodeWhere(captured));
+          const plan = yield* Effect.fromResult(lifecycleReadPlan(operation, selector, ctx.resources.queryRows));
+          const selected = yield* executeRead(ctx, catalog, plan, maximumLifecycleRows !== undefined);
           if (maximumLifecycleRows !== undefined && (selected.count === undefined || selected.count > maximumLifecycleRows || selected.count !== selected.rows.length))
             return yield* ctx.refuse(commerceError(selected.count === undefined ? "storedCorruption" : "limitExceeded"));
           // Complete-history admission bounds the same native selector before
@@ -125,6 +144,6 @@ export function prepareLinkRepository(metadata: Effect.Success<ReturnType<typeof
       };
       return { repository, bridge, refuse };
     };
-    return Object.freeze({ table, bind });
+    return Object.freeze({ table, bind, readPlan: query, lifecycleReadPlan });
   });
 }

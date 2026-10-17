@@ -18,7 +18,7 @@ const row = (id: string, changes: JsonObject = {}): JsonObject => ({ id, sku: id
   created_at: time, updated_at: time, deleted_at: null, ...changes });
 const event = (id: string): Json => ({ name: "inventory.inventory-item.updated",
   metadata: { source: "inventory", object: "inventory_item", action: "updated" }, data: { id } });
-const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], referenceReplacements: [] });
+const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const call = (input: Json, result: Json, events: readonly Json[] = [], read = false): Call => ({
   commandName: read ? "inventoryItemListForUpdate" : "inventoryItemUpdateForWorkflow", mode: read ? "read" : "write", input, result, events,
   fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 0,

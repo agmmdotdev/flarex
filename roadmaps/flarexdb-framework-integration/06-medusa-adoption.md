@@ -377,6 +377,16 @@ mutation and event receipts retain the existing optimistic atomic owner and
 default 64-call allowance. Both profiles share the genuine constructor while
 keeping sibling Fulfillment tables, providers and relationship hydration denied.
 
+The [native Shipping Profile deletion](./preflight/127-native-shipping-profile-delete-workflow.md)
+admits up to four raw Profile IDs through the real Product-Link Query guard,
+Shipping Option hydration and retained endpoint Link compensation. Its explicit
+fresh six-table Fulfillment composition preserves all five native Option FKs
+and the existing scalar profiles; populated schema evolution remains separately
+gated. Shared evidence of executed relational selections authenticates empty
+guards and complete historical Link restoration for this profile and the
+existing Inventory Item Link lifecycle. The complete root and retained inverse
+use the existing optimistic atomic profile and default 64-call/event allowances.
+
 The [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)
 is complete within its approved bounded profiles. Persistence now owns protected
 immutable definitions/evidence, sealed child sets, durable operational progress,

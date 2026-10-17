@@ -38,7 +38,7 @@ const deletion = () => {
     { ordinal: 3, table: catalog.category.table.name, operation: "delete", before: roots[1] ?? null, after: null },
     { ordinal: 4, table: catalog.category.table.name, operation: "delete", before: roots[0] ?? null, after: null },
   ];
-  const activity: Activity = { mutations, lifecycle: [], setNull: [], referenceReplacements: [], observedRows: [
+  const activity: Activity = { mutations, lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [], observedRows: [
     ...roots.map(row => ({ table: catalog.category.table.name, row })),
     ...pivots.map(row => ({ table: join.pivotTable, row })),
     { table: catalog.product.table.name, row: { id: "product-a", deleted_at: null } },

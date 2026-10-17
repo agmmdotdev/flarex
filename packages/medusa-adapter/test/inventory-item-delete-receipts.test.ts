@@ -14,7 +14,7 @@ const time = "2026-10-17T00:00:00.000Z", later = "2026-10-17T00:01:00.000Z";
 const row = (id: string, changes: JsonObject = {}): JsonObject => ({ id, sku: id, origin_country: null, hs_code: null, mid_code: null,
   material: null, weight: 1.25, length: null, height: null, width: 4294967296, requires_shipping: true, description: null,
   title: "Original", thumbnail: null, metadata: { keep: true }, created_at: time, updated_at: time, deleted_at: null, ...changes });
-const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], referenceReplacements: [] });
+const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const event = (id: string, action: "deleted" | "restored"): Json => ({ name: `inventory.inventory-item.${action}`,
   metadata: { source: "inventory", object: "inventory_item", action }, data: { id } });
 const call = (ids: readonly string[], result: Json, events: readonly Json[] = [], restore = false): Call => ({

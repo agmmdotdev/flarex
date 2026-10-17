@@ -22,7 +22,7 @@ const event = (entity: "option" | "value", action: "created" | "updated" | "dele
     metadata: { source: "product", object: target.eventObject, action }, data: { id } };
 };
 const activity = (mutations: Mutation[], observations: Activity["observedRows"] = []): Activity => ({
-  mutations, observedRows: observations, lifecycle: [], setNull: [], referenceReplacements: [],
+  mutations, observedRows: observations, lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [],
 });
 const call = (commandName: string, input: Json, result: Json, events: Json[], observed: Activity): Receipt => ({
   commandName, mode: "write", input, result, events, fromAttempt: 0, toAttempt: observed.mutations.length,

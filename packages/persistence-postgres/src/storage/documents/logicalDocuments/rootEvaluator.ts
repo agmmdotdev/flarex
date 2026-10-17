@@ -23,7 +23,7 @@ import { detachLogicalCanonicalDocument, detachLogicalCanonicalRevision, forgetL
 import { captureFiniteMetadataDependency, matchesFiniteMetadataDependencyObservation, finiteMetadataDependencyIdentity,
   type PreparedFiniteMetadataProjection, type FiniteMetadataError } from "../../../execution/finiteMetadataDependencies";
 import type { LogicalDocumentAttempt, LogicalDocumentChanges, LogicalDocumentObservedRow,
-  LogicalRelationalLifecycleObservation, LogicalReferenceReplacementIntent, LogicalSetNullIntent,
+  LogicalRelationalLifecycleObservation, LogicalRelationalReadObservation, LogicalReferenceReplacementIntent, LogicalSetNullIntent,
   LogicalUniqueRead, PendingDocument } from "./workingSet";
 
 export interface LogicalDocumentRootEvaluator {
@@ -86,6 +86,7 @@ export interface LogicalDocumentRootState {
   readonly searchReads: LogicalSearchRead[];
   readonly attempts: LogicalDocumentAttempt[];
   readonly lifecycle: LogicalRelationalLifecycleObservation[];
+  readonly relationalReads: LogicalRelationalReadObservation[];
   readonly setNull: LogicalSetNullIntent[];
   readonly referenceReplacements: LogicalReferenceReplacementIntent[];
   /** Accepted Application overlays, independent of native hydration/activity. */
@@ -149,7 +150,7 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
   const state: LogicalDocumentRootState = {
     pins: Object.freeze({ ...pins }), limits: Object.freeze({ ...limits }), rows: new Map(), scanned: new Map(), derivedKeyDocuments: new Set(),
     dependencies: new Map(), metadataDependencies: new Map(), metadataConsumptions: new Map(), scans: new Map(), uniqueReads: new Map(), indexReads: new Map(),
-    pageReads: [], searchReads: [], attempts: [], lifecycle: [], setNull: [], referenceReplacements: [],
+    pageReads: [], searchReads: [], attempts: [], lifecycle: [], relationalReads: [], setNull: [], referenceReplacements: [],
     overlayWriteGenerations: new Map(), workingBytes: 0, inserted: 0, activityGeneration: 0, closed: false,
   };
   const snapshotOriginalRows: LogicalDocumentRootEvaluator["snapshotOriginalRows"] = () =>
@@ -178,6 +179,7 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
     return Object.freeze({ changes: Object.freeze(changes), observedRows: Object.freeze(observedRows),
       noFinalRows: Object.freeze(noFinalRows), attempts: Object.freeze([...state.attempts]),
       lifecycle: Object.freeze([...state.lifecycle]),
+      relationalReads: Object.freeze([...state.relationalReads]),
       dependencies: Object.freeze([...state.dependencies.values()].toSorted((a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId))),
       ...(state.pins.metadataWatermark === undefined ? {} : {
         metadataWatermark: state.pins.metadataWatermark,
@@ -305,6 +307,7 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
     state.indexReads.clear();
     state.pageReads.length = 0;
     state.searchReads.length = 0;
+    state.relationalReads.length = 0;
     state.attempts.length = 0;
     state.lifecycle.length = 0;
     state.setNull.length = 0;

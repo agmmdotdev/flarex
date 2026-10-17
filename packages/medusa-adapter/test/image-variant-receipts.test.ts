@@ -21,7 +21,7 @@ const variant = (id: string, thumbnail: string | null = url): JsonObject =>
 const image = (): JsonObject => ({ id: "image-a", url, product_id: "product-a", rank: 0,
   created_at: stamp, updated_at: stamp, deleted_at: null });
 const activity = (mutations: readonly Mutation[], observedRows: Activity["observedRows"] = []): Activity =>
-  ({ mutations, observedRows, lifecycle: [], setNull: [], referenceReplacements: [] });
+  ({ mutations, observedRows, lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const call = (commandName: string, input: Json, result: Json, mutations: readonly Mutation[], events: readonly Json[] = []): Receipt =>
   ({ commandName, mode: "write", input, result, events, fromAttempt: 0, toAttempt: mutations.length, fromLifecycle: 0, toLifecycle: 0 });
 const updated = (id: string): Json => ({ name: catalog.variant.updatedEvent,

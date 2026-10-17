@@ -17,7 +17,7 @@ let item: Result.Result.Success<ReturnType<typeof compileInventoryItemContracts>
 let level: Result.Result.Success<ReturnType<typeof compileInventoryLevelContracts>>;
 let reservationNumeric: Parameters<typeof captureExactNumericRow>[1];
 const time = "2026-10-17T00:00:00.000Z";
-const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], referenceReplacements: [] });
+const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const itemRow = (id: string, changes: JsonObject = {}): JsonObject => ({ id, ...item.creationDefaults,
   created_at: time, updated_at: time, deleted_at: null, ...changes });
 const event = (id: string, object: "inventory_item" | "inventory_level" = "inventory_item", action: "created" | "deleted" = "created"): Json => ({

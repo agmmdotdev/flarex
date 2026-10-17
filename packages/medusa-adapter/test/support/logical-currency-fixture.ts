@@ -141,7 +141,7 @@ import { compileStoreDefinition } from "../../src/modules/store/schema";
 import { compileProductLinksDefinition } from "../../src/links/product-definition";
 import { compileStockLocationDefinition } from "../../src/modules/stock-location/schema";
 import { compileSalesChannelLocationLinkDefinition } from "../../src/links/sales-channel-location-schema";
-import { compileShippingProfileDefinition } from "../../src/modules/fulfillment/shipping-profile-schema";
+import { compileShippingProfileDefinition, compileShippingProfileDeletionDefinition } from "../../src/modules/fulfillment/shipping-profile-schema";
 import {
   currencyAnnouncementWrite,
   currencyCommands,
@@ -189,6 +189,7 @@ type LogicalCurrencyFixtureOptions = Readonly<{
   includeSalesChannelLocationLink?: boolean;
   includeProductSalesChannelLink?: boolean;
   includeShippingProfile?: boolean;
+  includeShippingProfileDeletion?: boolean;
   includeProductShippingProfileLink?: boolean;
   protectedRuntime?: boolean;
   managedRead?: boolean;
@@ -378,6 +379,7 @@ export async function logicalCurrencyFixture(
         ...(options?.includeSalesChannelLocationLink === true ? ["salesChannelLocationLink" as const] : []),
         ...(options?.includeProductSalesChannelLink === true ? ["productSalesChannelLink" as const] : []),
         ...(options?.includeShippingProfile === true ? ["shippingProfile" as const] : []),
+        ...(options?.includeShippingProfileDeletion === true ? ["shippingProfileDeletion" as const] : []),
         ...(options?.includeProductShippingProfileLink === true ? ["productShippingProfileLink" as const] : [])] })({ applicationCandidateId: application.active.basis.candidateId,
         payloadCollections: options?.payloadCollections ??
           [{ slug: "news", fields: [{ name: "title", type: "text", required: true, unique: true }] }],
@@ -413,7 +415,8 @@ export async function logicalCurrencyFixture(
       ? yield* compileProductLinksDefinition({ salesChannel: options?.includeProductSalesChannelLink === true,
         shippingProfile: options?.includeProductShippingProfileLink === true }) : undefined;
     const shippingProfileDefinition = options?.includeShippingProfile === true
-      ? yield* compileShippingProfileDefinition() : undefined;
+      ? yield* (options?.includeShippingProfileDeletion === true
+        ? compileShippingProfileDeletionDefinition() : compileShippingProfileDefinition()) : undefined;
     const initialization = yield* currencyInitialization();
     const schemaVersionId = decodeCatalogSchemaVersionId("live-logical-currency");
     const controlSession = pair.kind === "postgres"

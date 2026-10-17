@@ -805,7 +805,7 @@ describe("native Product lifecycle on shared logical storage", () => {
         events: [{ name: catalog.variant.updatedEvent,
           metadata: { source: Modules.PRODUCT, object: catalog.variant.eventObject, action: CommonEvents.UPDATED },
           data: { id: "pvar_logical_images_forged" } }], fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 0,
-      }, { mutations: [], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))).rejects.toMatchObject({ reason: "receiptMismatch" });
+      }, { mutations: [], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }))).rejects.toMatchObject({ reason: "receiptMismatch" });
     } finally {
       await Effect.runPromise(create.close);
       await Effect.runPromise(host.close);

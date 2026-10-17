@@ -22,7 +22,7 @@ const locale: JsonObject = { id: "locale-a", locale_code: "EN-us", store_id: "st
 const event = (object: string, id: string, action = "created"): Json => ({ name: `store.${object.replaceAll("_", "-")}.${action}`,
   metadata: { source: "store", object, action }, data: { id } });
 const output: Json = [{ ...store, supported_currencies: [currency], supported_locales: [locale] }];
-const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], referenceReplacements: [] });
+const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const creation = (): Call => ({ commandName: "storeCreateForWorkflow", mode: "write", input: [{ name: " Name ", metadata: { keep: true },
   supported_currencies: [{ currency_code: "USD", is_default: true }], supported_locales: [{ locale_code: "EN-us" }] }], result: output,
   events: [event("store", "store-a"), event("store_currency", "currency-a"), event("store_locale", "locale-a")],

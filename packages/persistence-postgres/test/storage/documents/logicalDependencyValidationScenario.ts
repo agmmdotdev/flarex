@@ -27,7 +27,7 @@ import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 type Failure = Readonly<{ reason: LogicalDocumentFailureReason; cause?: unknown; observation?: LogicalDocumentConflictObservation }>;
 const error = (reason: LogicalDocumentFailureReason, cause?: unknown): Failure => ({ reason, ...(cause === undefined ? {} : { cause }) });
 const empty: LogicalDocumentChanges = { changes: [], dependencies: [], attempts: [], lifecycle: [], observedRows: [],
-  noFinalRows: [], scans: [], uniqueReads: [], indexReads: [], pageReads: [], searchReads: [], setNull: [], referenceReplacements: [] };
+  noFinalRows: [], scans: [], uniqueReads: [], indexReads: [], pageReads: [], searchReads: [], setNull: [], relationalReads: [], referenceReplacements: [] };
 
 /** Real issued developer definition and storage in both drivers. All witness
  * rows roll back, preserving the owning membership scenario's original state. */

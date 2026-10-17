@@ -19,7 +19,7 @@ const reservation = (id: string, changes: JsonObject = {}) => Effect.runPromise(
 const level = (id = "level", changes: JsonObject = {}) => Effect.runPromise(captureExactNumericRow({ id,
   inventory_item_id: "item", location_id: "location", stocked_quantity: 10, reserved_quantity: 3, incoming_quantity: 1.25,
   metadata: { keep: true }, created_at: time, updated_at: time, deleted_at: null, ...changes }, contracts.levelContracts.numeric, true));
-const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], referenceReplacements: [] });
+const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const event = (id: string, object: "reservation_item" | "inventory_level", action: "deleted" | "restored" | "updated"): Json => ({
   name: `inventory.${object.replaceAll("_", "-")}.${action}`, metadata: { source: "inventory", object, action }, data: { id } });
 const call = (ids: readonly string[], events: readonly Json[] = [], restore = false): Call => ({

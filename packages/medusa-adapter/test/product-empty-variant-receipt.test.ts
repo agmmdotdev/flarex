@@ -11,7 +11,7 @@ describe("native empty Variant creation receipt", () => {
     const policy = productCallReceipts(catalog);
     const call = { commandName: "productCreatevariant", mode: "write" as const,
       input: [], result: [], events: [], fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 0 };
-    const activity: Parameters<typeof policy.validateLogicalCall>[1] = { mutations: [], lifecycle: [], setNull: [], referenceReplacements: [],
+    const activity: Parameters<typeof policy.validateLogicalCall>[1] = { mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [],
       observedRows: [{ table: catalog.option.table.name, row: { id: "scanned-option", product_id: "existing-product", deleted_at: null } }],
     };
     await Effect.runPromise(policy.validateLogicalCall(call, activity));

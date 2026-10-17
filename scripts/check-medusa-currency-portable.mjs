@@ -9,6 +9,10 @@ const promotion = verifyCurrencyPromotion(root);
 const admitted = new Set(promotion.files.map((file) => path.resolve(root, file.target).replaceAll("\\", "/")));
 const inputs = new Set();
 for (const entry of [
+  "packages/medusa-core-flows/src/shipping-profile/workflows/delete-shipping-profile.ts",
+  "packages/medusa-adapter/src/workflows/fulfillment/delete-shipping-profile.ts",
+  "packages/medusa-adapter/src/modules/fulfillment/shipping-profile-delete-service.ts",
+  "packages/medusa-adapter/src/links/shipping-profile-deletion.ts",
   "packages/medusa-core-flows/src/fulfillment/workflows/update-shipping-profiles.ts",
   "packages/medusa-adapter/src/workflows/fulfillment/update-shipping-profiles.ts",
   "packages/medusa-adapter/src/modules/fulfillment/shipping-profile-update-service.ts",

@@ -603,7 +603,7 @@ describe("native Collection service on shared logical Product storage", () => {
       fromLifecycle: 0, toLifecycle: 1,
     }, { mutations: [], lifecycle: [{ table: catalog.collection.table.name, key: { id: "pcol_receipt" }, operation: "softDelete",
       beforeDeletedAt: null, afterDeletedAt: "2025-01-01T00:00:00.000Z", attemptOrdinal: null,
-      rowAtOperation: null }], observedRows: [], setNull: [], referenceReplacements: [] }))))
+      rowAtOperation: null }], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
   });
 
@@ -627,7 +627,7 @@ describe("native Collection service on shared logical Product storage", () => {
         { name: catalog.product.updatedEvent, metadata: { source: Modules.PRODUCT,
           object: catalog.product.eventObject, action: CommonEvents.UPDATED }, data: { id: "prod_receipt" } },
       ], fromAttempt: 0, toAttempt: 2, fromLifecycle: 0, toLifecycle: 0 };
-    const activity = { mutations: attempts, lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] };
+    const activity = { mutations: attempts, lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] };
     await Effect.runPromise(policy.validateLogicalCall(call, activity));
     expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall(call, { ...activity,
       mutations: attempts.map(mutation => mutation.table === catalog.product.table.name
@@ -648,7 +648,7 @@ describe("native Collection service on shared logical Product storage", () => {
         fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0,
       }, { mutations: [{ ordinal: 0, table: catalog.collection.table.name, operation: "patch",
         before, after: { ...before, updated_at: "2026-01-01T00:00:00.000Z" } }],
-      lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))))
+      lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }))))
         .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
     }
   });
@@ -664,7 +664,7 @@ describe("native Collection service on shared logical Product storage", () => {
         fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 };
       const activity = { mutations: [{ ordinal: 0, table: catalog.collection.table.name,
         operation: "insert" as const, before: null, after: { id, title: "Scalar", deleted_at: null } }],
-      lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] };
+      lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] };
       await Effect.runPromise(policy.validateLogicalCall(call, activity));
       expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall(
         { ...call, result: { ...call.result, id: "pcol_forged_result" } }, activity))))
@@ -685,7 +685,7 @@ describe("native Collection service on shared logical Product storage", () => {
         data: { id: "pcol_wrong_root" } }],
       fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0,
     }, { mutations: [{ ordinal: 0, table: catalog.collection.table.name, operation: "patch",
-      before, after: { ...before, title: "After" } }], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))))
+      before, after: { ...before, title: "After" } }], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
   });
 
@@ -700,7 +700,7 @@ describe("native Collection service on shared logical Product storage", () => {
       fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 };
     const activity = { mutations: [{ ordinal: 0, table: catalog.collection.table.name,
       operation: "patch" as const, before, after }], lifecycle: [], observedRows: [], setNull: [],
-    referenceReplacements: replacement ? [{ sourceTable: catalog.product.table.name, sourceColumn: "collection_id",
+    relationalReads: [], referenceReplacements: replacement ? [{ sourceTable: catalog.product.table.name, sourceColumn: "collection_id",
       targetTable: catalog.collection.table.name, targetColumn: "id", targetKey: before.id, desiredKeys: [] }] : [] };
     await Effect.runPromise(policy.validateLogicalCall(call, activity));
     for (const result of [{ ...call.result, title: "Forged" }, { id: before.id },
@@ -749,10 +749,10 @@ describe("native Collection service on shared logical Product storage", () => {
       input: { title: "Created", product_ids: [member] },
       result: { id, title: "Created", deleted_at: null, products: [{ ...beforeProduct, collection_id: id }] }, events,
       fromAttempt: 0, toAttempt: 2, fromLifecycle: 0, toLifecycle: 0 };
-    await Effect.runPromise(policy.validateLogicalCall(call, { mutations: mutations, lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }));
-    expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ ...call, result: { id: "pcol_wrong_result" } }, { mutations: mutations, lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))))
+    await Effect.runPromise(policy.validateLogicalCall(call, { mutations: mutations, lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }));
+    expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ ...call, result: { id: "pcol_wrong_result" } }, { mutations: mutations, lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
-    expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ ...call, events: events.slice(0, 1), toAttempt: 1 }, { mutations: mutations.slice(0, 1), lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))))
+    expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ ...call, events: events.slice(0, 1), toAttempt: 1 }, { mutations: mutations.slice(0, 1), lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
   });
 
@@ -773,13 +773,13 @@ describe("native Collection service on shared logical Product storage", () => {
       input: [{ title: "First", product_ids: [] }, { title: "Second", product_ids: [] }],
       result: mutations.map(mutation => ({ ...mutation.after, products: [] })), events,
       fromAttempt: 0, toAttempt: 2, fromLifecycle: 0, toLifecycle: 0 };
-    await Effect.runPromise(policy.validateLogicalCall(call, { mutations: mutations, lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }));
+    await Effect.runPromise(policy.validateLogicalCall(call, { mutations: mutations, lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }));
     const secondMutation = mutations[1];
     if (secondMutation === undefined) throw new Error("missing second generated Collection receipt");
     await Effect.runPromise(policy.validateLogicalCall(call, { mutations: [
       { ...secondMutation, ordinal: 0 }, { ...firstMutation, ordinal: 1 },
-    ], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }));
-    expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ ...call, result: [...call.result].reverse() }, { mutations: mutations, lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))))
+    ], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }));
+    expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ ...call, result: [...call.result].reverse() }, { mutations: mutations, lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
 
     const mixed = productCallReceipts(catalog);
@@ -793,7 +793,7 @@ describe("native Collection service on shared logical Product storage", () => {
     const before = { id: explicitId, title: "Before", deleted_at: null };
     const valid = [firstMutation, { ordinal: 1, table: catalog.collection.table.name,
       operation: "patch" as const, before, after: { ...before, title: "Updated" } }];
-    await Effect.runPromise(mixed.validateLogicalCall(mixedCall, { mutations: valid, lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }));
+    await Effect.runPromise(mixed.validateLogicalCall(mixedCall, { mutations: valid, lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }));
     const forged = [{ ordinal: 0, table: catalog.collection.table.name,
       operation: "patch" as const,
       before: { id: roots[0], title: "Before", deleted_at: null }, after: firstMutation.after },
@@ -804,7 +804,7 @@ describe("native Collection service on shared logical Product storage", () => {
     { name: catalog.collection.createdEvent,
       metadata: { source: Modules.PRODUCT, object: catalog.collection.eventObject, action: CommonEvents.CREATED },
       data: { id: explicitId } }];
-    expect(await Effect.runPromise(Effect.result(mixed.validateLogicalCall({ ...mixedCall, events: forgedEvents }, { mutations: forged, lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))))
+    expect(await Effect.runPromise(Effect.result(mixed.validateLogicalCall({ ...mixedCall, events: forgedEvents }, { mutations: forged, lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
   });
 
@@ -884,7 +884,7 @@ describe("native Collection service on shared logical Product storage", () => {
       fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 };
     const activity = { mutations: [{ ordinal: 0, table: catalog.collection.table.name,
       operation: "delete" as const, before: { id, deleted_at: null }, after: null }],
-    lifecycle: [], observedRows: [], referenceReplacements: [],
+    lifecycle: [], observedRows: [], relationalReads: [], referenceReplacements: [],
     setNull: [{ sourceTable: catalog.product.table.name, sourceColumn: "collection_id",
       targetTable: catalog.collection.table.name, targetColumn: "id", targetKey: id }] };
     await Effect.runPromise(policy.validateLogicalCall(call, activity));
@@ -904,7 +904,7 @@ describe("native Collection service on shared logical Product storage", () => {
       fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 };
     const activity = { mutations: [{ ordinal: 0, table: catalog.product.table.name,
       operation: "patch" as const, before, after }], lifecycle: [],
-    observedRows: [{ table: catalog.option.table.name, row: option }], setNull: [], referenceReplacements: [] };
+    observedRows: [{ table: catalog.option.table.name, row: option }], setNull: [], relationalReads: [], referenceReplacements: [] };
     await Effect.runPromise(policy.validateLogicalCall(call, activity));
     for (const result of [{ ...after, options: [{ ...option, title: "Forged" }] },
       { ...after, options: [{ ...option, product_id: "prod_other" }] }, { ...after, options: [] }]) {
@@ -925,7 +925,7 @@ describe("native Collection service on shared logical Product storage", () => {
         fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 };
       const activity = { mutations: [{ ordinal: 0, table: entity.table.name,
         operation: "patch" as const, before, after }], lifecycle: [], observedRows: [],
-      setNull: [], referenceReplacements: [] };
+      setNull: [], relationalReads: [], referenceReplacements: [] };
       await Effect.runPromise(policy.validateLogicalCall(call, activity));
       for (const forged of [{ ...call, result: { ...after, value: "Forged" } },
         { ...call, input: { id: before.id, data: { value: "Other" } } }]) {
@@ -946,7 +946,7 @@ describe("native Collection service on shared logical Product storage", () => {
       fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 };
     const tagActivity = { mutations: [{ ordinal: 0, table: catalog.tag.table.name,
       operation: "patch" as const, before: tagBefore, after: tagAfter }], lifecycle: [],
-    observedRows: [], setNull: [], referenceReplacements: [] };
+    observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] };
     await Effect.runPromise(policy.validateLogicalCall(tagCall, tagActivity));
     expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ ...tagCall,
       result: [{ ...tagAfter, metadata: { source: "forged" } }] }, tagActivity))))
@@ -961,7 +961,7 @@ describe("native Collection service on shared logical Product storage", () => {
       fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 };
     const variantActivity = { mutations: [{ ordinal: 0, table: catalog.variant.table.name,
       operation: "patch" as const, before: variantBefore, after: variantAfter }], lifecycle: [],
-    observedRows: [], setNull: [], referenceReplacements: [] };
+    observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] };
     await Effect.runPromise(policy.validateLogicalCall(variantCall, variantActivity));
     expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ ...variantCall,
       result: { ...variantAfter, title: "Forged" } }, variantActivity))))

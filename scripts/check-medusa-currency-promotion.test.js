@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyShippingProfileWorkflowTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -951,5 +951,79 @@ describe("native ShippingProfile workflow metadata type seam", () => {
         ? "packages/medusa-types/src/workflow/fulfillment/unadmitted-shipping-profiles.ts"
         : "third_party/medusa/upstream/packages/core/types/src/fulfillment/common/shipping-profile.ts" } : file) }))
       .toThrow("ShippingProfile workflow type adaptation outside its approved source file");
+  });
+});
+
+
+describe("native ShippingProfile deletion callback provenance", () => {
+  const paths = ["shipping-profile/workflows/delete-shipping-profile.ts", "shipping-profile/steps/delete-shipping-profile.ts", "common/steps/remove-remote-links.ts"];
+  const native = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const promoted = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const verify = (workflow = promoted[0], step = promoted[1], link = promoted[2]) => verifyShippingProfileDeleteCallbacks(native[0], workflow, native[1], step, native[2], link);
+  it("admits the complete emitted native program and erased private Query annotation", () => {
+    expect(() => verify()).not.toThrow();
+    expect(() => verify(promoted[0].replace("readonly Record<string, unknown>[]", "readonly Record<string, unknown>[] /* erased */"))).not.toThrow();
+  });
+  it.each([
+    ["singular root identity", '"delete-shipping-profile-workflow"', '"delete-other-shipping-profile-workflow"'],
+    ["step identity", '"validate-step-shipping-profile-delete"', '"validate-other-shipping-profile-delete"'],
+    ["Query alias", 'entity: "product_shipping_profile"', 'entity: "product_shipping_profiles"'],
+    ["Query fields", 'fields: ["product_id", "shipping_profile_id"]', 'fields: ["shipping_profile_id", "product_id"]'],
+    ["Query selector", "filters: { shipping_profile_id: input.ids }", "filters: { product_id: input.ids }"],
+    ["guard rows", "links: currentShippingProfileLinks.data", "links: []"],
+    ["guard threshold", "if (links.length > 0)", "if (links.length > 1)"],
+    ["error type", "MedusaError.Types.INVALID_DATA", "MedusaError.Types.NOT_FOUND"],
+    ["native Product IDs in error", ".map((l) => l.product_id)", ".map((l) => l.shipping_profile_id)"],
+    ["native error separator", '.join(", ")', '.join(";")'],
+    ["native error wording", "because they are linked to products:", "because products exist:"],
+    ["raw delete IDs", "deleteShippingProfilesStep(input.ids)", "deleteShippingProfilesStep([])"],
+    ["grouped Link endpoint", "{ shipping_profile_id: input.ids }", "{ shipping_profile_id: [] }"],
+    ["Fulfillment endpoint", "[Modules.FULFILLMENT]", "[Modules.PRODUCT]"],
+    ["void response", "new WorkflowResponse(void 0)", "new WorkflowResponse(input.ids)"],
+    ["extra root effect", "return new WorkflowResponse(void 0)", "console.log(input); return new WorkflowResponse(void 0)"],
+    ["direct step import", 'from "../steps/delete-shipping-profile"', 'from "../steps"'],
+    ["extra import", 'from "@medusajs/workflows-sdk"', 'from "@medusajs/workflows-sdk"; import "node:fs"'],
+  ])("rejects changed root %s", (_label, before, after) => {
+    const changed = promoted[0].replace(before, after); expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native ShippingProfile deletion callback behavior");
+  });
+  it("rejects changed operation order", () => {
+    const changed = promoted[0].replace("    deleteShippingProfilesStep(input.ids)\n", "")
+      .replace("    validateStepShippingProfileDelete({", "    deleteShippingProfilesStep(input.ids)\n    validateStepShippingProfileDelete({");
+    expect(() => verify(changed)).toThrow("Changed native ShippingProfile deletion callback behavior");
+  });
+  it.each([
+    ["step ID", '"delete-shipping-profile"', '"delete-shipping-profiles"'],
+    ["covered metadata", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["Fulfillment resolution", "Modules.FULFILLMENT", "Modules.PRODUCT"],
+    ["softDelete", "service.softDeleteShippingProfiles(ids)", "service.deleteShippingProfiles(ids)"],
+    ["await", "await service.softDeleteShippingProfiles", "service.softDeleteShippingProfiles"],
+    ["retained raw IDs", "new StepResponse(void 0, ids)", "new StepResponse(void 0, [])"],
+    ["empty inverse guard", "if (!prevIds?.length)", "if (!prevIds)"],
+    ["inverse selector", "service.restoreShippingProfiles(prevIds)", "service.restoreShippingProfiles([])"],
+    ["inverse await", "await service.restoreShippingProfiles", "service.restoreShippingProfiles"],
+    ["extra inverse effect", "    await service.restoreShippingProfiles", '    container.resolve("query"); await service.restoreShippingProfiles'],
+  ])("rejects changed step %s", (_label, before, after) => {
+    const changed = promoted[1].replace(before, after); expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Changed native ShippingProfile deletion callback behavior");
+  });
+  it.each([
+    ["empty entries guard", "if (!entries.length)", "if (!entries.length || entries.length === 1)"],
+    ["raw endpoint concatenation", "currentKeys.concat(incomingKeys)", "[...new Set(currentKeys.concat(incomingKeys))]"],
+    ["Link delete", "await link.delete(grouped)", "await link.delete({})"],
+    ["retained endpoint", "new StepResponse(grouped, grouped)", "new StepResponse(grouped, {})"],
+    ["Link restore", "await link.restore(removedLinks)", "await link.restore({})"],
+    ["covered metadata", 'compensation: "transactionCovered"', 'compensation: "none"'],
+  ])("rejects changed common Link callback %s", (_label, before, after) => {
+    const changed = promoted[2].replace(before, after); expect(changed).not.toBe(promoted[2]);
+    expect(() => verify(promoted[0], promoted[1], changed)).toThrow("Changed native ShippingProfile deletion callback behavior");
+  });
+  it("rejects a widened original public guard input type", () => {
+    expect(() => verify(promoted[0].replace("    product_id: string", "    product_id?: string")))
+      .toThrow("Changed native ShippingProfile deletion public input type");
+  });
+  it("rejects malformed callback syntax", () => {
+    expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(void 0, ids)", "return new StepResponse(")))
+      .toThrow("Invalid native ShippingProfile deletion callback syntax");
   });
 });

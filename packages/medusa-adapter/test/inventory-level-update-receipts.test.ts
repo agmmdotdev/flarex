@@ -26,7 +26,7 @@ const dto = async (row: JsonObject): Promise<JsonObject> => {
 };
 const event = (id: string): Json => ({ name: "inventory.inventory-level.updated",
   metadata: { source: "inventory", object: "inventory_level", action: "updated" }, data: { id } });
-const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], referenceReplacements: [] });
+const empty = (): Activity => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const call = (input: Json, result: Json, events: readonly Json[] = [], read = false): Call => ({
   commandName: read ? "inventoryLevelListForUpdate" : "inventoryLevelUpdateForWorkflow", mode: read ? "read" : "write", input, result, events,
   fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 0,

@@ -14,7 +14,7 @@ import type { LogicalCallReceiptValidation } from "../src/repository/call-receip
 let prepared: Effect.Success<ReturnType<typeof makeInventoryLevelCreationCommands>>;
 let policy: ReturnType<typeof inventoryLevelCreationEventPolicy>;
 let contracts: Result.Result.Success<ReturnType<typeof compileInventoryLevelContracts>>;
-const empty = (): Parameters<LogicalCallReceiptValidation>[1] => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], referenceReplacements: [] });
+const empty = (): Parameters<LogicalCallReceiptValidation>[1] => ({ observedRows: [], mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const call = (commandName: string): Parameters<LogicalCallReceiptValidation>[0] => ({ commandName, mode: "write", input: [], result: [], events: [],
   fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 0 });
 

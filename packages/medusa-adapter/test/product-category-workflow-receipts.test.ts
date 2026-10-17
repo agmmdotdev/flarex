@@ -24,7 +24,7 @@ const event = (action: "created" | "updated" | "deleted", id: string | string[])
   name: action === "created" ? catalog.category.createdEvent : action === "updated" ? catalog.category.updatedEvent : catalog.category.deletedEvent,
   metadata: { source: "product", object: catalog.category.eventObject, action }, data: { id },
 });
-const emptyActivity = (): Activity => ({ mutations: [], lifecycle: [], setNull: [], referenceReplacements: [], observedRows: [] });
+const emptyActivity = (): Activity => ({ mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [], observedRows: [] });
 const receipt = (commandName: string, input: Json, result: Json, events: Json[], activity: Activity): Receipt => ({
   commandName, mode: "write", input, result, events, fromAttempt: 0, toAttempt: activity.mutations.length,
   fromLifecycle: 0, toLifecycle: activity.lifecycle.length,

@@ -24,7 +24,7 @@ const observations: Activity["observedRows"] = [
   { table: "store_currency", row: currencyB }, { table: "store_locale", row: localeHistory },
   { table: "store", row: store }, { table: "store_locale", row: localeA }, { table: "store_currency", row: currencyA },
 ];
-const activity = (observedRows = observations): Activity => ({ observedRows, mutations: [], lifecycle: [], setNull: [], referenceReplacements: [] });
+const activity = (observedRows = observations): Activity => ({ observedRows, mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const read = (): Call => ({ commandName: "storeListForUpdate", mode: "read",
   input: { filters: { id: "store-a" }, config: { select: [], relations: ["supported_currencies", "supported_locales"] } },
   result: [{ id: "store-a", supported_currencies: [currencyA, currencyB], supported_locales: [localeA, localeB] }], events: [],

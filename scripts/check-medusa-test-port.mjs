@@ -732,3 +732,44 @@ export function verifyShippingProfileUpdateCallbacks(nativeWorkflow, workflow, n
     nativeWorkflowProgram(expectedStep, failure) !== nativeWorkflowProgram(step, failure))
     throw new Error("Changed native ShippingProfile update callback behavior");
 }
+
+
+/** Authenticate the complete singular native ShippingProfile root, its pure
+ * Product-Link guard, retained profile inverse and real common Link callbacks.
+ * Only portable/direct imports, covered metadata and the void response differ.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step
+ * @param {string} nativeLink @param {string} link */
+export function verifyShippingProfileDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeLink, link) {
+  const failure = "Invalid native ShippingProfile deletion callback syntax";
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('  WorkflowData,\n', '  WorkflowData,\n  WorkflowResponse,\n')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('from "../steps"', 'from "../steps/delete-shipping-profile"')
+    .replace('import { removeRemoteLinkStep, useQueryGraphStep } from "../../common"',
+      'import { removeRemoteLinkStep } from "../../common/steps/remove-remote-links"\nimport { useQueryGraphStep } from "../../common/steps/use-query-graph"')
+    .replace('    })\n  }\n)', '    })\n    return new WorkflowResponse(void 0)\n  }\n)');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('  deleteShippingProfilesStepId,', '  { name: deleteShippingProfilesStepId, compensation: "transactionCovered" },');
+  const expectedLink = nativeLink.replace('  removeRemoteLinkStepId,', '  { name: removeRemoteLinkStepId, compensation: "transactionCovered" },');
+  if (nativeWorkflowProgram(expectedWorkflow, failure) !== nativeWorkflowProgram(workflow, failure) ||
+    nativeWorkflowProgram(expectedStep, failure) !== nativeWorkflowProgram(step, failure) ||
+    nativeWorkflowProgram(expectedLink, failure) !== nativeWorkflowProgram(link, failure))
+    throw new Error("Changed native ShippingProfile deletion callback behavior");
+  // Query's private partial-record callback annotation is erased. Keep the
+  // original public exported input types intact rather than widening their ABI.
+  /** @param {string} source @param {string} name */
+  const declaredType = (source, name) => {
+    const parsed = ts.createSourceFile("shipping-profile.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const declarations = parsed.statements.filter(node => ts.isTypeAliasDeclaration(node) && node.name.text === name);
+    if (declarations.length !== 1 || declarations[0] === undefined) throw new Error("Changed native ShippingProfile deletion public input type");
+    return ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed }).printNode(ts.EmitHint.Unspecified, declarations[0], parsed);
+  };
+  for (const name of ["ValidateStepShippingProfileDeleteInput", "DeleteShippingProfilesWorkflowInput"])
+    if (declaredType(nativeWorkflow, name) !== declaredType(workflow, name)) throw new Error("Changed native ShippingProfile deletion public input type");
+  if (declaredType(nativeStep, "DeleteShippingProfilesStepInput") !== declaredType(step, "DeleteShippingProfilesStepInput"))
+    throw new Error("Changed native ShippingProfile deletion public input type");
+}

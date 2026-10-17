@@ -11,7 +11,7 @@ const instant = "2026-10-17T00:00:00.000Z";
 const location = (id: string) => ({ id, name: "Warehouse " + id, metadata: null, address_id: null,
   created_at: instant, updated_at: instant, deleted_at: null });
 const evidence = (rows: Activity["observedRows"]): Activity =>
-  ({ observedRows: rows, mutations: [], lifecycle: [], setNull: [], referenceReplacements: [] });
+  ({ observedRows: rows, mutations: [], lifecycle: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const call = (input: Call["input"], result: Call["result"]): Call => ({ commandName: "stockLocationCount", mode: "read",
   input, result, events: [], fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 0 });
 const args = (ids: string[]): Call["input"] => ({ filters: { id: ids }, config: { select: ["id"], relations: [],

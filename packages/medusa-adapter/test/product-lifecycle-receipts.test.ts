@@ -12,7 +12,7 @@ type Entity = ProductRuntimeMetadata["product"];
 let catalog: ProductRuntimeMetadata;
 const deletedAt = "2026-10-15T01:00:00.000Z";
 const earlier = "2026-10-14T01:00:00.000Z";
-const empty = (): Activity => ({ mutations: [], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] });
+const empty = (): Activity => ({ mutations: [], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] });
 const receipt = (commandName: string, input: Json, result: Json, activity: Activity, events: readonly Json[] = []): Receipt => ({
   commandName, mode: "write", input, result, events, fromAttempt: 0, toAttempt: activity.mutations.length,
   fromLifecycle: 0, toLifecycle: activity.lifecycle.length,

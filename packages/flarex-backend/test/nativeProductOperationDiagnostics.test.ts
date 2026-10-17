@@ -6,7 +6,7 @@ import { makeNativeProductOperationDiagnostics } from "../../executor/test/perfo
 
 const nativeResult: PrivateProductAttemptExecution = { result: { id: "prod_diagnostic" },
   changes: { changes: [], attempts: [], lifecycle: [], observedRows: [], noFinalRows: [], dependencies: [],
-    scans: [], uniqueReads: [], indexReads: [], pageReads: [], searchReads: [], setNull: [], referenceReplacements: [] },
+    scans: [], uniqueReads: [], indexReads: [], pageReads: [], searchReads: [], setNull: [], relationalReads: [], referenceReplacements: [] },
   events: [], eventIntents: [], workBytes: 0, workCalls: 1 };
 
 describe("native Product benchmark diagnostic isolation", () => {
