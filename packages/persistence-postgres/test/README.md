@@ -257,6 +257,10 @@ Scope, catalog and index fixtures use the migrated image. Schema-artifact and
 index-definition database cases each share a file-owned backend with distinct
 deployment identities and serial execution. Their pure token/driver-fault cases
 need no database; the artifact table-drop witness keeps its own backend.
+Application schema authority, publication and unique-definition suites also
+share one serial image-backed database per file. Deployments remain distinct,
+aggregate catalog observations select their deployment, and the manifest
+corruption witness changes only its own deployment's row.
 Stable-table and creation-time definition cases use the same file lifetime;
 allocator fault inspection is deployment-qualified. Candidate-validation cases
 share their distinct deployment/scope fixtures; the foreign-control identity
@@ -386,6 +390,12 @@ Session activation shares its file owner and cancels the independent-scope timer
 Artifact timezone probes keep their dedicated clients and drain before reuse.
 Reservation replay includes durable receipt/missing-clock checks; real target
 failure and recovery remain in the split-provisioning suites.
+Legacy OCC and delivery-claim concurrency cases borrow the native file owner;
+lock holders release before pending claims and commits drain and rows reset.
+Framework artifact lock-order and dependency-insert rollback cases borrow their
+existing file owner after removing temporary barriers and rejection triggers.
+Deadline, abandoned-backend and uncertain-settlement cases retain independent
+fixtures.
 Plan probes use `withPostgresSequentialScansDisabled` to bind `SET LOCAL` and
 EXPLAIN to one client and roll back the setting before reuse.
 Validate converted suites as whole files, including failure-triggered rebuilds.

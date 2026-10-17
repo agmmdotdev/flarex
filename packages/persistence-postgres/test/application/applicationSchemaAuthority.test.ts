@@ -15,7 +15,7 @@ import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
 } from "flarex-protocol/schema-manifest";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   makeApplicationSchemaAuthorityPublisher,
@@ -24,11 +24,12 @@ import type { AppSchemaPublicationV1Repository } from
   "../../src/storage/catalog/appSchemaPublication";
 import type { StableTableCatalogTransaction } from
   "../../src/storage/catalog/stableTableCatalog";
-import { createPGlitePersistence } from "../../src/database/pglite";
 import { deployments, fxControlApplicationSchemaAuthoritiesV1, fxControlSchemaVersions } from "../../src/database/schema";
 import { runEffect } from "../support/effectTestRuntime";
-import { newTestPGlite } from "../support/pgliteSearchExtensions";
-import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
+import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
+
+let persistence: PGlitePersistence;
+let dispose: (() => Promise<void>) | undefined;
 
 beforeAll(async () => {
   if (globalThis.crypto === undefined) {
@@ -37,60 +38,55 @@ beforeAll(async () => {
       value: webcrypto,
     });
   }
-  await migratedPGliteDataDir();
+  persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
 }, 120_000);
 
-describe("Application schema authority", () => {
+afterAll(async () => { await dispose?.(); }, 120_000);
+
+describe("Application schema authority", { concurrent: false }, () => {
   it("returns the published schema with detached original stored evidence", async () => {
-    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     const deploymentId = "deployment_application_schema_original_evidence";
-    try {
-      const persistence = await createPGlitePersistence({ db });
-      await insertDeployment(persistence, deploymentId);
-      const publisher = makeApplicationSchemaAuthorityPublisher({
-        db: persistence.drizzle,
-        runTransaction: run => persistence.drizzle.transaction(run),
-      });
-      const manifest = applicationManifest();
-      const schema = await runEffect(publisher.publish({ deploymentId, manifest }));
-      const selected = await persistence.drizzle.transaction(tx => runEffect(
-        publisher.readPublished({ deploymentId, manifest }, tx),
-      ));
-      const rows = await persistence.drizzle.select({
-        deploymentId: fxControlSchemaVersions.deploymentId,
-        schemaVersionId: fxControlSchemaVersions.schemaVersionId,
-        version: fxControlSchemaVersions.version,
-        manifestCodecVersion: fxControlSchemaVersions.manifestCodecVersion,
-        manifestSha256: fxControlSchemaVersions.manifestSha256,
-        createdAt: fxControlSchemaVersions.createdAt,
-        manifestJsonText: sql<string>`${fxControlSchemaVersions.manifestJson}::text`,
-        manifestBytes: fxControlSchemaVersions.manifestBytes,
-      }).from(fxControlSchemaVersions).where(and(
-        eq(fxControlSchemaVersions.deploymentId, deploymentId),
-        eq(fxControlSchemaVersions.schemaVersionId, schema.schemaVersionId),
-      ));
-      const stored = rows[0];
-      if (stored === undefined) throw new Error("Missing genuinely published schema artifact");
-      const payload = selected.originalArtifact.payload;
-      if (payload === null) throw new Error("Published fixture artifact payload was withheld");
-      expect(selected.schema).toEqual(schema);
-      expect(payload).toEqual(stored);
-      const original = structuredClone(selected.originalArtifact);
-      payload.manifestBytes.fill(0);
-      payload.manifestSha256.fill(0);
-      payload.createdAt.setTime(0);
-      selected.originalArtifact.sizes.manifestSha256.fill(0);
-      selected.originalArtifact.sizes.createdAt.setTime(0);
-      const reread = await runEffect(publisher.readPublished({ deploymentId, manifest }));
-      expect(reread.schema).toEqual(schema);
-      expect(reread.originalArtifact).toEqual(original);
-    } finally {
-      await db.close();
-    }
+    await insertDeployment(persistence, deploymentId);
+    const publisher = makeApplicationSchemaAuthorityPublisher({
+      db: persistence.drizzle,
+      runTransaction: run => persistence.drizzle.transaction(run),
+    });
+    const manifest = applicationManifest();
+    const schema = await runEffect(publisher.publish({ deploymentId, manifest }));
+    const selected = await persistence.drizzle.transaction(tx => runEffect(
+      publisher.readPublished({ deploymentId, manifest }, tx),
+    ));
+    const rows = await persistence.drizzle.select({
+      deploymentId: fxControlSchemaVersions.deploymentId,
+      schemaVersionId: fxControlSchemaVersions.schemaVersionId,
+      version: fxControlSchemaVersions.version,
+      manifestCodecVersion: fxControlSchemaVersions.manifestCodecVersion,
+      manifestSha256: fxControlSchemaVersions.manifestSha256,
+      createdAt: fxControlSchemaVersions.createdAt,
+      manifestJsonText: sql<string>`${fxControlSchemaVersions.manifestJson}::text`,
+      manifestBytes: fxControlSchemaVersions.manifestBytes,
+    }).from(fxControlSchemaVersions).where(and(
+      eq(fxControlSchemaVersions.deploymentId, deploymentId),
+      eq(fxControlSchemaVersions.schemaVersionId, schema.schemaVersionId),
+    ));
+    const stored = rows[0];
+    if (stored === undefined) throw new Error("Missing genuinely published schema artifact");
+    const payload = selected.originalArtifact.payload;
+    if (payload === null) throw new Error("Published fixture artifact payload was withheld");
+    expect(selected.schema).toEqual(schema);
+    expect(payload).toEqual(stored);
+    const original = structuredClone(selected.originalArtifact);
+    payload.manifestBytes.fill(0);
+    payload.manifestSha256.fill(0);
+    payload.createdAt.setTime(0);
+    selected.originalArtifact.sizes.manifestSha256.fill(0);
+    selected.originalArtifact.sizes.createdAt.setTime(0);
+    const reread = await runEffect(publisher.readPublished({ deploymentId, manifest }));
+    expect(reread.schema).toEqual(schema);
+    expect(reread.originalArtifact).toEqual(original);
   });
 
   it("binds analyzer-local ordinals to stable catalog identities and replays", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_application_schema_authority";
     await insertDeployment(persistence, deploymentId);
     await persistence.publishAppSchemaV1({
@@ -144,7 +140,6 @@ describe("Application schema authority", () => {
   });
 
   it("rejects an analyzed table outside the existing object-document schema", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_application_schema_invalid";
     await insertDeployment(persistence, deploymentId);
     const publisher = makeApplicationSchemaAuthorityPublisher({
@@ -164,12 +159,12 @@ describe("Application schema authority", () => {
       expect(result.failure).toMatchObject({ reason: "invalidSchema" });
     }
     expect((await persistence.query<{ count: string }>(
-      "select count(*)::text as count from fx_control_schema_version",
+      "select count(*)::text as count from fx_control_schema_version where deployment_id = $1",
+      [deploymentId],
     )).rows).toEqual([{ count: "0" }]);
   });
 
   it("rejects a publication result relabeled from another artifact identity", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_application_schema_forged_artifact";
     await insertDeployment(persistence, deploymentId);
     const repository: AppSchemaPublicationV1Repository = {
@@ -202,7 +197,6 @@ describe("Application schema authority", () => {
   });
 
   it("rejects publication artifact manifest evidence that does not correlate", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_application_schema_forged_manifest";
     await insertDeployment(persistence, deploymentId);
     const repository: AppSchemaPublicationV1Repository = {
@@ -235,7 +229,6 @@ describe("Application schema authority", () => {
   });
 
   it("keeps a rejected reservation-selection query in the typed error channel", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_application_schema_selection_failure";
     await insertDeployment(persistence, deploymentId);
     const cause = Object.assign(new Error("selection query failed"), {
@@ -268,7 +261,6 @@ describe("Application schema authority", () => {
   });
 
   it("keeps a rejected in-gate query in the typed error channel", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_application_schema_gate_failure";
     await insertDeployment(persistence, deploymentId);
     const cause = Object.assign(new Error("gate query failed"), {
@@ -318,7 +310,6 @@ describe("Application schema authority", () => {
   });
 
   it("identifies read-only authority failures separately from publication", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const publisher = makeApplicationSchemaAuthorityPublisher({
       db: persistence.drizzle,
       runTransaction: run => persistence.drizzle.transaction(run),
@@ -340,7 +331,6 @@ describe("Application schema authority", () => {
   });
 
   it("repairs a reserved version occupied by the retained publisher", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_application_schema_stranded";
     await insertDeployment(persistence, deploymentId);
     await persistence.publishAppSchemaV1({
@@ -415,7 +405,7 @@ function isPublicationResult(value: unknown): value is {
     typeof artifact.deploymentId === "string";
 }
 
-type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
+type PGlitePersistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
 
 async function insertDeployment(
   persistence: PGlitePersistence,

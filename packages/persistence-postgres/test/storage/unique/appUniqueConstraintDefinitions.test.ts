@@ -1,6 +1,5 @@
 import {
   createMigratedPGlitePersistence,
-  migratedPGliteDataDir,
 } from "../../support/pgliteTestFixture";
 import {
   CatalogTableIdSchema,
@@ -17,7 +16,7 @@ import {
   type CatalogSchemaVersionId,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
 import { makePhysicalSessionAccess } from "../../../src/database/physicalSession/drizzle";
 import { flarexSchema } from "../../../src/database/schema";
@@ -40,11 +39,17 @@ import {
 } from "../../../src/storage/catalog/schemaVersionArtifacts";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
-beforeAll(() => migratedPGliteDataDir(), 120_000);
+let persistence: Persistence;
+let dispose: (() => Promise<void>) | undefined;
 
-describe("immutable app unique-constraint definitions", () => {
+beforeAll(async () => {
+  persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
+}, 120_000);
+
+afterAll(async () => { await dispose?.(); }, 120_000);
+
+describe("immutable app unique-constraint definitions", { concurrent: false }, () => {
   it("replays exact bindings and keeps changed physical generations", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_unique_definition_generations";
     await insertDeployment(persistence, deploymentId);
     const v1 = await registerSchema(persistence, deploymentId, "unique_v1", 1);
@@ -89,15 +94,14 @@ describe("immutable app unique-constraint definitions", () => {
       bindings: number;
     }>(`
       select
-        (select count(*)::int from fx_control_unique_constraint) identities,
-        (select count(*)::int from fx_control_unique_constraint_definition) definitions,
-        (select count(*)::int from fx_control_schema_version_unique_constraint_binding) bindings
-    `);
+        (select count(*)::int from fx_control_unique_constraint where deployment_id = $1) identities,
+        (select count(*)::int from fx_control_unique_constraint_definition where deployment_id = $1) definitions,
+        (select count(*)::int from fx_control_schema_version_unique_constraint_binding where deployment_id = $1) bindings
+    `, [deploymentId]);
     expect(counts.rows[0]).toEqual({ identities: 1, definitions: 2, bindings: 2 });
   });
 
   it("rejects a competing generation for an already-bound schema version", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_unique_binding_conflict";
     await insertDeployment(persistence, deploymentId);
     const registered = await registerSchema(
@@ -117,13 +121,13 @@ describe("immutable app unique-constraint definitions", () => {
       AppSchemaVersionUniqueConstraintBindingConflictError,
     );
     const count = await persistence.query<{ count: number }>(
-      "select count(*)::int count from fx_control_unique_constraint_definition",
+      "select count(*)::int count from fx_control_unique_constraint_definition where deployment_id = $1",
+      [deploymentId],
     );
     expect(count.rows[0]?.count).toBe(1);
   });
 
   it("rolls back identity, definition, and binding atomically", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_unique_definition_rollback";
     await insertDeployment(persistence, deploymentId);
     const registered = await registerSchema(
@@ -146,7 +150,8 @@ describe("immutable app unique-constraint definitions", () => {
       "fx_control_schema_version_unique_constraint_binding",
     ]) {
       const result = await persistence.query<{ count: number }>(
-        `select count(*)::int count from ${table}`,
+        `select count(*)::int count from ${table} where deployment_id = $1`,
+        [deploymentId],
       );
       expect(result.rows[0]?.count).toBe(0);
     }
@@ -175,7 +180,6 @@ describe("immutable app unique-constraint definitions", () => {
   });
 
   it("rejects decodable manifest JSON that disagrees with stored evidence", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_unique_tampered_manifest";
     await insertDeployment(persistence, deploymentId);
     const registered = await registerSchema(
@@ -205,7 +209,6 @@ describe("immutable app unique-constraint definitions", () => {
   });
 
   it("rejects a deployment table omitted from the exact schema", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_unique_omitted_table";
     await insertDeployment(persistence, deploymentId);
     const users = await registerSchema(
@@ -230,7 +233,8 @@ describe("immutable app unique-constraint definitions", () => {
       parent: "schemaTableBinding",
     } satisfies Partial<AppUniqueConstraintCatalogParentError>);
     const result = await persistence.query<{ count: number }>(
-      "select count(*)::int count from fx_control_unique_constraint",
+      "select count(*)::int count from fx_control_unique_constraint where deployment_id = $1",
+      [deploymentId],
     );
     expect(result.rows[0]?.count).toBe(0);
   });

@@ -9,14 +9,17 @@ import {
 } from "../../src";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  rollbackAndReleasePostgresClient,
+  useFileScopedPostgresPersistence,
 } from "../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
-describePostgres("real Postgres OCC concurrency", () => {
+describePostgres("real Postgres OCC concurrency", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPostgresPersistence();
+
   it("returns a cursor when a concurrent delivery claimer loses the selected row", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await persistence.insertLiveQueryDelivery({
         deploymentId: "deployment_pg_delivery_claim_cursor_race",
         deliveryId: "delivery_cursor_race_a",
@@ -42,7 +45,6 @@ describePostgres("real Postgres OCC concurrency", () => {
             ReturnType<typeof persistence.claimLiveQueryDeliveries>,
           ]
         | undefined;
-      let setupError: unknown;
       try {
         await locker.query("begin");
         await locker.query(
@@ -71,25 +73,22 @@ describePostgres("real Postgres OCC concurrency", () => {
             claimOwner: "delivery:second",
           }),
         ] as const;
+        void Promise.allSettled(claimPromises);
 
         await waitForBlockedLiveQueryDeliveryUpdates(persistence, 2);
         await locker.query("commit");
         lockReleased = true;
-      } catch (error) {
-        setupError = error;
       } finally {
-        if (!lockReleased) {
-          await locker.query("rollback").catch(() => undefined);
+        try {
+          if (lockReleased) locker.release();
+          else await rollbackAndReleasePostgresClient(locker);
+        } finally {
+          if (claimPromises !== undefined) await Promise.allSettled(claimPromises);
         }
-        locker.release();
       }
 
       if (claimPromises === undefined) {
         throw new Error("Expected claim promises to be created.");
-      }
-      if (setupError !== undefined) {
-        await Promise.allSettled(claimPromises);
-        throw setupError;
       }
 
       const [first, second] = await Promise.all(claimPromises);
@@ -145,7 +144,7 @@ describePostgres("real Postgres OCC concurrency", () => {
   });
 
   it("returns a live query delivery to only one concurrent claimer", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await persistence.insertLiveQueryDelivery({
         deploymentId: "deployment_pg_delivery_claim",
         deliveryId: "delivery_concurrent",
@@ -163,7 +162,6 @@ describePostgres("real Postgres OCC concurrency", () => {
             ReturnType<typeof persistence.claimLiveQueryDeliveries>,
           ]
         | undefined;
-      let setupError: unknown;
       try {
         await locker.query("begin");
         await locker.query(
@@ -192,25 +190,22 @@ describePostgres("real Postgres OCC concurrency", () => {
             claimOwner: "delivery:second",
           }),
         ] as const;
+        void Promise.allSettled(claimPromises);
 
         await waitForBlockedLiveQueryDeliveryUpdates(persistence, 2);
         await locker.query("commit");
         lockReleased = true;
-      } catch (error) {
-        setupError = error;
       } finally {
-        if (!lockReleased) {
-          await locker.query("rollback").catch(() => undefined);
+        try {
+          if (lockReleased) locker.release();
+          else await rollbackAndReleasePostgresClient(locker);
+        } finally {
+          if (claimPromises !== undefined) await Promise.allSettled(claimPromises);
         }
-        locker.release();
       }
 
       if (claimPromises === undefined) {
         throw new Error("Expected claim promises to be created.");
-      }
-      if (setupError !== undefined) {
-        await Promise.allSettled(claimPromises);
-        throw setupError;
       }
       const [first, second] = await Promise.all(claimPromises);
 
@@ -266,7 +261,7 @@ describePostgres("real Postgres OCC concurrency", () => {
   });
 
   it("serializes concurrent commits and rejects a stale document read", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await persistence.insertDocumentRevision({
         deploymentId: "deployment_pg_occ_conflict",
         id: "1:team",
@@ -339,7 +334,7 @@ describePostgres("real Postgres OCC concurrency", () => {
   });
 
   it("assigns unique commit timestamps for concurrent non-conflicting commits", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       for (const id of ["1:team_a", "1:team_b"]) {
         await persistence.insertDocumentRevision({
           deploymentId: "deployment_pg_occ_parallel",
@@ -371,10 +366,12 @@ describePostgres("real Postgres OCC concurrency", () => {
         count: 2,
       });
 
-      const results = await Promise.all([
+      const committing = [
         commitSession(persistence, "deployment_pg_occ_parallel", "session_a"),
         commitSession(persistence, "deployment_pg_occ_parallel", "session_b"),
-      ]);
+      ];
+      await Promise.allSettled(committing);
+      const results = await Promise.all(committing);
 
       expect(results.map((result) => result.committedTs).sort()).toEqual([
         11,

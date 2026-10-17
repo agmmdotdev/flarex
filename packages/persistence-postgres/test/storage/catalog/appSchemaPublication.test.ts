@@ -1,6 +1,5 @@
 import {
   createMigratedPGlitePersistence,
-  migratedPGliteDataDir,
 } from "../../support/pgliteTestFixture";
 import {
   canonicalizeSchemaManifestV1,
@@ -13,7 +12,7 @@ import {
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { count, eq } from "drizzle-orm";
 import { Cause, Effect, Result } from "effect";
-import { beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   getPreparedAppSchemaPublicationV1StateResult,
@@ -70,9 +69,16 @@ const publishAppSchemaV1WithRepository = (
   ...args: Parameters<typeof publishAppSchemaV1WithRepositoryEffect>
 ) => runEffect(publishAppSchemaV1WithRepositoryEffect(...args));
 
-beforeAll(() => migratedPGliteDataDir(), 120_000);
+let persistence: PGlitePersistence;
+let dispose: (() => Promise<void>) | undefined;
 
-describe("app-schema V1 publication facade", () => {
+beforeAll(async () => {
+  persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
+}, 120_000);
+
+afterAll(async () => { await dispose?.(); }, 120_000);
+
+describe("app-schema V1 publication facade", { concurrent: false }, () => {
   it("keeps the coordinator Effect-native behind the runtime facade", () => {
     expectTypeOf<
       ReturnType<typeof publishAppSchemaV1WithRepositoryEffect>
@@ -83,7 +89,6 @@ describe("app-schema V1 publication facade", () => {
   });
 
   it("publishes and exactly replays the complete projection", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_facade_replay";
     await insertDeployment(persistence, deploymentId);
     const input = publicationInput(
@@ -125,7 +130,6 @@ describe("app-schema V1 publication facade", () => {
   });
 
   it("snapshots once, then replans and rehashes every stale attempt", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_facade_stale";
     await insertDeployment(persistence, deploymentId);
     const input = publicationInput(
@@ -256,7 +260,6 @@ describe("app-schema V1 publication facade", () => {
   });
 
   it("retains the initiating Effect cause when transaction cleanup fails", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_rollback_failure";
     await insertDeployment(persistence, deploymentId);
     const rollbackFailure = new Error("injected transaction rollback failure");
@@ -521,7 +524,6 @@ describe("app-schema V1 publication facade", () => {
   });
 
   it("retains the exact post-preparation byte gate before the transaction", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_schema_publication_v1_exact_byte_fallback";
     await insertDeployment(persistence, deploymentId);
     const baseline = await prepareAppSchemaPublicationV1(

@@ -103,6 +103,7 @@ afterEach(() => {
 
 describePostgres(
   "private framework schema artifact admission - PostgreSQL",
+  { concurrent: false },
   () => {
     const withPersistence = useFileScopedPostgresPersistence();
 
@@ -647,7 +648,7 @@ describePostgres(
     it.each(SUPPORTED_LOCK_ORDER_SCENARIOS)(
       "keeps the supported cross-owner lock order acyclic with $label",
       async ({ holder }) => {
-        await withTemporaryPostgresPersistence(async persistence => {
+        await withPersistence(async persistence => {
           await expectPostgres18OrdinaryRole(persistence);
           await insertDeployment(persistence);
           const repository = makePostgresArtifactRepository(persistence);
@@ -736,7 +737,7 @@ describePostgres(
     );
 
     it("rolls back an inserted parent when dependency-edge insertion fails", async () => {
-      await withTemporaryPostgresPersistence(async persistence => {
+      await withPersistence(async persistence => {
         await expectPostgres18OrdinaryRole(persistence);
         await insertDeployment(persistence);
         const repository = makePostgresArtifactRepository(persistence);
