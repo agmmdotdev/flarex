@@ -182,6 +182,8 @@
     "db:check": "drizzle-kit check --config drizzle.config.ts",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "typecheck": "tsc -p tsconfig.json",
+    "typecheck:rust": "tsc-rs -p tsconfig.json",
+    "typecheck:rust:fast": "tsc-rs -p tsconfig.json --fast",
     "test": "node ../../scripts/run-test-lane.mjs pglite-persistence",
     "test:framework-coordinator-fresh:pglite": "node ../../scripts/run-test-lane.mjs framework-coordinator-fresh-pglite",
     "test:framework-coordinator-fresh:postgres": "node ../../scripts/run-test-lane.mjs framework-coordinator-fresh-postgres",
