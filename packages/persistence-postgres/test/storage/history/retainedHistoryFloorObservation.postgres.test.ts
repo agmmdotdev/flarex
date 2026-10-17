@@ -1,8 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
 
-import { Result } from "effect";
-import { makeGrantRetentionPolicyV1Result } from
-  "flarex-protocol/grant-retention-policy";
 import { decodeReplacementScopeIdV1 } from
   "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from
@@ -37,7 +34,12 @@ import type {
   RunLocatedReadCommittedTransactionV1,
 } from "../../../src/database/locatedTransactionIdentity";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
-import { retainedHistoryFloorLeaseScenario, seedRetainedFloorLeaseCommit } from "./retainedHistoryFloorLeaseScenario";
+import {
+  RETAINED_FLOOR_FIXTURE_WINDOW_MS,
+  retainedFloorFixturePolicy as retentionPolicy,
+  retainedHistoryFloorLeaseScenario,
+  seedRetainedFloorCommits,
+} from "./retainedHistoryFloorLeaseScenario";
 import {
   postgresUrl,
   rollbackAndReleasePostgresClient,
@@ -56,12 +58,6 @@ import {
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const withPersistence = useFileScopedPostgresPersistence();
 
-const retentionPolicy = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
-  maximumGrantLifetimeMilliseconds: 1_000,
-  maximumFutureIssuedAtSkewMilliseconds: 0,
-  maximumLiveSnapshotRetentionMilliseconds: 10_000,
-}));
-
 describePostgres("real PostgreSQL O11-B/C retained-history floor", { concurrent: false }, () => {
   it("advances past an expired lease backlog with indexed expiry filtering", async () => {
     await withPersistence(async persistence => {
@@ -73,7 +69,7 @@ describePostgres("real PostgreSQL O11-B/C retained-history floor", { concurrent:
       }).ensure({ deploymentId, projectId: "project_floor_lease_backlog" });
       const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
       await setFlarexActivationClock(persistence, scopeId);
-      await seedRetainedFloorLeaseCommit(persistence.drizzle, scopeId);
+      await seedRetainedFloorCommits(persistence.drizzle, scopeId, "beforeLease");
       const activation = createPointMutationSessionActivationPersistenceV1({
         scopeMetadata: persistence,
         provisioningReceipts: {
@@ -82,7 +78,7 @@ describePostgres("real PostgreSQL O11-B/C retained-history floor", { concurrent:
         scopeSessionTargets: {
           resolve: async locator => createPostgresLocatedPointMutationSessionActivationTargetV1(persistence, locator),
         },
-      }, { leaseDurationMilliseconds: 60_000, randomUuid: ids });
+      }, { leaseDurationMilliseconds: RETAINED_FLOOR_FIXTURE_WINDOW_MS, randomUuid: ids });
       const activated = await activatePointMutationSession(activation,
         pointMutationSessionActivationFixture(deploymentId, scopeId));
       const observation = createRetainedHistoryFloorObservationPort({
@@ -99,7 +95,7 @@ describePostgres("real PostgreSQL O11-B/C retained-history floor", { concurrent:
         pinFacets: [createRetainedHistoryFloorPinFacet("test", { kind: "absent" })],
       });
       await retainedHistoryFloorLeaseScenario({
-        database: persistence.drizzle, sessionId: activated.anchor.sessionId,
+        database: persistence.drizzle, scopeId, sessionId: activated.anchor.sessionId,
         deploymentId, observation, publication: publicationPort(persistence, physicalLocator),
       });
       await persistence.query("analyze fx_system_snapshot_lease");
@@ -137,7 +133,7 @@ describePostgres("real PostgreSQL O11-B/C retained-history floor", { concurrent:
       });
       const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
       await setFlarexActivationClock(persistence, scopeId);
-      await seedCommits(persistence, scopeId);
+      await seedRetainedFloorCommits(persistence.drizzle, scopeId);
 
       const acquiredPid = deferred<number>();
       const port = createRetainedHistoryFloorObservationPort({
@@ -242,7 +238,7 @@ describePostgres("real PostgreSQL O11-B/C retained-history floor", { concurrent:
       });
       const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
       await setFlarexActivationClock(persistence, scopeId);
-      await seedCommits(persistence, scopeId);
+      await seedRetainedFloorCommits(persistence.drizzle, scopeId);
 
       const leaseInserted = deferred<void>();
       const releaseLeaseAdmission = deferred<void>();
@@ -268,7 +264,7 @@ describePostgres("real PostgreSQL O11-B/C retained-history floor", { concurrent:
             ),
         },
       }, {
-        leaseDurationMilliseconds: 60_000,
+        leaseDurationMilliseconds: RETAINED_FLOOR_FIXTURE_WINDOW_MS,
         randomUuid: ids,
       });
       const activationPromise = activatePointMutationSession(
@@ -348,7 +344,7 @@ describePostgres("real PostgreSQL O11-B/C retained-history floor", { concurrent:
         rollbackProvisioned.scope.scopeId,
       );
       await setFlarexActivationClock(persistence, rollbackScope);
-      await seedCommits(persistence, rollbackScope);
+      await seedRetainedFloorCommits(persistence.drizzle, rollbackScope);
       await expect(runEffectFailure(publishRetainedHistoryFloorEffect(
         publicationPort(
           persistence,
@@ -380,7 +376,7 @@ describePostgres("real PostgreSQL O11-B/C retained-history floor", { concurrent:
         uncertainProvisioned.scope.scopeId,
       );
       await setFlarexActivationClock(persistence, uncertainScope);
-      await seedCommits(persistence, uncertainScope);
+      await seedRetainedFloorCommits(persistence.drizzle, uncertainScope);
       let loseFirstResponse = true;
       const uncertainPort = publicationPort(persistence, uncertainLocator, {
         release: (client, discardError) => {
@@ -446,31 +442,6 @@ function publicationPort(
       createTestNoReconnectRetainedHistoryFloorPublicationPinFacet(),
     ],
   });
-}
-
-async function seedCommits(
-  persistence: PostgresFlarexPersistence,
-  scopeId: string,
-): Promise<void> {
-  await persistence.query(
-    `insert into fx_system_commit
-       (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
-     select clock.scope_uuid, authority.epoch_uuid, values.commit_seq, 0,
-            clock_timestamp() - values.age
-     from fx_system_scope_clock clock
-     join fx_system_scope_execution_authority authority using(scope_id),
-          (values
-            (1::bigint, interval '30 seconds'),
-            (2::bigint, interval '20 seconds'),
-            (3::bigint, interval '1 second')
-          ) as values(commit_seq, age)
-     where scope_id = $1`,
-    [scopeId],
-  );
-  await persistence.query(
-    "update fx_system_scope_clock set last_commit_seq = 3 where scope_id = $1",
-    [scopeId],
-  );
 }
 
 async function readClock(

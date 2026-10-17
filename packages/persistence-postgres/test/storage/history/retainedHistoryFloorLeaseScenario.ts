@@ -1,5 +1,7 @@
 import { and, count, eq, inArray, sql } from "drizzle-orm";
+import { Result } from "effect";
 import { expect } from "vitest";
+import { makeGrantRetentionPolicyV1Result } from "flarex-protocol/grant-retention-policy";
 import {
   CommitSeqSchema,
   ScopeEpochUuidV1Schema,
@@ -32,22 +34,45 @@ import { runEffect } from "../../support/effectTestRuntime";
 import { selectScopeClockRows } from "../../../src/scope/scopeClock";
 import { fxSystemScopeExecutionAuthorities } from "../../../src/database/schema";
 
-export async function seedRetainedFloorLeaseCommit(database: FlarexMetadataDatabase, scopeId: ScopeId): Promise<void> {
+// Classification margins keep recent commits and live leases valid beyond the
+// longest 120-second case while observations still use authoritative SQL time.
+export const RETAINED_FLOOR_FIXTURE_WINDOW_MS = 60 * 60 * 1_000;
+export const retainedFloorFixturePolicy = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
+  maximumGrantLifetimeMilliseconds: 1_000,
+  maximumFutureIssuedAtSkewMilliseconds: 0,
+  maximumLiveSnapshotRetentionMilliseconds: RETAINED_FLOOR_FIXTURE_WINDOW_MS,
+}));
+
+export async function seedRetainedFloorCommits(
+  database: FlarexMetadataDatabase,
+  scopeId: ScopeId,
+  phase: "beforeLease" | "afterLease" | "all" = "all",
+): Promise<void> {
   const [clock] = await selectScopeClockRows(database)
     .where(eq(fxSystemScopeClocks.scopeId, scopeId));
   if (clock?.scopeUuid == null || clock.epochUuid == null) throw new Error("Expected a replacement scope clock.");
-  await database.insert(fxSystemCommits).values({
-    scopeUuid: clock.scopeUuid, epochUuid: clock.epochUuid,
-    commitSeq: CommitSeqSchema.make(1n), changeCount: 0,
-    committedAt: sql`clock_timestamp() - interval '30 seconds'`,
-  });
-  await database.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
+  const { scopeUuid, epochUuid } = clock;
+  const commits = [
+    { commitSeq: CommitSeqSchema.make(1n), age: RETAINED_FLOOR_FIXTURE_WINDOW_MS * 3 },
+    { commitSeq: CommitSeqSchema.make(2n), age: RETAINED_FLOOR_FIXTURE_WINDOW_MS * 2 },
+    // Already older than the former 10-second window, yet safely recent here.
+    { commitSeq: CommitSeqSchema.make(3n), age: 30_000 },
+  ].filter(row => phase === "all" || (
+    phase === "beforeLease" ? row.commitSeq === 1n : row.commitSeq > 1n
+  ));
+  await database.insert(fxSystemCommits).values(commits.map(row => ({
+    scopeUuid, epochUuid,
+    commitSeq: row.commitSeq, changeCount: 0,
+    committedAt: sql`clock_timestamp() - ${row.age} * interval '1 millisecond'`,
+  })));
+  await database.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(phase === "beforeLease" ? 1n : 3n) })
     .where(eq(fxSystemScopeClocks.scopeId, scopeId));
 }
 
 /** Copies stored attempt rows for a synthetic lease-directory fixture. */
 export async function retainedHistoryFloorLeaseScenario(input: Readonly<{
   database: FlarexMetadataDatabase;
+  scopeId: ScopeId;
   sessionId: TransactionSessionIdV1;
   deploymentId: TransactionGrantDeploymentIdV1;
   observation: RetainedHistoryFloorObservationPort;
@@ -86,17 +111,7 @@ export async function retainedHistoryFloorLeaseScenario(input: Readonly<{
   const scope = eq(fxSystemSnapshotLeases.scopeUuid, session.scopeUuid);
   const original = and(scope, eq(fxSystemSnapshotLeases.sessionId, input.sessionId));
   await db.update(fxSystemSnapshotLeases).set({ leaseExpiresAt: live }).where(original);
-  // Seed the time-window evidence after the bulk setup, using database time.
-  await db.insert(fxSystemCommits).values([
-    { scopeUuid: session.scopeUuid, epochUuid: lease.snapshotEpochUuid,
-      commitSeq: CommitSeqSchema.make(2n), changeCount: 0,
-      committedAt: sql`clock_timestamp() - interval '20 seconds'` },
-    { scopeUuid: session.scopeUuid, epochUuid: lease.snapshotEpochUuid,
-      commitSeq: CommitSeqSchema.make(3n), changeCount: 0,
-      committedAt: sql`clock_timestamp() - interval '1 second'` },
-  ]);
-  await db.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(3n) })
-    .where(eq(fxSystemScopeClocks.scopeUuid, session.scopeUuid));
+  await seedRetainedFloorCommits(db, input.scopeId, "afterLease");
   const observe = () => runEffect(observeRetainedHistoryFloorCandidateEffect(input.observation, input.deploymentId));
   await expect(observe()).resolves.toMatchObject({
     disposition: "advanceable", candidateFloor: 1n, leaseCeiling: 1n, holdReasons: [],

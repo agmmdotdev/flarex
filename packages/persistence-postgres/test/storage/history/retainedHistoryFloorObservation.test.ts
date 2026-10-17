@@ -4,10 +4,7 @@ import {
 } from "../../support/pgliteTestFixture";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { Effect, Fiber, Result } from "effect";
-import {
-  makeGrantRetentionPolicyV1Result,
-} from "flarex-protocol/grant-retention-policy";
+import { Effect, Fiber } from "effect";
 import {
   ReplacementScopeIdV1Schema,
   CommitSeqSchema,
@@ -66,19 +63,18 @@ import {
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { lockScopeClockForUpdateInTransactionEffect, lockScopeClockForSnapshotReadInTransactionEffect,
   closeExactAttemptScopeClockObservation } from "../../../src/scope/scopeClock";
-import { retainedHistoryFloorLeaseScenario, seedRetainedFloorLeaseCommit } from "./retainedHistoryFloorLeaseScenario";
+import {
+  RETAINED_FLOOR_FIXTURE_WINDOW_MS,
+  retainedFloorFixturePolicy as retentionPolicy,
+  retainedHistoryFloorLeaseScenario,
+  seedRetainedFloorCommits,
+} from "./retainedHistoryFloorLeaseScenario";
 
 const sharedLocator = Object.freeze({
   kind: "shared_database",
   databaseKey: "retained-floor-observation-primary",
   schemaName: "public",
 }) satisfies SharedDatabaseScopePhysicalLocator;
-
-const retentionPolicy = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
-  maximumGrantLifetimeMilliseconds: 1_000,
-  maximumFutureIssuedAtSkewMilliseconds: 0,
-  maximumLiveSnapshotRetentionMilliseconds: 10_000,
-}));
 
 beforeAll(() => migratedPGliteDataDir(), 120_000);
 
@@ -170,32 +166,9 @@ describe("O11-B/C retained-history floor", () => {
     });
   }
 
-  async function seedCommits(
-    scopeId: ReturnType<typeof ReplacementScopeIdV1Schema.make>,
-  ): Promise<void> {
-    await persistence.query(
-      `insert into fx_system_commit
-         (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
-       select scope_uuid, epoch_uuid, values.commit_seq, 0,
-              clock_timestamp() - values.age
-       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
-            (values
-              (1::bigint, interval '30 seconds'),
-              (2::bigint, interval '20 seconds'),
-              (3::bigint, interval '1 second')
-            ) as values(commit_seq, age)
-       where scope_id = $1`,
-      [scopeId],
-    );
-    await persistence.query(
-      `update fx_system_scope_clock set last_commit_seq = 3 where scope_id = $1`,
-      [scopeId],
-    );
-  }
-
   it("takes the minimum of the time window and an authenticated pin", async () => {
     const context = await provision("minimum");
-    await seedCommits(context.scopeId);
+    await seedRetainedFloorCommits(persistence.drizzle, context.scopeId);
     await persistence.query(
       `update fx_system_commit
        set epoch_uuid = '97000000-0000-4000-8000-888888888888'
@@ -231,17 +204,7 @@ describe("O11-B/C retained-history floor", () => {
 
   it("keeps a live lease pinned and releases it after database-time expiry", async () => {
     const context = await provision("lease");
-    await persistence.query(
-      `insert into fx_system_commit
-         (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
-       select scope_uuid, epoch_uuid, 1, 0, clock_timestamp() - interval '30 seconds'
-       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) where scope_id = $1`,
-      [context.scopeId],
-    );
-    await persistence.query(
-      `update fx_system_scope_clock set last_commit_seq = 1 where scope_id = $1`,
-      [context.scopeId],
-    );
+    await seedRetainedFloorCommits(persistence.drizzle, context.scopeId, "beforeLease");
     const activation = createPointMutationSessionActivationPersistenceV1({
       scopeMetadata: persistence,
       provisioningReceipts: {
@@ -257,7 +220,7 @@ describe("O11-B/C retained-history floor", () => {
           ),
       },
     }, {
-      leaseDurationMilliseconds: 60_000,
+      leaseDurationMilliseconds: RETAINED_FLOOR_FIXTURE_WINDOW_MS,
       randomUuid: () => nextUuid(),
     });
     const activated = await activatePointMutationSession(
@@ -267,23 +230,7 @@ describe("O11-B/C retained-history floor", () => {
         context.scopeId,
       ),
     );
-    await persistence.query(
-      `insert into fx_system_commit
-         (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
-       select scope_uuid, epoch_uuid, values.commit_seq, 0,
-              clock_timestamp() - values.age
-       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
-            (values
-              (2::bigint, interval '20 seconds'),
-              (3::bigint, interval '1 second')
-            ) as values(commit_seq, age)
-       where scope_id = $1`,
-      [context.scopeId],
-    );
-    await persistence.query(
-      `update fx_system_scope_clock set last_commit_seq = 3 where scope_id = $1`,
-      [context.scopeId],
-    );
+    await seedRetainedFloorCommits(persistence.drizzle, context.scopeId, "afterLease");
 
     await expect(runEffect(observeRetainedHistoryFloorCandidateEffect(
       observationPort(),
@@ -329,7 +276,7 @@ describe("O11-B/C retained-history floor", () => {
 
   it("advances past an expired lease backlog while bounding live pins", async () => {
     const context = await provision("lease_backlog");
-    await seedRetainedFloorLeaseCommit(persistence.drizzle, context.scopeId);
+    await seedRetainedFloorCommits(persistence.drizzle, context.scopeId, "beforeLease");
     const activation = createPointMutationSessionActivationPersistenceV1({
       scopeMetadata: persistence,
       provisioningReceipts: {
@@ -338,11 +285,12 @@ describe("O11-B/C retained-history floor", () => {
       scopeSessionTargets: {
         resolve: async locator => createPGliteLocatedPointMutationSessionActivationTargetV1(persistence, locator),
       },
-    }, { leaseDurationMilliseconds: 60_000, randomUuid: nextUuid });
+    }, { leaseDurationMilliseconds: RETAINED_FLOOR_FIXTURE_WINDOW_MS, randomUuid: nextUuid });
     const activated = await activatePointMutationSession(activation,
       pointMutationSessionActivationFixture(context.deploymentId, context.scopeId));
     await retainedHistoryFloorLeaseScenario({
       database: persistence.drizzle,
+      scopeId: context.scopeId,
       sessionId: activated.anchor.sessionId,
       deploymentId: context.deploymentId,
       observation: observationPort(),
@@ -352,7 +300,7 @@ describe("O11-B/C retained-history floor", () => {
 
   it("holds for unavailable pins and rejects copied ports or targets", async () => {
     const context = await provision("composition");
-    await seedCommits(context.scopeId);
+    await seedRetainedFloorCommits(persistence.drizzle, context.scopeId);
     const unavailable = createRetainedHistoryFloorPinFacet("reconnect", {
       kind: "unavailable",
     });
@@ -448,7 +396,7 @@ describe("O11-B/C retained-history floor", () => {
 
   it("publishes the exact candidate monotonically and replays as a hold", async () => {
     const context = await provision("publication");
-    await seedCommits(context.scopeId);
+    await seedRetainedFloorCommits(persistence.drizzle, context.scopeId);
     const runner = createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle);
     let observedFloor: bigint | undefined;
     const port = publicationPort(work => runner(async tx => {
@@ -507,18 +455,7 @@ describe("O11-B/C retained-history floor", () => {
 
   it("re-reads a live snapshot lease before publishing", async () => {
     const context = await provision("publication_live_lease");
-    await persistence.query(
-      `insert into fx_system_commit
-         (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
-       select scope_uuid, epoch_uuid, 1, 0,
-              clock_timestamp() - interval '30 seconds'
-       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) where scope_id = $1`,
-      [context.scopeId],
-    );
-    await persistence.query(
-      `update fx_system_scope_clock set last_commit_seq = 1 where scope_id = $1`,
-      [context.scopeId],
-    );
+    await seedRetainedFloorCommits(persistence.drizzle, context.scopeId, "beforeLease");
     const activation = createPointMutationSessionActivationPersistenceV1({
       scopeMetadata: persistence,
       provisioningReceipts: {
@@ -534,7 +471,7 @@ describe("O11-B/C retained-history floor", () => {
           ),
       },
     }, {
-      leaseDurationMilliseconds: 60_000,
+      leaseDurationMilliseconds: RETAINED_FLOOR_FIXTURE_WINDOW_MS,
       randomUuid: () => nextUuid(),
     });
     await activatePointMutationSession(
@@ -544,23 +481,7 @@ describe("O11-B/C retained-history floor", () => {
         context.scopeId,
       ),
     );
-    await persistence.query(
-      `insert into fx_system_commit
-         (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
-       select scope_uuid, epoch_uuid, values.commit_seq, 0,
-              clock_timestamp() - values.age
-       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
-            (values
-              (2::bigint, interval '20 seconds'),
-              (3::bigint, interval '1 second')
-            ) as values(commit_seq, age)
-       where scope_id = $1`,
-      [context.scopeId],
-    );
-    await persistence.query(
-      `update fx_system_scope_clock set last_commit_seq = 3 where scope_id = $1`,
-      [context.scopeId],
-    );
+    await seedRetainedFloorCommits(persistence.drizzle, context.scopeId, "afterLease");
 
     await expect(runEffect(publishRetainedHistoryFloorEffect(
       publicationPort(),
@@ -578,7 +499,7 @@ describe("O11-B/C retained-history floor", () => {
 
   it("rolls back a post-publication defect and settles caller interruption", async () => {
     const rollback = await provision("publication_rollback");
-    await seedCommits(rollback.scopeId);
+    await seedRetainedFloorCommits(persistence.drizzle, rollback.scopeId);
     const rollbackRunner = createDefaultLocatedReadCommittedTransactionRunnerV1(
       persistence.drizzle,
     );
@@ -592,7 +513,7 @@ describe("O11-B/C retained-history floor", () => {
     await expect(readFloor(rollback.scopeId)).resolves.toBe(0n);
 
     const interrupted = await provision("publication_interruption");
-    await seedCommits(interrupted.scopeId);
+    await seedRetainedFloorCommits(persistence.drizzle, interrupted.scopeId);
     const entered = deferred<void>();
     const release = deferred<void>();
     const interruptionRunner =
@@ -627,7 +548,7 @@ describe("O11-B/C retained-history floor", () => {
 
   it("rejects stale authority and recovers a committed uncertain decision", async () => {
     const stale = await provision("publication_stale");
-    await seedCommits(stale.scopeId);
+    await seedRetainedFloorCommits(persistence.drizzle, stale.scopeId);
     let rotateBeforeTransaction = true;
     const stalePort = createRetainedHistoryFloorPublicationPort({
       authority: {
@@ -670,7 +591,7 @@ describe("O11-B/C retained-history floor", () => {
     await expect(readFloor(stale.scopeId)).resolves.toBe(0n);
 
     const uncertain = await provision("publication_uncertain");
-    await seedCommits(uncertain.scopeId);
+    await seedRetainedFloorCommits(persistence.drizzle, uncertain.scopeId);
     let reportUncertain = true;
     const uncertainPort = createRetainedHistoryFloorPublicationPort({
       authority: {

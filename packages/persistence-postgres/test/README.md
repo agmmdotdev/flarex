@@ -269,6 +269,10 @@ Application analysis/relation/task-binding repositories use the same owner,
 including automatic cleanup. Instrumented task-binding drivers restore the
 image through their existing raw-driver owner. Retained-history suites keep
 their original file lifetime and register closure with `afterAll`.
+Retained-floor observation and publication cases share their staged commit
+seeder, retention policy and lease duration in `retainedHistoryFloorLeaseScenario`.
+Classification timestamps and live leases have margins beyond the test budgets;
+explicit expired leases and future-commit corruption still use database time.
 Application publication also shares one serial image-backed database, with
 distinct scope/epoch and analysis identities and scope-qualified observations.
 Its concurrent replay work drains before results are inspected.
