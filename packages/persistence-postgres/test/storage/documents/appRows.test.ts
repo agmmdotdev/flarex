@@ -28,6 +28,8 @@ import {
   getAppRowAtSnapshotInTransactionEffect,
   readAppRowAtSnapshotInTransactionEffect,
   readCurrentAppRowInTransactionEffect,
+  decodeStoredAppRowInsertionOrderResult,
+  decodeAppRowInsertionOrderResult,
   type AppendAppRowRevisionV1Input,
   type AppRowIdentityV1,
   type AppRowReadResultV1,
@@ -74,6 +76,38 @@ const identity = Object.freeze({ scopeId, tableId, rowId }) satisfies AppRowIden
 const withPersistence = useFileScopedPGliteStoragePersistence();
 
 describe("FlarexDB app-row revision storage", () => {
+  it("admits runtime bigint insertion pairs and refuses encoded text at the trusted value boundary", () => {
+    const revision = CommitSeqSchema.make(2n);
+    expect(decodeAppRowInsertionOrderResult(identity, revision, { commitSeq: 1n, attemptOrdinal: 0 }))
+      .toEqual(Result.succeed({ commitSeq: 1n, attemptOrdinal: 0 }));
+    const encoded = decodeAppRowInsertionOrderResult(identity, revision, { commitSeq: "1", attemptOrdinal: 0 });
+    expect(Result.isFailure(encoded)).toBe(true);
+    if (Result.isFailure(encoded)) expect(encoded.failure).toBeInstanceOf(AppRowStorageCorruptionError);
+  });
+
+  it("refuses invalid insertion commit evidence before observing the later ordinal accessor", () => {
+    const defect = new Error("later insertion ordinal accessor must remain untouched");
+    const ordinal = vi.fn((): never => { throw defect; });
+    const result = decodeStoredAppRowInsertionOrderResult(identity, CommitSeqSchema.make(2n), {
+      commitSeq: 0n, get attemptOrdinal() { return ordinal(); },
+    });
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) expect(result.failure).toBeInstanceOf(AppRowStorageCorruptionError);
+    expect(ordinal).not.toHaveBeenCalled();
+  });
+
+  it("preserves a later insertion ordinal accessor defect after valid commit evidence", () => {
+    const defect = new Error("actual insertion ordinal accessor defect");
+    const ordinal = vi.fn((): never => { throw defect; });
+    let caught: unknown;
+    try {
+      decodeStoredAppRowInsertionOrderResult(identity, CommitSeqSchema.make(2n), {
+        commitSeq: 1n, get attemptOrdinal() { return ordinal(); },
+      });
+    } catch (cause) { caught = cause; }
+    expect(caught).toBe(defect); expect(ordinal).toHaveBeenCalledTimes(1);
+  });
+
   it("issues stored decoder provenance only after full evidence verification and keeps runtime binary untrusted as JSON", async () => {
     const canonical = await canonicalDocument({ bytes: new Uint8Array([1, 2, 3]).buffer });
     const input = { tableId, rowId, creationTime, codecVersion: canonical.codecVersion,
@@ -977,6 +1011,8 @@ function storedTombstoneDriverRow(): Record<string, unknown> {
     writeEpochUuid: "50000000-0000-0000-0000-000000000002",
     schemaVersionId,
     creationTime,
+    insertionCommitSeq: null,
+    insertionAttemptOrdinal: null,
     valueCodecVersion: 1,
     isTombstone: true,
     valueBytes: null,

@@ -945,3 +945,67 @@ export function verifyServiceZoneDeleteCallbacks(nativeWorkflow, workflow, nativ
   if (typedProgram(expectedWorkflow) !== typedProgram(workflow) || typedProgram(expectedStep) !== typedProgram(step))
     throw new Error("Changed native ServiceZone deletion public contract");
 }
+
+/** Preserve the full native update/list/projection/upsert contract. Only narrow
+ * imports and the existing transaction-covered metadata may differ.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step
+ * @param {string} nativeTypes @param {string} types */
+export function verifyServiceZoneUpdateCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeTypes, types) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('import type {\n  FulfillmentWorkflow,\n  ServiceZoneDTO,\n} from "@medusajs/framework/types"',
+      'import type * as FulfillmentWorkflow from "@medusajs/types/workflow/fulfillment/service-zones"\nimport type { ServiceZoneDTO } from "@medusajs/types/fulfillment/index"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  const expectedStep = nativeStep.replaceAll("\r\n", "\n")
+    .replace('import {\n  FulfillmentWorkflow,\n  IFulfillmentModuleService,\n} from "@medusajs/framework/types"',
+      'import type * as FulfillmentWorkflow from "@medusajs/types/workflow/fulfillment/service-zones"\nimport type { IFulfillmentModuleService } from "@medusajs/types/fulfillment/index"')
+    .replace('import {\n  Modules,\n  getSelectsAndRelationsFromObjectArray,\n} from "@medusajs/framework/utils"',
+      'import { Modules } from "@medusajs/utils/modules-sdk/definition"\nimport { getSelectsAndRelationsFromObjectArray } from "@medusajs/utils/common/get-selects-and-relations-from-object-array"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  updateServiceZonesStepId,", '  { name: updateServiceZonesStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native ServiceZone update callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native ServiceZone update callback behavior");
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("service-zone-update.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  if (typedProgram(expectedWorkflow) !== typedProgram(workflow) || typedProgram(expectedStep) !== typedProgram(step)
+    || nativeTypes.replaceAll("\r\n", "\n") !== types.replaceAll("\r\n", "\n"))
+    throw new Error("Changed native ServiceZone update public contract");
+}
+
+/** Authenticate native metadata-only scalar-field projection extraction,
+ * including raw aliases and virtual terminal fields. No SQL body is retained.
+ * @param {string} nativeRepository @param {string} relationOwner */
+export function verifyNativeRelationScalarFields(nativeRepository, relationOwner) {
+  /** @param {string} source @param {string} name @param {boolean} isInterface */
+  const select = (source, name, isInterface = false) => {
+    const file = ts.createSourceFile("relations.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const candidates = isInterface ? file.statements.filter(ts.isInterfaceDeclaration) : file.statements.filter(ts.isFunctionDeclaration);
+    const declarations = candidates.filter(node => node.name?.text === name);
+    const declaration = declarations[0];
+    if (declarations.length !== 1 || declaration === undefined)
+      throw new Error("Changed native relation scalar-field extraction");
+    return declaration.getText(file).replace(/^export\s+/, "");
+  };
+  const native = select(nativeRepository, "relationScalarFieldPaths");
+  const portable = select(relationOwner, "relationScalarFieldPaths");
+  const syntaxFailure = "Invalid native relation scalar-field extraction syntax";
+  if (nativeWorkflowProgram(native, syntaxFailure) !== nativeWorkflowProgram(portable, syntaxFailure))
+    throw new Error("Changed native relation scalar-field extraction");
+  const expected = native
+    .replace("descriptors: Map<string, RelationDescriptor>", "descriptors: ReadonlyMap<string, ScalarFieldRelationDescriptor>")
+    .replace("descriptorsByModel: Map<string, Map<string, RelationDescriptor>>", "descriptorsByModel: ReadonlyMap<string, ReadonlyMap<string, ScalarFieldRelationDescriptor>>")
+    .replace("currentModel: PortableEntity | undefined", 'currentModel: ScalarFieldRelationDescriptor["targetModel"] | undefined');
+  const expectedInterface = `interface ScalarFieldRelationDescriptor {
+    readonly targetModel: { parse(): { schema: Readonly<Record<string, unknown>> } }
+    readonly relationship: { readonly targetModel: string }
+  }`;
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("relation-fields.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  if (typedProgram(expected) !== typedProgram(portable)
+    || typedProgram(expectedInterface) !== typedProgram(select(relationOwner, "ScalarFieldRelationDescriptor", true)))
+    throw new Error("Changed native relation scalar-field public contract");
+}

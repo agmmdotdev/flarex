@@ -15,6 +15,7 @@ import { CommitSeqSchema, FlarexDbV1StorageGenerationSchema, ScopeEpochSchema,
   ScopeIdSchema, ScopeUuidV1Schema, ScopeEpochUuidV1Schema, StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
 import {
   makeBoundedRequestLifetime,
+  projectBoundedRequestLifetime,
   type RequestFailureReason,
 } from "../../src/execution/preparation/boundedRequestLifetime";
 import type { FlarexMetadataTransaction } from "../../src/database/metadataTransaction";
@@ -41,6 +42,9 @@ import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-s
 import { isJsonObject } from "flarex-protocol/json";
 import { prepareLogicalCanonicalDocumentSemantics } from "../../src/storage/documents/logicalDocuments/relationalRows";
 import { decodeStoredAppRowRevisionEvidenceEffect, inspectStoredAppDocumentEvidence } from "../../src/storage/documents/appRowCanonicalEvidence";
+import { detachLogicalDocumentChanges } from "../../src/storage/documents/logicalDocuments/detachChanges";
+import { validateLogicalDocumentChanges } from "../../src/storage/documents/logicalDocuments/contribution";
+import { bindLogicalInsertionRoot, hasLogicalInsertionEvidence } from "../../src/storage/documents/logicalDocuments/insertionOrder";
 
 const tableId = CatalogTableIdSchema.make(1);
 const scopeId = ScopeIdSchema.make("scope_91000000-0000-4000-8000-000000000001");
@@ -88,6 +92,7 @@ const make = (read: () => Effect.Effect<never, Error> = () => Effect.fail(new Er
     const id = yield* lifetime.begin(lifetime.context);
     const root = makeLogicalDocumentRootEvaluator({ attempt, scopeId, snapshotCommitSeq, attemptFence },
       { identities: 64, workingBytes: 128_000 });
+    const transaction = {} as FlarexMetadataTransaction;
     const working = yield* makeLogicalDocumentWorkingSet({
       readTransaction: () => Effect.sync(() => { readCalls++; }).pipe(Effect.andThen(read())),
       requireAdmission: Effect.void,
@@ -103,8 +108,8 @@ const make = (read: () => Effect.Effect<never, Error> = () => Effect.fail(new Er
         pageRows: 32, identities: 64, documentBytes: 16_000,
       }, validateDocument: () => Effect.void,
       error: reason => new Error(reason), uniqueConflict: () => new Error("uniqueConflict"),
-    }, AppCreationTimeV1Schema.make(1), mechanics?.unique ?? [], mechanics?.indexes ?? [], undefined, {} as FlarexMetadataTransaction);
-    return { root, lifetime, id, working, readCalls: () => readCalls };
+    }, AppCreationTimeV1Schema.make(1), mechanics?.unique ?? [], mechanics?.indexes ?? [], undefined, transaction);
+    return { root, lifetime, id, working, transaction, readCalls: () => readCalls };
   });
 
 it("evaluates a finite root's pending writes, cached reads, and close without admission SQL", () =>
@@ -742,6 +747,184 @@ it("transfers one detached original and graph while preserving their canonical i
       expect(root.point(tableId, rowId)).toBeUndefined();
       expect(root.points()).toEqual([]);
     } finally { root.close(); }
+  })));
+
+it("retains genuine insertion claims through owner detachment and the closed-root transfer", () =>
+  runEffect(Effect.gen(function* () {
+    const { root, lifetime, transaction, readCalls } = yield* make();
+    const rowId = decodeAppRowIdHexV1("00000000000000000000000000000031");
+    const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId }), creationTime = AppCreationTimeV1Schema.make(1);
+    const document = yield* Effect.promise(() => canonicalizeAppDocumentV1({ tableId, rowId, creationTime, fields: { name: "issued" } }));
+    const observation = { documentId, tableId, rowId, readAt: snapshotCommitSeq,
+      dependency: { kind: "appRowPoint" as const, documentId, observed: { kind: "missing" as const, basis: { kind: "noVisibleRevision" as const } } } };
+    try {
+      yield* Effect.fromResult(root.observePoint("items", observation, { kind: "missing" }));
+      yield* Effect.fromResult(root.writePoint("items", observation, { kind: "live", creationTime, document }, "insert"));
+      const original = root.snapshot(), detached = detachLogicalDocumentChanges(original);
+      const issued = original.attempts[0], copied = detached.attempts[0];
+      if (issued === undefined || copied === undefined) throw new Error("Missing actual root insertion claim");
+      expect(issued.insertionEvidence).toBeDefined(); expect(copied.insertionEvidence).toBe(issued.insertionEvidence);
+      expect(detached.insertionRoot).toBe(original.insertionRoot);
+      expect(copied.after).not.toBe(issued.after); expect(copied.after?.sha256).not.toBe(issued.after?.sha256);
+      expect(hasLogicalInsertionEvidence(scopeId, detached.insertionRoot, copied)).toBe(true);
+      yield* validateLogicalDocumentChanges({ tx: transaction, scopeId, tables: new Set([tableId]), maximumIndexEntries: 8,
+        error: reason => new Error(reason) }, detached);
+      const capsule = yield* Effect.fromResult(takeLogicalDocumentRootSnapshot(root));
+      const closed = consumeClosedLogicalDocumentRoot(capsule, root, attempt);
+      if (closed === undefined) throw new Error("Missing authentic closed insertion root");
+      expect(closed.graph.attempts[0]?.insertionEvidence).toBe(issued.insertionEvidence);
+      yield* validateLogicalDocumentChanges({ tx: transaction, scopeId, tables: new Set([tableId]), maximumIndexEntries: 8,
+        error: reason => new Error(reason) }, closed.graph);
+      expect(readCalls()).toBe(0);
+    } finally { yield* lifetime.close; root.close(); }
+  })));
+
+it("rejects correlated ordinal forgery, cloned claims and insertion evidence transferred across rows or scopes", () =>
+  runEffect(Effect.gen(function* () {
+    const { root, lifetime, transaction, readCalls } = yield* make();
+    try {
+      for (const [suffix, name] of [["41", "first"], ["42", "second"]] as const) {
+        const rowId = decodeAppRowIdHexV1("000000000000000000000000000000" + suffix),
+          documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId }), creationTime = AppCreationTimeV1Schema.make(1);
+        const document = yield* Effect.promise(() => canonicalizeAppDocumentV1({ tableId, rowId, creationTime, fields: { name } }));
+        const observation = { documentId, tableId, rowId, readAt: snapshotCommitSeq,
+          dependency: { kind: "appRowPoint" as const, documentId, observed: { kind: "missing" as const, basis: { kind: "noVisibleRevision" as const } } } };
+        yield* Effect.fromResult(root.observePoint("items", observation, { kind: "missing" }));
+        yield* Effect.fromResult(root.writePoint("items", observation, { kind: "live", creationTime, document }, "insert"));
+      }
+      const graph = root.snapshot(), first = graph.attempts[0], second = graph.attempts[1];
+      if (first?.insertionEvidence === undefined || second?.insertionEvidence === undefined) throw new Error("Missing genuine row-specific insertion proofs");
+      const firstProof = first.insertionEvidence, secondProof = second.insertionEvidence, insertionRoot = graph.insertionRoot;
+      if (insertionRoot === undefined) throw new Error("Missing authentic root insertion namespace");
+      const secondOrdinal = second.insertionAttemptOrdinal;
+      if (secondOrdinal === undefined) throw new Error("Missing second authentic insertion ordinal");
+      const validate = (closed: typeof graph, selectedScope = scopeId) => validateLogicalDocumentChanges({ tx: transaction, scopeId: selectedScope,
+        tables: new Set([tableId]), maximumIndexEntries: 8, error: reason => new Error(reason) }, closed);
+      yield* validate(graph);
+      const forgedOrdinal = { ...graph,
+        changes: graph.changes.map(change => change.documentId === first.documentId ? { ...change, insertionOrder: { kind: "pending" as const, attemptOrdinal: 99 } } : change),
+        attempts: graph.attempts.map(attempt => attempt === first ? { ...attempt, insertionAttemptOrdinal: 99 } : attempt) };
+      expect(hasLogicalInsertionEvidence(scopeId, insertionRoot, { ...first, insertionAttemptOrdinal: 99 })).toBe(false);
+      expect(hasLogicalInsertionEvidence(scopeId, insertionRoot, { ...first, insertionEvidence: structuredClone(firstProof) })).toBe(false);
+      const clonedProof = { ...graph, attempts: graph.attempts.map(attempt => attempt === first
+        ? { ...attempt, insertionEvidence: structuredClone(firstProof) } : attempt) };
+      const transferredAttempt = { ...first, insertionEvidence: secondProof, insertionAttemptOrdinal: secondOrdinal };
+      expect(hasLogicalInsertionEvidence(scopeId, graph.insertionRoot, transferredAttempt)).toBe(false);
+      const transferredProof = { ...graph, attempts: graph.attempts.map(attempt => attempt === first ? transferredAttempt : attempt),
+        changes: graph.changes.map(change => change.documentId === first.documentId ? { ...change,
+          insertionOrder: { kind: "pending" as const, attemptOrdinal: secondOrdinal } } : change) };
+      const clonedRoot = { ...graph, insertionRoot: structuredClone(insertionRoot) };
+      for (const forged of [forgedOrdinal, clonedProof, transferredProof, clonedRoot, structuredClone(graph)])
+        expect(yield* Effect.result(validate(forged))).toMatchObject({ _tag: "Failure", failure: new Error("invalidAuthority") });
+      const foreignScope = ScopeIdSchema.make("scope_92000000-0000-4000-8000-000000000001");
+      expect(hasLogicalInsertionEvidence(foreignScope, graph.insertionRoot, first)).toBe(false);
+      expect(yield* Effect.result(validate(graph, foreignScope))).toMatchObject({ _tag: "Failure", failure: new Error("invalidAuthority") });
+      const foreignRoot = makeLogicalDocumentRootEvaluator({ attempt, scopeId, snapshotCommitSeq, attemptFence }, { identities: 4, workingBytes: 16_000 });
+      try {
+        const rowId = decodeAppRowIdHexV1("00000000000000000000000000000041"), documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
+        const observation = { documentId, tableId, rowId, readAt: snapshotCommitSeq,
+          dependency: { kind: "appRowPoint" as const, documentId, observed: { kind: "missing" as const, basis: { kind: "noVisibleRevision" as const } } } };
+        if (first.after === null) throw new Error("Missing inserted canonical body");
+        yield* Effect.fromResult(foreignRoot.observePoint("items", observation, { kind: "missing" }));
+        yield* Effect.fromResult(foreignRoot.writePoint("items", observation, { kind: "live", creationTime: AppCreationTimeV1Schema.make(1), document: first.after }, "insert"));
+        const foreign = foreignRoot.snapshot(), foreignProof = foreign.attempts[0]?.insertionEvidence;
+        if (foreignProof === undefined) throw new Error("Missing genuinely issued foreign-root claim");
+        expect(foreign.attempts[0]?.insertionAttemptOrdinal).toBe(first.insertionAttemptOrdinal);
+        expect(foreign.attempts[0]?.after?.sha256).toEqual(first.after.sha256);
+        const transferredRootProof = { ...graph, attempts: graph.attempts.map(attempt => attempt === first ? { ...attempt, insertionEvidence: foreignProof } : attempt) };
+        expect(hasLogicalInsertionEvidence(scopeId, insertionRoot, { ...first, insertionEvidence: foreignProof })).toBe(false);
+        expect(yield* Effect.result(validate(transferredRootProof))).toMatchObject({ _tag: "Failure", failure: new Error("invalidAuthority") });
+        if (foreign.insertionRoot === undefined) throw new Error("Missing genuine foreign insertion namespace");
+        const transferredRootAndProof = { ...transferredRootProof, insertionRoot: foreign.insertionRoot };
+        expect(hasLogicalInsertionEvidence(scopeId, foreign.insertionRoot, { ...first, insertionEvidence: foreignProof })).toBe(true);
+        expect(yield* Effect.result(validate(transferredRootAndProof))).toMatchObject({ _tag: "Failure", failure: new Error("invalidAuthority") });
+      } finally { foreignRoot.close(); }
+      const replacement = yield* Effect.promise(() => canonicalizeAppDocumentV1({ tableId, rowId: decodeAppRowIdHexV1("00000000000000000000000000000041"),
+        creationTime: AppCreationTimeV1Schema.make(1), fields: { name: "altered after issuance" } }));
+      const changedBody = { ...graph, attempts: graph.attempts.map(attempt => attempt === first ? { ...attempt, after: replacement } : attempt),
+        changes: graph.changes.map(change => change.documentId === first.documentId && change.kind === "live" ? { ...change, document: replacement } : change) };
+      expect(yield* Effect.result(validate(changedBody))).toMatchObject({ _tag: "Failure", failure: new Error("invalidAuthority") });
+      expect(hasLogicalInsertionEvidence(scopeId, insertionRoot, { ...first, after: replacement })).toBe(false);
+      expect(readCalls()).toBe(0);
+    } finally { yield* lifetime.close; root.close(); }
+  })));
+
+it("aliases genuine borrowed lifetime projections after finite insertion and refuses merging used roots", () =>
+  runEffect(Effect.gen(function* () {
+    const owner = yield* make(), independent = yield* make();
+    const borrowed = yield* makeBoundedRequestLifetime((reason: RequestFailureReason) => new Error(reason),
+      { calls: 16, commandBytes: 16_000, commandMs: 30_000 }, attempt, Object.freeze({}), "insertion-alias-borrower", "write", "require");
+    try {
+      const pins = { attempt, scopeId, snapshotCommitSeq, attemptFence }, state = attachLogicalDocumentRootEvaluator(owner.root, pins);
+      if (state === null) throw new Error("Missing genuine evaluator allocation owner");
+      const early = yield* Effect.fromResult(bindLogicalInsertionRoot(borrowed, scopeId));
+      const handles = [early];
+      for (const suffix of ["51", "52"]) {
+        const rowId = decodeAppRowIdHexV1("000000000000000000000000000000" + suffix),
+          documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId }), creationTime = AppCreationTimeV1Schema.make(1);
+        const document = yield* Effect.promise(() => canonicalizeAppDocumentV1({ tableId, rowId, creationTime, fields: { name: suffix } }));
+        const observation = { documentId, tableId, rowId, readAt: snapshotCommitSeq,
+          dependency: { kind: "appRowPoint" as const, documentId, observed: { kind: "missing" as const, basis: { kind: "noVisibleRevision" as const } } } };
+        yield* Effect.fromResult(owner.root.observePoint("items", observation, { kind: "missing" }));
+        yield* Effect.fromResult(owner.root.writePoint("items", observation, { kind: "live", creationTime, document }, "insert"));
+        if (suffix === "51") {
+          handles.push(Result.getOrThrow(bindLogicalInsertionRoot(borrowed, scopeId, state)));
+          const projected = projectBoundedRequestLifetime(borrowed, failure => failure);
+          handles.push(Result.getOrThrow(bindLogicalInsertionRoot(projected, scopeId)));
+        }
+      }
+      const graph = owner.root.snapshot();
+      expect(graph.attempts.map(attempt => attempt.insertionAttemptOrdinal)).toEqual([0, 1]);
+      expect(handles).toHaveLength(3);
+      expect(handles.every(handle => graph.attempts.every(attempt => hasLogicalInsertionEvidence(scopeId, handle, attempt)))).toBe(true);
+      yield* independent.working.documents.insert(independent.lifetime.context, independent.id, "items", { name: "independent issued birth" });
+      expect(bindLogicalInsertionRoot(independent.lifetime, scopeId, state)).toMatchObject({ _tag: "Failure", failure: "invalidAuthority" });
+      expect(bindLogicalInsertionRoot(borrowed, ScopeIdSchema.make("scope_92000000-0000-4000-8000-000000000001"), state))
+        .toMatchObject({ _tag: "Failure", failure: "invalidAuthority" });
+    } finally { yield* borrowed.close; yield* independent.lifetime.close; independent.root.close(); yield* owner.lifetime.close; owner.root.close(); }
+  })));
+
+it.each([true, false])("refuses downgrading a genuine insertion graph by stripping all generation evidence (keep root: %s)", keepRoot =>
+  runEffect(Effect.gen(function* () {
+    const { root, lifetime, id, working, transaction } = yield* make();
+    try {
+      yield* working.documents.insert(lifetime.context, id, "items", { name: "genuine issued insertion" });
+      const graph = root.snapshot();
+      const validate = (closed: typeof graph) => validateLogicalDocumentChanges({ tx: transaction, scopeId,
+        tables: new Set([tableId]), maximumIndexEntries: 8, error: reason => new Error(reason) }, closed);
+      yield* validate(graph);
+      const attempts = graph.attempts.map(({ insertionAttemptOrdinal: _ordinal, insertionEvidence: _proof, ...attempt }) => attempt);
+      const changes = graph.changes.map(({ insertionOrder: _order, ...change }) => change);
+      const { insertionRoot: _root, ...withoutRoot } = graph;
+      const stripped = { ...(keepRoot ? graph : withoutRoot), attempts, changes };
+      expect(yield* Effect.result(validate(stripped))).toMatchObject({ _tag: "Failure", failure: new Error("invalidAuthority") });
+    } finally { yield* lifetime.close; root.close(); }
+  })));
+
+it.each(["empty", "unknown"] as const)("binds a registered %s graph's scope even without insertion attempts", kind =>
+  runEffect(Effect.gen(function* () {
+    const { root, lifetime, transaction } = yield* make();
+    try {
+      if (kind === "unknown") {
+        const rowId = decodeAppRowIdHexV1("00000000000000000000000000000061"), documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId }),
+          creationTime = AppCreationTimeV1Schema.make(1);
+        const canonical = yield* Effect.promise(() => canonicalizeAppDocumentV1({ tableId, rowId, creationTime, fields: { name: "old unknown generation" } }));
+        const revision = yield* decodeStoredAppRowRevisionEvidenceEffect({ scopeId, tableId, rowId,
+          scopeUuid: ScopeUuidV1Schema.make("91000000-0000-4000-8000-000000000001"),
+          writeEpochUuid: ScopeEpochUuidV1Schema.make("91000000-0000-4000-8000-000000000002"),
+          commitSeq: snapshotCommitSeq, prevCommitSeq: null, schemaVersionId: CatalogSchemaVersionIdSchema.make("unknown_generation"), creationTime },
+        { tableId, rowId, creationTime, codecVersion: canonical.codecVersion, canonicalBytes: canonical.canonicalBytes, sha256: canonical.sha256 });
+        yield* Effect.fromResult(root.observePoint("items", { documentId, tableId, rowId, readAt: snapshotCommitSeq,
+          dependency: { kind: "appRowPoint", documentId, observed: { kind: "present", revisionCommitSeq: snapshotCommitSeq } } }, revision));
+      }
+      const graph = root.snapshot();
+      expect(graph.attempts).toEqual([]); expect(graph.changes).toEqual([]);
+      const validate = (selectedScope: typeof scopeId) => validateLogicalDocumentChanges({ tx: transaction, scopeId: selectedScope,
+        tables: new Set([tableId]), maximumIndexEntries: 8, error: reason => new Error(reason) }, graph);
+      yield* validate(scopeId);
+      expect(yield* Effect.result(validate(ScopeIdSchema.make("scope_92000000-0000-4000-8000-000000000001"))))
+        .toMatchObject({ _tag: "Failure", failure: new Error("invalidAuthority") });
+    } finally { yield* lifetime.close; root.close(); }
   })));
 
 it("retains genuine empty relational selections with exact cursor and source isolation", () =>

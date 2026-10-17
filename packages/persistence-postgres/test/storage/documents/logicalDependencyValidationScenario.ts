@@ -15,7 +15,7 @@ import { appendAppIndexEntryRevisionsInTransactionEffect, consumeCurrentAppIndex
   type AppIndexRangePageV1 } from "../../../src/storage/indexes/appIndexEntries";
 import { appendPreparedAppRowRevisionsInTransactionEffect, consumeAppTableWriteFrontiersInTransactionEffect } from "../../../src/storage/documents/appRows";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
-import { validateLogicalDocumentChanges, type LogicalDocumentConflictObservation } from "../../../src/storage/documents/logicalDocuments/contribution";
+import { validateLogicalDocumentReadDependencies, type LogicalDocumentConflictObservation } from "../../../src/storage/documents/logicalDocuments/contribution";
 import { readLogicalIndexRange, consumeLogicalIndexRanges,
   sameLogicalIndexMembership } from "../../../src/storage/documents/logicalDocuments/indexReads";
 import type { LogicalDocumentFailureReason } from "../../../src/storage/documents/logicalDocuments/model";
@@ -26,10 +26,12 @@ import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
 type Failure = Readonly<{ reason: LogicalDocumentFailureReason; cause?: unknown; observation?: LogicalDocumentConflictObservation }>;
 const error = (reason: LogicalDocumentFailureReason, cause?: unknown): Failure => ({ reason, ...(cause === undefined ? {} : { cause }) });
-const empty: LogicalDocumentChanges = { changes: [], dependencies: [], attempts: [], lifecycle: [], observedRows: [],
-  noFinalRows: [], scans: [], uniqueReads: [], indexReads: [], pageReads: [], searchReads: [], setNull: [], relationalReads: [], referenceReplacements: [] };
+const empty: Pick<LogicalDocumentChanges, "scans" | "uniqueReads" | "indexReads" | "pageReads" | "searchReads"> = {
+  scans: [], uniqueReads: [], indexReads: [], pageReads: [], searchReads: [] };
 
-/** Real issued developer definition and storage in both drivers. All witness
+/** Exercise the storage read-dependency fold directly. Manufactured dependency
+ * vectors are not authenticated closed graphs and grant no publication authority.
+ * Real issued developer definition and storage in both drivers. All witness
  * rows roll back, preserving the owning membership scenario's original state. */
 export async function verifyLogicalDependencyValidation(db: FlarexMetadataDatabase, scopeId: ScopeId,
   epoch: ScopeEpoch, definition: LocatedAppIndexDefinitionV1) {
@@ -67,19 +69,19 @@ export async function verifyLogicalDependencyValidation(db: FlarexMetadataDataba
       };
       const execute = vi.spyOn(tx._.session, "prepareQuery");
       try {
-        await runEffect(validateLogicalDocumentChanges(input, {
+        await runEffect(validateLogicalDocumentReadDependencies(input, {
           ...empty,
           scans: Array.from({ length: 12 }, () => ({ tableId, frontier: CommitSeqSchema.make(3n) })),
           indexReads: [read, ...Array.from({ length: 12 }, () => negative)]
         }));
         expect(execute).toHaveBeenCalledTimes(2); // one frontier and one bounded page command
       } finally { execute.mockRestore(); }
-      expect(await runEffectFailure(validateLogicalDocumentChanges(input,
+      expect(await runEffectFailure(validateLogicalDocumentReadDependencies(input,
         { ...empty, indexReads: [{ ...read, entries: [] }] })))
         .toMatchObject({ reason: "writeConflict", observation: { readKind: "indexRange", dependencyOrdinal: 0 } });
-      expect(await runEffectFailure(validateLogicalDocumentChanges({ ...input, maximumIndexEntries: 2 },
+      expect(await runEffectFailure(validateLogicalDocumentReadDependencies({ ...input, maximumIndexEntries: 2 },
         { ...empty, indexReads: [{ ...read, entries: [] }] }))).toMatchObject({ reason: "limitExceeded" });
-      expect(await runEffectFailure(validateLogicalDocumentChanges(input, {
+      expect(await runEffectFailure(validateLogicalDocumentReadDependencies(input, {
         ...empty,
         scans: [{ tableId, frontier: null }, { tableId: decodeCatalogTableId(tableId + 1), frontier: null }]
       })))
@@ -120,23 +122,23 @@ export async function verifyLogicalDependencyValidation(db: FlarexMetadataDataba
         [validDemand, { ...validDemand, limit: 0 }], cause => error("storedCorruption", cause),
         () => Effect.fail(firstRefusal)))).toBe(firstRefusal);
       const pageRead = { ...read, entries: [firstEntry], isDone: false };
-      await runEffect(validateLogicalDocumentChanges(input, { ...empty, pageReads: [pageRead] }));
-      expect(await runEffectFailure(validateLogicalDocumentChanges(input,
+      await runEffect(validateLogicalDocumentReadDependencies(input, { ...empty, pageReads: [pageRead] }));
+      expect(await runEffectFailure(validateLogicalDocumentReadDependencies(input,
         { ...empty, pageReads: [{ ...pageRead, isDone: true }] }))).toMatchObject({ reason: "writeConflict" });
       const afterRead = { ...pageRead, after: { encodedKey: firstEntry.encodedKey, rowId: firstEntry.rowId }, entries: [secondEntry] };
-      await runEffect(validateLogicalDocumentChanges(input, { ...empty, pageReads: [afterRead] }));
+      await runEffect(validateLogicalDocumentReadDependencies(input, { ...empty, pageReads: [afterRead] }));
       const otherKey = encodeAppOrderedIndexKeyV1({
         spec: definition.physicalSpec,
         values: [{ kind: "string", value: "different-dependency" }, orderedIndexCreationTimeV1(42)]
       });
       for (const changed of [{ ...firstEntry, encodedKey: otherKey }, { ...firstEntry, rowId: secondEntry.rowId },
       { ...firstEntry, commitSeq: CommitSeqSchema.make(4n) }]) {
-        expect(await runEffectFailure(validateLogicalDocumentChanges(input,
+        expect(await runEffectFailure(validateLogicalDocumentReadDependencies(input,
           { ...empty, indexReads: [{ ...read, entries: [changed, ...entries.slice(1)] }] })))
           .toMatchObject({ reason: "writeConflict", observation: { readKind: "indexRange", dependencyOrdinal: 0 } });
       }
       // Later authority refusal is deferred behind the earlier complete range verdict.
-      expect(await runEffectFailure(validateLogicalDocumentChanges(input, {
+      expect(await runEffectFailure(validateLogicalDocumentReadDependencies(input, {
         ...empty,
         indexReads: [{ ...read, entries: [] }, {
           ...read, definition: {
@@ -157,7 +159,7 @@ export async function verifyLogicalDependencyValidation(db: FlarexMetadataDataba
         cause => error("storedCorruption", cause), () => Effect.fail(firstRefusal)))).toBe(firstRefusal);
       // The third body is beyond the initial one-member page and its lookahead.
       // Its corruption must be read before a cardinality mismatch becomes conflict.
-      expect(await runEffectFailure(validateLogicalDocumentChanges(input,
+      expect(await runEffectFailure(validateLogicalDocumentReadDependencies(input,
         { ...empty, indexReads: [{ ...read, entries: [] }, negative] }))).toMatchObject({ reason: "storedCorruption" });
       throw rollback;
     } finally {

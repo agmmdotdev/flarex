@@ -21,7 +21,7 @@ export function prepareStoreCreationGraph(contracts: Contracts) {
       return { supplied, key: undefined };
     }));
     const { catalog, store, relations, admitSelection } = graph;
-    const profile: ReplacementProfile = { catalog,
+    const profile: ReplacementProfile = { catalog, operation: "upsertWithReplace", ordering: new Map(),
       allowedRelations: entity => entity === store ? ["supported_currencies", "supported_locales"] : [],
       ownedToOne: () => [], mutableForeignKeys: () => false, admitSelection,
       prepareProjection: () => Effect.void,

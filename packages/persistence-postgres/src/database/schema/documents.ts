@@ -57,6 +57,9 @@ export const fxAppRowRevisions = pgTable(
     isTombstone: boolean("is_tombstone").notNull(),
     valueBytes: bytea("value_bytes").$type<CanonicalFlarexValueBytesV1>(),
     valueSha256: bytea("value_sha256").$type<FlarexValueSha256V1>(),
+    /** Exact physical insertion generation; null retains unknown pre-extension evidence. */
+    insertionCommitSeq: bigint("insertion_commit_seq", { mode: "bigint" }).$type<CommitSeq>(),
+    insertionAttemptOrdinal: bigint("insertion_attempt_ordinal", { mode: "number" }),
   },
   (table) => [
     primaryKey({
@@ -74,6 +77,9 @@ export const fxAppRowRevisions = pgTable(
       table.tableId,
       table.rowId,
     ).where(sql`${table.prevCommitSeq} is null`),
+    uniqueIndex("fx_app_row_rev_insertion_birth_unique").on(
+      table.scopeUuid, table.insertionCommitSeq, table.insertionAttemptOrdinal,
+    ).where(sql`${table.insertionCommitSeq} = ${table.commitSeq}`),
     foreignKey({
       name: "fx_app_row_rev_scope_clock_fk",
       columns: [table.scopeUuid],
@@ -102,6 +108,13 @@ export const fxAppRowRevisions = pgTable(
     check(
       "fx_app_row_rev_creation_time_check",
       sql`${table.creationTime} > 0 and ${table.creationTime} < 9007199254740992`,
+    ),
+    check(
+      "fx_app_row_rev_insertion_generation_check",
+      sql`(${table.insertionCommitSeq} is null and ${table.insertionAttemptOrdinal} is null) or
+        (${table.insertionCommitSeq} is not null and ${table.insertionAttemptOrdinal} is not null
+          and ${table.insertionCommitSeq} >= 1 and ${table.insertionCommitSeq} <= ${table.commitSeq}
+          and ${table.insertionAttemptOrdinal} between 0 and 9007199254740991)`,
     ),
     check(
       "fx_app_row_rev_value_codec_version_check",

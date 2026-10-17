@@ -4,7 +4,7 @@ import {
   type PopulateTree, type ToManyRelation,
 } from "@medusajs/drizzle/relation-query";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, type CommerceTransactionError, type Json, type JsonObject, type StorageInsertionOrder } from "@flarex/persistence-postgres/internal/commerce-values";
 import { isSelectedPopulationPath, type PopulationFilter } from "./population";
 import type { Predicate } from "./predicate";
 
@@ -15,6 +15,7 @@ export type CommerceRelation = ToManyRelation | {
 };
 export type CommerceRelations = ReadonlyMap<string, ReadonlyMap<string, CommerceRelation>>;
 export type CommerceRelationLookup = Pick<ReadonlyMap<string, Pick<ReadonlyMap<string, CommerceRelation>, "get">>, "get">;
+export type CommerceRelationOrder = string | StorageInsertionOrder;
 
 /** Module-owned finite admission sees actual selections before presentation.
  * The callback receives rows only; it cannot acquire persistence authority. */
@@ -24,8 +25,8 @@ export type CommerceRelationReadContext = Pick<CommerceCommandContext, "manager"
 
 /** One complete-set query shape for execution and authenticated read receipts. */
 export function commerceRelationReadQuery(resources: Pick<CommerceCommandContext["resources"], "queryRows">,
-  predicate: Json, order = "id"): JsonObject {
-  return { take: resources.queryRows, order: { column: order, direction: "asc" }, predicate };
+  predicate: Json, order: CommerceRelationOrder = "id"): JsonObject {
+  return { take: resources.queryRows, order: typeof order === "string" ? { column: order, direction: "asc" } : { ...order }, predicate };
 }
 
 /** The native population owner prepares its indexed selection independently of
@@ -59,7 +60,7 @@ export function prepareCommerceRelationPopulation(columns: readonly string[], pa
  * would silently omit Medusa relationships, so a page alone is insufficient.
  */
 export const readCommerceRelationRows = Effect.fn("MedusaAdapter.readRelationRows")(function* (
-  ctx: CommerceRelationReadContext, table: string, predicate: Json, order: string = "id",
+  ctx: CommerceRelationReadContext, table: string, predicate: Json, order: CommerceRelationOrder = "id",
 ) {
   const store = yield* ctx.table(table);
   const query = commerceRelationReadQuery(ctx.resources, predicate, order);
@@ -78,7 +79,7 @@ function attachToOne(rows: Array<Record<string, Json>>, name: string, related: r
 interface RelationPopulation {
   readonly ctx: Parameters<typeof readCommerceRelationRows>[0];
   readonly relations: CommerceRelationLookup;
-  readonly ordering: ReadonlyMap<string, string>;
+  readonly ordering: ReadonlyMap<string, CommerceRelationOrder>;
   readonly withDeleted: boolean;
   readonly filters: ReadonlyMap<string, Predicate>;
   readonly fetched: Map<string, readonly JsonObject[]>;
@@ -87,7 +88,7 @@ interface RelationPopulation {
 const readPopulationRelation = Effect.fn("MedusaAdapter.readRelation")(function* (
   population: RelationPopulation,
   targetTable: string, columns: readonly string[], parents: readonly JsonObject[],
-  parentColumns: readonly string[], softDelete: boolean, order: string, primaryLookup = false, predicate?: Predicate,
+  parentColumns: readonly string[], softDelete: boolean, order: CommerceRelationOrder, primaryLookup = false, predicate?: Predicate,
 ) {
   const { ctx, fetched, withDeleted } = population;
   const selection = yield* Effect.fromResult(prepareCommerceRelationPopulation(columns, parents, parentColumns, softDelete, withDeleted, predicate));
@@ -147,7 +148,7 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
   roots: readonly JsonObject[],
   paths: readonly string[],
   relations: CommerceRelationLookup,
-  ordering: ReadonlyMap<string, string>,
+  ordering: ReadonlyMap<string, CommerceRelationOrder>,
   withDeleted = false,
   populationFilters: readonly PopulationFilter[] = [],
 ) {

@@ -1,3 +1,4 @@
+import { hasLogicalInsertionEvidence, hasLogicalInsertionGraph, logicalInsertionGraphRoot } from "./insertionOrder";
 import { Effect, Option } from "effect";
 import {
   consumeAppTableWriteFrontiersInTransactionEffect,
@@ -28,71 +29,23 @@ export type LogicalDocumentConflictObservation =
   | Readonly<{ readKind: "search" | "jsonContainment"; dependencyOrdinal: number;
     tableId: CatalogTableId; logicalIndexId: CatalogIndexId }>;
 
-/** Validate the complete command, including decisions that did not produce writes. */
-export const validateLogicalDocumentChanges = Effect.fn(
-  "LogicalDocuments.validateContribution",
-)(function* <Failure>(input: Readonly<{
-  tx: FlarexMetadataTransaction; scopeId: ScopeId; tables: ReadonlySet<CatalogTableId>;
-  maximumIndexEntries: number; error: LogicalDocumentFailure<Failure>; allowSetNull?: true;
-  allowReferenceReplacement?: true;
-  conflict?: (observation: LogicalDocumentConflictObservation) => Failure;
-}>, closed: LogicalDocumentChanges) {
+interface LogicalDocumentReadDependencyValidationInput<Failure> {
+  readonly tx: FlarexMetadataTransaction;
+  readonly scopeId: ScopeId;
+  readonly tables: ReadonlySet<CatalogTableId>;
+  readonly maximumIndexEntries: number;
+  readonly error: LogicalDocumentFailure<Failure>;
+  readonly conflict?: (observation: LogicalDocumentConflictObservation) => Failure;
+}
+
+/** Storage-only read-dependency validation. This grants no closed-graph or
+ * write authority; the contribution owner authenticates its graph first. */
+export const validateLogicalDocumentReadDependencies = Effect.fn("LogicalDocuments.validateReadDependencies")(
+  function* <Failure>(input: LogicalDocumentReadDependencyValidationInput<Failure>,
+    closed: Pick<LogicalDocumentChanges, "scans" | "uniqueReads" | "indexReads" | "searchReads" | "pageReads">) {
   const { tx, scopeId, tables: allowed, maximumIndexEntries, error } = input;
   const conflict = (observation: LogicalDocumentConflictObservation) =>
     input.conflict === undefined ? error("writeConflict") : input.conflict(Object.freeze(observation));
-  if ((closed.setNull.length !== 0 && input.allowSetNull !== true) ||
-    (closed.referenceReplacements.length !== 0 && input.allowReferenceReplacement !== true))
-    return yield* Effect.fail(error("invalidAuthority"));
-  const reads = new Map(
-    closed.dependencies.map((row) => [row.documentId, row]),
-  );
-  const changes = new Map(closed.changes.map((row) => [row.documentId, row]));
-  const attempted = new Set([...changes.keys(), ...closed.noFinalRows]);
-  if (
-    reads.size !== closed.dependencies.length ||
-    changes.size !== closed.changes.length ||
-    attempted.size !== closed.changes.length + closed.noFinalRows.length ||
-    closed.dependencies.some((row) => !allowed.has(row.tableId)) ||
-    closed.changes.some(
-      (row) => reads.get(row.documentId)?.dependency !== row.dependency,
-    ) ||
-    closed.noFinalRows.some((id) => {
-      const point = reads.get(id);
-      if (point?.dependency.kind === "generatedInsertion") return false;
-      const observed = point?.dependency.observed;
-      return (
-        observed?.kind !== "missing" ||
-        observed.basis.kind !== "noVisibleRevision"
-      );
-    }) ||
-    closed.setNull.some(intent => !allowed.has(intent.sourceTableId) || !allowed.has(intent.targetTableId) ||
-      !closed.changes.some(change => change.kind === "deleted" && change.tableId === intent.targetTableId)) ||
-    closed.referenceReplacements.length > 1 ||
-    closed.referenceReplacements.some(intent => !allowed.has(intent.sourceTableId) ||
-      !allowed.has(intent.targetTableId) || intent.desiredKeys.length > 256 ||
-      new Set(intent.desiredKeys).size !== intent.desiredKeys.length ||
-      closed.setNull.length !== 0 ||
-      !closed.changes.some(change => change.kind === "live" && change.tableId === intent.targetTableId &&
-        isJsonObject(change.document.valueJson) && change.document.valueJson[intent.targetColumn] === intent.targetKey)) ||
-    new Set(closed.setNull.map(intent => JSON.stringify([intent.sourceTableId, intent.sourceColumn,
-      intent.targetTableId, intent.targetColumn, intent.targetKey]))).size !== closed.setNull.length ||
-    closed.attempts.some(
-      (attempt, index) =>
-        attempt.ordinal !== index || !attempted.has(attempt.documentId),
-    )
-  ) {
-    return yield* Effect.fail(error("invalidAuthority"));
-  }
-  const attemptedIds = new Set(closed.attempts.map(attempt => attempt.documentId));
-  if ([...attempted].some(id => !attemptedIds.has(id))) return yield* Effect.fail(error("invalidAuthority"));
-  for (const point of closed.dependencies) {
-    if (point.dependency.kind !== "generatedInsertion") continue;
-    if (point.dependency.origin !== undefined) continue;
-    const first = closed.attempts.find(attempt => attempt.documentId === point.documentId);
-    if (first?.ordinal !== point.dependency.effectOrdinal || first.operation !== "insert" || first.before !== null ||
-      first.after === null || first.tableId !== point.tableId || point.dependency.documentId !== point.documentId)
-      return yield* Effect.fail(error("invalidAuthority"));
-  }
   // Broad/unindexed collection find reads the complete bounded table before filtering.
   // Its frontier includes tombstones, so empty results cannot lose insertions.
   const scans: (typeof closed.scans)[number][] = [];
@@ -172,6 +125,91 @@ export const validateLogicalDocumentChanges = Effect.fn(
         tableId: read.definition.access.tableId, indexDefinitionId: read.definition.indexDefinitionId }));
   }));
   if (pages.length !== closed.pageReads.length) return yield* Effect.fail(error("invalidAuthority"));
+});
+
+/** Validate the complete command, including decisions that did not produce writes. */
+export const validateLogicalDocumentChanges = Effect.fn(
+  "LogicalDocuments.validateContribution",
+)(function* <Failure>(input: LogicalDocumentReadDependencyValidationInput<Failure> & Readonly<{
+  allowSetNull?: true; allowReferenceReplacement?: true;
+}>, closed: LogicalDocumentChanges) {
+  const { scopeId, tables: allowed, error } = input;
+  if (!hasLogicalInsertionGraph(scopeId, closed)) return yield* Effect.fail(error("invalidAuthority"));
+  if ((closed.setNull.length !== 0 && input.allowSetNull !== true) ||
+    (closed.referenceReplacements.length !== 0 && input.allowReferenceReplacement !== true))
+    return yield* Effect.fail(error("invalidAuthority"));
+  const reads = new Map(
+    closed.dependencies.map((row) => [row.documentId, row]),
+  );
+  const changes = new Map(closed.changes.map((row) => [row.documentId, row]));
+  const attempted = new Set([...changes.keys(), ...closed.noFinalRows]);
+  if (
+    reads.size !== closed.dependencies.length ||
+    changes.size !== closed.changes.length ||
+    attempted.size !== closed.changes.length + closed.noFinalRows.length ||
+    closed.dependencies.some((row) => !allowed.has(row.tableId)) ||
+    closed.changes.some(
+      (row) => reads.get(row.documentId)?.dependency !== row.dependency,
+    ) ||
+    closed.noFinalRows.some((id) => {
+      const point = reads.get(id);
+      if (point?.dependency.kind === "generatedInsertion") return false;
+      const observed = point?.dependency.observed;
+      return (
+        observed?.kind !== "missing" ||
+        observed.basis.kind !== "noVisibleRevision"
+      );
+    }) ||
+    closed.setNull.some(intent => !allowed.has(intent.sourceTableId) || !allowed.has(intent.targetTableId) ||
+      !closed.changes.some(change => change.kind === "deleted" && change.tableId === intent.targetTableId)) ||
+    closed.referenceReplacements.length > 1 ||
+    closed.referenceReplacements.some(intent => !allowed.has(intent.sourceTableId) ||
+      !allowed.has(intent.targetTableId) || intent.desiredKeys.length > 256 ||
+      new Set(intent.desiredKeys).size !== intent.desiredKeys.length ||
+      closed.setNull.length !== 0 ||
+      !closed.changes.some(change => change.kind === "live" && change.tableId === intent.targetTableId &&
+        isJsonObject(change.document.valueJson) && change.document.valueJson[intent.targetColumn] === intent.targetKey)) ||
+    new Set(closed.setNull.map(intent => JSON.stringify([intent.sourceTableId, intent.sourceColumn,
+      intent.targetTableId, intent.targetColumn, intent.targetKey]))).size !== closed.setNull.length ||
+    closed.attempts.some(
+      (attempt, index) =>
+        attempt.ordinal !== index || !attempted.has(attempt.documentId),
+    )
+  ) {
+    return yield* Effect.fail(error("invalidAuthority"));
+  }
+  const insertionRoot = logicalInsertionGraphRoot(closed);
+  const insertionOrdinals = new Set<number>();
+  for (const attempt of closed.attempts) {
+    if (attempt.insertionAttemptOrdinal !== undefined && closed.insertionRoot !== insertionRoot ||
+      !hasLogicalInsertionEvidence(scopeId, insertionRoot, attempt)) return yield* Effect.fail(error("invalidAuthority"));
+    const ordinal = attempt.insertionAttemptOrdinal;
+    if (ordinal === undefined) continue;
+    if (attempt.operation !== "insert" || !Number.isSafeInteger(ordinal) || ordinal < 0 || insertionOrdinals.has(ordinal))
+      return yield* Effect.fail(error("invalidAuthority"));
+    insertionOrdinals.add(ordinal);
+  }
+  for (const change of closed.changes) {
+    const generation = change.insertionOrder;
+    const latestInsert = closed.attempts.findLast(attempt => attempt.documentId === change.documentId && attempt.operation === "insert");
+    if (generation?.kind === "pending") {
+      if (change.kind !== "live" || latestInsert?.insertionAttemptOrdinal !== generation.attemptOrdinal)
+        return yield* Effect.fail(error("invalidAuthority"));
+    } else if (change.kind === "live" && latestInsert?.insertionAttemptOrdinal !== undefined) return yield* Effect.fail(error("invalidAuthority"));
+    if (generation !== undefined && (!Number.isSafeInteger(generation.attemptOrdinal) || generation.attemptOrdinal < 0))
+      return yield* Effect.fail(error("invalidAuthority"));
+  }
+  const attemptedIds = new Set(closed.attempts.map(attempt => attempt.documentId));
+  if ([...attempted].some(id => !attemptedIds.has(id))) return yield* Effect.fail(error("invalidAuthority"));
+  for (const point of closed.dependencies) {
+    if (point.dependency.kind !== "generatedInsertion") continue;
+    if (point.dependency.origin !== undefined) continue;
+    const first = closed.attempts.find(attempt => attempt.documentId === point.documentId);
+    if (first?.ordinal !== point.dependency.effectOrdinal || first.operation !== "insert" || first.before !== null ||
+      first.after === null || first.tableId !== point.tableId || point.dependency.documentId !== point.documentId)
+      return yield* Effect.fail(error("invalidAuthority"));
+  }
+  yield* validateLogicalDocumentReadDependencies(input, closed);
   // Materialization requires the actual final-change objects in its dependency
   // set. Preserve every other observation instead of equating reads with writes.
   const dependencies = Object.freeze(

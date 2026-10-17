@@ -276,6 +276,8 @@ export const preparePublicationAcceptance = Effect.fnUntraced(function* (tx: App
     pointerCommitSeq: sql`observed.pointer_sequence`.mapWith(fxAppRowRevisions.commitSeq),
     latestCommitSeq: sql`observed.latest_sequence`.mapWith(fxAppRowRevisions.commitSeq),
     latestIsTombstone: sql<boolean | null>`observed.latest_tombstone`, latestCreationTime: sql<number | null>`observed.latest_creation_time`,
+    latestInsertionCommitSeq: sql`observed.latest_insertion_commit_seq`.mapWith(fxAppRowRevisions.insertionCommitSeq),
+    latestInsertionAttemptOrdinal: sql`observed.latest_insertion_attempt_ordinal`.mapWith(fxAppRowRevisions.insertionAttemptOrdinal),
     transitionReason: sql<string | null>`observed.transition_reason`, pairOrdinal: sql<number | null>`observed.pair_ordinal`,
     keyOrdinal: sql<number | null>`observed.key_ordinal`, transitionKind: sql<string | null>`observed.transition_kind`,
     priorCommitSeqText: sql<string | null>`observed.prior_commit_seq::text`, priorIsTombstone: sql<boolean | null>`observed.prior_is_tombstone`,
@@ -426,6 +428,8 @@ export const acceptApplicationPublication = Effect.fnUntraced(function* (
     ordinalText: String(row.ordinal), pointerCommitSeqText: row.pointerCommitSeq === null ? null : String(row.pointerCommitSeq),
     latestCommitSeqText: row.latestCommitSeq === null ? null : String(row.latestCommitSeq), latestIsTombstone: row.latestIsTombstone,
     latestCreationTimeText: row.latestCreationTime === null ? null : String(row.latestCreationTime),
+    latestInsertionCommitSeqText: row.latestInsertionCommitSeq === null ? null : String(row.latestInsertionCommitSeq),
+    latestInsertionAttemptOrdinalText: row.latestInsertionAttemptOrdinal === null ? null : String(row.latestInsertionAttemptOrdinal),
   }, ordinal, input.settlement.command.dependencies[ordinal], input.settlement.command.authorityPins.scopeId, input.clock.record.lastCommitSeq)));
   const capturedCoverage = prepared.capture.snapshot ? yield* Effect.fromResult(prepared.capture.capture({
     applicationHead: terminal.applicationHead.scopeId === null ? null : terminal.applicationHead,

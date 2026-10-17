@@ -22,8 +22,9 @@ import {
 import {
   isNonArrayRecord,
 } from "@flarex/utils/records";
-import type {
-  AppRowIdentityV1,
+import {
+  decodeStoredAppRowInsertionOrderResult,
+  type AppRowIdentityV1,
 } from "../documents/appRows";
 import {
   isNonNegativeSafeInteger,
@@ -71,7 +72,7 @@ export function decodePointCommitHeadResult(
     if (latestCommitSeq === null) {
       if (
         raw.latestIsTombstone !== null ||
-        raw.latestCreationTimeText !== null
+        raw.latestCreationTimeText !== null || raw.latestInsertionCommitSeqText !== null || raw.latestInsertionAttemptOrdinalText !== null
       ) {
         return yield* Result.fail(corruption("rowHeadInvalid"));
       }
@@ -90,6 +91,9 @@ export function decodePointCommitHeadResult(
     const creationTime = yield* decodePointCommitCreationTimeResult(
       Number(raw.latestCreationTimeText),
     ).pipe(Result.mapError(() => corruption("rowHeadInvalid")));
+    const insertionOrder = yield* decodeStoredAppRowInsertionOrderResult(identity, latestCommitSeq,
+      { get commitSeq() { return raw.latestInsertionCommitSeqText; }, get attemptOrdinal() { return raw.latestInsertionAttemptOrdinalText; } }, true)
+      .pipe(Result.mapError(() => corruption("rowHeadInvalid")));
     return Object.freeze({
       head: Object.freeze({
         kind: raw.latestIsTombstone ? "tombstone" : "live",
@@ -97,6 +101,7 @@ export function decodePointCommitHeadResult(
         revisionCommitSeq: latestCommitSeq,
       }),
       creationTime,
+      ...(insertionOrder === undefined ? {} : { insertionOrder }),
     });
   });
 }

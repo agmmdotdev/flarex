@@ -143,7 +143,8 @@ describe("fixed historical storage primitives", () => {
       rowIds: ids.slice(0, 2), snapshotCommitSeq: CommitSeqSchema.make(1n) }));
     const first = { ordinal: 0, requestedRowId: appRowIdHexV1ToBytes(ids[0]!), rowPresent: kind === "tombstone", bodyWithheld: false,
       rowId: appRowIdHexV1ToBytes(ids[0]!), scopeUuid, writeEpochUuid: scopeUuid, commitSeq: "1", prevCommitSeq: null,
-      schemaVersionId: "finite_schema", creationTime: 1, isTombstone: true, valueBytes: null, valueSha256: null };
+      schemaVersionId: "finite_schema", creationTime: 1, insertionCommitSeq: null, insertionAttemptOrdinal: null,
+      isTombstone: true, valueBytes: null, valueSha256: null };
     let laterAccessed = false;
     const rows: unknown[] = [first];
     Object.defineProperty(rows, 1, { get() { laterAccessed = true; throw new Error("next array slot must remain deferred"); } });

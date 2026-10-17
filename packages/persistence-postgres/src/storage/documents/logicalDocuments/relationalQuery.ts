@@ -18,10 +18,12 @@ import type { LogicalSelectionValues } from "./query";
  * their own indexed execution contract before they can be enabled here. */
 export { relationalReadLimits } from "../../../execution/preparation/frameworkExecutionPolicy";
 const Window = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }));
+const StorageInsertionOrderSchema = Schema.Struct({ kind: Schema.Literal("storageInsertion"), direction: Schema.Literals(["asc", "desc"]) });
+export type StorageInsertionOrder = typeof StorageInsertionOrderSchema.Type;
 const Envelope = Schema.Struct({
   fields: Schema.optionalKey(Schema.Array(Schema.String)), predicate: Schema.optionalKey(Schema.Unknown),
   skip: Schema.optionalKey(Window), take: Schema.optionalKey(Window),
-  order: Schema.Struct({ column: Schema.String, direction: Schema.Literals(["asc", "desc"]) }),
+  order: Schema.Union([Schema.Struct({ column: Schema.String, direction: Schema.Literals(["asc", "desc"]) }), StorageInsertionOrderSchema]),
 });
 const Node = Schema.Union([
   Schema.Struct({ kind: Schema.Literals(["and", "or"]), children: Schema.Array(Schema.Unknown) }),
@@ -140,10 +142,12 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
     const query = yield* decodeEnvelope(input).pipe(Result.mapError(cause => error("invalidInput", cause)));
     const columnForName = mechanics?.column ?? ((name: string) => table.columns.find(column => column.identity.columnId === name));
     const fields = query.fields ?? mechanics?.columnNames ?? table.columns.map(column => column.identity.columnId);
-    const orderColumn = columnForName(query.order.column);
+    const storageInsertion = "kind" in query.order;
+    const orderColumnName = "column" in query.order ? query.order.column : key;
+    const orderColumn = columnForName(orderColumnName);
     if (fields.length === 0 || fields.length > table.columns.length || new Set(fields).size !== fields.length ||
         fields.some(field => columnForName(field) === undefined) ||
-        (orderColumn?.type !== "text" && orderColumn?.type !== "integer" && orderColumn?.type !== "doublePrecision") || orderColumn.nullable)
+        (!storageInsertion && ((orderColumn?.type !== "text" && orderColumn?.type !== "integer" && orderColumn?.type !== "doublePrecision") || orderColumn.nullable)))
       return yield* Result.fail(error("invalidInput"));
     const take = query.take ?? pageRows;
     if (take > pageRows) return yield* Result.fail(error("limitExceeded"));
@@ -381,7 +385,9 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         return yield* Result.fail(error("invalidInput"));
       const selections = search !== null && json === null || planned.selections === null ? null : Object.freeze([...new Map(planned.selections.map(selection =>
         [JSON.stringify(selection), selection] as const)).values()]);
-      return Object.freeze({ key, selections, search: json !== null ? null : search, json,
+      if (storageInsertion && (selections === null || search !== null || json !== null))
+        return yield* Result.fail(error("invalidInput"));
+      return Object.freeze({ key, identityColumns: identity, selections, search: json !== null ? null : search, json, storageInsertion,
         requiresIndexedNullAnchor: selections === null && planned.unindexedText && search === null && json === null,
         requiredNulls: Object.freeze([...filter.requiredNulls]),
         // Native text access unions its validated patterns; JSON access uses
@@ -396,7 +402,7 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
             return typeof value === "string" && matchesTextLikeAscii(value, pattern.pattern);
           }) ?? false;
         },
-        offset: query.skip ?? 0, limit: take, direction: query.order.direction, orderColumn: query.order.column, fields: Object.freeze([...fields]),
+        offset: query.skip ?? 0, limit: take, direction: query.order.direction, orderColumn: orderColumnName, fields: Object.freeze([...fields]),
         inspect: (row: JsonObject, document?: CanonicalFlarexValueV1) => Result.gen(function* () {
           // Read the complete native row before projecting, including exact numeric
           // companions; projection cannot hide malformed persisted data.
@@ -406,7 +412,9 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
             const { _id: _internalId, _creationTime: _internalTime, ...native } = row;
             yield* validate(native, "storedCorruption");
           }
-          const value = row[query.order.column];
+          if (storageInsertion) return { matches: filter.matches(row), order: new Uint8Array() };
+          if (orderColumn === undefined) return yield* Result.fail(error("invalidInput"));
+          const value = row[orderColumnName];
           if (!isRelationalColumnValue(orderColumn.type, false, value ?? null)) return yield* Result.fail(error("storedCorruption"));
           // Compare complete UTF-8 bytes for native text order. JS code-unit
           // order differs for supplementary characters; neither path needs a

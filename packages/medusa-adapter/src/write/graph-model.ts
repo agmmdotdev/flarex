@@ -1,6 +1,6 @@
 import type { Effect, Result } from "effect";
 import type { CommerceTransactionError, Json, JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { CommerceRelations } from "../query/relations";
+import type { CommerceRelations, CommerceRelationOrder } from "../query/relations";
 import type { SchemaTable } from "../schema/model";
 
 export type GraphTable = Pick<SchemaTable, "name" | "columns" | "foreignKeys">;
@@ -43,6 +43,9 @@ export interface ReplacedGraph {
  * A replacement invocation owns all mutable plans and scoped store handles. */
 export interface ReplacementProfile {
   readonly catalog: GraphCatalog;
+  /** Native update and upsertWithReplace differ on root writes and empty collections. */
+  readonly operation: "upsertWithReplace" | "update";
+  readonly ordering: ReadonlyMap<string, CommerceRelationOrder>;
   /** Complete deleted-child DTOs still need the accepting core's exact
    * same-root deletion proof; this policy never grants timestamp authority. */
   readonly allowReconstitution?: true;

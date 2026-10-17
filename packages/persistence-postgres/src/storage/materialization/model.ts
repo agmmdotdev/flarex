@@ -60,6 +60,8 @@ import {
 } from "../catalog/appSchemaCandidateValidation";
 import type { IntrinsicCreationTimeIndexDefinitionPortV1 } from "../indexes/intrinsicCreationTimeIndexBuildV1";
 import { type AppRowPointHeadObservationV1 } from "../documents/appRowPointOcc";
+import type { AppRowInsertionOrder } from "../documents/appRows";
+import type { LogicalInsertionOrder } from "../documents/logicalDocuments/insertionOrder";
 
 import { type ScopeClockRecord } from "../../scope/scopeClock";
 
@@ -146,11 +148,12 @@ export interface PreparedLivePointCommitRowIntentV1 extends Omit<
   "value" | "canonicalBytes" | "semanticSizeBytes"
 > {
   readonly document: CanonicalFlarexValueV1;
+  readonly insertionOrder?: LogicalInsertionOrder;
 }
 
 export type PreparedPointCommitRowIntentV1 =
   | PreparedLivePointCommitRowIntentV1
-  | Extract<PointCommitRowIntentV1, { readonly kind: "deleted" }>;
+  | (Extract<PointCommitRowIntentV1, { readonly kind: "deleted" }> & Readonly<{ insertionOrder?: LogicalInsertionOrder }>);
 
 /** Shared document mechanics require no Application function, journal or session. */
 export interface ApplicationDocumentDefinitionCommand {
@@ -198,6 +201,7 @@ export type LocatedPreparedPointCommitApplicationRelations = Readonly<{
 export interface LoadedPointCommitHeadV1 {
   readonly head: AppRowPointHeadObservationV1;
   readonly creationTime: AppCreationTimeV1 | null;
+  readonly insertionOrder?: AppRowInsertionOrder;
 }
 
 /** Driver evidence stays deferred until normal finite OCC and liveness finish. */

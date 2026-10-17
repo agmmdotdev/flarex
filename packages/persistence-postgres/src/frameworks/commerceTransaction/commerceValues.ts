@@ -9,3 +9,5 @@ export type { Json, JsonObject } from "flarex-protocol/json";
 export { isJsonObject } from "flarex-protocol/json";
 
 export { captureCommerceResources, defaultCommerceResources, logicalCommerceBatchResources, type CommerceResources } from "./resources";
+
+export type { StorageInsertionOrder } from "../../storage/documents/logicalDocuments/relationalQuery";

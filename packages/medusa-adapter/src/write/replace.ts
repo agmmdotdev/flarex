@@ -56,31 +56,42 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
     const rows = group.get(table.name) ?? new Map<string, JsonObject>();
     rows.set(identity(table, row), row); group.set(table.name, rows);
   };
-  const load = (table: Table, column: string, values: readonly string[]) => observeExecution("MedusaGraph.load", Effect.gen(function* () {
+  const load = (table: Table, column: string, values: readonly string[], refresh = false) => observeExecution("MedusaGraph.load", Effect.gen(function* () {
     if (values.length === 0) return [];
     const selected = new Set(values);
-    const known = new Map((state.get(table.name) ?? []).map(row => [identity(table, row), row]));
+    let known = new Map((state.get(table.name) ?? []).map(row => [identity(table, row), row]));
     const primary = keys(table);
     // A complete prior FK selection may already contain every requested
     // primary-key row. Reuse that request-local view instead of spending one
     // bounded call per retained child; unknown keys still go to core.
-    if (primary.length === 1 && primary[0] === column && [...selected].every(value =>
+    if (!refresh && primary.length === 1 && primary[0] === column && [...selected].every(value =>
       [...known.values()].some(row => row[column] === value)))
       return [...known.values()].filter(row => typeof row[column] === "string" && selected.has(row[column]) &&
         !deletes.get(table.name)?.has(identity(table, row)));
     const selectionKey = JSON.stringify([table.name, column, [...selected].sort()]);
-    if (!selectedKeys.has(selectionKey)) {
+    if (refresh || !selectedKeys.has(selectionKey)) {
       const store = yield* getStore(table);
-      const order = keys(table)[0];
+      const order = profile.ordering.get(table.name) ?? keys(table)[0];
       if (order === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-      const rows = yield* store.find(ctx.manager, { take: ctx.resources.queryRows, order: { column: order, direction: "asc" },
+      const rows = yield* store.find(ctx.manager, { take: ctx.resources.queryRows,
+        order: typeof order === "string" ? { column: order, direction: "asc" } : { ...order },
         predicate: { kind: "in", column, values: [...selected] } });
       yield* Effect.fromResult(profile.admitSelection(table, rows));
       // The plan's request-local rows override prior store values until its
       // batched writes run. The core read still owns index selection and bounds.
-      for (const row of rows) {
-        const token = identity(table, row);
-        if (!known.has(token) && !deletes.get(table.name)?.has(token)) known.set(token, { ...row });
+      if (typeof order !== "string") {
+        // A complete intrinsic-order selection supplies the order of this
+        // cohort. Final refresh happens after applied writes, so its actual
+        // rows replace the planning cache before native relation assembly.
+        const ordered = rows.filter(row => !deletes.get(table.name)?.has(identity(table, row)))
+          .map(row => [identity(table, row), refresh ? { ...row } : known.get(identity(table, row)) ?? { ...row }] as const);
+        known = new Map([...known].filter(([, row]) => typeof row[column] !== "string" || !selected.has(row[column])));
+        for (const [token, row] of ordered) known.set(token, row);
+      } else {
+        for (const row of rows) {
+          const token = identity(table, row);
+          if (!known.has(token) && !deletes.get(table.name)?.has(token)) known.set(token, { ...row });
+        }
       }
       selectedKeys.add(selectionKey);
     }
@@ -154,7 +165,9 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
         if (scalar[name] !== existing[name]) return yield* Effect.fail(commerceError("invalidInput"));
         delete scalar[name];
       }
-      if (root || hasChangedFields(existing, scalar, [target.keyColumn])) put(updates, target.table, scalar);
+      const update = root ? profile.operation === "upsertWithReplace" || Object.keys(scalar).some(name => name !== target.keyColumn)
+        : hasChangedFields(existing, scalar, [target.keyColumn]);
+      if (update) put(updates, target.table, scalar);
     } else put(reconstitution ? reconstitutions : inserts, target.table, scalar);
     const next = { ...existing, ...scalar };
     state.set(target.table.name, [...(state.get(target.table.name) ?? []).filter(value => value[target.keyColumn] !== id), next]);
@@ -164,6 +177,9 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       const child = catalog.entities.find(value => value.table.name === descriptor.targetTable);
       if (child === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const members = yield* Effect.fromResult(graphArray(row[name]));
+      // Native DAL.update leaves empty collection values to its module's
+      // explicit child cleanup. Upsert replacement retains its empty-set rule.
+      if (!creation && profile.operation === "update" && members.length === 0) continue;
       const join = descriptor.join;
       if (join.type === "hasMany") {
         const fk = join.foreignKeys[0];
@@ -329,6 +345,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       if (descriptor === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const table = catalog.tables.find(table => table.name === descriptor.targetTable);
       if (table === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+      const order = profile.ordering.get(table.name), refresh = order !== undefined && typeof order !== "string";
       const join = descriptor.join;
       if (join.type === "manyToMany") {
         const pivot = catalog.tables.find(table => table.name === join.pivotTable);
@@ -340,17 +357,17 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
           return yield* Effect.fail(commerceError("unsupportedProfile"));
         const links = yield* load(pivot, pivotSource, yield* selectValues(parents, sourceKey));
         if (links.length === 0) break;
-        parents = yield* load(table, targetKey, yield* selectValues(links, pivotTarget));
+        parents = yield* load(table, targetKey, yield* selectValues(links, pivotTarget), refresh);
       } else if (join.type === "hasMany") {
         const sourceKey = descriptor.sourcePrimaryKeys[0], targetKey = join.foreignKeys[0];
         if (descriptor.sourcePrimaryKeys.length !== 1 || join.foreignKeys.length !== 1 ||
           sourceKey === undefined || targetKey === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-        parents = yield* load(table, targetKey, yield* selectValues(parents, sourceKey));
+        parents = yield* load(table, targetKey, yield* selectValues(parents, sourceKey), refresh);
       } else {
         const sourceKey = join.foreignKeys[0], targetKey = descriptor.targetPrimaryKeys[0];
         if (join.foreignKeys.length !== 1 || descriptor.targetPrimaryKeys.length !== 1 ||
           sourceKey === undefined || targetKey === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-        parents = yield* load(table, targetKey, yield* selectValues(parents, sourceKey));
+        parents = yield* load(table, targetKey, yield* selectValues(parents, sourceKey), refresh);
       }
       source = table.name;
     }

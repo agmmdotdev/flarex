@@ -19,6 +19,7 @@ export const row = {
   writeEpochUuid: ScopeEpochUuidV1Schema.make("22222222-2222-4222-8222-222222222222"),
   schemaVersionId: CatalogSchemaVersionIdSchema.make("publication-compiler"),
   creationTime: AppCreationTimeV1Schema.make(1700000000000.25),
+  insertionCommitSeq: null, insertionAttemptOrdinal: null,
   valueCodecVersion: FlarexValueCodecVersionSchema.make(1), isTombstone: false,
   valueBytes: CanonicalFlarexValueBytesV1Schema.make(new Uint8Array([1, 2, 3])),
   valueSha256: FlarexValueSha256V1Schema.make(new Uint8Array(32).fill(5)),

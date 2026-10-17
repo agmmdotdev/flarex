@@ -1,3 +1,4 @@
+import { retainLogicalInsertionGraph } from "../../storage/documents/logicalDocuments/insertionOrder";
 import { observeExecution } from "../../execution/diagnostics/operation";
 import { Effect, Result } from "effect";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
@@ -140,7 +141,9 @@ export const makeCmsDocuments = Effect.fnUntraced(function* (
     const closed = yield* working.close();
     // SAFETY: only this owner registers a closure from the exact shared working set.
     const closure = Object.freeze({}) as CmsDocumentClosure;
-    closures.set(closure, Object.freeze({ ...closed, admission, lifetime, pendingDeletions }));
+    const enriched = Object.freeze({ ...closed, admission, lifetime, pendingDeletions });
+    retainLogicalInsertionGraph(closed, enriched);
+    closures.set(closure, enriched);
     return closure;
   }, work => observeExecution("CmsDocuments.close", work, "caller"));
   return Object.freeze({ documents: working.documents, close, pendingDeletions });

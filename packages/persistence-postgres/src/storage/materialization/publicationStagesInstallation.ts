@@ -105,6 +105,7 @@ const acceptanceOutputs = [
   ["database_now", "timestamptz"], ["candidate_head", getTableName(fxSystemAppSchemaCandidateValidations)],
   ["application_head", getTableName(fxSystemApplicationActiveHeads)], ["application_activation", getTableName(fxSystemApplicationActivations)],
   ["legacy_schema", getTableName(fxSystemApplicationRevisionSchemasV1)], ["relation_schema", getTableName(fxSystemApplicationRevisionSchemas)],
+  ["latest_insertion_commit_seq", "bigint"], ["latest_insertion_attempt_ordinal", "bigint"],
 ] as const;
 const parameter = (name: string, type: string) => sql`${sql.identifier(name)} ${type.startsWith("fx_") ? sql`${namespace}.${sql.raw(type)}` : sql.raw(type)}`;
 const refusal = sql`RAISE EXCEPTION 'fx_accept_app_publication' USING ERRCODE = 'FX001', DETAIL =
@@ -306,9 +307,12 @@ BEGIN
     WHERE ${column("x", fxSystemAppSchemaCandidateValidations.scopeId)} = p_scope FOR UPDATE; END IF;
   IF cardinality(heads) > 0 THEN FOR i IN 1..cardinality(heads) LOOP
     kind := 'head'; ordinal := i-1; latest := heads[i]; pointer_sequence := pointers[i]; latest_sequence := ${column("latest", rows.commitSeq)};
-    latest_tombstone := ${column("latest", rows.isTombstone)}; latest_creation_time := ${column("latest", rows.creationTime)}; RETURN NEXT;
+    latest_tombstone := ${column("latest", rows.isTombstone)}; latest_creation_time := ${column("latest", rows.creationTime)};
+    latest_insertion_commit_seq := ${column("latest", rows.insertionCommitSeq)};
+    latest_insertion_attempt_ordinal := ${column("latest", rows.insertionAttemptOrdinal)}; RETURN NEXT;
   END LOOP; END IF;
   ordinal := NULL; pointer_sequence := NULL; latest_sequence := NULL; latest_tombstone := NULL; latest_creation_time := NULL;
+  latest_insertion_commit_seq := NULL; latest_insertion_attempt_ordinal := NULL;
   IF cardinality(developer)>0 THEN FOR i IN 1..cardinality(developer) LOOP
     b:=developer[i];
     IF ${column("b",build.lifecycle)}='validating' THEN

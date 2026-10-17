@@ -61,6 +61,7 @@ export interface WorkflowLogicalPolicy {
   readonly allowReconstitution?: true;
   readonly allowPreservingDeletionUpsert?: true;
   readonly allowActiveRestoreUpdate?: true;
+  readonly allowStorageInsertionOrder?: true;
   readonly referenceReplacement?: Readonly<{
     commands: readonly CommerceCommand[];
     eventName: string;
@@ -109,7 +110,8 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
       supplied.allowSetNull !== undefined && supplied.allowSetNull !== true ||
       supplied.allowReconstitution !== undefined && supplied.allowReconstitution !== true ||
       supplied.allowPreservingDeletionUpsert !== undefined && supplied.allowPreservingDeletionUpsert !== true ||
-      supplied.allowActiveRestoreUpdate !== undefined && supplied.allowActiveRestoreUpdate !== true)) return yield* Result.fail(commerceError("unsupportedProfile"));
+      supplied.allowActiveRestoreUpdate !== undefined && supplied.allowActiveRestoreUpdate !== true ||
+      supplied.allowStorageInsertionOrder !== undefined && supplied.allowStorageInsertionOrder !== true)) return yield* Result.fail(commerceError("unsupportedProfile"));
     const replacement = supplied?.referenceReplacement === undefined ? undefined : yield* captureWorkflowRecord(supplied.referenceReplacement);
     const commands = supplied === undefined ? [] : yield* captureWorkflowArray(supplied.commands);
     if (commands.some(command => commerceCommandIdentity(command) === undefined)) return yield* Result.fail(commerceError("invalidAuthority"));
@@ -134,6 +136,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
       ...(supplied.allowReconstitution === undefined ? {} : { allowReconstitution: supplied.allowReconstitution }),
       ...(supplied.allowPreservingDeletionUpsert === undefined ? {} : { allowPreservingDeletionUpsert: supplied.allowPreservingDeletionUpsert }),
       ...(supplied.allowActiveRestoreUpdate === undefined ? {} : { allowActiveRestoreUpdate: supplied.allowActiveRestoreUpdate }),
+      ...(supplied.allowStorageInsertionOrder === undefined ? {} : { allowStorageInsertionOrder: supplied.allowStorageInsertionOrder }),
       ...(replacement === undefined ? {} : { referenceReplacement: Object.freeze({
         commands: Object.freeze([...replacement.commands]), eventName: replacement.eventName, eventLimit: replacement.eventLimit,
         metadata: yield* captureCommerceInput(replacement.metadata),

@@ -46,7 +46,7 @@ const catalog: GraphCatalog = {
   decodeAssociation: (entity, input) => Result.flatMap(decodeObject(input), supplied => decodeString(supplied[entity.keyColumn])),
 };
 const replacement: ReplacementProfile = {
-  catalog, allowedRelations: () => ["editions", "labels"], ownedToOne: () => [], mutableForeignKeys: () => false,
+  operation: "upsertWithReplace", ordering: new Map(), catalog, allowedRelations: () => ["editions", "labels"], ownedToOne: () => [], mutableForeignKeys: () => false,
   admitSelection: () => Result.succeed(undefined), prepareProjection: () => Effect.void,
   toManyMode: () => Result.succeed("replace"), validateLink: () => Effect.void,
   projectionPaths: (_entity, paths) => paths, project: rows => Result.succeed(rows),
@@ -103,6 +103,72 @@ const seeded = new Map<string, readonly JsonObject[]>([
   [pivot.name, [{ volume_isbn: "v1", label_slug: "featured" }]],
   [references.name, [{ volume_isbn: "v1", edition_serial: "old" }]],
 ]);
+
+describe("native graph update versus upsert replacement operations", () => {
+  it("keeps ID-only and relation-only update roots unchanged while writing an explicitly supplied same scalar", async () => {
+    await run(Effect.gen(function* () {
+      const profile: ReplacementProfile = { ...replacement, operation: "update" };
+      for (const input of [{ isbn: "v1" }, { isbn: "v1", editions: [{ serial: "old" }] }, { isbn: "v1", title: "Old" }]) {
+        const { ctx, calls } = yield* fixture(seeded);
+        yield* replaceGraphRows(ctx, profile, volume, [input], { relations: "editions" in input ? ["editions"] : [] });
+        expect(calls.filter(call => call.operation === "update:volumes")).toHaveLength("title" in input ? 1 : 0);
+        expect(calls.filter(call => call.operation === "update:editions")).toEqual([]);
+      }
+      const prior = yield* fixture(seeded);
+      yield* replaceGraphRows(prior.ctx, replacement, volume, [{ isbn: "v1" }], { relations: [] });
+      expect(prior.calls.filter(call => call.operation === "update:volumes")).toHaveLength(1);
+    }));
+  });
+
+  it("creates replacement children without a relation-only update root patch", async () => {
+    await run(Effect.gen(function* () {
+      const state = new Map([...seeded, ["editions", []], [references.name, []]]), { ctx, calls } = yield* fixture(state);
+      const result = yield* replaceGraphRows(ctx, { ...replacement, operation: "update" }, volume,
+        [{ isbn: "v1", editions: [{ serial: "new", label: "New" }] }], { relations: ["editions"] });
+      expect(calls.filter(call => call.operation === "update:volumes")).toEqual([]);
+      expect(calls.filter(call => call.operation === "insert:editions").map(call => call.input)).toEqual([[{ serial: "new", label: "New", volume_isbn: "v1" }]]);
+      expect(result.performedActions.created.Edition).toEqual([{ serial: "new" }]);
+    }));
+  });
+
+  it("retains JSON child updates and the profile's default key order alongside new children", async () => {
+    await run(Effect.gen(function* () {
+      const jsonEdition: GraphEntity = { ...edition, table: { ...edition.table, columns: [...edition.table.columns,
+        { name: "payload", type: "json", nullable: true, primaryKey: false, generated: false }] } };
+      const jsonCatalog: GraphCatalog = { ...catalog, entities: catalog.entities.map(value => value === edition ? jsonEdition : value),
+        tables: catalog.tables.map(value => value === edition.table ? jsonEdition.table : value) };
+      const old = { serial: "old", volume_isbn: "v1", label: "Old", payload: { retained: true } },
+        added = { serial: "new", volume_isbn: "v1", label: "New", payload: null };
+      const state = new Map([...seeded, ["editions", [old]], [references.name, []]]);
+      const { ctx, calls } = yield* fixture(state, new Map([["update:editions", [old]], ["insert:editions", [added]]]));
+      const result = yield* replaceGraphRows(ctx, { ...replacement, catalog: jsonCatalog, operation: "update" }, volume,
+        [{ isbn: "v1", editions: [{ serial: "old", payload: { retained: true } }, { serial: "new", label: "New" }] }], { relations: ["editions"] });
+      // This neutral profile selects default key order. Intrinsic insertion
+      // order is authenticated separately by the real database profile tests.
+      expect(result.entities[0]?.editions).toEqual([added, old]);
+      expect(calls.filter(call => call.operation === "update:volumes")).toEqual([]);
+      expect(result.performedActions.created.Edition).toEqual([{ serial: "new" }]); expect(result.performedActions.updated.Edition).toEqual([{ serial: "old" }]);
+    }));
+  });
+
+  it("leaves historical children after native update empty-array cleanup while nonempty update and upsert replacement remove omissions", async () => {
+    await run(Effect.gen(function* () {
+      // The native module has already physically removed its active omissions.
+      // A scripted remaining historical row pins the shared planning boundary.
+      const state = new Map([...seeded, ["editions", [{ serial: "historical", volume_isbn: "v1", label: "History", deleted_at: "2026-01-01T00:00:00.000Z" }]],
+        [references.name, []], [pivot.name, []]]);
+      const emptyUpdate = yield* fixture(state);
+      yield* replaceGraphRows(emptyUpdate.ctx, { ...replacement, operation: "update" }, volume,
+        [{ isbn: "v1", editions: [] }], { relations: ["editions"] });
+      expect(emptyUpdate.calls.filter(call => call.operation === "delete:editions")).toEqual([]);
+      for (const [operation, editions] of [["upsertWithReplace", []], ["update", [{ serial: "new", label: "New" }]]] as const) {
+        const current = yield* fixture(state);
+        yield* replaceGraphRows(current.ctx, { ...replacement, operation }, volume, [{ isbn: "v1", editions: [...editions] }], { relations: ["editions"] });
+        expect(current.calls.filter(call => call.operation === "delete:editions").map(call => call.input)).toEqual([[{ serial: "historical" }]]);
+      }
+    }));
+  });
+});
 
 describe("checked complete-child reconstitution delegation", () => {
   const datedEdition = entity("editions", "Edition", "serial",

@@ -176,7 +176,7 @@ function makeAtomicCommerceExecution(
     if (member?.kind !== "logical") return yield* Effect.fail(commerceError("invalidAuthority"));
     const created = yield* makeLogicalCommerceParticipant(admission.admission, tx, lifetime, manager, id,
       member.allowReferenceReplacement === true, member.selectedResources, member.logicalPublication,
-      member.allowReconstitution === true, member.allowPreservingDeletionUpsert === true, member.allowActiveRestoreUpdate === true);
+      member.allowReconstitution === true, member.allowPreservingDeletionUpsert === true, member.allowActiveRestoreUpdate === true, member.allowStorageInsertionOrder === true);
     logicalWork.set(admission, created);
     contributions.push({ kind: "logical", token: admission, working: created });
     return created;

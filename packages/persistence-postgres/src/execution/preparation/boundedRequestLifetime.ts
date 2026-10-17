@@ -55,11 +55,15 @@ export interface BoundedRequestLifetime<Failure> {
   readonly usedCalls: () => number;
 }
 
+const requestRoots = new WeakMap<object, object>();
+/** Source-private authentic request identity; carries no storage authority. */
+export const boundedRequestRootIdentity = <Failure>(lifetime: BoundedRequestLifetime<Failure>): object | undefined => requestRoots.get(lifetime);
+
 /** Domain projection over one root lifetime; budgets, contexts and failure latch are shared. */
 export function projectBoundedRequestLifetime<Outer, Inner extends Outer>(
   root: BoundedRequestLifetime<Outer>, project: (failure: Outer) => Inner,
 ): BoundedRequestLifetime<Inner> {
-  return Object.freeze({
+  const projected = Object.freeze({
     context: root.context, mode: root.mode, isClosing: root.isClosing, remainingBytes: root.remainingBytes, usedCalls: root.usedCalls, close: root.close,
     begin: (context, id) => root.begin(context, id).pipe(Effect.mapError(project)),
     adapterCommit: (context, id) => root.adapterCommit(context, id).pipe(Effect.mapError(project)),
@@ -71,6 +75,9 @@ export function projectBoundedRequestLifetime<Outer, Inner extends Outer>(
     charge: bytes => root.charge(bytes).pipe(Result.mapError(project)),
     seal: root.seal.pipe(Effect.mapError(project)),
   } satisfies BoundedRequestLifetime<Inner>);
+  const identity = requestRoots.get(root);
+  if (identity !== undefined) requestRoots.set(projected, identity);
+  return projected;
 }
 
 export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, Owner extends object, RequestIdentity extends object>(
@@ -234,7 +241,7 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
     request.phase = "closed";
     contexts.delete(context);
   });
-  return Object.freeze({ context, mode, begin, operation, nested, withinDeadline,
+  const lifetime = Object.freeze({ context, mode, begin, operation, nested, withinDeadline,
     checkpoint: (supplied: BoundedRequestContext) => observe(check(supplied)), charge, seal, close,
     remainingBytes: () => limits.commandBytes - request.bytes,
     usedCalls: () => request.calls,
@@ -242,4 +249,6 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
     adapterCommit: (supplied: BoundedRequestContext, presented: PresentedTransactionId) => settleFromAdapter(supplied, presented, "borrowedSettlement"),
     rollback: (supplied: BoundedRequestContext, presented: PresentedTransactionId) => settleFromAdapter(supplied, presented, "rollbackOnly"),
   });
+  requestRoots.set(lifetime, Object.freeze({}));
+  return lifetime;
 }, work => observeExecution("BoundedRequest.makeLifetime", work));

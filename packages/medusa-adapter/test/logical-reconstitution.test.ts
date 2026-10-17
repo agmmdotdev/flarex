@@ -28,6 +28,8 @@ import { logicalReconstitutionScenario } from "../../persistence-postgres/test/f
 import { logicalRelationalReadEvidenceScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalRelationalReadEvidenceScenario";
 import { logicalPreservingDeletionUpsertScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalPreservingDeletionUpsertScenario";
 import { logicalActiveRestoreUpdateScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalActiveRestoreUpdateScenario";
+import { logicalInsertionClockScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalInsertionClockScenario";
+import { logicalInsertionOrderScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalInsertionOrderScenario";
 
 const options = { runtimeHostIdentity: "flarex.test/neutral-reconstitution", compatibilityDate: "2026-09-23" };
 const origin = (sourceId: string) => ({ kind: "synthetic", sourceId });
@@ -59,15 +61,15 @@ const sourceInput = { sourceKey: "medusa.folio-fixture", writeProfile: "medusa.f
   evidence: { kind: "synthetic", sourceId: "folio-fixture" } };
 const proofs = { reconstitution: logicalReconstitutionScenario, readEvidence: logicalRelationalReadEvidenceScenario,
   preservingUpsert: logicalPreservingDeletionUpsertScenario, activeRestore: logicalActiveRestoreUpdateScenario };
-type Proof = keyof typeof proofs;
+type Proof = keyof typeof proofs | "insertionClock" | "insertionSources" | "insertionLifecycle" | "insertionMetadata" | "insertionRace";
 describe("neutral committed-row reconstitution, relational selection and lifecycle-preserving upsert", () => {
-  it.each<Proof>(["reconstitution", "readEvidence", "preservingUpsert", "activeRestore"])("runs the neutral proof (%s) on PGlite", async proof => {
+  it.each<Proof>(["reconstitution", "readEvidence", "preservingUpsert", "activeRestore", "insertionClock", "insertionSources", "insertionLifecycle", "insertionMetadata"])("runs the neutral proof (%s) on PGlite", async proof => {
     const control = await createMigratedPGlitePersistence();
     const target = await createMigratedPGlitePersistence();
     const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence(options, { control, target });
     await Effect.runPromise(witness(fixture, makePGliteFrameworkSchemaArtifactAdmissionFixture(control).controlSessionStarter, undefined, proof));
   });
-  it.skipIf(postgresUrl === null).each<Proof>(["reconstitution", "readEvidence", "preservingUpsert", "activeRestore"])("runs the neutral proof (%s) with an ordinary PostgreSQL role", async proof => {
+  it.skipIf(postgresUrl === null).each<Proof>(["reconstitution", "readEvidence", "preservingUpsert", "activeRestore", "insertionClock", "insertionSources", "insertionLifecycle", "insertionMetadata", "insertionRace"])("runs the neutral proof (%s) with an ordinary PostgreSQL role", async proof => {
     await withTemporaryPostgresPersistencePair(async (control, target) => {
       const roles = await target.query<{ rolsuper: boolean; rolcreatedb: boolean; rolcreaterole: boolean }>(
         "select rolsuper, rolcreatedb, rolcreaterole from pg_roles where rolname = current_user");
@@ -100,7 +102,13 @@ const witness = Effect.fn("Reconstitution.witness")(function* <Persistence exten
     writeProfile: sourceInput.writeProfile, evidence: sourceInput.evidence, definition: { kind: "relational", schema },
     bindings: ["folio", "entry"].map(localName => ({ kind: "definition" as const, localName, table: { namespace: "medusa" as const, logicalName: `commerce.folio-fixture/${localName}` } })),
   });
-  const prepared = yield* prepareLogicalSchemaCandidate({ ...candidate, sources: [...candidate.sources, source] });
+  const secondInput = { ...sourceInput, sourceKey: "medusa.folio-clock-fixture", writeProfile: "medusa.folio-clock-fixture" };
+  const second = proof === "insertionClock" || proof === "insertionSources" ? [yield* captureLogicalSchemaSource({ key: secondInput.sourceKey, owner: "medusa",
+    writeProfile: secondInput.writeProfile, evidence: secondInput.evidence, definition: { kind: "relational", schema },
+    bindings: ["folio", "entry"].map(localName => ({ kind: "definition" as const, localName, table: { namespace: "medusa" as const,
+      logicalName: `commerce.folio-clock-fixture/${localName}` } })),
+  })] : [];
+  const prepared = yield* prepareLogicalSchemaCandidate({ ...candidate, sources: [...candidate.sources, source, ...second] });
   const currency = yield* compileCurrencyDefinition();
   yield* logicalSchemaBindingScenario(fixture, session, prepared, {
     source: { sourceKey: "medusa.currency", writeProfile: "medusa.currency", schema: currency.schema, evidence: currency.provenance },
@@ -110,7 +118,11 @@ const witness = Effect.fn("Reconstitution.witness")(function* <Persistence exten
       const dataSession = suppliedDataSession ?? issueRelationalSession(fixture.target.drizzle, (_profile, work) => runEffectTransaction(
         callback => fixture.target.drizzle.transaction(callback), "Neutral reconstitution transaction", work,
         cause => new RelationalSessionError({ reason: "resourceFailure", cause })));
-      yield* proofs[proof](fixture, bindingTarget, schemaVersionId, sourceInput, dataSession);
+      if (proof === "insertionClock" || proof === "insertionSources") yield* logicalInsertionClockScenario(fixture, bindingTarget, schemaVersionId, [sourceInput, secondInput], dataSession, proof === "insertionSources");
+      else if (proof === "insertionLifecycle" || proof === "insertionMetadata" || proof === "insertionRace")
+        yield* logicalInsertionOrderScenario(fixture, bindingTarget, schemaVersionId, sourceInput, dataSession,
+          proof === "insertionLifecycle" ? "lifecycle" : proof === "insertionMetadata" ? "metadata" : "race");
+      else yield* proofs[proof](fixture, bindingTarget, schemaVersionId, sourceInput, dataSession);
     }),
   });
 });

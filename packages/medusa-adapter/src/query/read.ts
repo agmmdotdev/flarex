@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { populateCommerceRelations, readCommerceRelationRows, type CommerceRelationReadContext } from "./relations";
+import { populateCommerceRelations, readCommerceRelationRows, type CommerceRelationReadContext, type CommerceRelationOrder } from "./relations";
 import { resolveCommerceRelationFilter } from "./relation-filter";
 import type { ReadCatalog } from "./catalog";
 import { projectRows, type ReadProjection } from "./projection";
@@ -23,7 +23,7 @@ export interface ReadPlan {
   readonly withDeleted: boolean;
   readonly relationFilters: readonly { readonly path: string; readonly predicate: Json }[];
   readonly populationFilters?: readonly PopulationFilter[];
-  readonly ordering: ReadonlyMap<string, string>;
+  readonly ordering: ReadonlyMap<string, CommerceRelationOrder>;
   readonly window: ReadWindow;
 }
 

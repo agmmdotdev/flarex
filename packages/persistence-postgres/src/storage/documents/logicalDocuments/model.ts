@@ -177,6 +177,7 @@ export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
   readonly allowReconstitution?: true;
   readonly allowPreservingDeletionUpsert?: true;
   readonly allowActiveRestoreUpdate?: true;
+  readonly allowStorageInsertionOrder?: true;
   readonly searchDefinitions?: readonly LogicalSearchDefinition[];
   readonly lifetime: BoundedRequestLifetime<Failure>;
   /** Durable operations check live admission here. A finite root supplies a

@@ -1,3 +1,4 @@
+import { captureLogicalInsertionGraph, registerLogicalInsertionRoot, issueLogicalInsertionAttempt, committedLogicalInsertionOrder } from "./insertionOrder";
 import type { LogicalDocumentPointEvidence } from "./pointEvidence";
 import type { AppDocumentIdV1, AppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { AppCreationTimeV1Schema, type AppCreationTimeV1 } from "flarex-protocol/app-document";
@@ -153,6 +154,7 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
     pageReads: [], searchReads: [], attempts: [], lifecycle: [], relationalReads: [], setNull: [], referenceReplacements: [],
     overlayWriteGenerations: new Map(), workingBytes: 0, inserted: 0, activityGeneration: 0, closed: false,
   };
+  const insertionRoot = registerLogicalInsertionRoot(state, pins.scopeId);
   const snapshotOriginalRows: LogicalDocumentRootEvaluator["snapshotOriginalRows"] = () =>
     originalRowsResult(state).pipe(Result.map(rows => Object.freeze(structuredClone(rows))));
   const ownedSnapshot = (): LogicalDocumentChanges => {
@@ -170,13 +172,16 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
       if (row.base === null && row.current === null) { noFinalRows.push(row.documentId); continue; }
       const dependency = state.dependencies.get(row.documentId);
       if (dependency === undefined) throw new Error("Logical document root dependency is missing");
-      changes.push(Object.freeze(row.current === null ? { ...dependency, kind: "deleted" } :
-        { ...dependency, kind: "live", creationTime: row.creationTime, document: row.current }));
+      const insertionOrder = row.current === null ? committedLogicalInsertionOrder(row.base?.insertionOrder) : row.insertionOrder;
+      changes.push(Object.freeze(row.current === null ? { ...dependency, kind: "deleted",
+        ...(insertionOrder === undefined ? {} : { insertionOrder }) } :
+        { ...dependency, kind: "live", creationTime: row.creationTime, document: row.current,
+          ...(insertionOrder === undefined ? {} : { insertionOrder }) }));
     }
     changes.sort((left, right) => left.tableId - right.tableId || left.rowId.localeCompare(right.rowId));
     observedRows.sort((left, right) => left.tableId - right.tableId || left.documentId.localeCompare(right.documentId));
     noFinalRows.sort();
-    return Object.freeze({ changes: Object.freeze(changes), observedRows: Object.freeze(observedRows),
+    return captureLogicalInsertionGraph(Object.freeze({ insertionRoot, changes: Object.freeze(changes), observedRows: Object.freeze(observedRows),
       noFinalRows: Object.freeze(noFinalRows), attempts: Object.freeze([...state.attempts]),
       lifecycle: Object.freeze([...state.lifecycle]),
       relationalReads: Object.freeze([...state.relationalReads]),
@@ -189,7 +194,7 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
       uniqueReads: Object.freeze([...state.uniqueReads.values()]), indexReads: Object.freeze([...state.indexReads.values()]),
       pageReads: Object.freeze([...state.pageReads]), searchReads: Object.freeze([...state.searchReads]),
       setNull: Object.freeze([...state.setNull]), referenceReplacements: Object.freeze([...state.referenceReplacements]),
-    });
+    }), insertionRoot);
   };
   const snapshot = (): LogicalDocumentChanges => detachLogicalDocumentChanges(ownedSnapshot());
   const point = (tableId: CatalogTableId, rowId: AppRowIdHexV1): LogicalDocumentRootPoint | undefined => {
@@ -241,31 +246,38 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
       if (ownedRevision.kind === "live" && observed.kind === "present" && creationTime !== undefined) {
         state.rows.set(observation.documentId, { tableId: observation.tableId, tableName, rowId: observation.rowId,
           documentId: observation.documentId, base: ownedRevision, originalRevision: ownedRevision, creationTime,
-          current: ownedRevision.document, attempts: [] });
+          current: ownedRevision.document, attempts: [],
+          ...(ownedRevision.insertionOrder === undefined ? {} : { insertionOrder: committedLogicalInsertionOrder(ownedRevision.insertionOrder) }) });
       }
       state.workingBytes += bytes;
       state.activityGeneration++;
     });
   };
-  const writePoint: LogicalDocumentRootEvaluator["writePoint"] = (tableName, observation, overlay, operation) => {
-    if (state.closed) return Result.fail("closed");
+  const writePoint: LogicalDocumentRootEvaluator["writePoint"] = (tableName, observation, overlay, operation) => Result.gen(function* () {
+    if (state.closed) return yield* Result.fail<LogicalDocumentRootPointFailure>("closed");
     const prior = state.dependencies.get(observation.documentId);
-    if (prior === undefined || !sameObservation(prior, observation)) return Result.fail("observationMismatch");
+    if (prior === undefined || !sameObservation(prior, observation)) return yield* Result.fail<LogicalDocumentRootPointFailure>("observationMismatch");
     let row = state.rows.get(observation.documentId);
     if (overlay.kind === "live" && (!isJsonObject(overlay.document.valueJson) ||
       overlay.document.valueJson._id !== observation.documentId || overlay.document.valueJson._creationTime !== overlay.creationTime ||
-      row !== undefined && row.creationTime !== overlay.creationTime)) return Result.fail("invalidDocument");
+      row !== undefined && row.creationTime !== overlay.creationTime)) return yield* Result.fail<LogicalDocumentRootPointFailure>("invalidDocument");
     if (row === undefined) {
-      if (overlay.kind !== "live") return Result.fail("invalidDocument");
+      if (overlay.kind !== "live") return yield* Result.fail<LogicalDocumentRootPointFailure>("invalidDocument");
       row = { tableId: observation.tableId, tableName, rowId: observation.rowId, documentId: observation.documentId,
         base: null, creationTime: overlay.creationTime, current: null, attempts: [] };
     }
     const bytes = 128 + (overlay.kind === "live" ? overlay.document.canonicalBytes.byteLength : 0);
-    if (bytes > state.limits.workingBytes - state.workingBytes) return Result.fail("limitExceeded");
+    if (bytes > state.limits.workingBytes - state.workingBytes) return yield* Result.fail<LogicalDocumentRootPointFailure>("limitExceeded");
     const after = overlay.kind === "live" ? detachLogicalCanonicalDocument(overlay.document) : null;
+    if (operation === "insert" && after === null) return yield* Result.fail<LogicalDocumentRootPointFailure>("invalidDocument");
+    const issued = operation === "insert" && after !== null
+      ? yield* issueLogicalInsertionAttempt(insertionRoot, state.pins.scopeId, row.tableId, row.documentId, after).pipe(
+        Result.mapError((): LogicalDocumentRootPointFailure => "limitExceeded")) : undefined;
+    const allocated = issued?.ordinal;
+    if (allocated !== undefined) row.insertionOrder = Object.freeze({ kind: "pending", attemptOrdinal: allocated });
     const ordinal = state.attempts.length;
     state.attempts.push(Object.freeze({ ordinal, tableId: row.tableId, tableName, documentId: row.documentId,
-      operation, before: row.current, after }));
+      operation, before: row.current, after, ...(issued === undefined ? {} : { insertionAttemptOrdinal: issued.ordinal, insertionEvidence: issued.evidence }) }));
     row.attempts.push(ordinal);
     if (row.current !== null && (row.base?.kind !== "live" || row.current !== row.base.document)) {
       forgetLogicalCanonicalDerivedKeys(row.current, state.derivedKeyDocuments);
@@ -276,8 +288,7 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
     state.workingBytes += bytes;
     state.overlayWriteGenerations.set(row.tableId, (state.overlayWriteGenerations.get(row.tableId) ?? 0) + 1);
     state.activityGeneration++;
-    return Result.succeed(undefined);
-  };
+  });
   const forgetUnwrittenPoint = (tableId: CatalogTableId, rowId: AppRowIdHexV1) => {
     const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
     const pending = state.rows.get(documentId);

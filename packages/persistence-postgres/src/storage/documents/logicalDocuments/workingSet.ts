@@ -1,3 +1,4 @@
+import { captureLogicalInsertionGraph, bindLogicalInsertionRoot, issueLogicalInsertionAttempt, type LogicalInsertionEvidence, type LogicalInsertionRoot, committedLogicalInsertionOrder, compareLogicalInsertionOrder, type LogicalInsertionOrder } from "./insertionOrder";
 import type { LogicalDocumentPointEvidence } from "./pointEvidence";
 import { observeExecution } from "../../../execution/diagnostics/operation";
 // Named execution diagnostics belong to explicit SDK composition. Local operations
@@ -85,8 +86,10 @@ export interface PendingDocument {
   readonly tableName: string;
   readonly rowId: AppRowIdHexV1;
   readonly documentId: AppDocumentIdV1;
-  readonly base: Readonly<{ kind: "live"; commitSeq: CommitSeq; creationTime: AppCreationTimeV1; document: CanonicalFlarexValueV1 }> |
-    Readonly<{ kind: "tombstone"; commitSeq: CommitSeq }> | null;
+  readonly base: Readonly<{ kind: "live"; commitSeq: CommitSeq; creationTime: AppCreationTimeV1; document: CanonicalFlarexValueV1;
+    insertionOrder?: Readonly<{ commitSeq: CommitSeq; attemptOrdinal: number }> }> |
+    Readonly<{ kind: "tombstone"; commitSeq: CommitSeq; insertionOrder?: Readonly<{ commitSeq: CommitSeq; attemptOrdinal: number }> }> | null;
+  insertionOrder?: LogicalInsertionOrder;
   readonly creationTime: AppCreationTimeV1;
   current: CanonicalFlarexValueV1 | null;
   deletedValue?: CanonicalFlarexValueV1;
@@ -94,12 +97,14 @@ export interface PendingDocument {
   /** Only independently durable borrowed journals hydrate an overlay. */
   borrowedOverlay?: true;
 }
-export type LogicalDocumentChange = LogicalDocumentPointEvidence & (
+export type LogicalDocumentChange = LogicalDocumentPointEvidence & Readonly<{ insertionOrder?: LogicalInsertionOrder }> & (
   | Readonly<{ kind: "live"; creationTime: AppCreationTimeV1; document: CanonicalFlarexValueV1 }>
   | Readonly<{ kind: "deleted" }>
 );
 export interface LogicalDocumentAttempt {
   readonly ordinal: number;
+  readonly insertionAttemptOrdinal?: number;
+  readonly insertionEvidence?: LogicalInsertionEvidence;
   readonly documentId: AppDocumentIdV1;
   readonly operation: "insert" | "patch" | "replace" | "delete";
   readonly tableId: CatalogTableId;
@@ -134,8 +139,10 @@ export interface LogicalRelationalReadObservation {
   readonly query: Json;
   readonly total: number;
   readonly returned: number;
+  readonly orderedIdentities?: readonly JsonObject[];
 }
 export interface LogicalDocumentChanges {
+  readonly insertionRoot?: LogicalInsertionRoot;
   /** Present only for the attempt-fixed finite execution profile. */
   readonly metadataDependencies?: readonly LogicalMetadataReadDependency[];
   readonly metadataWatermark?: MetadataSequence;
@@ -590,6 +597,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         scopeId: state.scopeId, snapshotCommitSeq: state.snapshotCommitSeq, attemptFence: state.rootAttemptFence });
   if (root === null || root !== undefined && state.pendingRows !== undefined)
     return yield* Effect.fail(state.error("invalidAuthority"));
+  const insertionRoot = yield* Effect.fromResult(bindLogicalInsertionRoot(state.lifetime, state.scopeId, root).pipe(
+    Result.mapError(reason => state.error(reason))));
   if (root?.pins.metadataWatermark !== undefined && (writeMechanics?.metadataProjections.length ?? 0) === 0)
     return yield* Effect.fail(state.error("invalidAuthority"));
   const projectionForTable = (tableId: CatalogTableId) => writeMechanics?.metadataByTable.get(tableId);
@@ -905,7 +914,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     if (rows.size >= limits.identities) return yield* Result.fail(error("limitExceeded"));
     yield* chargeResult(128 + (base.kind === "live" ? base.document.canonicalBytes.byteLength : 0));
     rows.set(documentId, { tableId, tableName: table.logicalName, rowId: base.rowId, documentId, base,
-      creationTime: base.creationTime, current: base.kind === "live" ? base.document : null, attempts: [] });
+      creationTime: base.creationTime, current: base.kind === "live" ? base.document : null, attempts: [],
+      ...(base.insertionOrder === undefined ? {} : { insertionOrder: committedLogicalInsertionOrder(base.insertionOrder) }) });
   });
   const hydrateCurrentBase = (...input: Parameters<typeof hydrateCurrentBaseResult>) =>
     Effect.suspend(() => Effect.fromResult(hydrateCurrentBaseResult(...input)));
@@ -925,6 +935,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     yield* chargeResult(128 + bytes);
     rows.set(documentId, { tableId: table.tableId, tableName: table.logicalName, rowId: selectedRowId, documentId, base,
       creationTime: base.creationTime, current: base.kind === "live" ? base.document : null, attempts: [],
+      ...(base.insertionOrder === undefined ? {} : { insertionOrder: committedLogicalInsertionOrder(base.insertionOrder) }),
       ...(root !== undefined && base.kind === "live" ? { originalRevision: base } : {}) });
   });
   const hydrateSnapshotBase = (...input: Parameters<typeof hydrateSnapshotBaseResult>) =>
@@ -1163,6 +1174,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       if (seedCreationTime === undefined) return yield* Effect.fail(error("storedCorruption"));
       rows.set(documentId, { tableId: seed.tableId, tableName: table.logicalName, rowId: seed.rowId,
         documentId, base: existing?.base ?? null, creationTime: seedCreationTime,
+        ...(existing?.insertionOrder === undefined ? {} : { insertionOrder: existing.insertionOrder }),
         current: seed.overlay.kind === "live" ? seed.overlay.document : null, attempts: [], borrowedOverlay: true });
     }));
     // Ordered batches preserve the original observation/base/overlay charge
@@ -1398,15 +1410,22 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     return yield* validateNext(0);
   }));
   const recordAttempt = (pending: PendingDocument, operation: LogicalDocumentAttempt["operation"],
-    after: CanonicalFlarexValueV1 | null) => {
+    after: CanonicalFlarexValueV1 | null) => Result.gen(function* () {
+    yield* consumeTableMetadataResult(pending.tableId, "writeClosure");
+    yield* chargeResult(128);
+    yield* markRowUse(pending.documentId);
+    if (operation === "insert" && after === null) return yield* Result.fail(error("invalidAuthority"));
+    const insertion = operation === "insert" && state.pendingRows === undefined && after !== null
+      ? yield* issueLogicalInsertionAttempt(insertionRoot, state.scopeId, pending.tableId, pending.documentId, after)
+        .pipe(Result.mapError(reason => error(reason))) : undefined;
+    const insertionAttemptOrdinal = insertion?.ordinal;
     const attempt = Object.freeze({ ordinal: attempts.length, documentId: pending.documentId, operation,
-      tableId: pending.tableId, tableName: localTableName(pending.tableId) ?? pending.tableName, before: pending.current, after });
-    return consumeTableMetadataResult(pending.tableId, "writeClosure").pipe(Result.flatMap(() => chargeResult(128)),
-      Result.flatMap(() => markRowUse(pending.documentId)), Result.map(() => {
-      pending.attempts.push(attempt.ordinal);
-      attempts.push(attempt);
-    }));
-  };
+      tableId: pending.tableId, tableName: localTableName(pending.tableId) ?? pending.tableName, before: pending.current, after,
+      ...(insertion === undefined ? {} : { insertionAttemptOrdinal: insertion.ordinal, insertionEvidence: insertion.evidence }) });
+    if (insertionAttemptOrdinal !== undefined) pending.insertionOrder = Object.freeze({ kind: "pending", attemptOrdinal: insertionAttemptOrdinal });
+    pending.attempts.push(attempt.ordinal);
+    attempts.push(attempt);
+  });
   const withWrittenDocument = <Value>(pending: PendingDocument, fields: JsonObject, operation: "insert" | "patch" | "replace", consume: (written: JsonObject) => Effect.Effect<Value, Failure>,
     prepareDocument?: (pending: PendingDocument) => Effect.Effect<CanonicalFlarexValueV1, Failure>) => observeExecution("LogicalDocuments.validateWrite", Effect.gen(function* (): Effect.fn.Return<Value, Failure> {
     const document = yield* (prepareDocument === undefined ? canonicalizeFlarexValueV1Effect({ ...fields, _id: pending.documentId, _creationTime: pending.creationTime }, "appDocument")
@@ -1698,6 +1717,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(preparation?.retained?.captured.value ?? input, lifetime.remainingBytes(), error));
     yield* charge(captured.bytes);
     const query = yield* compileRelationalRead(table, captured.value, preparation, captured);
+    if (query.storageInsertion && state.allowStorageInsertionOrder !== true) return yield* Effect.fail(error("invalidAuthority"));
     if (state.snapshotCommitSeq !== undefined && (query.search !== null || query.json !== null))
       return yield* Effect.fail(error("invalidInput"));
     if (complete && query.selections === null && query.search === null && query.json === null)
@@ -1809,7 +1829,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     // Selection has settled. Inspection, ordering and projection are bounded
     // synchronous owner work; retain lazy row order inside one Result fold.
     const result = yield* Effect.fromResult(Result.gen(function* () {
-      const matched: { document: JsonObject; order: Uint8Array; documentId: AppDocumentIdV1 }[] = [];
+      const matched: { document: JsonObject; order: Uint8Array; documentId: AppDocumentIdV1; insertionOrder?: LogicalInsertionOrder }[] = [];
+      const generations = new Set<string>();
       for (const row of selected.values()) {
         if (row.current === null) continue;
         const current = row.current;
@@ -1822,15 +1843,38 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
           query.matchesSearchAnchor(document)) yield* markRowUse(row.documentId);
         if (inspected.matches) {
           yield* markRowUse(row.documentId);
-          matched.push({ document, order: inspected.order, documentId: row.documentId });
+          if (query.storageInsertion) {
+            if (row.insertionOrder === undefined) return yield* Result.fail(error("invalidInput"));
+            const generation = row.insertionOrder.kind === "pending" ? ["pending", row.insertionOrder.attemptOrdinal] :
+              [String(row.insertionOrder.commitSeq), row.insertionOrder.attemptOrdinal];
+            const encoded = JSON.stringify(generation);
+            if (generations.has(encoded)) return yield* Result.fail(error("storedCorruption"));
+            generations.add(encoded);
+          }
+          matched.push({ document, order: inspected.order, documentId: row.documentId,
+            ...(row.insertionOrder === undefined ? {} : { insertionOrder: row.insertionOrder }) });
         }
       }
       matched.sort((left, right) => {
+        if (query.storageInsertion) {
+          if (left.insertionOrder === undefined || right.insertionOrder === undefined) throw new Error("Insertion order inspection lost metadata");
+          return compareLogicalInsertionOrder(left.insertionOrder, right.insertionOrder) * (query.direction === "asc" ? 1 : -1);
+        }
         const ordered = compareBytesLexicographically(left.order, right.order) * (query.direction === "asc" ? 1 : -1);
         return ordered || left.documentId.localeCompare(right.documentId);
       });
       const docs: JsonObject[] = [];
+      const orderedIdentities: JsonObject[] = [];
       for (const row of complete ? matched : matched.slice(query.offset, query.offset + query.limit)) {
+        if (query.storageInsertion) {
+          const identity: Record<string, string> = {};
+          for (const key of query.identityColumns) {
+            const value = row.document[key];
+            if (typeof value !== "string") return yield* Result.fail(error("storedCorruption"));
+            identity[key] = value;
+          }
+          orderedIdentities.push(Object.freeze(identity));
+        }
         const projected: Record<string, Json> = {};
         for (const field of query.fields) {
           const value = row.document[field];
@@ -1839,10 +1883,12 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         }
         docs.push(yield* projectedOutput(projected));
       }
-      return Object.freeze({ docs: Object.freeze(docs), total: matched.length });
+      return Object.freeze({ docs: Object.freeze(docs), total: matched.length,
+        ...(query.storageInsertion ? { orderedIdentities: Object.freeze(orderedIdentities) } : {}) });
     }));
     relationalReads.push(Object.freeze({ tableId: table.tableId, tableName: table.logicalName,
-      query: captured.value, total: result.total, returned: result.docs.length }));
+      query: captured.value, total: result.total, returned: result.docs.length,
+      ...(result.orderedIdentities === undefined ? {} : { orderedIdentities: result.orderedIdentities }) }));
     return result;
   }));
   const executeRelationalFind = (context: BoundedRequestContext,
@@ -1855,7 +1901,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(preparation?.retained?.captured.value ?? input, lifetime.remainingBytes(), error));
     yield* charge(captured.bytes);
     const query = yield* compileRelationalRead(table, captured.value, preparation, captured);
-    if (query.search !== null || query.direction !== "asc" || query.selections !== null && query.selections.length > 1)
+    if (query.storageInsertion || query.search !== null || query.direction !== "asc" || query.selections !== null && query.selections.length > 1)
       return yield* Effect.fail(error("invalidInput"));
     if (query.offset >= callIdentityLimit) return yield* Effect.fail(error("limitExceeded"));
     if (query.selections?.length === 0) return Object.freeze({ rows: Object.freeze([]), hasMore: false });
@@ -2424,12 +2470,12 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       // The root retains all pending values and dependency witnesses. Child
       // completion carries only the native lifecycle/activity receipt.
       const changed = new Set(localAttempts.map(attempt => attempt.documentId));
-      return detachLogicalDocumentChanges(Object.freeze({ attempts: Object.freeze(localAttempts),
+      return detachLogicalDocumentChanges(captureLogicalInsertionGraph(Object.freeze({ insertionRoot, attempts: Object.freeze(localAttempts),
         lifecycle: Object.freeze(localLifecycle), observedRows: Object.freeze(activity.observedRows.filter(row => changed.has(row.documentId))),
         relationalReads: activity.relationalReads,
         changes: Object.freeze([]), noFinalRows: Object.freeze([]), dependencies: Object.freeze([]), scans: Object.freeze([]),
         uniqueReads: Object.freeze([]), indexReads: Object.freeze([]), pageReads: Object.freeze([]), searchReads: Object.freeze([]),
-        setNull: activity.setNull, referenceReplacements: activity.referenceReplacements }));
+        setNull: activity.setNull, referenceReplacements: activity.referenceReplacements }), insertionRoot));
     }
     const changes: LogicalDocumentChange[] = [];
     const noFinalRows: AppDocumentIdV1[] = [];
@@ -2438,14 +2484,17 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       if (row.base === null && row.current === null) { noFinalRows.push(row.documentId); continue; }
       const dependency = dependencies.get(row.documentId);
       if (dependency === undefined) return yield* Effect.fail(error("storedCorruption"));
-      changes.push(Object.freeze(row.current === null ? { ...dependency, kind: "deleted" } :
-        { ...dependency, kind: "live", creationTime: row.creationTime, document: row.current }));
+      const insertionOrder = row.current === null ? committedLogicalInsertionOrder(row.base?.insertionOrder) : row.insertionOrder;
+      changes.push(Object.freeze(row.current === null ? { ...dependency, kind: "deleted",
+        ...(insertionOrder === undefined ? {} : { insertionOrder }) } :
+        { ...dependency, kind: "live", creationTime: row.creationTime, document: row.current,
+          ...(insertionOrder === undefined ? {} : { insertionOrder }) }));
     }
     changes.sort((left, right) => left.tableId - right.tableId || left.rowId.localeCompare(right.rowId));
     noFinalRows.sort();
     const freshDependencies = new Set([...dependencies.keys()].slice(localCursor.dependencies));
     const changedIds = new Set<AppDocumentIdV1>([...changes.map(change => change.documentId), ...noFinalRows]);
-    return detachLogicalDocumentChanges(Object.freeze({ ...activity, attempts: Object.freeze(localAttempts), lifecycle: Object.freeze(localLifecycle),
+    return detachLogicalDocumentChanges(captureLogicalInsertionGraph(Object.freeze({ ...activity, insertionRoot, attempts: Object.freeze(localAttempts), lifecycle: Object.freeze(localLifecycle),
       observedRows: Object.freeze(root === undefined ? activity.observedRows : activity.observedRows.filter(row =>
         freshDependencies.has(row.documentId) ||
         rows.get(row.documentId)?.attempts.some(ordinal => ordinal >= localCursor.attempts))),
@@ -2461,7 +2510,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       pageReads: Object.freeze(pageReads.slice(root === undefined ? 0 : localCursor.pageReads)),
       searchReads: Object.freeze(searchReads.slice(root === undefined ? 0 : localCursor.searchReads)),
       setNull: Object.freeze(setNull.slice(root === undefined ? 0 : localCursor.setNull)),
-      referenceReplacements: Object.freeze(referenceReplacements.slice(root === undefined ? 0 : localCursor.referenceReplacements)) }));
+      referenceReplacements: Object.freeze(referenceReplacements.slice(root === undefined ? 0 : localCursor.referenceReplacements)) }), insertionRoot));
   }));
   const documents = Object.freeze({ get, getMany, find, insert, delete: remove,
     patch: (context, id, documentId, fields, tableName) => edit(context, id, documentId, fields, "patch", tableName),

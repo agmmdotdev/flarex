@@ -436,8 +436,7 @@ and unchanged FK targets. Both complete root-plus-inverse and historical inverse
 use the existing optimistic 64-call/event profile. Profile update and Type
 creation can execute sequentially on the same installed binding; duplicate participants
 for that source in one atomic root remain unadmitted. Populated schema upgrades,
-Service Zone update workflow roots and public/hosted activation retain
-their separate gates.
+public/hosted activation retain their separate gates.
 
 The [native Service Zone deletion](./preflight/132-native-service-zone-delete-workflow.md)
 slice admits zero to four raw Zone IDs with complete historical closure for
@@ -454,9 +453,28 @@ active-restore capability and shared graph receipt owner without a new core
 mechanism or schema upgrade. Global active-name restore conflicts retain full
 atomic refusal through the typed host error boundary, distinct from native
 backend SQL error formatting. Module-only event infrastructure remains required.
-Service Zone update, general Shipping Option/provider workflows, populated
-upgrades and public/hosted activation remain unadmitted. Chunked Product file
-import and Product export remain deferred.
+General Shipping Option/provider workflows, populated upgrades and public/hosted
+activation remain unadmitted. Chunked Product file import and Product export
+remain deferred.
+
+The [native Service Zone update](./preflight/133-native-service-zone-update-workflow.md)
+slice admits zero to four selected Zones, sixteen current GeoZones including
+history and four replacement entries per Zone. It preserves genuine scalar
+updates, all four geographic types, projected originals, JSON reference-driven
+child writes and insertion-order relation hydration. Complete old/new replacement
+covers thirty-two distinct Geo identities. The genuine retained inverse removes
+new children but refuses old IDs that forward execution physically deleted;
+that refusal makes a containing atomic root rollback-only. A separate named
+128-call profile admits the complete root and inverse; the default event and
+other resource limits remain unchanged.
+
+The neutral [insertion-generation contract](../shared-logical-storage/67-insertion-generation-order.md)
+owns protected revision metadata, root-global allocation, accepting-commit
+assignment and explicitly selected complete indexed ordering. Additive physical
+migration 149 leaves old generations unknown; it does not backfill order or
+admit a populated framework schema upgrade. Zone creation/deletion and existing
+Product/Store replacement profiles retain their behavior. Fulfillment Set and
+general Shipping Option workflows retain their separate preflight gates.
 
 The [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)
 is complete within its approved bounded profiles. Persistence now owns protected

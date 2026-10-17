@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyNativeToManyInitialization } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyShippingProfileWorkflowTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -1363,5 +1363,142 @@ describe("native ServiceZone deletion callback and public input provenance", () 
   it("rejects malformed native callback syntax", () => {
     expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(void 0, ids)", "return new StepResponse(")))
       .toThrow("Invalid native ServiceZone deletion callback syntax");
+  });
+});
+
+describe("native ServiceZone update callback and full public contract provenance", () => {
+  const paths = ["fulfillment/workflows/update-service-zones.ts", "fulfillment/steps/update-service-zones.ts"];
+  const native = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const promoted = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const nativeTypes = readFileSync("third_party/medusa/upstream/packages/core/types/src/workflow/fulfillment/service-zones.ts", "utf8");
+  const types = readFileSync("packages/medusa-types/src/workflow/fulfillment/service-zones.ts", "utf8");
+  const verify = (workflow = promoted[0], step = promoted[1], publicTypes = types) =>
+    verifyServiceZoneUpdateCallbacks(native[0], workflow, native[1], step, nativeTypes, publicTypes);
+  it("admits the genuine root, projected originals, update and retained upsert", () => expect(() => verify()).not.toThrow());
+  it.each([
+    ["identity", '"update-service-zones-workflow"', '"update-other-service-zones-workflow"'],
+    ["whole input", "updateServiceZonesStep(input)", "updateServiceZonesStep({})"],
+    ["returned result", "new WorkflowResponse(updateServiceZonesStep(input))", "new WorkflowResponse([])"],
+    ["direct step import", 'from "../steps/update-service-zones"', 'from "../steps"'],
+    ["extra runtime effect", "    return new WorkflowResponse", "    console.log(input); return new WorkflowResponse"],
+    ["extra dependency", 'from "../steps/update-service-zones"', 'from "../steps/update-service-zones"; import "node:fs"'],
+  ])("rejects changed root %s", (_label, before, after) => {
+    const changed = promoted[0].replace(before, after); expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native ServiceZone update callback behavior");
+  });
+  it.each([
+    ["identity", '"update-service-zones"', '"update-other-service-zones"'],
+    ["covered metadata", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["Fulfillment resource", "Modules.FULFILLMENT", "Modules.PRODUCT"],
+    ["projection source", "      input.update,", "      {},"],
+    ["projection helper", "getSelectsAndRelationsFromObjectArray([", "Object.assign(["],
+    ["original selector", "service.listServiceZones(input.selector,", "service.listServiceZones({},"],
+    ["select projection", "select: selects", "select: []"],
+    ["relation projection", "      relations,", "      relations: [],"],
+    ["list await", "await service.listServiceZones", "service.listServiceZones"],
+    ["selector update", "service.updateServiceZones(", "service.upsertServiceZones("],
+    ["update selector", "      input.selector,", "      {},"],
+    ["update patch", "      input.update\n", "      {}\n"],
+    ["update await", "await service.updateServiceZones", "service.updateServiceZones"],
+    ["returned rows", "new StepResponse(updatedServiceZones, prevData)", "new StepResponse([], prevData)"],
+    ["projected retained originals", "new StepResponse(updatedServiceZones, prevData)", "new StepResponse(updatedServiceZones, [])"],
+    ["empty inverse", "if (!prevData?.length)", "if (!prevData)"],
+    ["genuine upsert inverse", "service.upsertServiceZones(prevData)", "service.createServiceZones(prevData)"],
+    ["original inverse input", "service.upsertServiceZones(prevData)", "service.upsertServiceZones([])"],
+    ["inverse await", "await service.upsertServiceZones", "service.upsertServiceZones"],
+    ["extra inverse resource", "    await service.upsertServiceZones", '    container.resolve("query"); await service.upsertServiceZones'],
+  ])("rejects changed step %s", (_label, before, after) => {
+    const changed = promoted[1].replace(before, after); expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Changed native ServiceZone update callback behavior");
+  });
+  it.each([
+    [0, "ServiceZoneDTO[]", "readonly ServiceZoneDTO[]"],
+    [0, "WorkflowData<FulfillmentWorkflow.UpdateServiceZonesWorkflowInput>", "WorkflowData<never>"],
+    [1, "input: FulfillmentWorkflow.UpdateServiceZonesWorkflowInput", "input: never"],
+    [0, 'from "@medusajs/types/workflow/fulfillment/service-zones"', 'from "@medusajs/types/workflow/fulfillment/shipping-profiles"'],
+    [1, 'from "@medusajs/types/fulfillment/index"', 'from "@medusajs/types"'],
+  ])("rejects changed public contract %s", (index, before, after) => {
+    const changed = promoted[index].replace(before, after); expect(changed).not.toBe(promoted[index]);
+    expect(() => index === 0 ? verify(changed) : verify(promoted[0], changed)).toThrow("Changed native ServiceZone update public contract");
+  });
+  it.each([
+    ["name?: string | null", "name?: string"],
+    ["selector: FilterableServiceZoneProps", "selector: never"],
+    ["update: UpdateServiceZone", "update: Partial<UpdateServiceZone>"],
+    ["id: string", "id?: string"],
+  ])("rejects shared public workflow type mutation %s", (before, after) => {
+    const changed = types.replace(before, after); expect(changed).not.toBe(types);
+    expect(() => verify(promoted[0], promoted[1], changed)).toThrow("Changed native ServiceZone update public contract");
+  });
+  it("rejects malformed native callback syntax", () => {
+    expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(updatedServiceZones, prevData)", "return new StepResponse(")))
+      .toThrow("Invalid native ServiceZone update callback syntax");
+  });
+  it.each(paths.flatMap(file => [
+    [file, "source", { source: "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment/steps/update-shipping-profiles.ts" }],
+    [file, "classification", { classification: "selectedExportFacade" }],
+  ]))("rejects displaced %s %s", (file, _label, mutation) => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(entry =>
+      entry.target === "packages/medusa-core-flows/src/" + file ? { ...entry, ...mutation } : entry) }))
+      .toThrow("ServiceZone update adaptation outside its exact pinned source pair");
+  });
+});
+
+describe("native metadata-only relation scalar-field projection provenance", () => {
+  const native = readFileSync("third_party/medusa/upstream/packages/database/drizzle/src/medusa.ts", "utf8");
+  const owner = readFileSync("packages/medusa-drizzle/src/relation-query.ts", "utf8");
+  const offset = owner.indexOf("export function relationScalarFieldPaths(");
+  const prefix = owner.slice(0, offset), helper = owner.slice(offset);
+  it("admits the exact native helper and metadata-only public seam", () => {
+    expect(offset).toBeGreaterThan(0);
+    expect(() => verifyNativeRelationScalarFields(native, owner)).not.toThrow();
+  });
+  it.each([
+    ["falsey/true populate", "if (!Array.isArray(populate))", "if (!populate)"],
+    ["path splitting", 'path.split(".").filter(Boolean)', 'path.split(".")'],
+    ["descriptor lookup", "currentDescriptors.get(part)", "descriptors.get(part)"],
+    ["relation ancestry", "if (relationParts.length)", "if (relationParts.length > 1)"],
+    ["scalar terminal", '[...relationParts, part].join(".")', '[...relationParts].join(".")'],
+    ["raw prefix", 'part.startsWith("raw_")', 'part.startsWith("raw")'],
+    ["raw schema membership", "part.slice(4) in currentModel.parse().schema", "part in currentModel.parse().schema"],
+    ["raw scalar alias", '[...relationParts, part.slice(4)].join(".")', '[...relationParts, part].join(".")'],
+    ["virtual terminal", "parts[parts.length - 1]", "parts[index]"],
+    ["virtual depth", "index < parts.length - 1", "index <= parts.length - 1"],
+    ["virtual schema membership", "virtualField in currentModel.parse().schema", "part in currentModel.parse().schema"],
+    ["virtual scalar alias", '[...relationParts, virtualField].join(".")', '[...relationParts, part].join(".")'],
+    ["stop at scalar", "        break", "        continue"],
+    ["descendant model", "currentModel = descriptor.targetModel", "currentModel = undefined"],
+    ["descendant descriptors", "descriptorsByModel.get(descriptor.relationship.targetModel)", "descriptorsByModel.get(part)"],
+    ["native duplicate preservation", "return fields", "return [...new Set(fields)]"],
+    ["extra side effect", "return fields", "console.log(fields); return fields"],
+  ])("rejects changed helper %s", (_label, before, after) => {
+    const changed = helper.replace(before, after); expect(changed).not.toBe(helper);
+    expect(() => verifyNativeRelationScalarFields(native, prefix + changed))
+      .toThrow("Changed native relation scalar-field extraction");
+  });
+  it.each([
+    ["populate: string[] | boolean | undefined", "populate: string[]"],
+    ["descriptors: ReadonlyMap<string, ScalarFieldRelationDescriptor>", "descriptors: Map<string, ScalarFieldRelationDescriptor>"],
+    ["schema: Readonly<Record<string, unknown>>", "schema: Readonly<Record<string, string>>"],
+    ["readonly targetModel: string", "readonly targetModel: number"],
+  ])("rejects public metadata seam mutation %s", (before, after) => {
+    const changed = owner.replace(before, after); expect(changed).not.toBe(owner);
+    expect(() => verifyNativeRelationScalarFields(native, changed))
+      .toThrow("Changed native relation scalar-field public contract");
+  });
+  it.each([
+    owner + "\nfunction relationScalarFieldPaths() {}\n",
+    owner.replace("function relationScalarFieldPaths", "function otherProjection"),
+  ])("rejects missing/duplicate extraction", changed => {
+    expect(() => verifyNativeRelationScalarFields(native, changed))
+      .toThrow("Changed native relation scalar-field extraction");
+  });
+  it.each([
+    { source: "third_party/medusa/upstream/packages/database/drizzle/src/schema.ts" },
+    { classification: "workflowFork" },
+  ])("rejects displaced extraction provenance %j", mutation => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(file =>
+      file.target === "packages/medusa-drizzle/src/relation-query.ts" ? { ...file, ...mutation } : file) }))
+      .toThrow("Native relation projection extraction outside its exact pinned source pair");
   });
 });

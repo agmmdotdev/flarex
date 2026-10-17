@@ -204,3 +204,65 @@ export function fillEmptyToManyRelations(
     }
   }
 }
+
+/** Metadata-only native descriptor seam; SQL tables/managers are not required
+ * to resolve relation paths to real scalar projection fields. */
+export interface ScalarFieldRelationDescriptor {
+  readonly targetModel: { parse(): { schema: Readonly<Record<string, unknown>> } }
+  readonly relationship: { readonly targetModel: string }
+}
+
+/** Exact native relationScalarFieldPaths algorithm from medusa.ts. Only its
+ * SQL-bearing descriptor types are replaced by the metadata-only seam above. */
+export function relationScalarFieldPaths(
+  populate: string[] | boolean | undefined,
+  descriptors: ReadonlyMap<string, ScalarFieldRelationDescriptor>,
+  descriptorsByModel: ReadonlyMap<string, ReadonlyMap<string, ScalarFieldRelationDescriptor>>
+): string[] {
+  if (!Array.isArray(populate)) {
+    return []
+  }
+
+  const fields: string[] = []
+  for (const path of populate) {
+    const parts = path.split(".").filter(Boolean)
+    let currentDescriptors = descriptors
+    const relationParts: string[] = []
+    let currentModel: ScalarFieldRelationDescriptor["targetModel"] | undefined
+
+    for (let index = 0; index < parts.length; index++) {
+      const part = parts[index]
+      const descriptor = currentDescriptors.get(part)
+      if (!descriptor) {
+        if (relationParts.length) {
+          fields.push([...relationParts, part].join("."))
+          if (
+            currentModel &&
+            part.startsWith("raw_") &&
+            part.slice(4) in currentModel.parse().schema
+          ) {
+            fields.push([...relationParts, part.slice(4)].join("."))
+          }
+
+          const virtualField = parts[parts.length - 1]
+          if (
+            currentModel &&
+            index < parts.length - 1 &&
+            virtualField in currentModel.parse().schema
+          ) {
+            fields.push([...relationParts, virtualField].join("."))
+          }
+        }
+        break
+      }
+
+      relationParts.push(part)
+      currentModel = descriptor.targetModel
+      currentDescriptors =
+        descriptorsByModel.get(descriptor.relationship.targetModel) ??
+        new Map()
+    }
+  }
+
+  return fields
+}

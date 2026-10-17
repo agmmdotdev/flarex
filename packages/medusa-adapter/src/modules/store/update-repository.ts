@@ -72,7 +72,7 @@ export function prepareStoreUpdateRepository(metadata: Metadata) {
       return { where, fields, predicate, paths: options.populate ?? [] };
     });
     const prepared = yield* prepareScalarRepository(lifecycle.store, "Store", scalarIdWhere);
-    const profile: ReplacementProfile = { catalog: graph.catalog, allowReconstitution: true,
+    const profile: ReplacementProfile = { catalog: graph.catalog, operation: "upsertWithReplace", ordering: new Map(), allowReconstitution: true,
       allowedRelations: entity => entity === graph.store ? ["supported_currencies", "supported_locales"] : [],
       ownedToOne: () => [], mutableForeignKeys: () => false, admitSelection: graph.admitSelection,
       prepareProjection: (_entity, roots, load) => Effect.gen(function* () {

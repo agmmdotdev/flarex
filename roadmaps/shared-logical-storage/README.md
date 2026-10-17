@@ -56,6 +56,11 @@ with digest-bound table targets and the existing first-data and settlement owner
 
 ## Current Sources Of Truth
 
+[Protected insertion-generation order](./67-insertion-generation-order.md) owns
+the implemented bounded neutral contract for native relation insertion order.
+It preserves public creation timestamps and existing profiles while requiring
+protected revision metadata and explicitly selected bounded ordered reads.
+
 [Explicit preserving-deletion upsert](./65-preserving-deletion-upsert.md) owns
 the private conflict merge needed by native Shipping Option Type inverses.
 Ordinary upsert and managed lifecycle operations retain their existing contracts.

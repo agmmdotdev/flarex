@@ -63,8 +63,9 @@ export interface LogicalCommerceObservedRow {
   readonly row: JsonObject;
 }
 const ReadCount = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }));
-const decodeRelationalRead = Schema.decodeUnknownEffect(Schema.Struct({ query: Schema.Json, total: ReadCount, returned: ReadCount })
-  .check(Schema.makeFilter(value => value.returned <= value.total)), { onExcessProperty: "error" });
+const decodeRelationalRead = Schema.decodeUnknownEffect(Schema.Struct({ query: Schema.Json, total: ReadCount, returned: ReadCount, orderedIdentities: Schema.optionalKey(Schema.Array(Schema.Record(Schema.String, Schema.String))) })
+  .check(Schema.makeFilter(value => value.returned <= value.total &&
+    (value.orderedIdentities === undefined || value.orderedIdentities.length === value.returned))), { onExcessProperty: "error" });
 export interface LogicalCommerceSetNull {
   readonly sourceTable: string;
   readonly sourceColumn: string;
@@ -103,7 +104,7 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
   admission: LogicalRelationalAdmission, tx: FlarexMetadataTransaction,
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, initialContext: BoundedRequestContext, id: string,
   allowReferenceReplacement = false, selectedResources?: CommerceResources, logicalPublication?: "mixed",
-  allowReconstitution = false, allowPreservingDeletionUpsert = false, allowActiveRestoreUpdate = false,
+  allowReconstitution = false, allowPreservingDeletionUpsert = false, allowActiveRestoreUpdate = false, allowStorageInsertionOrder = false,
 ) {
   const resources = selectedResources ?? defaultCommerceResources;
   const maximumIdentities = selectedResources?.catalogRows ?? logicalCommerceWorkingSetLimits.identities;
@@ -122,6 +123,7 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
     ...(allowReconstitution ? { allowReconstitution: true as const } : {}),
     ...(allowPreservingDeletionUpsert ? { allowPreservingDeletionUpsert: true as const } : {}),
     ...(allowActiveRestoreUpdate ? { allowActiveRestoreUpdate: true as const } : {}),
+    ...(allowStorageInsertionOrder ? { allowStorageInsertionOrder: true as const } : {}),
     tables: readReadiness.kind === "queryRequired" ? readReadiness.mechanics.tables :
       state.writeMechanics.tables,
     ...(readReadiness.kind === "queryRequired" ? (
@@ -236,12 +238,15 @@ export const projectLogicalCommerceActivity = Effect.fnUntraced(function* (
   for (const observation of activity.relationalReads) {
     const table = names.get(observation.tableId);
     if (table === undefined || table !== observation.tableName) return yield* Effect.fail(commerceError("storedCorruption"));
-    const captured = yield* Effect.fromResult(useCapturedPrivateJsonData({ query: observation.query, total: observation.total, returned: observation.returned },
+    const captured = yield* Effect.fromResult(useCapturedPrivateJsonData({ query: observation.query, total: observation.total, returned: observation.returned,
+      ...(observation.orderedIdentities === undefined ? {} : { orderedIdentities: observation.orderedIdentities }) },
       Number.MAX_SAFE_INTEGER, (_reason, cause) => commerceError("storedCorruption", cause)));
     const selected = yield* decodeRelationalRead(captured.value)
       .pipe(Effect.mapError(cause => commerceError("storedCorruption", cause)));
     relationalReads.push(Object.freeze({ table, query: detachLogicalRelationalActivityJson(selected.query),
-      total: selected.total, returned: selected.returned }));
+      total: selected.total, returned: selected.returned,
+      ...(selected.orderedIdentities === undefined ? {} : { orderedIdentities: Object.freeze(selected.orderedIdentities.map(identity =>
+        Object.freeze(detachLogicalRelationalActivityJson(identity)))) }) }));
   }
   const setNull: LogicalCommerceSetNull[] = [];
   for (const intent of activity.setNull) {

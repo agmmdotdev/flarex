@@ -58,7 +58,7 @@ export function productCreationProfile(catalog: ProductRuntimeMetadata): Creatio
 export type ProductReplacementAdmission = "standard" | "option-workflows";
 export function productReplacementProfile(catalog: ProductRuntimeMetadata, admission: ProductReplacementAdmission = "standard"): ReplacementProfile {
   return {
-    catalog: productGraphCatalog(catalog),
+    catalog: productGraphCatalog(catalog), operation: "upsertWithReplace", ordering: new Map(),
     allowedRelations: entity => entity === catalog.product ? ["options", "variants", "images", "tags", "categories"]
       : entity === catalog.option ? ["values"] : entity === catalog.variant ? ["options"] : entity === catalog.collection ? ["products"] : [],
     ownedToOne: entity => entity === catalog.product ? ["collection", "type"] : [],

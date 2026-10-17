@@ -108,6 +108,8 @@ import {
   AppRowWritePersistenceError,
   type AppRowPointDependencyV1,
   type LiveAppRowRevisionV1,
+  decodeAppRowInsertionOrderResult,
+  decodeStoredAppRowInsertionOrderResult,
 } from "../documents/appRows";
 import {
   type PreparedAppIndexRevisionApplication,
@@ -1186,20 +1188,23 @@ const selectPointCommitHeads = Effect.fn("ApplicationDocument.selectPointCommitH
       current_row.commit_seq::text as "pointerCommitSeqText",
       latest.commit_seq::text as "latestCommitSeqText",
       latest.is_tombstone as "latestIsTombstone",
-      latest.creation_time::text as "latestCreationTimeText"
+      latest.creation_time::text as "latestCreationTimeText",
+      latest.insertion_commit_seq::text as "latestInsertionCommitSeqText",
+      latest.insertion_attempt_ordinal::text as "latestInsertionAttemptOrdinalText"
       ${originalTables === undefined ? sql`` : sql`,
       latest.is_tombstone as "isTombstone", latest.creation_time::text as "creationTimeText",
       latest.value_codec_version as "valueCodecVersion", latest.value_bytes as "valueBytes",
       latest.value_sha256 as "valueSha256", latest.scope_uuid as "scopeUuid",
       latest.write_epoch_uuid as "writeEpochUuid", latest.prev_commit_seq::text as "prevCommitSeq",
-      latest.schema_version_id as "schemaVersionId"`}
+      latest.schema_version_id as "schemaVersionId", latest.insertion_commit_seq::text as "insertionCommitSeqText",
+      latest.insertion_attempt_ordinal::text as "insertionAttemptOrdinalText"`}
     from requested
     left join fx_app_row_current as current_row
       on current_row.scope_uuid = ${clock.scopeUuid}
       and current_row.table_id = requested.table_id
       and current_row.row_id = requested.row_id
     left join lateral (
-      select revision.commit_seq, revision.is_tombstone, revision.creation_time
+      select revision.commit_seq, revision.is_tombstone, revision.creation_time, revision.insertion_commit_seq, revision.insertion_attempt_ordinal
       ${originalTables === undefined ? sql`` : sql`, revision.value_codec_version,
         case when requested.original_demanded and not revision.is_tombstone
           and octet_length(revision.value_bytes) <= 1048576 then revision.value_bytes else null end as value_bytes,
@@ -1449,6 +1454,7 @@ const decodeStoredPriorDocumentResult = Schema.decodeUnknownResult(Schema.Struct
   valueSha256: Schema.Uint8Array.check(Schema.makeFilter(value => value.byteLength === 32)),
   scopeUuid:ScopeUuidV1Schema,writeEpochUuid:ScopeEpochUuidV1Schema,
   prevCommitSeq:Schema.NullOr(CommitSeqSchema),schemaVersionId:CatalogSchemaVersionIdSchema,
+  insertionCommitSeqText: Schema.NullOr(Schema.String), insertionAttemptOrdinalText: Schema.NullOr(Schema.String),
 }));
 
 function priorDocumentRequestsResult(
@@ -1509,6 +1515,8 @@ const loadPointCommitDocumentsForTables = Effect.fn("ApplicationDocument.loadPri
       requested.ordinal::text as "ordinalText",
       revision.is_tombstone as "isTombstone",
       revision.creation_time::text as "creationTimeText",
+      revision.insertion_commit_seq::text as "insertionCommitSeqText",
+      revision.insertion_attempt_ordinal::text as "insertionAttemptOrdinalText",
       revision.value_codec_version as "valueCodecVersion",
       revision.value_bytes as "valueBytes",
       revision.value_sha256 as "valueSha256",
@@ -1567,10 +1575,14 @@ const decodePointCommitOriginalDocuments = Effect.fnUntraced(function* (
       canonicalBytes: raw.valueBytes,
       sha256: raw.valueSha256,
     }).pipe(Effect.mapError(() => corruption("priorDocumentInvalid")));
+    const insertionOrder = yield* Effect.fromResult(decodeStoredAppRowInsertionOrderResult({ scopeId: command.authorityPins.scopeId,
+      tableId: request.tableId, rowId: request.rowId }, request.commitSeq,
+      { get commitSeq() { return raw.insertionCommitSeqText; }, get attemptOrdinal() { return raw.insertionAttemptOrdinalText; } }, true)
+      .pipe(Result.mapError(() => corruption("priorDocumentInvalid"))));
     documents.set(request.documentId, document);
     originalRows.push({kind:"live",scopeId:command.authorityPins.scopeId,scopeUuid:raw.scopeUuid,writeEpochUuid:raw.writeEpochUuid,
       tableId:request.tableId,rowId:request.rowId,commitSeq:request.commitSeq,prevCommitSeq:raw.prevCommitSeq,schemaVersionId:raw.schemaVersionId,
-      creationTime:request.creationTime,document});
+      creationTime:request.creationTime,document,...(insertionOrder === undefined ? {} : { insertionOrder })});
   }
   return {documents,originalRows};
 });
@@ -1682,58 +1694,71 @@ function prepareTentativePointCommitRowResult(
   AppendPreparedAppRowRevisionV1Input,
   PointCommitCorruptionV1Error
 > {
-  const dependency = dependencyIndex === undefined ? undefined : command.dependencies[dependencyIndex];
-  const loaded = dependencyIndex === undefined ? undefined : heads[dependencyIndex];
-  if (dependency === undefined || !pointDependenciesEqual(dependency, intent) || loaded === undefined) {
-    return Result.fail(corruption("rowTransitionInvalid"));
-  }
-  const observed = intent.dependency.observed;
-  if (intent.kind === "deleted") {
-    if (
-      observed.kind !== "present" ||
-      loaded.head.kind !== "live" ||
-      loaded.creationTime === null
-    ) {
-      return Result.fail(corruption("rowTransitionInvalid"));
+  return Result.gen(function* () {
+    const dependency = dependencyIndex === undefined ? undefined : command.dependencies[dependencyIndex];
+    const loaded = dependencyIndex === undefined ? undefined : heads[dependencyIndex];
+    if (dependency === undefined || !pointDependenciesEqual(dependency, intent) || loaded === undefined) {
+      return yield* Result.fail(corruption("rowTransitionInvalid"));
     }
-    const predecessorCommitSeq = loaded.head.revisionCommitSeq;
-    const creationTime = loaded.creationTime;
-    return Result.succeed({
-      kind: "tombstone",
+    const observed = intent.dependency.observed;
+    if (intent.kind === "deleted" && intent.insertionOrder?.kind === "pending") return yield* Result.fail(corruption("rowTransitionInvalid"));
+    const generation = intent.insertionOrder;
+    const candidate = generation === undefined ? loaded.insertionOrder : generation.kind === "pending"
+      ? { commitSeq: tentativeCommitSeq, attemptOrdinal: generation.attemptOrdinal }
+      : { commitSeq: generation.commitSeq, attemptOrdinal: generation.attemptOrdinal };
+    const insertionOrder = candidate === undefined ? undefined : yield* decodeAppRowInsertionOrderResult({ scopeId: command.authorityPins.scopeId,
+      tableId: intent.tableId, rowId: intent.rowId }, tentativeCommitSeq, candidate).pipe(Result.mapError(() => corruption("rowTransitionInvalid")));
+    if (intent.kind === "deleted") {
+      if (
+        observed.kind !== "present" ||
+        loaded.head.kind !== "live" ||
+        loaded.creationTime === null
+      ) {
+        return yield* Result.fail(corruption("rowTransitionInvalid"));
+      }
+      const predecessorCommitSeq = loaded.head.revisionCommitSeq;
+      const creationTime = loaded.creationTime;
+      const row: AppendPreparedAppRowRevisionV1Input = {
+        kind: "tombstone",
+        scopeId: command.authorityPins.scopeId,
+        tableId: intent.tableId,
+        rowId: intent.rowId,
+        writeEpoch,
+        commitSeq: tentativeCommitSeq,
+        prevCommitSeq: predecessorCommitSeq,
+        schemaVersionId: command.sourceSchemaVersionByTable?.get(intent.tableId) ?? command.authorityPins.schemaVersionId,
+        creationTime,
+        ...(insertionOrder === undefined ? {} : { insertionOrder }),
+      };
+      return row;
+    }
+
+    let prevCommitSeq: CommitSeq | null;
+    if (
+      observed.kind === "missing" &&
+      observed.basis.kind === "noVisibleRevision" &&
+      loaded.head.kind === "missing"
+    ) {
+      prevCommitSeq = null;
+    } else if (observed.kind === "present" && loaded.head.kind === "live") {
+      prevCommitSeq = loaded.head.revisionCommitSeq;
+    } else {
+      return yield* Result.fail(corruption("rowTransitionInvalid"));
+    }
+    const row: AppendPreparedAppRowRevisionV1Input = {
+      kind: "live",
       scopeId: command.authorityPins.scopeId,
       tableId: intent.tableId,
       rowId: intent.rowId,
       writeEpoch,
       commitSeq: tentativeCommitSeq,
-      prevCommitSeq: predecessorCommitSeq,
+      prevCommitSeq,
       schemaVersionId: command.sourceSchemaVersionByTable?.get(intent.tableId) ?? command.authorityPins.schemaVersionId,
-      creationTime,
-    });
-  }
-
-  let prevCommitSeq: CommitSeq | null;
-  if (
-    observed.kind === "missing" &&
-    observed.basis.kind === "noVisibleRevision" &&
-    loaded.head.kind === "missing"
-  ) {
-    prevCommitSeq = null;
-  } else if (observed.kind === "present" && loaded.head.kind === "live") {
-    prevCommitSeq = loaded.head.revisionCommitSeq;
-  } else {
-    return Result.fail(corruption("rowTransitionInvalid"));
-  }
-  return Result.succeed({
-    kind: "live",
-    scopeId: command.authorityPins.scopeId,
-    tableId: intent.tableId,
-    rowId: intent.rowId,
-    writeEpoch,
-    commitSeq: tentativeCommitSeq,
-    prevCommitSeq,
-    schemaVersionId: command.sourceSchemaVersionByTable?.get(intent.tableId) ?? command.authorityPins.schemaVersionId,
-    creationTime: intent.creationTime,
-    document: intent.document,
+      creationTime: intent.creationTime,
+      document: intent.document,
+      ...(insertionOrder === undefined ? {} : { insertionOrder }),
+    };
+    return row;
   });
 }
 

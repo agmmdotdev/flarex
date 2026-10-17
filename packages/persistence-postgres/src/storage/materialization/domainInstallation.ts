@@ -287,14 +287,14 @@ CREATE FUNCTION ${namespace}.fx_apply_app_row_batch(p_rows ${namespace}.fx_app_r
 RETURNS TABLE(reason text, ordinal integer, actual_commit_seq bigint, actual_creation_time double precision)
 LANGUAGE plpgsql VOLATILE SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $row_batch$
 DECLARE i integer; n integer := coalesce(array_length(p_rows, 1), 0);
-  expected_row ${row}; actual_row ${row}; pointer_seq bigint; predecessor_time double precision;
+  expected_row ${row}; actual_row ${row}; pointer_seq bigint; predecessor_time double precision; predecessor_insertion_commit bigint; predecessor_insertion_ordinal bigint;
   inserted_seq bigint; phase text := 'write'; proof_rows ${namespace}.fx_app_row_write[]; verification record;
 BEGIN
   IF n < 1 OR n > 32 OR n + coalesce(array_length(p_verify, 1), 0) > 512 THEN reason := 'invalidBatch'; ordinal := 0; RETURN NEXT; RETURN; END IF;
   FOR i IN 1..n LOOP
     ordinal := i - 1;
     IF (p_rows[i]).${field(fxAppRowRevisions.prevCommitSeq.name)} IS NOT NULL THEN
-      SELECT r.${field(fxAppRowRevisions.creationTime.name)} INTO predecessor_time FROM ${row} r
+      SELECT r.${field(fxAppRowRevisions.creationTime.name)}, r.${field(fxAppRowRevisions.insertionCommitSeq.name)}, r.${field(fxAppRowRevisions.insertionAttemptOrdinal.name)} INTO predecessor_time, predecessor_insertion_commit, predecessor_insertion_ordinal FROM ${row} r
         WHERE r.${field(fxAppRowRevisions.scopeUuid.name)} = (p_rows[i]).${field(fxAppRowRevisions.scopeUuid.name)} AND r.${field(fxAppRowRevisions.tableId.name)} = (p_rows[i]).${field(fxAppRowRevisions.tableId.name)}
           AND r.${field(fxAppRowRevisions.rowId.name)} = (p_rows[i]).${field(fxAppRowRevisions.rowId.name)} AND r.${field(fxAppRowRevisions.commitSeq.name)} = (p_rows[i]).${field(fxAppRowRevisions.prevCommitSeq.name)};
       IF NOT FOUND THEN
@@ -305,6 +305,18 @@ BEGIN
       IF predecessor_time IS DISTINCT FROM (p_rows[i]).${field(fxAppRowRevisions.creationTime.name)} THEN
         reason := 'creationTimeConflict'; actual_creation_time := predecessor_time; RETURN NEXT; RETURN;
       END IF;
+      -- Preserve known and unknown predecessor evidence, except an authenticated
+      -- live insertion generation in this actual accepting commit.
+      IF ((p_rows[i]).${field(fxAppRowRevisions.insertionCommitSeq.name)} IS DISTINCT FROM predecessor_insertion_commit
+          OR (p_rows[i]).${field(fxAppRowRevisions.insertionAttemptOrdinal.name)} IS DISTINCT FROM predecessor_insertion_ordinal)
+        AND ((p_rows[i]).${field(fxAppRowRevisions.isTombstone.name)} OR (p_rows[i]).${field(fxAppRowRevisions.insertionCommitSeq.name)} IS DISTINCT FROM (p_rows[i]).${field(fxAppRowRevisions.commitSeq.name)}
+          OR (p_rows[i]).${field(fxAppRowRevisions.insertionAttemptOrdinal.name)} IS NULL) THEN
+        reason := 'storedCorruption'; RETURN NEXT; RETURN;
+      END IF;
+    ELSIF (p_rows[i]).${field(fxAppRowRevisions.insertionCommitSeq.name)} IS NOT NULL
+      AND ((p_rows[i]).${field(fxAppRowRevisions.isTombstone.name)} OR
+        (p_rows[i]).${field(fxAppRowRevisions.insertionCommitSeq.name)} IS DISTINCT FROM (p_rows[i]).${field(fxAppRowRevisions.commitSeq.name)}) THEN
+      reason := 'storedCorruption'; RETURN NEXT; RETURN;
     END IF;
   END LOOP;
   FOR i IN 1..n LOOP
@@ -313,7 +325,17 @@ BEGIN
     INSERT INTO ${row} (${sql.join(rowColumns.map(column => field(column.name)), sql`, `)})
       VALUES (${sql.join(rowColumns.map(column => sql`expected_row.${field(column.name)}`), sql`, `)})
       ON CONFLICT DO NOTHING RETURNING * INTO actual_row;
-    IF NOT FOUND THEN reason := 'revisionExists'; RETURN NEXT; RETURN; END IF;
+    IF NOT FOUND THEN
+      reason := CASE WHEN EXISTS (SELECT 1 FROM ${row} birth
+        WHERE birth.${field(fxAppRowRevisions.scopeUuid.name)} = expected_row.${field(fxAppRowRevisions.scopeUuid.name)}
+          AND birth.${field(fxAppRowRevisions.commitSeq.name)} = expected_row.${field(fxAppRowRevisions.insertionCommitSeq.name)}
+          AND birth.${field(fxAppRowRevisions.insertionCommitSeq.name)} = expected_row.${field(fxAppRowRevisions.insertionCommitSeq.name)}
+          AND birth.${field(fxAppRowRevisions.insertionAttemptOrdinal.name)} = expected_row.${field(fxAppRowRevisions.insertionAttemptOrdinal.name)}
+          AND (birth.${field(fxAppRowRevisions.tableId.name)} IS DISTINCT FROM expected_row.${field(fxAppRowRevisions.tableId.name)}
+            OR birth.${field(fxAppRowRevisions.rowId.name)} IS DISTINCT FROM expected_row.${field(fxAppRowRevisions.rowId.name)}))
+        THEN 'storedCorruption' ELSE 'revisionExists' END;
+      RETURN NEXT; RETURN;
+    END IF;
     IF actual_row IS DISTINCT FROM expected_row THEN reason := 'storedCorruption'; RETURN NEXT; RETURN; END IF;
   END LOOP;
   FOR i IN 1..n LOOP

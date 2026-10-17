@@ -24,6 +24,7 @@ import {
   type AppCreationTimeV1,
 } from "flarex-protocol/app-document";
 import { decodeStoredAppRowRevisionEvidenceEffect } from "./appRowCanonicalEvidence";
+import type { LogicalInsertionOrder } from "./logicalDocuments/insertionOrder";
 import {
   appRowIdHexV1FromBytesResult,
   appRowIdHexV1ToBytes,
@@ -144,12 +145,15 @@ export interface AppRowValueEvidenceV1 {
   readonly sha256: FlarexValueSha256V1;
 }
 
+export type AppRowInsertionOrder = Omit<Extract<LogicalInsertionOrder, { readonly kind: "committed" }>, "kind">;
+
 interface AppendAppRowRevisionV1Base extends AppRowIdentityV1 {
   readonly writeEpoch: ScopeEpoch;
   readonly commitSeq: CommitSeq;
   readonly prevCommitSeq: CommitSeq | null;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly creationTime: AppCreationTimeV1;
+  readonly insertionOrder?: AppRowInsertionOrder;
 }
 
 export interface AppendLiveAppRowRevisionV1Input
@@ -189,6 +193,7 @@ interface AppRowRevisionV1Base extends AppRowIdentityV1 {
   readonly prevCommitSeq: CommitSeq | null;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly creationTime: AppCreationTimeV1;
+  readonly insertionOrder?: AppRowInsertionOrder;
 }
 
 export interface LiveAppRowRevisionV1 extends AppRowRevisionV1Base {
@@ -334,6 +339,47 @@ const decodeCanonicalSnapshotSequenceTextResult = Schema.decodeUnknownResult(
   Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]*)$/)));
 function decodeSnapshotSequenceTextResult(value: unknown) {
   return decodeCanonicalSnapshotSequenceTextResult(value).pipe(Result.flatMap(decodeBigIntTextResult));
+}
+const decodeInsertionOrderResult = Schema.decodeUnknownResult(Schema.Struct({
+  commitSeq: Schema.toType(CommitSeqSchema),
+  attemptOrdinal: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
+}), { onExcessProperty: "error" });
+const decodeInsertionOrdinalTextResult = Schema.decodeUnknownResult(Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]*)$/)));
+
+/** Hidden revision metadata is neither a document field nor caller ordering authority. */
+export function decodeAppRowInsertionOrderResult(identity: AppRowIdentityV1, revisionCommitSeq: CommitSeq, value: unknown)
+  : Result.Result<AppRowInsertionOrder, AppRowStorageCorruptionError> {
+  return decodeInsertionOrderResult(value).pipe(Result.mapError(cause => new AppRowStorageCorruptionError(identity, "insertion generation does not decode", { cause })),
+    Result.flatMap(order => order.commitSeq < 1n || order.commitSeq > revisionCommitSeq
+      ? Result.fail(new AppRowStorageCorruptionError(identity, "insertion generation exceeds selected revision"))
+      : Result.succeed(Object.freeze({ commitSeq: order.commitSeq, attemptOrdinal: order.attemptOrdinal }))));
+}
+
+export function decodeStoredAppRowInsertionOrderResult(identity: AppRowIdentityV1, revisionCommitSeq: CommitSeq,
+  columns: Readonly<{ commitSeq: unknown; attemptOrdinal: unknown }>, text = false): Result.Result<AppRowInsertionOrder | undefined, AppRowStorageCorruptionError> {
+  return Result.gen(function* () {
+    const storedCommitSeq = columns.commitSeq;
+    if (storedCommitSeq === null) return columns.attemptOrdinal === null ? undefined
+      : yield* Result.fail(new AppRowStorageCorruptionError(identity, "insertion generation is incomplete"));
+    const rawSequence = text ? yield* decodeSnapshotSequenceTextResult(storedCommitSeq).pipe(Result.mapError(cause =>
+      new AppRowStorageCorruptionError(identity, "insertion commit sequence does not decode", { cause }))) : storedCommitSeq;
+    const sequence = yield* decodeStoredPositiveCommitSeqResult(identity, rawSequence);
+    if (sequence > revisionCommitSeq) return yield* Result.fail(new AppRowStorageCorruptionError(identity, "insertion generation exceeds selected revision"));
+    const storedOrdinal = columns.attemptOrdinal;
+    const ordinal = text ? yield* decodeInsertionOrdinalTextResult(storedOrdinal).pipe(Result.map(Number), Result.mapError(cause =>
+      new AppRowStorageCorruptionError(identity, "insertion attempt ordinal does not decode", { cause }))) : storedOrdinal;
+    return yield* decodeAppRowInsertionOrderResult(identity, revisionCommitSeq, { commitSeq: sequence, attemptOrdinal: ordinal });
+  });
+}
+
+function decodeAppendInsertionOrderResult(input: AppendAppRowRevisionV1Base & { readonly kind: "live" | "tombstone" }, commitSeq: CommitSeq)
+  : Result.Result<AppRowInsertionOrder | undefined, AppRowStorageCorruptionError> {
+  if (input.insertionOrder === undefined) return Result.succeed(undefined);
+  const identity = { scopeId: input.scopeId, tableId: input.tableId, rowId: input.rowId };
+  return decodeAppRowInsertionOrderResult(identity, commitSeq, input.insertionOrder).pipe(Result.flatMap(order =>
+    input.kind === "tombstone" && input.prevCommitSeq === null
+      ? Result.fail(new AppRowStorageCorruptionError(identity, "first tombstone cannot introduce an insertion generation"))
+      : Result.succeed(order)));
 }
 
 const TABLE_FRONTIER_BATCH_SIZE = 64;
@@ -562,6 +608,7 @@ export function buildPreparedAppRowsSnapshotReadStatement(schemaName: string | u
     r.scope_uuid as "scopeUuid", r.table_id as "tableId", r.row_id as "rowId", r.commit_seq_text as "commitSeq",
     r.prev_commit_seq_text as "prevCommitSeq", r.write_epoch_uuid as "writeEpochUuid",
     r.schema_version_id as "schemaVersionId", r.creation_time as "creationTime", r.value_codec_version as "valueCodecVersion",
+    r.insertion_commit_seq_text as "insertionCommitSeq", r.insertion_attempt_ordinal_text as "insertionAttemptOrdinal",
     r.is_tombstone as "isTombstone", r.value_sha256 as "valueSha256", r.value_bytes as "valueBytes", r.body_withheld as "bodyWithheld"
     from ${reader}(${parameters.scopeUuid}::uuid, ${parameters.tableId}::integer,
       ${parameters.rowIds}::bytea[],
@@ -609,6 +656,7 @@ function captureSnapshotRowResult(identity: AppRowIdentityV1, ordinal: number, r
       get writeEpochUuid() { return raw.writeEpochUuid; }, get commitSeq() { return raw.commitSeq; },
       get prevCommitSeq() { return raw.prevCommitSeq; }, get schemaVersionId() { return raw.schemaVersionId; },
       get creationTime() { return raw.creationTime; }, get isTombstone() { return raw.isTombstone; },
+      get insertionCommitSeq() { return raw.insertionCommitSeq; }, get insertionAttemptOrdinal() { return raw.insertionAttemptOrdinal; },
       get valueBytes() { return raw.valueBytes; }, get valueSha256() { return raw.valueSha256; },
       get valueCodecVersion() { return raw.valueCodecVersion; }, get tableId() { return raw.tableId; },
     }, true);
@@ -1253,6 +1301,35 @@ export const prepareAppRowRevisionApplicationEffect = Effect.fn(
         : { ...base, kind: "tombstone" },
     );
   }
+  // Ordinary callers predate the hidden metadata. Resolve their exact
+  // predecessor generations before compiling complete SQL append tuples.
+  const omitted = decoded.flatMap(row => row.prevCommitSeq !== null && row.insertionOrder === undefined ? [{ ...row, prevCommitSeq: row.prevCommitSeq }] : []);
+  if (omitted.length) {
+    const predecessors = yield* appRowBatchQueryEffect(() => tx.select({ tableId: fxAppRowRevisions.tableId, rowId: fxAppRowRevisions.rowId,
+      commitSeq: fxAppRowRevisions.commitSeq, insertionCommitSeq: fxAppRowRevisions.insertionCommitSeq,
+      insertionAttemptOrdinal: fxAppRowRevisions.insertionAttemptOrdinal }).from(fxAppRowRevisions).where(and(
+        eq(fxAppRowRevisions.scopeUuid, scopeUuid), or(...omitted.map(row => and(
+          eq(fxAppRowRevisions.tableId, row.identity.tableId), eq(fxAppRowRevisions.rowId, appRowIdHexV1ToBytes(row.identity.rowId)),
+          eq(fxAppRowRevisions.commitSeq, row.prevCommitSeq)))))));
+    const byIdentity = new Map<string, typeof predecessors[number]>();
+    const expected = new Set(omitted.map(row => `${row.identity.tableId}/${row.identity.rowId}/${row.prevCommitSeq}`));
+    for (const row of predecessors) {
+      const rowId = yield* Effect.fromResult(appRowIdHexV1FromBytesResult(row.rowId).pipe(Result.mapError(cause =>
+        new AppRowStorageCorruptionError(first, "predecessor insertion identity does not decode", { cause }))));
+      const key = `${row.tableId}/${rowId}/${row.commitSeq}`;
+      if (!expected.has(key) || byIdentity.has(key)) return yield* Effect.fail(new AppRowStorageCorruptionError(first, "invalid predecessor insertion identity"));
+      byIdentity.set(key, row);
+    }
+    for (const [index, row] of decoded.entries()) {
+      if (row.prevCommitSeq === null || row.insertionOrder !== undefined) continue;
+      const prior = byIdentity.get(`${row.identity.tableId}/${row.identity.rowId}/${row.prevCommitSeq}`);
+      // The existing SQL chain owner classifies a missing predecessor.
+      if (prior === undefined) continue;
+      const insertionOrder = yield* Effect.fromResult(decodeStoredAppRowInsertionOrderResult(row.identity, row.prevCommitSeq,
+        { get commitSeq() { return prior.insertionCommitSeq; }, get attemptOrdinal() { return prior.insertionAttemptOrdinal; } }));
+      if (insertionOrder !== undefined) decoded[index] = { ...row, insertionOrder };
+    }
+  }
   const pageCounts: number[] = [];
   let offset = 0;
   while (offset < decoded.length) {
@@ -1351,6 +1428,7 @@ const preparedAppRowWrites = (selected: readonly DecodedAppendAppRowRevisionV1[]
   scopeUuid: row.scopeUuid, tableId: row.identity.tableId, rowId: appRowIdHexV1ToBytes(row.identity.rowId),
   commitSeq: row.commitSeq, prevCommitSeq: row.prevCommitSeq, writeEpochUuid: row.writeEpochUuid,
   schemaVersionId: row.schemaVersionId, creationTime: row.creationTime, valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+  insertionCommitSeq: row.insertionOrder?.commitSeq ?? null, insertionAttemptOrdinal: row.insertionOrder?.attemptOrdinal ?? null,
   isTombstone: row.kind === "tombstone", valueBytes: row.kind === "live" ? row.document.canonicalBytes : null,
   valueSha256: row.kind === "live" ? row.document.sha256 : null,
 } satisfies Required<typeof fxAppRowRevisions.$inferInsert>));
@@ -1454,6 +1532,7 @@ function projectAppRowRevision(
         prevCommitSeq: decoded.prevCommitSeq,
         schemaVersionId: decoded.schemaVersionId,
         creationTime: decoded.creationTime,
+        ...(decoded.insertionOrder === undefined ? {} : { insertionOrder: decoded.insertionOrder }),
         document: decoded.document,
       } satisfies LiveAppRowRevisionV1)
     : Object.freeze({
@@ -1465,6 +1544,7 @@ function projectAppRowRevision(
         prevCommitSeq: decoded.prevCommitSeq,
         schemaVersionId: decoded.schemaVersionId,
         creationTime: decoded.creationTime,
+        ...(decoded.insertionOrder === undefined ? {} : { insertionOrder: decoded.insertionOrder }),
       } satisfies TombstoneAppRowRevisionV1);
 }
 
@@ -1578,6 +1658,8 @@ function decodeRevisionRowEvidenceResult(
       identity,
       decodeAppCreationTimeV1Result(storedCreationTime),
     );
+    const insertionOrder = yield* decodeStoredAppRowInsertionOrderResult(identity, commitSeq,
+      { get commitSeq() { return row.insertionCommitSeq; }, get attemptOrdinal() { return row.insertionAttemptOrdinal; } }, commitSequenceText);
     const base = Object.freeze({
       ...identity,
       scopeUuid,
@@ -1586,6 +1668,7 @@ function decodeRevisionRowEvidenceResult(
       prevCommitSeq,
       schemaVersionId,
       creationTime,
+      ...(insertionOrder === undefined ? {} : { insertionOrder }),
     } satisfies AppRowRevisionV1Base);
     const storedIsTombstone = row.isTombstone;
     const isTombstone = yield* decodeStoredRevisionColumnResult(
@@ -1827,15 +1910,20 @@ async function decodeAppendInput(
   const writeEpochUuid = projectScopeEpochUuidV1(input.writeEpoch).epochUuid;
   const schemaVersionId = decodeCatalogSchemaVersionId(input.schemaVersionId);
   const creationTime = decodeAppCreationTimeV1(input.creationTime);
-  if (prevCommitSeq !== null) {
-    await requireImmutableCreationTime(
+  const predecessorInsertion = prevCommitSeq === null ? undefined : await requireImmutableCreationTime(
       tx,
       identity,
       scopeUuid,
       prevCommitSeq,
       creationTime,
     );
-  }
+  // This low-level async append API already rejects with typed validation
+  // errors; translate the Result only at that established Promise boundary.
+  const suppliedInsertion = Result.match(decodeAppendInsertionOrderResult(input, commitSeq), {
+    onFailure: (error) => { throw error; },
+    onSuccess: (value) => value,
+  });
+  const insertionOrder = suppliedInsertion ?? predecessorInsertion;
   const base = {
     ...input,
     identity,
@@ -1845,6 +1933,7 @@ async function decodeAppendInput(
     prevCommitSeq,
     schemaVersionId,
     creationTime,
+    ...(insertionOrder === undefined ? {} : { insertionOrder }),
   };
   if (input.kind === "tombstone") {
     return Object.freeze({ ...base, kind: "tombstone" });
@@ -1869,6 +1958,7 @@ interface DecodedPreparedAppendScalars {
   >["epochUuid"];
   readonly schemaVersionId: ReturnType<typeof decodeCatalogSchemaVersionId>;
   readonly creationTime: ReturnType<typeof decodeAppCreationTimeV1>;
+  readonly insertionOrder?: AppRowInsertionOrder;
 }
 
 function decodePreparedAppendScalars(
@@ -1882,12 +1972,14 @@ function decodePreparedAppendScalars(
     const writeEpochUuid = projectScopeEpochUuidV1(input.writeEpoch).epochUuid;
     const schemaVersionId = decodeCatalogSchemaVersionId(input.schemaVersionId);
     const creationTime = decodeAppCreationTimeV1(input.creationTime);
+    const insertionOrder = yield* decodeAppendInsertionOrderResult(input, commitSeq);
     return Object.freeze({
       commitSeq,
       prevCommitSeq,
       writeEpochUuid,
       schemaVersionId,
       creationTime,
+      ...(insertionOrder === undefined ? {} : { insertionOrder }),
     });
   });
 }
@@ -1898,7 +1990,7 @@ async function requireImmutableCreationTime(
   scopeUuid: ScopeUuidV1,
   prevCommitSeq: CommitSeq,
   creationTime: AppCreationTimeV1,
-): Promise<void> {
+): Promise<AppRowInsertionOrder | undefined> {
   return Result.getOrThrow(await requireImmutableCreationTimeResult(
     tx,
     identity,
@@ -1915,13 +2007,15 @@ async function requireImmutableCreationTimeResult(
   prevCommitSeq: CommitSeq,
   creationTime: AppCreationTimeV1,
 ): Promise<Result.Result<
-  void,
+  AppRowInsertionOrder | undefined,
   | InvalidAppRowRevisionV1InputError
   | AppRowRevisionChainConflictError
   | AppRowCreationTimeConflictError
+  | AppRowStorageCorruptionError
 >> {
   const rows = await tx
-    .select({ creationTime: fxAppRowRevisions.creationTime })
+    .select({ creationTime: fxAppRowRevisions.creationTime, insertionCommitSeq: fxAppRowRevisions.insertionCommitSeq,
+      insertionAttemptOrdinal: fxAppRowRevisions.insertionAttemptOrdinal })
     .from(fxAppRowRevisions)
     .where(
       and(
@@ -1956,7 +2050,8 @@ async function requireImmutableCreationTimeResult(
       creationTime,
     ));
   }
-  return Result.succeed(undefined);
+  return decodeStoredAppRowInsertionOrderResult(identity, prevCommitSeq,
+    { get commitSeq() { return predecessor.insertionCommitSeq; }, get attemptOrdinal() { return predecessor.insertionAttemptOrdinal; } });
 }
 
 function requirePositiveCommitSeq(value: CommitSeq): CommitSeq {
