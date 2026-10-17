@@ -1,8 +1,8 @@
 // @ts-check
-import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork } from "./check-medusa-currency-promotion.mjs";
+import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyShippingProfileWorkflowTypeFork } from "./check-medusa-currency-promotion.mjs";
 import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
 
 const root = process.cwd();
@@ -874,5 +874,82 @@ describe("native Store update callback provenance", () => {
   });
   it("rejects malformed native callback syntax", () => {
     expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(stores, prevData)", "return new StepResponse("))).toThrow("Invalid native Store update callback syntax");
+  });
+});
+
+describe("native ShippingProfile update callback provenance", () => {
+  const paths = ["fulfillment/workflows/update-shipping-profiles.ts", "fulfillment/steps/update-shipping-profiles.ts"];
+  const native = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const promoted = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const verify = (workflow = promoted[0], step = promoted[1]) => verifyShippingProfileUpdateCallbacks(native[0], workflow, native[1], step);
+  it("admits the full native program and erased annotations", () => {
+    expect(() => verify()).not.toThrow();
+    expect(() => verify(promoted[0].replace("input: WorkflowData<FulfillmentWorkflow.UpdateShippingProfilesWorkflowInput>", "input: WorkflowData<FulfillmentWorkflow.UpdateShippingProfilesWorkflowInput> /* erased */"))).not.toThrow();
+  });
+  it.each([
+    ["root ID", '"update-shipping-profiles-workflow"', '"update-other-shipping-profiles-workflow"'],
+    ["selected step import", 'from "../steps/update-shipping-profiles"', 'from "../steps"'],
+    ["native step input", "updateShippingProfilesStep(input)", "updateShippingProfilesStep({})"],
+    ["output wrapping", "return new WorkflowResponse(updateShippingProfilesStep(input))", "return new WorkflowResponse([])"],
+    ["extra unused statement", "return new WorkflowResponse", "void input; return new WorkflowResponse"],
+    ["extra runtime import", 'from "@medusajs/workflows-sdk"', 'from "@medusajs/workflows-sdk"; import "node:fs"'],
+  ])("rejects changed root %s", (_label, before, after) => {
+    const changed = promoted[0].replace(before, after); expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native ShippingProfile update callback behavior");
+  });
+  it.each([
+    ["step ID", '"update-shipping-profiles"', '"update-other-shipping-profiles"'],
+    ["covered metadata", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["Fulfillment resolution", "Modules.FULFILLMENT", "Modules.STORE"],
+    ["projection source", "      input.update,", "      {},"],
+    ["list selector", "listShippingProfiles(input.selector,", "listShippingProfiles({},"],
+    ["list projection", "select: selects", "select: []"],
+    ["list relations", "relations,", "relations: [],"],
+    ["list await", "await service.listShippingProfiles", "service.listShippingProfiles"],
+    ["update selector", "      input.selector,", "      {},"],
+    ["update payload", "      input.update\n", "      {}\n"],
+    ["update await", "await service.updateShippingProfiles", "service.updateShippingProfiles"],
+    ["full array result", "new StepResponse(profiles, prevData)", "new StepResponse(profiles[0], prevData)"],
+    ["retained preimages", "new StepResponse(profiles, prevData)", "new StepResponse(profiles, profiles)"],
+    ["empty inverse skip", "if (!prevData?.length)", "if (!prevData)"],
+    ["native inverse", "service.upsertShippingProfiles(prevData)", "service.updateShippingProfiles(prevData)"],
+    ["metadata inverse rewrite", "service.upsertShippingProfiles(prevData)", "service.upsertShippingProfiles(prevData.map(r => ({ ...r, metadata: r.metadata || undefined })))"],
+    ["portable utility import", 'from "@medusajs/framework/utils/portable"', 'from "@medusajs/framework/utils"'],
+    ["extra inverse effect", "    await service.upsertShippingProfiles", '    container.resolve("query"); await service.upsertShippingProfiles'],
+    ["missing inverse await", "await service.upsertShippingProfiles", "service.upsertShippingProfiles"],
+  ])("rejects changed step %s", (_label, before, after) => {
+    const changed = promoted[1].replace(before, after); expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Changed native ShippingProfile update callback behavior");
+  });
+  it("rejects malformed native callback syntax", () => {
+    expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(profiles, prevData)", "return new StepResponse(")))
+      .toThrow("Invalid native ShippingProfile update callback syntax");
+  });
+});
+
+describe("native ShippingProfile workflow metadata type seam", () => {
+  const source = readFileSync("third_party/medusa/upstream/packages/core/types/src/workflow/fulfillment/shipping-profiles.ts", "utf8");
+  const target = readFileSync("packages/medusa-types/src/workflow/fulfillment/shipping-profiles.ts", "utf8");
+  it("admits only the erased metadata field used by the native step and Admin route", () => {
+    expect(() => verifyShippingProfileWorkflowTypeFork(source, target)).not.toThrow();
+  });
+  it.each([
+    ["changed name contract", "  name?: string", "  name?: number"],
+    ["changed metadata nullability", "Record<string, unknown> | null", "Record<string, unknown>"],
+    ["extra input capability", "  name?: string", "  name?: string\n  shipping_options?: string[]"],
+  ])("rejects %s", (_label, before, after) => {
+    const changed = target.replace(before, after); expect(changed).not.toBe(target);
+    expect(() => verifyShippingProfileWorkflowTypeFork(source, changed)).toThrow("Changed native ShippingProfile workflow erased type seam");
+  });
+  it("rejects added runtime behavior", () => {
+    expect(() => verifyShippingProfileWorkflowTypeFork(source, target + "\nexport const runtimeDrift = true;\n"))
+      .toThrow("Module type adaptation changes runtime behavior");
+  });
+  it.each(["target", "source"])("refuses a different %s for the narrow type seam", property => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(file =>
+      file.classification === "shippingProfileWorkflowTypeFork" ? { ...file, [property]: property === "target"
+        ? "packages/medusa-types/src/workflow/fulfillment/unadmitted-shipping-profiles.ts"
+        : "third_party/medusa/upstream/packages/core/types/src/fulfillment/common/shipping-profile.ts" } : file) }))
+      .toThrow("ShippingProfile workflow type adaptation outside its approved source file");
   });
 });

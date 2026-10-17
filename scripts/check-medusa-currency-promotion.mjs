@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks } from "./check-medusa-test-port.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -292,6 +292,12 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/reservation/steps/delete-reservations-by-line-items.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/reservation/steps/delete-reservations-by-line-items.ts"), "utf8"),
   );
+  verifyShippingProfileUpdateCallbacks(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/fulfillment/workflows/update-shipping-profiles.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/fulfillment/workflows/update-shipping-profiles.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/fulfillment/steps/update-shipping-profiles.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/fulfillment/steps/update-shipping-profiles.ts"), "utf8"),
+  );
   verifyStoreUpdateCallbacks(
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/store/workflows/update-stores.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/store/workflows/update-stores.ts"), "utf8"),
@@ -344,7 +350,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, csvTarget, "csv-normalizer.spec.ts"), "utf8"),
     fixtureText(csvSource), fixtureText(csvTarget));
   for (const file of promotion.files) {
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "storeTypeFork", "storeCreationTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "storeTypeFork", "storeCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.classification === "workflowFork" && !(file.target.startsWith("packages/medusa-workflows-sdk/src/") || file.target.startsWith("packages/medusa-core-flows/src/") || file.target.startsWith("packages/medusa-orchestration/src/") || [
@@ -386,6 +392,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     ].includes(file.target)) throw new Error("Sales Channel type adaptation outside its approved source files");
     if (file.classification === "storeCreationTypeFork" && ![["packages/medusa-types/src/store/mutations/store.ts","packages/core/types/src/store/mutations/store.ts"],["packages/medusa-types/src/pricing/common/price-preference.ts","packages/core/types/src/pricing/common/price-preference.ts"],["packages/medusa-types/src/workflow/pricing/index.ts","packages/core/types/src/workflow/pricing/index.ts"]].some(([target, source]) => file.target === target && file.source === sourcePrefix + source))
       throw new Error("Store creation type adaptation outside its approved source files");
+    if (file.classification === "shippingProfileWorkflowTypeFork" && (file.target !== "packages/medusa-types/src/workflow/fulfillment/shipping-profiles.ts" || file.source !== "third_party/medusa/upstream/packages/core/types/src/workflow/fulfillment/shipping-profiles.ts"))
+      throw new Error("ShippingProfile workflow type adaptation outside its approved source file");
     if (file.classification === "storeTypeFork" && (file.target !== "packages/medusa-store/src/services/store-module-service.ts" || file.source !== sourcePrefix + "packages/modules/store/src/services/store-module-service.ts"))
       throw new Error("Store type adaptation outside its approved source file");
     if (file.classification === "stockLocationTypeFork" && ![
@@ -416,6 +424,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
           readFileSync(path.join(root, "packages/medusa-inventory/src/utils/inventory-level-quantity.ts"), "utf8"));
       if (file.classification === "storeCreationTypeFork")
         verifyStoreCreationTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (file.classification === "shippingProfileWorkflowTypeFork")
+        verifyShippingProfileWorkflowTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "storeTypeFork")
         verifyStoreTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "salesChannelTypeFork" || file.classification === "stockLocationTypeFork")
@@ -550,4 +560,15 @@ export function verifyStoreCreationTypeFork(source, target, file) {
       "  is_tax_inclusive?: boolean | undefined\n}\n\nexport interface UpdatePricePreferencesWorkflowInput");
   } else throw new Error("Store creation type adaptation outside its approved source files");
   if (expected !== target.replace(/\r\n/g, "\n")) throw new Error("Changed native Store creation erased type seam");
+}
+
+/** The existing native Admin route and update step accept metadata. Correct only
+ * the erased workflow input declaration; preserve the native runtime program.
+ * @param {string} source @param {string} target */
+export function verifyShippingProfileWorkflowTypeFork(source, target) {
+  verifyModuleTypeFork(source, target);
+  const expected = source.replace(/\r\n/g, "\n")
+    .replace("  type?: string\n}", "  type?: string\n  metadata?: Record<string, unknown> | null\n}");
+  if (expected !== target.replace(/\r\n/g, "\n"))
+    throw new Error("Changed native ShippingProfile workflow erased type seam");
 }

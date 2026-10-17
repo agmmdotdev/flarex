@@ -368,6 +368,14 @@ one native router. The private workflow creates the endpoints, associates Sales
 Channels before ShippingProfiles, reads five pending roots and settles once.
 The source closure remains broader than table/API grants; provider execution,
 deletion, hydration, full Fulfillment and public activation remain unadmitted.
+The separate [native Shipping Profile update](./preflight/126-native-shipping-profile-update-workflow.md)
+admits an explicit selector of up to four raw IDs and native name/type/metadata
+patches through the genuine update and retained upsert callbacks. It preserves
+array results, metadata merge/key removal, empty/null clearing, true empty-patch
+no-ops and projected metadata inverse limitations. Complete row/projection,
+mutation and event receipts retain the existing optimistic atomic owner and
+default 64-call allowance. Both profiles share the genuine constructor while
+keeping sibling Fulfillment tables, providers and relationship hydration denied.
 
 The [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)
 is complete within its approved bounded profiles. Persistence now owns protected

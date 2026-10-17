@@ -715,3 +715,20 @@ export function verifyStoreUpdateCallbacks(nativeWorkflow, workflow, nativeStep,
     nativeWorkflowProgram(expectedStep, failure) !== nativeWorkflowProgram(step, failure))
     throw new Error("Changed native Store update callback behavior");
 }
+
+/** Authenticate the entire native ShippingProfile update root, selector reads,
+ * returned array and retained preimages without altering native metadata behavior.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyShippingProfileUpdateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const expectedWorkflow = nativeWorkflow
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  updateShippingProfilesStepId,", '  { name: updateShippingProfilesStepId, compensation: "transactionCovered" },');
+  const failure = "Invalid native ShippingProfile update callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, failure) !== nativeWorkflowProgram(workflow, failure) ||
+    nativeWorkflowProgram(expectedStep, failure) !== nativeWorkflowProgram(step, failure))
+    throw new Error("Changed native ShippingProfile update callback behavior");
+}

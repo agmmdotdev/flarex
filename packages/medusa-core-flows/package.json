@@ -101,7 +101,9 @@
     "./reservation/delete-reservations-by-line-items": "./src/reservation/workflows/delete-reservations-by-line-items.ts",
     "./reservation/delete-reservations-by-line-items-step": "./src/reservation/steps/delete-reservations-by-line-items.ts",
     "./store/update-stores": "./src/store/workflows/update-stores.ts",
-    "./store/update-stores-step": "./src/store/steps/update-stores.ts"
+    "./store/update-stores-step": "./src/store/steps/update-stores.ts",
+    "./fulfillment/update-shipping-profiles": "./src/fulfillment/workflows/update-shipping-profiles.ts",
+    "./fulfillment/update-shipping-profiles-step": "./src/fulfillment/steps/update-shipping-profiles.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

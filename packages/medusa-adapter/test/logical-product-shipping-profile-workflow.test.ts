@@ -1,7 +1,7 @@
 import { withWorkflowPolicy } from "./support/workflow-policy-fixture";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
-import { Cause, Deferred, Effect, Fiber, Option, Result, Schema } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Option, Result, Schema } from "effect";
 import { createStep, createWorkflow, WorkflowResponse, type StepExecutionContext, type WorkflowData } from "@medusajs/workflows-sdk";
 import { Link } from "@medusajs/modules-sdk/link";
 import { createRemoteLinkStep } from "@medusajs/core-flows/common/create-remote-links-step";
@@ -28,6 +28,7 @@ import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type AtomicWor
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../src/workflow/events";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
+import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 import { prepareLogicalSalesChannelHost } from "./support/logical-sales-channel-fixture";
 import { prepareLogicalShippingProfileHost } from "./support/logical-shipping-profile-fixture";
@@ -316,11 +317,16 @@ describe("native Product–ShippingProfile workflow on shared logical storage", 
         ...execution(), prepare: composition => execution().prepare({ ...composition, requestCallLimit: 64 }),
       } }));
       try {
-        const failure = await Effect.runPromise(Effect.flip(capped.run(capped.newRequestKey(), input("budget-boundary"))));
-        expect(failure.reason).toBe("rollbackOnly");
-        if (!Cause.isCause(failure.cause)) throw new Error("Missing call-limit cause");
-        expect(failure.cause.reasons.some(reason => Cause.isFailReason(reason)
-          && reason.error instanceof CommerceTransactionError && reason.error.reason === "limitExceeded")).toBe(true);
+        const beforeInventory = await logicalCurrencyInventory(selected.fixture);
+        const outcome = await Effect.runPromise(Effect.exit(capped.run(capped.newRequestKey(), input("budget-boundary"))));
+        if (!Exit.isFailure(outcome)) throw new Error("Expected the capped root to fail");
+        // Atomic execution retains the initiating failure before its seal Cause.
+        // Inspect the complete boundary outcome instead of Effect.flip's first E.
+        const failures = outcome.cause.reasons.flatMap(reason => Cause.isFailReason(reason)
+          && reason.error instanceof CommerceTransactionError ? [reason.error] : []);
+        expect(failures).toHaveLength(outcome.cause.reasons.length);
+        expect([...new Set(failures.map(error => error.reason))].sort()).toEqual(["limitExceeded", "rollbackOnly"]);
+        expect(await logicalCurrencyInventory(selected.fixture)).toEqual(beforeInventory);
         expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents);
       } finally { await Effect.runPromise(capped.close); }
     } finally { await Effect.runPromise(host.close); }
@@ -328,16 +334,29 @@ describe("native Product–ShippingProfile workflow on shared logical storage", 
 
   it("keeps caught resource refusal fatal and revokes escaped native Link methods", async () => {
     let escaped = Option.none<{ create: (links: Schema.Json) => Promise<unknown> }>();
+    let caught = Option.none<CommerceTransactionError>();
     const callback = vi.fn((_value: unknown, { container }: StepExecutionContext) => {
       escaped = Option.some(container.resolve("link"));
-      try { container.resolve("transactionManager"); } catch { /* Sticky refusal. */ }
+      try { container.resolve("transactionManager"); } catch (error) {
+        if (!(error instanceof CommerceTransactionError)) throw error;
+        caught = Option.some(error);
+      }
     });
     const host = await observe(callback);
     try {
       const beforeRows = await rows(), beforeEvents = await events();
-      await expect(Effect.runPromise(host.run(host.newRequestKey(), input("caught"))))
-        .rejects.toMatchObject({ reason: "rollbackOnly" });
+      const beforeInventory = await logicalCurrencyInventory(selected.fixture);
+      const outcome = await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), input("caught"))));
+      if (!Exit.isFailure(outcome)) throw new Error("Expected the caught resource denial to poison the root");
+      const initiating = Option.getOrThrow(caught);
+      expect(initiating.reason).toBe("unsupportedProfile");
+      const failures = outcome.cause.reasons.flatMap(reason => Cause.isFailReason(reason)
+        && reason.error instanceof CommerceTransactionError ? [reason.error] : []);
+      expect(failures).toHaveLength(outcome.cause.reasons.length);
+      expect([...new Set(failures.map(error => error.reason))].sort()).toEqual(["rollbackOnly", "unsupportedProfile"]);
+      expect(failures.some(error => error === initiating)).toBe(true);
       expect(callback).toHaveBeenCalledTimes(1);
+      expect(await logicalCurrencyInventory(selected.fixture)).toEqual(beforeInventory);
       expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents);
       await expect(Option.getOrThrow(escaped).create([])).rejects.toMatchObject({ reason: "closed" });
     } finally { await Effect.runPromise(host.close); }

@@ -90,3 +90,5 @@ export * as StoreTypes from "./store/index";
 export * from "./store/index";
 export * as StoreWorkflow from "./workflow/store";
 export * as PricingWorkflow from "./workflow/pricing";
+
+export * as FulfillmentWorkflow from "./workflow/fulfillment/shipping-profiles";

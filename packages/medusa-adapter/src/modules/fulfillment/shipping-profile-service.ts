@@ -1,9 +1,7 @@
 import { deniedCommerceRepository } from "../../repository/denied";
 import { commerceModuleEventBus } from "../../module/events";
 import { Effect, Result, Schema } from "effect";
-import { Fulfillment, FulfillmentAddress, FulfillmentItem, FulfillmentLabel, FulfillmentProvider, FulfillmentSet, GeoZone, ServiceZone,
-  ShippingOption, ShippingOptionRule, ShippingOptionType, ShippingProfile } from "@medusajs/fulfillment/models";
-import { FulfillmentModuleService, FulfillmentProviderService } from "@medusajs/fulfillment/services";
+import { ShippingProfile } from "@medusajs/fulfillment/models";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { fulfillmentStaticResources } from "@medusajs/fulfillment/static-manifest";
 import { defineWorkflowMethod, defineWorkflowModule } from "../../workflow/module";
@@ -12,7 +10,6 @@ import { moduleAliases, scalarGraphDefinition } from "../../local-graph/module";
 import type { FindConfig, ShippingProfileDTO, CreateShippingProfileDTO, FilterableShippingProfileProps } from "@medusajs/framework/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { defineCommerceModule } from "../../module/definition";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
 import { commerceServiceCommands, commerceCommandPreparation } from "../../module/commands";
 import { commerceDecoder } from "../../value/decoder";
@@ -21,6 +18,7 @@ import { prepareShippingProfileRepository } from "./shipping-profile-repository"
 import { shippingProfileLogicalEventPolicy } from "./shipping-profile-events";
 import { captureShippingProfileMetadata } from "./shipping-profile-schema";
 import { QueryLimit, QueryOffset } from "../../query/decoder";
+import { defineShippingProfilePersistenceModule, type ShippingProfilePersistenceModel } from "./shipping-profile-module";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 export const SimpleShippingProfileInput = Schema.Struct({ id: Schema.optionalKey(Id), name: Schema.String, type: Schema.String });
@@ -57,39 +55,25 @@ export const makeLocalShippingProfileCommands = Effect.fn("ShippingProfileAdapte
   return yield* Effect.fromResult(Result.gen(function* () {
     const { bind, table } = yield* prepareShippingProfileRepository(metadata.frame);
     const bindModule = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
-        const bound = bind(ctx, owner);
-        const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
-          capture: message => bound.bridge.current().captureLocalEvent(message),
-          check: work => work.pipe(Effect.catchTag("CommerceTransactionError", error => bound.bridge.current().refuse(error))), refuse: bound.refuse,
-        });
-        // Real internal services retain the same borrowed manager/persistence owner.
-        // No unselected model is mapped to the ShippingProfile repository.
-        const denied = deniedCommerceRepository(bound.repository, bound.refuse);
-        return { baseRepository: bound.repository, repository: (model: typeof ShippingProfile | typeof FulfillmentAddress
-          | typeof Fulfillment | typeof FulfillmentItem | typeof FulfillmentLabel | typeof FulfillmentProvider | typeof FulfillmentSet
-          | typeof GeoZone | typeof ServiceZone | typeof ShippingOption | typeof ShippingOptionRule | typeof ShippingOptionType) =>
-          model === ShippingProfile ? bound.repository : denied, events: bound.mutationEvents, eventBus, denied };
+      const bound = bind(ctx, owner);
+      const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
+        capture: message => bound.bridge.current().captureLocalEvent(message),
+        check: work => work.pipe(Effect.catchTag("CommerceTransactionError", error => bound.bridge.current().refuse(error))), refuse: bound.refuse,
+      });
+      // Real internal services retain the same borrowed manager/persistence owner.
+      // No unselected model is mapped to the ShippingProfile repository.
+      const denied = deniedCommerceRepository(bound.repository, bound.refuse);
+      return { baseRepository: bound.repository, repository: (model: ShippingProfilePersistenceModel) =>
+        model === ShippingProfile ? bound.repository : denied, events: bound.mutationEvents, eventBus, denied };
     };
-    const module = yield* defineCommerceModule({
-      name: "flarex-shipping-profile-local", models: [FulfillmentAddress, Fulfillment, FulfillmentItem, FulfillmentLabel, FulfillmentProvider, FulfillmentSet,
-        GeoZone, ServiceZone, ShippingOption, ShippingOptionRule, ShippingOptionType, ShippingProfile],
-      profile: { name: "shipping-profile", capabilities: [], bind: bindModule },
-      extensions: { fulfillmentProviderService: { mode: "replace", create: ({ binding, persistence }) => {
-        const container = { fulfillmentProviderRepository: binding.denied, modulePersistenceAdapter: persistence };
-        return new FulfillmentProviderService(container);
-      } } },
-      service: ({ binding, dependencies, context }) => {
-        // The native constructor forwards the full container to MedusaService,
-        // although its declared local dependencies omit the inherited event bus.
-        const container = { ...dependencies, [Modules.EVENT_BUS]: binding.eventBus };
-        const native = new FulfillmentModuleService(container, { scope: "internal" });
-        return { service: Object.freeze({
-          createShippingProfiles: native.createShippingProfiles.bind(native),
-          retrieveShippingProfile: native.retrieveShippingProfile.bind(native),
-          listShippingProfiles: native.listShippingProfiles.bind(native),
-          listAndCountShippingProfiles: native.listAndCountShippingProfiles.bind(native),
-        }), context };
-      },
+    const module = yield* defineShippingProfilePersistenceModule({
+      name: "flarex-shipping-profile-local", profile: "shipping-profile", bind: bindModule,
+      service: native => Object.freeze({
+        createShippingProfiles: native.createShippingProfiles.bind(native),
+        retrieveShippingProfile: native.retrieveShippingProfile.bind(native),
+        listShippingProfiles: native.listShippingProfiles.bind(native),
+        listAndCountShippingProfiles: native.listAndCountShippingProfiles.bind(native),
+      }),
     }).pipe(Result.mapError(error => commerceError("unsupportedProfile", error)));
     const commands = commerceServiceCommands(module.use);
     const prepare = commerceCommandPreparation("ShippingProfileCommand.prepare");
