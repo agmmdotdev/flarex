@@ -52,8 +52,7 @@ dependencies and utility placement.
   and stale documentation in the same scope. Preserve behavioral coverage;
   durable tables/data require an approved migration or reset disposition.
 - Preserve unrelated shared-worktree changes. Inspect status and overlap; stage
-  only owned paths/hunks. The main thread owns edits and Git; reviewers are
-  read-only.
+  only owned paths/hunks. Reviewers are read-only.
 
 Adapters translate contracts; they must not repair shared-owner defects with
 direct SQL, duplicate enforcement, extra transactions/lifetimes/recovery paths,
