@@ -212,6 +212,7 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
     participants: capturedMembers.map(member => ({
       commandCount: member.commands.length, derivedIdEvent: member.derivedIdEvent ?? null,
       ...(member.allowReconstitution === true ? { allowReconstitution: true } : {}),
+      ...(member.allowPreservingDeletionUpsert === true ? { allowPreservingDeletionUpsert: true } : {}),
       events: Result.isSuccess(member.events) ? { contracts: member.events.success?.contracts.length ?? 0 } : null,
       ...(member.kind === "logical" ? {
         logical: Result.isSuccess(member.logical) ? { schemaVersionId: member.logical.success.schemaVersionId,
@@ -286,6 +287,9 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     } : {}),
     ...(members.some(member => member.allowReconstitution === true) ? {
       reconstitution: members.filter(member => member.allowReconstitution === true).map(member => member.name),
+    } : {}),
+    ...(members.some(member => member.allowPreservingDeletionUpsert === true) ? {
+      preservingDeletionUpsert: members.filter(member => member.allowPreservingDeletionUpsert === true).map(member => member.name),
     } : {}),
     // Conjunction is a newly admitted policy shape. Preserve existing single-
     // validator identities while preventing replay from skipping an added guard.

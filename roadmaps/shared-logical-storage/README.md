@@ -56,6 +56,10 @@ with digest-bound table targets and the existing first-data and settlement owner
 
 ## Current Sources Of Truth
 
+[Explicit preserving-deletion upsert](./65-preserving-deletion-upsert.md) owns
+the private conflict merge needed by native Shipping Option Type inverses.
+Ordinary upsert and managed lifecycle operations retain their existing contracts.
+
 [Composite key reverse access](./59-composite-key-reverse-access.md) owns the
 scoped all-row reverse lookup correction exposed by native Stock Location Link
 restoration. Native Link endpoint integrity remains unchanged.

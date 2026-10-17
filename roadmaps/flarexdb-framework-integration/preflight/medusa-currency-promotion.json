@@ -912,12 +912,12 @@
     {
       "target": "packages/medusa-adapter/src/workflow/host.ts",
       "classification": "authored",
-      "targetSha256": "4f92f5d622f619beb8653554e29b84bd890b6cd100b223995ec08b003c65e723"
+      "targetSha256": "95d3a79b4a22f13cd8818516b5dee96bb32474d04415ca7bedf7267ab5ecb433"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/module.ts",
       "classification": "authored",
-      "targetSha256": "4119f3e105eccce8e281969fd542e012c06782c13845e87838605fb887b1908c"
+      "targetSha256": "31362810e310a4e79a15bc5724498598f54987d206dd7bb7e0f1404333547c4b"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/resources.ts",
@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "fcce22e3d79784c99dde1639b9043966461fee0998eb54181aad839c4e7c8c8e"
+      "targetSha256": "a3dc0433e405845d7da30c3a0cab0cb377033e84fa7079f5b15cf1b216446a9e"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -9233,7 +9233,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-reconstitution.test.ts",
       "classification": "authored",
-      "targetSha256": "8415740816c4834b3d981b2c332d0567cb516a98f77edab810f4be20fb675a53"
+      "targetSha256": "362dcb82df80cca5ee7373aead6b54884b2c99b7c7ad88ef3f93a5b37f652c16"
     },
     {
       "target": "packages/medusa-adapter/test/logical-store-update-workflow.test.ts",
@@ -9487,6 +9487,65 @@
       "targetSha256": "997501a28735b6571e78ef507da14abe22ca1553a6b33baa0cf0e9ee8c8a49bb",
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/shipping-options/workflows/create-shipping-option-types.ts",
       "sourceSha256": "858bba869c9d8cd71261681f75e4194b28bb4a94a26d15a01c94b624a28a39fd"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-option-type-update-input.ts",
+      "classification": "authored",
+      "targetSha256": "3eb5c342e21a57e928d91ef02784aabbc4ee14ae83630c136eb6b931bb0016c6"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-option-type-update-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "337132f7d29a404783cce09eb2be6beeb09d7fed2915da7e8c4f03463dc0d4a8"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-option-type-update-repository.ts",
+      "classification": "authored",
+      "targetSha256": "76630919f7f293a5bda9df9f6b0732b3a675cc327292ddd2fa1ad37a7d9f603b"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-option-type-update-service.ts",
+      "classification": "authored",
+      "targetSha256": "c4cc2b25d5c7b52a9d64428c7e888120809778abf2d99bc85f69e456aa7482a0"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/fulfillment/update-shipping-option-types.ts",
+      "classification": "authored",
+      "targetSha256": "e4f300e85b6e9a46899d7361b76757b080452650d533cc1463320b1597b7f349"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-shipping-option-type-update-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "9b79dce2fe19784509c6931ad035797cf85b9946cd5c5c111832a435d13b829a"
+    },
+    {
+      "target": "packages/medusa-adapter/test/shipping-option-type-update-input.test.ts",
+      "classification": "authored",
+      "targetSha256": "ae09f18a0a264a95135c6c7964a6e209f8b47706c1f5fae0a9115df500c5426f"
+    },
+    {
+      "target": "packages/medusa-adapter/test/shipping-option-type-update-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "f68e73fa3f9cdb4a403b218be1473f86432a273e0639f6425379993c24a3c063"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-shipping-option-type-update-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "f753384c3f4820093ef0579fe03382f6026bf6bb20c669d2db91e331262168ce"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/shipping-options/steps/update-shipping-option-types.ts",
+      "classification": "workflowFork",
+      "targetSha256": "944e606d7358339af939cfaa0c6e3ee031655d7a1bf60fe97d2f50fec9f873de",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/shipping-options/steps/update-shipping-option-types.ts",
+      "sourceSha256": "ce2dd7e4af661969e53398ed779553fc57b9330c15fee8bb0a3bc4e8fda1dbbe"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/shipping-options/workflows/update-shipping-option-types.ts",
+      "classification": "workflowFork",
+      "targetSha256": "dd57f1791d1e24c49c8c3f7a0f95db53954007ff3993d18b053a7023e5de153f",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/shipping-options/workflows/update-shipping-option-types.ts",
+      "sourceSha256": "ee2b14cc5f4f541df8e61ea016d35b4345dc16dd5f385431771fb1d3509978f9"
     }
   ],
   "dependencies": {
@@ -9977,7 +10036,9 @@
         "./fulfillment/update-shipping-profiles",
         "./fulfillment/update-shipping-profiles-step",
         "./shipping-options/create-shipping-option-types",
-        "./shipping-options/create-shipping-option-types-step"
+        "./shipping-options/create-shipping-option-types-step",
+        "./shipping-options/update-shipping-option-types",
+        "./shipping-options/update-shipping-option-types-step"
       ]
     },
     {

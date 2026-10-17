@@ -60,7 +60,9 @@ export interface LogicalRelationalStore<Failure> {
   readonly count: (context: BoundedRequestContext, query: unknown) => Effect.Effect<number, Failure>;
   /** Finite indexed complete selection; exact decimal SUM, without grouping. */
   readonly aggregate: (context: BoundedRequestContext, query: unknown) => Effect.Effect<Readonly<{ count: number; sum?: string | null }>, Failure>;
-  readonly write: (context: BoundedRequestContext, mode: "insert" | "upsert" | "update", rows: unknown) => Effect.Effect<readonly JsonObject[], Failure>;
+  /** The preserving-deletion upsert requires a trusted explicit profile; omitted
+   * deletion fields retain their prior value and conflicts advance update time. */
+  readonly write: (context: BoundedRequestContext, mode: "insert" | "upsert" | "update" | "upsertPreservingDeletion", rows: unknown) => Effect.Effect<readonly JsonObject[], Failure>;
   readonly delete: (context: BoundedRequestContext, keys: unknown) => Effect.Effect<readonly JsonObject[], Failure>;
   readonly lifecycle: (context: BoundedRequestContext, operation: "softDelete" | "restore", keys: unknown) => Effect.Effect<readonly JsonObject[], Failure>;
   /** Explicit trusted admission only. Exact complete preimages must have been
@@ -173,6 +175,7 @@ export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
   readonly tables: readonly LogicalDocumentTable[];
   readonly relationalCapabilities?: readonly RelationalPersistenceCapability[];
   readonly allowReconstitution?: true;
+  readonly allowPreservingDeletionUpsert?: true;
   readonly searchDefinitions?: readonly LogicalSearchDefinition[];
   readonly lifetime: BoundedRequestLifetime<Failure>;
   /** Durable operations check live admission here. A finite root supplies a

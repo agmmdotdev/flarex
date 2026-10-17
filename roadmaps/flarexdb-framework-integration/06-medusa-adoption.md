@@ -397,6 +397,18 @@ required Option references, including soft-deleted Options, refuse deletion
 through the shared reference owner without partial settlement. Type update/delete roots and wider Shipping Option/provider execution
 retain their separate admission gates.
 
+The [native Shipping Option Type update](./preflight/129-native-shipping-option-type-update-workflow.md)
+slice admits four selected Types and one possible outside retarget under the
+existing optimistic 64-call/event profile. It preserves native projected preimages,
+selector order and explicit ID retargeting, including an outside target's
+retained-inverse limitation. Type compensation uses genuine insert-or-update,
+with native tombstone, missing-row and ID-only event behavior; creation's empty
+to-many presentation does not apply to scalar update/list/upsert results.
+Exact shared read evidence authenticates complete selector/target queries and
+each sequential physical upsert read. A distinct identity-bound shared write
+mode preserves native tombstones and advances managed update time without changing
+ordinary upsert or granting lifecycle authority to the native resource.
+
 The [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)
 is complete within its approved bounded profiles. Persistence now owns protected
 immutable definitions/evidence, sealed child sets, durable operational progress,

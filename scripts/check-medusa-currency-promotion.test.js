@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyNativeToManyInitialization } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyNativeToManyInitialization } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyShippingProfileWorkflowTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -1120,5 +1120,67 @@ describe("native generic zero-to-many initialization provenance", () => {
   it("rejects missing helpers", () => {
     expect(() => verifyNativeToManyInitialization(native, owner.replace("function fillEmptyToManyRelations", "function otherInitializer")))
       .toThrow("Changed native zero-to-many initialization extraction");
+  });
+});
+
+describe("native ShippingOptionType update callback provenance", () => {
+  const paths = ["shipping-options/workflows/update-shipping-option-types.ts", "shipping-options/steps/update-shipping-option-types.ts"];
+  const native = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const promoted = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const verify = (workflow = promoted[0], step = promoted[1]) => verifyShippingOptionTypeUpdateCallbacks(native[0], workflow, native[1], step);
+  it("admits the complete native root, projected inverse and unchanged input aliases", () => expect(() => verify()).not.toThrow());
+  it.each([
+    ["root identity", '"update-shipping-option-types"', '"update-other-shipping-option-types"'],
+    ["whole step input", "updateShippingOptionTypesStep(input)", "updateShippingOptionTypesStep({selector:input.selector,update:{}})"],
+    ["hook identity", '"shippingOptionTypesUpdated"', '"shippingOptionTypeUpdated"'],
+    ["hook rows", "shipping_option_types: updatedShippingOptionTypes", "shipping_option_types: []"],
+    ["additional data", "additional_data: input.additional_data", "additional_data: {}"],
+    ["array/scalar normalization", "Array.isArray(updatedShippingOptionTypes)", "true"],
+    ["workflow event IDs", "id: v.id", "id: v.code"],
+    ["workflow event family", "ShippingOptionTypeWorkflowEvents.UPDATED", "ShippingOptionTypeWorkflowEvents.CREATED"],
+    ["workflow payload", "data: typeIdEvents", "data: []"],
+    ["native output", "new WorkflowResponse(updatedShippingOptionTypes,", "new WorkflowResponse([],"],
+    ["hook exposure", "hooks: [shippingOptionTypesUpdated]", "hooks: []"],
+    ["direct step import", 'from "../steps/update-shipping-option-types"', 'from "../steps"'],
+    ["extra import", 'from "@medusajs/workflows-sdk"', 'from "@medusajs/workflows-sdk"; import "node:fs"'],
+    ["extra runtime effect", "return new WorkflowResponse(updatedShippingOptionTypes,", "console.log(input); return new WorkflowResponse(updatedShippingOptionTypes,"],
+  ])("rejects changed root %s", (_label, before, after) => {
+    const changed = promoted[0].replace(before, after); expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native ShippingOptionType update callback behavior");
+  });
+  it.each([
+    ["step identity", '"update-shipping-option-types"', '"update-other-shipping-option-types"'],
+    ["covered metadata", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["Fulfillment resolution", "Modules.FULFILLMENT", "Modules.PRODUCT"],
+    ["preimage derivation", "      data.update,", "      {},"],
+    ["preimage selector", "service.listShippingOptionTypes(data.selector,", "service.listShippingOptionTypes({},"],
+    ["preimage fields", "select: selects", 'select: ["id"]'],
+    ["preimage relations", "      relations,", "      relations: [],"],
+    ["list await", "await service.listShippingOptionTypes", "service.listShippingOptionTypes"],
+    ["native update method", "await service.updateShippingOptionTypes(", "await service.upsertShippingOptionTypes("],
+    ["update selector", "      data.selector,", "      {},"],
+    ["update patch", "      data.update\n    )", "      {}\n    )"],
+    ["update await", "await service.updateShippingOptionTypes", "service.updateShippingOptionTypes"],
+    ["retained preimage", "new StepResponse(shippingOptionTypes, prevData)", "new StepResponse(shippingOptionTypes, [])"],
+    ["forward result", "new StepResponse(shippingOptionTypes, prevData)", "new StepResponse(prevData, prevData)"],
+    ["empty inverse", "if (!prevData?.length)", "if (!prevData)"],
+    ["true upsert inverse", "service.upsertShippingOptionTypes(prevData)", "service.updateShippingOptionTypes(prevData)"],
+    ["unmodified preimages", "service.upsertShippingOptionTypes(prevData)", "service.upsertShippingOptionTypes([])"],
+    ["inverse await", "await service.upsertShippingOptionTypes", "service.upsertShippingOptionTypes"],
+    ["extra inverse resource", "    await service.upsertShippingOptionTypes", '    container.resolve("query"); await service.upsertShippingOptionTypes'],
+  ])("rejects changed step %s", (_label, before, after) => {
+    const changed = promoted[1].replace(before, after); expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Changed native ShippingOptionType update callback behavior");
+  });
+  it.each(["root", "step"])("rejects narrowed original %s update input", file => {
+    const index = file === "root" ? 0 : 1;
+    const changed = promoted[index].replace("update: FulfillmentTypes.UpdateShippingOptionTypeDTO", "update: {label?: string}");
+    expect(changed).not.toBe(promoted[index]);
+    expect(() => index === 0 ? verify(changed) : verify(promoted[0], changed))
+      .toThrow("Changed native ShippingOptionType update public input type");
+  });
+  it("rejects malformed callback syntax", () => {
+    expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(shippingOptionTypes, prevData)", "return new StepResponse(")))
+      .toThrow("Invalid native ShippingOptionType update callback syntax");
   });
 });

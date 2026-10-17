@@ -464,6 +464,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     return Object.freeze(ordered);
   });
   const write: CommerceStore["write"] = Effect.fn("CommerceStore.write")((context, mode, input) => guard(context, "write", Effect.gen(function* () {
+    if (mode === "upsertPreservingDeletion") return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (capability.mode !== "scalar") {
       if (mode === "insert" || (mode === "upsert" && capability.upsert === "activeRow")) return yield* writeAdmittedRows(input, mode);
       if (capability.mode !== "readInsertUpdate" || mode !== "update") return yield* Effect.fail(commerceError("unsupportedProfile"));

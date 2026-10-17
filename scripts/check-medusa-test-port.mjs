@@ -826,3 +826,35 @@ export function verifyNativeToManyInitialization(nativeRepository, relationOwner
   if (nativeWorkflowProgram(select(nativeRepository), syntaxFailure) !== nativeWorkflowProgram(select(relationOwner), syntaxFailure))
     throw new Error("Changed native zero-to-many initialization extraction");
 }
+
+/** Preserve the complete native Type update root and its projected upsert
+ * inverse. Only portable imports and covered step metadata may differ.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyShippingOptionTypeUpdateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const expectedWorkflow = nativeWorkflow
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/core-flows/events"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/update-shipping-option-types"');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  updateShippingOptionTypesStepId,", '  { name: updateShippingOptionTypesStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native ShippingOptionType update callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native ShippingOptionType update callback behavior");
+  /** @param {string} source @param {string} name */
+  const declaredType = (source, name) => {
+    const parsed = ts.createSourceFile("shipping-option-type.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const declarations = parsed.statements.filter(node => ts.isTypeAliasDeclaration(node) && node.name.text === name);
+    if (declarations.length !== 1 || declarations[0] === undefined)
+      throw new Error("Changed native ShippingOptionType update public input type");
+    return ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed }).printNode(ts.EmitHint.Unspecified, declarations[0], parsed);
+  };
+  if (declaredType(nativeWorkflow, "UpdateShippingOptionTypesWorkflowInput") !== declaredType(workflow, "UpdateShippingOptionTypesWorkflowInput")
+    || declaredType(nativeStep, "UpdateShippingOptionTypesStepInput") !== declaredType(step, "UpdateShippingOptionTypesStepInput"))
+    throw new Error("Changed native ShippingOptionType update public input type");
+}

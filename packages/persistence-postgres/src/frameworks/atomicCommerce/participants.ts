@@ -71,6 +71,9 @@ interface AtomicCommerceParticipantBase {
   readonly allowSetNull?: true;
   readonly allowReferenceReplacement?: true;
   readonly allowReconstitution?: true;
+  /** Explicit logical conflict merge, retaining omitted deletion fields and
+   * refreshing managed update time. Receipt validation is mandatory. */
+  readonly allowPreservingDeletionUpsert?: true;
   readonly derivedIdEvent?: CommerceDerivedIdEvent;
   readonly events?: ParticipantEventSelection;
 }
@@ -82,15 +85,16 @@ export type AtomicCommerceParticipantInput = AtomicCommerceParticipantBase & (
 );
 export const isCommerceDefinitionName = (name: string) => /^[a-z][a-zA-Z0-9_-]{0,63}$/.test(name) && name !== "initialize";
 
-function captureParticipant(member: AtomicCommerceParticipantInput, logicalPublication: "mixed" | undefined, allowReconstitution: true | undefined) {
+function captureParticipant(member: AtomicCommerceParticipantInput, logicalPublication: "mixed" | undefined,
+  allowReconstitution: true | undefined, allowPreservingDeletionUpsert: true | undefined) {
   const logicalStorage = member.logicalStorage;
-  if ((logicalPublication !== undefined || allowReconstitution === true) && logicalStorage === undefined)
+  if ((logicalPublication !== undefined || allowReconstitution === true || allowPreservingDeletionUpsert === true) && logicalStorage === undefined)
     return Result.fail(commerceError("unsupportedProfile"));
   const derived = member.derivedIdEvent;
   return Result.succeed(Object.freeze({ factoryInput: member, participant: member.participant,
     commands: Object.freeze([...member.commands]), validate: member.validate, validateLogical: member.validateLogical,
     validateLogicalCall: member.validateLogicalCall,
-    allowSetNull: member.allowSetNull, allowReferenceReplacement: member.allowReferenceReplacement, allowReconstitution,
+    allowSetNull: member.allowSetNull, allowReferenceReplacement: member.allowReferenceReplacement, allowReconstitution, allowPreservingDeletionUpsert,
     derivedIdEvent: derived === undefined ? undefined : Object.freeze({ contract: derived.contract }),
     events: captureParticipantEvents(member.events),
     ...(logicalStorage === undefined
@@ -103,6 +107,7 @@ function captureParticipant(member: AtomicCommerceParticipantInput, logicalPubli
 export type CapturedAtomicCommerceParticipants = readonly Result.Result.Success<ReturnType<typeof captureParticipant>>[];
 const decodeLogicalPublication = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal("mixed")));
 const decodeReconstitution = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal(true)));
+const decodePreservingDeletionUpsert = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal(true)));
 const preparedLogicalMembers = new WeakMap<object, Readonly<{ factory: AtomicCommerceParticipantInput;
   commands: readonly CommerceCommand[]; lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>> }>>();
 
@@ -118,7 +123,9 @@ export function captureAtomicCommerceParticipants(input: readonly AtomicCommerce
         .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
       const reconstitution = yield* decodeReconstitution(member.allowReconstitution)
         .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
-      captured.push(yield* captureParticipant(member, publication, reconstitution));
+      const preservingDeletionUpsert = yield* decodePreservingDeletionUpsert(member.allowPreservingDeletionUpsert)
+        .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
+      captured.push(yield* captureParticipant(member, publication, reconstitution, preservingDeletionUpsert));
     }
     return Object.freeze(captured);
   });
@@ -156,13 +163,15 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     const common = { participant: member.participant, name, commands,
       commandNames: [...commandNames].toSorted(compareUtf16Strings), validate: member.validate,
       validateLogical: member.validateLogical, validateLogicalCall: member.validateLogicalCall, allowSetNull: member.allowSetNull,
-      allowReferenceReplacement: member.allowReferenceReplacement, allowReconstitution: member.allowReconstitution, derivedIdEvent, events };
+      allowReferenceReplacement: member.allowReferenceReplacement, allowReconstitution: member.allowReconstitution,
+      allowPreservingDeletionUpsert: member.allowPreservingDeletionUpsert, derivedIdEvent, events };
     if (member.kind === "logical") {
       const validated = member.validateLogical !== undefined || member.validateLogicalCall !== undefined;
       if (location === undefined || member.validate !== undefined ||
         (events !== undefined && !validated)
         || (member.allowSetNull === true && !validated)
         || (member.allowReconstitution === true && !validated)
+        || (member.allowPreservingDeletionUpsert === true && !validated)
         || (member.allowReferenceReplacement === true && (!validated ||
           derivedIdEvent === undefined || events === undefined ||
           !events.contracts.includes(derivedIdEvent.contract))) ||
@@ -209,7 +218,7 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     if (member.profile === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
     const descriptor = yield* requireCommerceProfile(member.profile);
     if (member.validateLogical !== undefined || member.validateLogicalCall !== undefined || member.allowSetNull === true ||
-      member.allowReferenceReplacement === true || member.allowReconstitution === true || derivedIdEvent !== undefined)
+      member.allowReferenceReplacement === true || member.allowReconstitution === true || member.allowPreservingDeletionUpsert === true || derivedIdEvent !== undefined)
       return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (descriptor.localOnly !== (member.validate !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (!sameBindingValue({ ...descriptor.artifact.identity }, reference.installation.artifact))

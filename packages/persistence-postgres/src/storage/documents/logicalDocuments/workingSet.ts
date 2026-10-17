@@ -71,7 +71,7 @@ import { captureHostPreparationLifetime, PreparedHostRuntimeError } from "../../
 import type { LogicalDocumentTable, PreparedLogicalDocumentReadMechanics, PreparedLogicalDocumentWriteMechanics,
   LogicalDocumentFailure } from "./model";
 import { requirePreparedLogicalReadMetadata, type PreparedLogicalReadMetadata } from "../logicalReadMetadata";
-const decodeRelationalChange = Schema.decodeUnknownResult(Schema.Literals(["insert", "upsert", "update", "delete", "softDelete", "restore", "reconstitute"]));
+const decodeRelationalChange = Schema.decodeUnknownResult(Schema.Literals(["insert", "upsert", "update", "upsertPreservingDeletion", "delete", "softDelete", "restore", "reconstitute"]));
 const uniqueReadKey = (definition: LocatedAppUniqueConstraintDefinitionV1, projected: LoweredCanonicalAppUniqueConstraintV1) =>
   projected.kind === "claim"
     ? JSON.stringify([definition.uniqueConstraintDefinitionId, projected.localeKey, projected.encodedKey])
@@ -1998,9 +1998,11 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     }) });
   }))));
   const relationalChange = (context: BoundedRequestContext,
-    id: PresentedTransactionId, tableName: string, operation: "insert" | "upsert" | "update" | "delete" | "softDelete" | "restore" | "reconstitute", input: unknown) => observeExecution("LogicalDocuments.relationalChange", Effect.suspend(() => runOperation(context, id, "write", Effect.gen(function* () {
+    id: PresentedTransactionId, tableName: string, operation: "insert" | "upsert" | "update" | "upsertPreservingDeletion" | "delete" | "softDelete" | "restore" | "reconstitute", input: unknown) => observeExecution("LogicalDocuments.relationalChange", Effect.suspend(() => runOperation(context, id, "write", Effect.gen(function* () {
       yield* Effect.fromResult(decodeRelationalChange(operation).pipe(Result.mapError(cause => error("invalidInput", cause))));
       if (operation === "reconstitute" && state.allowReconstitution !== true)
+        return yield* Effect.fail(error("invalidAuthority"));
+      if (operation === "upsertPreservingDeletion" && state.allowPreservingDeletionUpsert !== true)
         return yield* Effect.fail(error("invalidAuthority"));
       const table = yield* tableForName(tableName);
       if (table.relational === undefined || state.relationalCapabilities === undefined) return yield* Effect.fail(error("invalidAuthority"));
@@ -2119,9 +2121,10 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
               if (policy.deletedAt === undefined || previous === null) return yield* Effect.fail(error("invalidInput"));
               supplied = { ...inputRow, [policy.deletedAt]: operation === "restore" ? null : yield* transactionTime };
             }
-            // A native upsert conflict writes supplied fields and reactivates the
-            // row without advancing a managed update timestamp. Ordinary updates
-            // and lifecycle transitions still advance it.
+            // The existing upsert contract reactivates without advancing time.
+            // The explicitly admitted preserving-deletion merge instead keeps
+            // omitted deletion fields and advances time, even for an ID alone.
+            // Ordinary updates and lifecycle transitions also advance it.
             const fields = yield* Effect.fromResult(policy.normalize(supplied, previous,
               yield* transactionTime, operation === "upsert" ? "preserve" : "advance"));
             const afterWrite = (written: JsonObject) => Effect.gen(function* () {

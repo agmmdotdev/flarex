@@ -26,6 +26,7 @@ import { RelationalSessionError } from "../../persistence-postgres/src/database/
 
 import { logicalReconstitutionScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalReconstitutionScenario";
 import { logicalRelationalReadEvidenceScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalRelationalReadEvidenceScenario";
+import { logicalPreservingDeletionUpsertScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalPreservingDeletionUpsertScenario";
 
 const options = { runtimeHostIdentity: "flarex.test/neutral-reconstitution", compatibilityDate: "2026-09-23" };
 const origin = (sourceId: string) => ({ kind: "synthetic", sourceId });
@@ -55,14 +56,17 @@ const schema = Result.getOrThrow(normalizeRelationalSchema({
 }));
 const sourceInput = { sourceKey: "medusa.folio-fixture", writeProfile: "medusa.folio-fixture", schema,
   evidence: { kind: "synthetic", sourceId: "folio-fixture" } };
-describe("neutral committed-row reconstitution and relational selection evidence", () => {
-  it.each([false, true])("runs the neutral proof (read evidence: %s) on PGlite", async readEvidence => {
+const proofs = { reconstitution: logicalReconstitutionScenario, readEvidence: logicalRelationalReadEvidenceScenario,
+  preservingUpsert: logicalPreservingDeletionUpsertScenario };
+type Proof = keyof typeof proofs;
+describe("neutral committed-row reconstitution, relational selection and lifecycle-preserving upsert", () => {
+  it.each<Proof>(["reconstitution", "readEvidence", "preservingUpsert"])("runs the neutral proof (%s) on PGlite", async proof => {
     const control = await createMigratedPGlitePersistence();
     const target = await createMigratedPGlitePersistence();
     const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence(options, { control, target });
-    await Effect.runPromise(witness(fixture, makePGliteFrameworkSchemaArtifactAdmissionFixture(control).controlSessionStarter, undefined, readEvidence));
+    await Effect.runPromise(witness(fixture, makePGliteFrameworkSchemaArtifactAdmissionFixture(control).controlSessionStarter, undefined, proof));
   });
-  it.skipIf(postgresUrl === null).each([false, true])("runs the neutral proof (read evidence: %s) with an ordinary PostgreSQL role", async readEvidence => {
+  it.skipIf(postgresUrl === null).each<Proof>(["reconstitution", "readEvidence", "preservingUpsert"])("runs the neutral proof (%s) with an ordinary PostgreSQL role", async proof => {
     await withTemporaryPostgresPersistencePair(async (control, target) => {
       const roles = await target.query<{ rolsuper: boolean; rolcreatedb: boolean; rolcreaterole: boolean }>(
         "select rolsuper, rolcreatedb, rolcreaterole from pg_roles where rolname = current_user");
@@ -75,7 +79,7 @@ describe("neutral committed-row reconstitution and relational selection evidence
       const session = makeCatalogControlSessionStarter({ controlDb: control.drizzle,
         driver: makePostgresCatalogControlSessionDriver(control.pool) });
       await openPreparedHostTestRuntime(target.drizzle);
-      try { await Effect.runPromise(witness(fixture, session, makePostgresRelationalSession(target), readEvidence)); }
+      try { await Effect.runPromise(witness(fixture, session, makePostgresRelationalSession(target), proof)); }
       finally { await closePreparedHostTestRuntime(target.drizzle); }
     });
   });
@@ -83,7 +87,7 @@ describe("neutral committed-row reconstitution and relational selection evidence
 
 const witness = Effect.fn("Reconstitution.witness")(function* <Persistence extends PGliteFlarexPersistence | PostgresFlarexPersistence>(
   fixture: ApplicationNativeMutationFixture<Persistence>, session: CatalogControlSessionStarter, suppliedDataSession?: RelationalSession,
-  readEvidence = false,
+  proof: Proof = "reconstitution",
 ) {
   const compose = makeSchemaComposer({ deploymentId: fixture.deploymentId, authority: fixture.authority,
     applicationAnalyses: makeApplicationAnalysisRepository(fixture.target.drizzle), medusaModules: ["currency"] });
@@ -105,7 +109,7 @@ const witness = Effect.fn("Reconstitution.witness")(function* <Persistence exten
       const dataSession = suppliedDataSession ?? issueRelationalSession(fixture.target.drizzle, (_profile, work) => runEffectTransaction(
         callback => fixture.target.drizzle.transaction(callback), "Neutral reconstitution transaction", work,
         cause => new RelationalSessionError({ reason: "resourceFailure", cause })));
-      yield* (readEvidence ? logicalRelationalReadEvidenceScenario : logicalReconstitutionScenario)(fixture, bindingTarget, schemaVersionId, sourceInput, dataSession);
+      yield* proofs[proof](fixture, bindingTarget, schemaVersionId, sourceInput, dataSession);
     }),
   });
 });
