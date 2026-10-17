@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyNativeToManyInitialization } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyNativeToManyInitialization } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyShippingProfileWorkflowTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -1250,5 +1250,68 @@ describe("native ShippingOptionType deletion callback provenance", () => {
   it("rejects malformed callback syntax", () => {
     expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(void 0, ids)", "return new StepResponse(")))
       .toThrow("Invalid native ShippingOptionType deletion callback syntax");
+  });
+});
+
+describe("native ServiceZone creation callback and public type provenance", () => {
+  const paths = ["fulfillment/workflows/create-service-zones.ts", "fulfillment/steps/create-service-zones.ts"];
+  const native = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const promoted = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const nativeTypes = readFileSync("third_party/medusa/upstream/packages/core/types/src/workflow/fulfillment/service-zones.ts", "utf8");
+  const types = readFileSync("packages/medusa-types/src/workflow/fulfillment/service-zones.ts", "utf8");
+  const verify = (workflow = promoted[0], step = promoted[1], contract = types) => verifyServiceZoneCreateCallbacks(native[0], workflow, native[1], step, nativeTypes, contract);
+  it("admits exact native root, full step/inverse and unchanged type source", () => expect(() => verify()).not.toThrow());
+  it.each([
+    ["identity", '"create-service-zones-workflow"', '"create-other-service-zones-workflow"'],
+    ["whole input", "createServiceZonesStep(input.data)", "createServiceZonesStep([])"],
+    ["response", "new WorkflowResponse(createServiceZonesStep(input.data))", "new WorkflowResponse([])"],
+    ["direct step import", 'from "../steps/create-service-zones"', 'from "../steps"'],
+    ["extra runtime effect", "return new WorkflowResponse", "console.log(input); return new WorkflowResponse"],
+  ])("rejects changed root %s", (_label, before, after) => {
+    const changed = promoted[0].replace(before, after); expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native ServiceZone creation callback behavior");
+  });
+  it.each([
+    ["identity", '"create-service-zones"', '"create-other-service-zones"'],
+    ["covered inverse", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["resource", "Modules.FULFILLMENT", "Modules.PRODUCT"],
+    ["native method", "service.createServiceZones(input)", "service.upsertServiceZones(input)"],
+    ["whole data", "service.createServiceZones(input)", "service.createServiceZones([])"],
+    ["await", "await service.createServiceZones", "service.createServiceZones"],
+    ["output", "      createdServiceZones,", "      [],"],
+    ["retained IDs", "createdServiceZones.map((createdZone) => createdZone.id)", "[]"],
+    ["retained projection", "createdZone.id", "createdZone.name"],
+    ["empty inverse", "if (!createdServiceZones?.length)", "if (!createdServiceZones)"],
+    ["physical inverse", "service.deleteServiceZones(createdServiceZones)", "service.softDeleteServiceZones(createdServiceZones)"],
+    ["inverse IDs", "service.deleteServiceZones(createdServiceZones)", "service.deleteServiceZones([])"],
+    ["inverse await", "await service.deleteServiceZones", "service.deleteServiceZones"],
+    ["extra resolution", "    await service.deleteServiceZones", '    container.resolve("query"); await service.deleteServiceZones'],
+  ])("rejects changed step %s", (_label, before, after) => {
+    const changed = promoted[1].replace(before, after); expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Changed native ServiceZone creation callback behavior");
+  });
+  it.each([
+    [0, "ServiceZoneDTO[]", "unknown[]"],
+    [0, "FulfillmentWorkflow.CreateServiceZonesWorkflowInput", "{data: []}"],
+    [0, '"@medusajs/types/workflow/fulfillment/service-zones"', '"@medusajs/types"'],
+    [1, "CreateServiceZoneDTO[]", "unknown[]"],
+  ])("rejects changed erased public seam %s", (index, before, after) => {
+    const changed = promoted[index].replace(before, after); expect(changed).not.toBe(promoted[index]);
+    expect(() => index === 0 ? verify(changed) : verify(promoted[0], changed)).toThrow("Changed native ServiceZone creation public contract");
+  });
+  it.each([
+    ["name: string", "name: string | null"],
+    ["fulfillment_set_id: string", "fulfillment_set_id?: string"],
+    ["geo_zones?: (", "geo_zones: ("],
+    ['"service_zone_id"', '"id"'],
+    ["data: CreateServiceZone[]", "data: unknown[]"],
+    ['from "../../fulfillment"', 'from "../../http"'],
+  ])("rejects altered original type source %s", (before, after) => {
+    const changed = types.replace(before, after); expect(changed).not.toBe(types);
+    expect(() => verify(promoted[0], promoted[1], changed)).toThrow("Changed native ServiceZone creation public contract");
+  });
+  it("rejects malformed native callback syntax", () => {
+    expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(", "return new StepResponse(,")))
+      .toThrow("Invalid native ServiceZone creation callback syntax");
   });
 });

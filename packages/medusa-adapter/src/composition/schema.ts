@@ -14,7 +14,7 @@ import { compileVariantPricingLinkDefinition } from "./product-variant-pricing-s
 import { compileSalesChannelDefinition } from "../modules/sales-channel/schema";
 import { compileStoreDefinition } from "../modules/store/schema";
 import { compileProductLinksDefinition } from "../links/product-definition";
-import { compileShippingProfileDefinition, compileShippingProfileDeletionDefinition } from "../modules/fulfillment/shipping-profile-schema";
+import { compileShippingProfileDefinition, compileShippingProfileDeletionDefinition, compileServiceZoneCreationDefinition } from "../modules/fulfillment/shipping-profile-schema";
 import { compileSalesChannelLocationLinkDefinition } from "../links/sales-channel-location-schema";
 import type {
   ApplicationAnalysisAuthority,
@@ -31,7 +31,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
-const MedusaModule = Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "store", "productSalesChannelLink", "shippingProfile", "shippingProfileDeletion", "productShippingProfileLink", "inventory", "stockLocation", "variantLinks", "salesChannelLocationLink"]);
+const MedusaModule = Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "store", "productSalesChannelLink", "shippingProfile", "shippingProfileDeletion", "serviceZoneCreation", "productShippingProfileLink", "inventory", "stockLocation", "variantLinks", "salesChannelLocationLink"]);
 const decodeModules = Schema.decodeUnknownResult(Schema.Array(MedusaModule));
 const Request = Schema.Struct({
   applicationCandidateId: Schema.NonEmptyString,
@@ -68,7 +68,7 @@ export function makeSchemaComposer(configuration: {
   const selectedModules = decodeModules([...configuration.medusaModules]);
   return Effect.fn("SchemaComposition.compose")(function* (request: unknown) {
     const modules = yield* Effect.fromResult(selectedModules).pipe(Effect.mapError(cause => new SchemaCompositionError({ reason: "invalidRequest", cause })));
-    if (modules.includes("shippingProfileDeletion") && !modules.includes("shippingProfile")) {
+    if ((modules.includes("shippingProfileDeletion") || modules.includes("serviceZoneCreation")) && !modules.includes("shippingProfile")) {
       return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
     }
     if (modules.includes("variantPricingLink") && (!modules.includes("product") || !modules.includes("pricing"))) {
@@ -157,7 +157,7 @@ export function makeSchemaComposer(configuration: {
       }));
     }
     if (modules.includes("shippingProfile")) {
-      const shipping = yield* (modules.includes("shippingProfileDeletion")
+      const shipping = yield* (modules.includes("serviceZoneCreation") ? compileServiceZoneCreationDefinition() : modules.includes("shippingProfileDeletion")
         ? compileShippingProfileDeletionDefinition() : compileShippingProfileDefinition());
       medusaSources.push(yield* captureLogicalSchemaSource({
         key: "medusa.shippingProfile", owner: "medusa", writeProfile: "medusa.shippingProfile",

@@ -891,3 +891,31 @@ export function verifyShippingOptionTypeDeleteCallbacks(nativeWorkflow, workflow
     || declaredType(nativeStep, "DeleteShippingOptionTypesStepInput") !== declaredType(step, "DeleteShippingOptionTypesStepInput"))
     throw new Error("Changed native ShippingOptionType deletion public input type");
 }
+
+/** Preserve native creation, original type seam, full nested result and physical
+ * inverse. Only direct imports and covered step metadata may differ.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step
+ * @param {string} nativeTypes @param {string} types */
+export function verifyServiceZoneCreateCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeTypes, types) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('import type {\n  FulfillmentWorkflow,\n  ServiceZoneDTO,\n} from "@medusajs/framework/types"',
+      'import type * as FulfillmentWorkflow from "@medusajs/types/workflow/fulfillment/service-zones"\nimport type { ServiceZoneDTO } from "@medusajs/types/fulfillment/index"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/create-service-zones"');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types/fulfillment/index"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  createServiceZonesStepId,", '  { name: createServiceZonesStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native ServiceZone creation callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native ServiceZone creation callback behavior");
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("service-zone.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  if (typedProgram(expectedWorkflow) !== typedProgram(workflow) || typedProgram(expectedStep) !== typedProgram(step)
+    || nativeTypes.replaceAll("\r\n", "\n") !== types.replaceAll("\r\n", "\n"))
+    throw new Error("Changed native ServiceZone creation public contract");
+}

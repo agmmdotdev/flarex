@@ -423,6 +423,22 @@ Native inverse capabilities remain bounded separately from exact failed-root
 rollback; arbitrary Option workflows, custom Type Links and hosted activation
 remain unadmitted.
 
+The [native Service Zone creation](./preflight/131-native-service-zone-create-workflow.md)
+slice admits zero to four Zones with up to four new GeoZones each, covering all
+four native geographic types under existing FulfillmentSets. It reuses the
+genuine native workflow, validation and constructor through a fresh eight-table
+composition in the existing source lineage. Native module-event infrastructure
+remains mandatory even though the root has no external workflow event or hook.
+Returned child order, actual empty relations and parent-FK semantics stay native.
+Its bounded physical inverse removes complete history for four Zones, sixteen
+GeoZones, eight Options and sixteen Rules, with root-only native delete messages
+and unchanged FK targets. Both complete root-plus-inverse and historical inverse
+use the existing optimistic 64-call/event profile. Profile update and Type
+creation can execute sequentially on the same installed binding; duplicate participants
+for that source in one atomic root remain unadmitted. Populated schema upgrades,
+Service Zone update/delete workflow roots and public/hosted activation retain
+their separate gates.
+
 The [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)
 is complete within its approved bounded profiles. Persistence now owns protected
 immutable definitions/evidence, sealed child sets, durable operational progress,

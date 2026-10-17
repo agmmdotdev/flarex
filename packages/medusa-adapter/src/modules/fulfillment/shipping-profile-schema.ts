@@ -18,6 +18,7 @@ const decodeNativeInventory = Schema.decodeUnknownEffect(Schema.Struct({
 
 const deletionTables = ["shipping_profile", "shipping_option", "service_zone", "fulfillment_set",
   "shipping_option_type", "fulfillment_provider"] as const;
+const serviceZoneCreationTables = [...deletionTables, "geo_zone", "shipping_option_rule"] as const;
 
 const captureSelectedMetadata = Effect.fn("ShippingProfile.captureSelectedMetadata")(function* (names: readonly string[]) {
   const input = yield* Effect.try({
@@ -50,6 +51,11 @@ export const captureShippingProfileMetadata = Effect.fn("ShippingProfile.capture
 /** Deletion validation needs complete ShippingOption rows and their FK targets. */
 export const captureShippingProfileDeletionMetadata = Effect.fn("ShippingProfile.captureDeletionMetadata")(function* () {
   return yield* captureSelectedMetadata(deletionTables);
+});
+
+/** Fresh graph composition for ServiceZone creation and its physical inverse. */
+export const captureServiceZoneCreationMetadata = Effect.fn("ServiceZone.captureCreationMetadata")(function* () {
+  return yield* captureSelectedMetadata(serviceZoneCreationTables);
 });
 
 export const shippingProfileSourceProvenance = Object.freeze({
@@ -87,4 +93,14 @@ export const compileShippingProfileDefinition = Effect.fn("ShippingProfile.compi
 export const compileShippingProfileDeletionDefinition = Effect.fn("ShippingProfile.compileDeletionDefinition")(function* () {
   const schema = yield* compileSelectedDefinition(yield* captureShippingProfileDeletionMetadata());
   return Object.freeze({ schema, provenance: shippingProfileDeletionSourceProvenance });
+});
+
+/** Eight native tables under the existing source lineage, with no populated upgrade. */
+export const compileServiceZoneCreationDefinition = Effect.fn("ServiceZone.compileCreationDefinition")(function* () {
+  const schema = yield* compileSelectedDefinition(yield* captureServiceZoneCreationMetadata());
+  const provenance = Object.freeze({ ...shippingProfileSourceProvenance,
+    paths: Object.freeze([...serviceZoneCreationTables.map(name => `packages/modules/fulfillment/src/models/${name.replaceAll("_", "-")}.ts`),
+      "packages/modules/fulfillment/src/static-manifest.ts", "packages/database/drizzle/src/schema.ts"]),
+  });
+  return Object.freeze({ schema, provenance });
 });
