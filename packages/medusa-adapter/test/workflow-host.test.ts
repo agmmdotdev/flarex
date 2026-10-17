@@ -92,6 +92,23 @@ describe("workflow registration and scoped resource composition", () => {
     expect(prepared.composition.participants[0]?.commands).toEqual([command]);
   });
 
+  it("binds explicit scope exclusion to workflow identity without a provider", async () => {
+    const flow = createWorkflow("explicit-scope-exclusion-unit", () => new WorkflowResponse(null));
+    const modules: Record<string, InstalledWorkflowModule> = {};
+    Object.defineProperty(modules, "sample", { enumerable: true, value: { module, logicalStorage: {} } });
+    const input = { modules, identityAndAccessPolicy: {}, revision: "a".repeat(64),
+      workflow: { name: "explicit-scope-exclusion-unit", resources, prepared: Result.getOrThrow(flow.prepare()), input: Schema.Json, output: Schema.Json } };
+    const ordinary = await Effect.runPromise(prepareWorkflowComposition(input));
+    const exclusive = await Effect.runPromise(prepareWorkflowComposition({ ...input, executionIsolation: "scopeExclusive" }));
+    expect(ordinary.composition).not.toHaveProperty("executionIsolation");
+    expect(exclusive.composition.executionIsolation).toBe("scopeExclusive");
+    expect(exclusive.composition.identityAndAccessPolicy).not.toEqual(ordinary.composition.identityAndAccessPolicy);
+    for (const executionIsolation of ["unknown", false, 1, {}])
+      // @ts-expect-error Deliberately exercise runtime preparation input refusal.
+      expect(await Effect.runPromise(Effect.result(prepareWorkflowComposition({ ...input, executionIsolation }))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
+
   it("refuses graph selection for a method-only module alone or beside a genuine graph", () => {
     const graphless = Result.getOrThrow(defineWorkflowModule({ name: "method_only", source,
       methods: { echo: method }, graph: { aliases: [], reads: [] } }));

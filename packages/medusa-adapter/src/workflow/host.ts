@@ -19,6 +19,7 @@ import type { TrustedWorkflowExecutionSubject } from "@flarex/persistence-postgr
 import type { PreparedCommitEventEligibility } from "@flarex/persistence-postgres/internal/commit-event-eligibility";
 
 const decodeOperationScheduling = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("queued")));
+const decodeExecutionIsolation = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("scopeExclusive")));
 const decodeLogicalPublication = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal("mixed")));
 
 export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestCallLimit" | "requestByteLimit" | "requestEventLimit" | "executionIsolation" | "operationScheduling" | "borrowedOperationScheduling" | "taskControlCommands">;
@@ -100,11 +101,15 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
   readonly requestEventLimit?: number;
   readonly operationScheduling?: "queued";
   readonly borrowedOperationScheduling?: "queued";
+  /** Trusted native graphs can require the existing writer lock without a provider. */
+  readonly executionIsolation?: "scopeExclusive";
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   const operationScheduling = yield* decodeOperationScheduling(options.operationScheduling)
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const borrowedOperationScheduling = yield* decodeOperationScheduling(options.borrowedOperationScheduling)
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const executionIsolation = yield* decodeExecutionIsolation(options.executionIsolation)
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   if (borrowedOperationScheduling !== undefined && operationScheduling !== "queued")
     return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -238,7 +243,8 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
   const decodeInput = commerceDecoder(workflow.input, "invalidInput");
   const decodeOutput = commerceDecoder(workflow.output, "storedCorruption");
   const decodeStoredOutput = commerceDecoder(Schema.toType(workflow.output), "storedCorruption");
-  const scopeExclusive = (workflowComposedResources(workflow.resources) ?? []).some(member => composedWorkflowResourceDefinition(member.resource)?.scopeExclusive);
+  const scopeExclusive = executionIsolation === "scopeExclusive" ||
+    (workflowComposedResources(workflow.resources) ?? []).some(member => composedWorkflowResourceDefinition(member.resource)?.scopeExclusive);
   const execute = Effect.fn("Workflow.runAtomic")(function* (ctx: AtomicCommerceContext, value: Json) {
     if (scopeExclusive) yield* requireAtomicCommerceScopeExclusion(ctx);
     const args = yield* checkedCommerceValue(ctx, () => decodeInput(value));
@@ -263,6 +269,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
   const identity = yield* Effect.fromResult(captureWorkflowPolicy({ policy, workflow: {
     revision: options.revision, definition: workflow.prepared.identity, resources: identities, events: [...names],
     ...(composedIdentities.length ? { composedResources: composedIdentities } : {}),
+    ...(executionIsolation === undefined ? {} : { executionIsolation }),
     ...(operationScheduling === undefined ? {} : { operationScheduling }),
     ...(borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling }),
     ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
@@ -292,6 +299,7 @@ interface WorkflowHostInput<Resources, Input extends Json, Output extends Json, 
   readonly requestEventLimit?: number;
   readonly operationScheduling?: "queued";
   readonly borrowedOperationScheduling?: "queued";
+  readonly executionIsolation?: "scopeExclusive";
 }
 const prepareBoundWorkflowHost = Effect.fn("Workflow.prepareBoundHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json, Host extends AtomicCommerceHost>(input: WorkflowHostInput<Resources, Input, Output, EncodedInput, Host>) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
@@ -305,6 +313,7 @@ const prepareBoundWorkflowHost = Effect.fn("Workflow.prepareBoundHost")(function
     ...(options.requestEventLimit === undefined ? {} : { requestEventLimit: options.requestEventLimit }),
     ...(options.operationScheduling === undefined ? {} : { operationScheduling: options.operationScheduling }),
     ...(options.borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling: options.borrowedOperationScheduling }),
+    ...(options.executionIsolation === undefined ? {} : { executionIsolation: options.executionIsolation }),
   });
   const host = yield* execution.prepare(prepared.composition);
   return { host, prepared };

@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks } from "./check-medusa-test-port.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -25,6 +25,112 @@ export function verifyModuleTypeFork(source, target) {
   const portableSource = source.replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
   if (emit(portableSource) !== emit(target)) throw new Error("Module type adaptation changes runtime behavior");
 }
+/** @param {string} text */
+function emitInventoryRestoreRuntime(text) {
+    const result = ts.transpileModule(text, { reportDiagnostics: true, compilerOptions: {
+      target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext,
+      experimentalDecorators: true, removeComments: true, newLine: ts.NewLineKind.LineFeed,
+    } });
+    if (result.diagnostics?.some(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error))
+      throw new Error("Invalid module type adaptation syntax");
+    return result.outputText;
+}
+
+/** The approved restore correction and exact portable arithmetic extraction.
+ * @param {string} source @param {string} target @param {string} helper */
+export function verifyInventoryReservationRestoreFork(source, target, helper) {
+  target = verifyInventoryReservationArithmeticExtraction(source, target, helper);
+  const message = "Changed native Inventory reservation restore fork behavior";
+  const methodName = "restoreReservationItemsByLineItem_";
+  /** @param {string} text */
+  const select = text => {
+    emitInventoryRestoreRuntime(text);
+    const parsed = ts.createSourceFile("inventory-module.ts", text, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+    const classes = parsed.statements.filter(node => ts.isClassDeclaration(node) && node.name?.text === "InventoryModuleService");
+    if (classes.length !== 1 || !ts.isClassDeclaration(classes[0])) throw new Error(message);
+    const methods = classes[0].members.filter(node => ts.isMethodDeclaration(node)
+      && ts.isIdentifier(node.name) && node.name.text === methodName);
+    if (methods.length !== 1 || !ts.isMethodDeclaration(methods[0]) || !methods[0].body) throw new Error(message);
+    return { parsed, method: methods[0] };
+  };
+  const original = "@InjectTransactionManager()\nprotected async restoreReservationItemsByLineItem_(\n    lineItemId: string | string[],\n    @MedusaContext() context: Context = {}\n  ): Promise<void> {\n    const reservations: InventoryTypes.ReservationItemDTO[] =\n      await this.reservationItemService_.list(\n        { line_item_id: lineItemId },\n        {},\n        context\n      )\n\n    await this.reservationItemService_.restore(\n      { line_item_id: lineItemId },\n      context\n    )\n\n    await this.adjustInventoryLevelsForReservationsRestore(\n      reservations,\n      context\n    )\n  }";
+  const corrected = "@InjectTransactionManager()\nprotected async restoreReservationItemsByLineItem_(\n    lineItemId: string | string[],\n    @MedusaContext() context: Context = {}\n  ): Promise<void> {\n    const reservations: InventoryTypes.ReservationItemDTO[] =\n      await this.reservationItemService_.list(\n        { line_item_id: lineItemId },\n        { withDeleted: true },\n        context\n      )\n\n    // Snapshot deleted preimages before restore can mutate managed entities.\n    const reservationsToRestore = reservations\n      .filter((reservation) => reservation.deleted_at !== null)\n      .map((reservation) => ({ ...reservation }))\n\n    await this.reservationItemService_.restore(\n      { line_item_id: lineItemId },\n      context\n    )\n\n    await this.adjustInventoryLevelsForReservationsRestore(\n      reservationsToRestore,\n      context\n    )\n  }";
+  const native = select(source), adapted = select(target);
+  /** @param {string} method */
+  const emitMethod = method => emitInventoryRestoreRuntime("class InventoryRestoreGuard {\n" + method + "\n}");
+  if (emitMethod(native.method.getText(native.parsed)) !== emitMethod(original)
+    || emitMethod(adapted.method.getText(adapted.parsed)) !== emitMethod(corrected)) throw new Error(message);
+  // Only the authenticated method is restored for whole-module runtime parity.
+  const normalized = target.slice(0, adapted.method.getStart(adapted.parsed))
+    + native.method.getText(native.parsed) + target.slice(adapted.method.end);
+  verifyModuleTypeFork(source, normalized);
+}
+
+/** @param {string} source @param {string} target @param {string} helper */
+export function verifyInventoryReservationArithmeticExtraction(source, target, helper) {
+  const message = "Changed native Inventory Reservation arithmetic extraction";
+  const methodName = "adjustInventoryLevelsForReservations_";
+  /** @param {string} text */
+  const parse = text => {
+    emitInventoryRestoreRuntime(text);
+    const parsed = ts.createSourceFile("inventory-arithmetic.ts", text, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+    return parsed;
+  };
+  /** @param {ts.SourceFile} parsed */
+  const select = parsed => {
+    const classes = parsed.statements.filter(node => ts.isClassDeclaration(node) && node.name?.text === "InventoryModuleService");
+    if (classes.length !== 1 || !ts.isClassDeclaration(classes[0])) throw new Error(message);
+    const methods = classes[0].members.filter(node => ts.isMethodDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === methodName);
+    if (methods.length !== 1 || !ts.isMethodDeclaration(methods[0]) || !methods[0].body) throw new Error(message);
+    return methods[0];
+  };
+  const native = parse(source), adapted = parse(target), original = select(native), delegated = select(adapted);
+  const body = original.body;
+  if (!body) throw new Error(message);
+  const statements = body.statements;
+  if (statements?.length !== 5) throw new Error(message);
+  const [multiplier, ensureLevels, grouping, updates, apply] = statements;
+  if (!multiplier || !ensureLevels || !grouping || !updates || !apply || !ts.isVariableStatement(updates)
+    || updates.declarationList.declarations.length !== 1) throw new Error(message);
+  const update = updates.declarationList.declarations[0];
+  if (!update || !ts.isIdentifier(update.name) || update.name.text !== "levelAdjustmentUpdates" || !update.initializer) throw new Error(message);
+  const methodHeader = original.getText(native).slice(0, body.getStart(native) - original.getStart(native));
+  const expectedMethod = methodHeader + "{\n" + ensureLevels.getText(native)
+    + "\nconst levelAdjustmentUpdates = inventoryLevelReservationAdjustments(reservations, inventoryLevels, isDelete);\n"
+    + apply.getText(native) + "\n}";
+  /** @param {string} method */
+  const emitMethod = method => emitInventoryRestoreRuntime("class InventoryArithmeticGuard {\n" + method + "\n}");
+  if (emitMethod(delegated.getText(adapted)) !== emitMethod(expectedMethod)) throw new Error(message);
+  const helperFile = parse(helper);
+  const helperStatements = helperFile.statements.filter(node => ts.isFunctionDeclaration(node) && node.name?.text === "inventoryLevelReservationAdjustments");
+  if (helperStatements.length !== 1 || !ts.isFunctionDeclaration(helperStatements[0])) throw new Error(message);
+  const extracted = helperStatements[0];
+  const expectedHelper = "export function inventoryLevelReservationAdjustments(reservations, inventoryLevels, isDelete) {\n"
+    + multiplier.getText(native) + "\n" + grouping.getText(native) + "\nreturn " + update.initializer.getText(native) + ";\n}";
+  if (emitInventoryRestoreRuntime(extracted.getText(helperFile)) !== emitInventoryRestoreRuntime(expectedHelper)) throw new Error(message);
+  // The pre-existing availability extraction and utility import are unchanged.
+  const beforeHelper = helper.slice(0, extracted.getStart(helperFile)) + helper.slice(extracted.end);
+  const originalHelper = 'import { BigNumber, MathBN } from "@medusajs/framework/utils/portable"\n'
+    + 'import type { BigNumberInput } from "@medusajs/framework/types"\n'
+    + 'export function inventoryLevelAvailableQuantity(stocked: BigNumberInput, reserved: BigNumberInput) {\n'
+    + 'return new BigNumber(MathBN.sub(stocked, reserved))\n}\n';
+  if (emitInventoryRestoreRuntime(beforeHelper) !== emitInventoryRestoreRuntime(originalHelper)) throw new Error(message);
+  const imports = adapted.statements.filter(node => ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)
+    && node.moduleSpecifier.text === "../utils/inventory-level-quantity");
+  if (imports.length !== 1 || !ts.isImportDeclaration(imports[0])) throw new Error(message);
+  const imported = imports[0], bindings = imported.importClause?.namedBindings;
+  if (imported.importClause?.isTypeOnly || imported.importClause?.name || !bindings || !ts.isNamedImports(bindings)
+    || bindings.elements.length !== 1 || bindings.elements[0]?.isTypeOnly || bindings.elements[0]?.propertyName
+    || bindings.elements[0]?.name.text !== "inventoryLevelReservationAdjustments") throw new Error(message);
+  // Restore the exact original method and erase its sole authenticated helper
+  // import before the caller checks complete module runtime parity.
+  const replacements = [{ start: delegated.getStart(adapted), end: delegated.end, text: original.getText(native) },
+    { start: imported.getStart(adapted), end: imported.end, text: "" }].sort((left, right) => right.start - left.start);
+  let normalized = target;
+  for (const replacement of replacements) normalized = normalized.slice(0, replacement.start) + replacement.text + normalized.slice(replacement.end);
+  return normalized;
+}
+
 const owners = new Map([
   ["packages/medusa-currency", "@medusajs/currency"],
   ["packages/medusa-product", "@medusajs/product"],
@@ -180,6 +286,12 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/inventory/steps/update-inventory-levels.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/inventory/steps/update-inventory-levels.ts"), "utf8"),
   );
+  verifyReservationLineItemDeletionCallbacks(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/reservation/workflows/delete-reservations-by-line-items.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/reservation/workflows/delete-reservations-by-line-items.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/reservation/steps/delete-reservations-by-line-items.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/reservation/steps/delete-reservations-by-line-items.ts"), "utf8"),
+  );
   verifyStoreCreateCallbacks(
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/store/workflows/create-stores.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/store/workflows/create-stores.ts"), "utf8"),
@@ -226,7 +338,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, csvTarget, "csv-normalizer.spec.ts"), "utf8"),
     fixtureText(csvSource), fixtureText(csvTarget));
   for (const file of promotion.files) {
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "notificationServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "storeTypeFork", "storeCreationTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "storeTypeFork", "storeCreationTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.classification === "workflowFork" && !(file.target.startsWith("packages/medusa-workflows-sdk/src/") || file.target.startsWith("packages/medusa-core-flows/src/") || file.target.startsWith("packages/medusa-orchestration/src/") || [
@@ -255,6 +367,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       "packages/medusa-product/src/services/product-module-service.ts",
       "packages/medusa-product/src/services/product-category.ts",
     ].includes(file.target)) throw new Error("Product service adaptation outside its approved source files");
+    if (file.classification === "inventoryServiceFork" && (file.target !== "packages/medusa-inventory/src/services/inventory-module.ts"
+      || file.source !== "third_party/medusa/upstream/packages/modules/inventory/src/services/inventory-module.ts"))
+      throw new Error("Inventory service adaptation outside its approved source file");
     if (file.classification === "notificationServiceFork" && ![
       "packages/medusa-notification/src/services/notification-module-service.ts",
       "packages/medusa-notification/src/services/notification-delivery.ts",
@@ -290,6 +405,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       noSymlinks(root, file.source);
       const hash = sha256(readFileSync(path.join(root, file.source)));
       if (hash !== file.sourceSha256) throw new Error(`Changed promotion source: ${file.source}`);
+      if (file.classification === "inventoryServiceFork")
+        verifyInventoryReservationRestoreFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"),
+          readFileSync(path.join(root, "packages/medusa-inventory/src/utils/inventory-level-quantity.ts"), "utf8"));
       if (file.classification === "storeCreationTypeFork")
         verifyStoreCreationTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.classification === "storeTypeFork")

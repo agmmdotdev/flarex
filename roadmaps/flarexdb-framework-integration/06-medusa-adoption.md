@@ -119,12 +119,17 @@ profile creates up to eight Levels for existing Items and Locations through a
 dedicated two-method Inventory profile. It retains the required empty Location
 query, complete native DTOs, physical creation inverse and existing resource
 limits. Shared Level event decoding preserves batch receipt error classification
-while each profile keeps its own publication actions. Reservation deletion by
-Line Item remains a subsequent admission. Its
-[native preflight](./preflight/122-native-reservation-line-item-delete-workflow.md)
-identifies a restore-preimage business defect and missing complete-history Line
-Item access. The native correction is approved; implementation of complete-history
-access and connected validation remain gates.
+while each profile keeps its own publication actions. The bounded
+[Reservation deletion by Line Item](./preflight/122-native-reservation-line-item-delete-workflow.md)
+profile admits four raw Line Item IDs, four complete matching Reservation history
+rows and four affected Level tuples. It preserves native selectors, grouping,
+events and retained inverse behavior, with the approved native correction using
+deleted-only preimages to restore reserved demand. An unconditional derived Line
+Item index provides complete-history access through existing storage owners.
+The trusted workflow host explicitly selects identity-bound scope exclusion
+before native callbacks; existing resource limits remain unchanged. The native
+inverse also restores older matching tombstones, so external saga safety remains
+unclaimed. By-ID restore and populated-schema upgrades remain separate gates.
 The bounded [Store deletion workflow](./preflight/123-native-store-delete-workflow.md)
 admits four raw Store IDs and complete history of eight Currency and eight Locale
 children through the genuine module lifecycle and required empty-family Link

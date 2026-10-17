@@ -1,13 +1,182 @@
 // @ts-check
-import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyStoreCreationTypeFork } from "./check-medusa-currency-promotion.mjs";
+import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork } from "./check-medusa-currency-promotion.mjs";
 import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
 
 const root = process.cwd();
 const promotion = verifyCurrencyPromotion(root);
 const source = "packages/medusa-currency/src/models/currency.ts";
+
+describe("native Inventory reservation line-item restore correction provenance", () => {
+  const native = readFileSync("third_party/medusa/upstream/packages/modules/inventory/src/services/inventory-module.ts", "utf8");
+  const adapted = readFileSync("packages/medusa-inventory/src/services/inventory-module.ts", "utf8");
+  it("refuses a different native source for the sole Inventory service target", () => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(file =>
+      file.target === "packages/medusa-inventory/src/services/inventory-module.ts"
+        ? { ...file, source: "third_party/medusa/upstream/packages/modules/inventory/src/services/inventory-level.ts" } : file) }))
+      .toThrow("Inventory service adaptation outside its approved source file");
+  });
+  const helper = readFileSync("packages/medusa-inventory/src/utils/inventory-level-quantity.ts", "utf8");
+  /** @param {string} source @param {string} target */
+  const verify = (source, target) => verifyInventoryReservationRestoreFork(source, target, helper);
+  const correctedMethod = "  @InjectTransactionManager()\n  protected async restoreReservationItemsByLineItem_(\n    lineItemId: string | string[],\n    @MedusaContext() context: Context = {}\n  ): Promise<void> {\n    const reservations: InventoryTypes.ReservationItemDTO[] =\n      await this.reservationItemService_.list(\n        { line_item_id: lineItemId },\n        { withDeleted: true },\n        context\n      )\n\n    // Snapshot deleted preimages before restore can mutate managed entities.\n    const reservationsToRestore = reservations\n      .filter((reservation) => reservation.deleted_at !== null)\n      .map((reservation) => ({ ...reservation }))\n\n    await this.reservationItemService_.restore(\n      { line_item_id: lineItemId },\n      context\n    )\n\n    await this.adjustInventoryLevelsForReservationsRestore(\n      reservationsToRestore,\n      context\n    )\n  }\n";
+  it("admits only the approved deleted-history preimage correction and erased types", () => {
+    expect(() => verify(native, adapted)).not.toThrow();
+    expect(() => verify(native, adapted.replace("const reservationsToRestore =", "const reservationsToRestore: InventoryTypes.ReservationItemDTO[] ="))).not.toThrow();
+    expect(() => verify(native, native)).toThrow();
+  });
+  it.each([
+  [
+    "history visibility",
+    "{ withDeleted: true }",
+    "{}"
+  ],
+  [
+    "false history flag",
+    "{ withDeleted: true }",
+    "{ withDeleted: false }"
+  ],
+  [
+    "active preimage admission",
+    "reservation.deleted_at !== null",
+    "reservation.deleted_at === null"
+  ],
+  [
+    "all history admission",
+    ".filter((reservation) => reservation.deleted_at !== null)",
+    ".filter(() => true)"
+  ],
+  [
+    "snapshot copy",
+    ".map((reservation) => ({ ...reservation }))",
+    ".map((reservation) => reservation)"
+  ],
+  [
+    "redundant explicit snapshot",
+    ".map((reservation) => ({ ...reservation }))",
+    ".map((reservation) => ({ ...reservation, quantity: reservation.quantity }))"
+  ],
+  [
+    "selected preimage order",
+    ".map((reservation) => ({ ...reservation }))",
+    ".map((reservation) => ({ ...reservation })).reverse()"
+  ],
+  [
+    "raw selectors",
+    "{ line_item_id: lineItemId }",
+    "{ line_item_id: [] }"
+  ],
+  [
+    "quantity helper preimages",
+    "      reservationsToRestore,",
+    "      reservations,"
+  ],
+  [
+    "raw restore selector",
+    "await this.reservationItemService_.restore(\n      { line_item_id: lineItemId },",
+    "await this.reservationItemService_.restore(\n      { line_item_id: [] },"
+  ],
+  [
+    "empty invocation",
+    "await this.reservationItemService_.restore(\n      { line_item_id: lineItemId },",
+    "if (lineItemId.length) await this.reservationItemService_.restore(\n      { line_item_id: lineItemId },"
+  ],
+  [
+    "transaction decorator",
+    "@InjectTransactionManager()\n  protected async restoreReservationItemsByLineItem_",
+    "protected async restoreReservationItemsByLineItem_"
+  ],
+  [
+    "by-ID method",
+    "protected async restoreReservationItems_(",
+    "protected async changedRestoreReservationItems_("
+  ],
+  [
+    "unrelated runtime",
+    "export default class InventoryModuleService",
+    "export const extraInventoryRuntime = true;\nexport default class InventoryModuleService"
+  ]
+])('rejects changed %s', (_name, before, after) => {
+    const outsideMethod = _name === "by-ID method" || _name === "unrelated runtime";
+    const selected = outsideMethod ? adapted : correctedMethod;
+    const replacement = selected.replace(before, after); expect(replacement).not.toBe(selected);
+    const changed = outsideMethod ? replacement : adapted.replace(correctedMethod, replacement);
+    expect(changed).not.toBe(adapted);
+    expect(() => verify(native, changed)).toThrow();
+  });
+  it("refuses snapshot capture after lifecycle restore", () => {
+    const snapshot = "    // Snapshot deleted preimages before restore can mutate managed entities.\n    const reservationsToRestore = reservations\n      .filter((reservation) => reservation.deleted_at !== null)\n      .map((reservation) => ({ ...reservation }))\n\n";
+    const changed = adapted.replace(snapshot, "").replace("    await this.adjustInventoryLevelsForReservationsRestore(\n      reservationsToRestore,", snapshot + "    await this.adjustInventoryLevelsForReservationsRestore(\n      reservationsToRestore,");
+    expect(changed).not.toBe(adapted);
+    expect(() => verify(native, changed)).toThrow();
+  });
+  it("refuses duplicate or missing corrected method", () => {
+    const method = "  @InjectTransactionManager()\n  protected async restoreReservationItemsByLineItem_(\n    lineItemId: string | string[],\n    @MedusaContext() context: Context = {}\n  ): Promise<void> {\n    const reservations: InventoryTypes.ReservationItemDTO[] =\n      await this.reservationItemService_.list(\n        { line_item_id: lineItemId },\n        { withDeleted: true },\n        context\n      )\n\n    // Snapshot deleted preimages before restore can mutate managed entities.\n    const reservationsToRestore = reservations\n      .filter((reservation) => reservation.deleted_at !== null)\n      .map((reservation) => ({ ...reservation }))\n\n    await this.reservationItemService_.restore(\n      { line_item_id: lineItemId },\n      context\n    )\n\n    await this.adjustInventoryLevelsForReservationsRestore(\n      reservationsToRestore,\n      context\n    )\n  }\n";
+    expect(adapted).toContain(method);
+    expect(() => verify(native, adapted.replace(method, method + "\n" + method))).toThrow();
+    expect(() => verify(native, adapted.replace(method, ""))).toThrow();
+  });
+});
+
+
+describe("native Inventory Reservation arithmetic extraction provenance", () => {
+  const native = readFileSync("third_party/medusa/upstream/packages/modules/inventory/src/services/inventory-module.ts", "utf8");
+  const adapted = readFileSync("packages/medusa-inventory/src/services/inventory-module.ts", "utf8");
+  const helper = readFileSync("packages/medusa-inventory/src/utils/inventory-level-quantity.ts", "utf8");
+  it("retains the exact extracted native algorithm and its sole delegated call", () => {
+    expect(() => verifyInventoryReservationRestoreFork(native, adapted, helper)).not.toThrow();
+    expect(() => verifyInventoryReservationRestoreFork(native, adapted, helper.replace("const multiplier =", "const multiplier: number ="))).not.toThrow();
+  });
+  it.each([
+    ["multiplier", "isDelete ? -1 : 1", "isDelete ? 1 : -1"],
+    ["group owner", "acc.get(curr.inventory_item_id)", "acc.get(curr.location_id)"],
+    ["group lookup", "inventoryLevelMap.has(curr.location_id)", "inventoryLevelMap.has(curr.inventory_item_id)"],
+    ["previous adjustment", "inventoryLevelMap.get(curr.location_id)", "inventoryLevelMap.get(curr.inventory_item_id)"],
+    ["group addition", "MathBN.add(", "MathBN.sub("],
+    ["quantity multiplier", "MathBN.mult(curr.quantity, multiplier)", "MathBN.mult(curr.quantity, 1)"],
+    ["quantity source", "MathBN.mult(curr.quantity, multiplier)", "MathBN.mult(0, multiplier)"],
+    ["group location", "inventoryLevelMap.set(curr.location_id, adjustment)", "inventoryLevelMap.set(curr.inventory_item_id, adjustment)"],
+    ["group insertion", "acc.set(curr.inventory_item_id, inventoryLevelMap)", "acc.set(curr.location_id, inventoryLevelMap)"],
+    ["group iteration order", "reservations.reduce((acc, curr)", "[...reservations].reverse().reduce((acc, curr)"],
+    ["Level iteration order", "return inventoryLevels.map((level)", "return [...inventoryLevels].reverse().map((level)"],
+    ["Level lookup", ".get(level.inventory_item_id)", ".get(level.location_id)"],
+    ["Level location", "?.get(level.location_id)", "?.get(level.inventory_item_id)"],
+    ["zero/undefined selection", "if (!adjustment)", "if (adjustment === undefined)"],
+    ["undefined entry preservation", "if (!adjustment) {\n      return", "if (!adjustment) {\n      return { id: level.id, reserved_quantity: 0 }"],
+    ["update identity", "id: level.id,", "id: level.location_id,"],
+    ["reserved source", "MathBN.add(level.reserved_quantity, adjustment)", "MathBN.add(0, adjustment)"],
+    ["extra update field", "id: level.id,", "id: level.id, stocked_quantity: 0,"],
+    ["available quantity owner", "MathBN.sub(stocked, reserved)", "MathBN.add(stocked, reserved)"],
+    ["helper parameter order", "reservations: readonly", "reorderedReservations: readonly"],
+  ])("rejects changed extracted %s", (_name, before, after) => {
+    const changed = helper.replace(before, after); expect(changed).not.toBe(helper);
+    expect(() => verifyInventoryReservationRestoreFork(native, adapted, changed)).toThrow();
+  });
+  it.each([
+    ["helper import", 'import { inventoryLevelReservationAdjustments } from "../utils/inventory-level-quantity"', 'import { inventoryLevelReservationAdjustments } from "../utils/other"'],
+    ["unused helper", "const levelAdjustmentUpdates = inventoryLevelReservationAdjustments(", "const levelAdjustmentUpdates = anotherHelper("],
+    ["delegate source", "      reservations,\n      inventoryLevels,\n      isDelete", "      [],\n      inventoryLevels,\n      isDelete"],
+    ["delegate Level source", "      reservations,\n      inventoryLevels,\n      isDelete", "      reservations,\n      [],\n      isDelete"],
+    ["delegate multiplier", "      reservations,\n      inventoryLevels,\n      isDelete", "      reservations,\n      inventoryLevels,\n      !isDelete"],
+    ["ensure inputs", "reservations.map((r) => ({", "[].map((r) => ({"],
+    ["ensure call", "const inventoryLevels = await this.ensureInventoryLevels(", "const inventoryLevels = await this.anotherEnsure("],
+    ["update arguments", "await this.inventoryLevelService_.update(levelAdjustmentUpdates, context)", "await this.inventoryLevelService_.update([], context)"],
+    ["update context", "await this.inventoryLevelService_.update(levelAdjustmentUpdates, context)", "await this.inventoryLevelService_.update(levelAdjustmentUpdates, {})"],
+  ])("rejects changed native arithmetic delegation %s", (_name, before, after) => {
+    const start = _name === "helper import" ? 0 : adapted.indexOf("  private async adjustInventoryLevelsForReservations_(");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const selected = adapted.slice(start), replacement = selected.replace(before, after); expect(replacement).not.toBe(selected);
+    const changed = adapted.slice(0, start) + replacement;
+    expect(() => verifyInventoryReservationRestoreFork(native, changed, helper)).toThrow();
+  });
+  it("refuses missing, duplicate or extra runtime helper exports", () => {
+    expect(() => verifyInventoryReservationRestoreFork(native, adapted, helper.replace("export function inventoryLevelReservationAdjustments(", "function inventoryLevelReservationAdjustments("))).toThrow();
+    expect(() => verifyInventoryReservationRestoreFork(native, adapted, helper + "\nexport const extra = true;\n")).toThrow();
+    expect(() => verifyInventoryReservationRestoreFork(native, adapted, helper + "\nexport function inventoryLevelReservationAdjustments() {}\n")).toThrow();
+  });
+});
 
 describe("named Pricing workflow admission selection", () => {
   const native = readFileSync("third_party/medusa/upstream/packages/core/types/src/pricing/service.ts", "utf8");
@@ -468,6 +637,7 @@ describe("exact Currency promotion", () => {
     ["misclassified preserved source", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "workflowFork" } : file) }],
     ["misclassified Link adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "linkFork" } : file) }],
     ["misclassified Product adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "productServiceFork" } : file) }],
+    ["misclassified Inventory adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "inventoryServiceFork" } : file) }],
     ["misclassified Notification adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "notificationServiceFork" } : file) }],
     ["misclassified Sales Channel type adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "salesChannelTypeFork" } : file) }],
     ["misclassified Stock Location type adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "stockLocationTypeFork" } : file) }],
@@ -588,5 +758,65 @@ describe("exact Currency promotion", () => {
     expect(check(wrapper, specifier, { ...promotion, files: promotion.files.filter(file => file.target !== wrapper) })).toHaveLength(1);
     expect(check(wrapper, specifier, { ...promotion, files: promotion.files.filter(file => file.target !== "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts") })).toHaveLength(1);
     expect(check(wrapper, specifier, { ...promotion, testAliases: [] })).toHaveLength(1);
+  });
+});
+
+describe("native Reservation Line Item deletion callback provenance", () => {
+  const paths = ["reservation/workflows/delete-reservations-by-line-items.ts", "reservation/steps/delete-reservations-by-line-items.ts"];
+  const native = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const promoted = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const verify = (workflow = promoted[0], step = promoted[1]) =>
+    verifyReservationLineItemDeletionCallbacks(native[0], workflow, native[1], step);
+  it("admits the exact complete native runtime with only recorded portable seams", () => {
+    expect(() => verify()).not.toThrow();
+    expect(() => verify(promoted[0].replace("input: WorkflowData<DeleteReservationByLineItemsWorkflowInput>", "input: WorkflowData<DeleteReservationByLineItemsWorkflowInput> /* erased */"))).not.toThrow();
+  });
+  it.each([
+    ["root ID", '"delete-reservations-by-line-items"', '"delete-other-reservations"'],
+    ["selected step import", 'from "../steps/delete-reservations-by-line-items"', 'from "../steps"'],
+    ["raw ID order", "deleteReservationsByLineItemsStep(input.ids)", "deleteReservationsByLineItemsStep([...input.ids].reverse())"],
+    ["duplicate raw IDs", "deleteReservationsByLineItemsStep(input.ids)", "deleteReservationsByLineItemsStep([...new Set(input.ids)])"],
+    ["required empty forward call", "deleteReservationsByLineItemsStep(input.ids)", "input.ids.length ? deleteReservationsByLineItemsStep(input.ids) : undefined"],
+    ["response wrapper", "return new WorkflowResponse(deleteReservationsByLineItemsStep(input.ids))", "return deleteReservationsByLineItemsStep(input.ids)"],
+    ["extra root effect", "return new WorkflowResponse(", 'container.resolve("query"); return new WorkflowResponse('],
+    ["extra module import", 'from "@medusajs/workflows-sdk"', 'from "@medusajs/workflows-sdk"; import "node:fs"'],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = promoted[0].replace(before, after); expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native Reservation Line Item deletion callback behavior");
+  });
+  it.each([
+    ["step ID", '"delete-reservations-by-line-items"', '"delete-other-reservations"'],
+    ["covered metadata", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["Inventory resolution", "Modules.INVENTORY", "Modules.ORDER"],
+    ["forward native method", "deleteReservationItemsByLineItem(ids)", "softDeleteReservationItems(ids)"],
+    ["forward ordered raw selectors", "deleteReservationItemsByLineItem(ids)", "deleteReservationItemsByLineItem([...ids].sort())"],
+    ["forward required empty invocation", "await service.deleteReservationItemsByLineItem(ids)", "if (ids.length) await service.deleteReservationItemsByLineItem(ids)"],
+    ["void native result", "new StepResponse(void 0, ids)", "new StepResponse(null, ids)"],
+    ["retained inverse selectors", "new StepResponse(void 0, ids)", "new StepResponse(void 0, [...new Set(ids)])"],
+    ["empty inverse skip", "if (!prevIds?.length)", "if (!prevIds)"],
+    ["inverse native method", "restoreReservationItemsByLineItem(prevIds)", "restoreReservationItems(prevIds)"],
+    ["inverse raw selectors", "restoreReservationItemsByLineItem(prevIds)", "restoreReservationItemsByLineItem([...prevIds].reverse())"],
+    ["portable utility import", 'from "@medusajs/framework/utils/portable"', 'from "@medusajs/framework/utils"'],
+    ["extra unused-result statement", "    await service.deleteReservationItemsByLineItem(ids)", "    void service; await service.deleteReservationItemsByLineItem(ids)"],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = promoted[1].replace(before, after); expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Changed native Reservation Line Item deletion callback behavior");
+  });
+  it("rejects moving Inventory resolution before the empty inverse guard", () => {
+    const before = '    if (!prevIds?.length) {\n      return\n    }\n\n    const service = container.resolve<IInventoryService>(Modules.INVENTORY)';
+    const after = '    const service = container.resolve<IInventoryService>(Modules.INVENTORY)\n\n    if (!prevIds?.length) {\n      return\n    }';
+    const changed = promoted[1].replace(before, after); expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Changed native Reservation Line Item deletion callback behavior");
+  });
+  it("rejects moving the forward response before deletion", () => {
+    const before = "    await service.deleteReservationItemsByLineItem(ids)\n\n    return new StepResponse(void 0, ids)";
+    const after = "    return new StepResponse(void 0, ids)\n    await service.deleteReservationItemsByLineItem(ids)";
+    const changed = promoted[1].replace(before, after); expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Changed native Reservation Line Item deletion callback behavior");
+  });
+  it("rejects a syntactically invalid mutation", () => {
+    const changed = promoted[1].replace("return new StepResponse(void 0, ids)", "return new StepResponse(");
+    expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Invalid native Reservation Line Item callback syntax");
   });
 });

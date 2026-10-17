@@ -40,6 +40,12 @@ export const inventorySourceProvenance = Object.freeze({
 /** Complete pinned Inventory source; runtime methods remain individually admitted. */
 export const compileInventoryDefinition = Effect.fn("Inventory.compileDefinition")(function* () {
   const compiled = yield* compilePinnedInventoryMetadata();
-  const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema(compiled.tables, "commerce.inventory")));
+  const lowered = lowerDmlSchema(compiled.tables, "commerce.inventory");
+  const schema = yield* Effect.fromResult(normalizeRelationalSchema({ ...lowered, tables: lowered.tables.map(table =>
+    table.tableId !== "reservation_item" ? table : { ...table, indexes: [...table.indexes, {
+      indexId: "reservation-item.line-item-equality", kind: "textEquality" as const,
+      columns: ["line_item_id"], predicate: null,
+      origin: { kind: "derived" as const, sourceId: "reservation-item.line-item-equality" },
+    }] }) }));
   return Object.freeze({ schema, provenance: inventorySourceProvenance });
 });

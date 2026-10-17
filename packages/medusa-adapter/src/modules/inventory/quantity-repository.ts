@@ -56,23 +56,26 @@ export function inventoryQuantityProjection(columns: readonly SchemaTable["colum
 /** Inventory's exact quantities extend shared scalar DAL mechanics. Native
  * services retain availability checks and reservation-to-level adjustments. */
 export function prepareInventoryQuantityRepository(table: SchemaTable, model: "InventoryLevel" | "ReservationItem",
-  profile: "read-only" | "stock-mutations" | "level-updates" | "level-batches" | "level-creations") {
+  profile: "read-only" | "stock-mutations" | "level-updates" | "level-batches" | "level-creations" | "reservation-line-items") {
   return Result.gen(function* () {
-    if (!["read-only", "stock-mutations", "level-updates", "level-batches", "level-creations"].includes(profile) || (profile === "level-updates" || profile === "level-batches" || profile === "level-creations") && model !== "InventoryLevel")
+    if (!["read-only", "stock-mutations", "level-updates", "level-batches", "level-creations", "reservation-line-items"].includes(profile) ||
+      (profile === "level-updates" || profile === "level-batches" || profile === "level-creations" || profile === "reservation-line-items") && model !== "InventoryLevel")
       return yield* Result.fail(commerceError("unsupportedProfile"));
-    const levelUpdates = profile === "level-updates" || profile === "level-batches", mutable = profile === "stock-mutations" || levelUpdates;
+    const levelUpdates = profile === "level-updates" || profile === "level-batches", reservationLines = profile === "reservation-line-items";
+    const bounded = levelUpdates || reservationLines, mutable = profile === "stock-mutations" || bounded;
     const numeric = table.columns.filter(column => column.type === "bigNumber");
     const project = inventoryQuantityProjection(table.columns);
     const scalar = yield* prepareScalarRepository(table, model, model === "InventoryLevel" ? inventoryLevelWhere : scalarIdWhere,
-      levelUpdates || profile === "level-creations" ? project : undefined);
+      bounded || profile === "level-creations" ? project : undefined);
     const exactProjection = inventoryQuantityProjection(table.columns, true);
-    const updateNumeric = levelUpdates ? numeric.filter(column => ["stocked_quantity", "incoming_quantity"].includes(column.name)) : numeric;
+    const updateNumeric = reservationLines ? numeric.filter(column => column.name === "reserved_quantity")
+      : levelUpdates ? numeric.filter(column => ["stocked_quantity", "incoming_quantity"].includes(column.name)) : numeric;
     const updateFields = levelUpdates ? ["inventory_item_id", "location_id", ...updateNumeric.map(column => column.name)]
-      : model === "InventoryLevel" ? numeric.map(column => column.name) : ["quantity"];
+      : model === "InventoryLevel" ? updateNumeric.map(column => column.name) : ["quantity"];
     const decodeUpdate = commerceRowDecoder(["id", ...updateFields, ...updateNumeric.map(column => "raw_" + column.name)], "unsupportedProfile");
-    const pairs = levelUpdates ? commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.JsonObject }))
+    const pairs = bounded ? commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.JsonObject }))
       .check(Schema.isMaxLength(4)), "unsupportedProfile") : decodePairs;
-    const plan = compileKeyedUpdates({ keyColumn: "id", repeatedKeys: levelUpdates ? "reject" : "preserve", decodeEntries: pairs,
+    const plan = compileKeyedUpdates({ keyColumn: "id", repeatedKeys: bounded ? "reject" : "preserve", decodeEntries: pairs,
       readEntry: pair => Result.gen(function* () {
         const id = yield* decodeId(pair.entity.id);
         yield* decodeUpdate(pair.update);
@@ -87,7 +90,7 @@ export function prepareInventoryQuantityRepository(table: SchemaTable, model: "I
         return decoded.map(row => structuredClone({ ...row }));
       });
       const repository: DAL.RepositoryService = { ...bound.repository,
-        create: profile === "level-updates" ? bound.refuse : (input, shared) => bound.bridge.execute(shared, ctx => bound.bridge.checked(ctx, Effect.gen(function* () {
+        create: profile === "level-updates" || reservationLines ? bound.refuse : (input, shared) => bound.bridge.execute(shared, ctx => bound.bridge.checked(ctx, Effect.gen(function* () {
           if (!Array.isArray(input) || input.length > 8) return yield* ctx.refuse(commerceError("unsupportedProfile"));
           const rows: JsonObject[] = [];
           for (const row of input) rows.push(yield* captureExactNumericRow(row, numeric, true));
@@ -95,9 +98,9 @@ export function prepareInventoryQuantityRepository(table: SchemaTable, model: "I
         }))),
         find: (input, shared) => bound.bridge.execute(shared, ctx => bound.bridge.checked(ctx, Effect.gen(function* () {
           const selected = yield* bound.find(ctx, input, false);
-          if (levelUpdates && (selected.rows.length > 4 || selected.count !== undefined && selected.count > 4))
+          if (bounded && (selected.rows.length > 4 || selected.count !== undefined && selected.count > 4))
             return yield* ctx.refuse(commerceError("unsupportedProfile"));
-          if (!levelUpdates) return yield* decodeRows(selected.rows, true);
+          if (!bounded) return yield* decodeRows(selected.rows, true);
           const query = yield* Effect.fromResult(envelope(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));
           const filter = yield* Effect.fromResult(where(query.where ?? {}));
           const rows: Array<JsonObject & { id: string }> = [];
@@ -106,7 +109,7 @@ export function prepareInventoryQuantityRepository(table: SchemaTable, model: "I
         }))),
         findAndCount: bound.refuse,
         update: mutable ? (input, shared) => bound.bridge.execute(shared, ctx => bound.bridge.checked(ctx, Effect.gen(function* () {
-          if (!Array.isArray(input) || input.length > (levelUpdates ? 4 : 8)) return yield* ctx.refuse(commerceError("unsupportedProfile"));
+          if (!Array.isArray(input) || input.length > (bounded ? 4 : 8)) return yield* ctx.refuse(commerceError("unsupportedProfile"));
           const normalized: JsonObject[] = [];
           for (const entry of input) normalized.push(yield* captureExactNumericUpdatePair(entry, updateNumeric));
           const updates = yield* Effect.fromResult(plan(normalized));

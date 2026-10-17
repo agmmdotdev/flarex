@@ -29,6 +29,7 @@ import {
 import { InventoryItem, InventoryLevel, ReservationItem } from "../models"
 import { joinerConfig } from "../joiner-config"
 import { applyEntityHooks } from "../utils/apply-decorators"
+import { inventoryLevelReservationAdjustments } from "../utils/inventory-level-quantity"
 import InventoryLevelService from "./inventory-level"
 
 type InjectedDependencies = {
@@ -886,9 +887,14 @@ export default class InventoryModuleService
     const reservations: InventoryTypes.ReservationItemDTO[] =
       await this.reservationItemService_.list(
         { line_item_id: lineItemId },
-        {},
+        { withDeleted: true },
         context
       )
+
+    // Snapshot deleted preimages before restore can mutate managed entities.
+    const reservationsToRestore = reservations
+      .filter((reservation) => reservation.deleted_at !== null)
+      .map((reservation) => ({ ...reservation }))
 
     await this.reservationItemService_.restore(
       { line_item_id: lineItemId },
@@ -896,7 +902,7 @@ export default class InventoryModuleService
     )
 
     await this.adjustInventoryLevelsForReservationsRestore(
-      reservations,
+      reservationsToRestore,
       context
     )
   }
@@ -1181,7 +1187,6 @@ export default class InventoryModuleService
     isDelete: boolean,
     context: Context
   ): Promise<void> {
-    const multiplier = isDelete ? -1 : 1
     const inventoryLevels = await this.ensureInventoryLevels(
       reservations.map((r) => ({
         inventory_item_id: r.inventory_item_id,
@@ -1191,38 +1196,11 @@ export default class InventoryModuleService
       context
     )
 
-    const inventoryLevelAdjustments: Map<
-      string,
-      Map<string, number>
-    > = reservations.reduce((acc, curr) => {
-      const inventoryLevelMap = acc.get(curr.inventory_item_id) ?? new Map()
-
-      const adjustment = inventoryLevelMap.has(curr.location_id)
-        ? MathBN.add(
-            inventoryLevelMap.get(curr.location_id),
-            MathBN.mult(curr.quantity, multiplier)
-          )
-        : MathBN.mult(curr.quantity, multiplier)
-
-      inventoryLevelMap.set(curr.location_id, adjustment)
-      acc.set(curr.inventory_item_id, inventoryLevelMap)
-      return acc
-    }, new Map())
-
-    const levelAdjustmentUpdates = inventoryLevels.map((level) => {
-      const adjustment = inventoryLevelAdjustments
-        .get(level.inventory_item_id)
-        ?.get(level.location_id)
-
-      if (!adjustment) {
-        return
-      }
-
-      return {
-        id: level.id,
-        reserved_quantity: MathBN.add(level.reserved_quantity, adjustment),
-      }
-    })
+    const levelAdjustmentUpdates = inventoryLevelReservationAdjustments(
+      reservations,
+      inventoryLevels,
+      isDelete
+    )
 
     await this.inventoryLevelService_.update(levelAdjustmentUpdates, context)
   }
