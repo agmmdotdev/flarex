@@ -24,6 +24,7 @@ import {
   observeRetainedHistoryFloorCandidateEffect,
   publishRetainedHistoryFloorEffect,
   type RetainedHistoryFloorCandidateObservation,
+  type RetainedHistoryFloorPublicationResult,
 } from "../../../src/storage/history/retainedHistoryFloorObservation";
 import { createPostgresLocatedReadCommittedTransactionRunnerV1 } from
   "../../../src/database/postgresLocatedReadCommitted";
@@ -39,6 +40,7 @@ import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { retainedHistoryFloorLeaseScenario, seedRetainedFloorLeaseCommit } from "./retainedHistoryFloorLeaseScenario";
 import {
   postgresUrl,
+  rollbackAndReleasePostgresClient,
   useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 import {
@@ -60,7 +62,7 @@ const retentionPolicy = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
   maximumLiveSnapshotRetentionMilliseconds: 10_000,
 }));
 
-describePostgres("real PostgreSQL O11-B/C retained-history floor", () => {
+describePostgres("real PostgreSQL O11-B/C retained-history floor", { concurrent: false }, () => {
   it("advances past an expired lease backlog with indexed expiry filtering", async () => {
     await withPersistence(async persistence => {
       const physicalLocator = sharedLocator("floor-lease-backlog");
@@ -176,6 +178,7 @@ describePostgres("real PostgreSQL O11-B/C retained-history floor", () => {
       let observation:
         | Promise<RetainedHistoryFloorCandidateObservation>
         | undefined;
+      let blockerCommitted = false;
       try {
         await blocker.query("begin");
         await blocker.query(
@@ -187,9 +190,15 @@ describePostgres("real PostgreSQL O11-B/C retained-history floor", () => {
           port,
           deploymentId,
         ));
-        const pid = await acquiredPid.promise;
+        const pid = await Promise.race([
+          acquiredPid.promise,
+          observation.then(() => {
+            throw new Error("Observation completed before acquiring its backend.");
+          }),
+        ]);
         await expect(waitForLockWait(persistence, pid)).resolves.toBe("Lock");
         await blocker.query("commit");
+        blockerCommitted = true;
 
         await expect(observation).resolves.toMatchObject({
           disposition: "advanceable",
@@ -207,9 +216,12 @@ describePostgres("real PostgreSQL O11-B/C retained-history floor", () => {
         );
         expect(version.rows[0]?.version).toMatch(/^PostgreSQL /);
       } finally {
-        await blocker.query("rollback").catch(() => undefined);
-        blocker.release();
-        if (observation !== undefined) await Promise.allSettled([observation]);
+        try {
+          if (blockerCommitted) blocker.release();
+          else await rollbackAndReleasePostgresClient(blocker);
+        } finally {
+          if (observation !== undefined) await Promise.allSettled([observation]);
+        }
       }
     });
   }, 60_000);
@@ -263,31 +275,46 @@ describePostgres("real PostgreSQL O11-B/C retained-history floor", () => {
         activation,
         pointMutationSessionActivationFixture(deploymentId, scopeId),
       );
-      await leaseInserted.promise;
-
-      const publisherPid = deferred<number>();
-      const port = publicationPort(persistence, physicalLocator, {
-        afterAcquire: async (client) => {
-          const result = await client.query<{ pid: number }>(
-            "select pg_backend_pid()::int as pid",
-          );
-          const pid = result.rows[0]?.pid;
-          if (pid === undefined) throw new Error("Publisher PID is missing.");
-          publisherPid.resolve(pid);
-        },
-      });
-      const publication = runEffect(publishRetainedHistoryFloorEffect(
-        port,
-        deploymentId,
-      ));
+      const pending: Promise<unknown>[] = [activationPromise];
+      let publication: Promise<RetainedHistoryFloorPublicationResult> | undefined;
       try {
+        await Promise.race([
+          leaseInserted.promise,
+          activationPromise.then(() => {
+            throw new Error("Activation completed before the lease-admission barrier.");
+          }),
+        ]);
+        const publisherPid = deferred<number>();
+        const port = publicationPort(persistence, physicalLocator, {
+          afterAcquire: async (client) => {
+            const result = await client.query<{ pid: number }>(
+              "select pg_backend_pid()::int as pid",
+            );
+            const pid = result.rows[0]?.pid;
+            if (pid === undefined) throw new Error("Publisher PID is missing.");
+            publisherPid.resolve(pid);
+          },
+        });
+        publication = runEffect(publishRetainedHistoryFloorEffect(
+          port,
+          deploymentId,
+        ));
+        pending.push(publication);
+        const acquiredPublisherPid = await Promise.race([
+          publisherPid.promise,
+          publication.then(() => {
+            throw new Error("Publication completed before acquiring its backend.");
+          }),
+        ]);
         await expect(waitForLockWait(
           persistence,
-          await publisherPid.promise,
+          acquiredPublisherPid,
         )).resolves.toBe("Lock");
       } finally {
         releaseLeaseAdmission.resolve(undefined);
+        await Promise.allSettled(pending);
       }
+      if (publication === undefined) throw new Error("Expected retained-history publication to start.");
       const [activated, published] = await Promise.all([
         activationPromise,
         publication,

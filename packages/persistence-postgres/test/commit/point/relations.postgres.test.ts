@@ -69,7 +69,7 @@ import {
 } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 import {
   relationAuthorityFromAnchor,
@@ -112,7 +112,8 @@ interface RelationOperationContext {
   readonly attempt: SessionJournalAttempt;
 }
 
-describePostgres("real PostgreSQL C09 relation commit serialization", () => {
+describePostgres("real PostgreSQL C09 relation commit serialization", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPostgresPersistence();
   beforeAll(() => {
     if (globalThis.crypto === undefined) {
       Object.defineProperty(globalThis, "crypto", {
@@ -123,7 +124,7 @@ describePostgres("real PostgreSQL C09 relation commit serialization", () => {
   });
 
   it("prevents orphans in both insert-first and target-delete-first lock orders", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const randomUuid = uuidFactory("9b000000");
       for (const first of ["insert", "delete"] as const) {
         const scope = await createRelationScope(
@@ -202,15 +203,26 @@ describePostgres("real PostgreSQL C09 relation commit serialization", () => {
             },
           }).publish(firstAttempt.command),
         ));
-        await entered.promise;
-        const secondPublication = settle(runEffect(
-          relationPublisher(persistence, scope).publish(secondAttempt.command),
-        ));
+        const publications = [firstPublication];
+        let secondPublication: typeof firstPublication | undefined;
         try {
+          await Promise.race([
+            entered.promise,
+            firstPublication.then(result => {
+              if (result.status === "rejected") throw result.reason;
+              throw new Error("First publication completed before the clock-lock barrier.");
+            }),
+          ]);
+          secondPublication = settle(runEffect(
+            relationPublisher(persistence, scope).publish(secondAttempt.command),
+          ));
+          publications.push(secondPublication);
           await waitForBlockedPointCommit(persistence, 1);
         } finally {
           release.resolve();
+          await Promise.allSettled(publications);
         }
+        if (secondPublication === undefined) throw new Error("Expected both relation publications to start.");
         const [firstResult, secondResult] = await Promise.all([
           firstPublication,
           secondPublication,
@@ -257,7 +269,7 @@ describePostgres("real PostgreSQL C09 relation commit serialization", () => {
   }, 180_000);
 
   it("publishes a large adjacency fact set in bounded multi-row statements", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const randomUuid = uuidFactory("9c000000");
       const scope = await createRelationScope(
         persistence,

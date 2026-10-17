@@ -13,7 +13,7 @@ import {
   ScopeIdSchema,
   StorageGenerationFenceSchema,
 } from "flarex-protocol/storage-authority";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   makeApplicationAnalysisRepository,
@@ -23,23 +23,16 @@ import {
   applicationRuntimeTargetFromPublication,
   makeApplicationPublicationRepository,
 } from "../../src/application/applicationPublication";
-import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
+import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
 import { runEffect } from "../support/effectTestRuntime";
-import {
-  insertSessionTestScope,
-  SESSION_TEST_EPOCH_UUID,
-  SESSION_TEST_SCOPE_UUID,
-} from "../execution/session/support/sessionStorage";
+import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
 
 const ROOT = "a".repeat(64);
 const SOURCE = "b".repeat(64);
 const SCHEMA_SOURCE = "c".repeat(64);
-const AUTHORITY: ApplicationAnalysisAuthority = Object.freeze({
-  scopeId: ScopeIdSchema.make(`scope_${SESSION_TEST_SCOPE_UUID}`),
-  storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-  storageGenerationFence: StorageGenerationFenceSchema.make(1n),
-  epoch: ScopeEpochSchema.make(`epoch_${SESSION_TEST_EPOCH_UUID}`),
-});
+let persistence: Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
+let dispose: (() => Promise<void>) | undefined;
+let sequence = 0;
 
 beforeAll(async () => {
   if (globalThis.crypto === undefined) {
@@ -48,16 +41,20 @@ beforeAll(async () => {
       value: webcrypto,
     });
   }
-  await migratedPGliteDataDir();
+  persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
 }, 120_000);
 
-describe("Application publication generation", () => {
+afterAll(async () => { await dispose?.(); }, 120_000);
+
+describe("Application publication generation", { concurrent: false }, () => {
   it("publishes one manifest-derived catalog, replays exactly, and makes one target", async () => {
     const fixture = await publicationFixture();
-    const [first, replay] = await Promise.all([
+    const publishing = [
       runEffect(fixture.publications.publish(fixture.input)),
       runEffect(fixture.publications.publish(fixture.input)),
-    ]);
+    ] as const;
+    await Promise.allSettled(publishing);
+    const [first, replay] = await Promise.all(publishing);
     const target = Result.getOrThrow(
       applicationRuntimeTargetFromPublication(first, "users:get"),
     );
@@ -77,10 +74,12 @@ describe("Application publication generation", () => {
       },
     });
     expect((await fixture.persistence.query<{ count: string }>(
-      "select count(*)::text as count from fx_system_application_publication_v1",
+      "select count(*)::text as count from fx_system_application_publication_v1 where scope_id = $1",
+      [fixture.input.authority.scopeId],
     )).rows).toEqual([{ count: "1" }]);
     expect((await fixture.persistence.query<{ count: string }>(
-      "select count(*)::text as count from fx_system_application_function_v1",
+      "select count(*)::text as count from fx_system_application_function_v1 where scope_id = $1",
+      [fixture.input.authority.scopeId],
     )).rows).toEqual([{ count: "1" }]);
   });
 
@@ -89,7 +88,7 @@ describe("Application publication generation", () => {
     await runEffect(fixture.publications.publish(fixture.input));
     await fixture.persistence.query(
       "update fx_system_application_function_v1 set entry_bytes = $1 where scope_id = $2",
-      [new Uint8Array([1]), AUTHORITY.scopeId],
+      [new Uint8Array([1]), fixture.input.authority.scopeId],
     );
     const replay = await runEffect(Effect.result(
       fixture.publications.publish(fixture.input),
@@ -108,13 +107,13 @@ describe("Application publication generation", () => {
     const fixture = await publicationFixture();
     await fixture.persistence.query(
       "update fx_system_scope_execution_authority set storage_generation_fence = 2 where scope_id = $1",
-      [AUTHORITY.scopeId],
+      [fixture.input.authority.scopeId],
     );
     const stale = await runEffect(Effect.result(
       fixture.publications.publish(fixture.input),
     ));
     const freshAuthority: ApplicationAnalysisAuthority = Object.freeze({
-      ...AUTHORITY,
+      ...fixture.input.authority,
       storageGenerationFence: StorageGenerationFenceSchema.make(2n),
     });
     const fresh = await runEffect(Effect.result(
@@ -153,7 +152,8 @@ describe("Application publication generation", () => {
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) expect(result.failure.reason).toBe("invalidInput");
     expect((await fixture.persistence.query<{ count: string }>(
-      "select count(*)::text as count from fx_system_application_publication_v1",
+      "select count(*)::text as count from fx_system_application_publication_v1 where scope_id = $1",
+      [fixture.input.authority.scopeId],
     )).rows).toEqual([{ count: "0" }]);
   });
 
@@ -201,12 +201,19 @@ interface FunctionOverrides {
 }
 
 async function publicationFixture(functionOverrides?: FunctionOverrides) {
-  const persistence = await createMigratedPGlitePersistence();
-  await insertSessionTestScope(persistence);
+  sequence += 1;
+  const suffix = sequence.toString().padStart(12, "0");
+  const authority: ApplicationAnalysisAuthority = Object.freeze({
+    scopeId: ScopeIdSchema.make(`scope_61000000-0000-4000-8000-${suffix}`),
+    storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+    storageGenerationFence: StorageGenerationFenceSchema.make(1n),
+    epoch: ScopeEpochSchema.make(`epoch_62000000-0000-4000-8000-${suffix}`),
+  });
+  await insertCurrentScopeClockFixture(persistence.drizzle, authority);
   const identities = [
-    "10000000-0000-4000-8000-000000000001",
-    "10000000-0000-4000-8000-000000000002",
-    "10000000-0000-4000-8000-000000000003",
+    `10000000-0000-4000-8001-${suffix}`,
+    `10000000-0000-4000-8002-${suffix}`,
+    `10000000-0000-4000-8003-${suffix}`,
   ];
   let identityIndex = 0;
   const analyses = makeApplicationAnalysisRepository(persistence.drizzle, {
@@ -218,14 +225,14 @@ async function publicationFixture(functionOverrides?: FunctionOverrides) {
     },
   });
   const pending = await runEffect(analyses.begin({
-    authority: AUTHORITY,
+    authority,
     requestKey: "request:application-publication:1",
     sourceArtifactRootSha256: ROOT,
     analyzerIdentity: "analyzer-1",
     analyzerPolicyIdentity: "policy-1",
   }));
   const canonical = canonicalManifest(functionOverrides);
-  const analyzed = await runEffect(analyses.settle(AUTHORITY, {
+  const analyzed = await runEffect(analyses.settle(authority, {
     kind: "analyzed",
     candidateId: pending.candidateId,
     sourceArtifactRootSha256: ROOT,
@@ -240,7 +247,7 @@ async function publicationFixture(functionOverrides?: FunctionOverrides) {
     persistence,
     publications: makeApplicationPublicationRepository(persistence.drizzle),
     input: Object.freeze({
-      authority: AUTHORITY,
+      authority,
       revisionId: analyzed.revision.revisionId,
       candidateId: analyzed.candidateId,
       analysisId: analyzed.analysisId,

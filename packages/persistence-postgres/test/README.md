@@ -269,6 +269,9 @@ Application analysis/relation/task-binding repositories use the same owner,
 including automatic cleanup. Instrumented task-binding drivers restore the
 image through their existing raw-driver owner. Retained-history suites keep
 their original file lifetime and register closure with `afterAll`.
+Application publication also shares one serial image-backed database, with
+distinct scope/epoch and analysis identities and scope-qualified observations.
+Its concurrent replay work drains before results are inspected.
 Constraint-corruption cases retain separate backends rather than sharing rows.
 Framework artifact admission, read, list and corruption suites restore one
 independent image per case, including cases that drop constraints or tables.
@@ -380,6 +383,9 @@ drivers and closes that admission with its transaction.
 Retained-history maintenance, index-history compaction and session-schema cases
 also borrow the native file owner. Their parallel work drains before reset;
 session lookup-plan probes use the scoped planner-setting helper.
+Native relation serialization and bounded adjacency publication share that
+owner. Relation and retained-floor barriers race unexpected early completion,
+release before operation drainage, and finish drainage before fixture reset.
 Developer ordered-index and recovery discovery cases borrow that file owner.
 The gated builder releases its clock gate and drains started work before reset;
 duplicate discovery scans also settle before returning the borrow. Populated
