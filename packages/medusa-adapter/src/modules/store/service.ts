@@ -1,9 +1,8 @@
 import { Effect, Result } from "effect";
 import { Store, StoreCurrency, StoreLocale } from "@medusajs/store/models";
-import { StoreModuleService } from "@medusajs/store/services";
 import { Modules } from "@medusajs/framework/utils/portable";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { defineCommerceModule } from "../../module/definition";
+import { defineStorePersistenceModule } from "./module";
 import { commerceModuleEventBus } from "../../module/events";
 import { commerceServiceCommands, commerceCommandPreparation } from "../../module/commands";
 import { defineWorkflowMethod, defineWorkflowModule } from "../../workflow/module";
@@ -17,20 +16,15 @@ export const makeStoreGuardCommands = Effect.fn("StoreAdapter.guardCommands")(fu
   const metadata = yield* captureStoreMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
     const prepared = yield* prepareStoreGuardRepository(metadata.frame);
-    const module = yield* defineCommerceModule({ name: "flarex-store-sales-channel-guard", models: [Store, StoreCurrency, StoreLocale],
-      profile: { name: "store.sales-channel-guard", capabilities: [], bind: (ctx, owner) => {
+    const module = yield* defineStorePersistenceModule({ name: "flarex-store-sales-channel-guard", profile: "store.sales-channel-guard", bind: (ctx, owner) => {
         const bound = prepared.bind(ctx, owner);
         const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
           capture: () => Effect.fail(commerceError("unadmittedEvent")), check: work => bound.bridge.checked(ctx, work), refuse: bound.refuse });
         return { baseRepository: bound.repository,
           repository: (model: typeof Store | typeof StoreCurrency | typeof StoreLocale) => model === Store ? bound.repository : bound.denied,
           events: bound.mutationEvents, eventBus };
-      } }, extensions: {},
-      service: ({ binding, dependencies, context }) => {
-        const container = { ...dependencies, [Modules.EVENT_BUS]: binding.eventBus };
-        const native = new StoreModuleService(container, { scope: "internal" });
-        return { service: { listStores: native.listStores.bind(native) }, context };
       },
+      service: native => ({ listStores: native.listStores.bind(native) }),
     }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
     const list = commerceServiceCommands(module.use).read("storeListForSalesChannelGuard",
       commerceCommandPreparation("Store.prepareGuardRead")(decodeStoreGuardRead), ({ service, context }, args) =>

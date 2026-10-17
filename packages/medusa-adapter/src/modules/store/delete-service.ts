@@ -1,10 +1,8 @@
 import { Effect, Result } from "effect";
 import { Store, StoreCurrency, StoreLocale } from "@medusajs/store/models";
-import { StoreModuleService } from "@medusajs/store/services";
-import { Module } from "@medusajs/utils/modules-sdk/module";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { defineCommerceModule } from "../../module/definition";
+import { defineStorePersistenceModule } from "./module";
 import { commerceServiceCommands, commerceCommandPreparation } from "../../module/commands";
 import { commerceModuleEventBus } from "../../module/events";
 import { defineWorkflowModule, defineWorkflowMethod } from "../../workflow/module";
@@ -13,29 +11,21 @@ import { prepareStoreDeletionRepository } from "./delete-repository";
 import { decodeStoreDeletionArguments, decodeStoreDeletionIds } from "./delete-input";
 import { storeDeletionPolicy } from "./delete-receipt";
 
-/** Original native module registration supplies generated linkable keys and event source. */
-Module(Modules.STORE, { service: StoreModuleService });
-
 /** Distinct deletion admission over the genuine complete native Store service.
  * The existing Sales Channel guard remains a separate read-only profile. */
 export const makeStoreDeletionCommands = Effect.fn("StoreAdapter.deleteCommands")(function* () {
   const metadata = yield* captureStoreMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
     const prepared = yield* prepareStoreDeletionRepository(metadata.frame);
-    const module = yield* defineCommerceModule({ name: "flarex-store-delete", models: [Store, StoreCurrency, StoreLocale],
-      profile: { name: "store-delete", capabilities: [], bind: (ctx, owner) => {
+    const module = yield* defineStorePersistenceModule({ name: "flarex-store-delete", profile: "store-delete", bind: (ctx, owner) => {
         const bound = prepared.bind(ctx, owner);
         const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
           capture: message => bound.bridge.current().captureLocalEvent(message), check: work => bound.bridge.checked(ctx, work), refuse: bound.refuse });
         return { baseRepository: bound.repository,
           repository: (model: typeof Store | typeof StoreCurrency | typeof StoreLocale) => model === Store ? bound.repository : bound.denied,
           events: bound.mutationEvents, eventBus };
-      } }, extensions: {},
-      service: ({ binding, dependencies, context }) => {
-        const container = { ...dependencies, [Modules.EVENT_BUS]: binding.eventBus };
-        const native = new StoreModuleService(container, { scope: "internal" });
-        return { service: { softDeleteStores: native.softDeleteStores.bind(native), restoreStores: native.restoreStores.bind(native) }, context };
       },
+      service: native => ({ softDeleteStores: native.softDeleteStores.bind(native), restoreStores: native.restoreStores.bind(native) }),
     }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
     const commands = commerceServiceCommands(module.use), prepare = commerceCommandPreparation("StoreDelete.prepare");
     const softDeleteForWorkflow = commands.write("storeSoftDeleteForWorkflow", prepare(decodeStoreDeletionIds),

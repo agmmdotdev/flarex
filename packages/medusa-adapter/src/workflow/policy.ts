@@ -44,6 +44,8 @@ export const productBatchResources = Object.freeze({ ...defaultCommerceResources
 export const productBatchParticipantResources = Object.freeze({ ...defaultCommerceResources, catalogRows: 128, commandBytes: 2_097_152 });
 /** Four locations/addresses and eight native Inventory levels, one settlement. */
 export const inventoryStockingResources = Object.freeze({ ...defaultCommerceResources });
+/** Four native Stores, eight currencies/locales each and four raw preferences. */
+export const storeCreationResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** One parent launch graph owns Pricing, Link, Product Tag and pending graph reads. */
 export const productLaunchResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
 /** The finite launch workflow shares one bounded logical lifetime across both native children. */

@@ -123,14 +123,21 @@ while each profile keeps its own publication actions. Reservation deletion by
 Line Item remains a subsequent admission. Its
 [native preflight](./preflight/122-native-reservation-line-item-delete-workflow.md)
 identifies a restore-preimage business defect and missing complete-history Line
-Item access. Native behavior disposition and connected validation remain gates.
+Item access. The native correction is approved; implementation of complete-history
+access and connected validation remain gates.
 The bounded [Store deletion workflow](./preflight/123-native-store-delete-workflow.md)
 admits four raw Store IDs and complete history of eight Currency and eight Locale
 children through the genuine module lifecycle and required empty-family Link
 routing. Native module registration owns maps and events; the existing read-only
 Store guard and scalar default endpoints retain their separate authority.
-Existing resource limits remain unchanged. Store creation/update remain separate
-connected admissions.
+The deletion profile retains existing resource limits. The bounded
+[Store creation workflow](./preflight/124-native-store-create-workflow.md) admits
+four Stores, eight Currencies and eight Locales in total, and four distinct raw
+Pricing preference keys. Native normalization, cross-Store raw-key selection,
+complete DTOs, required empty calls and retained physical/previous-DTO inverses
+use existing shared owners under one settlement. Its separate trusted profile
+selects 128 calls and existing root/borrowed FIFO scheduling; other resource
+limits retain their defaults. Store update remains a separate admission.
 Chunked File import and Product
 export are explicitly deferred; their File and Region dependencies are outside
 the current integration goal.

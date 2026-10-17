@@ -6,7 +6,7 @@ export interface CreateStoreCurrencyDTO {
   /**
    * Whether the currency is the default one for the store.
    */
-  is_default?: boolean
+  is_default?: boolean | undefined
 }
 
 export interface CreateStoreLocaleDTO {

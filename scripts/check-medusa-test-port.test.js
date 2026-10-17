@@ -74,22 +74,23 @@ describe("maintained Medusa test ports", () => {
   });
   it("preserves the finite native Pricing workflow selection", () => {
     const original = readFileSync(new URL("../third_party/medusa/upstream/packages/core/types/src/pricing/service.ts", import.meta.url), "utf8");
-    const selected = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/service.ts", import.meta.url), "utf8");
-    expect(() => verifyPricingWorkflowSelection(original, selected)).not.toThrow();
-    const methods = 'methods: { createPriceSets, createPriceLists, createPricePreferences, ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle ? { softDeletePriceSets } : {}) }';
+    const selected = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/service.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+    const repository = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/repository.ts", import.meta.url), "utf8");
+    expect(() => verifyPricingWorkflowSelection(original, selected, repository)).not.toThrow();
+    const methods = 'methods: { ...(preferences ? { listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),\n        ...(!preferences ? { createPriceSets, createPriceLists, createPricePreferences, ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle ? { softDeletePriceSets } : {}) } : {}) }';
     expect(selected).toContain(methods);
-    expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: {}'))).toThrow();
-    expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceSets, createPriceLists, createPricePreferences, calculatePrices }'))).toThrow();
-    expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceLists, createPricePreferences }'))).toThrow();
-    expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceSets, createPricePreferences }'))).toThrow();
-    expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceSets, createPriceLists }'))).toThrow();
+    expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: {}'), repository)).toThrow();
+    expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceSets, createPriceLists, createPricePreferences, calculatePrices }'), repository)).toThrow();
+    expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceLists, createPricePreferences }'), repository)).toThrow();
+    expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceSets, createPricePreferences }'), repository)).toThrow();
+    expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceSets, createPriceLists }'), repository)).toThrow();
     for (const override of ['...{ methods: { calculatePrices } }', '["methods"]: { calculatePrices }',
       'get methods() { return { calculatePrices }; }', 'methods']) {
       expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods,
-        `${methods}, ${override}`))).toThrow();
+        `${methods}, ${override}`), repository)).toThrow();
     }
     for (const changed of [
-      selected.replace('const mutable = admission !== "create"', 'const mutable = true'),
+      selected.replace('const mutable = admission === "variant-updates" || admission === "product-updates"', 'const mutable = true'),
       selected.replace('lifecycle = admission === "product-updates"', 'lifecycle = true'),
       selected.replace('...(lifecycle ? { softDeletePriceSets } : {})', '...(mutable ? { softDeletePriceSets } : {})'),
       selected.replace('...(lifecycle ? { softDeletePriceSets } : {})', '...(lifecycle ? { softDeletePriceSets, calculatePrices } : {})'),
@@ -100,7 +101,10 @@ describe("maintained Medusa test ports", () => {
       selected.replace('upsertPriceSets, updatePriceSets, listPriceSets } : {}', 'get upsertPriceSets() { return calculatePrices; }, updatePriceSets, listPriceSets } : {}'),
       selected.replace('upsertPriceSets, updatePriceSets, listPriceSets } : {}', 'upsertPriceSets, updatePriceSets, ["listPriceSets"]: listPriceSets } : {}'),
       selected.replace('upsertPriceSets, updatePriceSets, listPriceSets } : {}', 'upsertPriceSets, updatePriceSets, listPriceSets } : { calculatePrices }'),
-    ]) expect(() => verifyPricingWorkflowSelection(original, changed)).toThrow();
+    ]) {
+      expect(changed).not.toBe(selected);
+      expect(() => verifyPricingWorkflowSelection(original, changed, repository)).toThrow();
+    }
   });
   it("preserves all selected Pricing statements and the actual rule-bearing seed", () => {
     const original = readFileSync(new URL("../third_party/medusa/upstream/packages/modules/pricing/integration-tests/__tests__/services/pricing-module/price-set.spec.ts", import.meta.url), "utf8");

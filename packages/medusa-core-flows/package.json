@@ -94,7 +94,10 @@
     "./inventory/batch-inventory-item-levels": "./src/inventory/workflows/batch-inventory-item-levels.ts",
     "./inventory/create-inventory-items": "./src/inventory/workflows/create-inventory-items.ts",
     "./store/delete-stores": "./src/store/workflows/delete-stores.ts",
-    "./store/delete-stores-step": "./src/store/steps/delete-stores.ts"
+    "./store/delete-stores-step": "./src/store/steps/delete-stores.ts",
+    "./store/create-stores": "./src/store/workflows/create-stores.ts",
+    "./store/create-stores-step": "./src/store/steps/create-stores.ts",
+    "./pricing/update-price-preferences-as-array-step": "./src/pricing/steps/update-price-preferences-as-array.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

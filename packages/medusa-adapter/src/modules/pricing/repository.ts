@@ -26,6 +26,7 @@ import { readCommerceRelationRows, assembleCommerceRelations } from "../../query
 import { prepareScalarRepository } from "../../repository/scalar";
 import { preparePricingMutations } from "./mutation-repository";
 import { softDeletePricingPriceSets } from "./lifecycle";
+import { preparePricingPreferenceRepository } from "./preference-repository";
 
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
 const Rule = Schema.Struct({ id: Schema.optionalKey(PricingId), attribute: Schema.String, value: Schema.String,
@@ -98,7 +99,8 @@ const projectionPolicy: ProjectionPolicy = { ...scalarProjection, allowedPaths: 
 
 /** Pricing owns the finite nested creation policy; shared graph/read owners
  * retain traversal, scoped persistence and native mutation dispatch. */
-export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], mutable = false, lifecycle = false) {
+export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], mutable = false, lifecycle = false, preferences = false) {
+  if (preferences) return preparePricingPreferenceRepository(metadata);
   return Result.gen(function* () {
     const entities: GraphEntity[] = [];
     for (const [name, model] of [["price_set", "PriceSet"], ["price", "Price"], ["price_rule", "PriceRule"],

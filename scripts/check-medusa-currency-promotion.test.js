@@ -1,14 +1,209 @@
 // @ts-check
-import { verifyTestPort, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork } from "./check-medusa-currency-promotion.mjs";
+import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyStoreCreationTypeFork } from "./check-medusa-currency-promotion.mjs";
 import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
 
 const root = process.cwd();
 const promotion = verifyCurrencyPromotion(root);
 const source = "packages/medusa-currency/src/models/currency.ts";
 
+describe("named Pricing workflow admission selection", () => {
+  const native = readFileSync("third_party/medusa/upstream/packages/core/types/src/pricing/service.ts", "utf8");
+  const adapter = readFileSync("packages/medusa-adapter/src/modules/pricing/service.ts", "utf8");
+  const repository = readFileSync("packages/medusa-adapter/src/modules/pricing/repository.ts", "utf8");
+  it("retains the three original profiles and isolates the named Store preference profile", () => {
+    expect(() => verifyPricingWorkflowSelection(native, adapter, repository)).not.toThrow();
+  });
+  it.each([
+    ["admission union", '"product-updates" | "store-preferences" = "create"', '"product-updates" | "store-preferences" | "unbounded" = "create"'],
+    ["old-profile mutability", 'admission === "variant-updates" || admission === "product-updates"', 'admission !== "create"'],
+    ["Product lifecycle predicate", 'lifecycle = admission === "product-updates"', 'lifecycle = mutable'],
+    ["preference predicate", 'preferences = admission === "store-preferences"', 'preferences = mutable'],
+    ["methods branch predicate", 'methods: { ...(preferences ?', 'methods: { ...(mutable ?'],
+    ["extra old-profile method", '{ listPricePreferences, upsertPricePreferences, deletePricePreferences }', '{ listPricePreferences, upsertPricePreferences, deletePricePreferences, createPriceSets }'],
+    ["missing required preference method", '{ listPricePreferences, upsertPricePreferences, deletePricePreferences }', '{ listPricePreferences, upsertPricePreferences }'],
+    ["method spread override", '{ listPricePreferences, upsertPricePreferences, deletePricePreferences }', '{ listPricePreferences, upsertPricePreferences, deletePricePreferences, ...override }'],
+    ["original creation method", '...(!preferences ? { createPriceSets, createPriceLists, createPricePreferences,', '...(!preferences ? { createPriceSets, createPriceLists,'],
+    ["complementary branch predicate", '...(!preferences ? { createPriceSets,', '...(preferences ? { createPriceSets,'],
+    ["variant method admission", '...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {})', '...(preferences ? { upsertPriceSets, updatePriceSets, listPriceSets } : {})'],
+    ["preference command capability", 'preferences ? [preferenceList, preferenceUpsert, preferenceDelete]', 'preferences ? [preferenceList, preferenceUpsert, preferenceDelete, create]'],
+    ["repository selection", 'preparePricingRepository(metadata.frame, mutable, lifecycle, preferences)', 'preparePricingRepository(metadata.frame, mutable, lifecycle, mutable)'],
+    ["preference graph", 'preferences ? { aliases: [], reads: [] }', 'preferences ? { aliases: [{ name: "prices", model: "PriceSet" }], reads: [] }'],
+    ["old create receipt", ': pricingLogicalCreateEventPolicy()', ': pricingStorePreferencePolicy(preferenceContracts)'],
+    ["named profile identity", 'preferences ? "pricing-store-preferences"', 'preferences ? "pricing-base-prices"'],
+  ])("rejects changed %s", (_name, before, after) => {
+    const changed = adapter.replace(before, after); expect(changed).not.toBe(adapter);
+    expect(() => verifyPricingWorkflowSelection(native, changed, repository)).toThrow("Unadmitted native Pricing workflow selection");
+  });
+  it("rejects a second workflow registration", () => {
+    expect(() => verifyPricingWorkflowSelection(native, adapter + "\ndefineWorkflowModule({});", repository))
+      .toThrow("Unadmitted native Pricing workflow selection");
+  });
+  it("rejects a missing native preference method", () => {
+    const changed = native.replace("deletePricePreferences(ids:", "deleteOtherPreferences(ids:"); expect(changed).not.toBe(native);
+    expect(() => verifyPricingWorkflowSelection(changed, adapter, repository)).toThrow("Missing native Pricing admitted methods");
+  });
+  it("rejects widening the original Product preference lookup beyond two pairs", () => {
+    const before = "Schema.Array(Schema.Struct({ attribute: Schema.String, value: Schema.String })).check(Schema.isMaxLength(2))";
+    const changed = repository.replace(before, before.replace("isMaxLength(2)", "isMaxLength(4)")); expect(changed).not.toBe(repository);
+    expect(() => verifyPricingWorkflowSelection(native, adapter, changed)).toThrow("Changed existing Pricing preference lookup admission");
+  });
+});
+
+describe("native Store creation callback provenance", () => {
+  const paths = ["store/workflows/create-stores.ts", "store/steps/create-stores.ts", "pricing/steps/update-price-preferences-as-array.ts"];
+  const native = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8"));
+  const promoted = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8"));
+  const verify = (workflow = promoted[0], store = promoted[1], preferences = promoted[2]) =>
+    verifyStoreCreateCallbacks(native[0], workflow, native[1], store, native[2], preferences);
+  it("admits only portable/direct imports, erased annotations and covered metadata", () => {
+    expect(() => verify()).not.toThrow();
+  });
+  it.each([
+    ["root ID", '"create-stores"', '"create-other-stores"'],
+    ["Store input iteration order", "data.input.stores.map((store)", "[...data.input.stores].reverse().map((store)"],
+    ["Store currency tax isolation", "currency_code: currency.currency_code,", "currency_code: currency.currency_code, is_tax_inclusive: currency.is_tax_inclusive,"],
+    ["raw Map key", "toUpsert.set(currency.currency_code,", "toUpsert.set(currency.currency_code.toLowerCase(),"],
+    ["Map last value", "toUpsert.set(currency.currency_code,", "if (!toUpsert.has(currency.currency_code)) toUpsert.set(currency.currency_code,"],
+    ["first-key output order", "Array.from(toUpsert.values())", "Array.from(toUpsert.values()).reverse()"],
+    ["original input preference traversal", "data.input.stores.forEach((store)", ";[...data.input.stores].reverse().forEach((store)"],
+    ["raw Pricing value", "value: currency.currency_code,", "value: currency.currency_code.toLowerCase(),"],
+    ["tax flag omission", "is_tax_inclusive: currency.is_tax_inclusive,", "is_tax_inclusive: currency.is_tax_inclusive ?? false,"],
+    ["unconditional Pricing call", "updatePricePreferencesAsArrayStep(upsertPricePreferences)", "updatePricePreferencesAsArrayStep([])"],
+    ["Store result", "new WorkflowResponse(stores)", "new WorkflowResponse(input.stores)"],
+    ["selected import", 'from "../steps/create-stores"', 'from "../steps"'],
+    ["extra query/event side effect", "return new WorkflowResponse(stores)", 'container.resolve("query"); return new WorkflowResponse(stores)'],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = promoted[0].replace(before, after); expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native Store creation callback behavior");
+  });
+  it("rejects moving Store creation after Pricing mutation", () => {
+    const changed = promoted[0].replace("    const stores = createStoresStep(normalizedInput)\n", "")
+      .replace("    return new WorkflowResponse(stores)", "    const stores = createStoresStep(normalizedInput)\n    return new WorkflowResponse(stores)");
+    expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native Store creation callback behavior");
+  });
+  it.each([
+    ["Store step ID", '"create-stores"', '"create-other-stores"'],
+    ["Store inverse policy", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["Store empty forward invocation", "service.createStores(data)", "service.createStores(data.length ? data : [{}])"],
+    ["returned ID order", "created.map((store) => store.id)", "created.map((store) => store.id).reverse()"],
+    ["full Store result", "      created,", "      [],"],
+    ["Store inverse empty guard", "if (!createdIds?.length)", "if (!createdIds)"],
+    ["Store physical inverse", "deleteStores(createdIds)", "softDeleteStores(createdIds)"],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = promoted[1].replace(before, after); expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Changed native Store creation callback behavior");
+  });
+  it.each([
+    ["Pricing step ID", '"update-price-preferences-as-array"', '"update-other-preferences"'],
+    ["Pricing inverse policy", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["Pricing empty condition", "if (!input.length)", "if (!input)"],
+    ["Pricing empty captured input", "new StepResponse([], { prevData: [], newDataIds: [] })", "new StepResponse([])"],
+    ["Pricing lookup operator", "$or: input.map", "$and: input.map"],
+    ["attribute/value refusal", "if (!entry.attribute || !entry.value)", "if (!entry.attribute && !entry.value)"],
+    ["pair identity", "prevEntry.attribute === entry.attribute &&", "prevEntry.attribute === entry.attribute ||"],
+    ["existing preference ID", "id: prevEntry?.id,", "id: undefined,"],
+    ["false flag preservation", "entry.is_tax_inclusive ?? prevEntry?.is_tax_inclusive", "entry.is_tax_inclusive || prevEntry?.is_tax_inclusive"],
+    ["native upsert method", "service.upsertPricePreferences(", "service.createPricePreferences("],
+    ["new identity difference", "prevData.map((p) => p.id)", "[]"],
+    ["full Pricing result", "new StepResponse(upsertedPricePreferences,", "new StepResponse(input,"],
+    ["full Pricing preimages", "      prevData,", "      prevData: [],"],
+    ["Pricing grouped-empty inverse", "if (!compensationData)", "if (!compensationData || !compensationData.prevData.length)"],
+    ["Pricing restore preimages", "upsertPricePreferences(compensationData.prevData)", "upsertPricePreferences([])"],
+    ["Pricing inverse delete IDs", "deletePricePreferences(compensationData.newDataIds)", "deletePricePreferences([])"],
+    ["portable utility import", 'from "@medusajs/framework/utils/portable"', 'from "@medusajs/framework/utils"'],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = promoted[2].replace(before, after); expect(changed).not.toBe(promoted[2]);
+    expect(() => verify(promoted[0], promoted[1], changed)).toThrow("Changed native Store creation callback behavior");
+  });
+  it("rejects moving Pricing resolution after its empty branch", () => {
+    const line = "    const service = container.resolve<IPricingModuleService>(Modules.PRICING)";
+    const changed = promoted[2].replace(line, "").replace("    const prevData =", line + "\n    const prevData =");
+    expect(changed).not.toBe(promoted[2]);
+    expect(() => verify(promoted[0], promoted[1], changed)).toThrow("Changed native Store creation callback behavior");
+  });
+  it("rejects deleting new Pricing rows before restoring prior rows", () => {
+    const changed = promoted[2].replace("    await service.upsertPricePreferences(compensationData.prevData)", "")
+      .replace("    await service.deletePricePreferences(compensationData.newDataIds)",
+        "    await service.deletePricePreferences(compensationData.newDataIds)\n    await service.upsertPricePreferences(compensationData.prevData)");
+    expect(changed).not.toBe(promoted[2]);
+    expect(() => verify(promoted[0], promoted[1], changed)).toThrow("Changed native Store creation callback behavior");
+  });
+});
+
+describe("selected native Store creation type provenance", () => {
+  const paths = ["workflow/store/index.ts", "workflow/pricing/index.ts", "http/store/admin/payloads.ts"];
+  const native = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/types/src/" + file, "utf8"));
+  const promoted = paths.map(file => readFileSync("packages/medusa-types/src/" + file, "utf8"));
+  const verify = (store = promoted[0], pricing = promoted[1], payload = promoted[2]) =>
+    verifyStoreCreationTypes(native[0], store, native[1], pricing, native[2], payload);
+  it("retains complete native types after only the direct type-only HTTP import seam", () => {
+    expect(() => verify()).not.toThrow();
+  });
+  it.each([
+    [0, "required currency array", "supported_currencies: {", "supported_currencies?: {"],
+    [0, "workflow currency flag", "is_tax_inclusive?: boolean", "is_tax_inclusive?: string"],
+    [0, "direct HTTP type closure", '../../http/store/admin/payloads', '../../http'],
+    [1, "nullable preference attribute", "attribute?: string | null", "attribute?: string"],
+    [2, "nullable default channel", "default_sales_channel_id?: string | null", "default_sales_channel_id?: string"],
+  ])("rejects changed native %s %s", (index, _name, before, after) => {
+    const changed = promoted[index].replace(before, after); expect(changed).not.toBe(promoted[index]);
+    const values = [...promoted]; values[index] = changed;
+    expect(() => verify(...values)).toThrow("Changed native Store creation type contract");
+  });
+});
+describe("native Store creation erased boundary type provenance", () => {
+  it.each([
+    ["packages/medusa-types/src/store/mutations/store.ts", "packages/core/types/src/store/mutations/store.ts"],
+    ["packages/medusa-types/src/pricing/common/price-preference.ts", "packages/core/types/src/pricing/common/price-preference.ts"],
+    ["packages/medusa-types/src/workflow/pricing/index.ts", "packages/core/types/src/workflow/pricing/index.ts"],
+  ])("retains exact emitted JavaScript and only the explicit undefined seam: %s", (target, source) => {
+    const original = readFileSync("third_party/medusa/upstream/" + source, "utf8"), adapted = readFileSync(target, "utf8");
+    expect(() => verifyModuleTypeFork(original, adapted)).not.toThrow();
+    expect(() => verifyStoreCreationTypeFork(original, adapted, target)).not.toThrow();
+    const changed = adapted.replace("| undefined", "| number"); expect(changed).not.toBe(adapted);
+    expect(() => verifyStoreCreationTypeFork(original, changed, target)).toThrow("Changed native Store creation erased type seam");
+    expect(() => verifyStoreCreationTypeFork(original, adapted + "\nexport const runtimeDrift = true;\n", target))
+      .toThrow("Module type adaptation changes runtime behavior");
+  });
+  it("refuses type adaptation classification on another package file", () => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(file =>
+      file.target === source ? { ...file, classification: "storeCreationTypeFork" } : file) }))
+      .toThrow("Store creation type adaptation outside its approved source files");
+  });
+});
+
+describe("native Store normalizer visibility provenance", () => {
+  const native = readFileSync("third_party/medusa/upstream/packages/modules/store/src/services/store-module-service.ts", "utf8");
+  const target = "packages/medusa-store/src/services/store-module-service.ts";
+  const adapted = readFileSync(target, "utf8");
+  it("permits only public visibility of the existing pure normalizer with identical emitted JavaScript", () => {
+    expect(() => verifyModuleTypeFork(native, adapted)).not.toThrow();
+    expect(() => verifyStoreTypeFork(native, adapted)).not.toThrow();
+  });
+  it("limits the new classification to the sole approved Store service source", () => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(file =>
+      file.target === source ? { ...file, classification: "storeTypeFork" } : file) }))
+      .toThrow("Store type adaptation outside its approved source file");
+  });
+  it.each([
+    ["still-private normalizer", "  static normalizeInput<", "  private static normalizeInput<"],
+    ["additional validation visibility", "private static validateCreateRequest(", "static validateCreateRequest("],
+    ["additional repository visibility", "protected baseRepository_:", "public baseRepository_:"],
+    ["normalizer return type", "  ): T[] {", "  ): readonly T[] {"],
+    ["currency normalization body", "currency_code: c.currency_code.toLowerCase()", "currency_code: c.currency_code"],
+    ["name normalization body", "name: store.name?.trim()", "name: store.name"],
+    ["create validation body", "let seenDefault = false", "let seenDefault = true"],
+    ["native normalizer call site", "StoreModuleService.normalizeInput(data)", "StoreModuleService.normalizeInput([])"],
+    ["portable utility import", 'from "@medusajs/framework/utils/portable"', 'from "@medusajs/framework/utils"'],
+  ])("rejects changed %s", (_name, before, after) => {
+    const changed = adapted.replace(before, after); expect(changed).not.toBe(adapted);
+    expect(() => verifyStoreTypeFork(native, changed)).toThrow();
+  });
+});
 describe("native Store deletion callback provenance", () => {
   const nativeWorkflow = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/store/workflows/delete-stores.ts", "utf8");
   const workflow = readFileSync("packages/medusa-core-flows/src/store/workflows/delete-stores.ts", "utf8");

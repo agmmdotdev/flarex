@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes } from "./check-medusa-test-port.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -134,6 +134,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyPricingWorkflowSelection(
     readFileSync(path.join(root, sourcePrefix + "packages/core/types/src/pricing/service.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/src/modules/pricing/service.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-adapter/src/modules/pricing/repository.ts"), "utf8"),
   );
   verifyShippingProfileCreateTests(
     readFileSync(path.join(root, sourcePrefix + "packages/modules/fulfillment/integration-tests/__tests__/fulfillment-module-service/shipping-profile.spec.ts"), "utf8"),
@@ -179,6 +180,22 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/inventory/steps/update-inventory-levels.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/inventory/steps/update-inventory-levels.ts"), "utf8"),
   );
+  verifyStoreCreateCallbacks(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/store/workflows/create-stores.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/store/workflows/create-stores.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/store/steps/create-stores.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/store/steps/create-stores.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/pricing/steps/update-price-preferences-as-array.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/pricing/steps/update-price-preferences-as-array.ts"), "utf8"),
+  );
+  verifyStoreCreationTypes(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/types/src/workflow/store/index.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-types/src/workflow/store/index.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/types/src/workflow/pricing/index.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-types/src/workflow/pricing/index.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/types/src/http/store/admin/payloads.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-types/src/http/store/admin/payloads.ts"), "utf8"),
+  );
   verifyStoreDeleteCallbacks(
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/store/workflows/delete-stores.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/store/workflows/delete-stores.ts"), "utf8"),
@@ -209,7 +226,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, csvTarget, "csv-normalizer.spec.ts"), "utf8"),
     fixtureText(csvSource), fixtureText(csvTarget));
   for (const file of promotion.files) {
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "notificationServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "notificationServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "storeTypeFork", "storeCreationTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.classification === "workflowFork" && !(file.target.startsWith("packages/medusa-workflows-sdk/src/") || file.target.startsWith("packages/medusa-core-flows/src/") || file.target.startsWith("packages/medusa-orchestration/src/") || [
@@ -246,6 +263,10 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       "packages/medusa-types/src/sales-channel/service.ts",
       "packages/medusa-sales-channel/src/services/sales-channel-module.ts",
     ].includes(file.target)) throw new Error("Sales Channel type adaptation outside its approved source files");
+    if (file.classification === "storeCreationTypeFork" && ![["packages/medusa-types/src/store/mutations/store.ts","packages/core/types/src/store/mutations/store.ts"],["packages/medusa-types/src/pricing/common/price-preference.ts","packages/core/types/src/pricing/common/price-preference.ts"],["packages/medusa-types/src/workflow/pricing/index.ts","packages/core/types/src/workflow/pricing/index.ts"]].some(([target, source]) => file.target === target && file.source === sourcePrefix + source))
+      throw new Error("Store creation type adaptation outside its approved source files");
+    if (file.classification === "storeTypeFork" && (file.target !== "packages/medusa-store/src/services/store-module-service.ts" || file.source !== sourcePrefix + "packages/modules/store/src/services/store-module-service.ts"))
+      throw new Error("Store type adaptation outside its approved source file");
     if (file.classification === "stockLocationTypeFork" && ![
       "packages/medusa-types/src/stock-location/common.ts",
       "packages/medusa-types/src/stock-location/service.ts",
@@ -269,6 +290,10 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       noSymlinks(root, file.source);
       const hash = sha256(readFileSync(path.join(root, file.source)));
       if (hash !== file.sourceSha256) throw new Error(`Changed promotion source: ${file.source}`);
+      if (file.classification === "storeCreationTypeFork")
+        verifyStoreCreationTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (file.classification === "storeTypeFork")
+        verifyStoreTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "salesChannelTypeFork" || file.classification === "stockLocationTypeFork")
         verifyModuleTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "testPort" || file.classification === "testFixturePort") {
@@ -367,4 +392,37 @@ export function admitsCurrencyImport(promotion, file, specifier) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const result = verifyCurrencyPromotion(process.cwd());
   console.log(`Verified ${result.files.length} Currency promotion files across ${result.packages.length} private packages.`);
+}
+
+/** The private Store package exposes only its existing pure normalizer for
+ * receipt correlation. Authenticate that sole erased visibility seam, retaining
+ * the existing emitted-JS equality guard and every native method body/call site.
+ * @param {string} source @param {string} target */
+export function verifyStoreTypeFork(source, target) {
+  verifyModuleTypeFork(source, target);
+  const expected = source
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace("private static normalizeInput<", "static normalizeInput<");
+  if (expected.replace(/\r\n/g, "\n") !== target.replace(/\r\n/g, "\n"))
+    throw new Error("Changed native Store normalization visibility seam");
+}
+
+/** Native callbacks emit explicit undefined and the upstream non-exact optional
+ * DTO contract admits it. Only these erased boundary declarations may differ.
+ * @param {string} source @param {string} target @param {string} file */
+export function verifyStoreCreationTypeFork(source, target, file) {
+  verifyModuleTypeFork(source, target);
+  let expected = source.replace(/\r\n/g, "\n");
+  if (file === "packages/medusa-types/src/store/mutations/store.ts") {
+    expected = expected.replace("  is_default?: boolean\n", "  is_default?: boolean | undefined\n");
+  } else if (file === "packages/medusa-types/src/pricing/common/price-preference.ts") {
+    expected = expected.replace("  id?: string\n", "  id?: string | undefined\n")
+      .replace("  attribute?: string | null\n", "  attribute?: string | null | undefined\n")
+      .replace("  value?: string | null\n", "  value?: string | null | undefined\n")
+      .replace("  is_tax_inclusive?: boolean\n", "  is_tax_inclusive?: boolean | undefined\n");
+  } else if (file === "packages/medusa-types/src/workflow/pricing/index.ts") {
+    expected = expected.replace("  is_tax_inclusive?: boolean\n}\n\nexport interface UpdatePricePreferencesWorkflowInput",
+      "  is_tax_inclusive?: boolean | undefined\n}\n\nexport interface UpdatePricePreferencesWorkflowInput");
+  } else throw new Error("Store creation type adaptation outside its approved source files");
+  if (expected !== target.replace(/\r\n/g, "\n")) throw new Error("Changed native Store creation erased type seam");
 }

@@ -207,7 +207,7 @@ export default class StoreModuleService
     ).entities
   }
 
-  private static normalizeInput<T extends StoreTypes.UpdateStoreDTO>(
+  static normalizeInput<T extends StoreTypes.UpdateStoreDTO>(
     stores: T[]
   ): T[] {
     return stores.map((store) =>

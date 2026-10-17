@@ -40,22 +40,22 @@ export interface UpsertPricePreferenceDTO extends UpdatePricePreferenceDTO {
   /**
    * The ID of a price preference.
    */
-  id?: string
+  id?: string | undefined
 }
 
 export interface UpdatePricePreferenceDTO {
   /**
    * The rule attribute for the preference
    */
-  attribute?: string | null
+  attribute?: string | null | undefined
   /**
    * The rule value for the preference
    */
-  value?: string | null
+  value?: string | null | undefined
   /**
    * Flag specifying whether prices for the specified rule are tax inclusive.
    */
-  is_tax_inclusive?: boolean
+  is_tax_inclusive?: boolean | undefined
 }
 
 export interface CreatePricePreferenceDTO {
