@@ -773,3 +773,56 @@ export function verifyShippingProfileDeleteCallbacks(nativeWorkflow, workflow, n
   if (declaredType(nativeStep, "DeleteShippingProfilesStepInput") !== declaredType(step, "DeleteShippingProfilesStepInput"))
     throw new Error("Changed native ShippingProfile deletion public input type");
 }
+
+/** The complete native Type creation root and retained physical inverse. Only
+ * direct portable imports and covered compensation metadata may differ.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyShippingOptionTypeCreateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const expectedWorkflow = nativeWorkflow
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/core-flows/events"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "../../common"', 'from "../../common/steps/emit-event"')
+    .replace('from "../steps"', 'from "../steps/create-shipping-option-types"');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  createShippingOptionTypesStepId,", '  { name: createShippingOptionTypesStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native ShippingOptionType creation callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native ShippingOptionType creation callback behavior");
+  /** Retain original public type aliases despite their erased runtime status.
+   * @param {string} source @param {string} name */
+  const inputType = (source, name) => {
+    const file = ts.createSourceFile("shipping-option-type.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const declarations = file.statements.filter(node => ts.isTypeAliasDeclaration(node) && node.name.text === name);
+    const declaration = declarations[0];
+    if (declarations.length !== 1 || declaration === undefined)
+      throw new Error("Changed native ShippingOptionType creation public input type");
+    return ts.createPrinter({ removeComments: true }).printNode(ts.EmitHint.Unspecified, declaration, file);
+  };
+  if (inputType(nativeWorkflow, "CreateShippingOptionTypesWorkflowInput") !== inputType(workflow, "CreateShippingOptionTypesWorkflowInput")
+    || inputType(nativeStep, "CreateShippingOptionTypesStepInput") !== inputType(step, "CreateShippingOptionTypesStepInput"))
+    throw new Error("Changed native ShippingOptionType creation public input type");
+}
+
+/** Authenticate the generic native creation-result initializer. SQL-specific
+ * descriptor types may be erased; the full function body must remain native.
+ * @param {string} nativeRepository @param {string} relationOwner */
+export function verifyNativeToManyInitialization(nativeRepository, relationOwner) {
+  /** @param {string} source */
+  const select = source => {
+    const file = ts.createSourceFile("relations.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const declarations = file.statements.filter(node => ts.isFunctionDeclaration(node) && node.name?.text === "fillEmptyToManyRelations");
+    const declaration = declarations[0];
+    if (declarations.length !== 1 || declaration === undefined || !ts.isFunctionDeclaration(declaration) || declaration.body === undefined)
+      throw new Error("Changed native zero-to-many initialization extraction");
+    return declaration.getText(file).replace(/^export\s+/, "");
+  };
+  const syntaxFailure = "Invalid native zero-to-many initialization syntax";
+  if (nativeWorkflowProgram(select(nativeRepository), syntaxFailure) !== nativeWorkflowProgram(select(relationOwner), syntaxFailure))
+    throw new Error("Changed native zero-to-many initialization extraction");
+}

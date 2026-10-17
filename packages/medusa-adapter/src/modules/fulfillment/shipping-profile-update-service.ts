@@ -9,7 +9,7 @@ import { NativePreimageConfig, nativePreimageSelection } from "../../workflow/pr
 import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
 import { captureShippingProfileMetadata } from "./shipping-profile-schema";
-import { defineShippingProfilePersistenceModule, type ShippingProfilePersistenceModel } from "./shipping-profile-module";
+import { defineFulfillmentPersistenceModule, type FulfillmentPersistenceModel } from "./fulfillment-module";
 import { prepareShippingProfileUpdateRepository } from "./shipping-profile-update-repository";
 import { shippingProfileUpdatePolicy } from "./shipping-profile-update-receipt";
 import { ShippingProfileUpdateSelector, ShippingProfileUpdateData, ShippingProfileUpdateReadInput, ShippingProfileUpdateUpserts,
@@ -26,13 +26,13 @@ export const makeShippingProfileUpdateCommands = Effect.fn("ShippingProfileAdapt
   const metadata = yield* captureShippingProfileMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
     const prepared = yield* prepareShippingProfileUpdateRepository(metadata.frame);
-    const module = yield* defineShippingProfilePersistenceModule({ name: "flarex-shipping-profile-update", profile: "shipping-profile-update",
+    const module = yield* defineFulfillmentPersistenceModule({ name: "flarex-shipping-profile-update", profile: "shipping-profile-update",
       bind: (ctx, owner) => {
         const bound = prepared.bind(ctx, owner);
         const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
           capture: message => bound.bridge.current().captureLocalEvent(message), check: work => bound.bridge.checked(ctx, work), refuse: bound.refuse });
         return { baseRepository: bound.repository,
-          repository: (model: ShippingProfilePersistenceModel) => model === ShippingProfile ? bound.repository : bound.denied,
+          repository: (model: FulfillmentPersistenceModel) => model === ShippingProfile ? bound.repository : bound.denied,
           events: bound.mutationEvents, eventBus, denied: bound.denied };
       }, service: native => ({ listShippingProfiles: native.listShippingProfiles.bind(native),
         updateShippingProfiles: native.updateShippingProfiles.bind(native), upsertShippingProfiles: native.upsertShippingProfiles.bind(native) }),

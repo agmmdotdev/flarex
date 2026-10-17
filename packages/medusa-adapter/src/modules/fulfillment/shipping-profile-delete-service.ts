@@ -5,7 +5,7 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 import { commerceServiceCommands, commerceCommandPreparation } from "../../module/commands";
 import { commerceModuleEventBus } from "../../module/events";
 import { defineWorkflowModule, defineWorkflowMethod } from "../../workflow/module";
-import { defineShippingProfilePersistenceModule, type ShippingProfilePersistenceModel } from "./shipping-profile-module";
+import { defineFulfillmentPersistenceModule, type FulfillmentPersistenceModel } from "./fulfillment-module";
 import { captureShippingProfileDeletionMetadata } from "./shipping-profile-schema";
 import { prepareShippingProfileDeletionRepository } from "./shipping-profile-delete-repository";
 import { decodeShippingProfileDeletionArguments, decodeShippingProfileDeletionIds } from "./shipping-profile-delete-input";
@@ -17,13 +17,13 @@ export const makeShippingProfileDeletionCommands = Effect.fn("ShippingProfileAda
   const metadata = yield* captureShippingProfileDeletionMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
     const prepared = yield* prepareShippingProfileDeletionRepository(metadata.frame);
-    const module = yield* defineShippingProfilePersistenceModule({ name: "flarex-shipping-profile-delete", profile: "shipping-profile-delete",
+    const module = yield* defineFulfillmentPersistenceModule({ name: "flarex-shipping-profile-delete", profile: "shipping-profile-delete",
       bind: (ctx, owner) => {
         const bound = prepared.bind(ctx, owner);
         const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
           capture: message => bound.bridge.current().captureLocalEvent(message), check: work => bound.bridge.checked(ctx, work), refuse: bound.refuse });
         return { baseRepository: bound.repository,
-          repository: (model: ShippingProfilePersistenceModel) => model === ShippingProfile ? bound.repository : bound.denied,
+          repository: (model: FulfillmentPersistenceModel) => model === ShippingProfile ? bound.repository : bound.denied,
           events: bound.mutationEvents, eventBus, denied: bound.denied };
       }, service: native => ({ softDeleteShippingProfiles: native.softDeleteShippingProfiles.bind(native),
         restoreShippingProfiles: native.restoreShippingProfiles.bind(native) }),

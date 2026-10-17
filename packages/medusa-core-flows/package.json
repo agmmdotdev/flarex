@@ -105,7 +105,9 @@
     "./store/update-stores": "./src/store/workflows/update-stores.ts",
     "./store/update-stores-step": "./src/store/steps/update-stores.ts",
     "./fulfillment/update-shipping-profiles": "./src/fulfillment/workflows/update-shipping-profiles.ts",
-    "./fulfillment/update-shipping-profiles-step": "./src/fulfillment/steps/update-shipping-profiles.ts"
+    "./fulfillment/update-shipping-profiles-step": "./src/fulfillment/steps/update-shipping-profiles.ts",
+    "./shipping-options/create-shipping-option-types": "./src/shipping-options/workflows/create-shipping-option-types.ts",
+    "./shipping-options/create-shipping-option-types-step": "./src/shipping-options/steps/create-shipping-option-types.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

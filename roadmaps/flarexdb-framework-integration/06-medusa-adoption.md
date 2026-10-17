@@ -387,6 +387,16 @@ guards and complete historical Link restoration for this profile and the
 existing Inventory Item Link lifecycle. The complete root and retained inverse
 use the existing optimistic atomic profile and default 64-call/event allowances.
 
+The [native Shipping Option Type creation](./preflight/128-native-shipping-option-type-create-workflow.md)
+slice admits zero to four Types under the existing optimistic 64-call/event
+profile. It reuses the installed six-table source
+and genuine Fulfillment constructor, with native scalar insert semantics,
+empty-to-many result initialization, the named creation hook and separate module
+and workflow events. Its retained inverse physically deletes bounded Type IDs;
+required Option references, including soft-deleted Options, refuse deletion
+through the shared reference owner without partial settlement. Type update/delete roots and wider Shipping Option/provider execution
+retain their separate admission gates.
+
 The [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)
 is complete within its approved bounded profiles. Persistence now owns protected
 immutable definitions/evidence, sealed child sets, durable operational progress,

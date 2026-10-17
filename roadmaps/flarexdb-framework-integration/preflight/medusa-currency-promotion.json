@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "f31f5be36df6aa60832cd62ce44c5c4d76de51f10e477062810e17ffb5b98d96"
+      "targetSha256": "fcce22e3d79784c99dde1639b9043966461fee0998eb54181aad839c4e7c8c8e"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -1630,10 +1630,10 @@
     {
       "target": "packages/medusa-drizzle/src/relation-query.ts",
       "classification": "selectedExportFacade",
-      "targetSha256": "6325b5007d35d9d3f7018f0bc5e33237a5b19eb8a98eefb41823bdfc81663251",
+      "targetSha256": "3c8bd94c9732314062b893b565e26989c416cf96222be913acdf9d002be08a92",
       "source": "third_party/medusa/upstream/packages/database/drizzle/src/medusa.ts",
       "sourceSha256": "5a0703b1af3a35dfa98998cbb91c484e60835bd8edbb07e97fcdb4dc551547d9",
-      "transformation": "Extract selected to-many metadata resolution, populate tree, tuple grouping and row projection; replace SQL descriptors with metadata-only types, return groups without mutating parents, preserve own scalar fields, and retain caller-owned read execution. No to-one, versioned, wildcard or nested-field capability is admitted. Extract pinned primary-key/filter-order helpers for the named Collection workflow DAL; retain its default/id-ASC ordering and direct/OR selector semantics."
+      "transformation": "Extract selected to-many metadata resolution, populate tree, tuple grouping and row projection; replace SQL descriptors with metadata-only types, return groups without mutating parents, preserve own scalar fields, and retain caller-owned read execution. No to-one, versioned, wildcard or nested-field capability is admitted. Extract pinned primary-key/filter-order helpers for the named Collection workflow DAL; retain its default/id-ASC ordering and direct/OR selector semantics. Extract the complete native generic fillEmptyToManyRelations helper for detached creation results; only narrow SQL-specific descriptor types to relationship.type. Existing scalar Profile output remains unchanged."
     },
     {
       "target": "packages/medusa-drizzle/src/schema.ts",
@@ -3413,7 +3413,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-profile-service.ts",
       "classification": "authored",
-      "targetSha256": "e22fa80c69656600003d1801355bb9835bcdeea177769ac9faa90adf5e1de6ff"
+      "targetSha256": "6c3988adecce333c9f8e6fba759758c33ed7b7f7f7ead29f9adc47fe27714677"
     },
     {
       "target": "packages/medusa-adapter/test/shipping-profile-steps.test.ts",
@@ -9282,11 +9282,6 @@
       "sourceSha256": "3b3f40831965d47c577a72214c99055933d71cff95e884da3ed6daf55ff88e03"
     },
     {
-      "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-profile-module.ts",
-      "classification": "authored",
-      "targetSha256": "8d347518ac955faee6ed5274bd7824e64d4cc7fb050c9f98998e5159377b4e99"
-    },
-    {
       "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-profile-update-input.ts",
       "classification": "authored",
       "targetSha256": "a1fdf57e646b8bbbf51948caa29a4b8a5aac431ced02876e2824f9adf29624e8"
@@ -9304,7 +9299,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-profile-update-service.ts",
       "classification": "authored",
-      "targetSha256": "e42053173fa36181593d84891178dfca37b013786411095c88074b26f1bddea6"
+      "targetSha256": "371ca9fb5d377b8953677d519b865f5fcc12bb0eab317ab5a05a5665303baaec"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/fulfillment/update-shipping-profiles.ts",
@@ -9368,7 +9363,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-profile-delete-service.ts",
       "classification": "authored",
-      "targetSha256": "ebe134324ff04e00effa6be813f2ae666d76551caf003bae65093303910d3da3"
+      "targetSha256": "012cfdc079a604f2aee66bae1a84557f271cf74d77a841a39910e02d25457d2b"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/fulfillment/delete-shipping-profile.ts",
@@ -9423,6 +9418,75 @@
       "targetSha256": "c5669f673949aa012c03554764e3637431ef6dc00cda0e337044cb2170ca5135",
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/shipping-profile/workflows/delete-shipping-profile.ts",
       "sourceSha256": "8022640eedb3513b7518c9a5d08e6a63ae640ab5cf00d113087cc777d69dd508"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/fulfillment-module.ts",
+      "classification": "authored",
+      "targetSha256": "d7529a0939f00709f11b59ff6c1ea2df16ce4793742064613fa42e7214b53833"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-option-type-input.ts",
+      "classification": "authored",
+      "targetSha256": "36427ddc526a04bd3ba99378141a86a03961697df4141b59e1649378ce20efd7"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-option-type-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "32640f23dd297b4b120e4bea589395a0c5dfd02555844a148cb6af90aaf849fa"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-option-type-repository.ts",
+      "classification": "authored",
+      "targetSha256": "d4adf053451ce891302c7b7d14fb4548f97690ed4f102e700e1a0e1c7e181266"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-option-type-service.ts",
+      "classification": "authored",
+      "targetSha256": "5219cbd97f24171cd3cdd846c7b61f259bba6a3e1012beb5b769ea6acf5f56f9"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/fulfillment/create-shipping-option-types.ts",
+      "classification": "authored",
+      "targetSha256": "69d85f08e6d79622a73d17e212647b22d3fa7cfdfc654a8783be6dfb140f6831"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-shipping-option-type-creation-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "580eb26bca21901548cdc0778586aba322ddd2648de36a7c773d54eec2385e51"
+    },
+    {
+      "target": "packages/medusa-adapter/test/native-to-many-initialization.test.ts",
+      "classification": "authored",
+      "targetSha256": "ddc79d5ac1eab045f278275db4a0ce89ae54880c6b91a7d47f32a9ea6022c081"
+    },
+    {
+      "target": "packages/medusa-adapter/test/shipping-option-type-input.test.ts",
+      "classification": "authored",
+      "targetSha256": "9e8d6c3f8564ed7a330964fc679cba5489f99b51551ef3c4281b0a72c7ff2230"
+    },
+    {
+      "target": "packages/medusa-adapter/test/shipping-option-type-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "bdf33d922fdc68b86aa8f11bb9d14eba47184dd8037266ab8b4fea174f3d10aa"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-shipping-option-type-creation-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "7ed58b09f75af5f44fa73a5e147aa2fa85ef98a617637a075d3f3debd5f91088"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/shipping-options/steps/create-shipping-option-types.ts",
+      "classification": "workflowFork",
+      "targetSha256": "487cd9704d909d83ba6fab4639d63fca1189b22e94da36793aaec054e01b5633",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/shipping-options/steps/create-shipping-option-types.ts",
+      "sourceSha256": "bbe83ee651e7ce358735d83aaaf154772139aaa9183b51a81526795dea5912ac"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/shipping-options/workflows/create-shipping-option-types.ts",
+      "classification": "workflowFork",
+      "targetSha256": "997501a28735b6571e78ef507da14abe22ca1553a6b33baa0cf0e9ee8c8a49bb",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/shipping-options/workflows/create-shipping-option-types.ts",
+      "sourceSha256": "858bba869c9d8cd71261681f75e4194b28bb4a94a26d15a01c94b624a28a39fd"
     }
   ],
   "dependencies": {
@@ -9911,7 +9975,9 @@
         "./store/update-stores",
         "./store/update-stores-step",
         "./fulfillment/update-shipping-profiles",
-        "./fulfillment/update-shipping-profiles-step"
+        "./fulfillment/update-shipping-profiles-step",
+        "./shipping-options/create-shipping-option-types",
+        "./shipping-options/create-shipping-option-types-step"
       ]
     },
     {
@@ -10844,22 +10910,22 @@
     },
     {
       "target": "packages/medusa-drizzle/dist/relation-query.d.ts",
-      "targetSha256": "b22ce4efc419c81d1f74538b445bcbbd20bf29a3390cac30a154c81864806621",
+      "targetSha256": "90e5fef2925efeab1eb513050d92721b29bd3caac6fa81d2f74d1e2a7fcc15ed",
       "input": "packages/medusa-drizzle/src/relation-query.ts"
     },
     {
       "target": "packages/medusa-drizzle/dist/relation-query.d.ts.map",
-      "targetSha256": "2cf046f31bfff6a93709e847239cb1da52e5121bb3e773490a3d25c4172bf3f3",
+      "targetSha256": "485713006899f2c9137e514bc87ab1a68414f0dc32ba524b7dc3efa298fdf5f4",
       "input": "packages/medusa-drizzle/src/relation-query.ts"
     },
     {
       "target": "packages/medusa-drizzle/dist/relation-query.js",
-      "targetSha256": "59e6fe69b42b55a0d728c8b08b7f8c4eb1ba2a89951dfd73dcb6acd428d344f3",
+      "targetSha256": "1a4ea2611d2a395f526e328bb0332bbb3333ff17cc6890894b9b3737340820e3",
       "input": "packages/medusa-drizzle/src/relation-query.ts"
     },
     {
       "target": "packages/medusa-drizzle/dist/relation-query.js.map",
-      "targetSha256": "cb660723131ea2e811d7698ff7f4908ec98c395ce7ed1a58e71df889588fc051",
+      "targetSha256": "ed7d8755ba1acbc1a291849246aa2598f07ccf0bfaf232bc228392251bb7451c",
       "input": "packages/medusa-drizzle/src/relation-query.ts"
     },
     {

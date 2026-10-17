@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyNativeToManyInitialization } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyShippingProfileWorkflowTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -1025,5 +1025,100 @@ describe("native ShippingProfile deletion callback provenance", () => {
   it("rejects malformed callback syntax", () => {
     expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(void 0, ids)", "return new StepResponse(")))
       .toThrow("Invalid native ShippingProfile deletion callback syntax");
+  });
+});
+
+describe("native ShippingOptionType creation callback provenance", () => {
+  const paths = ["shipping-options/workflows/create-shipping-option-types.ts", "shipping-options/steps/create-shipping-option-types.ts"];
+  const native = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const promoted = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const verify = (workflow = promoted[0], step = promoted[1]) => verifyShippingOptionTypeCreateCallbacks(native[0], workflow, native[1], step);
+  it("admits the complete native program and unchanged public input aliases", () => {
+    expect(() => verify()).not.toThrow();
+  });
+  it.each([
+    ["workflow identity", '"create-shipping-option-types"', '"create-other-shipping-option-types"'],
+    ["root create input", "input.shipping_option_types", "[]"],
+    ["hook identity", '"shippingOptionTypesCreated"', '"shippingOptionTypeCreated"'],
+    ["hook rows", "shipping_option_types: shippingOptionTypes", "shipping_option_types: []"],
+    ["additional data", "additional_data: input.additional_data", "additional_data: {}"],
+    ["event family", "ShippingOptionTypeWorkflowEvents.CREATED", "ShippingOptionTypeWorkflowEvents.UPDATED"],
+    ["event IDs", "id: v.id", "id: String(v.code)"],
+    ["event payload", "data: typeIdEvents", "data: []"],
+    ["root output", "new WorkflowResponse(shippingOptionTypes,", "new WorkflowResponse([],"],
+    ["hook exposure", "hooks: [shippingOptionTypesCreated]", "hooks: []"],
+    ["direct step import", 'from "../steps/create-shipping-option-types"', 'from "../steps"'],
+    ["direct event import", 'from "../../common/steps/emit-event"', 'from "../../common"'],
+    ["extra runtime effect", "return new WorkflowResponse(shippingOptionTypes,", "console.log(input); return new WorkflowResponse(shippingOptionTypes,"],
+    ["extra runtime import", 'from "@medusajs/workflows-sdk"', 'from "@medusajs/workflows-sdk"; import "node:fs"'],
+  ])("rejects changed root %s", (_label, before, after) => {
+    const changed = promoted[0].replace(before, after); expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native ShippingOptionType creation callback behavior");
+  });
+  it("rejects moving the hook after event emission", () => {
+    const start = promoted[0].indexOf("    const shippingOptionTypesCreated = createHook(");
+    const end = promoted[0].indexOf("\n    const typeIdEvents = transform(", start);
+    expect(start).toBeGreaterThan(-1); expect(end).toBeGreaterThan(start);
+    const hook = promoted[0].slice(start, end);
+    const changed = promoted[0].slice(0, start) + promoted[0].slice(end);
+    expect(() => verify(changed.replace("    return new WorkflowResponse(", hook + "\n    return new WorkflowResponse(")))
+      .toThrow("Changed native ShippingOptionType creation callback behavior");
+  });
+  it.each([
+    ["step identity", '"create-shipping-option-types"', '"create-other-shipping-option-types"'],
+    ["covered compensation", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["Fulfillment resolution", "Modules.FULFILLMENT", "Modules.PRODUCT"],
+    ["native create method", "service.createShippingOptionTypes(data)", "service.upsertShippingOptionTypes(data)"],
+    ["create await", "await service.createShippingOptionTypes", "service.createShippingOptionTypes"],
+    ["returned rows", "      created,", "      [],"],
+    ["inverse IDs", "created.map((shippingOptionType) => shippingOptionType.id)", "[]"],
+    ["empty inverse", "if (!createdIds?.length)", "if (!createdIds)"],
+    ["physical inverse", "service.deleteShippingOptionTypes(createdIds)", "service.softDeleteShippingOptionTypes(createdIds)"],
+    ["inverse raw selector", "service.deleteShippingOptionTypes(createdIds)", "service.deleteShippingOptionTypes([])"],
+    ["inverse await", "await service.deleteShippingOptionTypes", "service.deleteShippingOptionTypes"],
+    ["extra inverse effect", "    await service.deleteShippingOptionTypes", '    container.resolve("query"); await service.deleteShippingOptionTypes'],
+  ])("rejects changed step %s", (_label, before, after) => {
+    const changed = promoted[1].replace(before, after); expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Changed native ShippingOptionType creation callback behavior");
+  });
+  it.each([
+    ["root", "FulfillmentTypes.CreateShippingOptionTypeDTO[]", "unknown[]"],
+    ["step", "FulfillmentTypes.CreateShippingOptionTypeDTO[]", "unknown[]"],
+  ])("rejects changed public %s input", (file, before, after) => {
+    const target = file === "root" ? promoted[0] : promoted[1];
+    const changed = target.replace(before, after); expect(changed).not.toBe(target);
+    expect(() => file === "root" ? verify(changed) : verify(promoted[0], changed))
+      .toThrow("Changed native ShippingOptionType creation public input type");
+  });
+  it("rejects malformed callback syntax", () => {
+    expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(", "return new StepResponse(" + "{")))
+      .toThrow("Invalid native ShippingOptionType creation callback syntax");
+  });
+});
+
+describe("native generic zero-to-many initialization provenance", () => {
+  const native = readFileSync("third_party/medusa/upstream/packages/database/drizzle/src/medusa.ts", "utf8");
+  const owner = readFileSync("packages/medusa-drizzle/src/relation-query.ts", "utf8");
+  it("admits only the native runtime helper with erased metadata-only types", () => {
+    expect(() => verifyNativeToManyInitialization(native, owner)).not.toThrow();
+  });
+  it.each([
+    ["preserve existing fields", "relationName in row", "Object.hasOwn(row, relationName)"],
+    ["hasMany branch", 'descriptor.relationship.type !== "hasMany"', 'descriptor.relationship.type !== "belongsTo"'],
+    ["manyToMany branch", 'descriptor.relationship.type !== "manyToMany"', 'descriptor.relationship.type !== "hasMany"'],
+    ["branch conjunction", '!== "hasMany" &&', '!== "hasMany" ||'],
+    ["native empty array", "row[relationName] = []", "row[relationName] = null"],
+    ["extra side effect", "row[relationName] = []", "console.log(row); row[relationName] = []"],
+  ])("rejects changed helper %s", (_label, before, after) => {
+    const changed = owner.replace(before, after); expect(changed).not.toBe(owner);
+    expect(() => verifyNativeToManyInitialization(native, changed)).toThrow("Changed native zero-to-many initialization extraction");
+  });
+  it("rejects duplicate helpers", () => {
+    expect(() => verifyNativeToManyInitialization(native, owner + "\nfunction fillEmptyToManyRelations() {}\n"))
+      .toThrow("Changed native zero-to-many initialization extraction");
+  });
+  it("rejects missing helpers", () => {
+    expect(() => verifyNativeToManyInitialization(native, owner.replace("function fillEmptyToManyRelations", "function otherInitializer")))
+      .toThrow("Changed native zero-to-many initialization extraction");
   });
 });

@@ -18,7 +18,7 @@ import { prepareShippingProfileRepository } from "./shipping-profile-repository"
 import { shippingProfileLogicalEventPolicy } from "./shipping-profile-events";
 import { captureShippingProfileMetadata } from "./shipping-profile-schema";
 import { QueryLimit, QueryOffset } from "../../query/decoder";
-import { defineShippingProfilePersistenceModule, type ShippingProfilePersistenceModel } from "./shipping-profile-module";
+import { defineFulfillmentPersistenceModule, type FulfillmentPersistenceModel } from "./fulfillment-module";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 export const SimpleShippingProfileInput = Schema.Struct({ id: Schema.optionalKey(Id), name: Schema.String, type: Schema.String });
@@ -63,10 +63,10 @@ export const makeLocalShippingProfileCommands = Effect.fn("ShippingProfileAdapte
       // Real internal services retain the same borrowed manager/persistence owner.
       // No unselected model is mapped to the ShippingProfile repository.
       const denied = deniedCommerceRepository(bound.repository, bound.refuse);
-      return { baseRepository: bound.repository, repository: (model: ShippingProfilePersistenceModel) =>
+      return { baseRepository: bound.repository, repository: (model: FulfillmentPersistenceModel) =>
         model === ShippingProfile ? bound.repository : denied, events: bound.mutationEvents, eventBus, denied };
     };
-    const module = yield* defineShippingProfilePersistenceModule({
+    const module = yield* defineFulfillmentPersistenceModule({
       name: "flarex-shipping-profile-local", profile: "shipping-profile", bind: bindModule,
       service: native => Object.freeze({
         createShippingProfiles: native.createShippingProfiles.bind(native),

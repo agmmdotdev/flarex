@@ -8,14 +8,14 @@ import { defineCommerceModule, type CommerceModuleRepositories } from "../../mod
 import type { CommercePromiseOwner } from "../../module/promise-owner";
 import type { commerceModuleEventBus } from "../../module/events";
 
-const shippingProfileModels = [FulfillmentAddress, Fulfillment, FulfillmentItem, FulfillmentLabel, FulfillmentProvider, FulfillmentSet,
+const fulfillmentModels = [FulfillmentAddress, Fulfillment, FulfillmentItem, FulfillmentLabel, FulfillmentProvider, FulfillmentSet,
   GeoZone, ServiceZone, ShippingOption, ShippingOptionRule, ShippingOptionType, ShippingProfile] as const;
-export type ShippingProfilePersistenceModel = typeof shippingProfileModels[number];
+export type FulfillmentPersistenceModel = typeof fulfillmentModels[number];
 
-/** One genuine Fulfillment constructor closure. Each ShippingProfile profile
+/** One genuine Fulfillment constructor closure. Each selected model profile
  * still selects its own repository and exact native service methods. */
-export function defineShippingProfilePersistenceModule<
-  Binding extends CommerceModuleRepositories<ShippingProfilePersistenceModel> & {
+export function defineFulfillmentPersistenceModule<
+  Binding extends CommerceModuleRepositories<FulfillmentPersistenceModel> & {
     readonly eventBus: ReturnType<typeof commerceModuleEventBus>;
     readonly denied: DAL.RepositoryService;
   },
@@ -26,7 +26,7 @@ export function defineShippingProfilePersistenceModule<
   readonly bind: (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => Binding;
   readonly service: (native: FulfillmentModuleService) => Service;
 }) {
-  return defineCommerceModule({ name: configuration.name, models: shippingProfileModels,
+  return defineCommerceModule({ name: configuration.name, models: fulfillmentModels,
     profile: { name: configuration.profile, capabilities: [], bind: configuration.bind },
     extensions: { fulfillmentProviderService: { mode: "replace", create: ({ binding, persistence }) => {
       const container = { fulfillmentProviderRepository: binding.denied, modulePersistenceAdapter: persistence };

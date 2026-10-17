@@ -2,7 +2,8 @@
  * Source: packages/database/drizzle/src/medusa.ts at 48d5cc675e4e8bc821e22c20c88a751acc66fb5f.
  * toPopulateTree, projectRowFields and the grouping portions of
  * loadHasManyRelation/loadManyToManyRelation retain their source algorithms.
- * Reads, mutation of parent rows and SQL descriptors are left to the caller.
+ * The native fillEmptyToManyRelations initialization mutates detached creation
+ * results; reads and SQL descriptors remain with the caller.
  */
 import type { DatabaseColumn, DatabaseRelationship } from "./schema"
 
@@ -181,4 +182,25 @@ function primaryKeyOrderFromFilter(where: unknown, primaryKey: string): string[]
   if (Array.isArray(value)) return value.filter(entry => typeof entry === "string" || typeof entry === "number").map(String)
   if (typeof value === "string" || typeof value === "number") return [String(value)]
   return []
+}
+
+/** Native zero-to-many initialization for detached creation results. This does
+ * not load or validate relation members and grants no relationship capability. */
+export function fillEmptyToManyRelations(
+  rows: Record<string, unknown>[],
+  descriptors: ReadonlyMap<string, { readonly relationship: Pick<DatabaseRelationship, "type"> }>
+): void {
+  for (const row of rows) {
+    for (const [relationName, descriptor] of descriptors) {
+      if (
+        relationName in row ||
+        (descriptor.relationship.type !== "hasMany" &&
+          descriptor.relationship.type !== "manyToMany")
+      ) {
+        continue
+      }
+
+      row[relationName] = []
+    }
+  }
 }

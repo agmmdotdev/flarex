@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyNativeToManyInitialization } from "./check-medusa-test-port.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -292,6 +292,16 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/reservation/steps/delete-reservations-by-line-items.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/reservation/steps/delete-reservations-by-line-items.ts"), "utf8"),
   );
+  verifyShippingOptionTypeCreateCallbacks(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/shipping-options/workflows/create-shipping-option-types.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/shipping-options/workflows/create-shipping-option-types.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/shipping-options/steps/create-shipping-option-types.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/shipping-options/steps/create-shipping-option-types.ts"), "utf8"),
+  );
+  verifyNativeToManyInitialization(
+    readFileSync(path.join(root, "third_party/medusa/upstream/packages/database/drizzle/src/medusa.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-drizzle/src/relation-query.ts"), "utf8"),
+  );
   verifyShippingProfileDeleteCallbacks(
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/shipping-profile/workflows/delete-shipping-profile.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/shipping-profile/workflows/delete-shipping-profile.ts"), "utf8"),
@@ -358,6 +368,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, csvTarget, "csv-normalizer.spec.ts"), "utf8"),
     fixtureText(csvSource), fixtureText(csvTarget));
   for (const file of promotion.files) {
+    if (["packages/medusa-core-flows/src/shipping-options/workflows/create-shipping-option-types.ts", "packages/medusa-core-flows/src/shipping-options/steps/create-shipping-option-types.ts"].includes(file.target)
+      && (file.classification !== "workflowFork" || file.source !== sourcePrefix + "packages/core/core-flows/src/" + file.target.slice("packages/medusa-core-flows/src/".length)))
+      throw new Error("ShippingOptionType creation adaptation outside its exact pinned source pair");
     if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "storeTypeFork", "storeCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
