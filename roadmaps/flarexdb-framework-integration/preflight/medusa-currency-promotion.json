@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "bc06f4b53ed2b3b0c3e1267fab792bf28095b52ae7197747cad5a48d8f50f542"
+      "targetSha256": "c462bc6b4082f3142e2b37b6b3dbbd05a4622b99b1d605311521400f87416089"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -8959,6 +8959,70 @@
       "target": "packages/medusa-adapter/test/reservation-line-item-native-restore-witness.test.ts",
       "classification": "authored",
       "targetSha256": "7d04002d1e1aecf8785b9d1f7ffd25d84bad156dd26400a6932c70b41958ad83"
+    },
+    {
+      "target": "packages/medusa-adapter/src/links/store-deletion.ts",
+      "classification": "authored",
+      "targetSha256": "a012639173d1f73c9ee91dcdca89e00646bf03beb66b72e38eb6f6bf526ebd3e"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/store/delete-input.ts",
+      "classification": "authored",
+      "targetSha256": "79189ae7bb2b38ee2451fe1d4d445087d53e694188d5010ed201eaaeae02c107"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/store/delete-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "16e437838fcba82710c12c770fc7f037b4f362659546eeff971464def6d5ea2a"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/store/delete-repository.ts",
+      "classification": "authored",
+      "targetSha256": "6cad5bb870d37e0b7b937438dd8194c648551c512aefb18fe8325ca5d6297758"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/store/delete-service.ts",
+      "classification": "authored",
+      "targetSha256": "075898a152b3e05d82f4da2bc9ec1b86730b181cd57db4dd369e9c2d960b2271"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/store/delete.ts",
+      "classification": "authored",
+      "targetSha256": "4e31b40a73c4408e2530abe1e71e35a18c7a37b835623daa67e889f7a5087f22"
+    },
+    {
+      "target": "packages/medusa-adapter/test/store-delete-composer.test.ts",
+      "classification": "authored",
+      "targetSha256": "faa61086e8c038fd1bf98dda11f890304c96223175ef448ca6ea70a3428bf30d"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/store/steps/delete-stores.ts",
+      "classification": "workflowFork",
+      "targetSha256": "e89b9eb52cf1b586d00da901c79aada75c91a88e03820f4c905c03fa92b0161b",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/store/steps/delete-stores.ts",
+      "sourceSha256": "0f7f4648d6c58229f69042c088472a13f6ff0a0535579ec0beffacdef24305cf"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/store/workflows/delete-stores.ts",
+      "classification": "workflowFork",
+      "targetSha256": "e3fc64dcd48dfa96cdd83e6fe2d54f362588e8a52a1e2cc955ed5d5031036ab2",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/store/workflows/delete-stores.ts",
+      "sourceSha256": "00ed4e4d711b15c4b2b093ffc64583f26f827d40ccfd9b5b295c3e220ffa93e3"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-store-deletion-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "db8ea4cf47aded0f6ccdcac49d63cfb471693111a06928b36d689d35b0472bf4"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-store-deletion-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "3721dff6f4e203ca0ec434ec5646632e206d0b224ce9540bd832060a8b11fe39"
+    },
+    {
+      "target": "packages/medusa-adapter/test/store-delete-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "432a75a78e62e61db01792bc882bf6014f47aae533507c1481820deba30e7b76"
     }
   ],
   "dependencies": {
@@ -9434,7 +9498,9 @@
         "./common/delete-entities-step",
         "./inventory/delete-inventory-items",
         "./inventory/batch-inventory-item-levels",
-        "./inventory/create-inventory-items"
+        "./inventory/create-inventory-items",
+        "./store/delete-stores",
+        "./store/delete-stores-step"
       ]
     },
     {

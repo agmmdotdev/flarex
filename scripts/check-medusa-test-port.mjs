@@ -505,3 +505,36 @@ export function verifyTestPort(source, target, options = {}) {
     throw new Error("Test port changed executable scenario, assertion, or runtime import");
   }
 }
+
+/** Authenticate the complete Store root and step after only the portable import,
+ * response-wrapper and transaction-covered declaration seams. The existing Link
+ * callbacks remain native, including grouped empty endpoints and their inverse.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step
+ * @param {string} nativeLink @param {string} link */
+export function verifyStoreDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeLink, link) {
+  const failure = "Changed native Store deletion callback behavior";
+  const expectedWorkflow = nativeWorkflow
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('WorkflowData, createWorkflow } from "@medusajs/framework/workflows-sdk"', 'WorkflowData, createWorkflow, WorkflowResponse } from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/delete-stores"')
+    .replace("return deletedStores", "return new WorkflowResponse(deletedStores)");
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  deleteStoresStepId,", '  { name: deleteStoresStepId, compensation: "transactionCovered" },');
+  if (testPortProgram(expectedWorkflow) !== testPortProgram(workflow) ||
+    testPortProgram(expectedStep) !== testPortProgram(step)) throw new Error(failure);
+  const original = inventoryDeletionCallbacks(nativeLink, "removeRemoteLinkStep", "createStep", [1, 2]);
+  const promoted = inventoryDeletionCallbacks(link, "removeRemoteLinkStep", "createStep", [1, 2]);
+  for (const [index, callback] of original.entries()) {
+    if (testPortProgram("const callback = " + callback.text) !==
+      testPortProgram("const callback = " + promoted[index]?.text)) throw new Error(failure);
+  }
+  const selected = promoted[0], options = selected?.call.arguments[0];
+  if (selected === undefined || options === undefined ||
+    testPortProgram("const options = " + options.getText(selected.file)) !==
+    testPortProgram('const options = { name: removeRemoteLinkStepId, compensation: "transactionCovered" }') ||
+    testPortProgram(inventoryNamedDeclaration(nativeLink, "removeRemoteLinkStepId").text) !==
+    testPortProgram(inventoryNamedDeclaration(link, "removeRemoteLinkStepId").text)) throw new Error(failure);
+}

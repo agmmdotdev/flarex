@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -9,6 +9,67 @@ const root = process.cwd();
 const promotion = verifyCurrencyPromotion(root);
 const source = "packages/medusa-currency/src/models/currency.ts";
 
+describe("native Store deletion callback provenance", () => {
+  const nativeWorkflow = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/store/workflows/delete-stores.ts", "utf8");
+  const workflow = readFileSync("packages/medusa-core-flows/src/store/workflows/delete-stores.ts", "utf8");
+  const nativeStep = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/store/steps/delete-stores.ts", "utf8");
+  const step = readFileSync("packages/medusa-core-flows/src/store/steps/delete-stores.ts", "utf8");
+  const nativeLink = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/common/steps/remove-remote-links.ts", "utf8");
+  const link = readFileSync("packages/medusa-core-flows/src/common/steps/remove-remote-links.ts", "utf8");
+  it("admits only portable imports, the exact response wrapper and covered metadata", () => {
+    expect(() => verifyStoreDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeLink, link)).not.toThrow();
+  });
+  it.each([
+    ["root identity", '"delete-stores"', '"delete-other-stores"'],
+    ["raw Store IDs", "deleteStoresStep(input.ids)", "deleteStoresStep([...new Set(input.ids)])"],
+    ["raw Link IDs", "store_id: input.ids", "store_id: []"],
+    ["Store endpoint", "[Modules.STORE]", "[Modules.PRODUCT]"],
+    ["root result", "new WorkflowResponse(deletedStores)", "new WorkflowResponse(input.ids)"],
+    ["exact return wrapper", "new WorkflowResponse(deletedStores)", "new WorkflowResponse(void 0)"],
+    ["portable dependency", 'from "@medusajs/framework/utils/portable"', 'from "@medusajs/framework/utils"'],
+    ["foreign extra side effect", "return new WorkflowResponse(deletedStores)", "console.log(input); return new WorkflowResponse(deletedStores)"],
+    ["native callback order", "const deletedStores = deleteStoresStep(input.ids)", "const deletedStores = deleteStoresStep(input.ids); deleteStoresStep(input.ids)"],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = workflow.replace(before, after); expect(changed).not.toBe(workflow);
+    expect(() => verifyStoreDeleteCallbacks(nativeWorkflow, changed, nativeStep, step, nativeLink, link))
+      .toThrow("Changed native Store deletion callback behavior");
+  });
+  it("rejects moving Link removal before Store deletion", () => {
+    const changed = workflow.replace("    const deletedStores = deleteStoresStep(input.ids)\n", "")
+      .replace("    return new WorkflowResponse(deletedStores)", "    const deletedStores = deleteStoresStep(input.ids)\n    return new WorkflowResponse(deletedStores)");
+    expect(changed).not.toBe(workflow);
+    expect(() => verifyStoreDeleteCallbacks(nativeWorkflow, changed, nativeStep, step, nativeLink, link))
+      .toThrow("Changed native Store deletion callback behavior");
+  });
+  it.each([
+    ["step identity", '"delete-stores"', '"delete-other-stores"'],
+    ["covered inverse policy", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["native empty call", "await storeModule.softDeleteStores(ids)", "if (ids.length) await storeModule.softDeleteStores(ids)"],
+    ["raw duplicate identities", "softDeleteStores(ids)", "softDeleteStores([...new Set(ids)])"],
+    ["native lifecycle method", "softDeleteStores(ids)", "deleteStores(ids)"],
+    ["void output", "new StepResponse(void 0, ids)", "new StepResponse(ids, ids)"],
+    ["inverse input", "new StepResponse(void 0, ids)", "new StepResponse(void 0, [])"],
+    ["inverse empty guard", "if (!idsToRestore?.length)", "if (!idsToRestore)"],
+    ["native inverse call", "restoreStores(idsToRestore)", "restoreStores([])"],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = step.replace(before, after); expect(changed).not.toBe(step);
+    expect(() => verifyStoreDeleteCallbacks(nativeWorkflow, workflow, nativeStep, changed, nativeLink, link))
+      .toThrow("Changed native Store deletion callback behavior");
+  });
+  it.each([
+    ["Link identity", '"remove-remote-links"', '"remove-other-links"'],
+    ["Link inverse policy", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["Link grouped empty call", "await link.delete(grouped)", "if (Object.keys(grouped).length) await link.delete(grouped)"],
+    ["Link raw grouping order", "currentKeys.concat(incomingKeys)", "incomingKeys.concat(currentKeys)"],
+    ["Link inverse payload", "new StepResponse(grouped, grouped)", "new StepResponse(grouped, {})"],
+    ["Link grouped empty inverse", "if (!removedLinks)", "if (!removedLinks || !Object.keys(removedLinks).length)"],
+    ["Link restore call", "await link.restore(removedLinks)", "await link.restore({})"],
+  ])("rejects changed native %s", (_name, before, after) => {
+    const changed = link.replace(before, after); expect(changed).not.toBe(link);
+    expect(() => verifyStoreDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeLink, changed))
+      .toThrow("Changed native Store deletion callback behavior");
+  });
+});
 describe("native Inventory Level deletion callback provenance", () => {
   const nativeWorkflow = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/inventory/workflows/delete-inventory-levels.ts", "utf8");
   const nativeStep = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/common/steps/delete-entities.ts", "utf8");

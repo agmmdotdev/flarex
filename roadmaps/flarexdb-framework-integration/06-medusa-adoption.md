@@ -124,6 +124,13 @@ Line Item remains a subsequent admission. Its
 [native preflight](./preflight/122-native-reservation-line-item-delete-workflow.md)
 identifies a restore-preimage business defect and missing complete-history Line
 Item access. Native behavior disposition and connected validation remain gates.
+The bounded [Store deletion workflow](./preflight/123-native-store-delete-workflow.md)
+admits four raw Store IDs and complete history of eight Currency and eight Locale
+children through the genuine module lifecycle and required empty-family Link
+routing. Native module registration owns maps and events; the existing read-only
+Store guard and scalar default endpoints retain their separate authority.
+Existing resource limits remain unchanged. Store creation/update remain separate
+connected admissions.
 Chunked File import and Product
 export are explicitly deferred; their File and Region dependencies are outside
 the current integration goal.
