@@ -5,7 +5,7 @@ import { captureCommerceInput } from "../../value/input";
 import { compileRowProjection } from "../../value/complete-row";
 import { NativePreimageConfig } from "../../workflow/preimage";
 import { ServiceZoneGeoZoneCreate } from "./service-zone-create-input";
-import { compileServiceZoneGraphContracts } from "./service-zone-graph-contracts";
+import { compileFulfillmentGraphContracts } from "./fulfillment-graph-contracts";
 import type { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
@@ -44,7 +44,7 @@ type Metadata = Effect.Success<ReturnType<typeof captureServiceZoneCreationMetad
 
 export function compileServiceZoneUpdateContracts(metadata: Metadata) {
   return Result.gen(function* () {
-    const graph = yield* compileServiceZoneGraphContracts(metadata);
+    const graph = yield* compileFulfillmentGraphContracts(metadata);
     const zoneProjection = yield* compileRowProjection(graph.zone), geoProjection = yield* compileRowProjection(graph.geo);
     const decode = (input: unknown, full: boolean) => Result.gen(function* () {
       const rows = yield* decodeRowsShape(input), roots = new Set<string>(), geos = new Set<string>();
@@ -69,6 +69,6 @@ export function compileServiceZoneUpdateContracts(metadata: Metadata) {
     const decodeRows = (input: unknown) => decode(input, true), decodePreimages = (input: unknown) => decode(input, false);
     const Output = Schema.Array(Schema.JsonObject).check(Schema.makeFilter(rows =>
       Result.isSuccess(decodeRows(rows)) || "Expected complete native ServiceZone update rows"));
-    return { ...graph, zoneProjection, geoProjection, decodeRows, decodePreimages, decodeSerializedRows: decodePreimages, Output };
+    return { ...graph, entities: graph.zoneEntities, zoneProjection, geoProjection, decodeRows, decodePreimages, decodeSerializedRows: decodePreimages, Output };
   });
 }

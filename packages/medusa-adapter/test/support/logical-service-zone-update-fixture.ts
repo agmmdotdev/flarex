@@ -12,7 +12,7 @@ import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { serviceZoneUpdateResources } from "../../src/workflow/policy";
 import { captureServiceZoneCreationMetadata } from "../../src/modules/fulfillment/shipping-profile-schema";
-import { compileServiceZoneGraphContracts } from "../../src/modules/fulfillment/service-zone-graph-contracts";
+import { compileFulfillmentGraphContracts } from "../../src/modules/fulfillment/fulfillment-graph-contracts";
 import { projectNativeRow } from "../../src/repository/result";
 import { makeServiceZoneUpdateCommands } from "../../src/modules/fulfillment/service-zone-update-service";
 import { ServiceZoneUpdateInput, ServiceZoneUpdateUpserts } from "../../src/modules/fulfillment/service-zone-update-input";
@@ -101,7 +101,7 @@ export async function prepareLogicalServiceZoneUpdate(driver: "pglite" | "postgr
   /** One canonical Geo insert for an indexed-read race, granting no public
    * native GeoZone mutation capability or second storage implementation. */
   const prepareGeoInsertion = async () => {
-    const contracts = Result.getOrThrow(compileServiceZoneGraphContracts((await Effect.runPromise(captureServiceZoneCreationMetadata())).frame));
+    const contracts = Result.getOrThrow(compileFulfillmentGraphContracts((await Effect.runPromise(captureServiceZoneCreationMetadata())).frame));
     const insert = defineCommerceCommand("serviceZoneGeoRaceFixtureInsert", "write", Effect.fn(function* (ctx, value) {
       const row = yield* Effect.fromResult(contracts.decodeGeoRow(value));
       if (row.deleted_at !== null) return yield* ctx.refuse(commerceError("invalidInput"));

@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyShippingProfileWorkflowTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -1313,6 +1313,77 @@ describe("native ServiceZone creation callback and public type provenance", () =
   it("rejects malformed native callback syntax", () => {
     expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(", "return new StepResponse(,")))
       .toThrow("Invalid native ServiceZone creation callback syntax");
+  });
+});
+
+describe("native FulfillmentSet deletion callback and public input provenance", () => {
+  const paths = ["fulfillment/workflows/delete-fulfillment-sets.ts", "fulfillment/steps/delete-fulfillment-sets.ts"];
+  const native = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const promoted = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const verify = (workflow = promoted[0], step = promoted[1]) => verifyFulfillmentSetDeleteCallbacks(native[0], workflow, native[1], step);
+  it("admits genuine native root/step/raw inverse and the explicit void wrapper", () => expect(() => verify()).not.toThrow());
+  it.each([
+    ["required Link step", "    removeRemoteLinkStep({", "    deleteFulfillmentSetsStep({"],
+    ["native module endpoint", "[Modules.FULFILLMENT]: { fulfillment_set_id: input.ids }", "[Modules.PRODUCT]: { fulfillment_set_id: input.ids }"],
+    ["exact endpoint key", "fulfillment_set_id: input.ids", "service_zone_id: input.ids"],
+    ["raw Link IDs", "fulfillment_set_id: input.ids", "fulfillment_set_id: []"],
+    ["mandatory empty Link call", "    removeRemoteLinkStep({", "    if (input.ids.length) removeRemoteLinkStep({"],
+    ["direct Link import", 'from "../../common/steps/remove-remote-links"', 'from "../../common"'],
+    ["serial ordering", "    deleteFulfillmentSetsStep(input.ids)\n\n    removeRemoteLinkStep", "    removeRemoteLinkStep(input.ids)\n\n    deleteFulfillmentSetsStep"],
+    ["duplicate resource", "    return new WorkflowResponse", "    removeRemoteLinkStep({}); return new WorkflowResponse"],
+  ])("rejects changed native Link topology %s", (_label, before, after) => {
+    const changed = promoted[0].replace(before, after); expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native FulfillmentSet deletion callback behavior");
+  });
+  it.each([
+    ["identity", '"delete-fulfillment-sets-workflow"', '"delete-other-fulfillment-sets-workflow"'],
+    ["whole raw input", "deleteFulfillmentSetsStep(input.ids)", "deleteFulfillmentSetsStep([])"],
+    ["void result", "new WorkflowResponse(void 0)", "new WorkflowResponse([])"],
+    ["required wrapper", "return new WorkflowResponse(void 0)", "return undefined"],
+    ["direct step import", 'from "../steps/delete-fulfillment-sets"', 'from "../steps"'],
+    ["extra runtime effect", "    deleteFulfillmentSetsStep(input.ids)", "    console.log(input); deleteFulfillmentSetsStep(input.ids)"],
+    ["extra resource import", 'from "../steps/delete-fulfillment-sets"', 'from "../steps/delete-fulfillment-sets"; import "node:fs"'],
+  ])("rejects changed root %s", (_label, before, after) => {
+    const changed = promoted[0].replace(before, after); expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native FulfillmentSet deletion callback behavior");
+  });
+  it.each([
+    ["identity", '"delete-fulfillment-sets"', '"delete-other-fulfillment-sets"'],
+    ["covered metadata", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["Fulfillment resource", "Modules.FULFILLMENT", "Modules.PRODUCT"],
+    ["soft delete", "service.softDeleteFulfillmentSets(ids)", "service.deleteFulfillmentSets(ids)"],
+    ["raw forward IDs", "service.softDeleteFulfillmentSets(ids)", "service.softDeleteFulfillmentSets([])"],
+    ["forward await", "await service.softDeleteFulfillmentSets", "service.softDeleteFulfillmentSets"],
+    ["native void", "new StepResponse(void 0, ids)", "new StepResponse(ids, ids)"],
+    ["raw retained IDs", "new StepResponse(void 0, ids)", "new StepResponse(void 0, [])"],
+    ["empty inverse", "if (!prevIds?.length)", "if (!prevIds)"],
+    ["native restore", "service.restoreFulfillmentSets(prevIds)", "service.softDeleteFulfillmentSets(prevIds)"],
+    ["restore raw IDs", "service.restoreFulfillmentSets(prevIds)", "service.restoreFulfillmentSets([])"],
+    ["inverse await", "await service.restoreFulfillmentSets", "service.restoreFulfillmentSets"],
+    ["extra inverse resource", "    await service.restoreFulfillmentSets", '    container.resolve("query"); await service.restoreFulfillmentSets'],
+  ])("rejects changed step %s", (_label, before, after) => {
+    const changed = promoted[1].replace(before, after); expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Changed native FulfillmentSet deletion callback behavior");
+  });
+  it.each([0, 1])("rejects narrowed public input in file %s", index => {
+    const changed = promoted[index].replace("string[]", "readonly string[]"); expect(changed).not.toBe(promoted[index]);
+    expect(() => index === 0 ? verify(changed) : verify(promoted[0], changed)).toThrow("Changed native FulfillmentSet deletion public contract");
+  });
+  it("rejects changed erased native service type import", () => {
+    expect(() => verify(promoted[0], promoted[1].replace('from "@medusajs/types/fulfillment/index"', 'from "@medusajs/types"')))
+      .toThrow("Changed native FulfillmentSet deletion public contract");
+  });
+  it("rejects malformed native callback syntax", () => {
+    expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(void 0, ids)", "return new StepResponse(")))
+      .toThrow("Invalid native FulfillmentSet deletion callback syntax");
+  });
+  it.each(paths.flatMap(file => [
+    [file, "source", { source: "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment/steps/delete-service-zones.ts" }],
+    [file, "classification", { classification: "selectedExportFacade" }],
+  ]))("rejects displaced %s %s", (file, _label, mutation) => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(entry =>
+      entry.target === "packages/medusa-core-flows/src/" + file ? { ...entry, ...mutation } : entry) }))
+      .toThrow("FulfillmentSet deletion adaptation outside its exact pinned source pair");
   });
 });
 

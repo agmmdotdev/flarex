@@ -2,7 +2,7 @@ import { Result, Schema, type Effect } from "effect";
 import { fillEmptyToManyRelations } from "@medusajs/drizzle/relation-query";
 import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../../value/decoder";
-import { compileServiceZoneGraphContracts } from "./service-zone-graph-contracts";
+import { compileFulfillmentGraphContracts } from "./fulfillment-graph-contracts";
 import type { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
@@ -29,7 +29,7 @@ type Metadata = Effect.Success<ReturnType<typeof captureServiceZoneCreationMetad
 /** One checked native eight-table snapshot owns scalar rows and cascade closure. */
 export function compileServiceZoneCreationContracts(metadata: Metadata) {
   return Result.gen(function* () {
-    const { zone, geo, option, rule, entities, relation, decodeZoneRow, decodeGeoRow } = yield* compileServiceZoneGraphContracts(metadata);
+    const { zone, geo, option, rule, zoneEntities: entities, relation, decodeZoneRow, decodeGeoRow } = yield* compileFulfillmentGraphContracts(metadata);
     const defaults = new Map<string, JsonObject>();
     for (const entity of entities) {
       const values: Record<string, Json> = {};

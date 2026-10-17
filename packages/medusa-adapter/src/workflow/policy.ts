@@ -52,6 +52,9 @@ export const storeUpdateResources = Object.freeze({ ...defaultCommerceResources,
 export const serviceZoneDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 256, eventMessages: 128 });
 /** Native ServiceZone geographic update; measured admission is selected independently. */
 export const serviceZoneUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
+/** Complete Fulfillment Set lifecycle, empty installed Link routing and genuine
+ * retained inverse share their measured, scoped admission allowance. */
+export const fulfillmentSetDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 256, eventMessages: 128 });
 /** One parent launch graph owns Pricing, Link, Product Tag and pending graph reads. */
 export const productLaunchResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
 /** The finite launch workflow shares one bounded logical lifetime across both native children. */

@@ -473,8 +473,29 @@ owns protected revision metadata, root-global allocation, accepting-commit
 assignment and explicitly selected complete indexed ordering. Additive physical
 migration 149 leaves old generations unknown; it does not backfill order or
 admit a populated framework schema upgrade. Zone creation/deletion and existing
-Product/Store replacement profiles retain their behavior. Fulfillment Set and
-general Shipping Option workflows retain their separate preflight gates.
+Product/Store replacement profiles retain their behavior. General Shipping
+Option workflows retain their separate preflight gates.
+
+The [native Fulfillment Set deletion](./preflight/134-native-fulfillment-set-delete-workflow.md)
+slice supports zero to four raw Set IDs and the complete aggregate history of
+four Sets, four Zones, sixteen GeoZones, eight Options and
+sixteen Rules in the same eight-table Fulfillment source. The genuine root keeps
+serial Set soft deletion then common Link cleanup; its retained callbacks restore
+Link then the exact raw Set IDs. Historical roots can be skipped forward yet
+revived by that broader native inverse, and reached historical descendants and
+already-active restores retain native timestamp writes and deleted/restored
+events. The complete root plus retained inverse selects a scoped identity-bound
+256-call/128-event profile; other profiles and resource limits remain unchanged.
+The selected genuine empty Link resource preserves mandatory empty endpoint
+delete/restore calls without installing a stored LocationFulfillmentSet family.
+Module event infrastructure and active-restore policy remain required. Shared
+Fulfillment receipts authenticate actual final observations against final
+mutation afterimages separately from planning preimages for both Set and Zone
+lifecycle consumers. Installing LocationFulfillmentSet later must migrate this
+resource and Stock Location deletion together. Set creation, general Shipping
+Option/provider workflows, populated upgrades and public/hosted activation
+remain outside this slice; chunked Product file import and Product export remain
+deferred.
 
 The [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)
 is complete within its approved bounded profiles. Persistence now owns protected

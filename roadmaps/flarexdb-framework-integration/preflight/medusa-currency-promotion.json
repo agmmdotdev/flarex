@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "4fb8e66d3afb529bb4d49ac3c772c38bfb3ab4167fe6f8e89625205d3b3bf407"
+      "targetSha256": "186dd42885ffac98d3c07fc865d4c2c975171d540d8dc5647c14b7751cd7f9e7"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -3373,7 +3373,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/policy.ts",
       "classification": "authored",
-      "targetSha256": "2ec754e4fdcc9a52e1a265565cd3388e48a9c0d8366a0fd5da445328c6af77b0"
+      "targetSha256": "8e936bb0e5dbdb799553318721af096e20506bcec485cefa1518c1e81d64dd91"
     },
     {
       "target": "packages/medusa-adapter/src/links/product-shipping-profile-schema.ts",
@@ -9631,7 +9631,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/service-zone-create-input.ts",
       "classification": "authored",
-      "targetSha256": "338c558abc06cf45f2fd8806780e816244d8c12ca79bc4492e023186444eb02c"
+      "targetSha256": "ff14e596b907f49eb1a0e4733819d7b11f02d9d01c3da9a78edfa25e0fd8f105"
     },
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/service-zone-create-receipt.ts",
@@ -9690,27 +9690,22 @@
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/service-zone-delete-input.ts",
       "classification": "authored",
-      "targetSha256": "d2c3485a566f63b52150b5bc80d96191a704f61caf6d2d68c2d5f598eec0dcb8"
+      "targetSha256": "d4e869f8fcd3379a45b26a37b292cb8e787c108e238bdde539ac5696f466a360"
     },
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/service-zone-delete-receipt.ts",
       "classification": "authored",
-      "targetSha256": "f0b2d5a7ff37bb133d8610130c4238a36a93acd29822135f2b4281771424f236"
+      "targetSha256": "a7c61b15e69403504ebb7af59383ba6b4df37635b9c912125723bfaf369de8b7"
     },
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/service-zone-delete-repository.ts",
       "classification": "authored",
-      "targetSha256": "c68ea284c36709b1f10486e7349b3fc66bb3409ad669748cc4d964ff8b02c3b8"
+      "targetSha256": "e31e5082bfe39b1db97d97d835ae5045298b71afa97e2c23ea9de8ab1fdd2f07"
     },
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/service-zone-delete-service.ts",
       "classification": "authored",
       "targetSha256": "51e51f703e3ea80c5ffaa2fbb5923b9220bd63646b2b4f110ec3ce9e43471f29"
-    },
-    {
-      "target": "packages/medusa-adapter/src/modules/fulfillment/service-zone-graph-contracts.ts",
-      "classification": "authored",
-      "targetSha256": "2a29bdfa10a39bedd4675c26b399832a122e15d5e773b4ac516a3032bb1c8599"
     },
     {
       "target": "packages/medusa-adapter/src/repository/lifecycle-graph-receipt.ts",
@@ -9740,7 +9735,7 @@
     {
       "target": "packages/medusa-adapter/test/service-zone-delete-receipts.test.ts",
       "classification": "authored",
-      "targetSha256": "a7168a338efee9bf3aaf0cd90d3996b73d56a3c1c8536a99056ea5b5a4aad006"
+      "targetSha256": "17e5a4ca88edcdfdbbf6995bbb5796829cf39cb26afa46988da3ef363c8fa3d0"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-service-zone-deletion-fixture.ts",
@@ -9769,7 +9764,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/service-zone-update-input.ts",
       "classification": "authored",
-      "targetSha256": "e4df7a3d366ced84fa2e5de5d05c26b184f30d423183098b9aa22c952f8fb72f"
+      "targetSha256": "321be14a3f96c8b3dfcbbc2f7be5b3213277c9bebd0ee91a6b4d2026f051b556"
     },
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/service-zone-update-query.ts",
@@ -9814,7 +9809,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-service-zone-update-fixture.ts",
       "classification": "authored",
-      "targetSha256": "11fe4c9a6b9f82fb39f46b30974b3cddf07a44a3ece22115c162a998f05030d6"
+      "targetSha256": "0094b1b804f1c6fa7b1eb93a33c6f6ada2c7c7e0c02d36f52520d438c670bab0"
     },
     {
       "target": "packages/medusa-core-flows/src/fulfillment/steps/update-service-zones.ts",
@@ -9829,6 +9824,90 @@
       "targetSha256": "e9cca27c069bd6ae4cc9ca58b44d3f05dd4a9ad4eab3e3080494a9f6f6661c31",
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment/workflows/update-service-zones.ts",
       "sourceSha256": "0747c1a7f40de4cf346faa29e5fcc6b37751af5058b60e603121b872ffda9077"
+    },
+    {
+      "target": "packages/medusa-adapter/src/links/fulfillment-set-deletion.ts",
+      "classification": "authored",
+      "targetSha256": "9d342e56b99e3e54d4adbb1057d5e92bd1a36f0bc3fbaa8800c3f500459b8750"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/fulfillment-graph-contracts.ts",
+      "classification": "authored",
+      "targetSha256": "2e3085c22395c7907643e3e3b422525741f73739c90246ec8739dbed721291d7"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/fulfillment-lifecycle-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "59e67aa174d145d9b08561ea1b03ba5966c3c6836870c7b4502f5d8838dc88a3"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/fulfillment-lifecycle-repository.ts",
+      "classification": "authored",
+      "targetSha256": "ed97c58745c95b90db01c147635e6c09906bdac4e0eb6e018d04cf27fd3f7dfd"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/fulfillment-set-delete-input.ts",
+      "classification": "authored",
+      "targetSha256": "5b3f0477af6717a1c77d49ed0e8c6068b8d65a2ffe283b1b910339ca1e91f6fb"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/fulfillment-set-delete-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "de83d98528152e6c3cb20746e6b40a55ec1d03262a138a9d61a9d0de1b6993f5"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/fulfillment-set-delete-repository.ts",
+      "classification": "authored",
+      "targetSha256": "f6258637be4c7f397b10967378e9791c47cda9574e8c8f471a144a1c8549e1d0"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/fulfillment-set-delete-service.ts",
+      "classification": "authored",
+      "targetSha256": "6c45919bb0b280dd19ad340747dba5842e2e97f06cc57b460c087fa183aa8c0c"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/fulfillment/delete-fulfillment-sets.ts",
+      "classification": "authored",
+      "targetSha256": "1bfb51ebb8bc5d8a21c8189faeeae0885ff1bb63298a2fd1762110bd3da07568"
+    },
+    {
+      "target": "packages/medusa-adapter/test/fulfillment-set-delete-input.test.ts",
+      "classification": "authored",
+      "targetSha256": "9f6164415c4f7b215c910bd7f3eb8f09315c7ca341951f30d6e28dfdaef625fd"
+    },
+    {
+      "target": "packages/medusa-adapter/test/fulfillment-set-delete-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "2e5df78f41aa62293f1fdacf31a96a96702be35902e25d684db2911ff1a136e1"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-fulfillment-set-deletion-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "e29f6f85203eb780b5edef8270c65b961a8159faa88942510982754818cdd6b8"
+    },
+    {
+      "target": "packages/medusa-adapter/test/native-fulfillment-set-deletion-link-resource.test.ts",
+      "classification": "authored",
+      "targetSha256": "f609c53eccff7671a910e82725a2771a719ae10b788f3e082ebc864aaf086bde"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-fulfillment-set-deletion-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "435e8d9801f7c1c5eee9879b682a9067ba34924ab3eb3fd790d7e66e17c8d1a5"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/fulfillment/steps/delete-fulfillment-sets.ts",
+      "classification": "workflowFork",
+      "targetSha256": "fb8e42fb01c5df06303240954a9134b504d88ee31c888f89dea77ac7ade9089b",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment/steps/delete-fulfillment-sets.ts",
+      "sourceSha256": "0873270013a9fb03b74c87cc0512f8f314ec731023c08bf50130db22c191a383"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/fulfillment/workflows/delete-fulfillment-sets.ts",
+      "classification": "workflowFork",
+      "targetSha256": "f2e1253fe93445bd71ba9cc311a91203414505604edf6b647a72d1f8a02e9056",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment/workflows/delete-fulfillment-sets.ts",
+      "sourceSha256": "89b049c442d2eca4ba5906a9f1844fcb152d5b924ea860be6a5043bf7778b080"
     }
   ],
   "dependencies": {
@@ -10330,7 +10409,9 @@
         "./fulfillment/delete-service-zones",
         "./fulfillment/delete-service-zones-step",
         "./fulfillment/update-service-zones",
-        "./fulfillment/update-service-zones-step"
+        "./fulfillment/update-service-zones-step",
+        "./fulfillment/delete-fulfillment-sets",
+        "./fulfillment/delete-fulfillment-sets-step"
       ]
     },
     {

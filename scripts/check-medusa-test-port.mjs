@@ -946,6 +946,35 @@ export function verifyServiceZoneDeleteCallbacks(nativeWorkflow, workflow, nativ
     throw new Error("Changed native ServiceZone deletion public contract");
 }
 
+/** Preserve the complete native Set/Link deletion topology, raw-ID restoration,
+ * public input aliases and established portable void-result representation.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyFulfillmentSetDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('import { createWorkflow, WorkflowData } from "@medusajs/framework/workflows-sdk"',
+      'import { createWorkflow, WorkflowData, WorkflowResponse } from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/delete-fulfillment-sets"')
+    .replace('from "../../common"', 'from "../../common/steps/remove-remote-links"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('      [Modules.FULFILLMENT]: { fulfillment_set_id: input.ids },\n    })',
+      '      [Modules.FULFILLMENT]: { fulfillment_set_id: input.ids },\n    })\n    return new WorkflowResponse(void 0)');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types/fulfillment/index"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  deleteFulfillmentSetsStepId,", '  { name: deleteFulfillmentSetsStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native FulfillmentSet deletion callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native FulfillmentSet deletion callback behavior");
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("fulfillment-set-delete.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  if (typedProgram(expectedWorkflow) !== typedProgram(workflow) || typedProgram(expectedStep) !== typedProgram(step))
+    throw new Error("Changed native FulfillmentSet deletion public contract");
+}
+
 /** Preserve the full native update/list/projection/upsert contract. Only narrow
  * imports and the existing transaction-covered metadata may differ.
  * @param {string} nativeWorkflow @param {string} workflow

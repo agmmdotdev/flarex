@@ -27,7 +27,10 @@ function transcript(operation: "softDelete" | "restore", historicalChildren = fa
     const before = preimages.get(table); if (before === undefined) throw new Error("Missing complete lifecycle preimage");
     return { ordinal, table, operation: "patch", before, after: { ...before, updated_at: later, deleted_at: operation === "restore" ? null : later } };
   });
-  const activity: Activity = { ...empty(), observedRows: [...preimages].map(([table, row]) => ({ table, row })), relationalReads: reads(), mutations,
+  const activity: Activity = { ...empty(), observedRows: mutations.map(value => {
+    if (value.after === null) throw new Error("Missing final pending lifecycle row");
+    return { table: value.table, row: value.after };
+  }), relationalReads: reads(), mutations,
     lifecycle: mutations.map(mutation => {
       const before = mutation.before;
       if (before === null || typeof before.id !== "string") throw new Error("Missing complete lifecycle identity");
@@ -102,5 +105,16 @@ describe("native Service Zone lifecycle graph receipts", () => {
     await refused(call, { ...activity, observedRows: [...activity.observedRows, { table: "fulfillment_set", row: graph.rows[0]!.row }] });
     await refused(call, { ...activity, lifecycle: [...activity.lifecycle, activity.lifecycle[0]!] });
     await refused({ ...call, mode: "read" }, activity);
+  });
+
+  it("correlates changed-row final observations with actual afterimages instead of laundering them through preimages", async () => {
+    const { call, activity } = transcript("softDelete"); await Effect.runPromise(policy.validateLogicalCall(call, activity));
+    for (const [table, column, forged] of [["service_zone", "name", "forged-observed-name"], ["geo_zone", "service_zone_id", "outside"]] as const)
+      await refused(call, { ...activity, observedRows: activity.observedRows.map(value => value.table === table
+        ? { ...value, row: { ...value.row, [column]: forged } } : value) });
+    const observation = activity.observedRows[0]; if (observation === undefined) throw new Error("Missing actual pending observation");
+    await refused(call, { ...activity, observedRows: activity.observedRows.slice(1) });
+    await Effect.runPromise(policy.validateLogicalCall(call, { ...activity, observedRows: [...activity.observedRows, observation] }));
+    await refused(call, { ...activity, observedRows: [...activity.observedRows, { ...observation, row: { ...observation.row, name: "conflicting-duplicate" } }] });
   });
 });
