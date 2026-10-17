@@ -919,3 +919,29 @@ export function verifyServiceZoneCreateCallbacks(nativeWorkflow, workflow, nativ
     || nativeTypes.replaceAll("\r\n", "\n") !== types.replaceAll("\r\n", "\n"))
     throw new Error("Changed native ServiceZone creation public contract");
 }
+
+/** Preserve native cascade deletion and raw restore, original public input and
+ * the existing portable void-result representation seam.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyServiceZoneDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('import { WorkflowData, createWorkflow } from "@medusajs/framework/workflows-sdk"',
+      'import { WorkflowData, WorkflowResponse, createWorkflow } from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/delete-service-zones"')
+    .replace("    deleteServiceZonesStep(input.ids)\n", "    deleteServiceZonesStep(input.ids)\n    return new WorkflowResponse(void 0)\n");
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types/fulfillment/index"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  deleteServiceZonesStepId,", '  { name: deleteServiceZonesStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native ServiceZone deletion callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native ServiceZone deletion callback behavior");
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("service-zone-delete.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  if (typedProgram(expectedWorkflow) !== typedProgram(workflow) || typedProgram(expectedStep) !== typedProgram(step))
+    throw new Error("Changed native ServiceZone deletion public contract");
+}

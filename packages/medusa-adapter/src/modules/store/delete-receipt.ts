@@ -1,8 +1,8 @@
 import { Effect, Result, Schema } from "effect";
 import { CommonEvents, Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
-import { jsonEqual } from "flarex-protocol/json";
 import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
+import { correlateLifecycleGraphReceipt } from "../../repository/lifecycle-graph-receipt";
 import { projectNativeRow } from "../../repository/result";
 import { moduleEventDecoder } from "../../module/events";
 import type { compileStoreDeletionContracts } from "./delete-input";
@@ -74,49 +74,8 @@ export function storeDeletionPolicy(contracts: Contracts) {
       if (ids.size > entity.maximum) return yield* Effect.fail(commerceError("receiptMismatch"));
       pending.set(entity.table.name, ids);
     }
-    const ordered = new Map<string, string[]>(), expectedEvents: Array<Readonly<{ object: string; id: string }>> = [];
-    const matched = new Set<number>();
-    for (const transition of activity.lifecycle) {
-      const entity = byTable.get(transition.table), id = transition.key.id;
-      const before = typeof id === "string" ? evidence.get(transition.table)?.get(id) : undefined;
-      if (entity === undefined || transition.operation !== operation || Object.keys(transition.key).length !== 1 ||
-        typeof id !== "string" || before === undefined || !pending.get(transition.table)?.delete(id) ||
-        before.deleted_at !== transition.beforeDeletedAt ||
-        (operation === "softDelete" ? typeof transition.afterDeletedAt !== "string" ||
-          entity.table === contracts.store && transition.beforeDeletedAt !== null : transition.afterDeletedAt !== null))
-        return yield* Effect.fail(commerceError("receiptMismatch"));
-      const ids = ordered.get(transition.table) ?? [];
-      ids.push(id); ordered.set(transition.table, ids);
-      expectedEvents.push({ object: entity.table.name, id });
-      if (transition.attemptOrdinal === null) {
-        if (operation !== "restore" || transition.beforeDeletedAt !== null || transition.rowAtOperation === null ||
-          !jsonEqual(projectNativeRow(transition.rowAtOperation), before))
-          return yield* Effect.fail(commerceError("receiptMismatch"));
-      } else {
-        const ordinal = transition.attemptOrdinal, mutation = activity.mutations[ordinal];
-        if (matched.has(ordinal) || mutation === undefined || mutation.ordinal !== ordinal || mutation.table !== transition.table ||
-          mutation.operation !== "patch" || mutation.before?.id !== id || mutation.after?.id !== id ||
-          mutation.before.deleted_at !== transition.beforeDeletedAt || mutation.after.deleted_at !== transition.afterDeletedAt ||
-          operation === "restore" && transition.beforeDeletedAt === null)
-          return yield* Effect.fail(commerceError("receiptMismatch"));
-        const after = yield* Effect.fromResult(entity.decodeRow(projectNativeRow(mutation.after)))
-          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-        for (const [field, value] of Object.entries(before)) if (field !== "deleted_at" && field !== "updated_at" &&
-          (after[field] === undefined || !jsonEqual(value, after[field]))) return yield* Effect.fail(commerceError("receiptMismatch"));
-        matched.add(ordinal);
-      }
-    }
-    if ([...pending.values()].some(ids => ids.size !== 0) || matched.size !== activity.mutations.length || activity.lifecycle.length > 20)
-      return yield* Effect.fail(commerceError("receiptMismatch"));
-    const map: Record<string, readonly string[] | undefined> = result;
-    let expectedKeys = 0;
-    for (const entity of contracts.entities) {
-      const ids = ordered.get(entity.table.name) ?? [], actual = map[entity.linkableKey];
-      if (ids.length !== 0) expectedKeys++;
-      if (ids.length === 0 ? actual !== undefined : actual === undefined || actual.length !== ids.length || actual.some((id, index) => id !== ids[index]))
-        return yield* Effect.fail(commerceError("receiptMismatch"));
-    }
-    if (Object.keys(result).length !== expectedKeys) return yield* Effect.fail(commerceError("receiptMismatch"));
+    const { events: expectedEvents } = yield* Effect.fromResult(correlateLifecycleGraphReceipt({ entities: contracts.entities,
+      rootTable: contracts.store.name, operation, activity, evidence, selected: pending, result }));
     const action = operation === "restore" ? CommonEvents.RESTORED : CommonEvents.DELETED;
     let emitted = 0;
     for (const input of call.events) {

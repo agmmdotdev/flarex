@@ -48,6 +48,8 @@ export const inventoryStockingResources = Object.freeze({ ...defaultCommerceReso
 export const storeCreationResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Existing four-Store replacement graph and original-input Pricing branch. */
 export const storeUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
+/** Complete ServiceZone lifecycle graph and its genuine retained raw-ID inverse. */
+export const serviceZoneDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 256, eventMessages: 128 });
 /** One parent launch graph owns Pricing, Link, Product Tag and pending graph reads. */
 export const productLaunchResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
 /** The finite launch workflow shares one bounded logical lifetime across both native children. */

@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyNativeToManyInitialization } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyNativeToManyInitialization } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyShippingProfileWorkflowTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -1313,5 +1313,55 @@ describe("native ServiceZone creation callback and public type provenance", () =
   it("rejects malformed native callback syntax", () => {
     expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(", "return new StepResponse(,")))
       .toThrow("Invalid native ServiceZone creation callback syntax");
+  });
+});
+
+describe("native ServiceZone deletion callback and public input provenance", () => {
+  const paths = ["fulfillment/workflows/delete-service-zones.ts", "fulfillment/steps/delete-service-zones.ts"];
+  const native = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const promoted = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const verify = (workflow = promoted[0], step = promoted[1]) => verifyServiceZoneDeleteCallbacks(native[0], workflow, native[1], step);
+  it("admits genuine native root/step/raw inverse and the explicit void wrapper", () => expect(() => verify()).not.toThrow());
+  it.each([
+    ["identity", '"delete-service-zones-workflow"', '"delete-other-service-zones-workflow"'],
+    ["whole raw input", "deleteServiceZonesStep(input.ids)", "deleteServiceZonesStep([])"],
+    ["void result", "new WorkflowResponse(void 0)", "new WorkflowResponse([])"],
+    ["required wrapper", "return new WorkflowResponse(void 0)", "return undefined"],
+    ["direct step import", 'from "../steps/delete-service-zones"', 'from "../steps"'],
+    ["extra runtime effect", "    deleteServiceZonesStep(input.ids)", "    console.log(input); deleteServiceZonesStep(input.ids)"],
+    ["extra resource import", 'from "../steps/delete-service-zones"', 'from "../steps/delete-service-zones"; import "node:fs"'],
+  ])("rejects changed root %s", (_label, before, after) => {
+    const changed = promoted[0].replace(before, after); expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native ServiceZone deletion callback behavior");
+  });
+  it.each([
+    ["identity", '"delete-service-zones"', '"delete-other-service-zones"'],
+    ["covered metadata", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["Fulfillment resource", "Modules.FULFILLMENT", "Modules.PRODUCT"],
+    ["soft delete", "service.softDeleteServiceZones(ids)", "service.deleteServiceZones(ids)"],
+    ["raw forward IDs", "service.softDeleteServiceZones(ids)", "service.softDeleteServiceZones([])"],
+    ["forward await", "await service.softDeleteServiceZones", "service.softDeleteServiceZones"],
+    ["native void", "new StepResponse(void 0, ids)", "new StepResponse(ids, ids)"],
+    ["raw retained IDs", "new StepResponse(void 0, ids)", "new StepResponse(void 0, [])"],
+    ["empty inverse", "if (!prevIds?.length)", "if (!prevIds)"],
+    ["native restore", "service.restoreServiceZones(prevIds)", "service.softDeleteServiceZones(prevIds)"],
+    ["restore raw IDs", "service.restoreServiceZones(prevIds)", "service.restoreServiceZones([])"],
+    ["inverse await", "await service.restoreServiceZones", "service.restoreServiceZones"],
+    ["extra inverse resource", "    await service.restoreServiceZones", '    container.resolve("query"); await service.restoreServiceZones'],
+  ])("rejects changed step %s", (_label, before, after) => {
+    const changed = promoted[1].replace(before, after); expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Changed native ServiceZone deletion callback behavior");
+  });
+  it.each([0, 1])("rejects narrowed public input in file %s", index => {
+    const changed = promoted[index].replace("string[]", "readonly string[]"); expect(changed).not.toBe(promoted[index]);
+    expect(() => index === 0 ? verify(changed) : verify(promoted[0], changed)).toThrow("Changed native ServiceZone deletion public contract");
+  });
+  it("rejects changed erased native service type import", () => {
+    expect(() => verify(promoted[0], promoted[1].replace('from "@medusajs/types/fulfillment/index"', 'from "@medusajs/types"')))
+      .toThrow("Changed native ServiceZone deletion public contract");
+  });
+  it("rejects malformed native callback syntax", () => {
+    expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(void 0, ids)", "return new StepResponse(")))
+      .toThrow("Invalid native ServiceZone deletion callback syntax");
   });
 });

@@ -436,8 +436,27 @@ and unchanged FK targets. Both complete root-plus-inverse and historical inverse
 use the existing optimistic 64-call/event profile. Profile update and Type
 creation can execute sequentially on the same installed binding; duplicate participants
 for that source in one atomic root remain unadmitted. Populated schema upgrades,
-Service Zone update/delete workflow roots and public/hosted activation retain
+Service Zone update workflow roots and public/hosted activation retain
 their separate gates.
+
+The [native Service Zone deletion](./preflight/132-native-service-zone-delete-workflow.md)
+slice admits zero to four raw Zone IDs with complete historical closure for
+sixteen GeoZones, eight Options and sixteen Rules in the same eight-table source.
+The genuine raw-ID restore inverse can revive previously deleted roots and
+descendants beyond the forward changed set. Reached historical children are
+re-deleted, and already-active restore matches advance update time; native
+deleted/restored message families and checked model-group order remain intact.
+Within-family SQL order remains unspecified. The complete maximum root plus
+genuine retained inverse selects the scoped identity-bound optimistic
+256-call/128-event profile through the existing trusted resource API; all other
+profiles and resource limits remain unchanged. It reuses the selected logical
+active-restore capability and shared graph receipt owner without a new core
+mechanism or schema upgrade. Global active-name restore conflicts retain full
+atomic refusal through the typed host error boundary, distinct from native
+backend SQL error formatting. Module-only event infrastructure remains required.
+Service Zone update, general Shipping Option/provider workflows, populated
+upgrades and public/hosted activation remain unadmitted. Chunked Product file
+import and Product export remain deferred.
 
 The [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)
 is complete within its approved bounded profiles. Persistence now owns protected

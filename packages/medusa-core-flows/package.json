@@ -113,7 +113,9 @@
     "./shipping-options/delete-shipping-option-types": "./src/shipping-options/workflows/delete-shipping-option-types.ts",
     "./shipping-options/delete-shipping-option-types-step": "./src/shipping-options/steps/delete-shipping-option-types.ts",
     "./fulfillment/create-service-zones": "./src/fulfillment/workflows/create-service-zones.ts",
-    "./fulfillment/create-service-zones-step": "./src/fulfillment/steps/create-service-zones.ts"
+    "./fulfillment/create-service-zones-step": "./src/fulfillment/steps/create-service-zones.ts",
+    "./fulfillment/delete-service-zones": "./src/fulfillment/workflows/delete-service-zones.ts",
+    "./fulfillment/delete-service-zones-step": "./src/fulfillment/steps/delete-service-zones.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",
