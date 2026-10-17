@@ -2,9 +2,9 @@ import {
   canonicalizeFlarexValueV1,
   verifyFlarexValueEvidenceV1,
 } from "flarex-protocol/value";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 
-import { createPGlitePersistence } from "../../../src/database/pglite";
+import { createTestPGlite } from "../../support/pgliteSearchExtensions";
 
 type StoredValueRow = Record<string, unknown> & {
   readonly codec_version: number;
@@ -15,7 +15,8 @@ type StoredValueRow = Record<string, unknown> & {
 
 describe("Flarex value codec on PGlite jsonb", () => {
   it("round-trips canonical value evidence without losing NUL strings or specials", async () => {
-    const persistence = await createPGlitePersistence();
+    const persistence = await createTestPGlite();
+    onTestFinished(() => persistence.close());
     await persistence.exec(`
       create temporary table value_codec_probe (
         id integer primary key,

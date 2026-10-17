@@ -342,6 +342,11 @@ Task compute-delivery fixtures restore the same image through their existing
 raw-driver owner and close each borrow immediately. Constraint and evidence
 corruption cases retain independent databases.
 Task directory, resolver and partition suites follow that same ownership.
+Trusted-workflow Task, subject, callback and continuation fixtures also restore
+that image through their existing raw-driver owners. Lifecycle-gateway and
+compatibility-vector cases do the same. Setup prepares the image before test
+budgets begin; deadline targets, native pools and independent stores retain
+their own lifetimes.
 Repair-scheduler shape refusals share one isolated backend because each rejected
 autocommit statement rolls back itself; the fresh migration/idempotency witness
 still starts empty. Metadata frame goldens belong in the framing suite; the
@@ -402,6 +407,8 @@ Validate converted suites as whole files, including failure-triggered rebuilds.
 Finite direct authority/claim refusal cases borrow one file fixture with the
 existing `finiteCapture` transport and its statement budget. Installed, lease,
 DDL and session-state witnesses keep their existing owners.
+Consumed-metadata OCC scenarios borrow one ordinary native file fixture and
+drain both parallel validations before reset or projection disposal.
 Finite terminalization barriers borrow that same lifecycle with the existing
 `finiteCapture` transport; the paused-scope witness uses its ordinary file owner,
 releases its gate, drains both operations and cancels its losing timer before
@@ -430,6 +437,9 @@ Effect contracts. Prefer assertions in
 existing consumer scenarios over separate tests of fixed fixture contents or
 helper allocation details. Preserve behavioral, durable-data, rollback and
 compatibility witnesses; an old checkpoint label alone does not make one obsolete.
+Value-evidence and ordered-key codec probes use the shared raw PGlite factory,
+register backend closure, and keep their genuine JSONB/byte-order SQL checks
+without constructing a persistence runtime or installing application tables.
 Idempotency schema suites retain migration, constraint, uniqueness, plan and
 size-limit proofs. The fresh-install fixture starts its empty PGlite engine in
 setup; the case still executes and asserts both fresh migration and replay. Outcome classification and compaction races exercise the real

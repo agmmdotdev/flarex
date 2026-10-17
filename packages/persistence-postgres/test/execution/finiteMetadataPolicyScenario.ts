@@ -50,7 +50,9 @@ export async function finiteMetadataPolicyScenario(db: FlarexMetadataDatabase) {
     // facts. Both original attempts must independently conflict at settlement.
     const peer = Result.getOrThrow(captureFiniteMetadataDependency(original, key, watermark));
     await activate(changed);
-    const verdicts = await Promise.all([validate(retained), validate(peer)]);
+    const validating = [validate(retained), validate(peer)];
+    await Promise.allSettled(validating);
+    const verdicts = await Promise.all(validating);
     expect(verdicts).toHaveLength(2);
     for (const verdict of verdicts) expect(verdict).toMatchObject({ _tag: "Failure", failure: { reason: "writeConflict" } });
     expect(matchesFiniteMetadataDependencyObservation(original, key, watermark, retained)).toBe(true);

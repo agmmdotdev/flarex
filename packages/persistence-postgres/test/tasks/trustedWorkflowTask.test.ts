@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { ScopeEpochSchema, ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { inspectTrustedWorkflowTaskBinding, makeTaskExecutionPrincipalReferenceV1, makeTaskInputReferenceV1,
@@ -19,12 +19,14 @@ import type { DeadlineOwnedTaskPersistenceTarget } from "../../src/tasks/taskPer
 import type { FlarexMetadataDatabase } from "../../src/application/deployments";
 import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { withTemporaryPostgresPersistence } from "../support/postgresHelpers";
 import { runEffect } from "../support/effectTestRuntime";
 import { locatedTaskAuthorityV1, readyTaskRunAggregateV1, TASK_LOCATOR } from "./taskSystemRunAttemptStoreTestSupport";
 
 const hash = (bytes: Uint8Array) => Effect.sync(() => new Uint8Array(createHash("sha256").update(bytes).digest()));
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
+beforeAll(async () => { if (driver !== "postgres") await migratedPGliteDataDir(); }, 120_000);
 const deadlines = { connectionTimeoutMilliseconds: 500, lockTimeoutMilliseconds: 1000,
   statementTimeoutMilliseconds: 4000, transactionTimeoutMilliseconds: 8000, settlementReserveMilliseconds: 10000 };
 describe(`trusted workflow Task creation and existing lifecycle - ${driver}`, () => {
@@ -119,10 +121,9 @@ async function withFixture(run: (fixture: { readonly db: FlarexMetadataDatabase;
     try { return await run({ db: persistence.drizzle, target: createPostgresLocatedTaskSystemRunAttemptTargetV1(persistence, TASK_LOCATOR),
       transactionTarget: resource.target }); } finally { await resource.close(); }
   });
-  const raw = newTestPGlite();
+  const raw = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
   try {
     const persistence = await createPGlitePersistence({ db: raw });
-    await persistence.migrate();
     return await run({ db: persistence.drizzle, target: createPGliteLocatedTaskSystemRunAttemptTargetV1(persistence, TASK_LOCATOR),
       transactionTarget: Result.getOrThrow(createPGliteDeadlineOwnedTaskPersistenceTarget(persistence, TASK_LOCATOR, deadlines)) });
   } finally { await raw.close(); }

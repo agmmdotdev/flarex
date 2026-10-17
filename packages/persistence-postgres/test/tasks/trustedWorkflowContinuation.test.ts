@@ -28,6 +28,7 @@ import { issueTrustedWorkflowExecutionSubject, issueTrustedWorkflowControlSubjec
 import type { DeadlineOwnedTaskPersistenceTarget } from "../../src/tasks/taskPersistenceTransaction";
 import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { createFileScopedPostgresFixture } from "../support/postgresHelpers";
 import { runEffect } from "../support/effectTestRuntime";
 import { locatedTaskAuthorityV1, readyTaskRunAggregateV1, TASK_LOCATOR } from "./taskSystemRunAttemptStoreTestSupport";
@@ -52,8 +53,8 @@ beforeAll(async () => {
     poolState = () => ({ total: resource.pool.totalCount, idle: resource.pool.idleCount, waiting: resource.pool.waitingCount });
   } else {
     if (driver !== "pglite") throw new Error("Unknown continuation test driver");
-    const raw = newTestPGlite(); cleanups.push(() => raw.close());
-    const persistence = await createPGlitePersistence({ db: raw }); await persistence.migrate(); db = persistence.drizzle;
+    const raw = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() }); cleanups.push(() => raw.close());
+    const persistence = await createPGlitePersistence({ db: raw }); db = persistence.drizzle;
     target = Result.getOrThrow(createPGliteDeadlineOwnedTaskRunAttemptTarget(persistence, TASK_LOCATOR, deadlines));
   }
 }, 480_000);

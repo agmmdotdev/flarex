@@ -19,13 +19,14 @@ import {
   type OrderedIndexRowIdHexV1,
   type OrderedIndexValueV1,
 } from "flarex-protocol/ordered-index";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 
-import { createPGlitePersistence } from "../../../src/database/pglite";
+import { createTestPGlite } from "../../support/pgliteSearchExtensions";
 
 describe("ordered index key codec on PGlite", () => {
   it("preserves byte order, half-open bounds, and the exact key ceiling", async () => {
-    const persistence = await createPGlitePersistence();
+    const persistence = await createTestPGlite();
+    onTestFinished(() => persistence.close());
     await persistence.exec(`
       create table ordered_index_key_probe (
         scope_id text not null,
@@ -153,7 +154,7 @@ describe("ordered index key codec on PGlite", () => {
   });
 });
 
-type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
+type PGlitePersistence = Awaited<ReturnType<typeof createTestPGlite>>;
 
 async function insertProbe(
   persistence: PGlitePersistence,

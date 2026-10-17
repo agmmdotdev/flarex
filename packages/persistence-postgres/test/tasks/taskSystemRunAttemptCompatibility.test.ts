@@ -1,4 +1,5 @@
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import {
   RunAttemptLifecycle,
   RunAttemptLifecycleLive,
@@ -8,7 +9,7 @@ import {
   type TaskSystemRunAttemptStoreShape,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import { Effect, Layer, Result } from "effect";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import suiteJson from "../../../../integration/durable-task-compatibility/scenarios/v1/run-attempt-lifecycle.json";
 import {
@@ -62,12 +63,13 @@ const EXPLICIT_STORE_SETUP_VECTOR_IDS = Object.freeze([
 
 const suite = decodeCompatibilityVectorSuiteV1(suiteJson);
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("DTE04-B canonical compatibility lane - PGlite adapter", () => {
   it("executes every store-addressable vector through the adapter", async () => {
-    const raw = newTestPGlite();
+    const raw = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     try {
       const persistence = await createPGlitePersistence({ db: raw });
-      await persistence.migrate();
       await seedTaskSystemRunAttemptStoreV1(persistence);
       const prepared = prepareCompatibilityVectorsV1(
         suite.vectors,

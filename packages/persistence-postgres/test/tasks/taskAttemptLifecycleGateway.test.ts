@@ -1,4 +1,5 @@
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import {
   decideApplicationStartAttemptV1,
   decideStartAttemptV1,
@@ -23,7 +24,7 @@ import {
 import { Effect, Result } from "effect";
 import { ReplacementScopeIdV1Schema } from
   "flarex-protocol/storage-authority";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   makeApplicationTaskSystemRunCreationStore,
@@ -56,12 +57,13 @@ import {
   seedTaskSystemRunAttemptStoreV1,
 } from "./taskSystemRunAttemptStoreTestSupport";
 
+beforeAll(() => migratedPGliteDataDir(), 120_000);
+
 describe("DTE06-E3 scope-bound lifecycle gateway", () => {
   it("resolves a Legacy attempt and reuses database-time heartbeat and completion semantics", async () => {
-    const raw = newTestPGlite();
+    const raw = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     try {
       const persistence = await createPGlitePersistence({ db: raw });
-      await persistence.migrate();
       const seeded = await seedTaskSystemRunAttemptStoreV1(persistence);
       const target = createPGliteLocatedTaskSystemRunAttemptTargetV1(
         persistence,
