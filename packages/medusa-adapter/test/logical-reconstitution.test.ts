@@ -27,6 +27,7 @@ import { RelationalSessionError } from "../../persistence-postgres/src/database/
 import { logicalReconstitutionScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalReconstitutionScenario";
 import { logicalRelationalReadEvidenceScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalRelationalReadEvidenceScenario";
 import { logicalPreservingDeletionUpsertScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalPreservingDeletionUpsertScenario";
+import { logicalActiveRestoreUpdateScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalActiveRestoreUpdateScenario";
 
 const options = { runtimeHostIdentity: "flarex.test/neutral-reconstitution", compatibilityDate: "2026-09-23" };
 const origin = (sourceId: string) => ({ kind: "synthetic", sourceId });
@@ -57,16 +58,16 @@ const schema = Result.getOrThrow(normalizeRelationalSchema({
 const sourceInput = { sourceKey: "medusa.folio-fixture", writeProfile: "medusa.folio-fixture", schema,
   evidence: { kind: "synthetic", sourceId: "folio-fixture" } };
 const proofs = { reconstitution: logicalReconstitutionScenario, readEvidence: logicalRelationalReadEvidenceScenario,
-  preservingUpsert: logicalPreservingDeletionUpsertScenario };
+  preservingUpsert: logicalPreservingDeletionUpsertScenario, activeRestore: logicalActiveRestoreUpdateScenario };
 type Proof = keyof typeof proofs;
 describe("neutral committed-row reconstitution, relational selection and lifecycle-preserving upsert", () => {
-  it.each<Proof>(["reconstitution", "readEvidence", "preservingUpsert"])("runs the neutral proof (%s) on PGlite", async proof => {
+  it.each<Proof>(["reconstitution", "readEvidence", "preservingUpsert", "activeRestore"])("runs the neutral proof (%s) on PGlite", async proof => {
     const control = await createMigratedPGlitePersistence();
     const target = await createMigratedPGlitePersistence();
     const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence(options, { control, target });
     await Effect.runPromise(witness(fixture, makePGliteFrameworkSchemaArtifactAdmissionFixture(control).controlSessionStarter, undefined, proof));
   });
-  it.skipIf(postgresUrl === null).each<Proof>(["reconstitution", "readEvidence", "preservingUpsert"])("runs the neutral proof (%s) with an ordinary PostgreSQL role", async proof => {
+  it.skipIf(postgresUrl === null).each<Proof>(["reconstitution", "readEvidence", "preservingUpsert", "activeRestore"])("runs the neutral proof (%s) with an ordinary PostgreSQL role", async proof => {
     await withTemporaryPostgresPersistencePair(async (control, target) => {
       const roles = await target.query<{ rolsuper: boolean; rolcreatedb: boolean; rolcreaterole: boolean }>(
         "select rolsuper, rolcreatedb, rolcreaterole from pg_roles where rolname = current_user");

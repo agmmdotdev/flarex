@@ -60,6 +60,10 @@ with digest-bound table targets and the existing first-data and settlement owner
 the private conflict merge needed by native Shipping Option Type inverses.
 Ordinary upsert and managed lifecycle operations retain their existing contracts.
 
+[Explicit active restore updates](./66-active-restore-updates.md) owns the
+identity-bound logical participant selection for native active-row restore
+timestamp writes. Omitted selection retains the authenticated restore no-op.
+
 [Composite key reverse access](./59-composite-key-reverse-access.md) owns the
 scoped all-row reverse lookup correction exposed by native Stock Location Link
 restoration. Native Link endpoint integrity remains unchanged.

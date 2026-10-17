@@ -2106,7 +2106,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
             result.push(previous);
             return yield* changeRows(position + 1);
           }
-          if (operation === "restore" && policy.deletedAt !== undefined && previous?.[policy.deletedAt] === null) {
+          if (operation === "restore" && state.allowActiveRestoreUpdate !== true &&
+            policy.deletedAt !== undefined && previous?.[policy.deletedAt] === null) {
             yield* observeLifecycle(identity, operation, previous, previous, null);
             result.push(previous);
             return yield* changeRows(position + 1);

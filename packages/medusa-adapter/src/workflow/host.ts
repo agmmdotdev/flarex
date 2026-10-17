@@ -204,6 +204,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
       ...(moduleEvents?.allowSetNull === true ? { allowSetNull: true as const } : {}),
       ...(moduleEvents?.allowReconstitution === true ? { allowReconstitution: true as const } : {}),
       ...(moduleEvents?.allowPreservingDeletionUpsert === true ? { allowPreservingDeletionUpsert: true as const } : {}),
+      ...(moduleEvents?.allowActiveRestoreUpdate === true ? { allowActiveRestoreUpdate: true as const } : {}),
       ...(moduleEvents === undefined ? {} : { validateLogicalCall: moduleEvents.validateLogicalCall }),
       ...(moduleEvents?.validateLogical === undefined ? {} : { validateLogical: moduleEvents.validateLogical }),
       ...(derivedContract === undefined ? {} : { allowReferenceReplacement: true as const, derivedIdEvent: { contract: derivedContract } }),

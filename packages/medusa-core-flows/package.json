@@ -109,7 +109,9 @@
     "./shipping-options/create-shipping-option-types": "./src/shipping-options/workflows/create-shipping-option-types.ts",
     "./shipping-options/create-shipping-option-types-step": "./src/shipping-options/steps/create-shipping-option-types.ts",
     "./shipping-options/update-shipping-option-types": "./src/shipping-options/workflows/update-shipping-option-types.ts",
-    "./shipping-options/update-shipping-option-types-step": "./src/shipping-options/steps/update-shipping-option-types.ts"
+    "./shipping-options/update-shipping-option-types-step": "./src/shipping-options/steps/update-shipping-option-types.ts",
+    "./shipping-options/delete-shipping-option-types": "./src/shipping-options/workflows/delete-shipping-option-types.ts",
+    "./shipping-options/delete-shipping-option-types-step": "./src/shipping-options/steps/delete-shipping-option-types.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

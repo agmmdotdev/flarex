@@ -858,3 +858,36 @@ export function verifyShippingOptionTypeUpdateCallbacks(nativeWorkflow, workflow
     || declaredType(nativeStep, "UpdateShippingOptionTypesStepInput") !== declaredType(step, "UpdateShippingOptionTypesStepInput"))
     throw new Error("Changed native ShippingOptionType update public input type");
 }
+
+/** Preserve the complete native Type deletion graph, Option guard, hook,
+ * parallel Link/event siblings, void result and raw-ID restoration callback.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyShippingOptionTypeDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('import {\n  MedusaError,\n  Modules,\n  ShippingOptionTypeWorkflowEvents,\n} from "@medusajs/framework/utils"',
+      'import { MedusaError } from "@medusajs/utils/common/errors"\nimport { Modules } from "@medusajs/utils/modules-sdk/definition"\nimport { ShippingOptionTypeWorkflowEvents } from "@medusajs/utils/core-flows/events"')
+    .replaceAll('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/delete-shipping-option-types"')
+    .replace('from "../../common"', 'from "../../common/steps/use-query-graph"');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  deleteShippingOptionTypesStepId,", '  { name: deleteShippingOptionTypesStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native ShippingOptionType deletion callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native ShippingOptionType deletion callback behavior");
+  /** @param {string} source @param {string} name */
+  const declaredType = (source, name) => {
+    const parsed = ts.createSourceFile("shipping-option-type.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const declarations = parsed.statements.filter(node => ts.isTypeAliasDeclaration(node) && node.name.text === name);
+    if (declarations.length !== 1 || declarations[0] === undefined)
+      throw new Error("Changed native ShippingOptionType deletion public input type");
+    return ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed }).printNode(ts.EmitHint.Unspecified, declarations[0], parsed);
+  };
+  if (declaredType(nativeWorkflow, "DeleteShippingOptionTypesWorkflowInput") !== declaredType(workflow, "DeleteShippingOptionTypesWorkflowInput")
+    || declaredType(nativeStep, "DeleteShippingOptionTypesStepInput") !== declaredType(step, "DeleteShippingOptionTypesStepInput"))
+    throw new Error("Changed native ShippingOptionType deletion public input type");
+}

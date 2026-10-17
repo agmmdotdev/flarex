@@ -394,8 +394,8 @@ and genuine Fulfillment constructor, with native scalar insert semantics,
 empty-to-many result initialization, the named creation hook and separate module
 and workflow events. Its retained inverse physically deletes bounded Type IDs;
 required Option references, including soft-deleted Options, refuse deletion
-through the shared reference owner without partial settlement. Type update/delete roots and wider Shipping Option/provider execution
-retain their separate admission gates.
+through the shared reference owner without partial settlement. Wider Shipping
+Option/provider execution retains its separate admission gates.
 
 The [native Shipping Option Type update](./preflight/129-native-shipping-option-type-update-workflow.md)
 slice admits four selected Types and one possible outside retarget under the
@@ -408,6 +408,20 @@ Exact shared read evidence authenticates complete selector/target queries and
 each sequential physical upsert read. A distinct identity-bound shared write
 mode preserves native tombstones and advances managed update time without changing
 ordinary upsert or granting lifecycle authority to the native resource.
+
+The [native Shipping Option Type deletion](./preflight/130-native-shipping-option-type-delete-workflow.md)
+slice admits zero to four raw Type IDs with the existing optimistic 64-call/event
+profile and installed six-table source. It preserves the real paginated active
+Option guard, raw-ID hook/workflow events, genuine empty Link delete/restore and
+parallel event sibling. Historical indexed candidates remain authenticated read
+evidence while only active Options contribute to the guard's actual count/page.
+Type soft deletion preserves Option rows and FKs. The native raw-ID inverse can
+revive Types deleted before forward execution and retimestamps already-active
+matches; a distinct identity-bound logical active-restore selection supplies
+that write while existing profiles retain their authenticated no-op behavior.
+Native inverse capabilities remain bounded separately from exact failed-root
+rollback; arbitrary Option workflows, custom Type Links and hosted activation
+remain unadmitted.
 
 The [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)
 is complete within its approved bounded profiles. Persistence now owns protected

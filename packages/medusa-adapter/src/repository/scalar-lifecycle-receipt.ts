@@ -9,6 +9,8 @@ interface ScalarLifecycleReceipt {
   readonly softDeleteCommand: string;
   readonly restoreCommand: string;
   readonly maximumRoots: number;
+  /** Selected native profiles write managed update time for active restores. */
+  readonly activeRestoreUpdates?: true;
   readonly decodeIds: (input: Json) => Result.Result<readonly string[], CommerceTransactionError>;
   readonly decodeRow: (input: unknown) => Result.Result<JsonObject, CommerceTransactionError>;
   readonly decodeResult: (input: Json) => Result.Result<Readonly<{ empty: boolean; ids: readonly string[] }>, CommerceTransactionError>;
@@ -61,13 +63,13 @@ export function scalarLifecycleReceipt(configuration: ScalarLifecycleReceipt): (
         return yield* Effect.fail(commerceError("receiptMismatch"));
       ordered.push(id);
       if (transition.attemptOrdinal === null) {
-        if (operation !== "restore" || transition.beforeDeletedAt !== null || transition.rowAtOperation?.id !== id || transition.rowAtOperation.deleted_at !== null)
+        if (configuration.activeRestoreUpdates === true || operation !== "restore" || transition.beforeDeletedAt !== null || transition.rowAtOperation?.id !== id || transition.rowAtOperation.deleted_at !== null)
           return yield* Effect.fail(commerceError("receiptMismatch"));
       } else {
         const ordinal = transition.attemptOrdinal, mutation = activity.mutations[ordinal];
         if (matched.has(ordinal) || mutation === undefined || mutation.ordinal !== ordinal || mutation.table !== configuration.table || mutation.operation !== "patch" ||
           mutation.before?.id !== id || mutation.after?.id !== id || mutation.before.deleted_at !== transition.beforeDeletedAt || mutation.after.deleted_at !== transition.afterDeletedAt ||
-          operation === "restore" && transition.beforeDeletedAt === null)
+          operation === "restore" && transition.beforeDeletedAt === null && configuration.activeRestoreUpdates !== true)
           return yield* Effect.fail(commerceError("receiptMismatch"));
         const after = yield* Effect.fromResult(configuration.decodeRow(projectNativeRow(mutation.after)))
           .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));

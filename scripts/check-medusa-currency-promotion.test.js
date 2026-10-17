@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyNativeToManyInitialization } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyNativeToManyInitialization } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyShippingProfileWorkflowTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -1182,5 +1182,73 @@ describe("native ShippingOptionType update callback provenance", () => {
   it("rejects malformed callback syntax", () => {
     expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(shippingOptionTypes, prevData)", "return new StepResponse(")))
       .toThrow("Invalid native ShippingOptionType update callback syntax");
+  });
+});
+
+describe("native ShippingOptionType deletion callback provenance", () => {
+  const paths = ["shipping-options/workflows/delete-shipping-option-types.ts", "shipping-options/steps/delete-shipping-option-types.ts"];
+  const native = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const promoted = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8").replace(/\r\n/g, "\n"));
+  const verify = (workflow = promoted[0], step = promoted[1]) => verifyShippingOptionTypeDeleteCallbacks(native[0], workflow, native[1], step);
+  it("admits the full native guard, Link/event graph and raw-ID inverse", () => expect(() => verify()).not.toThrow());
+  it.each([
+    ["root identity", '"delete-shipping-option-types"', '"delete-other-shipping-option-types"'],
+    ["validation step identity", '"validate-delete-shipping-option-types"', '"validate-other-shipping-option-types"'],
+    ["guard entity", 'entity: "shipping_option"', 'entity: "shipping_option_type"'],
+    ["guard filter", "filters: { shipping_option_type_id: input.ids }", "filters: { id: input.ids }"],
+    ["guard pagination", "pagination: { take: 1 }", "pagination: { take: 4 }"],
+    ["guard projection", 'fields: ["id"]', 'fields: ["id", "name"]'],
+    ["query node identity", 'name: "get-shipping-options"', 'name: "get-shipping-option-types"'],
+    ["query output", "shippingOptionsQuery.data as", "[] as"],
+    ["guard condition", "shippingOptions.length > 0", "shippingOptions.length > 1"],
+    ["guard error class", "MedusaError.Types.INVALID_DATA", "MedusaError.Types.NOT_FOUND"],
+    ["guard error message", "some shipping options are using it.", "some shipping options exist."],
+    ["guard invocation", "      shippingOptions,", "      shippingOptions: [],"],
+    ["raw forward IDs", "deleteShippingOptionTypesStep(input.ids)", "deleteShippingOptionTypesStep([])"],
+    ["hook identity", '"shippingOptionTypesDeleted"', '"shippingOptionTypeDeleted"'],
+    ["hook IDs", "ids: input.ids,", "ids: [],"],
+    ["raw event IDs", "return input.ids?.map", "return []?.map"],
+    ["event row", "return { id }", "return { id: null }"],
+    ["parallel siblings", "    parallelize(", "    transform("],
+    ["Link endpoint", "[Modules.FULFILLMENT]: { shipping_option_type_id: input.ids }", "[Modules.FULFILLMENT]: { shipping_option_type_id: [] }"],
+    ["workflow event family", "ShippingOptionTypeWorkflowEvents.DELETED", "ShippingOptionTypeWorkflowEvents.CREATED"],
+    ["workflow event data", "data: typeIdEvents", "data: []"],
+    ["native void output", "new WorkflowResponse(deletedShippingOptionTypes,", "new WorkflowResponse([],"],
+    ["hook exposure", "hooks: [shippingOptionTypesDeleted]", "hooks: []"],
+    ["direct step import", 'from "../steps/delete-shipping-option-types"', 'from "../steps"'],
+    ["direct query import", 'from "../../common/steps/use-query-graph"', 'from "../../common"'],
+    ["extra runtime effect", "return new WorkflowResponse(deletedShippingOptionTypes,", "console.log(input); return new WorkflowResponse(deletedShippingOptionTypes,"],
+    ["extra import", 'from "@medusajs/utils/common/errors"', 'from "@medusajs/utils/common/errors"; import "node:fs"'],
+  ])("rejects changed root %s", (_label, before, after) => {
+    const changed = promoted[0].replace(before, after); expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native ShippingOptionType deletion callback behavior");
+  });
+  it.each([
+    ["step identity", '"delete-shipping-option-types"', '"delete-other-shipping-option-types"'],
+    ["covered metadata", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["Fulfillment resolution", "Modules.FULFILLMENT", "Modules.PRODUCT"],
+    ["native soft delete", "service.softDeleteShippingOptionTypes(ids)", "service.deleteShippingOptionTypes(ids)"],
+    ["native await", "await service.softDeleteShippingOptionTypes", "service.softDeleteShippingOptionTypes"],
+    ["void forward result", "new StepResponse(void 0, ids)", "new StepResponse(ids, ids)"],
+    ["raw compensation IDs", "new StepResponse(void 0, ids)", "new StepResponse(void 0, [])"],
+    ["empty inverse", "if (!prevIds?.length)", "if (!prevIds)"],
+    ["native restore", "service.restoreShippingOptionTypes(prevIds)", "service.softDeleteShippingOptionTypes(prevIds)"],
+    ["restore raw IDs", "service.restoreShippingOptionTypes(prevIds)", "service.restoreShippingOptionTypes([])"],
+    ["restore await", "await service.restoreShippingOptionTypes", "service.restoreShippingOptionTypes"],
+    ["extra inverse resource", "    await service.restoreShippingOptionTypes", '    container.resolve("query"); await service.restoreShippingOptionTypes'],
+  ])("rejects changed step %s", (_label, before, after) => {
+    const changed = promoted[1].replace(before, after); expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Changed native ShippingOptionType deletion callback behavior");
+  });
+  it.each(["root", "step"])("rejects narrowed original %s input", file => {
+    const index = file === "root" ? 0 : 1;
+    const changed = promoted[index].replace("string[]", "readonly string[]");
+    expect(changed).not.toBe(promoted[index]);
+    expect(() => index === 0 ? verify(changed) : verify(promoted[0], changed))
+      .toThrow("Changed native ShippingOptionType deletion public input type");
+  });
+  it("rejects malformed callback syntax", () => {
+    expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(void 0, ids)", "return new StepResponse(")))
+      .toThrow("Invalid native ShippingOptionType deletion callback syntax");
   });
 });

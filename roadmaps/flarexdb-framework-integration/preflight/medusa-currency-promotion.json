@@ -912,12 +912,12 @@
     {
       "target": "packages/medusa-adapter/src/workflow/host.ts",
       "classification": "authored",
-      "targetSha256": "95d3a79b4a22f13cd8818516b5dee96bb32474d04415ca7bedf7267ab5ecb433"
+      "targetSha256": "96301701132d62e0ed8019104367e5c2fe6a77f39c8d6fdbc1f2a38e83819ad6"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/module.ts",
       "classification": "authored",
-      "targetSha256": "31362810e310a4e79a15bc5724498598f54987d206dd7bb7e0f1404333547c4b"
+      "targetSha256": "07bcc46217fc208bda74b1a861550926f47e09670249c5c8fb1175f60bbd59a9"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/resources.ts",
@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "a3dc0433e405845d7da30c3a0cab0cb377033e84fa7079f5b15cf1b216446a9e"
+      "targetSha256": "42d42e0f82db063e47bc3a07ecb8b633b9e040481ed88927f0264dfd81ff9562"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -8460,7 +8460,7 @@
     {
       "target": "packages/medusa-adapter/src/repository/scalar-lifecycle-receipt.ts",
       "classification": "authored",
-      "targetSha256": "54a2a721466053c33034736cb80c557b1b6efce307860caefb481971a6efe4aa"
+      "targetSha256": "384e5489a2bb32c49d552993fe317934838a7bef1dddd7281d11545e3798a4d3"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/stock-location/delete.ts",
@@ -9233,7 +9233,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-reconstitution.test.ts",
       "classification": "authored",
-      "targetSha256": "362dcb82df80cca5ee7373aead6b54884b2c99b7c7ad88ef3f93a5b37f652c16"
+      "targetSha256": "3d4501253d99b89369aec4a3e2600c9b8326d568ce4474eb87f80885121a37fb"
     },
     {
       "target": "packages/medusa-adapter/test/logical-store-update-workflow.test.ts",
@@ -9403,7 +9403,7 @@
     {
       "target": "packages/medusa-adapter/test/support/shipping-profile-option-race-fixture.ts",
       "classification": "authored",
-      "targetSha256": "f14111e47483e3c80d7f83ab4abf3e6409f6b3162d1e07f031308e9b069ce823"
+      "targetSha256": "072530c23c5846a74215ea21da11835ddd993e1f91d8c474f964ac60a508bc4c"
     },
     {
       "target": "packages/medusa-core-flows/src/shipping-profile/steps/delete-shipping-profile.ts",
@@ -9546,6 +9546,75 @@
       "targetSha256": "dd57f1791d1e24c49c8c3f7a0f95db53954007ff3993d18b053a7023e5de153f",
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/shipping-options/workflows/update-shipping-option-types.ts",
       "sourceSha256": "ee2b14cc5f4f541df8e61ea016d35b4345dc16dd5f385431771fb1d3509978f9"
+    },
+    {
+      "target": "packages/medusa-adapter/src/links/shipping-option-type-deletion.ts",
+      "classification": "authored",
+      "targetSha256": "a152a0c00cb0106fcc5931088054cb1b7b32d0fce05625519eddb6e911629854"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-option-type-delete-input.ts",
+      "classification": "authored",
+      "targetSha256": "f198b3074f3cc2a884c523008f0dfacf2180fef64b12b167f9d906a99c01181e"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-option-type-delete-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "60e2b6deb0f33de4e63be2f6d0171d7079eda6cd271084522f11188ab3b171ee"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-option-type-delete-repository.ts",
+      "classification": "authored",
+      "targetSha256": "aa9df342a9f72f823aab880daf0f0b4bc0ade8d15cadaea25f8cfb00357502f4"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-option-type-delete-service.ts",
+      "classification": "authored",
+      "targetSha256": "c5c93e267d681da867a608e1584d60a2de9e641f3759ba615637cbea1e626a03"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/fulfillment/delete-shipping-option-types.ts",
+      "classification": "authored",
+      "targetSha256": "77fb737fd8b5ac45d88513b72a2036edc2f963aa69c7f90dd8e71c8f90b8b822"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-shipping-option-type-deletion-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "a650c78544da637aa4babc1c4fa395c46323ebc112f9391e0010299f0ff40352"
+    },
+    {
+      "target": "packages/medusa-adapter/test/native-shipping-option-type-deletion-link-resource.test.ts",
+      "classification": "authored",
+      "targetSha256": "2f23fcaa30c0415e7b9cf368832953fa8b8d80de677307e214b097e7d745522b"
+    },
+    {
+      "target": "packages/medusa-adapter/test/shipping-option-type-delete-input.test.ts",
+      "classification": "authored",
+      "targetSha256": "9680c694173d415b20da82f66d861df2fe3993cef5a18a6b5745c883ceb20d71"
+    },
+    {
+      "target": "packages/medusa-adapter/test/shipping-option-type-delete-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "f8bf74d02adf45cc080e8e661d2c53f229938bc70749a36fa84e374c9be57b35"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-shipping-option-type-deletion-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "026fc89a666a8d5cfa38930b31e5239b3073237f3e7d91b0a5e456466df078d3"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/shipping-options/steps/delete-shipping-option-types.ts",
+      "classification": "workflowFork",
+      "targetSha256": "57ae0200703a8398c4d0dabe5d071d39062181aefb1ed68d2d063ea19959e3ca",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/shipping-options/steps/delete-shipping-option-types.ts",
+      "sourceSha256": "6cf1fdd8293251899d925ff5e11398afd5c1ba5f466e367a1db5e8b21badcb96"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/shipping-options/workflows/delete-shipping-option-types.ts",
+      "classification": "workflowFork",
+      "targetSha256": "2126723b34be5eb3810cd42b1b44c734aae3a4e05c61d3f52c00a4764abe65b4",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/shipping-options/workflows/delete-shipping-option-types.ts",
+      "sourceSha256": "24929a8d52e48f7051853135f4228284ceecaa08fad429217615a5d3250739f4"
     }
   ],
   "dependencies": {
@@ -10038,7 +10107,9 @@
         "./shipping-options/create-shipping-option-types",
         "./shipping-options/create-shipping-option-types-step",
         "./shipping-options/update-shipping-option-types",
-        "./shipping-options/update-shipping-option-types-step"
+        "./shipping-options/update-shipping-option-types-step",
+        "./shipping-options/delete-shipping-option-types",
+        "./shipping-options/delete-shipping-option-types-step"
       ]
     },
     {

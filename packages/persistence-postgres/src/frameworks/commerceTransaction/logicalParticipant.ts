@@ -103,7 +103,7 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
   admission: LogicalRelationalAdmission, tx: FlarexMetadataTransaction,
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, initialContext: BoundedRequestContext, id: string,
   allowReferenceReplacement = false, selectedResources?: CommerceResources, logicalPublication?: "mixed",
-  allowReconstitution = false, allowPreservingDeletionUpsert = false,
+  allowReconstitution = false, allowPreservingDeletionUpsert = false, allowActiveRestoreUpdate = false,
 ) {
   const resources = selectedResources ?? defaultCommerceResources;
   const maximumIdentities = selectedResources?.catalogRows ?? logicalCommerceWorkingSetLimits.identities;
@@ -121,6 +121,7 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
   const working = yield* makeLogicalDocumentWorkingSet({ tx, scopeId: state.authority.scopeId, clock: state.clock, lifetime,
     ...(allowReconstitution ? { allowReconstitution: true as const } : {}),
     ...(allowPreservingDeletionUpsert ? { allowPreservingDeletionUpsert: true as const } : {}),
+    ...(allowActiveRestoreUpdate ? { allowActiveRestoreUpdate: true as const } : {}),
     tables: readReadiness.kind === "queryRequired" ? readReadiness.mechanics.tables :
       state.writeMechanics.tables,
     ...(readReadiness.kind === "queryRequired" ? (
