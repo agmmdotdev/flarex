@@ -120,8 +120,10 @@ dedicated two-method Inventory profile. It retains the required empty Location
 query, complete native DTOs, physical creation inverse and existing resource
 limits. Shared Level event decoding preserves batch receipt error classification
 while each profile keeps its own publication actions. Reservation deletion by
-Line Item remains a subsequent admission with a native restore-preimage
-characterization gate.
+Line Item remains a subsequent admission. Its
+[native preflight](./preflight/122-native-reservation-line-item-delete-workflow.md)
+identifies a restore-preimage business defect and missing complete-history Line
+Item access. Native behavior disposition and connected validation remain gates.
 Chunked File import and Product
 export are explicitly deferred; their File and Region dependencies are outside
 the current integration goal.

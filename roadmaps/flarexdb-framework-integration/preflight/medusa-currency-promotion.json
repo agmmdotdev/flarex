@@ -8954,6 +8954,11 @@
       "target": "packages/medusa-adapter/src/modules/inventory/level-events.ts",
       "classification": "authored",
       "targetSha256": "bcbaf6e9507a9fe2e704d27839a95606fcaf009873ecbbf83c8c939836d13f85"
+    },
+    {
+      "target": "packages/medusa-adapter/test/reservation-line-item-native-restore-witness.test.ts",
+      "classification": "authored",
+      "targetSha256": "7d04002d1e1aecf8785b9d1f7ffd25d84bad156dd26400a6932c70b41958ad83"
     }
   ],
   "dependencies": {
