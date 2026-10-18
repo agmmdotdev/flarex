@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
 import { migrate as migratePGlite } from "drizzle-orm/pglite/migrator";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 
 import { createPGlitePersistence } from "../../src/database/pglite";
@@ -28,7 +28,9 @@ import {
 
 describe("createPGlitePersistence", { timeout: 180_000 }, () => {
   it("checks connectivity", async () => {
-    const persistence = await createPGlitePersistence();
+    const db = newTestPGlite();
+    onTestFinished(() => db.close());
+    const persistence = await createPGlitePersistence({ db });
 
     await expect(persistence.check()).resolves.toEqual({ status: "ok" });
   });
@@ -108,7 +110,9 @@ describe("createPGlitePersistence", { timeout: 180_000 }, () => {
   }, 60_000);
 
   it("runs Drizzle Kit migrations idempotently", async () => {
-    const persistence = await createPGlitePersistence();
+    const db = newTestPGlite();
+    onTestFinished(() => db.close());
+    const persistence = await createPGlitePersistence({ db });
 
     await expect(persistence.migrate()).resolves.toBeUndefined();
     await expect(persistence.migrate()).resolves.toBeUndefined();

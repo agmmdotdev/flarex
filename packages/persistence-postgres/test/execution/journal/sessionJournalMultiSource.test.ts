@@ -88,6 +88,7 @@ import {
 } from "../session/support/activationEvidence";
 import { createPGlitePersistence } from "../../../src/database/pglite";
 import { newTestPGlite } from "../../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import { createFileScopedPostgresFixture, postgresUrl } from "../../support/postgresHelpers";
 
 const emptyChanges = Object.freeze({ changes: [], attempts: [], lifecycle: [], observedRows: [],
@@ -104,12 +105,12 @@ async function sourceBundleFixture(driver: "pglite" | "postgres", options: { run
           { control: control.persistence, target: target.persistence }),
         close: async () => { await target.dispose(); await control.dispose(); } };
       }
-      const controlDb = newTestPGlite();
-      const targetDb = newTestPGlite();
+      const baseline = await migratedPGliteDataDir();
+      const controlDb = newTestPGlite({ loadDataDir: baseline });
+      const targetDb = newTestPGlite({ loadDataDir: baseline });
       const [control, target] = await Promise.all([
         createPGlitePersistence({ db: controlDb }), createPGlitePersistence({ db: targetDb }),
       ]);
-      await Promise.all([control.migrate(), target.migrate()]);
       return { fixture: await createApplicationNativeMutationPGliteFixtureWithPersistence(
         options, { control, target }),
       close: async () => { await controlDb.close(); await targetDb.close(); } };

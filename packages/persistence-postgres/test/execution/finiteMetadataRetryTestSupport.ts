@@ -7,14 +7,14 @@ import {
 } from "../../src/commit/point/errors";
 import { createPGlitePersistence } from "../../src/database/pglite";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
 
 /** Actual metadata mutation and sequencer evidence for the executor retry proof. */
 export async function createMetadataOnlyConflictFixture(input: Readonly<{ scopeId: ScopeId; epoch: ScopeEpoch; commitSeq: CommitSeq }>) {
-  const db = newTestPGlite();
+  const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
   try {
     const persistence = await createPGlitePersistence({ db });
-    await persistence.migrate();
     await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId: input.scopeId, epoch: input.epoch, lastCommitSeq: input.commitSeq });
     const owner = { namespace: "execution", ownerKey: "application" } as const;
     const prepare = (program: string) => Effect.runPromise(prepareFiniteMetadataProjection({ indexes: [], unique: [],
