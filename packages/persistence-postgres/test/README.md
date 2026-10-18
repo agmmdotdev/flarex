@@ -153,9 +153,10 @@ reuse the same scope and Task seed owners as PGlite; they do not run historical
 Application analysis or import another test suite. Directory/resolver fixtures
 also seed their deployment/scope metadata.
 
-PGlite lifecycle-store and compute-delivery repository row cases share the
-file-scoped driver owner through `tasks/taskPGliteFixture`. Its Task reset keeps
-foreign keys enabled and removes the scope authority/clock pair atomically.
+PGlite creation, read, lifecycle-store and compute-delivery repository/discovery
+row cases share the file-scoped driver owner through `tasks/taskPGliteFixture`.
+Its Task reset keeps foreign keys enabled and removes the scope authority/clock
+pair atomically.
 The missing-effect probe that drops a foreign key retains an independent store.
 
 The native read suite reuses the existing file-scoped persistence fixture and

@@ -20,11 +20,8 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
-import { beforeAll, describe, expect, it } from "vitest";
-import {
-  createMigratedPGlitePersistence,
-  migratedPGliteDataDir,
-} from "../support/pgliteTestFixture";
+import { describe, expect, it } from "vitest";
+import { useFileScopedPGliteTaskPersistence } from "./taskPGliteFixture";
 
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
@@ -76,7 +73,7 @@ const staleScopeEpoch = ScopeEpochSchema.make(
   "epoch_73000000-0000-4000-8000-000000000009",
 );
 
-beforeAll(() => migratedPGliteDataDir(), 120_000);
+const withPersistence = useFileScopedPGliteTaskPersistence();
 
 describe("DTE04-C scope-bound Task System run creation - PGlite", () => {
   it("creates the only legal initial state and interoperates with lifecycle", async () => {
@@ -365,7 +362,9 @@ describe("DTE04-C scope-bound Task System run creation - PGlite", () => {
 async function withFixture(
   run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
 ): Promise<void> {
-  await run(await makeFixture(await createMigratedPGlitePersistence()));
+  await withPersistence(async persistence => {
+    await run(await makeFixture(persistence));
+  });
 }
 
 async function makeFixture(persistence: PGliteFlarexPersistence) {

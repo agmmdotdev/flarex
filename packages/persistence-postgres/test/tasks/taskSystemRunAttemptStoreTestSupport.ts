@@ -229,7 +229,7 @@ export async function seedTaskSystemRunAttemptStoreV1(
   const aggregateByteLength = new TextEncoder().encode(aggregateJson).byteLength;
   await db.insert(fxSystemDurableTaskRunsV1).values({
     scopeId,
-    runId: runId(TASK_RUN_ID),
+    runId: aggregate.runId,
     definitionGeneration: "legacy_definition_v1",
     taskDefinitionRevisionId,
     createdAtMs: BigInt(aggregate.createdAtMs),

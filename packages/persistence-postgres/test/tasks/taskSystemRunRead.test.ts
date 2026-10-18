@@ -13,15 +13,12 @@ import {
 import { and, count, eq } from "drizzle-orm";
 import { Effect, Layer, Result } from "effect";
 import {
-  FlarexDbV1StorageGenerationSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
-import { beforeAll, describe, expect, it } from "vitest";
-import {
-  createMigratedPGlitePersistence,
-  migratedPGliteDataDir,
-} from "../support/pgliteTestFixture";
+import { describe, expect, it } from "vitest";
+import { useFileScopedPGliteTaskPersistence } from "./taskPGliteFixture";
+import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
 
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
@@ -33,7 +30,6 @@ import {
   fxSystemDurableTaskAttemptIdentitiesV1,
   fxSystemDurableTaskRequestedEffectsV1,
   fxSystemDurableTaskRunsV1,
-  fxSystemScopeClocks,
 } from "../../src/database/schema";
 import {
   TaskSystemRunReadCorruptionError,
@@ -71,8 +67,6 @@ const requestedEffectOne = Result.getOrThrow(
 const retryJitter = Result.getOrThrow(decodeTaskRetryJitterV1(0.25));
 const taskScopeId = ScopeIdSchema.make(TASK_SCOPE_ID);
 const otherScopeId = ScopeIdSchema.make(OTHER_SCOPE_ID);
-const taskStorageGeneration =
-  FlarexDbV1StorageGenerationSchema.make("flarexdb_v1");
 const crossScopeEpoch = ScopeEpochSchema.make(
   "epoch_72000000-0000-4000-8000-000000000097",
 );
@@ -80,7 +74,7 @@ const staleScopeEpoch = ScopeEpochSchema.make(
   "epoch_72000000-0000-4000-8000-000000000099",
 );
 
-beforeAll(() => migratedPGliteDataDir(), 120_000);
+const withPersistence = useFileScopedPGliteTaskPersistence();
 
 describe("DTE04-D scope-bound Task System reads - PGlite", () => {
   it("discovers a stable, bounded due snapshot in exact keyset order", async () => {
@@ -300,6 +294,12 @@ describe("DTE04-D scope-bound Task System reads - PGlite", () => {
       const ledger = makeTaskSystemRequestedEffectLedgerV1(located);
       const missingRunId = Result.getOrThrow(decodeTaskRunIdV1(MISSING_RUN_ID));
       await seedCrossScopeRun(persistence, missingRunId);
+      const foreign = await locatedTaskAuthorityV1(persistence.drizzle,
+        createPGliteLocatedTaskSystemRunAttemptTargetV1(persistence, TASK_LOCATOR),
+        OTHER_SCOPE_ID, "deployment_cross_scope_task_read_v1");
+      await expect(runEffect(makeTaskSystemRequestedEffectLedgerV1(foreign).readRequestedEffects({
+        version: 1, runId: missingRunId, pageSize: 10, cursor: null,
+      }))).resolves.toMatchObject({ effects: [], nextCursor: null });
       const unavailable = await runEffectFailure(ledger.readRequestedEffects({
         version: 1,
         runId: missingRunId,
@@ -388,7 +388,9 @@ function lifecycleLayer(
 async function withFixture(
   run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
 ): Promise<void> {
-  await run(await makeFixture(await createMigratedPGlitePersistence()));
+  await withPersistence(async persistence => {
+    await run(await makeFixture(persistence));
+  });
 }
 
 async function makeFixture(persistence: PGliteFlarexPersistence) {
@@ -429,26 +431,20 @@ async function seedCrossScopeRun(
   persistence: PGliteFlarexPersistence,
   crossScopeRunId: TaskRunIdV1,
 ): Promise<void> {
-  await persistence.drizzle.transaction(async authorityTx => {
-      await authorityTx.insert(fxSystemScopeClocks).values({scopeId: otherScopeId});
-      await authorityTx.insert(fxSystemScopeExecutionAuthorities).values({scopeId: otherScopeId,storageGeneration: taskStorageGeneration,epoch: crossScopeEpoch});
-    });
+  await insertCurrentScopeClockFixture(persistence.drizzle, {
+    scopeId: otherScopeId, epoch: crossScopeEpoch,
+  });
   const aggregate = Object.freeze({
     ...readyTaskRunAggregateV1(),
     runId: crossScopeRunId,
   });
-  await persistence.query("set session_replication_role = replica");
-  try {
-    await seedTaskSystemRunAttemptStoreV1(persistence, {
-      aggregate,
-      parent: Object.freeze({
-        scopeId: OTHER_SCOPE_ID,
-        deploymentId: "deployment_cross_scope_task_read_v1",
-        applicationRevisionId: "apprev_cross_scope_task_read_v1",
-        candidateSha256Hex: "61".repeat(32),
-      }),
-    });
-  } finally {
-    await persistence.query("set session_replication_role = origin");
-  }
+  await seedTaskSystemRunAttemptStoreV1(persistence, {
+    aggregate,
+    parent: Object.freeze({
+      scopeId: OTHER_SCOPE_ID,
+      deploymentId: "deployment_cross_scope_task_read_v1",
+      applicationRevisionId: "apprev_cross_scope_task_read_v1",
+      candidateSha256Hex: "61".repeat(32),
+    }),
+  });
 }
