@@ -23,6 +23,11 @@
       "types": "./dist/calculation/select-rows.d.ts",
       "source": "./src/calculation/select-rows.ts",
       "default": "./dist/calculation/select-rows.js"
+    },
+    "./normalization": {
+      "types": "./dist/normalization.d.ts",
+      "source": "./src/normalization.ts",
+      "default": "./dist/normalization.js"
     }
   },
   "dependencies": {

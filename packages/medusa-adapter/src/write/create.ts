@@ -76,13 +76,30 @@ export const captureGraph = Effect.fn("MedusaGraph.capture")(function* (
  * transaction manager; only rows actually returned by writes leave this step. */
 export const insertGraphRows = Effect.fn("MedusaGraph.insert")(function* (
   ctx: Pick<CommerceCommandContext, "manager" | "table">, catalog: GraphCatalog, graph: GraphRows,
+  options: { readonly allowReconstitution?: true } = {},
 ) {
   const inserted = new Map<string, readonly JsonObject[]>();
   for (const table of [...catalog.entities.map(item => item.table.name), ...catalog.writablePivots.map(item => item.name)]) {
     const rows = graph.get(table) ?? [];
     if (rows.length === 0) { inserted.set(table, []); continue; }
     const store = yield* ctx.table(table);
-    inserted.set(table, yield* store.write(ctx.manager, "insert", rows));
+    const restored: JsonObject[] = [];
+    let start = 0;
+    while (start < rows.length) {
+      const reconstitute = options.allowReconstitution === true && rows[start]?.created_at !== undefined;
+      let end = start + 1;
+      while (end < rows.length && (options.allowReconstitution === true && rows[end]?.created_at !== undefined) === reconstitute) end++;
+      const cohort = rows.slice(start, end);
+      // Complete retained rows still require the core's exact same-root deletion
+      // proof. Keep mixed cohorts in native order and preserve ordinary inserts.
+      if (reconstitute) {
+        const restore = store.reconstitute;
+        if (restore === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+        restored.push(...(yield* restore(ctx.manager, cohort)));
+      } else restored.push(...(yield* store.write(ctx.manager, "insert", cohort)));
+      start = end;
+    }
+    inserted.set(table, restored);
   }
   return inserted;
 });

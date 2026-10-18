@@ -28,7 +28,7 @@ export const decodeShippingOptionRuleUpdates = commerceDecoder(ShippingOptionRul
 export const decodeShippingOptionRuleIds = commerceDecoder(ShippingOptionRuleIds, "invalidInput");
 const decodeRowsShape = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(4)), "storedCorruption");
 
-export function compileShippingOptionRuleContracts(metadata: Effect.Success<ReturnType<typeof captureServiceZoneCreationMetadata>>["frame"]) {
+export function compileShippingOptionRuleContracts(metadata: Effect.Success<ReturnType<typeof captureServiceZoneCreationMetadata>>["frame"], maximum = 4) {
   return Result.gen(function* () {
     const graph = yield* compileFulfillmentGraphContracts(metadata), table = graph.rule;
     if (table.foreignKeys.length !== 1 || table.cascades.delete.length || table.cascades.detach.length ||
@@ -47,8 +47,9 @@ export function compileShippingOptionRuleContracts(metadata: Effect.Success<Retu
       return identified;
     });
     const decodeRow = (input: unknown) => identified(input, true);
+    const decodeSelectedRows = maximum === 4 ? decodeRowsShape : commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(maximum)), "storedCorruption");
     const decode = (input: unknown, full: boolean, active: boolean) => Result.gen(function* () {
-      const rows = yield* decodeRowsShape(input), seen = new Set<string>();
+      const rows = yield* decodeSelectedRows(input), seen = new Set<string>();
       const result: Array<JsonObject & { readonly id: string }> = [];
       for (const value of rows) {
         const row = yield* identified(value, full);

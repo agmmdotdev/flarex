@@ -210,32 +210,43 @@ describe("named Pricing workflow admission selection", () => {
   const native = readFileSync("third_party/medusa/upstream/packages/core/types/src/pricing/service.ts", "utf8");
   const adapter = readFileSync("packages/medusa-adapter/src/modules/pricing/service.ts", "utf8");
   const repository = readFileSync("packages/medusa-adapter/src/modules/pricing/repository.ts", "utf8");
-  it("retains the three original profiles and isolates named Store preferences and Shipping lifecycle", () => {
+  it("retains the original profiles and isolates Store preferences Shipping lifecycle and Shipping updates", () => {
     expect(() => verifyPricingWorkflowSelection(native, adapter, repository)).not.toThrow();
   });
   it.each([
-    ["admission union", '"product-updates" | "store-preferences" | "shipping-options" = "create"', '"product-updates" | "store-preferences" | "shipping-options" | "unbounded" = "create"'],
+    ["admission union", '"product-updates" | "store-preferences" | "shipping-options" | "shipping-option-updates" = "create"', '"product-updates" | "store-preferences" | "shipping-options" | "shipping-option-updates" | "unbounded" = "create"'],
     ["old-profile mutability", 'admission === "variant-updates" || admission === "product-updates"', 'admission !== "create"'],
     ["Product lifecycle predicate", 'lifecycle = admission === "product-updates"', 'lifecycle = mutable'],
     ["preference predicate", 'preferences = admission === "store-preferences"', 'preferences = mutable'],
-    ["methods branch predicate", 'methods: { ...(preferences ?', 'methods: { ...(mutable ?'],
+    ["methods branch predicate", '...(preferences ?', '...(mutable ?'],
     ["extra old-profile method", '{ listPricePreferences, upsertPricePreferences, deletePricePreferences }', '{ listPricePreferences, upsertPricePreferences, deletePricePreferences, createPriceSets }'],
     ["missing required preference method", '{ listPricePreferences, upsertPricePreferences, deletePricePreferences }', '{ listPricePreferences, upsertPricePreferences }'],
     ["method spread override", '{ listPricePreferences, upsertPricePreferences, deletePricePreferences }', '{ listPricePreferences, upsertPricePreferences, deletePricePreferences, ...override }'],
     ["original creation method", '...(!shipping ? { createPriceLists, createPricePreferences } : {})', '...(!shipping ? { createPriceLists } : {})'],
-    ["complementary branch predicate", '...(!preferences ? { createPriceSets,', '...(preferences ? { createPriceSets,'],
+    ["complementary branch predicate", '...(!preferences && !shippingUpdates ? { createPriceSets,', '...(preferences ? { createPriceSets,'],
     ["variant method admission", '...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {})', '...(preferences ? { upsertPriceSets, updatePriceSets, listPriceSets } : {})'],
     ["preference command capability", 'preferences ? [preferenceList, preferenceUpsert, preferenceDelete]', 'preferences ? [preferenceList, preferenceUpsert, preferenceDelete, create]'],
-    ["repository selection", 'preparePricingRepository(metadata.frame, mutable, lifecycle, preferences, shipping)', 'preparePricingRepository(metadata.frame, mutable, lifecycle, mutable, shipping)'],
+    ["repository selection", 'preparePricingRepository(metadata.frame, mutable, lifecycle, preferences, shipping, shippingUpdates)', 'preparePricingRepository(metadata.frame, mutable, lifecycle, mutable, shipping, shippingUpdates)'],
     ["preference graph", 'preferences ? { aliases: [], reads: [] }', 'preferences ? { aliases: [{ name: "prices", model: "PriceSet" }], reads: [] }'],
     ["old create receipt", ': pricingLogicalCreateEventPolicy()', ': pricingStorePreferencePolicy(preferenceContracts)'],
     ["named profile identity", 'preferences ? "pricing-store-preferences"', 'preferences ? "pricing-base-prices"'],
-    ["Shipping profile capture", 'if (shipping) shippingLifecycleServices.set', 'if (lifecycle || shipping) shippingLifecycleServices.set'],
+    ["Shipping profile capture", 'if (shipping && !shippingUpdates) shippingLifecycleServices.set', 'if (lifecycle || shipping) shippingLifecycleServices.set'],
     ["Shipping restore isolation", 'restorePriceSets: shipping ? native.restorePriceSets.bind(native) : binding.refuse', 'restorePriceSets: lifecycle || shipping ? native.restorePriceSets.bind(native) : binding.refuse'],
     ["Shipping physical delete isolation", 'deletePriceSets: shipping ? native.deletePriceSets.bind(native) : binding.refuse', 'deletePriceSets: mutable || shipping ? native.deletePriceSets.bind(native) : binding.refuse'],
     ["Shipping command selector", 'shipping ? [create, list, count, retrieve, softDeletePriceSetsCommand, restorePriceSetsCommand, deletePriceSetsCommand]', 'shipping ? [create, list, count, retrieve, calculate, softDeletePriceSetsCommand, restorePriceSetsCommand, deletePriceSetsCommand]'],
     ["Shipping method selector", '...(shipping ? { restorePriceSets, deletePriceSets } : {})', '...(shipping ? { restorePriceSets } : {})'],
-    ["Shipping receipt policy", 'shipping ? pricingShippingOptionPolicy(shippingOutput)', 'shipping ? pricingLogicalProductUpdateEventPolicy()'],
+    ["Shipping receipt policy", 'shipping ? pricingShippingOptionPolicy(shippingOutput, shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined)', 'shipping ? pricingLogicalProductUpdateEventPolicy()'],
+    ["Shipping update predicate", 'shippingUpdates = admission === "shipping-option-updates"', 'shippingUpdates = true'],
+    ["Shipping update profile identity", 'shippingUpdates ? "pricing-shipping-option-updates"', 'shippingUpdates ? "pricing-shipping-options"'],
+    ["Shipping update creation exclusion", '...(!preferences && !shippingUpdates ?', '...(!preferences ?'],
+    ["Shipping update lifecycle overgrant", 'createPriceRules: createShippingPriceRules } : {})', 'createPriceRules: createShippingPriceRules, restorePriceSets } : {})'],
+    ["Shipping update create overgrant", 'createPriceRules: createShippingPriceRules } : {})', 'createPriceRules: createShippingPriceRules, createPriceSets } : {})'],
+    ["Shipping update method override", 'updatePriceSets: updateShippingPriceSets', 'updatePriceSets'],
+    ["Shipping update command overgrant", '[shippingUpdate, shippingListPrices, shippingListRules, shippingCreateRules, list, count, retrieve]', '[shippingUpdate, shippingListPrices, shippingListRules, shippingCreateRules, upsert, list, count, retrieve]'],
+    ["Shipping update native service overgrant", 'listPriceRules: shippingUpdates ? native.listPriceRules.bind(native) : binding.refuse', 'listPriceRules: shipping ? native.listPriceRules.bind(native) : binding.refuse'],
+    ["Shipping update mutation proof bypass", 'shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined', 'undefined, shippingUpdates ? prepared : undefined'],
+    ["Shipping update causal proof bypass", 'shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined', 'shippingUpdates ? shippingMutation : undefined, undefined'],
+    ["Shipping update lifecycle router exposure", 'if (shipping && !shippingUpdates) shippingLifecycleServices.set', 'if (shipping) shippingLifecycleServices.set'],
   ])("rejects changed %s", (_name, before, after) => {
     const changed = adapter.replace(before, after); expect(changed).not.toBe(adapter);
     expect(() => verifyPricingWorkflowSelection(native, changed, repository)).toThrow("Unadmitted native Pricing workflow selection");
@@ -246,6 +257,11 @@ describe("named Pricing workflow admission selection", () => {
   });
   it("rejects a missing native preference method", () => {
     const changed = native.replace("deletePricePreferences(ids:", "deleteOtherPreferences(ids:"); expect(changed).not.toBe(native);
+    expect(() => verifyPricingWorkflowSelection(changed, adapter, repository)).toThrow("Missing native Pricing admitted methods");
+  });
+  it.each(["updatePriceSets", "listPrices", "listPriceRules", "createPriceRules"])("requires native %s for the selected Shipping update profile", method => {
+    const changed = native.replace(new RegExp("\\b" + method + "(?=\\s*[<(])", "g"), method + "Unadmitted");
+    expect(changed).not.toBe(native);
     expect(() => verifyPricingWorkflowSelection(changed, adapter, repository)).toThrow("Missing native Pricing admitted methods");
   });
   it("rejects widening the original Product preference lookup beyond two pairs", () => {

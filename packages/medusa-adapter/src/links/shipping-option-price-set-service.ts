@@ -9,6 +9,7 @@ import { captureLocationFulfillmentProviderLinkService } from "./location-fulfil
 import { commerceDecoder } from "../value/decoder";
 import { defineComposedWorkflowResource } from "../workflow/composed-resource";
 import { ScalarId as Id } from "../repository/scalar-id-read";
+import { nativeLinkGraphEndpoints } from "../local-graph/links";
 
 export const captureShippingOptionPriceSetLinkService = (service: unknown) => captureShippingOptionLinkService(service, ShippingOptionPriceSet);
 const Pair = Schema.Struct({ fulfillment: Schema.Struct({ shipping_option_id: Id }), pricing: Schema.Struct({ price_set_id: Id }) });
@@ -41,7 +42,10 @@ export function prepareShippingOptionCreationLinkResource(services: { readonly l
 /** Four forward creates share the genuine service with the installed deletion
  * closure of eight Options and eight complete historical Link rows. */
 export const prepareShippingOptionPriceSetLink = Effect.fn("ShippingOptionPriceSetLink.prepare")(function* () {
-  return yield* prepareShippingOptionLinkService(yield* captureShippingOptionPriceSetLinkMetadata(), {
+  const metadata = yield* captureShippingOptionPriceSetLinkMetadata();
+  const linkEndpoints = yield* Effect.fromResult(nativeLinkGraphEndpoints(metadata.joiner, [{ path: "price_set", maximumSources: 4, maximumTargets: 4 }]));
+  return yield* prepareShippingOptionLinkService(metadata, {
     name: "shipping_option_price_set_links", prefix: "shippingOptionPriceSetLink",
+    linkEndpoints,
   });
 });

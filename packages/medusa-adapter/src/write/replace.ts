@@ -117,7 +117,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
     put(deletes, table, row);
     state.set(table.name, (state.get(table.name) ?? []).filter(value => identity(table, value) !== token));
   }));
-  const plan = (target: GraphEntity, inputRow: Json, owner: JsonObject, root: boolean) => observeExecution("MedusaGraph.plan", Effect.gen(function* (): Effect.fn.Return<JsonObject, CommerceTransactionError> {
+  const plan = (target: GraphEntity, inputRow: Json, owner: JsonObject, root: boolean, touch = false) => observeExecution("MedusaGraph.plan", Effect.gen(function* (): Effect.fn.Return<JsonObject, CommerceTransactionError> {
     const decoded = yield* Effect.fromResult(catalog.decodeRow(target, inputRow));
     const id = generateEntityId(decoded.key, target.prefix);
     const row = decoded.supplied;
@@ -143,7 +143,10 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       const column = descriptor?.join.type === "belongsTo" ? descriptor.join.foreignKeys[0] : undefined;
       const child = catalog.entities.find(value => value.table.name === descriptor?.targetTable);
       if (column === undefined || child === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-      const selected = row[name] === null ? null : (yield* plan(child, row[name], {}, false))[child.keyColumn];
+      const reference = row[name];
+      const selected = reference === null ? null : typeof reference === "string"
+        ? (yield* Effect.fromResult(catalog.decodeReference(child, reference))).key
+        : (yield* plan(child, reference, {}, false, profile.touchOwnedToOne === true))[child.keyColumn];
       if (selected !== null && typeof selected !== "string") return yield* Effect.fail(commerceError("invalidInput"));
       scalar[column] = selected;
     }
@@ -166,7 +169,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
         delete scalar[name];
       }
       const update = root ? profile.operation === "upsertWithReplace" || Object.keys(scalar).some(name => name !== target.keyColumn)
-        : hasChangedFields(existing, scalar, [target.keyColumn]);
+        : touch || hasChangedFields(existing, scalar, [target.keyColumn]);
       if (update) put(updates, target.table, scalar);
     } else put(reconstitution ? reconstitutions : inserts, target.table, scalar);
     const next = { ...existing, ...scalar };

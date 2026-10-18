@@ -1,6 +1,7 @@
 // @ts-check
 import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
-import { verifyShippingOptionCreateCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
+import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
+import { verifyPricingNormalizationExtraction } from "./check-medusa-pricing-normalization.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -304,6 +305,10 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, "packages/medusa-adapter/src/modules/pricing/service.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/src/modules/pricing/repository.ts"), "utf8"),
   );
+  const pricingSource = readFileSync(path.join(root, sourcePrefix + "packages/modules/pricing/src/services/pricing-module.ts"), "utf8");
+  verifyModuleTypeFork(pricingSource, verifyPricingNormalizationExtraction(pricingSource,
+    readFileSync(path.join(root, "packages/medusa-pricing/src/services/pricing-module.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-pricing/src/normalization.ts"), "utf8")));
   verifyShippingProfileCreateTests(
     readFileSync(path.join(root, sourcePrefix + "packages/modules/fulfillment/integration-tests/__tests__/fulfillment-module-service/shipping-profile.spec.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/test/support/shipping-profile-native-tests.ts"), "utf8"),
@@ -504,6 +509,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, csvTarget, "csv-normalizer.spec.ts"), "utf8"),
     fixtureText(csvSource), fixtureText(csvTarget));
   verifyShippingOptionCreateCallbacks(root);
+  verifyShippingOptionUpdateCallbacks(root);
   verifyNativeFilterValue(
     readFileSync(path.join(root, sourcePrefix + "packages/database/drizzle/src/repository.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-drizzle/src/filter-value.ts"), "utf8"));
@@ -540,7 +546,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       throw new Error("Native Shipping contract outside its unchanged pinned source pair");
     if (file.target.startsWith("packages/medusa-core-flows/src/fulfillment/") &&
       ["workflows/create-shipping-options.ts", "steps/upsert-shipping-options.ts", "steps/validate-fulfillment-providers.ts",
-        "steps/validate-shipping-option-prices.ts", "steps/add-shipping-options-prices.ts", "steps/set-shipping-options-price-sets.ts"]
+        "steps/validate-shipping-option-prices.ts", "steps/add-shipping-options-prices.ts", "steps/set-shipping-options-price-sets.ts",
+        "workflows/update-shipping-options.ts", "steps/set-shipping-options-prices.ts"]
         .includes(file.target.slice("packages/medusa-core-flows/src/fulfillment/".length)) &&
       (file.classification !== "workflowFork" || file.source !== sourcePrefix + "packages/core/core-flows/src/" + file.target.slice("packages/medusa-core-flows/src/".length)))
       throw new Error("Shipping Option workflow outside its exact pinned source pair");
@@ -597,10 +604,16 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       ["packages/medusa-drizzle/src/filter-value.ts", "packages/database/drizzle/src/repository.ts"],
       ["packages/medusa-orchestration/src/joiner-field-alias.ts", "packages/core/orchestration/src/joiner/remote-joiner.ts"],
       ["packages/medusa-region/src/static-manifest.ts", "packages/modules/region/src/static-manifest.ts"],
+      ["packages/medusa-pricing/src/normalization.ts", "packages/modules/pricing/src/services/pricing-module.ts"],
     ]) if (file.target === target && (file.classification !== "selectedExportFacade" || file.source !== sourcePrefix + source))
       throw new Error("Shipping Option extraction outside its exact pinned source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "storeTypeFork", "storeCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "storeTypeFork", "storeCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
+    }
+    if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
+      if (file.target !== "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification !== "pricingServiceFork" ||
+        file.source !== sourcePrefix + "packages/modules/pricing/src/services/pricing-module.ts")
+        throw new Error("Pricing normalization delegation outside its exact pinned source pair");
     }
     if (file.classification === "workflowFork" && !(file.target.startsWith("packages/medusa-workflows-sdk/src/") || file.target.startsWith("packages/medusa-core-flows/src/") || file.target.startsWith("packages/medusa-orchestration/src/") || [
       "packages/medusa-utils/src/common/create-portable-id.ts",

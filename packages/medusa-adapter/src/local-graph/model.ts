@@ -3,7 +3,7 @@ import type { AtomicCommerceContext, AtomicCommerceParticipant } from "@flarex/p
 import type { CommerceTransactionError, Json, JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { ReadTable } from "../query/catalog";
 import type { GraphReadCommand } from "./commands";
-import type { GraphRemotePath } from "./links";
+import type { GraphRemotePath, GraphLinkEndpoint } from "./links";
 export type { GraphRemotePath, GraphRemotePathSelection } from "./links";
 
 export interface GraphRelationPath {
@@ -40,6 +40,7 @@ export interface GraphModuleDefinition {
   readonly services?: readonly { readonly name: string; readonly model: string }[];
   readonly reads: readonly GraphReadDefinition[];
   readonly remotePaths?: readonly GraphRemotePath[];
+  readonly linkEndpoints?: readonly GraphLinkEndpoint[];
 }
 
 export type LocalGraphResult = {

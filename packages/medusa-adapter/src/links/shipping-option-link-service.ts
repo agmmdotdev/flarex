@@ -7,7 +7,7 @@ import type { LogicalCallReceiptValidation } from "../repository/call-receipt";
 import { ScalarId as Id } from "../repository/scalar-id-read";
 import { commerceServiceCommands, commerceCommandPreparation } from "../module/commands";
 import { moduleAliases } from "../local-graph/module";
-import { nativeLinkGraphServices } from "../local-graph/links";
+import { nativeLinkGraphServices, type GraphLinkEndpoint } from "../local-graph/links";
 import { decodeGraphCount } from "../local-graph/query";
 import type { GraphModuleDefinition, GraphRemotePath } from "../local-graph/model";
 import { QueryLimit, QueryOffset } from "../query/decoder";
@@ -39,7 +39,7 @@ export function captureShippingOptionLinkService(service: unknown, expected: Mod
  * Native commands own all reads and transitions; this adds no router or DAL. */
 export const prepareShippingOptionLinkService = Effect.fn("ShippingOptionLinks.prepareService")(function* (
   metadata: Effect.Success<ReturnType<typeof captureLinkMetadata>>,
-  selection: { readonly name: string; readonly prefix: string; readonly remotePaths?: readonly GraphRemotePath[] },
+  selection: { readonly name: string; readonly prefix: string; readonly remotePaths?: readonly GraphRemotePath[]; readonly linkEndpoints?: readonly GraphLinkEndpoint[] },
 ) {
   const prepared = yield* prepareLinkService(metadata, 8, true);
   const nativeService = yield* Effect.fromResult(prepareLinkWorkflowService(prepared, selection.prefix, "shipping-option-links"));
@@ -69,6 +69,7 @@ export const prepareShippingOptionLinkService = Effect.fn("ShippingOptionLinks.p
   const graph: GraphModuleDefinition = { aliases, services, reads: [{ model, command: count, table: prepared.prepared.table,
     paths: [], orderable: [primary.foreignKey], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }],
     ...(selection.remotePaths === undefined ? {} : { remotePaths: selection.remotePaths }),
+    ...(selection.linkEndpoints === undefined ? {} : { linkEndpoints: selection.linkEndpoints }),
   };
   const validateLifecycle = yield* Effect.fromResult(compileLinkLifecycleReceipt({ table: metadata.frame,
     endpoints: [primary.foreignKey, foreign.foreignKey], returnLinkableKeys, maximumEndpoints: 8, maximumRows: 8,

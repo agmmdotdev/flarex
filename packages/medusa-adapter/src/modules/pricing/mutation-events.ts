@@ -16,7 +16,7 @@ function matchesStoredScalars(actual: JsonObject, expected: JsonObject) {
 
 /** Native Pricing replacements authenticate operation-local base-price and
  * rule mutations. Physical cascade cleanup has no separate native rule event. */
-export function pricingLogicalMutationEventPolicy(options: Readonly<{ priceListPriceRules?: true }> = {}) {
+export function pricingLogicalMutationEventPolicy(options: Readonly<{ priceListPriceRules?: true; scalarPriceSetUpdate?: true }> = {}) {
   const creation = pricingLogicalCreateEventPolicy(options);
   const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
@@ -36,8 +36,11 @@ export function pricingLogicalMutationEventPolicy(options: Readonly<{ priceListP
     function* (call: Parameters<LogicalCommerceCallValidation>[0], activity: Parameters<LogicalCommerceCallValidation>[1]) {
       if (!["pricingUpsert", "pricingUpdate"].includes(call.commandName)) return yield* creation.validateLogicalCall(call, activity);
       const { mutations, lifecycle, setNull, referenceReplacements } = activity;
-      if (call.mode !== "write" || lifecycle.length || setNull.length || referenceReplacements.length || !Array.isArray(call.result))
+      const scalar = options.scalarPriceSetUpdate === true && call.commandName === "pricingUpdate";
+      if (call.mode !== "write" || lifecycle.length || setNull.length || referenceReplacements.length ||
+        (scalar ? !isJsonObject(call.result) : !Array.isArray(call.result)))
         return yield* Effect.fail(commerceError("receiptMismatch"));
+      const result = Array.isArray(call.result) ? call.result : [call.result];
       const requested = new Set<string>();
       if (call.commandName === "pricingUpsert") {
         if (!Array.isArray(call.input)) return yield* Effect.fail(commerceError("receiptMismatch"));
@@ -46,8 +49,9 @@ export function pricingLogicalMutationEventPolicy(options: Readonly<{ priceListP
           requested.add(row.id);
         }
       } else {
-        if (!isJsonObject(call.input) || call.input.selector === undefined || !isJsonObject(call.input.selector)) return yield* Effect.fail(commerceError("receiptMismatch"));
-        const ids = call.input.selector.id;
+        if (!isJsonObject(call.input) || call.input.selector === undefined ||
+          (scalar ? typeof call.input.selector !== "string" : !isJsonObject(call.input.selector))) return yield* Effect.fail(commerceError("receiptMismatch"));
+        const ids = isJsonObject(call.input.selector) ? call.input.selector.id : call.input.selector;
         for (const id of typeof ids === "string" ? [ids] : Array.isArray(ids) ? ids : []) {
           if (typeof id !== "string") return yield* Effect.fail(commerceError("receiptMismatch"));
           requested.add(id);
@@ -62,7 +66,7 @@ export function pricingLogicalMutationEventPolicy(options: Readonly<{ priceListP
         else state.set(mutation.table + ":" + row.id, row);
       }
       const sets = new Set<string>();
-      for (const row of call.result) {
+      for (const row of result) {
         if (!isJsonObject(row) || typeof row.id !== "string" || !requested.has(row.id) || sets.has(row.id) || !Array.isArray(row.prices) || row.prices.length > 2)
           return yield* Effect.fail(commerceError("receiptMismatch"));
         sets.add(row.id);
@@ -92,6 +96,7 @@ export function pricingLogicalMutationEventPolicy(options: Readonly<{ priceListP
         if (storedPrices.length !== seenPrices.size || storedPrices.some(id => typeof id !== "string" || !seenPrices.has(id)))
           return yield* Effect.fail(commerceError("receiptMismatch"));
       }
+      if (scalar && (sets.size !== 1 || sets.size !== requested.size)) return yield* Effect.fail(commerceError("receiptMismatch"));
       const priceIds = new Set<string>(), removedPrices = new Set<string>();
       for (const mutation of mutations) if (mutation.table === "price") {
         const row = mutation.operation === "delete" ? mutation.before : mutation.after;

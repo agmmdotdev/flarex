@@ -51,6 +51,33 @@ function logicalComposition(logical: WorkflowLogicalPolicy) {
 }
 
 describe("workflow registration and scoped resource composition", () => {
+  it("binds direct Link endpoint presence, join keys, paths and bounds to durable workflow identity", async () => {
+    const logical = { commands: [command], capture: (value: unknown) => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void };
+    const endpoint = Result.getOrThrow(defineWorkflowModule({ name: "child", source, methods: {}, logical,
+      graph: { aliases: [{ name: "child", model: "Child" }], reads: graphDefinition().reads.map(read => ({ ...read, model: "Child",
+        table: { ...read.table, name: "child" } })) } }));
+    const descriptor = { root: "Sample", path: "child", sourceKey: "target_id", targetModel: "Child", targetKey: "id", maximumSources: 4, maximumTargets: 4 };
+    const flow = createWorkflow("link-endpoint-identity-unit", () => new WorkflowResponse(null));
+    const prepared = Result.getOrThrow(flow.prepare()), identities: unknown[] = [];
+    for (const selected of [undefined, descriptor, { ...descriptor, maximumSources: 3 }, { ...descriptor, maximumTargets: 3 },
+      { ...descriptor, sourceKey: "alternate_id" }, { ...descriptor, path: "alternate" }]) {
+      const graph = graphDefinition();
+      const root = Result.getOrThrow(defineWorkflowModule({ name: "sample", source, methods: {}, logical,
+        graph: { ...graph, reads: graph.reads.map(read => ({ ...read, table: { ...read.table, columns: ["id", "target_id", "alternate_id"] } })),
+          ...(selected === undefined ? {} : { linkEndpoints: [selected] }) } }));
+      const selectedResources = Result.getOrThrow(prepareWorkflowResources({ sample: { module: root, methods: [], graph: true },
+        child: { module: endpoint, methods: [], graph: true } }, false));
+      const modules: Record<string, InstalledWorkflowModule> = {};
+      // This composition-only fixture supplies no storage authority or SQL.
+      for (const [name, module] of [["sample", root], ["child", endpoint]] as const)
+        Object.defineProperty(modules, name, { enumerable: true, value: { module, logicalStorage: {} } });
+      const result = await Effect.runPromise(prepareWorkflowComposition({ modules, identityAndAccessPolicy: {}, revision: "a".repeat(64),
+        workflow: { name: "link-endpoint-identity-unit", resources: selectedResources, prepared, input: Schema.Null, output: Schema.Null } }));
+      identities.push(result.composition.identityAndAccessPolicy);
+    }
+    expect(new Set(identities.map(identity => JSON.stringify(identity))).size).toBe(identities.length);
+  });
+
   it("forwards an explicit trusted command duration through host preparation and binds only its presence to identity", async () => {
     const { options } = logicalComposition({ commands: [command],
       capture: value => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void });

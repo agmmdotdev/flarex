@@ -4,7 +4,7 @@ import { commerceError, LogicalSetNullPolicy, type CommerceTransactionError, typ
 import type { CommerceModuleDescription } from "../module/definition";
 import type { GraphModuleDefinition } from "../local-graph/model";
 import { prepareLocalGraph } from "../local-graph/query";
-import { decodeGraphRemotePaths } from "../local-graph/links";
+import { decodeGraphRemotePaths, decodeGraphLinkEndpoints } from "../local-graph/links";
 import { defineAtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { captureCommerceInput } from "../value/input";
 import { commerceDecoder } from "../value/decoder";
@@ -150,7 +150,8 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
     if (graph.aliases.length !== 0 || graph.reads.length !== 0) {
       yield* prepareLocalGraph([{ participant: defineAtomicCommerceParticipant(definition.name),
         module: { aliases: graph.aliases, reads: graph.reads } }]);
-    } else if (graph.remotePaths !== undefined && graph.remotePaths.length !== 0 || graph.services !== undefined && graph.services.length !== 0) {
+    } else if (graph.remotePaths !== undefined && graph.remotePaths.length !== 0 || graph.services !== undefined && graph.services.length !== 0 ||
+      graph.linkEndpoints !== undefined && graph.linkEndpoints.length !== 0) {
       return yield* Result.fail(commerceError("unsupportedProfile"));
     }
     const token = Object.freeze({ name: definition.name, methods: selected });
@@ -177,9 +178,11 @@ function captureGraphDefinition(input: GraphModuleDefinition) {
       reads.push(Object.freeze({ ...read, ...metadata }));
     }
     const remotePaths = definition.remotePaths === undefined ? undefined : yield* captureCommerceInput(definition.remotePaths).pipe(Result.flatMap(decodeGraphRemotePaths));
+    const linkEndpoints = definition.linkEndpoints === undefined ? undefined : yield* captureCommerceInput(definition.linkEndpoints).pipe(Result.flatMap(decodeGraphLinkEndpoints));
     return Object.freeze({ aliases, reads: Object.freeze(reads),
       ...(services === undefined ? {} : { services }),
       ...(remotePaths === undefined ? {} : { remotePaths: Object.freeze(remotePaths.map(path => Object.freeze(path))) }),
+      ...(linkEndpoints === undefined ? {} : { linkEndpoints: Object.freeze(linkEndpoints.map(path => Object.freeze(path))) }),
     });
   });
 }

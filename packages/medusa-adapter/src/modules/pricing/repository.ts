@@ -104,9 +104,12 @@ const projectionPolicy: ProjectionPolicy = { ...scalarProjection, allowedPaths: 
 
 /** Pricing owns the finite nested creation policy; shared graph/read owners
  * retain traversal, scoped persistence and native mutation dispatch. */
-export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], mutable = false, lifecycle = false, preferences = false, shipping = false) {
-  if (preferences) return preparePricingPreferenceRepository(metadata);
+export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], mutable = false, lifecycle = false, preferences = false, shipping = false, shippingUpdates = false) {
   return Result.gen(function* () {
+    if (preferences) {
+      const prepared = yield* preparePricingPreferenceRepository(metadata);
+      return { ...prepared, query: undefined, mutationQuery: undefined };
+    }
     const entities: GraphEntity[] = [];
     for (const [name, model] of [["price_set", "PriceSet"], ["price", "Price"], ["price_rule", "PriceRule"],
       ["price_list", "PriceList"], ["price_list_rule", "PriceListRule"]] as const) {
@@ -156,8 +159,8 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         { kind: "children", name: "price_rules", foreignKey: ruleForeignKey, node: { entity: rule, omitRelations: [], steps: [] } },
       ] } },
     ] }, rowLimitDetail: (maximum, attempted, tables) => ({ maximum, attempted, tables }) };
-    const mutations = mutable ? yield* preparePricingMutations(catalog, price, rule,
-      priceTable.relationships.some(relation => relation.name === "price_rules" && relation.cascadeDelete)) : undefined;
+    const mutations = mutable || shippingUpdates ? yield* preparePricingMutations(catalog, price, rule,
+      priceTable.relationships.some(relation => relation.name === "price_rules" && relation.cascadeDelete), shippingUpdates) : undefined;
     const numeric = price.table.columns.filter(column => column.type === "bigNumber");
     const serializeGraph = Effect.fn("PricingRepository.serializeGraph")(function* (value: Json) {
       const output: JsonObject[] = [];
@@ -267,16 +270,18 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         const values: JsonObject[] = [];
         for (const inputRow of rows.get(price.table.name) ?? []) {
           const row = { ...inputRow };
+          if (shippingUpdates) yield* projectExactNumericColumns(row, numeric.filter(column => row["raw_" + column.name] !== undefined), "reserialize");
           for (const column of price.table.columns) if (column.type === "bigNumber") {
             const value = row[column.name];
             if ((value === undefined || value === null) && column.nullable) { row[column.name] = null; row["raw_" + column.name] = null; }
-            else { const encoded = yield* encodeExactNumeric(value); row[column.name] = encoded.value;
-              row["raw_" + column.name] = yield* Effect.fromResult(captureCommerceInput(encoded.raw, ctx.resources)); }
+            else { const suppliedRaw = shippingUpdates ? row["raw_" + column.name] : undefined;
+              const encoded = yield* encodeExactNumeric(suppliedRaw !== undefined && isJsonObject(suppliedRaw) ? suppliedRaw.value : value); row[column.name] = encoded.value;
+              row["raw_" + column.name] = suppliedRaw ?? (yield* Effect.fromResult(captureCommerceInput(encoded.raw, ctx.resources))); }
           }
           values.push(row);
         }
         rows.set(price.table.name, values);
-        const inserted = yield* insertGraphRows(ctx, profile.catalog, rows);
+        const inserted = yield* insertGraphRows(ctx, profile.catalog, rows, shippingUpdates ? { allowReconstitution: true } : {});
         if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
         yield* events.created(profile.catalog.entities.flatMap(entity => (inserted.get(entity.table.name) ?? [])
           .map(row => ({ modelName: entity.model, entity: { ...row } }))), shared);
@@ -366,6 +371,6 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       return { repository, denied, listRepository, ruleRepository: mutationRepositories?.ruleRepository ?? ruleRepository,
         priceRepository: mutationRepositories?.priceRepository ?? denied, preferenceRepository, mutationEvents, bridge, refuse, calculatePrices };
     };
-    return { bind, table: yield* readCatalog.table(set.table.name), paths: yield* relationPaths(readCatalog, set.table.name, paths) };
+    return { bind, query, mutationQuery: mutations?.query, table: yield* readCatalog.table(set.table.name), paths: yield* relationPaths(readCatalog, set.table.name, paths, shippingUpdates ? { nativeFields: true } : undefined) };
   });
 }

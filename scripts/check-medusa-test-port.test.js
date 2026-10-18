@@ -145,7 +145,7 @@ describe("maintained Medusa test ports", () => {
     const selected = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/service.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const repository = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/repository.ts", import.meta.url), "utf8");
     expect(() => verifyPricingWorkflowSelection(original, selected, repository)).not.toThrow();
-    const methods = 'methods: { ...(preferences ? { listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),\n        ...(!preferences ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}), ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {}) }';
+    const methods = 'methods: { ...(shippingUpdates ? { updatePriceSets: updateShippingPriceSets, listPrices: listShippingPrices,\n        listPriceRules: listShippingPriceRules, createPriceRules: createShippingPriceRules } : {}),\n        ...(preferences ? { listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),\n        ...(!preferences && !shippingUpdates ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}), ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {}) }';
     expect(selected).toContain(methods);
     expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: {}'), repository)).toThrow();
     expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceSets, createPriceLists, createPricePreferences, calculatePrices }'), repository)).toThrow();
@@ -180,8 +180,15 @@ describe("maintained Medusa test ports", () => {
         'restorePriceSets: lifecycle || shipping ? native.restorePriceSets.bind(native) : binding.refuse'),
       selected.replace('deletePriceSets: shipping ? native.deletePriceSets.bind(native) : binding.refuse',
         'deletePriceSets: mutable || shipping ? native.deletePriceSets.bind(native) : binding.refuse'),
-      selected.replace('if (shipping) shippingLifecycleServices.set', 'if (lifecycle || shipping) shippingLifecycleServices.set'),
-      selected.replace('shipping ? pricingShippingOptionPolicy(shippingOutput)', 'shipping ? pricingLogicalProductUpdateEventPolicy()'),
+      selected.replace('if (shipping && !shippingUpdates) shippingLifecycleServices.set', 'if (lifecycle || shipping) shippingLifecycleServices.set'),
+      selected.replace('shipping ? pricingShippingOptionPolicy(shippingOutput, shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined)', 'shipping ? pricingLogicalProductUpdateEventPolicy()'),
+      selected.replace('const shippingUpdates = admission === "shipping-option-updates"', 'const shippingUpdates = shipping'),
+      selected.replace('...(!preferences && !shippingUpdates ?', '...(!preferences ?'),
+      selected.replace('createPriceRules: createShippingPriceRules } : {})', 'createPriceRules: createShippingPriceRules, deletePriceSets } : {})'),
+      selected.replace('updatePriceSets: updateShippingPriceSets', 'updatePriceSets'),
+      selected.replace('[shippingUpdate, shippingListPrices, shippingListRules, shippingCreateRules, list, count, retrieve]', '[shippingUpdate, shippingListPrices, shippingListRules, shippingCreateRules, create, list, count, retrieve]'),
+      selected.replace('shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined', 'undefined, shippingUpdates ? prepared : undefined'),
+      selected.replace('shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined', 'shippingUpdates ? shippingMutation : undefined, undefined'),
     ]) {
       expect(changed).not.toBe(selected);
       expect(() => verifyPricingWorkflowSelection(original, changed, repository)).toThrow();

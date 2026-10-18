@@ -49,6 +49,8 @@ export interface ReplacementProfile {
   /** Complete deleted-child DTOs still need the accepting core's exact
    * same-root deletion proof; this policy never grants timestamp authority. */
   readonly allowReconstitution?: true;
+  /** Native DAL.update touches supplied owned to-one objects even for { id }. */
+  readonly touchOwnedToOne?: true;
   readonly allowedRelations: (entity: GraphEntity) => readonly string[];
   readonly ownedToOne: (entity: GraphEntity) => readonly string[];
   readonly mutableForeignKeys: (entity: GraphEntity) => boolean;

@@ -13,19 +13,19 @@ import { projectRows } from "../../query/projection";
 import { nativePreimageSelection } from "../../workflow/preimage";
 import { captureCommerceInput } from "../../value/input";
 import { commerceDecoder } from "../../value/decoder";
-import { decodeShippingOptionRuleCreates, decodeShippingOptionRuleUpdates, decodeShippingOptionRuleIds, ShippingOptionRuleReadInput } from "./shipping-option-rule-input";
 import type { prepareShippingOptionRuleRepository } from "./shipping-option-rule-repository";
 
 type Prepared = Result.Result.Success<ReturnType<typeof prepareShippingOptionRuleRepository>>;
 type Row = Result.Result.Success<ReturnType<Prepared["contracts"]["decodeRow"]>>;
-const decodeRead = commerceDecoder(ShippingOptionRuleReadInput, "receiptMismatch");
-const decodeOrderedIdentities = commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String }))
-  .check(Schema.isMaxLength(4)), "receiptMismatch");
 
 /** One receipt binds each genuine native call to its complete observed rows,
  * physical attempts, selector projection, result and ordered module messages.
  * Reused native normalization remains the business authority. */
 export function shippingOptionRulePolicy(prepared: Prepared) {
+  const maximum = prepared.inputs.maximum;
+  const decodeRead = prepared.inputs.decodeRead;
+  const decodeCreates = prepared.inputs.decodeCreates, decodeUpdates = prepared.inputs.decodeUpdates, decodeIds = prepared.inputs.decodeIds;
+  const decodeOrderedIdentities = commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String })).check(Schema.isMaxLength(maximum)), "receiptMismatch");
   const { capture } = scalarLogicalEventPolicy(Modules.FULFILLMENT, "shipping_option_rule", {
     insert: "shippingOptionRuleCreateForBatch", update: "shippingOptionRuleUpdateForBatch", delete: "shippingOptionRuleDeleteForBatch" });
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ShippingOptionRule.validateCall")(function* (call, activity) {
@@ -54,7 +54,7 @@ export function shippingOptionRulePolicy(prepared: Prepared) {
       if (!first.has(id)) { if (before === null) initial.delete(id); else initial.set(id, before); first.add(id); }
       mutations.push({ operation: mutation.operation, before, after });
     }
-    if (initial.size > 4 || observations.some(row => !jsonEqual(initial.get(row.id) ?? null, row) &&
+    if (initial.size > maximum || observations.some(row => !jsonEqual(initial.get(row.id) ?? null, row) &&
       !mutations.some(mutation => jsonEqual(mutation.before, row) || jsonEqual(mutation.after, row))))
       return yield* Effect.fail(mismatch());
     const read = (predicate: Parameters<typeof commerceRelationReadQuery>[1], count: number) => ({ table: prepared.contracts.table.name,
@@ -63,8 +63,9 @@ export function shippingOptionRulePolicy(prepared: Prepared) {
     if (call.commandName === "shippingOptionRuleListForBatch") {
       if (call.mode !== "read" || mutations.length || call.events.length) return yield* Effect.fail(mismatch());
       const input = yield* Effect.fromResult(decodeRead(call.input));
-      const ids = typeof input.filters.id === "string" ? [input.filters.id] : input.filters.id;
-      if ([...initial.keys()].some(id => !ids.includes(id))) return yield* Effect.fail(mismatch());
+      const filters: JsonObject = input.filters;
+      if ([...initial.values()].some(row => Object.entries(filters).some(([field, value]) =>
+        Array.isArray(value) ? !value.includes(row[field] ?? null) : row[field] !== value))) return yield* Effect.fail(mismatch());
       const config = nativePreimageSelection(input.config ?? {}, prepared);
       const query = yield* Effect.fromResult(captureCommerceInput(buildQuery(input.filters, {
         ...(config.select === undefined ? {} : { select: [...config.select] }),
@@ -78,7 +79,7 @@ export function shippingOptionRulePolicy(prepared: Prepared) {
     if (call.mode !== "write") return yield* Effect.fail(mismatch());
     const expectedEvents: Array<{ id: string; action: "created" | "updated" | "deleted" }> = [];
     if (call.commandName === "shippingOptionRuleCreateForBatch") {
-      const inputs = structuredClone(yield* Effect.fromResult(decodeShippingOptionRuleCreates(call.input)));
+      const inputs = structuredClone(yield* Effect.fromResult(decodeCreates(call.input)));
       // This foreign call only runs the genuine synchronous native validator on
       // detached checked JSON; any native refusal means no successful receipt.
       // SAFETY: the native helper's Rule alias omits runtime boolean/number and
@@ -93,13 +94,14 @@ export function shippingOptionRulePolicy(prepared: Prepared) {
         if (mutation?.operation !== "insert" || after === null || after === undefined || after.deleted_at !== null ||
           !jsonEqual(output[index] ?? null, after)) return yield* Effect.fail(mismatch());
         const createdAt = after.created_at, updatedAt = after.updated_at;
-        if (typeof createdAt !== "string" || typeof updatedAt !== "string" || createdAt !== updatedAt) return yield* Effect.fail(mismatch());
+        if (typeof createdAt !== "string" || typeof updatedAt !== "string" ||
+          ("created_at" in input ? createdAt !== input.created_at : createdAt !== updatedAt)) return yield* Effect.fail(mismatch());
         const expected = { ...input, id: after.id, created_at: createdAt, updated_at: updatedAt, deleted_at: null };
         if (input.id !== undefined && input.id !== after.id || !jsonEqual(after, expected)) return yield* Effect.fail(mismatch());
         expectedEvents.push({ id: after.id, action: "created" });
       }
     } else if (call.commandName === "shippingOptionRuleUpdateForBatch") {
-      const inputs = structuredClone(yield* Effect.fromResult(decodeShippingOptionRuleUpdates(call.input)));
+      const inputs = structuredClone(yield* Effect.fromResult(decodeUpdates(call.input)));
       // SAFETY: same checked native wider runtime boundary as creation above.
       yield* Effect.try({ try: () => validateAndNormalizeRules(inputs as Parameters<typeof validateAndNormalizeRules>[0]), catch: cause => commerceError("receiptMismatch", cause) });
       const byId = new Map(inputs.map(row => [row.id, row]));
@@ -119,7 +121,7 @@ export function shippingOptionRulePolicy(prepared: Prepared) {
       }
       if (!jsonEqual(yield* Effect.fromResult(prepared.contracts.decodeRows(call.result)), expected)) return yield* Effect.fail(mismatch());
     } else if (call.commandName === "shippingOptionRuleDeleteForBatch") {
-      const ids = yield* Effect.fromResult(decodeShippingOptionRuleIds(call.input));
+      const ids = yield* Effect.fromResult(decodeIds(call.input));
       const identities = ids.length ? yield* Effect.fromResult(decodeOrderedIdentities(activity.relationalReads[0]?.orderedIdentities)) : [];
       if (identities.length !== initial.size || new Set(identities.map(row => row.id)).size !== identities.length ||
         identities.some(row => !initial.has(row.id))) return yield* Effect.fail(mismatch());
@@ -164,9 +166,9 @@ export function shippingOptionRulePolicy(prepared: Prepared) {
       if (observation.table === prepared.contracts.table.name) record(observation.row);
     for (const call of calls) {
       if (call.commandName === "shippingOptionRuleDeleteForBatch")
-        for (const id of yield* Effect.fromResult(decodeShippingOptionRuleIds(call.input))) rules.add(id);
+        for (const id of yield* Effect.fromResult(decodeIds(call.input))) rules.add(id);
     }
-    if (rules.size > 12 || parents.size > 4) return yield* Effect.fail(commerceError("limitExceeded"));
+    if (rules.size > (prepared.inputs.profile === "batch" ? 12 : 32) || parents.size > 4) return yield* Effect.fail(commerceError("limitExceeded"));
   });
   return { capture, validateLogicalCall, validateLogical, allowStorageInsertionOrder: true as const };
 }

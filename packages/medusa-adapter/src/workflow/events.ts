@@ -8,9 +8,10 @@ import type { WorkflowCallResults } from "./host";
  * Each framework root selects its own event family and expected identities. */
 export function orderedWorkflowIdEvents(name: string,
   expectedIds: (calls: WorkflowCallResults) => Effect.Effect<readonly string[], CommerceTransactionError>,
-  options: { readonly pendingCancellation?: true } = {}) {
+  options: { readonly pendingCancellation?: true; readonly dataShape?: "string" } = {}) {
+  const id = Schema.String.check(Schema.isLengthBetween(1, 256));
   const decode = commerceDecoder(Schema.Struct({ name: Schema.Literal(name),
-    data: Schema.Struct({ id: Schema.String.check(Schema.isLengthBetween(1, 256)) }),
+    data: options.dataShape === "string" ? id : Schema.Struct({ id }),
     metadata: Schema.Struct({ eventGroupId: Schema.String }),
   }), "unadmittedEvent");
   return {
@@ -24,7 +25,7 @@ export function orderedWorkflowIdEvents(name: string,
         if (event.contract !== name) continue;
         const message = yield* Effect.fromResult(decode(event.message));
         if (message.metadata.eventGroupId !== event.group) return yield* Effect.fail(commerceError("receiptMismatch"));
-        observed.push(message.data.id);
+        observed.push(typeof message.data === "string" ? message.data : message.data.id);
       }
       if (observed.length !== expected.length || observed.some((id, index) => id !== expected[index])) return yield* Effect.fail(commerceError("receiptMismatch"));
     }),

@@ -229,6 +229,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
       ...(member.expose === false ? { expose: false } : {}),
       graph: member.graph ? { aliases: definition.graph.aliases, reads: graphIdentities,
         ...(definition.graph.remotePaths === undefined ? {} : { remotePaths: definition.graph.remotePaths }),
+        ...(definition.graph.linkEndpoints === undefined ? {} : { linkEndpoints: definition.graph.linkEndpoints }),
         ...(definition.graph.services === undefined ? {} : { services: definition.graph.services }),
       } : null,
     });

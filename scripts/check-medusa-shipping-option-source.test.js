@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { verifyShippingOptionCreateCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
+import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 
 const root = process.cwd();
 /** @param {string} file */
@@ -136,5 +136,31 @@ describe("Region complete native manifest without Country default loading", () =
   it("requires exactly the native loader import and both loader arrays", () => {
     expect(() => verifyRegionManifestFork(source.replace('import loadDefaults from "./loaders/defaults"', 'import different from "./loaders/defaults"'), adapted)).toThrow("native adaptation anchor");
     expect(() => verifyRegionManifestFork(source.replace("loaders: [loadDefaults]", "loaders: []"), adapted)).toThrow("native adaptation anchor");
+  });
+});
+
+describe("native Shipping Option updates and approved complete Rule inverses", () => {
+  it("admits complete native forward behavior and approved inverse corrections", () => {
+    expect(() => verifyShippingOptionUpdateCallbacks(root)).not.toThrow();
+  });
+  it.each([
+    ["workflow validators", "workflows/update-shipping-options.ts", "validateFulfillmentProvidersStep(input)", "validateFulfillmentProvidersStep([])"],
+    ["calculated price clearing", "workflows/update-shipping-options.ts", "prices: isCalculatedOption ? [] : prices", "prices"],
+    ["update event", "workflows/update-shipping-options.ts", "ShippingOptionWorkflowEvents.UPDATED", "ShippingOptionWorkflowEvents.CREATED"],
+    ["full Option Rule preimages", "steps/upsert-shipping-options.ts", '"rules.*"', '"rules.id"'],
+    ["restore removed Option Rules", "steps/upsert-shipping-options.ts", "await service.createShippingOptionRules(missing)", "await service.createShippingOptionRules([])"],
+    ["delete introduced Option Rules", "steps/upsert-shipping-options.ts", "await service.deleteShippingOptionRules(introduced)", "await service.deleteShippingOptionRules([])"],
+    ["Option Rule ownership", "steps/upsert-shipping-options.ts", "shipping_option_id: option.id", 'shipping_option_id: "other"'],
+    ["flat native Pricing Rule capture", "steps/set-shipping-options-prices.ts", "price_id: priorPrices.map(price => price.id)", "price_id: []"],
+    ["Price Rule ownership", "steps/set-shipping-options-prices.ts", "rule.price_id === price.id", "true"],
+    ["restore only surviving Price parents", "steps/set-shipping-options-prices.ts", "existingIds.has(price.id)", "true"],
+    ["restore only missing Price Rules", "steps/set-shipping-options-prices.ts", "!existingRuleIds.has(rule.id)", "true"],
+    ["Price Rule original identities", "steps/set-shipping-options-prices.ts", "await service.createPriceRules(missing)", "await service.createPriceRules([])"],
+    ["scalar native update", "steps/set-shipping-options-prices.ts", "pricingService.updatePriceSets(shippingOptionData.price_set_id", 'pricingService.updatePriceSets("other"'],
+    ["omitted price skip", "steps/set-shipping-options-prices.ts", "!isDefined(shippingOptionData.prices)", "false"],
+  ])("rejects changed %s", (_label, file, before, after) => {
+    const original = target(file); expect(original).toContain(before);
+    expect(() => verifyShippingOptionUpdateCallbacks(root, { [file]: { target: original.replace(before, after) } }))
+      .toThrow("Changed native Shipping Option update callback behavior");
   });
 });

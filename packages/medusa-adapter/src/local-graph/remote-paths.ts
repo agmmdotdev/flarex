@@ -6,13 +6,40 @@ import { commerceDecoder } from "../value/decoder";
 import { checkedCommerceValue } from "../value/checked";
 import type { ProjectionNode } from "../query/projection";
 import type { GraphParticipant, GraphReadSelection, GraphRemotePath } from "./model";
-import { decodeGraphRemotePaths } from "./links";
+import { decodeGraphRemotePaths, decodeGraphLinkEndpoints, type GraphLinkEndpoint } from "./links";
+import { planGraphFields } from "./fields";
 import { captureCommerceInput } from "../value/input";
 
 export interface ResolvedGraphRemotePath extends GraphRemotePath {
   readonly source: GraphReadSelection;
   readonly link: GraphReadSelection;
   readonly target: GraphReadSelection;
+}
+export interface ResolvedGraphLinkEndpoint extends GraphLinkEndpoint { readonly target: GraphReadSelection }
+
+/** Direct Link endpoints retain the declaring participant's row authority and
+ * borrow only the selected endpoint's authentic read command. */
+export function prepareGraphLinkEndpoints(participants: readonly GraphParticipant[], models: ReadonlyMap<string, readonly GraphReadSelection[]>) {
+  return Result.gen(function* () {
+    const roots = new Map<string, Map<string, ResolvedGraphLinkEndpoint>>();
+    for (const participant of participants) {
+      const definitions = yield* captureCommerceInput(participant.module.linkEndpoints ?? []).pipe(Result.flatMap(decodeGraphLinkEndpoints));
+      for (const definition of definitions) {
+        const sources = models.get(definition.root), targets = models.get(definition.targetModel), source = sources?.[0], target = targets?.[0];
+        if (sources?.length !== 1 || source === undefined || source.participant !== participant.participant || targets?.length !== 1 || target === undefined ||
+          !source.read.table.columns.includes(definition.sourceKey) || target.read.table.primaryKeys.length !== 1 || target.read.table.primaryKeys[0] !== definition.targetKey ||
+          source.read.paths.some(path => path.path === definition.path)) return yield* Result.fail(commerceError("unsupportedProfile"));
+        const paths = roots.get(definition.root) ?? new Map<string, ResolvedGraphLinkEndpoint>();
+        if (paths.has(definition.path)) return yield* Result.fail(commerceError("unsupportedProfile"));
+        paths.set(definition.path, Object.freeze({ ...definition, target })); roots.set(definition.root, paths);
+      }
+    }
+    return roots;
+  });
+}
+
+function projectionFields(node: ProjectionNode, prefix = ""): string[] {
+  return [...[...node.fields].map(field => prefix + field), ...node.children.flatMap(child => projectionFields(child.node, prefix + child.name + "."))];
 }
 
 /** Resolve a complete composition of authentic read commands. A module's Link
@@ -66,14 +93,15 @@ const keys = (rows: readonly JsonObject[], column: string) => Result.gen(functio
 export const populateGraphRemotePaths = Effect.fn("LocalGraph.populateRemotePaths")(function* (
   context: AtomicCommerceContext, rows: readonly JsonObject[], node: ProjectionNode,
   paths: ReadonlyMap<string, ResolvedGraphRemotePath>,
+  endpoints: ReadonlyMap<string, ResolvedGraphLinkEndpoint> = new Map(),
 ) {
   const complete = Effect.fn("LocalGraph.readCompleteRemote")(function* (
-    selected: GraphReadSelection, filters: JsonObject, fields: readonly string[], maximum: number,
+    selected: GraphReadSelection, filters: JsonObject, fields: readonly string[], maximum: number, relations: readonly string[] = [],
   ) {
     const column = selected.read.orderable[0];
     if (column === undefined) return yield* context.refuse(commerceError("unsupportedProfile"));
     const value = yield* context.call(selected.participant, selected.read.command, {
-      filters, config: { select: fields, relations: [], order: { [column]: "ASC" }, skip: 0, take: maximum },
+      filters, config: { select: fields, relations, order: { [column]: "ASC" }, skip: 0, take: maximum },
     });
     return yield* checkedCommerceValue(context, () => selected.read.decode(value).pipe(Result.flatMap(([found, count]) =>
       count > maximum ? Result.fail(commerceError("unsupportedProfile")) : found.length !== count
@@ -85,6 +113,19 @@ export const populateGraphRemotePaths = Effect.fn("LocalGraph.populateRemotePath
     const result = parents.map(row => ({ ...row }));
     for (const child of projection.children) {
       const name = prefix + child.name, path = paths.get(name);
+      const endpoint = endpoints.get(name);
+      if (endpoint !== undefined) {
+        if (parents.length > endpoint.maximumSources) return yield* context.refuse(commerceError("unsupportedProfile"));
+        const selected = yield* checkedCommerceValue(context, () => keys(parents, endpoint.sourceKey));
+        if (selected.length > endpoint.maximumTargets) return yield* context.refuse(commerceError("unsupportedProfile"));
+        const plan = yield* checkedCommerceValue(context, () => planGraphFields(endpoint.target.read, projectionFields(child.node), true));
+        const targets = selected.length === 0 ? [] : yield* complete(endpoint.target, { [endpoint.targetKey]: selected }, plan.select, endpoint.maximumTargets, plan.relations);
+        const ids = yield* checkedCommerceValue(context, () => keys(targets, endpoint.targetKey));
+        if (ids.length !== targets.length || ids.some(id => !selected.includes(id))) return yield* context.refuse(commerceError("storedCorruption"));
+        const byId = new Map(targets.map(target => [target[endpoint.targetKey], target]));
+        for (const parent of result) parent[child.name] = byId.get(parent[endpoint.sourceKey]) ?? null;
+        continue;
+      }
       if (path === undefined) {
         // Service-owned local hydration can prefix a stored Link. Collect the
         // complete cohort before recursion so per-edge limits cannot be reset

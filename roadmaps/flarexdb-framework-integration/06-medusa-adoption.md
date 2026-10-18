@@ -464,12 +464,29 @@ The currently selected creation allowance is 512 calls, 128 events and 2 MiB of
 command bytes. Both installed deletion compositions select 512 calls, 256 events,
 2 MiB and the existing 30-second logical request allowance through their named
 trusted profiles; shared defaults, SQL statement and lock timeouts remain unchanged.
-These selections and the connected outcome remain under implementation
-validation. Required driver, overflow, rollback, replay, callback-lifetime,
-publication, provenance, portability, lint and independent-review gates remain
-open until that validation completes. Populated upgrades, arbitrary provider
+These selections and the connected creation and installed deletion outcomes are
+implemented as private bounded support. Populated upgrades, arbitrary provider
 execution, public/hosted activation, Product file import and Product export
 remain separate.
+
+The [native Shipping Option update](./preflight/139-native-shipping-option-updates.md)
+root also implements private bounded support for four existing Options, sixteen
+active Option Rules, eight Prices, 24 PriceRules and eight distinct Regions.
+Both validators, native normalization, omitted/empty distinctions, final batch
+relation hydration and genuine retained callbacks remain native-owned. The
+approved native compensation correction captures complete Option Rule and
+PriceRule preimages and restores original identities and creation timestamps.
+Explicit compensation retains native inline-Type orphans; atomic failure still
+rolls back the entire root. The selected update root uses 768 calls, 256 events,
+2 MiB and 30 seconds through the existing identity-bound resource API.
+
+The shared graph owner now supports direct Link-root endpoint projection through
+authenticated target reads and checked native relationship keys; captured join
+paths and bounds participate in durable workflow identity. The selected Pricing
+receipt correlates requested normalized prices, mutations, results and exact
+read coverage. Native Pricing owns the extracted normalization algorithm. These
+extensions preserve the separate creation, Product, Store and lifecycle profiles.
+Public/hosted activation and populated upgrades remain separate.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

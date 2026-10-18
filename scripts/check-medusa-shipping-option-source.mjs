@@ -41,13 +41,30 @@ function replaceChecked(text, before, after, count, message) {
  * @param {string} root
  * @param {Record<string, {source?: string, target?: string}>} overrides */
 export function verifyShippingOptionCreateCallbacks(root, overrides = {}) {
+  return verifyShippingCallbacks(root, files, failure, overrides);
+}
+
+/** @param {string} root @param {Record<string, {source?: string, target?: string}>} overrides */
+export function verifyShippingOptionUpdateCallbacks(root, overrides = {}) {
+  return verifyShippingCallbacks(root, [
+    ["workflows/update-shipping-options.ts", undefined],
+    ["steps/set-shipping-options-prices.ts", "setShippingOptionsPricesStepId"],
+    ...files.filter(([file]) => ["steps/upsert-shipping-options.ts", "steps/validate-fulfillment-providers.ts",
+      "steps/validate-shipping-option-prices.ts", "../common/steps/emit-event.ts"].includes(file)),
+  ], "Changed native Shipping Option update callback behavior", overrides);
+}
+
+/** @param {string} root @param {ReadonlyArray<readonly [string, string | undefined]>} files
+ * @param {string} failure @param {Record<string, {source?: string, target?: string}>} overrides */
+function verifyShippingCallbacks(root, files, failure, overrides) {
   if (Object.keys(overrides).some(name => !files.some(([file]) => file === name))) throw new Error(failure + ": unknown packet file");
   for (const [file, compensatedId] of files) {
     const source = (overrides[file]?.source ?? readFileSync(path.join(root,
       "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment", file), "utf8")).replaceAll("\r\n", "\n");
     const target = overrides[file]?.target ?? readFileSync(path.join(root,
       "packages/medusa-core-flows/src/fulfillment", file), "utf8");
-    let expected = source;
+    let expected = file === "steps/upsert-shipping-options.ts" ? adaptRuleCompensation(source, "option", failure)
+      : file === "steps/set-shipping-options-prices.ts" ? adaptRuleCompensation(source, "pricing", failure) : source;
     if (file !== "../common/steps/emit-event.ts") {
       expected = replaceChecked(expected, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"', 1, failure);
       expected = replaceChecked(expected, 'from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"', 1, failure);
@@ -56,6 +73,11 @@ export function verifyShippingOptionCreateCallbacks(root, overrides = {}) {
     if (file === "workflows/create-shipping-options.ts") {
       expected = replaceChecked(expected, 'import {\n  createShippingOptionsPriceSetsStep,\n  upsertShippingOptionsStep,\n} from "../steps"',
         'import { createShippingOptionsPriceSetsStep } from "../steps/add-shipping-options-prices"\nimport { upsertShippingOptionsStep } from "../steps/upsert-shipping-options"', 1, failure);
+      expected = replaceChecked(expected, 'from "../../common"', 'from "../../common/steps/emit-event"', 1, failure);
+    }
+    if (file === "workflows/update-shipping-options.ts") {
+      expected = replaceChecked(expected, 'import {\n  setShippingOptionsPricesStep,\n  upsertShippingOptionsStep,\n} from "../steps"',
+        'import { setShippingOptionsPricesStep } from "../steps/set-shipping-options-prices"\nimport { upsertShippingOptionsStep } from "../steps/upsert-shipping-options"', 1, failure);
       expected = replaceChecked(expected, 'from "../../common"', 'from "../../common/steps/emit-event"', 1, failure);
     }
     if (file === "steps/set-shipping-options-price-sets.ts") expected = replaceChecked(expected,
@@ -74,4 +96,99 @@ export function verifyRegionManifestFork(source, target) {
   let expected = replaceChecked(source.replaceAll("\r\n", "\n"), 'import loadDefaults from "./loaders/defaults"\n', "", 1, message);
   expected = replaceChecked(expected, "loaders: [loadDefaults]", "loaders: []", 2, message);
   if (runtime(expected, message) !== runtime(target, message)) throw new Error(message);
+}
+
+/** @type {ReadonlyArray<readonly [string, string]>} */
+const optionRuleCompensation = [
+  [String.raw`export const upsertShippingOptionsStepId =`, String.raw`async function restoreShippingOptionRulePreimages(
+  previous: { id: string; rules?: (CreateShippingOptionRuleDTO & { id: string })[] }[],
+  service: IFulfillmentModuleService
+) {
+  const withRules = previous.filter(option => Object.hasOwn(option, "rules"))
+  if (!withRules.length) return
+  // The native DML supports the owner FK although its filter DTO omits it.
+  const filters: FilterableShippingOptionRuleProps & { shipping_option_id: string[] } = {
+    shipping_option_id: withRules.map(option => option.id),
+  }
+  const current = await service.listShippingOptionRules(
+    filters,
+    { select: ["id", "shipping_option_id"] }
+  )
+  const original = withRules.flatMap(option =>
+    (option.rules ?? []).map(rule => ({ ...rule, shipping_option_id: option.id }))
+  )
+  const currentIds = new Set(current.map(rule => rule.id))
+  const originalIds = new Set(original.map(rule => rule.id))
+  const missing = original.filter(rule => !currentIds.has(rule.id))
+  if (missing.length) await service.createShippingOptionRules(missing)
+  const introduced = current.filter(rule => !originalIds.has(rule.id)).map(rule => rule.id)
+  if (introduced.length) await service.deleteShippingOptionRules(introduced)
+}
+
+export const upsertShippingOptionsStepId =`],
+  [String.raw`      toUpdatePreviousData = await fulfillmentService.listShippingOptions(`, String.raw`      if (toUpdate.some(option => Object.hasOwn(option, "rules"))) {
+        const fullSelects = selects.filter(field => !field.startsWith("rules."))
+        selects.splice(0, selects.length, ...fullSelects, "rules.*")
+        if (!relations.includes("rules")) relations.push("rules")
+      }
+      toUpdatePreviousData = await fulfillmentService.listShippingOptions(`],
+  [String.raw`      await fulfillmentService.upsertShippingOptions(
+        shippingOptionIds.updatedPreviousData
+      )`, String.raw`      await restoreShippingOptionRulePreimages(
+        shippingOptionIds.updatedPreviousData, fulfillmentService
+      )
+      await fulfillmentService.upsertShippingOptions(
+        shippingOptionIds.updatedPreviousData
+      )`]
+];
+
+/** @type {ReadonlyArray<readonly [string, string]>} */
+const priceRuleCompensation = [
+  [String.raw`export const setShippingOptionsPricesStepId =`, String.raw`async function restorePriceRulePreimages(
+  prices: PriceDTO[],
+  service: IPricingModuleService
+) {
+  if (!prices.length) return
+  const existing = await service.listPrices(
+    { id: prices.map(price => price.id) }, { select: ["id"] }
+  )
+  const existingIds = new Set(existing.map(price => price.id))
+  const original = prices.filter(price => existingIds.has(price.id)).flatMap(price =>
+    (price.price_rules ?? []).map(rule => ({ ...rule, price_id: price.id }))
+  )
+  if (!original.length) return
+  const existingRules = await service.listPriceRules(
+    { id: original.map(rule => rule.id) }, { select: ["id"] }
+  )
+  const existingRuleIds = new Set(existingRules.map(rule => rule.id))
+  const missing = original.filter(rule => !existingRuleIds.has(rule.id))
+  if (missing.length) await service.createPriceRules(missing)
+}
+
+export const setShippingOptionsPricesStepId =`],
+  [String.raw`    for (const data_ of data) {`, String.raw`    const priorPrices = currentShippingOptionPricesData.flatMap(item => item.prices ?? [])
+    if (priorPrices.length) {
+      const priorRules = await pricingService.listPriceRules({
+        price_id: priorPrices.map(price => price.id),
+      })
+      for (const item of currentShippingOptionPricesData) {
+        item.prices = item.prices.map(price => ({
+          ...price,
+          price_rules: priorRules.filter(rule => rule.price_id === price.id),
+        }))
+      }
+    }
+    for (const data_ of data) {`],
+  [String.raw`    for (const data_ of rollbackData) {`, String.raw`    await restorePriceRulePreimages(
+      rollbackData.flatMap(data => data.prices ?? []), pricingService
+    )
+    for (const data_ of rollbackData) {`]
+];
+
+/** Approved139 workflow business correction, kept distinct from import relocation.
+ * @param {string} source @param {"option" | "pricing"} kind @param {string} message */
+function adaptRuleCompensation(source, kind, message) {
+  for (const [before, after] of kind === "option" ? optionRuleCompensation : priceRuleCompensation)
+    source = replaceChecked(source, before, after, 1, message);
+  return source;
 }

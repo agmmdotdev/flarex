@@ -7,7 +7,7 @@ import { makeReadCatalog } from "../query/catalog";
 import { isGraphReadCommand } from "./commands";
 import { planGraphFields, type GraphFieldPlan } from "./fields";
 import type { GraphParticipant, GraphReadDefinition, GraphReadSelection, LocalGraphQuery, PreparedLocalGraph } from "./model";
-import { populateGraphRemotePaths, prepareGraphRemotePaths } from "./remote-paths";
+import { populateGraphRemotePaths, prepareGraphRemotePaths, prepareGraphLinkEndpoints } from "./remote-paths";
 
 const queryFields = {
   fields: Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isLengthBetween(1, 256)),
@@ -126,11 +126,18 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
     }
     if (entries.size === 0) return yield* Result.fail(commerceError("unsupportedProfile"));
     const remotePaths = yield* prepareGraphRemotePaths(participants, allModels);
+    const linkEndpoints = yield* prepareGraphLinkEndpoints(participants, allModels);
     for (const catalog of [entries, services]) for (const [alias, entry] of catalog) {
       const paths = remotePaths.get(entry.read.model);
-      if (paths === undefined) continue;
+      const endpoints = linkEndpoints.get(entry.read.model);
+      if (paths === undefined && endpoints === undefined) continue;
+      if ([...endpoints?.keys() ?? []].some(path => paths?.has(path))) return yield* Result.fail(commerceError("unsupportedProfile"));
       catalog.set(alias, { ...entry, read: Object.freeze({ ...entry.read, paths: Object.freeze([...entry.read.paths,
-        ...[...paths.values()].map(path => Object.freeze({ path: path.path, table: path.target.read.table, many: true, sourceFields: Object.freeze([path.sourceKey]) })),
+        ...[...paths?.values() ?? []].map(path => Object.freeze({ path: path.path, table: path.target.read.table, many: true, sourceFields: Object.freeze([path.sourceKey]) })),
+        ...[...endpoints?.values() ?? []].flatMap(endpoint => [
+          Object.freeze({ path: endpoint.path, table: endpoint.target.read.table, many: false, sourceFields: Object.freeze([endpoint.sourceKey]) }),
+          ...endpoint.target.read.paths.map(path => Object.freeze({ ...path, path: endpoint.path + "." + path.path })),
+        ]),
       ]) }) });
     }
     return Object.freeze({ entities: Object.freeze([...entries.keys()]), bind: (context): LocalGraphQuery => {
@@ -140,18 +147,21 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         const { entry, args, fields, order } = yield* checkedCommerceValue(context, () => planQuery(input, service ? services : entries, service, native));
         const skip = args.pagination.skip ?? 0, take = args.pagination.take;
         const remote = remotePaths.get(entry.read.model);
-        const selectedRemote = fields.relations.filter(path => remote?.has(path));
-        const relations = fields.relations.filter(path => !remote?.has(path));
+        const endpoints = linkEndpoints.get(entry.read.model);
+        const isRemote = (path: string) => remote?.has(path) === true || [...endpoints?.keys() ?? []].some(prefix => path === prefix || path.startsWith(prefix + "."));
+        const selectedRemote = fields.relations.filter(isRemote);
+        const relations = fields.relations.filter(path => !isRemote(path));
         const select = selectedRemote.length !== 0 && relations.length === 0
-          ? [...new Set([...fields.node.fields, ...entry.read.table.primaryKeys])] : fields.select;
+          ? [...new Set([...fields.node.fields, ...entry.read.table.primaryKeys,
+            ...selectedRemote.flatMap(path => remote?.get(path)?.sourceKey ?? endpoints?.get(path)?.sourceKey ?? [])])] : fields.select;
         const value = yield* context.call(entry.participant, entry.read.command, {
           filters: args.filters ?? {}, config: { select, relations, order, skip, take },
         });
         const [rows, count] = yield* checkedCommerceValue(context, () => entry.read.decode(value));
         if (rows.length > take || rows.length !== Math.min(take, Math.max(0, count - skip)))
           return yield* context.refuse(commerceError("storedCorruption"));
-        const populated = selectedRemote.length === 0 || remote === undefined ? rows
-          : yield* populateGraphRemotePaths(context, rows, fields.node, remote);
+        const populated = selectedRemote.length === 0 ? rows
+          : yield* populateGraphRemotePaths(context, rows, fields.node, remote ?? new Map(), endpoints);
         return yield* checkedCommerceValue(context, () => graphResult(populated, count, fields, skip, take));
       });
       return Object.freeze({ graph: (input: unknown) => execute(input, false, false), service: (input: unknown) => execute(input, true, true), native: (input: unknown) => execute(input, false, true) });

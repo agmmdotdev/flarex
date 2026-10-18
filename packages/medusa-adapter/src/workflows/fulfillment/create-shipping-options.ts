@@ -1,4 +1,5 @@
 import { Effect, Result, Schema } from "effect";
+import { ShippingOptionWorkflowPrice } from "./shipping-option-prices";
 import { createShippingOptionsWorkflow } from "@medusajs/core-flows/fulfillment/create-shipping-options";
 import { ShippingOptionWorkflowEvents } from "@medusajs/framework/utils/portable";
 import { LocationFulfillmentSet, LocationFulfillmentProvider, ShippingOptionPriceSet } from "@medusajs/link-modules";
@@ -39,14 +40,6 @@ export type ShippingOptionCreationModules = {
   readonly providerLinks: Links;
   readonly priceSetLinks: Links;
 };
-const PriceRule = Schema.Struct({ attribute: ShippingOptionId, operator: Schema.String,
-  value: Schema.Number.check(Schema.isFinite()) });
-const PriceFields = { amount: Schema.Number.check(Schema.isFinite()),
-  rules: Schema.optionalKey(Schema.Array(PriceRule).check(Schema.isMaxLength(2))) };
-export const ShippingOptionWorkflowPrice = Schema.Union([
-  Schema.Struct({ currency_code: ShippingOptionId, ...PriceFields }),
-  Schema.Struct({ region_id: ShippingOptionId, ...PriceFields }),
-]);
 /** Two numeric rules plus native automatic Region expansion fit the selected
  * 24-rule creation graph. Native helpers retain grouping and override order. */
 export const ShippingOptionCreationInput = Schema.Array(Schema.Struct({ ...ShippingOptionCreate.fields,
