@@ -1,4 +1,4 @@
-import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../../support/pgliteTestFixture";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir, useFileScopedPGliteControlScopePersistence } from "../../support/pgliteTestFixture";
 import {
   replacementScopeIdV1FromUuid,
   type ReplacementScopeIdV1,
@@ -26,11 +26,12 @@ const sharedLocator = Object.freeze({
   schemaName: "public",
 }) satisfies SharedDatabaseScopePhysicalLocator;
 
-describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
+const withPersistence = useFileScopedPGliteControlScopePersistence();
+
+describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", { concurrent: false }, () => {
   beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
 
-  it("returns one frozen empty page without writing control state", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("returns one frozen empty page without writing control state", async () => withPersistence(async persistence => {
     const before = await scopeCount(persistence);
     const page = await runEffect(
       discovery(persistence).discoverEffect({ limit: 1 }),
@@ -39,10 +40,9 @@ describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
     expect(Object.isFrozen(page)).toBe(true);
     expect(Object.isFrozen(page.candidates)).toBe(true);
     await expect(scopeCount(persistence)).resolves.toBe(before);
-  });
+  }));
 
-  it("returns only frozen inert replacement-scope locators", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("returns only frozen inert replacement-scope locators", async () => withPersistence(async persistence => {
     const first = scopeIdAt(1);
     const second = scopeIdAt(2);
     await insertScope(persistence, second);
@@ -77,10 +77,9 @@ describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
     expect(persistencePackage).not.toHaveProperty(
       "createPointMutationRedeliveryScopeDiscoveryV1",
     );
-  });
+  }));
 
-  it("skips bounded in-range noncanonical directory rows without poisoning later replacement scopes", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("skips bounded in-range noncanonical directory rows without poisoning later replacement scopes", async () => withPersistence(async persistence => {
     for (let sequence = 1; sequence <= 25; sequence += 1) {
       await insertLegacyScope(persistence, sequence);
     }
@@ -105,10 +104,9 @@ describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
 
     expect(pageCount).toBe(3);
     expect(discovered).toEqual([first, second]);
-  });
+  }));
 
-  it("keeps database-owned cursor ordering across mixed legacy spellings", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("keeps database-owned cursor ordering across mixed legacy spellings", async () => withPersistence(async persistence => {
     await insertLegacyScopeId(persistence, "Scope_uppercase_Ω", "upper");
     await insertLegacyScopeId(persistence, "scope_legacy_é", "accent");
     await insertLegacyScopeId(persistence, "scope_legacy_😀", "astral");
@@ -131,10 +129,9 @@ describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
 
     expect(pageCount).toBe(4);
     expect(discovered).toEqual([replacement]);
-  });
+  }));
 
-  it("paginates 100 plus overflow under one inert high-water fence", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("paginates 100 plus overflow under one inert high-water fence", async () => withPersistence(async persistence => {
     for (let sequence = 1; sequence <= 102; sequence += 1) {
       await insertScope(persistence, scopeIdAt(sequence));
     }
@@ -169,10 +166,9 @@ describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
 
     const fresh = await runEffect(repository.discoverEffect({ limit: 100 }));
     expect(fresh.continuation?.highWaterScopeId).toBe(deferred);
-  }, 30_000);
+  }), 30_000);
 
-  it("rejects malformed limits, excess fields, and inverted continuations", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects malformed limits, excess fields, and inverted continuations", async () => withPersistence(async persistence => {
     const repository = discovery(persistence);
     for (const invalid of [
       { limit: 0 },
@@ -209,10 +205,9 @@ describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
       _tag: "PointMutationRedeliveryScopeDiscoveryInputV1Error",
       reason: "continuationOrderingInvalid",
     });
-  });
+  }));
 
-  it("fails closed when a replacement-scope directory row has invalid deployment evidence", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("fails closed when a replacement-scope directory row has invalid deployment evidence", async () => withPersistence(async persistence => {
     const scopeId = scopeIdAt(500);
     await persistence.insertDeploymentMetadata({
       deploymentId: "",
@@ -231,7 +226,7 @@ describe("O08-B2b2b2b1b2b1 inert redelivery scope discovery", () => {
       PointMutationRedeliveryScopeDiscoveryCorruptionV1Error,
     );
     expect(failure).toMatchObject({ reason: "metadataInvalid" });
-  });
+  }));
 
   it("maps the foreign database rejection once at the persistence boundary", async () => {
     const persistence = await createMigratedPGlitePersistence();

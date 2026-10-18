@@ -87,22 +87,38 @@ export function useFileScopedPGliteCommitSchemaPersistence() {
 /** Single-database scheduler cases only. Multi-database and persistent schema
  * corruption witnesses keep independent fixtures. */
 export function useFileScopedPGliteRedeliverySchedulerPersistence() {
-  return useFileScopedPersistence(() => createFileScopedPGliteFixture(createRedeliverySchedulerReset));
+  return useFileScopedPersistence(() => createFileScopedPGliteFixture(db =>
+    createSchedulerSeedReset(db, "fx_system_point_mutation_redelivery_scheduler")));
 }
 
-async function createRedeliverySchedulerReset(db: PGlite): Promise<() => Promise<void>> {
+export function useFileScopedPGliteTaskRepairSchedulerPersistence() {
+  return useFileScopedPersistence(() => createFileScopedPGliteFixture(db =>
+    createSchedulerSeedReset(db, "fx_system_durable_task_repair_scheduler_v1")));
+}
+
+export function useFileScopedPGliteRetainedHistorySchedulerPersistence() {
+  return useFileScopedPersistence(() => createFileScopedPGliteFixture(db =>
+    createSchedulerSeedReset(db, "fx_system_retained_history_scheduler")));
+}
+
+type SchedulerSeedTable =
+  | "fx_system_point_mutation_redelivery_scheduler"
+  | "fx_system_durable_task_repair_scheduler_v1"
+  | "fx_system_retained_history_scheduler";
+
+async function createSchedulerSeedReset(db: PGlite, tableName: SchedulerSeedTable): Promise<() => Promise<void>> {
   // Retain the actual migration seed, including timestamps and future fields;
   // the fixture does not duplicate scheduler defaults or reset live policy.
   const rows = await db.query<{ seed: string }>(`
-    select row_to_json(seed)::text as seed from fx_system_point_mutation_redelivery_scheduler seed
+    select row_to_json(seed)::text as seed from ${tableName} seed
   `);
   const seed = rows.rows[0]?.seed;
-  if (rows.rows.length !== 1 || seed === undefined) throw new Error("Expected one migrated redelivery scheduler seed");
+  if (rows.rows.length !== 1 || seed === undefined) throw new Error(`Expected one migrated scheduler seed in ${tableName}`);
   return async () => {
     await db.transaction(async transaction => {
-      await transaction.exec("delete from fx_system_point_mutation_redelivery_scheduler");
-      await transaction.query(`insert into fx_system_point_mutation_redelivery_scheduler
-        select (json_populate_record(null::fx_system_point_mutation_redelivery_scheduler, $1::json)).*`, [seed]);
+      await transaction.exec(`delete from ${tableName}`);
+      await transaction.query(`insert into ${tableName}
+        select (json_populate_record(null::${tableName}, $1::json)).*`, [seed]);
     });
   };
 }

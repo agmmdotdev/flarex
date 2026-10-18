@@ -300,7 +300,7 @@ export function useFileScopedPostgresSchedulerPersistence(): WithFileScopedPostg
     const fixture = await createFileScopedPostgresFixture();
     try {
       const seeds: { tableName: string; seed: string }[] = [];
-      for (const tableName of ["fx_system_point_mutation_redelivery_scheduler", "fx_system_retained_history_scheduler"]) {
+      for (const tableName of ["fx_system_point_mutation_redelivery_scheduler", "fx_system_retained_history_scheduler", "fx_system_durable_task_repair_scheduler_v1"]) {
         const result = await fixture.persistence.query<{ seed: string }>(
           `select row_to_json(seed)::text as seed from ${quoteIdentifier(tableName)} seed`,
         );

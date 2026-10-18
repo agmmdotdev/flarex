@@ -1,10 +1,3 @@
-import { copyDrizzleMigrations } from "../../src/testing/systemTestMigrationFiles";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
-import { isNonArrayRecord } from "@flarex/utils/records";
 import { sql } from "drizzle-orm";
 import { Cause, Deferred, Effect, Exit, Fiber, Result } from "effect";
 import { describe, expect, it } from "vitest";
@@ -19,7 +12,6 @@ import {
 } from "../../../executor/src/tasks/taskRepairSweepV1";
 import {
   createPostgresLocatedPointMutationSessionActivationTargetV1,
-  createPostgresPersistence,
   type PostgresFlarexPersistence,
 } from "../../src/database/postgres";
 import {
@@ -46,10 +38,11 @@ import {
 import { runEffect } from "../support/effectTestRuntime";
 import {
   postgresUrl,
-  withTemporaryPostgresSchema,
+  useFileScopedPostgresSchedulerPersistence,
 } from "../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresSchedulerPersistence();
 const OWNER_ONE = "7a000000-0000-4000-8000-000000000001";
 const OWNER_TWO = "7a000000-0000-4000-8000-000000000002";
 const locator = Object.freeze({
@@ -67,9 +60,9 @@ describe("DTE05-E2C1 PostgreSQL acceptance environment", () => {
   });
 });
 
-describePostgres("real Postgres DTE05-E2C1 connected Task repair runner", () => {
+describePostgres("real Postgres DTE05-E2C1 connected Task repair runner", { concurrent: false }, () => {
   it("admits one claimed host and reports a duplicate host as busy", async () => {
-    await withTaskRepairPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const entered = await runEffect(Deferred.make<void>());
       const continueSweep = await runEffect(Deferred.make<void>());
       let sweeps = 0;
@@ -82,33 +75,43 @@ describePostgres("real Postgres DTE05-E2C1 connected Task repair runner", () => 
         })
       ));
       const leftFiber = Effect.runFork(left.runEffect());
-      await runEffect(Deferred.await(entered));
+      try {
+        await runEffect(Effect.raceFirst(
+          Deferred.await(entered),
+          Fiber.join(leftFiber).pipe(Effect.andThen(
+            Effect.die("Task repair runner exited before entering its sweep"),
+          )),
+        ));
 
-      const right = runner(
-        repository(persistence, OWNER_TWO),
-        sweep(() => {
-          sweeps += 1;
-          return Effect.succeed(repairReceipt(null));
-        }),
-      );
-      await expect(runEffect(right.runEffect())).resolves.toMatchObject({
-        kind: "busy",
-      });
-      await runEffect(Deferred.succeed(continueSweep, undefined));
-      await expect(runEffect(Fiber.join(leftFiber))).resolves.toMatchObject({
-        kind: "completed",
-        reason: "sweep_completed",
-      });
-      expect(sweeps).toBe(1);
-      expect(await row(persistence)).toMatchObject({
-        scheduler_state: "idle",
-        run_fence: "1",
-      });
+        const right = runner(
+          repository(persistence, OWNER_TWO),
+          sweep(() => {
+            sweeps += 1;
+            return Effect.succeed(repairReceipt(null));
+          }),
+        );
+        await expect(runEffect(right.runEffect())).resolves.toMatchObject({
+          kind: "busy",
+        });
+        await runEffect(Deferred.succeed(continueSweep, undefined));
+        await expect(runEffect(Fiber.join(leftFiber))).resolves.toMatchObject({
+          kind: "completed",
+          reason: "sweep_completed",
+        });
+        expect(sweeps).toBe(1);
+        expect(await row(persistence)).toMatchObject({
+          scheduler_state: "idle",
+          run_fence: "1",
+        });
+      } finally {
+        await runEffect(Deferred.succeed(continueSweep, undefined));
+        await runEffect(Fiber.interrupt(leftFiber));
+      }
     });
   }, 60_000);
 
   it("keeps the old checkpoint after a pre-dispatch crash and resumes only after database expiry", async () => {
-    await withTaskRepairPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const repositoryBeforeCrash = repository(persistence, OWNER_ONE);
       const dispatched = await runEffect(Deferred.make<void>());
       const blockedPort = Object.freeze({
@@ -123,46 +126,55 @@ describePostgres("real Postgres DTE05-E2C1 connected Task repair runner", () => 
         sweep(() => Effect.succeed(repairReceipt(null))),
       ));
       const fiber = Effect.runFork(crashing.runEffect());
-      await runEffect(Deferred.await(dispatched));
-      await runEffect(Fiber.interrupt(fiber));
-      const interrupted = await runEffect(Fiber.await(fiber));
-      expect(Exit.isFailure(interrupted)).toBe(true);
-      if (Exit.isFailure(interrupted)) {
-        expect(Cause.hasInterruptsOnly(interrupted.cause)).toBe(true);
-      }
-      expect(await row(persistence)).toMatchObject({
-        scheduler_state: "claimed",
-        run_fence: "1",
-        checkpoint_sequence: "0",
-        continuation_bytes: null,
-      });
+      try {
+        await runEffect(Effect.raceFirst(
+          Deferred.await(dispatched),
+          Fiber.join(fiber).pipe(Effect.andThen(
+            Effect.die("Task repair runner exited before dispatching its checkpoint"),
+          )),
+        ));
+        await runEffect(Fiber.interrupt(fiber));
+        const interrupted = await runEffect(Fiber.await(fiber));
+        expect(Exit.isFailure(interrupted)).toBe(true);
+        if (Exit.isFailure(interrupted)) {
+          expect(Cause.hasInterruptsOnly(interrupted.cause)).toBe(true);
+        }
+        expect(await row(persistence)).toMatchObject({
+          scheduler_state: "claimed",
+          run_fence: "1",
+          checkpoint_sequence: "0",
+          continuation_bytes: null,
+        });
 
-      const takeover = runner(
-        repository(persistence, OWNER_TWO),
-        sweep((continuation) => {
-          expect(continuation).toBeNull();
-          return Effect.succeed(repairReceipt(null));
-        }),
-      );
-      await expect(runEffect(takeover.runEffect())).resolves.toMatchObject({
-        kind: "busy",
-      });
-      await persistence.drizzle.execute(sql`
+        const takeover = runner(
+          repository(persistence, OWNER_TWO),
+          sweep((continuation) => {
+            expect(continuation).toBeNull();
+            return Effect.succeed(repairReceipt(null));
+          }),
+        );
+        await expect(runEffect(takeover.runEffect())).resolves.toMatchObject({
+          kind: "busy",
+        });
+        await persistence.drizzle.execute(sql`
         update fx_system_durable_task_repair_scheduler_v1
         set
           claimed_at = clock_timestamp() - interval '2 seconds',
           claim_expires_at = clock_timestamp() - interval '1 second'
         where scheduler_key = ${TASK_REPAIR_SCHEDULER_KEY_V1}
       `);
-      await expect(runEffect(takeover.runEffect())).resolves.toMatchObject({
-        kind: "completed",
-        reason: "sweep_completed",
-      });
-      expect(await row(persistence)).toMatchObject({
-        scheduler_state: "idle",
-        run_fence: "2",
-        checkpoint_sequence: "1",
-      });
+        await expect(runEffect(takeover.runEffect())).resolves.toMatchObject({
+          kind: "completed",
+          reason: "sweep_completed",
+        });
+        expect(await row(persistence)).toMatchObject({
+          scheduler_state: "idle",
+          run_fence: "2",
+          checkpoint_sequence: "1",
+        });
+      } finally {
+        await runEffect(Fiber.interrupt(fiber));
+      }
     });
   }, 60_000);
 });
@@ -264,53 +276,4 @@ async function row(persistence: PostgresFlarexPersistence) {
       checkpoint_sequence: String(result.checkpointSequence),
       continuation_bytes: result.continuationBytes,
     };
-}
-
-async function withTaskRepairPostgresPersistence(
-  operation: (persistence: PostgresFlarexPersistence) => Promise<void>,
-): Promise<void> {
-  const fixture = await makeTaskRepairMigrationFixture();
-  try {
-    await withTemporaryPostgresSchema(async (databaseOptions) => {
-      const persistence = await createPostgresPersistence({
-        ...databaseOptions,
-        migrationsFolder: fixture.migrationsFolder,
-      });
-      try {
-        await persistence.migrate();
-        await operation(persistence);
-      } finally {
-        await persistence.close();
-      }
-    });
-  } finally {
-    await fixture.cleanup();
-  }
-}
-
-async function makeTaskRepairMigrationFixture() {
-  const root = await mkdtemp(resolve(tmpdir(), "flarex-dte05-e2c1-pg-"));
-  const migrationsFolder = resolve(root, "drizzle");
-  const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const source = resolve(packageRoot, "drizzle");
-  const journalPath = resolve(migrationsFolder, "meta/_journal.json");
-  await copyDrizzleMigrations(source, migrationsFolder);
-  const parsed: unknown = JSON.parse(await readFile(journalPath, "utf8"));
-  if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
-    throw new Error("Drizzle journal must contain an entries array.");
-  }
-  const entries = parsed.entries.filter((entry) =>
-    isNonArrayRecord(entry) && entry.idx === 48
-  );
-  if (entries.length !== 1) {
-    throw new Error("Expected exactly one DTE05-E2A migration entry.");
-  }
-  await writeFile(journalPath, JSON.stringify({
-    ...parsed,
-    entries,
-  }, null, 2), "utf8");
-  return Object.freeze({
-    migrationsFolder,
-    cleanup: () => rm(root, { recursive: true, force: true }),
-  });
 }

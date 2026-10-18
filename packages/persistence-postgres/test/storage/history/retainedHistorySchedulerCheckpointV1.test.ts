@@ -30,7 +30,7 @@ import {
   type LocatedReadCommittedAttemptTargetV1,
 } from "../../../src/database/locatedTransactionIdentity";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import { useFileScopedPGliteRetainedHistorySchedulerPersistence } from "../../support/pgliteTestFixture";
 
 const OWNER_ONE = "94000000-0000-4000-8000-000000000001";
 const OWNER_TWO = "94000000-0000-4000-8000-000000000002";
@@ -41,9 +41,10 @@ const locator = Object.freeze({
   schemaName: "public",
 }) satisfies SharedDatabaseScopePhysicalLocator;
 
-describe("O11-F1 retained-history scheduler checkpoint", () => {
-  it("persists owned evidence, reloads it cold, and isolates both existing schedulers", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+const withPersistence = useFileScopedPGliteRetainedHistorySchedulerPersistence();
+
+describe("O11-F1 retained-history scheduler checkpoint", { concurrent: false }, () => {
+  it("persists owned evidence, reloads it cold, and isolates both existing schedulers", async () => withPersistence(async persistence => {
     const first = repository(persistence, OWNER_ONE);
     const acquired = await acquire(first);
     const sourceBytes = new Uint8Array([1, 2, 3, 4]);
@@ -79,10 +80,9 @@ describe("O11-F1 retained-history scheduler checkpoint", () => {
       { table_name: "point", run_fence: 0, checkpoint_sequence: 0 },
       { table_name: "task", run_fence: 0, checkpoint_sequence: 0 },
     ]);
-  });
+  }));
 
-  it("fences competing owners and rejects stale checkpoint state", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("fences competing owners and rejects stale checkpoint state", async () => withPersistence(async persistence => {
     const first = repository(persistence, OWNER_ONE);
     const second = repository(persistence, OWNER_TWO);
     const acquired = await acquire(first);
@@ -97,10 +97,9 @@ describe("O11-F1 retained-history scheduler checkpoint", () => {
     expect(await runEffectFailure(
       first.checkpointEffect(acquired.run, null),
     )).toBeInstanceOf(RetainedHistorySchedulerStaleV1Error);
-  });
+  }));
 
-  it("fails closed on digest-corrupted durable continuation evidence", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("fails closed on digest-corrupted durable continuation evidence", async () => withPersistence(async persistence => {
     const first = repository(persistence, OWNER_ONE);
     const acquired = await acquire(first);
     await runEffect(first.checkpointEffect(
@@ -124,10 +123,9 @@ describe("O11-F1 retained-history scheduler checkpoint", () => {
       checkpoint_sequence: 0,
       run_owner: OWNER_TWO,
     });
-  });
+  }));
 
-  it("recovers confirmed rollback exactly and cold-recovers an uncertain committed claim", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("recovers confirmed rollback exactly and cold-recovers an uncertain committed claim", async () => withPersistence(async persistence => {
     let reject = false;
     const statementCause = new Error("injected retained-history statement failure");
     const withFailure = createRetainedHistorySchedulerCheckpointV1(
@@ -182,10 +180,9 @@ describe("O11-F1 retained-history scheduler checkpoint", () => {
       run_fence: 3,
       run_owner: OWNER_ONE,
     });
-  });
+  }));
 
-  it("closes the opaque run when settlement is interrupted", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("closes the opaque run when settlement is interrupted", async () => withPersistence(async persistence => {
     let blockSettlement = false;
     let releaseSettlement = () => {};
     let markSettlementBlocked = () => {};
@@ -219,7 +216,7 @@ describe("O11-F1 retained-history scheduler checkpoint", () => {
     }
     expect(await runEffectFailure(checkpoint.renewEffect(acquired.run)))
       .toMatchObject({ reason: "runClosed" });
-  });
+  }));
 });
 
 function repository(

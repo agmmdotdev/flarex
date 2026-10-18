@@ -302,9 +302,10 @@ The native-time and historical-read logical working-set scenarios retain separat
 scope/deployment identities within one file-owned backend. Their budget cases
 keep independent backends for suspended driver calls. Transaction observations,
 spies and host lifetimes still settle inside each case.
-Settled authorization-epoch target failure cases borrow the existing storage
-fixture in their own suite. Provisioning, corruption and unmigrated-admission
-cases retain independent backends. Raw admission/interruption cases register
+Provisioned authorization-epoch reads and settled target failures share the
+existing scope-authority fixture, which clears paired system authority/clock
+and control metadata. Schema corruption and unmigrated-admission cases retain
+independent backends. Raw admission/interruption cases register
 backend closure, and interruption releases and drains its pending transaction
 before closure.
 
@@ -397,12 +398,16 @@ The earlier V1-retirement migration proof uses the journal through 0044 and
 retains its fresh-install and nine-table refusal witnesses. Migration 0064
 separately proves removal of the later V2 graph.
 
-Single-database redelivery scheduler cases use
-`useFileScopedPGliteRedeliverySchedulerPersistence`. Reset restores the exact
-singleton captured from the migration image, including timestamps, in one real
-transaction. Multi-database and persistent constraint-corruption cases retain
-independent backends. Scheduler policy/defaults remain owned by migrations and
-production code rather than being reimplemented by fixture reset.
+Row-only checkpoint cases use `useFileScopedPGliteRedeliverySchedulerPersistence`,
+`useFileScopedPGliteTaskRepairSchedulerPersistence` or
+`useFileScopedPGliteRetainedHistorySchedulerPersistence`. Their shared reset
+restores only the selected singleton captured from the migration image,
+including timestamps and future columns, in one real transaction. Independent
+subscenarios borrow clean seeds sequentially; persistent constraint corruption
+retains its own backend. Scheduler policy/defaults remain owned by migrations
+and production code rather than being reimplemented by fixture reset.
+Row-only redelivery discovery cases use the control-scope fixture; the dropped
+scope-table witness remains independent.
 Task compute-delivery fixtures restore the same image through their existing
 raw-driver owner and close each borrow immediately. Constraint and evidence
 corruption cases retain independent databases.
@@ -424,9 +429,9 @@ the scope-provisioning project-lock trigger and existing-deployment convergence
 in separate single-case fixtures. Other row-only scope-provisioning cases
 share one migrated schema. Keep
 separate fixtures for migrations,
-persistent DDL or session settings. Row-only redelivery and retained-history
-scheduler suites use `useFileScopedPostgresSchedulerPersistence`, which wraps
-the same owner and restores both exact migration singleton rows after reset.
+persistent DDL or session settings. Row-only redelivery, Task repair and
+retained-history scheduler suites use `useFileScopedPostgresSchedulerPersistence`,
+which wraps the same owner and restores all three exact migration singleton rows.
 Capture retains timestamps and future columns; the fixture does not recreate
 scheduler defaults. Concurrent acquisitions drain before reset, and failed
 callbacks or resets retain the shared lifecycle's full rebuild behavior.

@@ -1,4 +1,4 @@
-import { createMigratedPGlitePersistence, useFileScopedPGliteStoragePersistence } from "../support/pgliteTestFixture";
+import { createMigratedPGlitePersistence, useFileScopedPGliteScopeAuthorityPersistence } from "../support/pgliteTestFixture";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
@@ -65,14 +65,14 @@ type PublicPromiseEpochFunction = Extract<
   "resolveCurrentScopeAuthorizationEpoch"
 >;
 
-describe("located scope authorization epoch authority", () => {
+describe("located scope authorization epoch authority", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPGliteScopeAuthorityPersistence();
   it("keeps located target capabilities behind the high-level package API", () => {
     expectTypeOf<PublicLocatedAuthorityFunction>().toEqualTypeOf<never>();
     expectTypeOf<PublicPromiseEpochFunction>().toEqualTypeOf<never>();
   });
 
-  it("reads the exact target epoch and observes a completed private test bump", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("reads the exact target epoch and observes a completed private test bump", () => withPersistence(async persistence => {
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       "deployment_epoch_authority",
     );
@@ -111,10 +111,9 @@ describe("located scope authorization epoch authority", () => {
       scopeId: provisioned.scope.scopeId,
       authorizationRevocationEpoch: 1n,
     });
-  });
+  }));
 
-  it("keeps scope epochs isolated and fails closed on missing authority", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("keeps scope epochs isolated and fails closed on missing authority", () => withPersistence(async persistence => {
     const provisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {
@@ -187,7 +186,7 @@ describe("located scope authorization epoch authority", () => {
           physicalLocator: sharedLocator,
         },
       } satisfies Partial<TrustedScopeAuthorityResolutionError>);
-  });
+  }));
 
   it("propagates typed corruption from the private epoch read", async () => {
     const persistence = await createMigratedPGlitePersistence();
@@ -267,8 +266,7 @@ describe("located scope authorization epoch authority", () => {
     ).rejects.toBeInstanceOf(ScopeClockCorruptionError);
   });
 
-  it("rejects malformed richer target capabilities through a typed boundary", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects malformed richer target capabilities through a typed boundary", () => withPersistence(async persistence => {
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       "deployment_epoch_invalid_target",
     );
@@ -322,10 +320,9 @@ describe("located scope authorization epoch authority", () => {
         },
       } satisfies Partial<CurrentScopeAuthorizationEpochResolutionError>);
     }
-  });
+  }));
 
-  it("maps a clock removed between located and epoch reads to typed absence", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("maps a clock removed between located and epoch reads to typed absence", () => withPersistence(async persistence => {
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       "deployment_epoch_removed_during_read",
     );
@@ -377,10 +374,9 @@ describe("located scope authorization epoch authority", () => {
         physicalLocator: sharedLocator,
       },
     } satisfies Partial<CurrentScopeAuthorizationEpochResolutionError>);
-  });
+  }));
 
-  it("preserves an unexpected target defect outside the typed port channel", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("preserves an unexpected target defect outside the typed port channel", () => withPersistence(async persistence => {
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       "deployment_epoch_port_failure",
     );
@@ -421,10 +417,9 @@ describe("located scope authorization epoch authority", () => {
       expect(Cause.hasFails(exit.cause)).toBe(false);
       expect(exit.cause.toString()).toContain(cause.message);
     }
-  });
+  }));
 
   describe("settled target transaction failures", { concurrent: false }, () => {
-    const withPersistence = useFileScopedPGliteStoragePersistence();
 
     it("maps a concrete target transaction rejection once at its foreign edge", async () => withPersistence(async persistence => {
       const cause = new Error("epoch transaction unavailable");
@@ -679,8 +674,7 @@ describe("located scope authorization epoch authority", () => {
     expect(interruptionSettled).toBe(true);
   });
 
-  it("preserves the exact signed-bigint epoch value", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("preserves the exact signed-bigint epoch value", () => withPersistence(async persistence => {
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       "deployment_epoch_bigint",
     );
@@ -712,7 +706,7 @@ describe("located scope authorization epoch authority", () => {
         resolutionPorts(persistence),
       ),
     ).resolves.toMatchObject({ authorizationRevocationEpoch: exactEpoch });
-  });
+  }));
 });
 
 function resolutionPorts(

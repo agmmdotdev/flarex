@@ -65,7 +65,7 @@ const OWNER_TWO = "76000000-0000-4000-8000-000000000002";
 
 const withPersistence = useFileScopedPGliteRedeliverySchedulerPersistence();
 
-describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
+describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", { concurrent: false }, () => {
   it("classifies confirmed rollback only by direct class and exact operation", () => {
     const direct = new PointMutationRedeliverySchedulerConfirmedRollbackV1Error({
       operation: "acquire",
@@ -296,58 +296,60 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
   }));
 
   it("permits one exact confirmed-rollback retry and closes on mismatch or a second rollback", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    let rejectStatements = false;
     const cause = new Error("confirmed statement rollback");
-    const target = switchableStatementTarget(
-      locatedTarget(persistence),
-      () => rejectStatements,
-      cause,
-    );
-    const repo = createPointMutationRedeliverySchedulerCheckpointV1(target, {
-      claimDurationMilliseconds: 60_000,
-      randomUuid: () => OWNER_ONE,
-    });
-    const acquired = await acquire(repo);
-    rejectStatements = true;
-    const first = await runEffectFailure(
-      repo.checkpointEffect(
-        acquired.run,
-        await continuationEvidence(new Uint8Array([1])),
-      ),
-    );
-    expect(first).toBeInstanceOf(
-      PointMutationRedeliverySchedulerConfirmedRollbackV1Error,
-    );
-    const mismatch = await runEffectFailure(
-      repo.checkpointEffect(
-        acquired.run,
-        await continuationEvidence(new Uint8Array([2])),
-      ),
-    );
-    expect(mismatch).toMatchObject({ reason: "retryCommandMismatch" });
-    expect(await runEffectFailure(repo.renewEffect(acquired.run))).toMatchObject({
-      reason: "runClosed",
+    await withPersistence(async persistence => {
+      let rejectStatements = false;
+      const target = switchableStatementTarget(
+        locatedTarget(persistence),
+        () => rejectStatements,
+        cause,
+      );
+      const repo = createPointMutationRedeliverySchedulerCheckpointV1(target, {
+        claimDurationMilliseconds: 60_000,
+        randomUuid: () => OWNER_ONE,
+      });
+      const acquired = await acquire(repo);
+      rejectStatements = true;
+      const first = await runEffectFailure(
+        repo.checkpointEffect(
+          acquired.run,
+          await continuationEvidence(new Uint8Array([1])),
+        ),
+      );
+      expect(first).toBeInstanceOf(
+        PointMutationRedeliverySchedulerConfirmedRollbackV1Error,
+      );
+      const mismatch = await runEffectFailure(
+        repo.checkpointEffect(
+          acquired.run,
+          await continuationEvidence(new Uint8Array([2])),
+        ),
+      );
+      expect(mismatch).toMatchObject({ reason: "retryCommandMismatch" });
+      expect(await runEffectFailure(repo.renewEffect(acquired.run))).toMatchObject({
+        reason: "runClosed",
+      });
     });
 
-    const secondPersistence = await createMigratedPGlitePersistence();
-    let secondReject = false;
-    const secondRepo = createPointMutationRedeliverySchedulerCheckpointV1(
-      switchableStatementTarget(
-        locatedTarget(secondPersistence),
-        () => secondReject,
-        cause,
-      ),
-      { claimDurationMilliseconds: 60_000, randomUuid: () => OWNER_ONE },
-    );
-    const secondRun = await acquire(secondRepo);
-    secondReject = true;
-    expect(await runEffectFailure(secondRepo.renewEffect(secondRun.run)))
-      .toBeInstanceOf(PointMutationRedeliverySchedulerConfirmedRollbackV1Error);
-    expect(await runEffectFailure(secondRepo.renewEffect(secondRun.run)))
-      .toBeInstanceOf(PointMutationRedeliverySchedulerConfirmedRollbackV1Error);
-    expect(await runEffectFailure(secondRepo.renewEffect(secondRun.run)))
-      .toMatchObject({ reason: "runClosed" });
+    await withPersistence(async secondPersistence => {
+      let secondReject = false;
+      const secondRepo = createPointMutationRedeliverySchedulerCheckpointV1(
+        switchableStatementTarget(
+          locatedTarget(secondPersistence),
+          () => secondReject,
+          cause,
+        ),
+        { claimDurationMilliseconds: 60_000, randomUuid: () => OWNER_ONE },
+      );
+      const secondRun = await acquire(secondRepo);
+      secondReject = true;
+      expect(await runEffectFailure(secondRepo.renewEffect(secondRun.run)))
+        .toBeInstanceOf(PointMutationRedeliverySchedulerConfirmedRollbackV1Error);
+      expect(await runEffectFailure(secondRepo.renewEffect(secondRun.run)))
+        .toBeInstanceOf(PointMutationRedeliverySchedulerConfirmedRollbackV1Error);
+      expect(await runEffectFailure(secondRepo.renewEffect(secondRun.run)))
+        .toMatchObject({ reason: "runClosed" });
+    });
   });
 
   it("serializes same-run operations without erasing an exact rollback retry", async () => withPersistence(async persistence => {
@@ -560,67 +562,69 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
   }));
 
   it("closes a run after a transaction defect or interruption", async () => {
-    const defectPersistence = await createMigratedPGlitePersistence();
-    let defectEnabled = false;
-    const defect = new Error("unexpected renewal defect");
-    const defectRepo = createPointMutationRedeliverySchedulerCheckpointV1(
-      switchableFailureTarget(
-        locatedTarget(defectPersistence),
-        () => defectEnabled,
-        () => Object.freeze({
-          kind: "callbackRolledBack" as const,
-          callbackCause: defect,
-        }),
-      ),
-      { claimDurationMilliseconds: 60_000, randomUuid: () => OWNER_ONE },
-    );
-    const defectRun = await acquire(defectRepo);
-    defectEnabled = true;
-    const defectExit = await Effect.runPromiseExit(
-      defectRepo.renewEffect(defectRun.run),
-    );
-    expect(Exit.isFailure(defectExit)).toBe(true);
-    if (Exit.isFailure(defectExit)) {
-      expect(Cause.hasDies(defectExit.cause)).toBe(true);
-    }
-    expect(await runEffectFailure(defectRepo.renewEffect(defectRun.run)))
-      .toMatchObject({ reason: "runClosed" });
+    await withPersistence(async defectPersistence => {
+      let defectEnabled = false;
+      const defect = new Error("unexpected renewal defect");
+      const defectRepo = createPointMutationRedeliverySchedulerCheckpointV1(
+        switchableFailureTarget(
+          locatedTarget(defectPersistence),
+          () => defectEnabled,
+          () => Object.freeze({
+            kind: "callbackRolledBack" as const,
+            callbackCause: defect,
+          }),
+        ),
+        { claimDurationMilliseconds: 60_000, randomUuid: () => OWNER_ONE },
+      );
+      const defectRun = await acquire(defectRepo);
+      defectEnabled = true;
+      const defectExit = await Effect.runPromiseExit(
+        defectRepo.renewEffect(defectRun.run),
+      );
+      expect(Exit.isFailure(defectExit)).toBe(true);
+      if (Exit.isFailure(defectExit)) {
+        expect(Cause.hasDies(defectExit.cause)).toBe(true);
+      }
+      expect(await runEffectFailure(defectRepo.renewEffect(defectRun.run)))
+        .toMatchObject({ reason: "runClosed" });
+    });
 
-    const interruptedPersistence = await createMigratedPGlitePersistence();
-    let blockSettlement = false;
-    let releaseSettlement = () => {};
-    let markSettlementBlocked = () => {};
-    const settlementBlocked = new Promise<void>((resolve) => {
-      markSettlementBlocked = resolve;
+    await withPersistence(async interruptedPersistence => {
+      let blockSettlement = false;
+      let releaseSettlement = () => {};
+      let markSettlementBlocked = () => {};
+      const settlementBlocked = new Promise<void>((resolve) => {
+        markSettlementBlocked = resolve;
+      });
+      const settlementRelease = new Promise<void>((resolve) => {
+        releaseSettlement = resolve;
+      });
+      const interruptedRepo = createPointMutationRedeliverySchedulerCheckpointV1(
+        blockingSettledTarget(
+          locatedTarget(interruptedPersistence),
+          () => blockSettlement,
+          () => markSettlementBlocked(),
+          settlementRelease,
+        ),
+        { claimDurationMilliseconds: 60_000, randomUuid: () => OWNER_TWO },
+      );
+      const interruptedRun = await acquire(interruptedRepo);
+      blockSettlement = true;
+      const fiber = Effect.runFork(interruptedRepo.renewEffect(interruptedRun.run));
+      const completion = runEffect(Fiber.await(fiber));
+      await settlementBlocked;
+      const interrupting = runEffect(Fiber.interrupt(fiber));
+      releaseSettlement();
+      await interrupting;
+      const interruptedExit = await completion;
+      expect(Exit.isFailure(interruptedExit)).toBe(true);
+      if (Exit.isFailure(interruptedExit)) {
+        expect(Cause.hasInterruptsOnly(interruptedExit.cause)).toBe(true);
+      }
+      expect(await runEffectFailure(
+        interruptedRepo.renewEffect(interruptedRun.run),
+      )).toMatchObject({ reason: "runClosed" });
     });
-    const settlementRelease = new Promise<void>((resolve) => {
-      releaseSettlement = resolve;
-    });
-    const interruptedRepo = createPointMutationRedeliverySchedulerCheckpointV1(
-      blockingSettledTarget(
-        locatedTarget(interruptedPersistence),
-        () => blockSettlement,
-        () => markSettlementBlocked(),
-        settlementRelease,
-      ),
-      { claimDurationMilliseconds: 60_000, randomUuid: () => OWNER_TWO },
-    );
-    const interruptedRun = await acquire(interruptedRepo);
-    blockSettlement = true;
-    const fiber = Effect.runFork(interruptedRepo.renewEffect(interruptedRun.run));
-    const completion = runEffect(Fiber.await(fiber));
-    await settlementBlocked;
-    const interrupting = runEffect(Fiber.interrupt(fiber));
-    releaseSettlement();
-    await interrupting;
-    const interruptedExit = await completion;
-    expect(Exit.isFailure(interruptedExit)).toBe(true);
-    if (Exit.isFailure(interruptedExit)) {
-      expect(Cause.hasInterruptsOnly(interruptedExit.cause)).toBe(true);
-    }
-    expect(await runEffectFailure(
-      interruptedRepo.renewEffect(interruptedRun.run),
-    )).toMatchObject({ reason: "runClosed" });
   });
 
   it("closes a run after uncertain renewal so an in-flight result cannot checkpoint or start another invocation", async () => withPersistence(async persistence => {
@@ -654,54 +658,56 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
   }));
 
   it("fails closed on missing singleton, fence exhaustion, and oversized stored evidence without fetching it", async () => {
-    const missingPersistence = await createMigratedPGlitePersistence();
-    await missingPersistence.drizzle.execute(sql`
+    await withPersistence(async missingPersistence => {
+      await missingPersistence.drizzle.execute(sql`
       delete from fx_system_point_mutation_redelivery_scheduler
       where scheduler_key = ${POINT_MUTATION_REDELIVERY_SCHEDULER_KEY_V1}
     `);
-    const missing = await runEffectFailure(
-      repository(missingPersistence, [OWNER_ONE]).acquireEffect(),
-    );
-    expect(missing).toMatchObject({ reason: "singletonMissing" });
+      const missing = await runEffectFailure(
+        repository(missingPersistence, [OWNER_ONE]).acquireEffect(),
+      );
+      expect(missing).toMatchObject({ reason: "singletonMissing" });
+    });
 
-    const exhaustedPersistence = await createMigratedPGlitePersistence();
-    await exhaustedPersistence.drizzle.execute(sql`
+    await withPersistence(async exhaustedPersistence => {
+      await exhaustedPersistence.drizzle.execute(sql`
       update fx_system_point_mutation_redelivery_scheduler
       set run_fence = 9223372036854775807
       where scheduler_key = ${POINT_MUTATION_REDELIVERY_SCHEDULER_KEY_V1}
     `);
-    expect(await runEffectFailure(
-      repository(exhaustedPersistence, [OWNER_ONE]).acquireEffect(),
-    )).toBeInstanceOf(
-      PointMutationRedeliverySchedulerResourceExhaustedV1Error,
-    );
-    expect(BigInt(
-      (await schedulerRows(exhaustedPersistence))[0]?.run_fence ?? -1,
-    )).toBe(9_223_372_036_854_775_807n);
+      expect(await runEffectFailure(
+        repository(exhaustedPersistence, [OWNER_ONE]).acquireEffect(),
+      )).toBeInstanceOf(
+        PointMutationRedeliverySchedulerResourceExhaustedV1Error,
+      );
+      expect(BigInt(
+        (await schedulerRows(exhaustedPersistence))[0]?.run_fence ?? -1,
+      )).toBe(9_223_372_036_854_775_807n);
+    });
 
-    const checkpointExhaustedPersistence =
-      await createMigratedPGlitePersistence();
-    const checkpointExhaustedRepository = repository(
-      checkpointExhaustedPersistence,
-      [OWNER_ONE],
-    );
-    const checkpointExhaustedRun = await acquire(
-      checkpointExhaustedRepository,
-    );
-    await checkpointExhaustedPersistence.drizzle.execute(sql`
+    await withPersistence(async checkpointExhaustedPersistence => {
+      const checkpointExhaustedRepository = repository(
+        checkpointExhaustedPersistence,
+        [OWNER_ONE],
+      );
+      const checkpointExhaustedRun = await acquire(
+        checkpointExhaustedRepository,
+      );
+      await checkpointExhaustedPersistence.drizzle.execute(sql`
       update fx_system_point_mutation_redelivery_scheduler
       set checkpoint_sequence = 9223372036854775807
       where scheduler_key = ${POINT_MUTATION_REDELIVERY_SCHEDULER_KEY_V1}
     `);
-    const checkpointExhausted = await runEffectFailure(
-      checkpointExhaustedRepository.checkpointEffect(
-        checkpointExhaustedRun.run,
-        null,
-      ),
-    );
-    expect(checkpointExhausted).toMatchObject({
-      dimension: "checkpointSequence",
-      observed: 9_223_372_036_854_775_807n,
+      const checkpointExhausted = await runEffectFailure(
+        checkpointExhaustedRepository.checkpointEffect(
+          checkpointExhaustedRun.run,
+          null,
+        ),
+      );
+      expect(checkpointExhausted).toMatchObject({
+        dimension: "checkpointSequence",
+        observed: 9_223_372_036_854_775_807n,
+      });
     });
 
     const oversizedPersistence = await createMigratedPGlitePersistence();

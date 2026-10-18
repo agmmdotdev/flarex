@@ -51,7 +51,7 @@ import {
   type LocatedReadCommittedAttemptTargetV1,
 } from "../../src/database/locatedTransactionIdentity";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
-import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
+import { useFileScopedPGliteTaskRepairSchedulerPersistence } from "../support/pgliteTestFixture";
 
 const locator = Object.freeze({
   kind: "shared_database",
@@ -62,9 +62,10 @@ const locator = Object.freeze({
 const OWNER_ONE = "79000000-0000-4000-8000-000000000001";
 const OWNER_TWO = "79000000-0000-4000-8000-000000000002";
 
-describe("DTE05-E2B Task repair scheduler checkpoint protocol", () => {
-  it("connects the canonical sweep and resumes its persisted partition cursor after reconstruction", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+const withPersistence = useFileScopedPGliteTaskRepairSchedulerPersistence();
+
+describe("DTE05-E2B Task repair scheduler checkpoint protocol", { concurrent: false }, () => {
+  it("connects the canonical sweep and resumes its persisted partition cursor after reconstruction", async () => withPersistence(async persistence => {
     const firstRequests: TaskRepairRequest[] = [];
     const first = connectedRunner(
       repository(persistence, [OWNER_ONE]),
@@ -115,10 +116,9 @@ describe("DTE05-E2B Task repair scheduler checkpoint protocol", () => {
       run_fence: 2,
       continuation_bytes: expect.any(Uint8Array),
     });
-  });
+  }));
 
-  it("acquires, checkpoints owned evidence, renews, releases, and reloads only the Task row", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("acquires, checkpoints owned evidence, renews, releases, and reloads only the Task row", async () => withPersistence(async persistence => {
     const first = repository(persistence, [OWNER_ONE]);
     const acquired = await acquire(first);
     const input = new Uint8Array([1, 2, 3, 4]);
@@ -160,10 +160,9 @@ describe("DTE05-E2B Task repair scheduler checkpoint protocol", () => {
       run_fence: 0,
       checkpoint_sequence: 0,
     });
-  });
+  }));
 
-  it("keeps Task run handles process-local and rejects stale checkpoint state", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("keeps Task run handles process-local and rejects stale checkpoint state", async () => withPersistence(async persistence => {
     const first = repository(persistence, [OWNER_ONE]);
     const acquired = await acquire(first);
     const forged = Object.freeze({ _tag: "TaskRepairSchedulerRunV1" as const });
@@ -188,10 +187,9 @@ describe("DTE05-E2B Task repair scheduler checkpoint protocol", () => {
     expect(await runEffectFailure(
       first.checkpointEffect(acquired.run, null),
     )).toBeInstanceOf(TaskRepairSchedulerStaleV1Error);
-  });
+  }));
 
-  it("permits one exact confirmed-rollback retry and closes on command mismatch", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("permits one exact confirmed-rollback retry and closes on command mismatch", async () => withPersistence(async persistence => {
     let rejectStatements = false;
     const cause = new Error("confirmed Task checkpoint rollback");
     const repo = createTaskRepairSchedulerCheckpointV1(
@@ -220,10 +218,9 @@ describe("DTE05-E2B Task repair scheduler checkpoint protocol", () => {
       checkpoint_sequence: 0,
       continuation_bytes: null,
     });
-  });
+  }));
 
-  it("distinguishes a committed but uncertain renewal and permanently closes that run", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("distinguishes a committed but uncertain renewal and permanently closes that run", async () => withPersistence(async persistence => {
     let uncertain = false;
     const repo = createTaskRepairSchedulerCheckpointV1(
       committedThenUncertainTarget(locatedTarget(persistence), () => uncertain),
@@ -240,10 +237,9 @@ describe("DTE05-E2B Task repair scheduler checkpoint protocol", () => {
       scheduler_state: "claimed",
       run_fence: 1,
     });
-  });
+  }));
 
-  it("preserves unexpected callback failure as a defect and never mints a run", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("preserves unexpected callback failure as a defect and never mints a run", async () => withPersistence(async persistence => {
     const defect = new Error("unexpected Task scheduler callback defect");
     const repo = createTaskRepairSchedulerCheckpointV1(
       failingTarget(locatedTarget(persistence), Object.freeze({
@@ -262,7 +258,7 @@ describe("DTE05-E2B Task repair scheduler checkpoint protocol", () => {
       scheduler_state: "idle",
       run_fence: 0,
     });
-  });
+  }));
 });
 
 function repository(

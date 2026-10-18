@@ -5,7 +5,8 @@ import { createPGliteSharedScopeAuthorityProvisioner, type PGliteFlarexPersisten
 import { preparedHostTestRuntime } from "../execution/preparation/preparedHostRuntimeTestSupport";
 import { registerFileScopedPersistenceTests } from "./fileScopedPersistenceScenario";
 import { useFileScopedPGliteRuntimePersistence, useFileScopedPGliteCommitSchemaPersistence,
-  useFileScopedPGliteRedeliverySchedulerPersistence, useFileScopedPGliteScopeAuthorityPersistence } from "./pgliteTestFixture";
+  useFileScopedPGliteRedeliverySchedulerPersistence, useFileScopedPGliteScopeAuthorityPersistence,
+  useFileScopedPGliteTaskRepairSchedulerPersistence, useFileScopedPGliteRetainedHistorySchedulerPersistence } from "./pgliteTestFixture";
 import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
 import { insertPendingWake, insertWakeHeader, insertWakeScope, WAKE_SCOPE_A, WAKE_EPOCH_A } from "../commit/commitWakeOutboxTestSupport";
 import { reserveScopeAuthorityProvisioningReceiptInTransaction } from "../../src/scope/scopeAuthorityProvisioningReceipt";
@@ -106,15 +107,19 @@ describe("file-scoped PGlite storage and commit schema fixture", () => {
   });
 });
 
-describe("file-scoped PGlite redelivery scheduler fixture", () => {
-  const withPersistence = useFileScopedPGliteRedeliverySchedulerPersistence();
+describe.each([
+  { profile: "redelivery", tableName: "fx_system_point_mutation_redelivery_scheduler", usePersistence: useFileScopedPGliteRedeliverySchedulerPersistence },
+  { profile: "Task repair", tableName: "fx_system_durable_task_repair_scheduler_v1", usePersistence: useFileScopedPGliteTaskRepairSchedulerPersistence },
+  { profile: "retained history", tableName: "fx_system_retained_history_scheduler", usePersistence: useFileScopedPGliteRetainedHistorySchedulerPersistence },
+])("file-scoped PGlite $profile scheduler fixture", { concurrent: false }, ({ tableName, usePersistence }) => {
+  const withPersistence = usePersistence();
 
   it("restores the exact migration seed after the singleton is deleted", async () => {
     let baseline: Awaited<ReturnType<typeof seededRows>> = [];
     await withPersistence(async persistence => {
       baseline = await seededRows(persistence);
       expect(baseline).toHaveLength(5);
-      await persistence.query("delete from fx_system_point_mutation_redelivery_scheduler");
+      await persistence.query(`delete from ${tableName}`);
     });
     await withPersistence(async persistence => {
       expect(await seededRows(persistence)).toEqual(baseline);
