@@ -1,6 +1,6 @@
-import { PGlite } from "@electric-sql/pglite";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
 import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
+import { useFileScopedPGliteTaskPersistence } from "./taskPGliteFixture";
 import {
   TASK_COMPUTE_CANCELLATION_RECEIPT_VERSION_V1,
   TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
@@ -31,7 +31,7 @@ import {
 import { and, count, eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Layer, Result } from "effect";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
-import { beforeAll, describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
@@ -132,9 +132,9 @@ const computeProviderDescriptor = success(decodeTaskComputeProviderDescriptorV1(
   providerVersion: "v1",
 }));
 
-describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
-  beforeAll(async () => { await migratedPGliteDataDir(); });
+const withPersistence = useFileScopedPGliteTaskPersistence();
 
+describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
   it("exposes an exact typed error channel for each operation", () => {
     expectTypeOf<ReturnType<TaskComputeDeliveryRepositoryV1["acquireDispatch"]>>()
       .toEqualTypeOf<Effect.Effect<
@@ -417,7 +417,7 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
   });
 
   it("distinguishes a missing authoritative effect from an unknown sequence", async () => {
-    await withFixture(async ({
+    await withIndependentFixture(async ({
       persistence,
       deliveryLocated,
       runId,
@@ -2726,16 +2726,23 @@ function latch<Value>() {
 async function withFixture(
   run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
 ): Promise<void> {
+  await withPersistence(async persistence => {
+    await run(await makeFixture(persistence));
+  });
+}
+
+async function withIndependentFixture(
+  run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
+): Promise<void> {
   const raw = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
   try {
-    await run(await makeFixture(raw));
+    await run(await makeFixture(await createPGlitePersistence({ db: raw })));
   } finally {
     await raw.close();
   }
 }
 
-async function makeFixture(raw: PGlite) {
-  const persistence = await createPGlitePersistence({ db: raw });
+async function makeFixture(persistence: Awaited<ReturnType<typeof createPGlitePersistence>>) {
   await seedTaskSystemRunAttemptStoreV1(persistence);
   await persistence.drizzle.delete(fxSystemDurableTaskRunsV1).where(eq(
     fxSystemDurableTaskRunsV1.scopeId,

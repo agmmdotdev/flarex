@@ -26,6 +26,46 @@ import { admitFrameworkSchemaArtifactEffect } from "../../src/installation/frame
 import { prepareFrameworkSchemaArtifactAdmission } from "../../src/installation/frameworkSchema/artifact/repository";
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture, useFileScopedFrameworkSchemaArtifactAdmissionPersistence } from
   "../installation/frameworkSchema/frameworkSchemaArtifactAdmissionTestSupport";
+import { useFileScopedPGliteTaskPersistence } from "../tasks/taskPGliteFixture";
+import { seedTaskSystemRunAttemptStoreV1 } from "../tasks/taskSystemRunAttemptStoreTestSupport";
+
+describe("file-scoped PGlite Task fixture", () => {
+  const withPersistence = useFileScopedPGliteTaskPersistence();
+
+  it("resets Task seeds with constraints enabled and rebuilds after an unexpected dependant", async () => {
+    let previous: PGliteFlarexPersistence | undefined;
+    let baseline: Awaited<ReturnType<typeof seededRows>> = [];
+    await withPersistence(async persistence => {
+      previous = persistence;
+      baseline = await seededRows(persistence);
+      expect(baseline).toHaveLength(5);
+      await seedTaskSystemRunAttemptStoreV1(persistence);
+    });
+
+    await expect(withPersistence(async persistence => {
+      expect(persistence).not.toBe(previous);
+      const prior = previous;
+      if (prior === undefined) throw new Error("Missing previous Task fixture");
+      expect(() => preparedHostTestRuntime(prior.drizzle)).toThrow("no open host runtime");
+      expect(preparedHostTestRuntime(persistence.drizzle)).toBeDefined();
+      expect(await seededRows(persistence)).toEqual(baseline);
+      await seedTaskSystemRunAttemptStoreV1(persistence);
+      await persistence.query(`create table fixture_task_reset_ref (
+        scope_id text, run_id text,
+        foreign key (scope_id, run_id) references fx_system_durable_task_run_v1 (scope_id, run_id))`);
+      await persistence.query(`insert into fixture_task_reset_ref
+        select scope_id, run_id from fx_system_durable_task_run_v1`);
+      await persistence.query("delete from fx_system_retained_history_scheduler");
+    })).rejects.toMatchObject({ code: "23503" });
+
+    await withPersistence(async persistence => {
+      expect(await seededRows(persistence)).toEqual(baseline);
+      expect((await persistence.query("select to_regclass('fixture_task_reset_ref') as relation")).rows)
+        .toEqual([{ relation: null }]);
+      await seedTaskSystemRunAttemptStoreV1(persistence);
+    });
+  });
+});
 
 describe("file-scoped PGlite runtime fixture", () => {
   const withPersistence = useFileScopedPGliteRuntimePersistence();

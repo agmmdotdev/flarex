@@ -29,11 +29,8 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
-import { beforeAll, describe, expect, it } from "vitest";
-import {
-  createMigratedPGlitePersistence,
-  migratedPGliteDataDir,
-} from "../support/pgliteTestFixture";
+import { describe, expect, it } from "vitest";
+import { useFileScopedPGliteTaskPersistence } from "./taskPGliteFixture";
 
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
@@ -88,7 +85,7 @@ const acceptedAttemptId = Result.getOrThrow(
   decodeTaskAttemptIdV1(`attempt_${ACCEPTED_ATTEMPT_UUID}`),
 );
 
-beforeAll(() => migratedPGliteDataDir(), 120_000);
+const withPersistence = useFileScopedPGliteTaskPersistence();
 
 describe("DTE04-B scope-bound Task System lifecycle store - PGlite", () => {
   it("commits lifecycle state, immutable attempt identity, ordered effects, replay, and inspection", async () => {
@@ -671,7 +668,9 @@ describe("DTE04-B scope-bound Task System lifecycle store - PGlite", () => {
 async function withStore(
   run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
 ): Promise<void> {
-  await run(await makeFixture(await createMigratedPGlitePersistence()));
+  await withPersistence(async persistence => {
+    await run(await makeFixture(persistence));
+  });
 }
 
 async function makeFixture(persistence: PGliteFlarexPersistence) {
