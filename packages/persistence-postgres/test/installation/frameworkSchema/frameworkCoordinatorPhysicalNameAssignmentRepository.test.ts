@@ -114,52 +114,130 @@ describe("framework coordinator physical-name assignment repository", { concurre
     await expect(assignmentCount(persistence)).resolves.toBe("2");
   }));
 
-  it("converges duplicate exact ensures and rolls back with its caller", () => withPersistence(async persistence => {
-    const values = await freshAssignmentRepositoryValues();
-    const { collision } = await persistence.drizzle.transaction(
-      transaction => ensureParents(transaction, values),
-    );
-    const ensuring = [
-      persistence.drizzle.transaction(transaction => runEffect(
-        ensureRelationalPhysicalNameAssignmentInTransactionEffect(
-          transaction,
-          collision,
-          values.firstAssignment,
-        ),
-      )),
-      persistence.drizzle.transaction(transaction => runEffect(
-        ensureRelationalPhysicalNameAssignmentInTransactionEffect(
-          transaction,
-          collision,
-          values.firstAssignment,
-        ),
-      )),
-    ];
-    const ensured = await Promise.all(ensuring).finally(async () => {
-      await Promise.allSettled(ensuring);
-    });
-    expect(ensured[0]?.storageId).toBe(ensured[1]?.storageId);
-    await expect(assignmentCount(persistence)).resolves.toBe("1");
+  describe("independent-store assignment isolation", { concurrent: false }, () => {
+    const withIndependentPersistence = useFileScopedFrameworkCoordinatorPersistence();
 
-    const rollbackPersistence = await createMigratedPGlitePersistence();
-    const rollbackParents = await rollbackPersistence.drizzle.transaction(
-      transaction => ensureParents(transaction, values),
-    );
-    const deliberateRollback = new Error("deliberate rollback");
-    await expect(rollbackPersistence.drizzle.transaction(
-      async transaction => {
-        await runEffect(
+    it("converges duplicate exact ensures and rolls back with its caller", () => withPersistence(async persistence => {
+      const values = await freshAssignmentRepositoryValues();
+      const { collision } = await persistence.drizzle.transaction(
+        transaction => ensureParents(transaction, values),
+      );
+      const ensuring = [
+        persistence.drizzle.transaction(transaction => runEffect(
           ensureRelationalPhysicalNameAssignmentInTransactionEffect(
             transaction,
-            rollbackParents.collision,
+            collision,
             values.firstAssignment,
           ),
+        )),
+        persistence.drizzle.transaction(transaction => runEffect(
+          ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+            transaction,
+            collision,
+            values.firstAssignment,
+          ),
+        )),
+      ];
+      const ensured = await Promise.all(ensuring).finally(async () => {
+        await Promise.allSettled(ensuring);
+      });
+      expect(ensured[0]?.storageId).toBe(ensured[1]?.storageId);
+      await expect(assignmentCount(persistence)).resolves.toBe("1");
+
+      await withIndependentPersistence(async rollbackPersistence => {
+        const rollbackParents = await rollbackPersistence.drizzle.transaction(
+          transaction => ensureParents(transaction, values),
         );
-        throw deliberateRollback;
-      },
-    )).rejects.toBe(deliberateRollback);
-    await expect(assignmentCount(rollbackPersistence)).resolves.toBe("0");
-  }));
+        const deliberateRollback = new Error("deliberate rollback");
+        await expect(rollbackPersistence.drizzle.transaction(
+          async transaction => {
+            await runEffect(
+              ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+                transaction,
+                rollbackParents.collision,
+                values.firstAssignment,
+              ),
+            );
+            throw deliberateRollback;
+          },
+        )).rejects.toBe(deliberateRollback);
+        await expect(assignmentCount(rollbackPersistence)).resolves.toBe("0");
+      });
+    }));
+
+    it("refuses forged, cross-coordinate, and cross-database references", () => withPersistence(async persistence => {
+      const values = await freshAssignmentRepositoryValues();
+      const parents = await persistence.drizzle.transaction(
+        transaction => ensureParents(transaction, values),
+      );
+
+      const forgedFailure = await persistence.drizzle.transaction(
+        transaction => runEffectFailure(
+          ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+            transaction,
+            { ...parents.collision },
+            values.firstAssignment,
+          ),
+        ),
+      );
+      expect(forgedFailure).toMatchObject({
+        _tag: "FrameworkMigrationRepositoryError",
+        operation: "ensurePhysicalNameAssignment",
+        reason: "referenceRefusal",
+      });
+
+      const crossCoordinateAssignment = await currencyAssignment(values.target);
+      const crossCoordinateFailure = await persistence.drizzle.transaction(
+        transaction => runEffectFailure(
+          readRelationalPhysicalNameAssignmentInTransactionEffect(
+            transaction,
+            parents.collision,
+            crossCoordinateAssignment,
+          ),
+        ),
+      );
+      expect(crossCoordinateFailure).toMatchObject({
+        _tag: "FrameworkMigrationRepositoryError",
+        operation: "readPhysicalNameAssignment",
+        reason: "referenceRefusal",
+      });
+
+      const inconsistentAssignmentFailure = await persistence.drizzle.transaction(
+        transaction => runEffectFailure(
+          ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+            transaction,
+            parents.collision,
+            {
+              ...values.firstAssignment,
+              canonicalJson: `${values.firstAssignment.canonicalJson} `,
+            },
+          ),
+        ),
+      );
+      expect(inconsistentAssignmentFailure).toMatchObject({
+        _tag: "FrameworkMigrationRepositoryError",
+        operation: "ensurePhysicalNameAssignment",
+        reason: "referenceRefusal",
+      });
+
+      await withIndependentPersistence(async otherPersistence => {
+        const missingParentFailure = await otherPersistence.drizzle.transaction(
+          transaction => runEffectFailure(
+            ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+              transaction,
+              parents.collision,
+              values.firstAssignment,
+            ),
+          ),
+        );
+        expect(missingParentFailure).toMatchObject({
+          _tag: "FrameworkMigrationRepositoryError",
+          operation: "ensurePhysicalNameAssignment",
+          reason: "referenceRefusal",
+        });
+      });
+    }));
+  });
 
   it("resolves authenticated occupants in digest-first order", () => withPersistence(async persistence => {
     const values = await freshAssignmentRepositoryValues();
@@ -290,78 +368,6 @@ describe("framework coordinator physical-name assignment repository", { concurre
     expect(rehydrated.collision.storageId).not.toBe(
       restored.incoming.collision.storageId,
     );
-  }));
-
-  it("refuses forged, cross-coordinate, and cross-database references", () => withPersistence(async persistence => {
-    const values = await freshAssignmentRepositoryValues();
-    const parents = await persistence.drizzle.transaction(
-      transaction => ensureParents(transaction, values),
-    );
-
-    const forgedFailure = await persistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        ensureRelationalPhysicalNameAssignmentInTransactionEffect(
-          transaction,
-          { ...parents.collision },
-          values.firstAssignment,
-        ),
-      ),
-    );
-    expect(forgedFailure).toMatchObject({
-      _tag: "FrameworkMigrationRepositoryError",
-      operation: "ensurePhysicalNameAssignment",
-      reason: "referenceRefusal",
-    });
-
-    const crossCoordinateAssignment = await currencyAssignment(values.target);
-    const crossCoordinateFailure = await persistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        readRelationalPhysicalNameAssignmentInTransactionEffect(
-          transaction,
-          parents.collision,
-          crossCoordinateAssignment,
-        ),
-      ),
-    );
-    expect(crossCoordinateFailure).toMatchObject({
-      _tag: "FrameworkMigrationRepositoryError",
-      operation: "readPhysicalNameAssignment",
-      reason: "referenceRefusal",
-    });
-
-    const inconsistentAssignmentFailure = await persistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        ensureRelationalPhysicalNameAssignmentInTransactionEffect(
-          transaction,
-          parents.collision,
-          {
-            ...values.firstAssignment,
-            canonicalJson: `${values.firstAssignment.canonicalJson} `,
-          },
-        ),
-      ),
-    );
-    expect(inconsistentAssignmentFailure).toMatchObject({
-      _tag: "FrameworkMigrationRepositoryError",
-      operation: "ensurePhysicalNameAssignment",
-      reason: "referenceRefusal",
-    });
-
-    const otherPersistence = await createMigratedPGlitePersistence();
-    const missingParentFailure = await otherPersistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        ensureRelationalPhysicalNameAssignmentInTransactionEffect(
-          transaction,
-          parents.collision,
-          values.firstAssignment,
-        ),
-      ),
-    );
-    expect(missingParentFailure).toMatchObject({
-      _tag: "FrameworkMigrationRepositoryError",
-      operation: "ensurePhysicalNameAssignment",
-      reason: "referenceRefusal",
-    });
   }));
 
   it("rejects corrupt or over-limit stored assignment bytes", async () => {

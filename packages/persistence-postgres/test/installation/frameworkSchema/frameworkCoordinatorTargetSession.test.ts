@@ -664,8 +664,7 @@ describe("private framework migration target sessions", { concurrent: false }, (
     expect(callbackInvoked).toBe(false);
   }), PGLITE_TEST_TIMEOUT);
 
-  it("combines the original callback Cause with rollback-or-cleanup failure", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("combines the original callback Cause with rollback-or-cleanup failure", () => withPersistence(async persistence => {
     const cleanupCause = new Error("rollback settlement failed");
     const cleanupFailureTransaction: typeof persistence.drizzle.transaction =
       async (transaction, config) => {
@@ -706,10 +705,9 @@ describe("private framework migration target sessions", { concurrent: false }, (
       expect(resourceIssue?.cause).toBe(cleanupCause);
       expect(exit.cause.reasons.filter(Cause.isDieReason)).toHaveLength(0);
     }
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("classifies a post-callback settlement rejection as decision-uncertain", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("classifies a post-callback settlement rejection as decision-uncertain", () => withPersistence(async persistence => {
     const settlementCause = new Error("commit acknowledgement lost");
     const uncertainTransaction: typeof persistence.drizzle.transaction =
       async (transaction, config) => {
@@ -743,7 +741,7 @@ describe("private framework migration target sessions", { concurrent: false }, (
     expect(uncertain?.cause).toBe(settlementCause);
     expect(callbackSession).toBeDefined();
     expect(uncertain?.sessionIdentity).toBe(callbackSession);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 });
 
 const unexpectedDriverTransaction: RunFrameworkMigrationDriverTransaction =

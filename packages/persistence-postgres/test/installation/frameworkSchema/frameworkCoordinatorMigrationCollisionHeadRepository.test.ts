@@ -432,117 +432,122 @@ describe("framework coordinator migration-collision-head repository", { concurre
     );
   }), PGLITE_TEST_TIMEOUT);
 
-  it("refuses an expected head whose private event authority belongs to another store", async () => {
-    const expectedPersistence = await createMigratedPGlitePersistence();
-    const actualPersistence = await createMigratedPGlitePersistence();
-    const values = await createSuccessfulTerminalPlanValues();
-    const expected = await expectedPersistence.drizzle.transaction(
-      async transaction => {
-        const prepared = await prepareCollisionHeadGraph(transaction, values);
-        const initialized = await runEffect(
+  describe("independent-store authority", { concurrent: false }, () => {
+    // Only one borrow writes; the absence case leaves the ID sequences cold.
+    const withIndependentPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
+
+    it("refuses an expected head whose private event authority belongs to another store", () => withIndependentPersistence(async expectedPersistence => {
+      const actualPersistence = await createMigratedPGlitePersistence();
+      const values = await createSuccessfulTerminalPlanValues();
+      const expected = await expectedPersistence.drizzle.transaction(
+        async transaction => {
+          const prepared = await prepareCollisionHeadGraph(transaction, values);
+          const initialized = await runEffect(
+            initializeFrameworkMigrationCollisionHeadInTransactionEffect(
+              transaction,
+              prepared.graph.collision,
+              prepared.graph.admission,
+              prepared.graph.attempt,
+              prepared.events.started,
+              prepared.initialValue,
+            ),
+          );
+          return { ...prepared, initialized };
+        },
+      );
+      const actual = await actualPersistence.drizzle.transaction(
+        async transaction => {
+          const graph = await storeSuccessfulReadinessGraphInTransaction(
+            transaction,
+            values,
+          );
+          await appendDistractorHeadEvent(transaction, graph);
+          const events = await appendHeadEventChain(transaction, graph);
+          const initialValue = await captureInitialHead(graph, events.started);
+          const nextValue = await captureRenewedHead(graph, events.renewed);
+          const initialized = await runEffect(
+            initializeFrameworkMigrationCollisionHeadInTransactionEffect(
+              transaction,
+              graph.collision,
+              graph.admission,
+              graph.attempt,
+              events.started,
+              initialValue,
+            ),
+          );
+          return { graph, events, initialValue, nextValue, initialized };
+        },
+      );
+
+      expect(expected.initialized).toEqual(actual.initialized);
+      const expectedAuthority = restoredFrameworkMigrationCollisionHeadAuthority(
+        expected.initialized,
+      );
+      const actualAuthority = restoredFrameworkMigrationCollisionHeadAuthority(
+        actual.initialized,
+      );
+      expect(expectedAuthority?.lastEvent?.storageId).not.toBe(
+        actualAuthority?.lastEvent?.storageId,
+      );
+      const before = await storedCollisionHeadRow(actualPersistence);
+      const failure = await actualPersistence.drizzle.transaction(
+        transaction => runEffectFailure(
+          compareAndSwapFrameworkMigrationCollisionHeadInTransactionEffect(
+            transaction,
+            expected.initialized,
+            actual.graph.admission,
+            actual.graph.attempt,
+            actual.events.renewed,
+            actual.nextValue,
+          ),
+        ),
+      );
+      expect(failure).toMatchObject({
+        operation: "compareAndSwapCollisionHead",
+        reason: "referenceRefusal",
+      });
+      await expect(storedCollisionHeadRow(actualPersistence)).resolves.toEqual(
+        before,
+      );
+    }), PGLITE_TEST_TIMEOUT);
+
+    it("reports a different initialized incumbent as stale without mutation", () => withPersistence(async persistence => {
+      const stored = await initializedCollisionHeadFixture(persistence);
+      const before = await storedCollisionHeadRow(persistence);
+      const stale = await persistence.drizzle.transaction(
+        transaction => runEffectFailure(
           initializeFrameworkMigrationCollisionHeadInTransactionEffect(
             transaction,
-            prepared.graph.collision,
-            prepared.graph.admission,
-            prepared.graph.attempt,
-            prepared.events.started,
-            prepared.initialValue,
+            stored.graph.collision,
+            stored.graph.admission,
+            stored.graph.attempt,
+            stored.events.renewed,
+            stored.nextValue,
+          ),
+        ),
+      );
+      expect(stale).toMatchObject({
+        operation: "initializeCollisionHead",
+        reason: "staleHead",
+      });
+      await expect(storedCollisionHeadRow(persistence)).resolves.toEqual(before);
+
+      await withIndependentPersistence(async emptyPersistence => {
+        const missing = await emptyPersistence.drizzle.transaction(
+          transaction => runEffectFailure(
+            readFrameworkMigrationCollisionHeadInTransactionEffect(
+              transaction,
+              stored.graph.collision,
+            ),
           ),
         );
-        return { ...prepared, initialized };
-      },
-    );
-    const actual = await actualPersistence.drizzle.transaction(
-      async transaction => {
-        const graph = await storeSuccessfulReadinessGraphInTransaction(
-          transaction,
-          values,
-        );
-        await appendDistractorHeadEvent(transaction, graph);
-        const events = await appendHeadEventChain(transaction, graph);
-        const initialValue = await captureInitialHead(graph, events.started);
-        const nextValue = await captureRenewedHead(graph, events.renewed);
-        const initialized = await runEffect(
-          initializeFrameworkMigrationCollisionHeadInTransactionEffect(
-            transaction,
-            graph.collision,
-            graph.admission,
-            graph.attempt,
-            events.started,
-            initialValue,
-          ),
-        );
-        return { graph, events, initialValue, nextValue, initialized };
-      },
-    );
-
-    expect(expected.initialized).toEqual(actual.initialized);
-    const expectedAuthority = restoredFrameworkMigrationCollisionHeadAuthority(
-      expected.initialized,
-    );
-    const actualAuthority = restoredFrameworkMigrationCollisionHeadAuthority(
-      actual.initialized,
-    );
-    expect(expectedAuthority?.lastEvent?.storageId).not.toBe(
-      actualAuthority?.lastEvent?.storageId,
-    );
-    const before = await storedCollisionHeadRow(actualPersistence);
-    const failure = await actualPersistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        compareAndSwapFrameworkMigrationCollisionHeadInTransactionEffect(
-          transaction,
-          expected.initialized,
-          actual.graph.admission,
-          actual.graph.attempt,
-          actual.events.renewed,
-          actual.nextValue,
-        ),
-      ),
-    );
-    expect(failure).toMatchObject({
-      operation: "compareAndSwapCollisionHead",
-      reason: "referenceRefusal",
-    });
-    await expect(storedCollisionHeadRow(actualPersistence)).resolves.toEqual(
-      before,
-    );
-  }, PGLITE_TEST_TIMEOUT);
-
-  it("reports a different initialized incumbent as stale without mutation", () => withPersistence(async persistence => {
-    const stored = await initializedCollisionHeadFixture(persistence);
-    const before = await storedCollisionHeadRow(persistence);
-    const stale = await persistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        initializeFrameworkMigrationCollisionHeadInTransactionEffect(
-          transaction,
-          stored.graph.collision,
-          stored.graph.admission,
-          stored.graph.attempt,
-          stored.events.renewed,
-          stored.nextValue,
-        ),
-      ),
-    );
-    expect(stale).toMatchObject({
-      operation: "initializeCollisionHead",
-      reason: "staleHead",
-    });
-    await expect(storedCollisionHeadRow(persistence)).resolves.toEqual(before);
-
-    const emptyPersistence = await createMigratedPGlitePersistence();
-    const missing = await emptyPersistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        readFrameworkMigrationCollisionHeadInTransactionEffect(
-          transaction,
-          stored.graph.collision,
-        ),
-      ),
-    );
-    expect(missing).toMatchObject({
-      operation: "readCollisionHead",
-      reason: "referenceRefusal",
-    });
-  }), PGLITE_TEST_TIMEOUT);
+        expect(missing).toMatchObject({
+          operation: "readCollisionHead",
+          reason: "referenceRefusal",
+        });
+      });
+    }), PGLITE_TEST_TIMEOUT);
+  });
 
   it("rejects corrupt projections and over-limit bytes without CAS healing", async () => {
     await withPersistence(async projectionPersistence => {

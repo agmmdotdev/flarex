@@ -107,31 +107,172 @@ describe("framework coordinator migration-step receipt repository", { concurrent
     });
   }), PGLITE_TEST_TIMEOUT);
 
-  it("corroborates prefix attempts against the current store despite colliding IDs", async () => {
-    const source = await createMigratedPGlitePersistence();
-    const target = await createMigratedPGlitePersistence();
-    const values = await freshPlanRepositoryValues();
-    const sourceAttempt = await source.drizzle.transaction(transaction =>
-      ensureStoredAttempt(transaction, values, "source-attempt", "1", null)
-    );
-    const targetAttempt = await target.drizzle.transaction(transaction =>
-      ensureStoredAttempt(transaction, values, "target-attempt", "1", null)
-    );
-    expect(sourceAttempt.storageId).toBe(targetAttempt.storageId);
-    const failure = await target.drizzle.transaction(transaction =>
-      runEffectFailure(readFrameworkMigrationStepReceiptPrefixInTransactionEffect(
-        transaction,
-        sourceAttempt,
-      ))
-    );
-    expect(failure.reason).toBe("referenceRefusal");
-    expect(await target.drizzle.transaction(transaction =>
-      runEffect(readFrameworkMigrationStepReceiptPrefixInTransactionEffect(
-        transaction,
-        targetAttempt,
-      ))
-    )).toEqual([]);
-  }, PGLITE_TEST_TIMEOUT);
+  describe("independent-store prerequisites", { concurrent: false }, () => {
+    // Only one borrow writes; the absence case leaves the ID sequences cold.
+    const withIndependentPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
+
+    it("corroborates prefix attempts against the current store despite colliding IDs", () => withIndependentPersistence(async source => {
+      const target = await createMigratedPGlitePersistence();
+      const values = await freshPlanRepositoryValues();
+      const sourceAttempt = await source.drizzle.transaction(transaction =>
+        ensureStoredAttempt(transaction, values, "source-attempt", "1", null)
+      );
+      const targetAttempt = await target.drizzle.transaction(transaction =>
+        ensureStoredAttempt(transaction, values, "target-attempt", "1", null)
+      );
+      expect(sourceAttempt.storageId).toBe(targetAttempt.storageId);
+      const failure = await target.drizzle.transaction(transaction =>
+        runEffectFailure(readFrameworkMigrationStepReceiptPrefixInTransactionEffect(
+          transaction,
+          sourceAttempt,
+        ))
+      );
+      expect(failure.reason).toBe("referenceRefusal");
+      expect(await target.drizzle.transaction(transaction =>
+        runEffect(readFrameworkMigrationStepReceiptPrefixInTransactionEffect(
+          transaction,
+          targetAttempt,
+        ))
+      )).toEqual([]);
+    }), PGLITE_TEST_TIMEOUT);
+
+    it("refuses forged, wrong, missing, and cross-attempt prerequisites", () => withPersistence(async persistence => {
+      const values = await freshPlanRepositoryValues();
+      const stored = await persistence.drizzle.transaction(
+        async transaction => {
+          const firstAttempt = await ensureStoredAttempt(
+            transaction,
+            values,
+            "attempt-a",
+            "1",
+            null,
+          );
+          const firstValues = await completeFrameworkMigrationPlanSteps(
+            firstAttempt.plan.plan,
+            firstAttempt.attempt,
+            FIRST_COMPLETED_AT,
+          );
+          const firstReceipts = await ensureStoredReceiptGraph(
+            transaction,
+            firstAttempt,
+            firstValues,
+          );
+          const secondAttemptValue = await captureAttempt(
+            firstAttempt.admission,
+            "attempt-b",
+            "2",
+            firstAttempt,
+          );
+          const secondAttempt = await runEffect(
+            ensureFrameworkMigrationAttemptStartInTransactionEffect(
+              transaction,
+              firstAttempt.admission,
+              firstAttempt,
+              secondAttemptValue,
+            ),
+          );
+          const secondValues = await completeFrameworkMigrationPlanSteps(
+            secondAttempt.plan.plan,
+            secondAttempt.attempt,
+            SECOND_COMPLETED_AT,
+          );
+          return {
+            firstAttempt,
+            firstReceipts,
+            firstValues,
+            secondAttempt,
+            secondValues,
+          };
+        },
+      );
+      const firstFinalValue = requiredLast(stored.firstValues);
+      const firstFinalDependencies = dependenciesForArray(
+        firstFinalValue,
+        stored.firstReceipts,
+      );
+      const secondFinalValue = requiredLast(stored.secondValues);
+
+      await expectReferenceRefusal(persistence, "ensureStepReceipt", transaction =>
+        ensureFrameworkMigrationStepReceiptInTransactionEffect(
+          transaction,
+          Object.freeze({ ...stored.firstAttempt }),
+          firstFinalDependencies,
+          firstFinalValue,
+        )
+      );
+      await expectReferenceRefusal(persistence, "ensureStepReceipt", transaction =>
+        ensureFrameworkMigrationStepReceiptInTransactionEffect(
+          transaction,
+          stored.firstAttempt,
+          firstFinalDependencies,
+          Object.freeze({ ...firstFinalValue }),
+        )
+      );
+      await expectReferenceRefusal(persistence, "ensureStepReceipt", transaction =>
+        ensureFrameworkMigrationStepReceiptInTransactionEffect(
+          transaction,
+          stored.firstAttempt,
+          firstFinalDependencies.slice(1),
+          firstFinalValue,
+        )
+      );
+      const firstDependency = requiredFirst(firstFinalDependencies);
+      await expectReferenceRefusal(persistence, "ensureStepReceipt", transaction =>
+        ensureFrameworkMigrationStepReceiptInTransactionEffect(
+          transaction,
+          stored.firstAttempt,
+          Object.freeze([
+            Object.freeze({ ...firstDependency }),
+            ...firstFinalDependencies.slice(1),
+          ]),
+          firstFinalValue,
+        )
+      );
+      await expectReferenceRefusal(persistence, "readStepReceipt", transaction =>
+        readFrameworkMigrationStepReceiptInTransactionEffect(
+          transaction,
+          stored.firstAttempt,
+          replaceFirstDependencyWithDuplicate(firstFinalDependencies),
+          firstFinalValue,
+        )
+      );
+      await expectReferenceRefusal(persistence, "ensureStepReceipt", transaction =>
+        ensureFrameworkMigrationStepReceiptInTransactionEffect(
+          transaction,
+          stored.secondAttempt,
+          firstFinalDependencies,
+          secondFinalValue,
+        )
+      );
+      await expectReferenceRefusal(persistence, "readStepReceipt", transaction =>
+        readFrameworkMigrationStepReceiptInTransactionEffect(
+          transaction,
+          stored.secondAttempt,
+          firstFinalDependencies,
+          firstFinalValue,
+        )
+      );
+
+      await withIndependentPersistence(async missingPersistence => {
+        await expectReferenceRefusal(
+          missingPersistence,
+          "readStepReceipt",
+          transaction => readFrameworkMigrationStepReceiptInTransactionEffect(
+            transaction,
+            stored.firstAttempt,
+            firstFinalDependencies,
+            firstFinalValue,
+          ),
+        );
+      });
+      await expect(receiptAggregateCounts(persistence)).resolves.toEqual({
+        receipts: String(stored.firstReceipts.length),
+        dependencies: String(expectedReceiptDependencies(
+          stored.firstReceipts,
+        ).length),
+      });
+    }), 60_000);
+  });
 
   it("ensures, reads, and exactly replays the complete topological receipt graph", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
@@ -366,142 +507,6 @@ describe("framework coordinator migration-step receipt repository", { concurrent
     });
     expect(absentDigestReads).toBe(1);
   }), PGLITE_TEST_TIMEOUT);
-
-  it("refuses forged, wrong, missing, and cross-attempt prerequisites", () => withPersistence(async persistence => {
-    const values = await freshPlanRepositoryValues();
-    const stored = await persistence.drizzle.transaction(
-      async transaction => {
-        const firstAttempt = await ensureStoredAttempt(
-          transaction,
-          values,
-          "attempt-a",
-          "1",
-          null,
-        );
-        const firstValues = await completeFrameworkMigrationPlanSteps(
-          firstAttempt.plan.plan,
-          firstAttempt.attempt,
-          FIRST_COMPLETED_AT,
-        );
-        const firstReceipts = await ensureStoredReceiptGraph(
-          transaction,
-          firstAttempt,
-          firstValues,
-        );
-        const secondAttemptValue = await captureAttempt(
-          firstAttempt.admission,
-          "attempt-b",
-          "2",
-          firstAttempt,
-        );
-        const secondAttempt = await runEffect(
-          ensureFrameworkMigrationAttemptStartInTransactionEffect(
-            transaction,
-            firstAttempt.admission,
-            firstAttempt,
-            secondAttemptValue,
-          ),
-        );
-        const secondValues = await completeFrameworkMigrationPlanSteps(
-          secondAttempt.plan.plan,
-          secondAttempt.attempt,
-          SECOND_COMPLETED_AT,
-        );
-        return {
-          firstAttempt,
-          firstReceipts,
-          firstValues,
-          secondAttempt,
-          secondValues,
-        };
-      },
-    );
-    const firstFinalValue = requiredLast(stored.firstValues);
-    const firstFinalDependencies = dependenciesForArray(
-      firstFinalValue,
-      stored.firstReceipts,
-    );
-    const secondFinalValue = requiredLast(stored.secondValues);
-
-    await expectReferenceRefusal(persistence, "ensureStepReceipt", transaction =>
-      ensureFrameworkMigrationStepReceiptInTransactionEffect(
-        transaction,
-        Object.freeze({ ...stored.firstAttempt }),
-        firstFinalDependencies,
-        firstFinalValue,
-      )
-    );
-    await expectReferenceRefusal(persistence, "ensureStepReceipt", transaction =>
-      ensureFrameworkMigrationStepReceiptInTransactionEffect(
-        transaction,
-        stored.firstAttempt,
-        firstFinalDependencies,
-        Object.freeze({ ...firstFinalValue }),
-      )
-    );
-    await expectReferenceRefusal(persistence, "ensureStepReceipt", transaction =>
-      ensureFrameworkMigrationStepReceiptInTransactionEffect(
-        transaction,
-        stored.firstAttempt,
-        firstFinalDependencies.slice(1),
-        firstFinalValue,
-      )
-    );
-    const firstDependency = requiredFirst(firstFinalDependencies);
-    await expectReferenceRefusal(persistence, "ensureStepReceipt", transaction =>
-      ensureFrameworkMigrationStepReceiptInTransactionEffect(
-        transaction,
-        stored.firstAttempt,
-        Object.freeze([
-          Object.freeze({ ...firstDependency }),
-          ...firstFinalDependencies.slice(1),
-        ]),
-        firstFinalValue,
-      )
-    );
-    await expectReferenceRefusal(persistence, "readStepReceipt", transaction =>
-      readFrameworkMigrationStepReceiptInTransactionEffect(
-        transaction,
-        stored.firstAttempt,
-        replaceFirstDependencyWithDuplicate(firstFinalDependencies),
-        firstFinalValue,
-      )
-    );
-    await expectReferenceRefusal(persistence, "ensureStepReceipt", transaction =>
-      ensureFrameworkMigrationStepReceiptInTransactionEffect(
-        transaction,
-        stored.secondAttempt,
-        firstFinalDependencies,
-        secondFinalValue,
-      )
-    );
-    await expectReferenceRefusal(persistence, "readStepReceipt", transaction =>
-      readFrameworkMigrationStepReceiptInTransactionEffect(
-        transaction,
-        stored.secondAttempt,
-        firstFinalDependencies,
-        firstFinalValue,
-      )
-    );
-
-    const missingPersistence = await createMigratedPGlitePersistence();
-    await expectReferenceRefusal(
-      missingPersistence,
-      "readStepReceipt",
-      transaction => readFrameworkMigrationStepReceiptInTransactionEffect(
-        transaction,
-        stored.firstAttempt,
-        firstFinalDependencies,
-        firstFinalValue,
-      ),
-    );
-    await expect(receiptAggregateCounts(persistence)).resolves.toEqual({
-      receipts: String(stored.firstReceipts.length),
-      dependencies: String(expectedReceiptDependencies(
-        stored.firstReceipts,
-      ).length),
-    });
-  }), 60_000);
 
   it("classifies an immutable same-attempt step occupant as a conflict", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
