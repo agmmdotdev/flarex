@@ -38,6 +38,7 @@ import type { ScopePhysicalLocator } from
   "../../../src/scope/scopeMetadataTypes";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import { useFileScopedFrameworkCoordinatorPersistence } from "./frameworkCoordinatorRepositoryTestSupport";
 
 const PGLITE_TEST_TIMEOUT = 30_000;
 const PHYSICAL_LOCATOR = Object.freeze({
@@ -73,10 +74,10 @@ const executeProbeSqlEffect = Effect.fn(
   }),
 );
 
-describe("private framework migration target sessions", () => {
+describe("private framework migration target sessions", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorPersistence();
 
-  it("captures an opaque target snapshot and rejects a conflicting database identity", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("captures an opaque target snapshot and rejects a conflicting database identity", () => withPersistence(async persistence => {
     const database = persistence.drizzle;
     const driver = makeFrameworkMigrationSessionDriver(
       database,
@@ -186,10 +187,9 @@ describe("private framework migration target sessions", () => {
       reason: "invalidDriver",
     } satisfies Partial<FrameworkMigrationTargetCompositionError>);
     expect(frameworkMigrationTargetSnapshot(target)).toEqual(snapshot);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("constructs schema placement without touching SQL and keeps migration authority separate", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("constructs schema placement without touching SQL and keeps migration authority separate", () => withPersistence(async persistence => {
     let databaseReads = 0;
     const database = new Proxy(persistence.drizzle, {
       get() {
@@ -253,16 +253,15 @@ describe("private framework migration target sessions", () => {
       reason: "databaseIdentityConflict",
     });
     expect(databaseReads).toBe(0);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("allows exactly one concurrent identity across schema and migration construction", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("allows exactly one concurrent identity across schema and migration construction", () => withPersistence(async persistence => {
     const database = persistence.drizzle;
     const driver = makeFrameworkMigrationSessionDriver(
       database,
       unexpectedDriverTransaction,
     );
-    const [left, right] = await Promise.all([
+    const constructing = [
       runEffect(Effect.exit(makeFrameworkSchemaTarget({
         database,
         deploymentId: "concurrent-target-deployment",
@@ -276,7 +275,10 @@ describe("private framework migration target sessions", () => {
         canonicalPhysicalDatabaseIdentity: "pglite://concurrent-right",
         physicalLocator: PHYSICAL_LOCATOR,
       }))),
-    ]);
+    ] as const;
+    const [left, right] = await Promise.all(constructing).finally(async () => {
+      await Promise.allSettled(constructing);
+    });
     const exits = [Exit.map(left, () => undefined), Exit.map(right, () => undefined)] as const;
     const successes = exits.filter(Exit.isSuccess);
     const conflicts = exits.flatMap(exit => Exit.isFailure(exit)
@@ -288,10 +290,9 @@ describe("private framework migration target sessions", () => {
 
     expect(successes).toHaveLength(1);
     expect(conflicts).toHaveLength(1);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("forwards budgets and recovery exclusion through fresh, bounded session authorities", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("forwards budgets and recovery exclusion through fresh, bounded session authorities", () => withPersistence(async persistence => {
     const database = persistence.drizzle;
     const rawTransaction = await database.transaction(
       async transaction => transaction,
@@ -535,7 +536,7 @@ describe("private framework migration target sessions", () => {
       ),
     ));
     expectCompositionFailure(closedAfterDefect, "targetMismatch");
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("commits successful PGlite work and rolls back the full typed callback failure", async () => {
     const persistence = await createMigratedPGlitePersistence();
@@ -590,8 +591,7 @@ describe("private framework migration target sessions", () => {
     expect(stored.rows).toEqual([{ value: "committed" }]);
   }, PGLITE_TEST_TIMEOUT);
 
-  it("maps a synchronous transaction-construction throw to begin-or-configure failure", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("maps a synchronous transaction-construction throw to begin-or-configure failure", () => withPersistence(async persistence => {
     const beginCause = new Error("synchronous begin failure");
     const beginFailureTransaction: typeof persistence.drizzle.transaction =
       () => {
@@ -623,10 +623,9 @@ describe("private framework migration target sessions", () => {
     expect(resourceIssue).toMatchObject({ phase: "beginOrConfigure" });
     expect(resourceIssue?.cause).toBe(beginCause);
     expect(callbackInvoked).toBe(false);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("maps a synchronous configuration-statement throw to begin-or-configure failure", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("maps a synchronous configuration-statement throw to begin-or-configure failure", () => withPersistence(async persistence => {
     const configurationCause = new Error("synchronous configuration failure");
     const configurationFailureTransaction:
       typeof persistence.drizzle.transaction = (transaction, config) =>
@@ -663,7 +662,7 @@ describe("private framework migration target sessions", () => {
     expect(resourceIssue).toMatchObject({ phase: "beginOrConfigure" });
     expect(resourceIssue?.cause).toBe(configurationCause);
     expect(callbackInvoked).toBe(false);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("combines the original callback Cause with rollback-or-cleanup failure", async () => {
     const persistence = await createMigratedPGlitePersistence();

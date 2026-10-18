@@ -275,9 +275,14 @@ Coordinator target/collision and physical-name assignment cases use
 `useFileScopedFrameworkCoordinatorPersistence` for their three-table graph.
 Reset reuses administrative guard validation and restoration in one transaction,
 deletes children before parents and preserves restrictive foreign keys and seeds.
-Further graph dependants refuse reset and require a rebuild. Independent
-rollback, cross-database identity and persistent constraint-corruption witnesses
-keep separate databases; concurrent ensures drain before returning the borrow.
+Further graph dependants refuse reset and require a rebuild. Cross-database
+identity and persistent constraint-corruption witnesses keep separate databases.
+Rollback assertions finish before releasing their database; concurrent ensures
+drain before returning the borrow.
+Target-session identity, budget and configuration probes reuse this profile's
+fresh persistence wrappers so database-bound identity does not cross cases.
+Their persistent DDL, failed-cleanup and uncertain-settlement witnesses keep
+independent backends.
 The full coordinator graph profile, `useFileScopedFrameworkCoordinatorGraphPersistence`,
 uses that same lifecycle and guard owner for plan/admission/attempt/receipt,
 installation/readiness/availability and head/event metadata. Its child-first

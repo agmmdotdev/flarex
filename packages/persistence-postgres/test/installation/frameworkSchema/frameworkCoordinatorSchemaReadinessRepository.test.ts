@@ -24,6 +24,7 @@ import type { FrameworkMigrationRepositoryError } from
   "../../../src/installation/migrationCoordination/repositoryErrors";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
+  useFileScopedFrameworkCoordinatorGraphPersistence,
   rejectingSelectTransaction,
   createSuccessfulTerminalPlanValues,
   storeSuccessfulInstallationGraphInTransaction,
@@ -35,9 +36,9 @@ const FIRST_VALIDATED_AT = "2026-08-27T08:35:00.000Z";
 const SECOND_VALIDATED_AT = "2026-08-27T08:36:00.000Z";
 const VALIDATION_SHA256 = "33".repeat(32);
 
-describe("framework coordinator schema-readiness repository", () => {
-  it("reads absence, ensures exact normalized storage, and replays", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+describe("framework coordinator schema-readiness repository", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
+  it("reads absence, ensures exact normalized storage, and replays", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const stored = await persistence.drizzle.transaction(
       async transaction => {
@@ -103,10 +104,9 @@ describe("framework coordinator schema-readiness repository", () => {
     await expect(storedReadinessRows(persistence)).resolves.toEqual([
       expectedReadinessRow(stored.ensured),
     ]);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("preserves one receipt per installation and refuses missing parents", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("preserves one receipt per installation and refuses missing parents", () => withPersistence(async persistence => {
     const stored = await storedReadinessFixture(persistence);
     const conflicting = await captureReadiness(
       stored.ensured.installation,
@@ -144,10 +144,10 @@ describe("framework coordinator schema-readiness repository", () => {
       operation: "readReadiness",
       reason: "referenceRefusal",
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("rejects corrupt projections and canonical bytes without healing", async () => {
-    const projectionPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async projectionPersistence => {
     const projection = await storedReadinessFixture(projectionPersistence);
     await administrativelyRepairFrameworkMetadata(projectionPersistence.drizzle, ["fx_system_framework_schema_readiness"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkSchemaReadiness,
@@ -169,7 +169,9 @@ describe("framework coordinator schema-readiness repository", () => {
       projectionBefore,
     );
 
-    const corruptPersistence = await createMigratedPGlitePersistence();
+    });
+
+    await withPersistence(async corruptPersistence => {
     const corrupt = await storedReadinessFixture(corruptPersistence);
     const changedBytes = canonicalBytes(corrupt.readiness);
     changedBytes[changedBytes.byteLength - 2] = 0x20;
@@ -188,6 +190,8 @@ describe("framework coordinator schema-readiness repository", () => {
         corrupt.readiness,
       ),
     );
+
+    });
 
     const oversizedPersistence = await createMigratedPGlitePersistence();
     const oversized = await storedReadinessFixture(oversizedPersistence);
@@ -222,8 +226,7 @@ describe("framework coordinator schema-readiness repository", () => {
     );
   }, 180_000);
 
-  it("follows caller rollback and preserves the exact driver cause", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("follows caller rollback and preserves the exact driver cause", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const prepared = await persistence.drizzle.transaction(
       async transaction => {
@@ -264,7 +267,7 @@ describe("framework coordinator schema-readiness repository", () => {
       reason: "resourceFailure",
       cause,
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 });
 
 async function captureReadiness(

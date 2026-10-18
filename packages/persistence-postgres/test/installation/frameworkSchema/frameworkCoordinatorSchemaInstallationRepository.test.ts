@@ -24,6 +24,7 @@ import type { FrameworkMigrationRepositoryError } from
   "../../../src/installation/migrationCoordination/repositoryErrors";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
+  useFileScopedFrameworkCoordinatorGraphPersistence,
   rejectingSelectTransaction,
   createSuccessfulTerminalPlanValues,
   storeSuccessfulTerminalGraphInTransaction,
@@ -34,9 +35,9 @@ const PGLITE_TEST_TIMEOUT = 90_000;
 const FIRST_INSTALLED_AT = "2026-08-27T08:34:00.000Z";
 const SECOND_INSTALLED_AT = "2026-08-27T08:35:00.000Z";
 
-describe("framework coordinator schema-installation repository", () => {
-  it("reads absence, ensures exact normalized storage, and replays", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+describe("framework coordinator schema-installation repository", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
+  it("reads absence, ensures exact normalized storage, and replays", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const stored = await persistence.drizzle.transaction(
       async transaction => {
@@ -102,10 +103,9 @@ describe("framework coordinator schema-installation repository", () => {
     await expect(storedInstallationRows(persistence)).resolves.toEqual([
       expectedInstallationRow(stored.ensured),
     ]);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("refuses a missing terminal and preserves semantic identity conflicts", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("refuses a missing terminal and preserves semantic identity conflicts", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const stored = await persistence.drizzle.transaction(
       async transaction => {
@@ -166,10 +166,10 @@ describe("framework coordinator schema-installation repository", () => {
       operation: "readInstallation",
       reason: "referenceRefusal",
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("rejects changed and over-limit canonical bytes without healing", async () => {
-    const projectionPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async projectionPersistence => {
     const projection = await storedInstallationFixture(
       projectionPersistence,
     );
@@ -196,7 +196,9 @@ describe("framework coordinator schema-installation repository", () => {
     await expect(storedInstallationRows(projectionPersistence)).resolves
       .toEqual(projectionBefore);
 
-    const corruptPersistence = await createMigratedPGlitePersistence();
+    });
+
+    await withPersistence(async corruptPersistence => {
     const corrupt = await storedInstallationFixture(corruptPersistence);
     const changedBytes = canonicalBytes(corrupt.installation);
     changedBytes[changedBytes.byteLength - 2] = 0x20;
@@ -216,6 +218,8 @@ describe("framework coordinator schema-installation repository", () => {
       ),
     );
     await expect(installationCount(corruptPersistence)).resolves.toBe("1");
+
+    });
 
     const oversizedPersistence = await createMigratedPGlitePersistence();
     const oversized = await storedInstallationFixture(oversizedPersistence);
@@ -249,8 +253,7 @@ describe("framework coordinator schema-installation repository", () => {
       .toEqual(before);
   }, 120_000);
 
-  it("follows caller rollback and preserves the exact driver cause", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("follows caller rollback and preserves the exact driver cause", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const prepared = await persistence.drizzle.transaction(
       async transaction => {
@@ -291,7 +294,7 @@ describe("framework coordinator schema-installation repository", () => {
       reason: "resourceFailure",
       cause,
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 });
 
 async function captureInstallation(
