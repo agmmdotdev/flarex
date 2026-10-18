@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Result } from "effect";
 import { ScopeEpochSchema, ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { createPGliteSharedScopeAuthorityProvisioner, type PGliteFlarexPersistence } from "../../src/database/pglite";
 import { preparedHostTestRuntime } from "../execution/preparation/preparedHostRuntimeTestSupport";
@@ -15,6 +16,11 @@ import { FRAMEWORK_COORDINATOR_METADATA_TABLE_NAMES, FRAMEWORK_COORDINATOR_HISTO
 import { ensureFrameworkSchemaTargetNamespaceInTransactionEffect, ensureFrameworkMigrationCollisionDomainInTransactionEffect } from "../../src/installation/migrationCoordination/targetCollisionRepository";
 import { ensureRelationalPhysicalNameAssignmentsInTransactionEffect } from "../../src/installation/migrationCoordination/physicalNameAssignmentRepository";
 import { runEffect } from "./effectTestRuntime";
+import { captureFrameworkSchemaArtifact } from "../../src/installation/frameworkSchema/artifact/canonical";
+import { admitFrameworkSchemaArtifactEffect } from "../../src/installation/frameworkSchema/artifact/admission";
+import { prepareFrameworkSchemaArtifactAdmission } from "../../src/installation/frameworkSchema/artifact/repository";
+import { makePGliteFrameworkSchemaArtifactAdmissionFixture, useFileScopedFrameworkSchemaArtifactAdmissionPersistence } from
+  "../installation/frameworkSchema/frameworkSchemaArtifactAdmissionTestSupport";
 
 describe("file-scoped PGlite runtime fixture", () => {
   const withPersistence = useFileScopedPGliteRuntimePersistence();
@@ -164,6 +170,80 @@ describe("file-scoped PGlite scope authority fixture", () => {
       expect(await persistence.getDeploymentMetadata(deploymentId)).toBeNull();
     });
   });
+});
+
+describe("file-scoped PGlite framework artifact admission fixture", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkSchemaArtifactAdmissionPersistence();
+
+  it("clears artifact edges atomically, preserves seeds and rebuilds after an unexpected dependant", async () => {
+    const deploymentId = "fixture_artifact_admission";
+    const dependency = await runEffect(captureFrameworkSchemaArtifact({
+      deploymentId, owner: "system", lineageId: "fixture-dependency",
+      payloadCodec: { format: "json", version: 1 }, provenance: { source: "fixture-reset" },
+      capabilities: [], dependencies: [], payload: {},
+    }));
+    const parent = await runEffect(captureFrameworkSchemaArtifact({
+      deploymentId, owner: "system", lineageId: "fixture-parent",
+      payloadCodec: { format: "json", version: 1 }, provenance: { source: "fixture-reset" },
+      capabilities: [], dependencies: [dependency.identity], payload: {},
+    }));
+    const seed = async (persistence: PGliteFlarexPersistence) => {
+      await persistence.insertDeploymentMetadata({ deploymentId, projectId: deploymentId });
+      const { repository } = makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence);
+      for (const artifact of [dependency, parent]) {
+        await runEffect(admitFrameworkSchemaArtifactEffect(repository,
+          Result.getOrThrow(prepareFrameworkSchemaArtifactAdmission(artifact))));
+      }
+    };
+    const counts = async (persistence: PGliteFlarexPersistence) => (await persistence.query(`
+      select 'artifact' as kind, count(*)::int as count from fx_control_framework_schema_artifact
+      union all select 'dependency', count(*)::int from fx_control_framework_schema_artifact_dependency
+      union all select 'deployment', count(*)::int from deployments
+      order by kind
+    `)).rows;
+    let previous: PGliteFlarexPersistence | undefined;
+    let baseline: Awaited<ReturnType<typeof seededRows>> = [];
+    await withPersistence(async persistence => {
+      previous = persistence;
+      baseline = await seededRows(persistence);
+      expect(baseline).toHaveLength(5);
+      await seed(persistence);
+      expect(await counts(persistence)).toEqual([
+        { kind: "artifact", count: 2 }, { kind: "dependency", count: 1 }, { kind: "deployment", count: 1 },
+      ]);
+    });
+
+    await expect(withPersistence(async persistence => {
+      expect(persistence).not.toBe(previous);
+      const prior = previous;
+      if (prior === undefined) throw new Error("Missing previous artifact fixture");
+      expect(() => preparedHostTestRuntime(prior.drizzle)).toThrow("no open host runtime");
+      expect(await seededRows(persistence)).toEqual(baseline);
+      expect(await counts(persistence)).toEqual([
+        { kind: "artifact", count: 0 }, { kind: "dependency", count: 0 }, { kind: "deployment", count: 0 },
+      ]);
+      await seed(persistence);
+      previous = persistence;
+      await persistence.insertScopeMetadata({
+        scopeId: ScopeIdSchema.make("scope_fixture_artifact_admission"), deploymentId,
+        physicalLocator: { kind: "schema_per_scope", databaseKey: "fixture", schemaName: "fixture_artifact" },
+      });
+    })).rejects.toMatchObject({ cause: {
+      code: "23001", constraint: "fx_control_scope_deployment_id_deployments_deployment_id_fk",
+    } });
+    if (previous === undefined) throw new Error("Missing failed artifact fixture");
+    expect(await counts(previous)).toEqual([
+      { kind: "artifact", count: 2 }, { kind: "dependency", count: 1 }, { kind: "deployment", count: 1 },
+    ]);
+
+    await withPersistence(async persistence => {
+      expect(await seededRows(persistence)).toEqual(baseline);
+      expect(await counts(persistence)).toEqual([
+        { kind: "artifact", count: 0 }, { kind: "dependency", count: 0 }, { kind: "deployment", count: 0 },
+      ]);
+      expect((await persistence.query("select id from fx_control_scope")).rows).toEqual([]);
+    });
+  }, 30_000);
 });
 
 describe.each(["roots", "graph"] as const)("file-scoped PGlite framework coordinator %s fixture", profile => {

@@ -36,6 +36,7 @@ import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   makePGliteFrameworkSchemaArtifactAdmissionFixture,
+  useFileScopedFrameworkSchemaArtifactAdmissionPersistence,
 } from "./frameworkSchemaArtifactAdmissionTestSupport";
 import {
   ARTIFACT_TABLE,
@@ -49,7 +50,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("private framework schema artifact admission", () => {
+describe("private framework schema artifact admission", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkSchemaArtifactAdmissionPersistence();
+
   it("keeps the exact private contract and authenticates authority before work", async () => {
     expectTypeOf<ReturnType<
       typeof admitFrameworkSchemaArtifactEffect
@@ -100,29 +103,29 @@ describe("private framework schema artifact admission", () => {
     }
     expect(preparedReads).toBe(0);
 
-    const persistence = await createMigratedPGlitePersistence();
-    const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
-      persistence,
-    );
-    const forgedPrepared = Object.freeze({}) as
-      PreparedFrameworkSchemaArtifactAdmission;
-    const error = await runEffectFailure(
-      admitFrameworkSchemaArtifactEffect(
-        fixture.repository,
-        forgedPrepared,
-      ),
-    );
-    expect(error).toMatchObject({
-      operation: "admit",
-      reason: "invalidInput",
-      message: "Framework schema artifact admission input is invalid",
-      retryable: false,
+    await withPersistence(async persistence => {
+      const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+        persistence,
+      );
+      const forgedPrepared = Object.freeze({}) as
+        PreparedFrameworkSchemaArtifactAdmission;
+      const error = await runEffectFailure(
+        admitFrameworkSchemaArtifactEffect(
+          fixture.repository,
+          forgedPrepared,
+        ),
+      );
+      expect(error).toMatchObject({
+        operation: "admit",
+        reason: "invalidInput",
+        message: "Framework schema artifact admission input is invalid",
+        retryable: false,
+      });
+      expect(fixture.events).toEqual([]);
     });
-    expect(fixture.events).toEqual([]);
   }, 120_000);
 
-  it("creates, takes the optimistic exact-replay path, and retains lineage history", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("creates, takes the optimistic exact-replay path, and retains lineage history", async () => withPersistence(async persistence => {
     await insertDeployment(persistence);
     const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
       persistence,
@@ -156,10 +159,9 @@ describe("private framework schema artifact admission", () => {
     expect((await admitArtifact(fixture.repository, next)).status)
       .toBe("created");
     expect(await countLineageArtifacts(persistence, artifact)).toBe(2);
-  }, 120_000);
+  }), 120_000);
 
-  it("returns exact missing-deployment and missing-dependency diagnostics without writes", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("returns exact missing-deployment and missing-dependency diagnostics without writes", async () => withPersistence(async persistence => {
     const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
       persistence,
     );
@@ -226,10 +228,9 @@ describe("private framework schema artifact admission", () => {
       expect(Object.hasOwn(dependencyError, "cause")).toBe(false);
       expect(await countArtifacts(persistence, parent)).toBe(0);
     }
-  }, 120_000);
+  }), 120_000);
 
-  it("inserts dependency edges atomically in canonical ordinal order", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("inserts dependency edges atomically in canonical ordinal order", async () => withPersistence(async persistence => {
     await insertDeployment(persistence);
     const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
       persistence,
@@ -278,10 +279,9 @@ describe("private framework schema artifact admission", () => {
     const existing = await admitArtifact(fixture.repository, parent);
     expect(existing.status).toBe("existing");
     expect(existing.artifact).toEqual(parent);
-  }, 120_000);
+  }), 120_000);
 
-  it("rejects constraint-valid raw ordinal reordering in exact replay and point read", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects constraint-valid raw ordinal reordering in exact replay and point read", async () => withPersistence(async persistence => {
     await insertDeployment(persistence);
     const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
       persistence,
@@ -372,10 +372,9 @@ describe("private framework schema artifact admission", () => {
     });
     expect(Object.hasOwn(readError, "stage")).toBe(false);
     expect(Object.hasOwn(readError, "cause")).toBe(false);
-  }, 120_000);
+  }), 120_000);
 
-  it("admits and exactly replays the 256-dependency boundary", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("admits and exactly replays the 256-dependency boundary", async () => withPersistence(async persistence => {
     await insertDeployment(persistence);
     const dependencies = await Promise.all(
       Array.from({ length: 256 }, (_, index) => captureArtifact({
@@ -408,7 +407,7 @@ describe("private framework schema artifact admission", () => {
     const existing = await admitArtifact(fixture.repository, parent);
     expect(existing.status).toBe("existing");
     expect(existing.artifact).toEqual(parent);
-  }, 120_000);
+  }), 120_000);
 
   it("classifies only fully reconstructed evidence as collision or corruption", async () => {
     const persistence = await createMigratedPGlitePersistence();
@@ -468,8 +467,7 @@ describe("private framework schema artifact admission", () => {
     expect(Object.hasOwn(corruption, "cause")).toBe(false);
   }, 120_000);
 
-  it("returns locked exact replay from compact evidence without hashing", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("returns locked exact replay from compact evidence without hashing", async () => withPersistence(async persistence => {
     await insertDeployment(persistence);
     const artifact = await captureArtifact();
     const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
@@ -495,10 +493,9 @@ describe("private framework schema artifact admission", () => {
     expect(digestTransactionStates).toEqual([]);
     expect(fixture.events).toContain("initial:commit");
     expect(await countArtifacts(persistence, artifact)).toBe(1);
-  }, 120_000);
+  }), 120_000);
 
-  it("resolves a raced mismatch after the lock and never hashes inside the transaction", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("resolves a raced mismatch after the lock and never hashes inside the transaction", async () => withPersistence(async persistence => {
     await insertDeployment(persistence);
     const stored = await captureArtifact();
     const storedEvidence = requireCapturedEvidence(stored);
@@ -545,10 +542,9 @@ describe("private framework schema artifact admission", () => {
     expect(fixture.events).toContain("initial:commit");
     expect(fixture.events.filter(event => event === "read:acquire"))
       .toHaveLength(2);
-  }, 120_000);
+  }), 120_000);
 
-  it("attributes post-settlement resolution acquisition to the read stage", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("attributes post-settlement resolution acquisition to the read stage", async () => withPersistence(async persistence => {
     await insertDeployment(persistence);
     const dependency = await captureArtifact({
       lineageId: "lineage-resolution-acquire-dependency",
@@ -594,7 +590,7 @@ describe("private framework schema artifact admission", () => {
     expect(fixture.events.filter(event => event === "read:acquire"))
       .toHaveLength(2);
     expect(fixture.events).toContain("read:acquireFailed");
-  }, 120_000);
+  }), 120_000);
 
   it("rolls back the parent when the dependency insert fails", async () => {
     const persistence = await createMigratedPGlitePersistence();
@@ -630,8 +626,7 @@ describe("private framework schema artifact admission", () => {
     expect(await countArtifacts(persistence, parent)).toBe(0);
   }, 120_000);
 
-  it("settles commit and release before re-emitting a successful admission interruption", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("settles commit and release before re-emitting a successful admission interruption", async () => withPersistence(async persistence => {
     await insertDeployment(persistence);
     const seedFixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
       persistence,
@@ -712,7 +707,7 @@ describe("private framework schema artifact admission", () => {
     const replay = await admitArtifact(result.repository, parent);
     expect(replay.status).toBe("existing");
     expect(replay.artifact).toEqual(parent);
-  }, 120_000);
+  }), 120_000);
 
   it("projects uncertain settlement with both exact causes and no ordinary cause", async () => {
     const persistence = await createMigratedPGlitePersistence();

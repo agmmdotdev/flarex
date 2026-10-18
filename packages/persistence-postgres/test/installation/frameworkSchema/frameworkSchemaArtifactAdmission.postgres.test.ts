@@ -4,6 +4,7 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import { TestClock } from "effect/testing";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
@@ -50,6 +51,7 @@ import {
   ARTIFACT_TABLE,
   DEPENDENCY_TABLE,
 } from "./frameworkSchemaArtifactStorageTestSupport";
+import { resetFrameworkSchemaArtifactAdmissionRows } from "./frameworkSchemaArtifactAdmissionTestSupport";
 import {
   acquirePostgresDeploymentLock,
   type BlockedPostgresDeploymentLockWaiter,
@@ -106,6 +108,45 @@ describePostgres(
   { concurrent: false },
   () => {
     const withPersistence = useFileScopedPostgresPersistence();
+
+    it("resets the artifact graph atomically and refuses another deployment dependant", async () => {
+      await withPersistence(async persistence => {
+        await expectPostgres18OrdinaryRole(persistence);
+        const dependency = await captureArtifact({ lineageId: "fixture-reset-dependency" });
+        const parent = await captureArtifact({
+          lineageId: "fixture-reset-parent", dependencies: [dependency.identity],
+        });
+        const seed = async () => {
+          await insertDeployment(persistence);
+          const repository = makePostgresArtifactRepository(persistence);
+          for (const artifact of [dependency, parent]) await admitArtifact(repository, artifact);
+        };
+        await seed();
+        expect(await countArtifactRows(persistence, parent)).toBe(1);
+        expect(await countDependencyRows(persistence, parent)).toBe(1);
+        await resetFrameworkSchemaArtifactAdmissionRows(persistence.drizzle);
+        expect(await countArtifactRows(persistence, parent)).toBe(0);
+        expect(await countArtifactRows(persistence, dependency)).toBe(0);
+        expect(await countAllDependencyRows(persistence)).toBe(0);
+        expect(await persistence.getDeploymentMetadata(DEFAULT_DEPLOYMENT_ID)).toBeNull();
+
+        await seed();
+        const scopeId = ScopeIdSchema.make("scope_fixture_artifact_reset_pg");
+        await persistence.insertScopeMetadata({
+          scopeId, deploymentId: DEFAULT_DEPLOYMENT_ID,
+          physicalLocator: { kind: "schema_per_scope", databaseKey: "fixture", schemaName: "fixture_artifact" },
+        });
+        await expect(resetFrameworkSchemaArtifactAdmissionRows(persistence.drizzle)).rejects
+          .toMatchObject({ cause: {
+            code: "23001", constraint: "fx_control_scope_deployment_id_deployments_deployment_id_fk",
+          } });
+        expect(await countArtifactRows(persistence, parent)).toBe(1);
+        expect(await countArtifactRows(persistence, dependency)).toBe(1);
+        expect(await countDependencyRows(persistence, parent)).toBe(1);
+        expect(await persistence.getDeploymentMetadata(DEFAULT_DEPLOYMENT_ID)).not.toBeNull();
+        expect(await persistence.getScopeMetadata(scopeId)).not.toBeNull();
+      });
+    }, 180_000);
 
     it("converges concurrent exact admissions to one parent and one edge set", async () => {
       await withPersistence(async persistence => {

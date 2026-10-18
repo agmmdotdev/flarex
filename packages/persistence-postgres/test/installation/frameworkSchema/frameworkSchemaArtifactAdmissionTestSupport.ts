@@ -1,4 +1,7 @@
 import { Effect, Exit, Result } from "effect";
+import { sql } from "drizzle-orm";
+
+import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
 
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
 import {
@@ -16,6 +19,27 @@ import {
 import type { FlarexMetadataTransaction } from
   "../../../src/database/metadataTransaction";
 import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
+
+/** Admission rows only. Persistent DDL and failed-quarantine witnesses retain
+ * independent databases; unexpected deployment dependants fail closed. */
+export function useFileScopedFrameworkSchemaArtifactAdmissionPersistence() {
+  return useFileScopedPersistence(async () => {
+    const { createFileScopedPGliteFixture } = await import("../../support/pgliteTestFixture");
+    return createFileScopedPGliteFixture(async () => persistence =>
+      resetFrameworkSchemaArtifactAdmissionRows(persistence.drizzle));
+  });
+}
+
+export async function resetFrameworkSchemaArtifactAdmissionRows(
+  database: FlarexMetadataDatabase,
+): Promise<void> {
+  await database.transaction(async transaction => {
+    // Keep both edge FKs, the deployment FK and every other dependant enabled.
+    await transaction.execute(sql`delete from fx_control_framework_schema_artifact_dependency`);
+    await transaction.execute(sql`delete from fx_control_framework_schema_artifact`);
+    await transaction.execute(sql`delete from deployments`);
+  });
+}
 
 export interface PGliteFrameworkSchemaArtifactAdmissionFixtureOptions {
   readonly beforeInitialTransaction?: () => Promise<void>;
