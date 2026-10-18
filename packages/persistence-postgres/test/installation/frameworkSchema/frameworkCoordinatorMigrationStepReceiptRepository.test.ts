@@ -1,4 +1,7 @@
-import { rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
+import {
+  rejectingSelectTransaction,
+  useFileScopedFrameworkCoordinatorGraphPersistence,
+} from "./frameworkCoordinatorRepositoryTestSupport";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { administrativelyRepairFrameworkMetadata, withAdministrativeFrameworkMetadataRepair } from "./frameworkMetadataRepairTestSupport";
 import { isNonArrayRecord } from "@flarex/utils/records";
@@ -72,9 +75,9 @@ type ReceiptValue = Awaited<
   ReturnType<typeof completeFrameworkMigrationPlanSteps>
 >[number];
 
-describe("framework coordinator migration-step receipt repository", () => {
-  it("reuses a verified prefix only for its exact tail and rechecks sidecars after the pass", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+describe("framework coordinator migration-step receipt repository", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
+  it("reuses a verified prefix only for its exact tail and rechecks sidecars after the pass", () => withPersistence(async persistence => {
     const stored = await storedReceiptFixture(persistence);
     const tail = requiredLast(stored.receipts);
     await persistence.drizzle.transaction(async transaction => {
@@ -102,7 +105,7 @@ describe("framework coordinator migration-step receipt repository", () => {
         ["fx_system_framework_migration_step_receipt_dependency"], async () => transaction.insert(fxSystemFrameworkMigrationStepReceiptDependencies).values(removed));
       expect(await runEffect(read(tail.storageId, tail.receipt.sha256))).toHaveLength(stored.receipts.length);
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("corroborates prefix attempts against the current store despite colliding IDs", async () => {
     const source = await createMigratedPGlitePersistence();
@@ -130,8 +133,7 @@ describe("framework coordinator migration-step receipt repository", () => {
     )).toEqual([]);
   }, PGLITE_TEST_TIMEOUT);
 
-  it("ensures, reads, and exactly replays the complete topological receipt graph", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("ensures, reads, and exactly replays the complete topological receipt graph", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const first = await persistence.drizzle.transaction(
       async transaction => {
@@ -228,10 +230,9 @@ describe("framework coordinator migration-step receipt repository", () => {
     await expect(storedReceiptDependencies(persistence)).resolves.toEqual(
       expectedReceiptDependencies(first.restored),
     );
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("reuses original plan receipts across successors and refuses a second completion", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("reuses original plan receipts across successors and refuses a second completion", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const stored = await persistence.drizzle.transaction(async transaction => {
       const firstAttempt = await ensureStoredAttempt(transaction, values, "attempt-a", "1", null);
@@ -274,10 +275,9 @@ describe("framework coordinator migration-step receipt repository", () => {
     await expect(receiptAggregateCounts(persistence)).resolves.toEqual({
       receipts: String(stored.prefix.length), dependencies: String(expectedReceiptDependencies(stored.prefix).length),
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("resolves semantic occupants before lazily consulting the digest index", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("resolves semantic occupants before lazily consulting the digest index", () => withPersistence(async persistence => {
     const stored = await storedReceiptFixture(persistence);
     const expected = requiredLast(stored.receiptValues);
     const expectedRestored = requiredLast(stored.receipts);
@@ -365,10 +365,9 @@ describe("framework coordinator migration-step receipt repository", () => {
       reason: "immutableConflict",
     });
     expect(absentDigestReads).toBe(1);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("refuses forged, wrong, missing, and cross-attempt prerequisites", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("refuses forged, wrong, missing, and cross-attempt prerequisites", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const stored = await persistence.drizzle.transaction(
       async transaction => {
@@ -502,10 +501,9 @@ describe("framework coordinator migration-step receipt repository", () => {
         stored.firstReceipts,
       ).length),
     });
-  }, 60_000);
+  }), 60_000);
 
-  it("classifies an immutable same-attempt step occupant as a conflict", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("classifies an immutable same-attempt step occupant as a conflict", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const stored = await persistence.drizzle.transaction(
       async transaction => {
@@ -565,10 +563,10 @@ describe("framework coordinator migration-step receipt repository", () => {
       receipts: String(stored.receipts.length),
       dependencies: String(expectedReceiptDependencies(stored.receipts).length),
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("reports missing and reordered dependency sidecars without healing", async () => {
-    const missingPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async missingPersistence => {
     const missing = await storedReceiptFixture(missingPersistence);
     const missingFinal = requiredLast(missing.receipts);
     const missingDependencies = dependenciesForArray(
@@ -621,8 +619,9 @@ describe("framework coordinator migration-step receipt repository", () => {
     await expect(receiptAggregateCounts(missingPersistence)).resolves.toEqual(
       missingCounts,
     );
+    });
 
-    const reorderedPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async reorderedPersistence => {
     const reordered = await storedReceiptFixture(reorderedPersistence);
     const reorderedFinal = requiredLast(reordered.receipts);
     const reorderedValue = requiredLast(reordered.receiptValues);
@@ -670,6 +669,7 @@ describe("framework coordinator migration-step receipt repository", () => {
       dependencies: String(expectedReceiptDependencies(
         reordered.receipts,
       ).length),
+    });
     });
   }, 60_000);
 
@@ -737,8 +737,7 @@ describe("framework coordinator migration-step receipt repository", () => {
     });
   }, 60_000);
 
-  it("follows caller rollback and preserves the exact foreign driver cause", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("follows caller rollback and preserves the exact foreign driver cause", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const attempt = await persistence.drizzle.transaction(
       transaction => ensureStoredAttempt(
@@ -789,7 +788,7 @@ describe("framework coordinator migration-step receipt repository", () => {
       reason: "resourceFailure",
       cause: driverCause,
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 });
 
 async function freshPlanRepositoryValues() {

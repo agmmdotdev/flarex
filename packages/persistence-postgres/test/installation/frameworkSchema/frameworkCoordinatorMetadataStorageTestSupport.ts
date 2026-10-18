@@ -24,6 +24,13 @@ export const FRAMEWORK_COORDINATOR_METADATA_TABLE_NAMES = [
   "fx_system_relational_physical_name_assignment",
 ] as const;
 
+// The installed protection contract keeps these two CAS heads mutable; the
+// other metadata tables are immutable history (0100/0101 guard migrations).
+export const FRAMEWORK_COORDINATOR_HISTORY_TABLE_NAMES = FRAMEWORK_COORDINATOR_METADATA_TABLE_NAMES.filter(
+  name => name !== "fx_system_framework_migration_collision_head" &&
+    name !== "fx_system_framework_schema_availability_head",
+);
+
 const identitySpecs = [
   [
     "fx_system_framework_migration_attempt_start",
@@ -176,6 +183,26 @@ const expectedForeignKeySignatures = [
 ] as const;
 
 type SqlPersistence = Pick<FlarexSqlClient, "query">;
+
+export async function readFrameworkCoordinatorMetadataRowCounts(persistence: SqlPersistence) {
+  return (await persistence.query<{ table_name: string; count: number }>(
+    FRAMEWORK_COORDINATOR_METADATA_TABLE_NAMES.map(name =>
+      `select '${name}' as table_name, count(*)::int as count from ${name}`,
+    ).join(" union all ") + " order by table_name",
+  )).rows;
+}
+
+export async function readFrameworkCoordinatorMetadataGuards(persistence: SqlPersistence) {
+  return (await persistence.query<{ table_name: string; trigger: string; enabled: string }>(`
+    select relation.relname as table_name, guard.tgname as trigger, guard.tgenabled as enabled
+    from pg_catalog.pg_trigger guard
+    join pg_catalog.pg_class relation on relation.oid = guard.tgrelid
+    join pg_catalog.pg_namespace namespace on namespace.oid = relation.relnamespace
+    where namespace.nspname = current_schema() and relation.relname = any($1::text[])
+      and guard.tgname in ('fx_framework_history_immutable', 'fx_framework_children_sealed')
+    order by table_name, trigger
+  `, [[...FRAMEWORK_COORDINATOR_METADATA_TABLE_NAMES]])).rows;
+}
 
 export async function expectFrameworkCoordinatorMetadataStorageCatalog(
   persistence: SqlPersistence,

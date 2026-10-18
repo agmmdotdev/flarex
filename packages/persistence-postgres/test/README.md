@@ -278,6 +278,17 @@ deletes children before parents and preserves restrictive foreign keys and seeds
 Further graph dependants refuse reset and require a rebuild. Independent
 rollback, cross-database identity and persistent constraint-corruption witnesses
 keep separate databases; concurrent ensures drain before returning the borrow.
+The full coordinator graph profile, `useFileScopedFrameworkCoordinatorGraphPersistence`,
+uses that same lifecycle and guard owner for plan/admission/attempt/receipt,
+installation/readiness/availability and head/event metadata. Its child-first
+deletions keep identity sequences and foreign keys intact. Additive plan-base
+sidecars disappear before their referenced readiness and installation rows.
+The 17 history-table guards are restored; both mutable CAS heads are deleted
+in that same transaction. Row-corruption segments reset only after their
+non-healing assertions finish; colliding-ID,
+private cross-store authority and persistent constraint-drop witnesses retain
+independent databases. The same reset policy is exercised under an ordinary
+PostgreSQL schema owner.
 Publication preparation, table-only artifact compatibility and table/app-schema
 binding cases share one serial file-owned migrated backend, with distinct deployments
 and deployment-local allocation frontiers. The table-wide RETURNING-corruption

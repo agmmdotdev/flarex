@@ -11,10 +11,15 @@ import {
   fxSystemFrameworkMigrationPlanSteps,
 } from "../../../src/installation/migrationCoordination/schema";
 import { withRetainedPhysicalFixture } from "./retainedPhysicalInstallationFixture";
+import { createSuccessfulTerminalPlanValues, resetFrameworkCoordinatorGraphRows,
+  storeBaseBackedCoordinatorGraphInTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
+import { FRAMEWORK_COORDINATOR_METADATA_TABLE_NAMES, FRAMEWORK_COORDINATOR_HISTORY_TABLE_NAMES, readFrameworkCoordinatorMetadataGuards,
+  readFrameworkCoordinatorMetadataRowCounts } from "./frameworkCoordinatorMetadataStorageTestSupport";
 import {
   postgresUrl,
   rollbackAndReleasePostgresClient,
   withTemporaryPostgresSchema,
+  withTemporaryPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 
@@ -27,6 +32,24 @@ const native =
 native(
   "framework installation metadata under a restricted PostgreSQL login",
   () => {
+    it("resets the coordinator fixture graph through the ordinary schema owner with guards restored", async () => {
+      await withTemporaryPostgresPersistence(async persistence => {
+        const guards = await readFrameworkCoordinatorMetadataGuards(persistence);
+        expect([...new Set(guards.map(guard => guard.table_name))].sort()).toEqual(FRAMEWORK_COORDINATOR_HISTORY_TABLE_NAMES);
+        expect(guards.every(guard => guard.enabled === "O")).toBe(true);
+        const values = await createSuccessfulTerminalPlanValues();
+        await persistence.drizzle.transaction(transaction => storeBaseBackedCoordinatorGraphInTransaction(transaction, values));
+        expect((await persistence.query("select count(*)::int as count from fx_system_framework_migration_plan_base")).rows)
+          .toEqual([{ count: 1 }]);
+        expect((await readFrameworkCoordinatorMetadataRowCounts(persistence)).some(row => row.count > 0)).toBe(true);
+        await resetFrameworkCoordinatorGraphRows(persistence.drizzle);
+        expect(await readFrameworkCoordinatorMetadataRowCounts(persistence)).toEqual(
+          FRAMEWORK_COORDINATOR_METADATA_TABLE_NAMES.map(table_name => ({ table_name, count: 0 })),
+        );
+        expect(await readFrameworkCoordinatorMetadataGuards(persistence)).toEqual(guards);
+      });
+    }, 180_000);
+
     it("remaps populated original receipts and preserves rollback and cold replay", async () => {
       await withRetainedPhysicalFixture(async fixture => {
         await fixture.owner.persistence.query("alter sequence fx_framework_migration_attempt_storage_id_seq restart with 1000");

@@ -1,6 +1,9 @@
 import { isNonArrayRecord, type UnknownRecord } from "@flarex/utils/records";
+import { sql } from "drizzle-orm";
+import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
 import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
+import { captureAdditiveRelationalMigrationPlan } from "../../../src/installation/migrationCoordination/additivePlan";
 import type { FlarexMetadataTransaction } from
   "../../../src/database/metadataTransaction";
 import {
@@ -53,6 +56,7 @@ import { captureRelationalPhysicalLayout } from
 import { runEffect } from "../../support/effectTestRuntime";
 import {
   FRAMEWORK_VALUE_LOCATOR,
+  additiveSystemArtifacts,
   completeFrameworkMigrationPlanSteps,
   frameworkTargetNamespace,
   syntheticSystemArtifact,
@@ -68,19 +72,59 @@ export const COORDINATOR_AVAILABLE_AT = "2026-08-27T08:36:00.000Z";
 /** Target/collision/assignment rows only. Further graph children, persistent DDL
  * and independent-store witnesses require separate databases. */
 export function useFileScopedFrameworkCoordinatorPersistence() {
+  return useFileScopedCoordinatorRows(database => resetCoordinatorRows(database, [
+    "fx_system_relational_physical_name_assignment",
+    "fx_system_framework_migration_collision_domain",
+    "fx_system_framework_schema_target_namespace",
+  ]));
+}
+
+/** Full coordinator metadata only; physical/application rows and persistent DDL
+ * remain outside this reset policy. Restrictive dependants require a rebuild. */
+export function useFileScopedFrameworkCoordinatorGraphPersistence() {
+  return useFileScopedCoordinatorRows(resetFrameworkCoordinatorGraphRows);
+}
+
+export function resetFrameworkCoordinatorGraphRows(database: FlarexMetadataDatabase): Promise<void> {
+  return resetCoordinatorRows(database, [
+    "fx_system_framework_schema_availability_head",
+    "fx_system_framework_schema_availability_history",
+    "fx_system_framework_migration_plan_base",
+    "fx_system_framework_schema_readiness",
+    "fx_system_framework_schema_installation",
+    "fx_system_framework_migration_collision_head",
+    "fx_system_framework_migration_event",
+    "fx_system_framework_migration_attempt_terminal",
+    "fx_system_framework_migration_step_receipt_dependency",
+    "fx_system_framework_migration_step_receipt",
+    "fx_system_framework_migration_attempt_start",
+    "fx_system_framework_migration_admission_assignment",
+    "fx_system_framework_migration_plan_admission",
+    "fx_system_framework_migration_plan_step_dependency",
+    "fx_system_framework_migration_plan_step",
+    "fx_system_framework_migration_plan",
+    "fx_system_relational_physical_name_assignment",
+    "fx_system_framework_migration_collision_domain",
+    "fx_system_framework_schema_target_namespace",
+  ]);
+}
+
+function useFileScopedCoordinatorRows(reset: (database: FlarexMetadataDatabase) => Promise<void>) {
   return useFileScopedPersistence(async () => {
     const { createFileScopedPGliteFixture } = await import("../../support/pgliteTestFixture");
-    return createFileScopedPGliteFixture(async () => async persistence => {
-      await administrativelyRepairFrameworkMetadata(persistence.drizzle, [
-        "fx_system_relational_physical_name_assignment",
-        "fx_system_framework_migration_collision_domain",
-        "fx_system_framework_schema_target_namespace",
-      ], async transaction => {
-        await transaction.execute("delete from fx_system_relational_physical_name_assignment");
-        await transaction.execute("delete from fx_system_framework_migration_collision_domain");
-        await transaction.execute("delete from fx_system_framework_schema_target_namespace");
-      });
-    });
+    return createFileScopedPGliteFixture(async () => persistence => reset(persistence.drizzle));
+  });
+}
+
+async function resetCoordinatorRows(database: FlarexMetadataDatabase, tableNames: readonly string[]): Promise<void> {
+  // Mutable CAS heads have no immutable-history guards. Their deletes still
+  // belong to the same transaction and preserve every restrictive foreign key.
+  const guardedTables = tableNames.filter(name =>
+    name !== "fx_system_framework_migration_collision_head" &&
+    name !== "fx_system_framework_schema_availability_head",
+  );
+  await administrativelyRepairFrameworkMetadata(database, guardedTables, async transaction => {
+    for (const name of tableNames) await transaction.execute(sql`delete from ${sql.identifier(name)}`);
   });
 }
 
@@ -336,6 +380,36 @@ export async function storeSuccessfulAvailabilityHistoryGraphInTransaction(
     availabilityHistoryValue,
     availabilityHistory,
   });
+}
+
+export async function storeBaseBackedCoordinatorGraphInTransaction(
+  transaction: FlarexMetadataTransaction,
+  values: Awaited<ReturnType<typeof createSuccessfulTerminalPlanValues>>,
+) {
+  const { baseArtifact, candidate } = await additiveSystemArtifacts();
+  const physicalLocator = values.physicalLayout.frame.physicalLocator;
+  const physicalLayout = await runEffect(captureRelationalPhysicalLayout({
+    artifact: baseArtifact.artifact, physicalLocator, targetNamespace: values.targetValue,
+  }));
+  const planValue = await runEffect(captureFreshRelationalMigrationPlan({ artifact: baseArtifact.artifact, physicalLayout }));
+  const graph = await storeSuccessfulAvailabilityHistoryGraphInTransaction(transaction, {
+    ...values, artifact: baseArtifact, physicalLayout, planValue,
+  });
+  const candidateLayout = await runEffect(captureRelationalPhysicalLayout({
+    artifact: candidate.artifact, physicalLocator, targetNamespace: values.targetValue,
+  }));
+  const base = graph.availabilityHistory.readiness;
+  await runEffect(ensureRelationalPhysicalNameAssignmentsInTransactionEffect(
+    transaction, base.installation.collision, candidateLayout.nameAssignments,
+  ));
+  const additive = await runEffect(captureAdditiveRelationalMigrationPlan({
+    artifact: candidate.artifact,
+    physicalLayout: candidateLayout,
+    baseInstallation: base.installation.installation,
+    baseReadiness: base.readiness,
+  }));
+  await runEffect(ensureFreshRelationalMigrationPlanInTransactionEffect(transaction, base.installation.collision, additive));
+  return graph;
 }
 
 export function rejectingSelectTransaction(

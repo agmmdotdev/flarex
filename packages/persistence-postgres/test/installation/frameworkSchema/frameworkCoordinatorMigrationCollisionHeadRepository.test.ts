@@ -50,6 +50,7 @@ import {
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   rejectingSelectTransaction,
+  useFileScopedFrameworkCoordinatorGraphPersistence,
   createSuccessfulTerminalPlanValues,
   storeSuccessfulReadinessGraphInTransaction,
 } from "./frameworkCoordinatorRepositoryTestSupport";
@@ -70,9 +71,9 @@ type FrameworkMigrationCollisionHead = CapturedFrameworkMigrationValue<
   RestoredFrameworkMigrationCollisionHead["head"]["sha256"]
 >;
 
-describe("framework coordinator migration-collision-head repository", () => {
-  it.each(["started", "admitted"] as const)("shares the selected attempt with the %s event graph after memo exhaustion", async eventKind => {
-    const persistence = await createMigratedPGlitePersistence();
+describe("framework coordinator migration-collision-head repository", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
+  it.each(["started", "admitted"] as const)("shares the selected attempt with the %s event graph after memo exhaustion", eventKind => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const prepared = await persistence.drizzle.transaction(async transaction => {
       const fixture = await prepareCollisionHeadGraph(transaction, values);
@@ -113,10 +114,9 @@ describe("framework coordinator migration-collision-head repository", () => {
         expect(subject.attempt).toBe(authority.currentAttempt);
       } else expect(subject?.kind).toBe("planAdmitted");
     } finally { rows.mockRestore(); issued.mockRestore(); }
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("binds a plan switch to its exact admission event", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("binds a plan switch to its exact admission event", () => withPersistence(async persistence => {
     const fixture = await initializedCollisionHeadFixture(persistence);
     const artifact = await syntheticSystemArtifact(1);
     await persistence.drizzle.transaction(async transaction => {
@@ -155,14 +155,13 @@ describe("framework coordinator migration-collision-head repository", () => {
       expect(swapped.plan.storageId).toBe(plan.storageId);
       expect(swapped.progress).toEqual({ completedStepCount: 0, lastReceipt: null });
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it.each([
     { ordinals: [1], reason: "storedCorruption" },
     { ordinals: [0, 0], reason: "storedCorruption" },
     { ordinals: [0, 1], reason: "referenceRefusal" },
-  ])("refuses non-prefix, duplicate or batched progress: $ordinals", async ({ ordinals, reason }) => {
-    const persistence = await createMigratedPGlitePersistence();
+  ])("refuses non-prefix, duplicate or batched progress: $ordinals", ({ ordinals, reason }) => withPersistence(async persistence => {
     const fixture = await initializedCollisionHeadFixture(persistence);
     const before = await persistence.drizzle.select().from(fxSystemFrameworkMigrationCollisionHeads);
     await persistence.drizzle.transaction(async transaction => {
@@ -186,10 +185,9 @@ describe("framework coordinator migration-collision-head repository", () => {
       ))).toMatchObject({ reason });
     });
     expect(await persistence.drizzle.select().from(fxSystemFrameworkMigrationCollisionHeads)).toEqual(before);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("reads absence, initializes exact normalized storage, and replays", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("reads absence, initializes exact normalized storage, and replays", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const stored = await persistence.drizzle.transaction(async transaction => {
       const prepared = await prepareCollisionHeadGraph(transaction, values);
@@ -272,10 +270,9 @@ describe("framework coordinator migration-collision-head repository", () => {
       ),
     );
     expect(separateReplay.head.sha256).toBe(stored.initialized.head.sha256);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("stores and advances the all-null optional projections", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("stores and advances the all-null optional projections", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const stored = await persistence.drizzle.transaction(async transaction => {
       const prepared = await prepareCollisionHeadGraph(transaction, values);
@@ -356,10 +353,9 @@ describe("framework coordinator migration-collision-head repository", () => {
     await expect(storedCollisionHeadRow(persistence)).resolves.toEqual(
       expectedCollisionHeadRow(cleared, null, null),
     );
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("applies exact CAS without adding revision or lease-transition policy", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("applies exact CAS without adding revision or lease-transition policy", () => withPersistence(async persistence => {
     const stored = await initializedCollisionHeadFixture(persistence);
     expect(stored.nextValue.frame.headRevision).toBe(
       stored.initialized.head.frame.headRevision,
@@ -434,7 +430,7 @@ describe("framework coordinator migration-collision-head repository", () => {
     await expect(storedCollisionHeadRow(persistence)).resolves.toEqual(
       beforeStale,
     );
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("refuses an expected head whose private event authority belongs to another store", async () => {
     const expectedPersistence = await createMigratedPGlitePersistence();
@@ -512,8 +508,7 @@ describe("framework coordinator migration-collision-head repository", () => {
     );
   }, PGLITE_TEST_TIMEOUT);
 
-  it("reports a different initialized incumbent as stale without mutation", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("reports a different initialized incumbent as stale without mutation", () => withPersistence(async persistence => {
     const stored = await initializedCollisionHeadFixture(persistence);
     const before = await storedCollisionHeadRow(persistence);
     const stale = await persistence.drizzle.transaction(
@@ -547,10 +542,10 @@ describe("framework coordinator migration-collision-head repository", () => {
       operation: "readCollisionHead",
       reason: "referenceRefusal",
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("rejects corrupt projections and over-limit bytes without CAS healing", async () => {
-    const projectionPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async projectionPersistence => {
     const projection = await initializedCollisionHeadFixture(
       projectionPersistence,
     );
@@ -586,6 +581,7 @@ describe("framework coordinator migration-collision-head repository", () => {
     );
     await expect(storedCollisionHeadRow(projectionPersistence)).resolves
       .toEqual(projectionBefore);
+    });
 
     const oversizedPersistence = await createMigratedPGlitePersistence();
     const oversized = await initializedCollisionHeadFixture(
@@ -620,8 +616,7 @@ describe("framework coordinator migration-collision-head repository", () => {
       .toEqual(oversizedBefore);
   }, PGLITE_TEST_TIMEOUT);
 
-  it("follows caller rollback and preserves the exact driver cause", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("follows caller rollback and preserves the exact driver cause", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const prepared = await persistence.drizzle.transaction(
       transaction => prepareCollisionHeadGraph(transaction, values),
@@ -656,7 +651,7 @@ describe("framework coordinator migration-collision-head repository", () => {
       reason: "resourceFailure",
       cause,
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 });
 
 async function initializedCollisionHeadFixture(

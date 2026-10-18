@@ -5,10 +5,9 @@ import { runFreshFrameworkMigrationCoordinatorEffect,
   type FrameworkMigrationReadyResult } from "../../../src/installation/migrationCoordination/freshCoordinator";
 import type { FrameworkMigrationBaseInstallation } from "../../../src/installation/migrationCoordination/model";
 import { makePGliteFrameworkMigrationTargetEffect } from "./frameworkMigrationPGliteTarget";
-import { captureRelationalSchemaArtifact } from "../../../src/storage/relationalSchema/artifact";
 import { runEffect } from "../../support/effectTestRuntime";
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from "./frameworkSchemaArtifactAdmissionTestSupport";
-import { FRAMEWORK_VALUE_LOCATOR, syntheticSchemaInput } from "./frameworkMigrationValueFixtures";
+import { FRAMEWORK_VALUE_LOCATOR, additiveSystemArtifacts } from "./frameworkMigrationValueFixtures";
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 
 export async function createAdditiveFixture(extraBaseTables = 0) {
@@ -17,15 +16,7 @@ export async function createAdditiveFixture(extraBaseTables = 0) {
   await persistence.query('create schema "flarex_shared"');
   await persistence.query('create table "flarex_shared"."fx_system_scope_clock" (scope_uuid uuid not null, constraint "fx_system_scope_clock_scope_uuid_unique" unique (scope_uuid))');
   const artifacts = makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence);
-  const schema = syntheticSchemaInput();
-  const parent = schema.tables.find(t => t.tableId === "parent");
-  if (parent === undefined) throw new Error("Missing base table");
-  const extra = Array.from({ length: extraBaseTables }, (_, index) => ({ ...parent, tableId: `extra_${index}` }));
-  const baseArtifact = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a",
-    provenance: { kind: "synthetic", fixtureId: "additive-base" },
-    schema: { ...schema, tables: [parent, ...extra] } }));
-  const candidate = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a",
-    provenance: { kind: "synthetic", fixtureId: "additive-candidate" }, schema: { ...schema, tables: [...schema.tables, ...extra] } }));
+  const { baseArtifact, candidate } = await additiveSystemArtifacts(extraBaseTables);
   for (const artifact of [baseArtifact, candidate]) {
     await runEffect(admitFrameworkSchemaArtifactEffect(artifacts.repository,
       Result.getOrThrow(prepareFrameworkSchemaArtifactAdmission(artifact.artifact))));

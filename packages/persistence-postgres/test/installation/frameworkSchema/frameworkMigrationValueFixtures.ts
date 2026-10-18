@@ -44,6 +44,19 @@ export async function currencyArtifact() {
   }));
 }
 
+export async function additiveSystemArtifacts(extraBaseTables = 0) {
+  const schema = syntheticSchemaInput();
+  const parent = schema.tables.find(t => t.tableId === "parent");
+  if (parent === undefined) throw new Error("Missing base table");
+  const extra = Array.from({ length: extraBaseTables }, (_, index) => ({ ...parent, tableId: `extra_${index}` }));
+  const baseArtifact = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a",
+    provenance: { kind: "synthetic", fixtureId: "additive-base" },
+    schema: { ...schema, tables: [parent, ...extra] } }));
+  const candidate = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a",
+    provenance: { kind: "synthetic", fixtureId: "additive-candidate" }, schema: { ...schema, tables: [...schema.tables, ...extra] } }));
+  return { baseArtifact, candidate };
+}
+
 export async function frameworkTargetNamespace(schemaName: string = FRAMEWORK_VALUE_LOCATOR.schemaName) {
   return runEffect(captureFrameworkSchemaTargetNamespace({
     deploymentId: "deployment-a",

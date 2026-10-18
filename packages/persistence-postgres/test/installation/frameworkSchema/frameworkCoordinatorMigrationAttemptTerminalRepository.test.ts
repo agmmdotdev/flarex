@@ -1,4 +1,7 @@
-import { rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
+import {
+  rejectingSelectTransaction,
+  useFileScopedFrameworkCoordinatorGraphPersistence,
+} from "./frameworkCoordinatorRepositoryTestSupport";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { isNonArrayRecord } from "@flarex/utils/records";
@@ -84,10 +87,10 @@ type ReceiptValue = Awaited<
   ReturnType<typeof completeFrameworkMigrationPlanSteps>
 >[number];
 
-describe("framework coordinator migration-attempt terminal repository", () => {
+describe("framework coordinator migration-attempt terminal repository", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
 
-  it("ensures, reads, and exactly replays a successful full-plan terminal", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("ensures, reads, and exactly replays a successful full-plan terminal", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const stored = await persistence.drizzle.transaction(
       async transaction => {
@@ -171,10 +174,9 @@ describe("framework coordinator migration-attempt terminal repository", () => {
     await expect(storedTerminalRows(persistence)).resolves.toEqual([
       expectedTerminalRow(stored.ensured, stored.receipts),
     ]);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("corroborates the complete receipt prefix for downstream aggregates", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("corroborates the complete receipt prefix for downstream aggregates", () => withPersistence(async persistence => {
     const stored = await storedTerminalFixture(persistence);
     const firstReceipt = requiredFirst(stored.receipts);
     const firstStep = requiredFirst(stored.attempt.plan.plan.frame.steps);
@@ -257,10 +259,9 @@ describe("framework coordinator migration-attempt terminal repository", () => {
       operation: "readAttemptTerminal",
       reason: "referenceRefusal",
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("stores failed and uncertain empty or partial prefixes with exact nullable projections", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("stores failed and uncertain empty or partial prefixes with exact nullable projections", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const stored = await persistence.drizzle.transaction(
       async transaction => {
@@ -424,10 +425,9 @@ describe("framework coordinator migration-attempt terminal repository", () => {
           requiredLast(stored.uncertainPrefix).receipt.sha256,
       },
     ]);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("resolves semantic occupants before lazily consulting the digest index", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("resolves semantic occupants before lazily consulting the digest index", () => withPersistence(async persistence => {
     const stored = await storedTerminalFixture(persistence);
     const exactOccupant = Object.freeze({
       value: stored.terminal,
@@ -513,10 +513,9 @@ describe("framework coordinator migration-attempt terminal repository", () => {
       reason: "immutableConflict",
     });
     expect(absentDigestReads).toBe(1);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("refuses forged, missing, shortened, reordered, and off-lineage prerequisites", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("refuses forged, missing, shortened, reordered, and off-lineage prerequisites", () => withPersistence(async persistence => {
     const stored = await storedTerminalFixture(persistence);
     const second = await persistence.drizzle.transaction(
       async transaction => {
@@ -633,10 +632,9 @@ describe("framework coordinator migration-attempt terminal repository", () => {
       ),
     );
     await expect(terminalCount(persistence)).resolves.toBe("1");
-  }, 90_000);
+  }), 90_000);
 
-  it("classifies a different authentic terminal on one attempt as immutable", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("classifies a different authentic terminal on one attempt as immutable", () => withPersistence(async persistence => {
     const stored = await storedTerminalFixture(persistence);
     const before = await storedTerminalRows(persistence);
     const conflicting = await captureTerminal(
@@ -660,10 +658,10 @@ describe("framework coordinator migration-attempt terminal repository", () => {
       reason: "immutableConflict",
     });
     await expect(storedTerminalRows(persistence)).resolves.toEqual(before);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("reports projection, tail-prefix, and receipt-sidecar corruption without healing", async () => {
-    const projectionPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async projectionPersistence => {
     const projection = await storedTerminalFixture(projectionPersistence);
     const wrongRequiredStepSet = new Uint8Array(32).fill(0x7a);
     await administrativelyRepairFrameworkMetadata(projectionPersistence.drizzle, ["fx_system_framework_migration_attempt_terminal"], async repairTransaction => repairTransaction.update(
@@ -686,8 +684,9 @@ describe("framework coordinator migration-attempt terminal repository", () => {
       value: fxSystemFrameworkMigrationAttemptTerminals.requiredStepSetSha256,
     }).from(fxSystemFrameworkMigrationAttemptTerminals))[0]?.value ?? null))
       .toBe(Encoding.encodeHex(wrongRequiredStepSet));
+    });
 
-    const tailPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async tailPersistence => {
     const tail = await storedTerminalFixture(tailPersistence);
     const earlierReceipt = tail.receipts.at(-2);
     if (earlierReceipt === undefined) {
@@ -716,8 +715,9 @@ describe("framework coordinator migration-attempt terminal repository", () => {
     await expect(storedTerminalRows(tailPersistence)).resolves.toEqual(
       tailRowsBefore,
     );
+    });
 
-    const sidecarPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async sidecarPersistence => {
     const sidecar = await storedTerminalFixture(sidecarPersistence);
     const finalReceipt = requiredLast(sidecar.receipts);
     await setDependencyOrdinal(
@@ -752,10 +752,11 @@ describe("framework coordinator migration-attempt terminal repository", () => {
     await expect(receiptDependencyRows(sidecarPersistence)).resolves.toEqual(
       sidecarsBefore,
     );
+    });
   }, 120_000);
 
   it("rejects changed and over-limit terminal canonical bytes without healing", async () => {
-    const corruptPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async corruptPersistence => {
     const corrupt = await storedTerminalFixture(corruptPersistence);
     const changedBytes = canonicalBytes(corrupt.terminalValue);
     changedBytes[changedBytes.byteLength - 2] = 0x20;
@@ -776,6 +777,7 @@ describe("framework coordinator migration-attempt terminal repository", () => {
       ),
     );
     await expect(terminalCount(corruptPersistence)).resolves.toBe("1");
+    });
 
     const oversizedPersistence = await createMigratedPGlitePersistence();
     const oversized = await storedTerminalFixture(oversizedPersistence);
@@ -811,8 +813,7 @@ describe("framework coordinator migration-attempt terminal repository", () => {
     );
   }, 90_000);
 
-  it("follows caller rollback and preserves the exact foreign driver cause", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("follows caller rollback and preserves the exact foreign driver cause", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const prepared = await persistence.drizzle.transaction(
       async transaction => {
@@ -873,7 +874,7 @@ describe("framework coordinator migration-attempt terminal repository", () => {
       reason: "resourceFailure",
       cause: driverCause,
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 });
 
 async function freshPlanRepositoryValues() {
