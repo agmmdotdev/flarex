@@ -2,7 +2,14 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Schema } from "effect";
 import { copyDrizzleMigrations } from "../../src/testing/systemTestMigrationFiles";
+
+// Only the fields used by this helper are decoded. Drizzle and scenario-owned
+// metadata, including unknown entry fields, must survive the journal rewrite.
+const decodeJournal = Schema.decodeUnknownSync(Schema.Struct({
+  entries: Schema.Array(Schema.Struct({ idx: Schema.Int })),
+}), { onExcessProperty: "preserve" });
 
 export interface DrizzleCopyFixture {
   readonly root: string;
@@ -57,9 +64,7 @@ export async function writeJournalThrough(
   target: string,
   maximumIndex: number,
 ): Promise<void> {
-  const journal = JSON.parse(await readFile(source, "utf8")) as {
-    entries: ReadonlyArray<Readonly<{ idx: number }>>;
-  };
+  const journal = decodeJournal(JSON.parse(await readFile(source, "utf8")));
   await writeFile(target, `${JSON.stringify({
     ...journal,
     entries: journal.entries.filter(entry => entry.idx <= maximumIndex),

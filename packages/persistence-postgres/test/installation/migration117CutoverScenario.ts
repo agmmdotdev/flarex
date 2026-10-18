@@ -1,16 +1,11 @@
-import { copyDrizzleMigrations } from "../../src/testing/systemTestMigrationFiles";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFile, writeFile } from "node:fs/promises";
 import { expect } from "vitest";
-import { isNonArrayRecord } from "@flarex/utils/records";
 import type { FlarexSqlClient } from "../../src";
+import { makeDrizzleCopyFixture, writeJournalThrough } from "../support/migrationFixtureSupport";
 import {
   SESSION_TEST_EPOCH_UUID,
   SESSION_TEST_SCOPE_UUID,
-  insertOpenTransactionJournalFixture,
   insertLegacyOpenTransactionJournalFixture,
   insertLegacySessionTestScope,
   insertTransactionSessionFixture,
@@ -23,20 +18,14 @@ type MigratingClient = Pick<FlarexSqlClient, "query"> & Readonly<{ migrate: () =
 /** The copy gives each driver an actual 0116 database, then the same 0117
  * migration text. Only the Drizzle journal is shortened for the first pass. */
 export async function withMigration117Folder(run: (folder: string, predecessor: () => Promise<void>) => Promise<void>) {
-  const root = await mkdtemp(resolve(tmpdir(), "flarex-mixed-117-"));
-  const folder = resolve(root, "drizzle");
-  const source = resolve(dirname(fileURLToPath(import.meta.url)), "../../drizzle");
+  const fixture = await makeDrizzleCopyFixture("flarex-mixed", "117", "0117_big_starhawk.sql");
   try {
-    await copyDrizzleMigrations(source, folder);
-    const journalPath = resolve(folder, "meta/_journal.json");
-    const full = await readFile(journalPath, "utf8");
-    const parsed: unknown = JSON.parse(full);
-    if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) throw new Error("Missing Drizzle journal");
-    await writeFile(journalPath, `${JSON.stringify({ ...parsed, entries: parsed.entries.filter(entry =>
-      isNonArrayRecord(entry) && typeof entry.idx === "number" && entry.idx < 117) }, null, 2)}\n`, "utf8");
-    await run(folder, () => writeFile(journalPath, full, "utf8"));
+    await writeJournalThrough(fixture.temporaryJournal, fixture.temporaryJournal, 117);
+    const full = await readFile(fixture.temporaryJournal, "utf8");
+    await writeJournalThrough(fixture.temporaryJournal, fixture.temporaryJournal, 116);
+    await run(fixture.migrationsFolder, () => writeFile(fixture.temporaryJournal, full, "utf8"));
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await fixture.cleanup();
   }
 }
 
@@ -109,7 +98,14 @@ export async function assertMigration117Cutover(previous: MigratingClient, curre
   expect(upgraded.rows[0]?.receiptPk).toContain("last_syscall_sequence");
   expect(upgraded.rows[0]?.effectPk).toContain("effect_ordinal");
   await expect(insertLegacyOpenTransactionJournalFixture(current, session)).rejects.toThrow();
-  await insertOpenTransactionJournalFixture(current, session);
+  // This exact cutover still uses the retained v2 format; the current journal
+  // writer belongs to migration 0118 and must not seed an 0117 database.
+  await current.query(`insert into fx_system_tx_journal
+    (scope_uuid, session_id, attempt_fence, state, journal_format,
+     creation_time_seed, next_creation_time, created_at, updated_at)
+    values ($1, $2, 1, 'open', 'flarex.session-journal-v2',
+      1893456000000, 1893456000000, '2030-01-01T00:00:00.000Z', '2030-01-01T00:00:00.000Z')`,
+    [session.scopeUuid, session.sessionId]);
   for (const sequence of [1, 2]) await current.query(`insert into fx_system_tx_journal_receipt
     (scope_uuid, session_id, attempt_fence, last_syscall_sequence, operation_kind,
      request_codec_version, request_bytes, request_sha256, participant_binding_sha256,
@@ -145,7 +141,14 @@ export async function assertMigration117Cutover(previous: MigratingClient, curre
         using (scope_uuid, session_id, attempt_fence)
       where j.scope_uuid = $1 and j.session_id = $2`, [session.scopeUuid, session.sessionId]);
     expect(before.rows).toHaveLength(1);
-    await expect(current.migrate()).rejects.toThrow(/mixed attempt journal migration requires an empty legacy journal/);
+    await expect(current.migrate()).rejects.toMatchObject({
+      _tag: "InstallationLifecycleError",
+      reason: "resourceFailure",
+      cause: { cause: {
+        code: "P0001",
+        message: expect.stringMatching(/mixed attempt journal migration requires an empty legacy journal/),
+      } },
+    });
     const unchanged = await previous.query<{ state: string; oldShape: string; newShape: string; receipts: string }>(`
       select j.state,
         (select count(*)::text from information_schema.tables where table_schema = current_schema()

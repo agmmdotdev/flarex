@@ -206,6 +206,14 @@ Historical/upgrade migration tests still create their own fresh databases.
 Migration-copy fixtures, including historical verifier setup, share
 `src/testing/systemTestMigrationFiles` to retain SQL and the journal without
 copying generator snapshots.
+`support/migrationFixtureSupport` owns temporary folders, journal trimming,
+failure injection and restoration. The 0117/0118 scenarios retain their exact
+predecessor bounds and target-journal restoration callbacks through that owner.
+Refusal checks retain the original SQL message and SQLSTATE inside the public
+typed installation failure; later migrations stay outside these exact cutovers.
+Native S09 idempotency cases share one serial current-schema fixture; the
+0029-to-0030 upgrade and rollback proof keeps its own non-public schema. Its
+query-plan settings stay local to the existing checked-out-client transaction.
 
 The completed R01-P comparison lives under `performance/relations`. It retains
 both the rejected edge-history candidate and the selected adjacency-version

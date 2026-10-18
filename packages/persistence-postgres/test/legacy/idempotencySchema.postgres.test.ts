@@ -1,9 +1,3 @@
-import { copyDrizzleMigrations } from "../../src/testing/systemTestMigrationFiles";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
 import type { FlarexPersistence } from "../../src";
@@ -27,26 +21,27 @@ import {
 } from "./idempotencySchemaTestSupport";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
+  withPostgresSequentialScansDisabled,
   withTemporaryPostgresSchema,
 } from "../support/postgresHelpers";
+import {
+  injectMigrationFailure,
+  makeDrizzleCopyFixture,
+  restoreMigrationFile,
+} from "../support/migrationFixtureSupport";
 
 const MIGRATION_NAME = "0030_absurd_vanisher.sql";
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresPersistence();
 type SqlPersistence = Pick<FlarexPersistence, "query">;
 
-describePostgres("real Postgres S09-A committed-success idempotency schema", () => {
+describePostgres("real Postgres S09-A committed-success idempotency schema", { concurrent: false }, () => {
   it("rolls back, upgrades 0029, and replays in a non-public schema", async () => {
-    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-s09a-postgres-"));
-    const migrationsFolder = resolve(testRoot, "drizzle");
-    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
-    const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
-    const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
-    const copiedMigration = resolve(migrationsFolder, MIGRATION_NAME);
+    const fixture = await makeDrizzleCopyFixture("flarex-s09a", "postgres", MIGRATION_NAME);
+    const { migrationsFolder, currentJournal, temporaryJournal } = fixture;
 
     try {
-      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       await writeJournalThrough0029(currentJournal, temporaryJournal);
 
       await withTemporaryPostgresSchema(async (databaseOptions) => {
@@ -76,11 +71,9 @@ describePostgres("real Postgres S09-A committed-success idempotency schema", () 
           expect(schema.rows[0]?.schema_name).not.toBe("public");
 
           await writeJournalThrough0030(currentJournal, temporaryJournal);
-          const migration = await readFile(copiedMigration, "utf8");
-          await writeFile(
-            copiedMigration,
-            `${migration}\n--> statement-breakpoint\nselect * from fx_s09a_deliberate_missing_table;\n`,
-            "utf8",
+          await injectMigrationFailure(
+            fixture.migrationPath,
+            "fx_s09a_deliberate_missing_table",
           );
           current = await createPostgresPersistence({
             ...databaseOptions,
@@ -103,13 +96,9 @@ describePostgres("real Postgres S09-A committed-success idempotency schema", () 
             { outcome_tables: 0, receipts: 30 },
           ]);
 
-          await writeFile(
-            copiedMigration,
-            await readFile(
-              resolve(currentMigrationsFolder, MIGRATION_NAME),
-              "utf8",
-            ),
-            "utf8",
+          await restoreMigrationFile(
+            fixture.migrationPath,
+            fixture.currentMigrationsFolder,
           );
           await expect(current.migrate()).resolves.toBeUndefined();
           await expect(current.migrate()).resolves.toBeUndefined();
@@ -139,16 +128,21 @@ describePostgres("real Postgres S09-A committed-success idempotency schema", () 
             },
           ]);
         } finally {
-          await Promise.all([previous.close(), current?.close()]);
+          const closing = [previous.close(), current?.close()] as const;
+          try {
+            await Promise.all(closing);
+          } finally {
+            await Promise.allSettled(closing);
+          }
         }
       });
     } finally {
-      await rm(testRoot, { recursive: true, force: true });
+      await fixture.cleanup();
     }
   }, 30_000);
 
   it("allows exactly one same-key winner without overwriting mismatched evidence", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertS09Scope(persistence, S09_SCOPE_A, S09_EPOCH_A, "10");
       await insertS09Scope(persistence, S09_SCOPE_B, S09_EPOCH_C, "10");
 
@@ -210,22 +204,25 @@ describePostgres("real Postgres S09-A committed-success idempotency schema", () 
         ).resolves.toEqual(beforeMismatch);
       }
 
-      await expect(
-        Promise.all([
-          insertAvailableOutcome(persistence, {
-            scopeUuid: S09_SCOPE_A,
-            requestKey: "scope-independent",
-            epochUuid: S09_EPOCH_A,
-            commitSeq: "4",
-          }),
-          insertAvailableOutcome(persistence, {
-            scopeUuid: S09_SCOPE_B,
-            requestKey: "scope-independent",
-            epochUuid: S09_EPOCH_C,
-            commitSeq: "4",
-          }),
-        ]),
-      ).resolves.toEqual([undefined, undefined]);
+      const independentScopes = [
+        insertAvailableOutcome(persistence, {
+          scopeUuid: S09_SCOPE_A,
+          requestKey: "scope-independent",
+          epochUuid: S09_EPOCH_A,
+          commitSeq: "4",
+        }),
+        insertAvailableOutcome(persistence, {
+          scopeUuid: S09_SCOPE_B,
+          requestKey: "scope-independent",
+          epochUuid: S09_EPOCH_C,
+          commitSeq: "4",
+        }),
+      ] as const;
+      try {
+        await expect(Promise.all(independentScopes)).resolves.toEqual([undefined, undefined]);
+      } finally {
+        await Promise.allSettled(independentScopes);
+      }
 
       await expect(
         persistence.transaction(async (transaction) => {
@@ -283,7 +280,7 @@ describePostgres("real Postgres S09-A committed-success idempotency schema", () 
   }, 30_000);
 
   it("enforces the semantic and canonical result ceilings on large bytea", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       await insertS09Scope(persistence, S09_SCOPE_A, S09_EPOCH_A, "1");
       await insertAvailableOutcome(persistence, {
         scopeUuid: S09_SCOPE_A,
@@ -372,10 +369,8 @@ async function readOutcomeMatchEvidence(
 async function outcomeLookupPlans(
   persistence: PostgresFlarexPersistence,
 ): Promise<{ readonly audit: string; readonly lookup: string }> {
-  const client = await persistence.pool.connect();
-  try {
-    await client.query(`set enable_seqscan = off`);
-    await client.query(`set enable_bitmapscan = off`);
+  return withPostgresSequentialScansDisabled(persistence, async (client) => {
+    await client.query(`set local enable_bitmapscan = off`);
     const lookup = await client.query<{ "QUERY PLAN": string }>(
       `
         explain (costs off)
@@ -401,9 +396,7 @@ async function outcomeLookupPlans(
       audit: audit.rows.map((row) => row["QUERY PLAN"]).join("\n"),
       lookup: lookup.rows.map((row) => row["QUERY PLAN"]).join("\n"),
     };
-  } finally {
-    client.release();
-  }
+  });
 }
 
 function quoteIdentifier(value: string): string {

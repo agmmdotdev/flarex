@@ -1,10 +1,7 @@
-import { copyDrizzleMigrations } from "../../src/testing/systemTestMigrationFiles";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFile, writeFile } from "node:fs/promises";
 import { expect } from "vitest";
 import type { FlarexSqlClient } from "../../src";
+import { makeDrizzleCopyFixture, writeJournalThrough } from "../support/migrationFixtureSupport";
 import {
   insertLegacySessionTestScope,
   insertTransactionSessionFixture,
@@ -15,23 +12,14 @@ import {
 type MigratingClient = Pick<FlarexSqlClient, "query"> & Readonly<{ migrate: () => Promise<void> }>;
 
 export async function withMigration118Folder(run: (folder: string, enableCurrent: () => Promise<void>) => Promise<void>) {
-  const root = await mkdtemp(resolve(tmpdir(), "flarex-journal-118-"));
-  const folder = resolve(root, "drizzle");
-  const source = resolve(dirname(fileURLToPath(import.meta.url)), "../../drizzle");
+  const fixture = await makeDrizzleCopyFixture("flarex-journal", "118", "0118_admitted_operation_journal.sql");
   try {
-    await copyDrizzleMigrations(source, folder);
-    const journalPath = resolve(folder, "meta/_journal.json");
-    const full = await readFile(journalPath, "utf8");
-    const parsed: unknown = JSON.parse(full);
-    if (typeof parsed !== "object" || parsed === null || !Array.isArray(Reflect.get(parsed, "entries")))
-      throw new Error("Missing Drizzle journal");
-    const entries: unknown[] = Reflect.get(parsed, "entries");
-    await writeFile(journalPath, `${JSON.stringify({ ...parsed, entries: entries.filter(entry =>
-      typeof entry === "object" && entry !== null && typeof Reflect.get(entry, "idx") === "number" &&
-      Reflect.get(entry, "idx") < 118) }, null, 2)}\n`, "utf8");
-    await run(folder, () => writeFile(journalPath, full, "utf8"));
+    await writeJournalThrough(fixture.temporaryJournal, fixture.temporaryJournal, 118);
+    const full = await readFile(fixture.temporaryJournal, "utf8");
+    await writeJournalThrough(fixture.temporaryJournal, fixture.temporaryJournal, 117);
+    await run(fixture.migrationsFolder, () => writeFile(fixture.temporaryJournal, full, "utf8"));
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await fixture.cleanup();
   }
 }
 
@@ -47,7 +35,14 @@ export async function assertMigration118JournalCutover(previous: MigratingClient
       and conrelid = 'fx_system_tx_journal'::regclass) as "formatCheck"`, [session.sessionId]);
   expect(before.rows).toHaveLength(1);
   expect(before.rows[0]?.formatCheck).toContain("flarex.session-journal-v2");
-  await expect(current.migrate()).rejects.toThrow(/session journal replacement requires fresh isolated data/);
+  await expect(current.migrate()).rejects.toMatchObject({
+    _tag: "InstallationLifecycleError",
+    reason: "resourceFailure",
+    cause: { cause: {
+      code: "P0001",
+      message: expect.stringMatching(/session journal replacement requires fresh isolated data/),
+    } },
+  });
   expect((await previous.query<{ sessionCount: string; formatCheck: string }>(`select
     (select count(*)::text from fx_system_tx_session where session_id = $1) as "sessionCount",
     (select pg_get_constraintdef(oid) from pg_constraint where conname = 'fx_system_tx_journal_format_check'
