@@ -57,7 +57,11 @@ import {
   frameworkTargetNamespace,
   syntheticSystemArtifact,
 } from "./frameworkMigrationValueFixtures";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import {
+  createFileScopedPGliteFixture,
+  createMigratedPGlitePersistence,
+} from "../../support/pgliteTestFixture";
+import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
 
 type PublicStructuralRunnerExport = Extract<
   keyof typeof import("../../../src"),
@@ -78,411 +82,483 @@ const TRANSACTION_REQUEST = Object.freeze({
 });
 
 describe("private relational structural runner", () => {
-  it("keeps its token source-private, frozen, and process-authenticated", async () => {
-    expectTypeOf<PublicStructuralRunnerExport>().toEqualTypeOf<never>();
+  describe("physical structure", { concurrent: false }, () => {
+    const withPersistence = useFileScopedPersistence(() =>
+      createFileScopedPGliteFixture(async () => resetPhysicalStructure));
 
-    const fixture = await createSyntheticRunnerFixture();
-    expect(Object.isFrozen(fixture.token)).toBe(true);
+    it("keeps its token source-private, frozen, and process-authenticated", () => withPersistence(async persistence => {
+      expectTypeOf<PublicStructuralRunnerExport>().toEqualTypeOf<never>();
 
-    // SAFETY: this deliberately invalid assertion bypasses the compile-time
-    // brand so the WeakMap-backed runtime capability boundary is exercised.
-    const forged = Object.freeze({}) as RelationalStructuralRunnerToken;
-    const failure = await runEffectFailure(
-      preflightRelationalStructuralPlanEffect(forged),
-    );
-    expectRunnerFailure(failure, "invalidAuthority");
-  }, TEST_TIMEOUT);
+      const fixture = await createSyntheticRunnerFixture(persistence);
+      expect(Object.isFrozen(fixture.token)).toBe(true);
 
-  it("executes the exact seven-step expansion plan and observes every postcondition", async () => {
-    const fixture = await createSyntheticRunnerFixture();
-    await runEffect(preflightRelationalStructuralPlanEffect(fixture.token));
+      // SAFETY: this deliberately invalid assertion bypasses the compile-time
+      // brand so the WeakMap-backed runtime capability boundary is exercised.
+      const forged = Object.freeze({}) as RelationalStructuralRunnerToken;
+      const failure = await runEffectFailure(
+        preflightRelationalStructuralPlanEffect(forged),
+      );
+      expectRunnerFailure(failure, "invalidAuthority");
+    }), TEST_TIMEOUT);
 
-    const observations = await runEffect(
-      runFrameworkMigrationTargetTransactionEffect(
-        fixture.target,
-        TRANSACTION_REQUEST,
-        transaction => Effect.gen(function* () {
-          const results: Array<Readonly<{
-            before: "absent" | "exact";
-            after: "absent" | "exact";
-            observedPostconditionSha256: string;
-          }>> = [];
-          for (const step of fixture.plan.frame.steps) {
-            const before = yield* observeRelationalStructuralStepEffect(
-              fixture.token,
-              transaction,
-              step,
-            );
-            const execution = yield* executeRelationalStructuralStepEffect(
-              fixture.token,
-              transaction,
-              step,
-            );
-            const after = yield* observeRelationalStructuralStepEffect(
-              fixture.token,
-              transaction,
-              step,
-            );
-            results.push(Object.freeze({
-              before,
-              after,
-              observedPostconditionSha256:
-                execution.observedPostconditionSha256,
-            }));
-          }
-          return Object.freeze(results);
-        }),
-      ),
-    );
+    it("executes the exact seven-step expansion plan and observes every postcondition", () => withPersistence(async persistence => {
+      const fixture = await createSyntheticRunnerFixture(persistence);
+      await runEffect(preflightRelationalStructuralPlanEffect(fixture.token));
 
-    expect(fixture.plan.frame.steps.map(step =>
-      step.operation.codec.format
-    )).toEqual([
-      "flarex.relational-create-table",
-      "flarex.relational-create-table",
-      "flarex.relational-create-index",
-      "flarex.relational-add-foreign-key",
-      "flarex.relational-add-foreign-key",
-      "flarex.relational-add-foreign-key",
-      "flarex.relational-validate-structure",
-    ]);
-    expect(observations.map(observation => observation.before)).toEqual([
-      "absent",
-      "absent",
-      "absent",
-      "absent",
-      "absent",
-      "absent",
-      "exact",
-    ]);
-    expect(observations.every(observation =>
-      observation.after === "exact"
-    )).toBe(true);
-    expect(observations.map(observation =>
-      observation.observedPostconditionSha256
-    )).toEqual(fixture.plan.frame.steps.map(step =>
-      step.postconditionSha256
-    ));
-  }, TEST_TIMEOUT);
-
-  it("rolls structural DDL back with the target transaction", async () => {
-    const fixture = await createSyntheticRunnerFixture();
-    const step = requireTableSteps(fixture.plan)[0];
-    expect(step).toBeDefined();
-    if (step === undefined) return;
-    const rollback = Object.freeze({
-      _tag: "DeliberateRelationalStructuralRollback",
-    } as const);
-
-    const failure = await runEffectFailure(
-      runFrameworkMigrationTargetTransactionEffect(
-        fixture.target,
-        TRANSACTION_REQUEST,
-        transaction => executeRelationalStructuralStepEffect(
-          fixture.token,
-          transaction,
-          step,
-        ).pipe(Effect.flatMap(() => Effect.fail(rollback))),
-      ),
-    );
-    expect(failure).toBe(rollback);
-
-    const afterRollback = await observeStep(
-      fixture.target,
-      fixture.token,
-      step,
-    );
-    expect(afterRollback).toBe("absent");
-  }, TEST_TIMEOUT);
-
-  it("refuses exact pre-existing structure without an authenticated receipt", async () => {
-    const fixture = await createSyntheticRunnerFixture();
-    const step = requireTableSteps(fixture.plan)[0];
-    expect(step).toBeDefined();
-    if (step === undefined) return;
-
-    await executeStep(fixture.target, fixture.token, step);
-    const failure = await runEffectFailure(
-      runFrameworkMigrationTargetTransactionEffect(
-        fixture.target,
-        TRANSACTION_REQUEST,
-        transaction => executeRelationalStructuralStepEffect(
-          fixture.token,
-          transaction,
-          step,
+      const observations = await runEffect(
+        runFrameworkMigrationTargetTransactionEffect(
+          fixture.target,
+          TRANSACTION_REQUEST,
+          transaction => Effect.gen(function* () {
+            const results: Array<Readonly<{
+              before: "absent" | "exact";
+              after: "absent" | "exact";
+              observedPostconditionSha256: string;
+            }>> = [];
+            for (const step of fixture.plan.frame.steps) {
+              const before = yield* observeRelationalStructuralStepEffect(
+                fixture.token,
+                transaction,
+                step,
+              );
+              const execution = yield* executeRelationalStructuralStepEffect(
+                fixture.token,
+                transaction,
+                step,
+              );
+              const after = yield* observeRelationalStructuralStepEffect(
+                fixture.token,
+                transaction,
+                step,
+              );
+              results.push(Object.freeze({
+                before,
+                after,
+                observedPostconditionSha256:
+                  execution.observedPostconditionSha256,
+              }));
+            }
+            return Object.freeze(results);
+          }),
         ),
-      ),
-    );
-    expectRunnerFailure(failure, "unreceiptedStructure");
-  }, TEST_TIMEOUT);
+      );
 
-  it("rejects a wrong table behind the exact physical name", async () => {
-    const fixture = await createSyntheticRunnerFixture();
-    const step = requireTableSteps(fixture.plan)[0];
-    expect(step).toBeDefined();
-    if (step === undefined) return;
-    const table = tableOperation(step);
-    await executeSql(
-      fixture.persistence.drizzle,
-      `CREATE TABLE ${qualified(fixture.schemaName, table.name)} (` +
-        `${identifier(table.scopeColumn.name)} uuid NOT NULL)`,
-    );
+      expect(fixture.plan.frame.steps.map(step =>
+        step.operation.codec.format
+      )).toEqual([
+        "flarex.relational-create-table",
+        "flarex.relational-create-table",
+        "flarex.relational-create-index",
+        "flarex.relational-add-foreign-key",
+        "flarex.relational-add-foreign-key",
+        "flarex.relational-add-foreign-key",
+        "flarex.relational-validate-structure",
+      ]);
+      expect(observations.map(observation => observation.before)).toEqual([
+        "absent",
+        "absent",
+        "absent",
+        "absent",
+        "absent",
+        "absent",
+        "exact",
+      ]);
+      expect(observations.every(observation =>
+        observation.after === "exact"
+      )).toBe(true);
+      expect(observations.map(observation =>
+        observation.observedPostconditionSha256
+      )).toEqual(fixture.plan.frame.steps.map(step =>
+        step.postconditionSha256
+      ));
+    }), TEST_TIMEOUT);
 
-    const failure = await observeStepFailure(
-      fixture.target,
-      fixture.token,
-      step,
-    );
-    expectRunnerFailure(failure, "catalogMismatch");
-  }, TEST_TIMEOUT);
+    it("rolls structural DDL back with the target transaction", () => withPersistence(async persistence => {
+      const fixture = await createSyntheticRunnerFixture(persistence);
+      const step = requireTableSteps(fixture.plan)[0];
+      expect(step).toBeDefined();
+      if (step === undefined) return;
+      const rollback = Object.freeze({
+        _tag: "DeliberateRelationalStructuralRollback",
+      } as const);
 
-  it("requires a real default, accepts normalized integer syntax, and rejects changed value", async () => {
-    const fixture = await createSyntheticRunnerFixture();
-    const step = requireTableSteps(fixture.plan).find(candidate =>
-      tableOperation(candidate).columns.some(column =>
-        column.default.kind === "integerLiteral"
-      )
-    );
-    expect(step).toBeDefined();
-    if (step === undefined) return;
-    await executeStep(fixture.target, fixture.token, step);
-    const table = tableOperation(step);
-    const column = table.columns.find(candidate =>
-      candidate.default.kind === "integerLiteral"
-    );
-    expect(column).toBeDefined();
-    if (column === undefined) return;
-    await executeSql(
-      fixture.persistence.drizzle,
-      `ALTER TABLE ${qualified(fixture.schemaName, table.name)} ` +
-        `ALTER COLUMN ${identifier(column.name)} DROP DEFAULT`,
-    );
-    const absentFailure = await observeStepFailure(
-      fixture.target,
-      fixture.token,
-      step,
-    );
-    expectRunnerFailure(absentFailure, "catalogMismatch");
+      const failure = await runEffectFailure(
+        runFrameworkMigrationTargetTransactionEffect(
+          fixture.target,
+          TRANSACTION_REQUEST,
+          transaction => executeRelationalStructuralStepEffect(
+            fixture.token,
+            transaction,
+            step,
+          ).pipe(Effect.flatMap(() => Effect.fail(rollback))),
+        ),
+      );
+      expect(failure).toBe(rollback);
 
-    await executeSql(
-      fixture.persistence.drizzle,
-      `ALTER TABLE ${qualified(fixture.schemaName, table.name)} ` +
-        `ALTER COLUMN ${identifier(column.name)} SET DEFAULT ((0))`,
-    );
-    expect(await observeStep(
-      fixture.target,
-      fixture.token,
-      step,
-    )).toBe("exact");
+      const afterRollback = await observeStep(
+        fixture.target,
+        fixture.token,
+        step,
+      );
+      expect(afterRollback).toBe("absent");
+    }), TEST_TIMEOUT);
 
-    await executeSql(
-      fixture.persistence.drizzle,
-      `ALTER TABLE ${qualified(fixture.schemaName, table.name)} ` +
-        `ALTER COLUMN ${identifier(column.name)} SET DEFAULT 1`,
-    );
+    it("refuses exact pre-existing structure without an authenticated receipt", () => withPersistence(async persistence => {
+      const fixture = await createSyntheticRunnerFixture(persistence);
+      const step = requireTableSteps(fixture.plan)[0];
+      expect(step).toBeDefined();
+      if (step === undefined) return;
 
-    const failure = await observeStepFailure(
-      fixture.target,
-      fixture.token,
-      step,
-    );
-    expectRunnerFailure(failure, "catalogMismatch");
-  }, TEST_TIMEOUT);
+      await executeStep(fixture.target, fixture.token, step);
+      const failure = await runEffectFailure(
+        runFrameworkMigrationTargetTransactionEffect(
+          fixture.target,
+          TRANSACTION_REQUEST,
+          transaction => executeRelationalStructuralStepEffect(
+            fixture.token,
+            transaction,
+            step,
+          ),
+        ),
+      );
+      expectRunnerFailure(failure, "unreceiptedStructure");
+    }), TEST_TIMEOUT);
 
-  it("rejects btree direction, null placement, opclass, collation, and INCLUDE drift", async () => {
-    const fixture = await createSyntheticRunnerFixture();
-    const tableSteps = requireTableSteps(fixture.plan);
-    await executeSteps(fixture.target, fixture.token, tableSteps);
-    const step = requireIndexStep(fixture.plan);
-    const index = indexOperation(step);
-    const sourceTable = requireTableForIdentity(
-      fixture.plan.physicalLayout,
-      index.table,
-    );
-    const keyColumns = index.columns.map(identifier);
-    const [firstColumn, secondColumn] = keyColumns;
-    const includedColumn = sourceTable.columns.find(column =>
-      !index.columns.includes(column.name)
-    )?.name;
-    expect(keyColumns).toHaveLength(2);
-    expect(firstColumn).toBeDefined();
-    expect(secondColumn).toBeDefined();
-    expect(includedColumn).toBeDefined();
-    if (
-      firstColumn === undefined || secondColumn === undefined ||
-      includedColumn === undefined
-    ) return;
-
-    const variants = [
-      `${firstColumn}, ${secondColumn} DESC NULLS FIRST`,
-      `${firstColumn}, ${secondColumn} text_pattern_ops`,
-      `${firstColumn}, ${secondColumn} COLLATE "C"`,
-      `${keyColumns.join(", ")}) INCLUDE (${identifier(includedColumn)}`,
-    ];
-    for (const columns of variants) {
+    it("rejects a wrong table behind the exact physical name", () => withPersistence(async persistence => {
+      const fixture = await createSyntheticRunnerFixture(persistence);
+      const step = requireTableSteps(fixture.plan)[0];
+      expect(step).toBeDefined();
+      if (step === undefined) return;
+      const table = tableOperation(step);
       await executeSql(
         fixture.persistence.drizzle,
-        `CREATE INDEX ${identifier(index.name)} ON ` +
-          `${qualified(fixture.schemaName, sourceTable.name)} USING btree (` +
-          `${columns})`,
+        `CREATE TABLE ${qualified(fixture.schemaName, table.name)} (` +
+          `${identifier(table.scopeColumn.name)} uuid NOT NULL)`,
       );
+
       const failure = await observeStepFailure(
         fixture.target,
         fixture.token,
         step,
       );
       expectRunnerFailure(failure, "catalogMismatch");
+    }), TEST_TIMEOUT);
+
+    it("requires a real default, accepts normalized integer syntax, and rejects changed value", () => withPersistence(async persistence => {
+      const fixture = await createSyntheticRunnerFixture(persistence);
+      const step = requireTableSteps(fixture.plan).find(candidate =>
+        tableOperation(candidate).columns.some(column =>
+          column.default.kind === "integerLiteral"
+        )
+      );
+      expect(step).toBeDefined();
+      if (step === undefined) return;
+      await executeStep(fixture.target, fixture.token, step);
+      const table = tableOperation(step);
+      const column = table.columns.find(candidate =>
+        candidate.default.kind === "integerLiteral"
+      );
+      expect(column).toBeDefined();
+      if (column === undefined) return;
       await executeSql(
         fixture.persistence.drizzle,
-        `DROP INDEX ${qualified(fixture.schemaName, index.name)}`,
+        `ALTER TABLE ${qualified(fixture.schemaName, table.name)} ` +
+          `ALTER COLUMN ${identifier(column.name)} DROP DEFAULT`,
       );
-    }
-  }, TEST_TIMEOUT);
+      const absentFailure = await observeStepFailure(
+        fixture.target,
+        fixture.token,
+        step,
+      );
+      expectRunnerFailure(absentFailure, "catalogMismatch");
 
-  it("rejects NULLS NOT DISTINCT key drift", async () => {
-    const fixture = await createSyntheticRunnerFixture();
-    const step = requireTableSteps(fixture.plan).find(candidate =>
-      tableOperation(candidate).keys.some(key => key.kind === "unique")
-    );
-    expect(step).toBeDefined();
-    if (step === undefined) return;
-    await executeStep(fixture.target, fixture.token, step);
-    const table = tableOperation(step);
-    const key = table.keys.find(candidate => candidate.kind === "unique");
-    expect(key).toBeDefined();
-    if (key === undefined) return;
-    await dropConstraint(
-      fixture.persistence.drizzle,
-      fixture.schemaName,
-      table,
-      key,
-    );
-    const columns = key.columns.map(identifier);
-    await executeSql(
-      fixture.persistence.drizzle,
-      `ALTER TABLE ${qualified(fixture.schemaName, table.name)} ` +
-        `ADD CONSTRAINT ${identifier(key.name)} UNIQUE NULLS NOT DISTINCT (` +
-        `${columns.join(", ")})`,
-    );
-    const nullsFailure = await observeStepFailure(
-      fixture.target,
-      fixture.token,
-      step,
-    );
-    expectRunnerFailure(nullsFailure, "catalogMismatch");
-    await dropConstraint(
-      fixture.persistence.drizzle,
-      fixture.schemaName,
-      table,
-      key,
-    );
-  }, TEST_TIMEOUT);
+      await executeSql(
+        fixture.persistence.drizzle,
+        `ALTER TABLE ${qualified(fixture.schemaName, table.name)} ` +
+          `ALTER COLUMN ${identifier(column.name)} SET DEFAULT ((0))`,
+      );
+      expect(await observeStep(
+        fixture.target,
+        fixture.token,
+        step,
+      )).toBe("exact");
 
-  it("rejects a same-name foreign key with MATCH FULL semantics", async () => {
-    const fixture = await createSyntheticRunnerFixture();
-    await executeSteps(
-      fixture.target,
-      fixture.token,
-      requireTableSteps(fixture.plan),
-    );
-    const step = requireOrdinaryForeignKeyStep(fixture.plan);
-    const foreignKey = foreignKeyOperation(step);
-    if (foreignKey.kind !== "foreignKey") {
-      throw new Error("Expected the ordinary fixture foreign key");
-    }
-    const sourceTable = requireTableForIdentity(
-      fixture.plan.physicalLayout,
-      foreignKey.sourceTable,
-    );
-    await executeSql(
-      fixture.persistence.drizzle,
-      `ALTER TABLE ${qualified(fixture.schemaName, sourceTable.name)} ` +
-        `ADD CONSTRAINT ${identifier(foreignKey.name)} FOREIGN KEY (` +
-        `${foreignKey.sourceColumns.map(identifier).join(", ")}) ` +
-        `REFERENCES ${qualified(
-          fixture.schemaName,
-          foreignKey.targetTableName,
-        )} (${foreignKey.targetColumns.map(identifier).join(", ")}) ` +
-        "MATCH FULL ON DELETE RESTRICT ON UPDATE RESTRICT",
-    );
+      await executeSql(
+        fixture.persistence.drizzle,
+        `ALTER TABLE ${qualified(fixture.schemaName, table.name)} ` +
+          `ALTER COLUMN ${identifier(column.name)} SET DEFAULT 1`,
+      );
 
-    const failure = await observeStepFailure(
-      fixture.target,
-      fixture.token,
-      step,
-    );
-    expectRunnerFailure(failure, "catalogMismatch");
-  }, TEST_TIMEOUT);
+      const failure = await observeStepFailure(
+        fixture.target,
+        fixture.token,
+        step,
+      );
+      expectRunnerFailure(failure, "catalogMismatch");
+    }), TEST_TIMEOUT);
 
-  it("rejects a same-name non-foreign-key constraint before structural DDL", async () => {
-    const fixture = await createSyntheticRunnerFixture();
-    await executeSteps(
-      fixture.target,
-      fixture.token,
-      requireTableSteps(fixture.plan),
-    );
-    const step = requireOrdinaryForeignKeyStep(fixture.plan);
-    const foreignKey = foreignKeyOperation(step);
-    if (foreignKey.kind !== "foreignKey") {
-      throw new Error("Expected the ordinary fixture foreign key");
-    }
-    const sourceTable = requireTableForIdentity(
-      fixture.plan.physicalLayout,
-      foreignKey.sourceTable,
-    );
-    await executeSql(
-      fixture.persistence.drizzle,
-      `ALTER TABLE ${qualified(fixture.schemaName, sourceTable.name)} ` +
-        `ADD CONSTRAINT ${identifier(foreignKey.name)} CHECK (true)`,
-    );
+    it("rejects btree direction, null placement, opclass, collation, and INCLUDE drift", () => withPersistence(async persistence => {
+      const fixture = await createSyntheticRunnerFixture(persistence);
+      const tableSteps = requireTableSteps(fixture.plan);
+      await executeSteps(fixture.target, fixture.token, tableSteps);
+      const step = requireIndexStep(fixture.plan);
+      const index = indexOperation(step);
+      const sourceTable = requireTableForIdentity(
+        fixture.plan.physicalLayout,
+        index.table,
+      );
+      const keyColumns = index.columns.map(identifier);
+      const [firstColumn, secondColumn] = keyColumns;
+      const includedColumn = sourceTable.columns.find(column =>
+        !index.columns.includes(column.name)
+      )?.name;
+      expect(keyColumns).toHaveLength(2);
+      expect(firstColumn).toBeDefined();
+      expect(secondColumn).toBeDefined();
+      expect(includedColumn).toBeDefined();
+      if (
+        firstColumn === undefined || secondColumn === undefined ||
+        includedColumn === undefined
+      ) return;
 
-    const observeFailure = await observeStepFailure(
-      fixture.target,
-      fixture.token,
-      step,
-    );
-    expectRunnerFailure(observeFailure, "catalogMismatch");
-
-    const closedTransaction = await fixture.persistence.drizzle.transaction(
-      async transaction => transaction,
-    );
-    let rawExecuteCalls = 0;
-    const countedTransaction = new Proxy(closedTransaction, {
-      get: (target, property, receiver) => property === "execute"
-        ? (query: Parameters<typeof closedTransaction.execute>[0]) => {
-            rawExecuteCalls += 1;
-            return fixture.persistence.drizzle.execute(query);
-          }
-        : Reflect.get(target, property, receiver),
-    });
-    const runTransactionEffect: RunFrameworkMigrationDriverTransaction =
-      (_request, work) => work(countedTransaction);
-    const driver = makeFrameworkMigrationSessionDriver(
-      fixture.persistence.drizzle,
-      runTransactionEffect,
-    );
-    const countedTarget = await makeTarget(
-      fixture.persistence.drizzle,
-      driver,
-      fixture.plan,
-    );
-    const countedToken = await runEffect(
-      issueRelationalStructuralRunnerTokenEffect(countedTarget, fixture.plan),
-    );
-    const executeFailure = await runEffectFailure(
-      runFrameworkMigrationTargetTransactionEffect(
-        countedTarget,
-        TRANSACTION_REQUEST,
-        transaction => executeRelationalStructuralStepEffect(
-          countedToken,
-          transaction,
+      const variants = [
+        `${firstColumn}, ${secondColumn} DESC NULLS FIRST`,
+        `${firstColumn}, ${secondColumn} text_pattern_ops`,
+        `${firstColumn}, ${secondColumn} COLLATE "C"`,
+        `${keyColumns.join(", ")}) INCLUDE (${identifier(includedColumn)}`,
+      ];
+      for (const columns of variants) {
+        await executeSql(
+          fixture.persistence.drizzle,
+          `CREATE INDEX ${identifier(index.name)} ON ` +
+            `${qualified(fixture.schemaName, sourceTable.name)} USING btree (` +
+            `${columns})`,
+        );
+        const failure = await observeStepFailure(
+          fixture.target,
+          fixture.token,
           step,
+        );
+        expectRunnerFailure(failure, "catalogMismatch");
+        await executeSql(
+          fixture.persistence.drizzle,
+          `DROP INDEX ${qualified(fixture.schemaName, index.name)}`,
+        );
+      }
+    }), TEST_TIMEOUT);
+
+    it("rejects NULLS NOT DISTINCT key drift", () => withPersistence(async persistence => {
+      const fixture = await createSyntheticRunnerFixture(persistence);
+      const step = requireTableSteps(fixture.plan).find(candidate =>
+        tableOperation(candidate).keys.some(key => key.kind === "unique")
+      );
+      expect(step).toBeDefined();
+      if (step === undefined) return;
+      await executeStep(fixture.target, fixture.token, step);
+      const table = tableOperation(step);
+      const key = table.keys.find(candidate => candidate.kind === "unique");
+      expect(key).toBeDefined();
+      if (key === undefined) return;
+      await dropConstraint(
+        fixture.persistence.drizzle,
+        fixture.schemaName,
+        table,
+        key,
+      );
+      const columns = key.columns.map(identifier);
+      await executeSql(
+        fixture.persistence.drizzle,
+        `ALTER TABLE ${qualified(fixture.schemaName, table.name)} ` +
+          `ADD CONSTRAINT ${identifier(key.name)} UNIQUE NULLS NOT DISTINCT (` +
+          `${columns.join(", ")})`,
+      );
+      const nullsFailure = await observeStepFailure(
+        fixture.target,
+        fixture.token,
+        step,
+      );
+      expectRunnerFailure(nullsFailure, "catalogMismatch");
+      await dropConstraint(
+        fixture.persistence.drizzle,
+        fixture.schemaName,
+        table,
+        key,
+      );
+    }), TEST_TIMEOUT);
+
+    it("rejects a same-name foreign key with MATCH FULL semantics", () => withPersistence(async persistence => {
+      const fixture = await createSyntheticRunnerFixture(persistence);
+      await executeSteps(
+        fixture.target,
+        fixture.token,
+        requireTableSteps(fixture.plan),
+      );
+      const step = requireOrdinaryForeignKeyStep(fixture.plan);
+      const foreignKey = foreignKeyOperation(step);
+      if (foreignKey.kind !== "foreignKey") {
+        throw new Error("Expected the ordinary fixture foreign key");
+      }
+      const sourceTable = requireTableForIdentity(
+        fixture.plan.physicalLayout,
+        foreignKey.sourceTable,
+      );
+      await executeSql(
+        fixture.persistence.drizzle,
+        `ALTER TABLE ${qualified(fixture.schemaName, sourceTable.name)} ` +
+          `ADD CONSTRAINT ${identifier(foreignKey.name)} FOREIGN KEY (` +
+          `${foreignKey.sourceColumns.map(identifier).join(", ")}) ` +
+          `REFERENCES ${qualified(
+            fixture.schemaName,
+            foreignKey.targetTableName,
+          )} (${foreignKey.targetColumns.map(identifier).join(", ")}) ` +
+          "MATCH FULL ON DELETE RESTRICT ON UPDATE RESTRICT",
+      );
+
+      const failure = await observeStepFailure(
+        fixture.target,
+        fixture.token,
+        step,
+      );
+      expectRunnerFailure(failure, "catalogMismatch");
+    }), TEST_TIMEOUT);
+
+    it("rejects a same-name non-foreign-key constraint before structural DDL", () => withPersistence(async persistence => {
+      const fixture = await createSyntheticRunnerFixture(persistence);
+      await executeSteps(
+        fixture.target,
+        fixture.token,
+        requireTableSteps(fixture.plan),
+      );
+      const step = requireOrdinaryForeignKeyStep(fixture.plan);
+      const foreignKey = foreignKeyOperation(step);
+      if (foreignKey.kind !== "foreignKey") {
+        throw new Error("Expected the ordinary fixture foreign key");
+      }
+      const sourceTable = requireTableForIdentity(
+        fixture.plan.physicalLayout,
+        foreignKey.sourceTable,
+      );
+      await executeSql(
+        fixture.persistence.drizzle,
+        `ALTER TABLE ${qualified(fixture.schemaName, sourceTable.name)} ` +
+          `ADD CONSTRAINT ${identifier(foreignKey.name)} CHECK (true)`,
+      );
+
+      const observeFailure = await observeStepFailure(
+        fixture.target,
+        fixture.token,
+        step,
+      );
+      expectRunnerFailure(observeFailure, "catalogMismatch");
+
+      const closedTransaction = await fixture.persistence.drizzle.transaction(
+        async transaction => transaction,
+      );
+      let rawExecuteCalls = 0;
+      const countedTransaction = new Proxy(closedTransaction, {
+        get: (target, property, receiver) => property === "execute"
+          ? (query: Parameters<typeof closedTransaction.execute>[0]) => {
+              rawExecuteCalls += 1;
+              return fixture.persistence.drizzle.execute(query);
+            }
+          : Reflect.get(target, property, receiver),
+      });
+      const runTransactionEffect: RunFrameworkMigrationDriverTransaction =
+        (_request, work) => work(countedTransaction);
+      const driver = makeFrameworkMigrationSessionDriver(
+        fixture.persistence.drizzle,
+        runTransactionEffect,
+      );
+      const countedTarget = await makeTarget(
+        fixture.persistence.drizzle,
+        driver,
+        fixture.plan,
+      );
+      const countedToken = await runEffect(
+        issueRelationalStructuralRunnerTokenEffect(countedTarget, fixture.plan),
+      );
+      const executeFailure = await runEffectFailure(
+        runFrameworkMigrationTargetTransactionEffect(
+          countedTarget,
+          TRANSACTION_REQUEST,
+          transaction => executeRelationalStructuralStepEffect(
+            countedToken,
+            transaction,
+            step,
+          ),
         ),
-      ),
-    );
-    expectRunnerFailure(executeFailure, "catalogMismatch");
-    expect(rawExecuteCalls).toBe(1);
-  }, TEST_TIMEOUT);
+      );
+      expectRunnerFailure(executeFailure, "catalogMismatch");
+      expect(rawExecuteCalls).toBe(1);
+    }), TEST_TIMEOUT);
+
+    it("installs canonical exact-numeric raw JSONB defaults and rejects value or precision drift", () => withPersistence(async persistence => {
+      const artifact = await currencyArtifact();
+      const physicalLayout = await runEffect(captureRelationalPhysicalLayout({
+        artifact: artifact.artifact,
+        physicalLocator: FRAMEWORK_VALUE_LOCATOR,
+        targetNamespace: await frameworkTargetNamespace(),
+      }));
+      const plan = await runEffect(captureFreshRelationalMigrationPlan({
+        artifact: artifact.artifact,
+        physicalLayout,
+      }));
+      await establishTargetNamespace(persistence.drizzle, plan);
+      const target = await makePGliteTarget(persistence.drizzle, plan);
+      const token = await runEffect(
+        issueRelationalStructuralRunnerTokenEffect(target, plan),
+      );
+      await runEffect(preflightRelationalStructuralPlanEffect(token));
+      await executeSteps(target, token, plan.frame.steps);
+      const step = requireTableStepsByCount(plan, 1)[0];
+      expect(step).toBeDefined();
+      if (step === undefined) return;
+      const table = tableOperation(step);
+      const rawColumn = table.columns.find(column =>
+        column.default.kind === "exactNumericRawLiteral"
+      );
+      expect(rawColumn).toBeDefined();
+      if (
+        rawColumn === undefined ||
+        rawColumn.default.kind !== "exactNumericRawLiteral"
+      ) return;
+      expect(await observeStep(target, token, step)).toBe("exact");
+
+      await executeSql(
+        persistence.drizzle,
+        `ALTER TABLE ${qualified(plan.frame.targetNamespace.schemaName, table.name)} ` +
+          `ALTER COLUMN ${identifier(rawColumn.name)} SET DEFAULT ` +
+          `'${JSON.stringify({
+            precision: rawColumn.default.precision,
+            value: rawColumn.default.value,
+          })}'::jsonb`,
+      );
+      expect(await observeStep(target, token, step)).toBe("exact");
+
+      const driftCases = [
+        Object.freeze({
+          value: `${rawColumn.default.value}1`,
+          precision: rawColumn.default.precision,
+        }),
+        Object.freeze({
+          value: rawColumn.default.value,
+          precision: rawColumn.default.precision + 1,
+        }),
+      ];
+      for (const drift of driftCases) {
+        await executeSql(
+          persistence.drizzle,
+          `ALTER TABLE ${qualified(
+            plan.frame.targetNamespace.schemaName,
+            table.name,
+          )} ALTER COLUMN ${identifier(rawColumn.name)} SET DEFAULT ` +
+            `'${JSON.stringify(drift)}'::jsonb`,
+        );
+        const failure = await observeStepFailure(target, token, step);
+        expectRunnerFailure(failure, "catalogMismatch");
+      }
+    }), TEST_TIMEOUT);
+  });
 
   describe("foreign driver boundaries", { concurrent: false }, () => {
     const withPersistence = useFileScopedFrameworkCoordinatorPersistence();
@@ -755,78 +831,28 @@ describe("private relational structural runner", () => {
       expectRunnerFailure(failure, "invalidAuthority");
     }
   }, TEST_TIMEOUT);
-
-  it("installs canonical exact-numeric raw JSONB defaults and rejects value or precision drift", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const artifact = await currencyArtifact();
-    const physicalLayout = await runEffect(captureRelationalPhysicalLayout({
-      artifact: artifact.artifact,
-      physicalLocator: FRAMEWORK_VALUE_LOCATOR,
-      targetNamespace: await frameworkTargetNamespace(),
-    }));
-    const plan = await runEffect(captureFreshRelationalMigrationPlan({
-      artifact: artifact.artifact,
-      physicalLayout,
-    }));
-    await establishTargetNamespace(persistence.drizzle, plan);
-    const target = await makePGliteTarget(persistence.drizzle, plan);
-    const token = await runEffect(
-      issueRelationalStructuralRunnerTokenEffect(target, plan),
-    );
-    await runEffect(preflightRelationalStructuralPlanEffect(token));
-    await executeSteps(target, token, plan.frame.steps);
-    const step = requireTableStepsByCount(plan, 1)[0];
-    expect(step).toBeDefined();
-    if (step === undefined) return;
-    const table = tableOperation(step);
-    const rawColumn = table.columns.find(column =>
-      column.default.kind === "exactNumericRawLiteral"
-    );
-    expect(rawColumn).toBeDefined();
-    if (
-      rawColumn === undefined ||
-      rawColumn.default.kind !== "exactNumericRawLiteral"
-    ) return;
-    expect(await observeStep(target, token, step)).toBe("exact");
-
-    await executeSql(
-      persistence.drizzle,
-      `ALTER TABLE ${qualified(plan.frame.targetNamespace.schemaName, table.name)} ` +
-        `ALTER COLUMN ${identifier(rawColumn.name)} SET DEFAULT ` +
-        `'${JSON.stringify({
-          precision: rawColumn.default.precision,
-          value: rawColumn.default.value,
-        })}'::jsonb`,
-    );
-    expect(await observeStep(target, token, step)).toBe("exact");
-
-    const driftCases = [
-      Object.freeze({
-        value: `${rawColumn.default.value}1`,
-        precision: rawColumn.default.precision,
-      }),
-      Object.freeze({
-        value: rawColumn.default.value,
-        precision: rawColumn.default.precision + 1,
-      }),
-    ];
-    for (const drift of driftCases) {
-      await executeSql(
-        persistence.drizzle,
-        `ALTER TABLE ${qualified(
-          plan.frame.targetNamespace.schemaName,
-          table.name,
-        )} ALTER COLUMN ${identifier(rawColumn.name)} SET DEFAULT ` +
-          `'${JSON.stringify(drift)}'::jsonb`,
-      );
-      const failure = await observeStepFailure(target, token, step);
-      expectRunnerFailure(failure, "catalogMismatch");
-    }
-  }, TEST_TIMEOUT);
 });
 
-async function createSyntheticRunnerFixture() {
-  const persistence = await createMigratedPGlitePersistence();
+async function resetPhysicalStructure(
+  persistence: Awaited<ReturnType<typeof createMigratedPGlitePersistence>>,
+): Promise<void> {
+  const schemaName = FRAMEWORK_VALUE_LOCATOR.schemaName;
+  await persistence.drizzle.transaction(async transaction => {
+    const tables = await transaction.select({ tableName: sql<string>`tablename` })
+      .from(sql`pg_catalog.pg_tables`)
+      .where(sql`schemaname = ${schemaName}`);
+    // Drop the owned tables together so their internal foreign keys are included.
+    // RESTRICT preserves outside dependants; any other schema object fails closed.
+    await transaction.execute(sql`DROP TABLE ${sql.join(tables.map(table =>
+      sql`${sql.identifier(schemaName)}.${sql.identifier(table.tableName)}`
+    ), sql`, `)}`);
+    await transaction.execute(sql`DROP SCHEMA ${sql.identifier(schemaName)}`);
+  });
+}
+
+async function createSyntheticRunnerFixture(
+  persistence: Awaited<ReturnType<typeof createMigratedPGlitePersistence>>,
+) {
   const plan = await captureSyntheticPlan();
   await establishTargetNamespace(persistence.drizzle, plan);
   const target = await makePGliteTarget(persistence.drizzle, plan);
