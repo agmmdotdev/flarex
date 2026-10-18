@@ -28,6 +28,7 @@ import { fxControlIndexDefinitions, fxControlTables, fxSystemIndexBuildStates,
 import { createPGlitePersistence } from "../../src/database/pglite";
 import { createPostgresPersistence } from "../../src/database/postgres";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { postgresUrl, withTemporaryPostgresSchema } from "../support/postgresHelpers";
 import {
   insertSessionTestScope,
@@ -35,11 +36,10 @@ import {
   SESSION_TEST_SCOPE_UUID,
 } from "../execution/session/support/sessionStorage";
 
-type TestPersistence = Pick<FlarexPersistence, "query" | "migrate" | "insertDeploymentMetadata" | "insertScopeMetadata"> &
+type TestPersistence = Pick<FlarexPersistence, "query" | "insertDeploymentMetadata" | "insertScopeMetadata"> &
   { readonly drizzle: FlarexMetadataDatabase };
 
 async function proveFencedUniqueCoverageBatch(persistence: TestPersistence) {
-  await persistence.migrate();
   await insertSessionTestScope(persistence);
   const scopeId = ReplacementScopeIdV1Schema.make(`scope_${SESSION_TEST_SCOPE_UUID}`);
   const schemaVersionId = CatalogSchemaVersionIdSchema.make("coverage_batch");
@@ -186,7 +186,7 @@ async function proveFencedIndexCoverageBatch(persistence: TestPersistence) {
 
 describe("selected publication coverage batches", () => {
   it("advances bounded index/unique batches and rolls back a stale or missing fenced member on PGlite", async () => {
-    const db = newTestPGlite();
+    const db = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
     try {
       const persistence = await createPGlitePersistence({ db });
       await proveFencedUniqueCoverageBatch(persistence);
@@ -200,6 +200,7 @@ describe("selected publication coverage batches", () => {
     await withTemporaryPostgresSchema(async options => {
       const persistence = await createPostgresPersistence(options);
       try {
+        await persistence.migrate();
         await proveFencedUniqueCoverageBatch(persistence);
         await proveFencedIndexCoverageBatch(persistence);
       } finally {

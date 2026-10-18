@@ -386,9 +386,11 @@ their sidecar reads; the SQL-trigger rejection witness retains its own backend.
 Their row seeds acquire genuine installation admission before appending.
 Metadata-epoch contract cases reuse the image; their fresh-install and predecessor upgrade/failure cases still execute
 the original migration chain from their own empty databases.
-Bootstrap and split-provisioning PGlite cases use the same fixture and registered
-cleanup, retaining independent databases for stored-authority corruption,
-orphan-clock proofs and control/target separation.
+Bootstrap PGlite cases use the shared fixture and retain their independent
+corruption fixture. Split provisioning keeps two separate file-scoped stores,
+resetting target rows before control rows. Both use the scope-authority reset
+because the control ID-collision witness also seeds clocks and authority.
+Snapshot and authority-resolution row cases reuse that same fixture owner.
 Recovery discovery and current idempotency/claim boundary cases also restore
 independent images with automatic cleanup. Their table-drop witnesses remain
 isolated; fresh-install and populated predecessor-upgrade proofs still migrate

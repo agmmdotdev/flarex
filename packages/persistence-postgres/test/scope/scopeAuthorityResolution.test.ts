@@ -1,9 +1,8 @@
 import {
-  createMigratedPGlitePersistence,
-  migratedPGliteDataDir,
+  useFileScopedPGliteScopeAuthorityPersistence,
 } from "../support/pgliteTestFixture";
 import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -89,53 +88,54 @@ const initialEpoch = ScopeEpochSchema.make(
   "epoch_20000000-0000-4000-8000-000000000003",
 );
 
-beforeAll(() => migratedPGliteDataDir(), 120_000);
-
 describe("trusted scope authority resolution", () => {
+  const withPersistence = useFileScopedPGliteScopeAuthorityPersistence();
+
   it("selects exact scopes in one deployment and refuses a foreign deployment", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    await persistence.insertDeploymentMetadata({
-      deploymentId: "deployment_shared",
-      projectId: "project_shared",
-    });
-    for (const currentScopeId of [scopeId, otherScopeId]) {
-      await persistence.insertScopeMetadata({
-        scopeId: currentScopeId,
+    await withPersistence(async (persistence) => {
+      await persistence.insertDeploymentMetadata({
         deploymentId: "deployment_shared",
-        physicalLocator: sharedLocator,
+        projectId: "project_shared",
       });
-    }
-    const ports = {
-      scopeMetadata: persistence,
-      provisioningReceipts: {
-        getScopeAuthorityProvisioningReceipt: async () => null,
-      },
-      scopeClockTargets: {
-        resolve: async () => ({
+      for (const currentScopeId of [scopeId, otherScopeId]) {
+        await persistence.insertScopeMetadata({
+          scopeId: currentScopeId,
+          deploymentId: "deployment_shared",
           physicalLocator: sharedLocator,
-          getCurrentClock: async (currentScopeId: ScopeId) => scopeClock(currentScopeId),
-        }),
-      },
-    };
-    for (const currentScopeId of [scopeId, otherScopeId]) {
-      const located = await runEffect(resolveLocatedTrustedScopeAuthorityByIdEffect({
-        deploymentId: "deployment_shared", scopeId: currentScopeId,
-      }, ports));
-      expect(located.authority.scopeId).toBe(currentScopeId);
-    }
-    await expect(expectFailure(runEffect(resolveLocatedTrustedScopeAuthorityByIdEffect({
-      deploymentId: "foreign_deployment", scopeId,
-    }, ports)))).resolves.toMatchObject({
-      reason: "scopeDeploymentMismatch",
-      scopeId,
-      actualDeploymentId: "deployment_shared",
-    });
-    await expect(persistence.getScopeMetadataByDeploymentId("deployment_shared"))
-      .rejects.toMatchObject({ name: "ScopeDeploymentAmbiguousError" });
-    await expect(expectFailure(runEffect(resolveTrustedScopeAuthorityEffect(
-      "deployment_shared", ports,
-    )))).resolves.toMatchObject({
-      reason: "scopeMetadataAmbiguous", deploymentId: "deployment_shared",
+        });
+      }
+      const ports = {
+        scopeMetadata: persistence,
+        provisioningReceipts: {
+          getScopeAuthorityProvisioningReceipt: async () => null,
+        },
+        scopeClockTargets: {
+          resolve: async () => ({
+            physicalLocator: sharedLocator,
+            getCurrentClock: async (currentScopeId: ScopeId) => scopeClock(currentScopeId),
+          }),
+        },
+      };
+      for (const currentScopeId of [scopeId, otherScopeId]) {
+        const located = await runEffect(resolveLocatedTrustedScopeAuthorityByIdEffect({
+          deploymentId: "deployment_shared", scopeId: currentScopeId,
+        }, ports));
+        expect(located.authority.scopeId).toBe(currentScopeId);
+      }
+      await expect(expectFailure(runEffect(resolveLocatedTrustedScopeAuthorityByIdEffect({
+        deploymentId: "foreign_deployment", scopeId,
+      }, ports)))).resolves.toMatchObject({
+        reason: "scopeDeploymentMismatch",
+        scopeId,
+        actualDeploymentId: "deployment_shared",
+      });
+      await expect(persistence.getScopeMetadataByDeploymentId("deployment_shared"))
+        .rejects.toMatchObject({ name: "ScopeDeploymentAmbiguousError" });
+      await expect(expectFailure(runEffect(resolveTrustedScopeAuthorityEffect(
+        "deployment_shared", ports,
+      )))).resolves.toMatchObject({
+        reason: "scopeMetadataAmbiguous", deploymentId: "deployment_shared",
+      });
     });
   });
 
@@ -163,61 +163,62 @@ describe("trusted scope authority resolution", () => {
   });
 
   it("resolves a provisioned shared scope from PGlite authority rows", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const provisioner = createPGliteSharedScopeAuthorityProvisioner(
-      persistence,
-      {
-        physicalLocator: sharedLocator,
-        randomUuid: uuidSequence(
-          "20000000-0000-4000-8000-000000000011",
-          "20000000-0000-4000-8000-000000000012",
-        ),
-      },
-    );
-    const provisioned = await provisioner.ensure({
-      deploymentId: "deployment_shared",
-      projectId: "project_shared",
-    });
-    const provisioningReceiptRead = vi.fn(async (_scopeId: ScopeId) => {
-      throw new Error("Shared scope resolution must not read split receipts.");
-    });
-    const targetClockRead = vi.fn((resolvedScopeId: ScopeId) =>
-      persistence.getScopeClock(resolvedScopeId),
-    );
-    const targetResolution = vi.fn(
-      async (_physicalLocator: ScopePhysicalLocator) =>
-        ({
+    await withPersistence(async (persistence) => {
+      const provisioner = createPGliteSharedScopeAuthorityProvisioner(
+        persistence,
+        {
           physicalLocator: sharedLocator,
-          getCurrentClock: targetClockRead,
-        }) satisfies LocatedScopeClockReader,
-    );
-
-    const authority = await resolveTrustedScopeAuthority(
-      "deployment_shared",
-      {
-        scopeMetadata: persistence,
-        provisioningReceipts: {
-          getScopeAuthorityProvisioningReceipt: provisioningReceiptRead,
+          randomUuid: uuidSequence(
+            "20000000-0000-4000-8000-000000000011",
+            "20000000-0000-4000-8000-000000000012",
+          ),
         },
-        scopeClockTargets: { resolve: targetResolution },
-      },
-    );
+      );
+      const provisioned = await provisioner.ensure({
+        deploymentId: "deployment_shared",
+        projectId: "project_shared",
+      });
+      const provisioningReceiptRead = vi.fn(async (_scopeId: ScopeId) => {
+        throw new Error("Shared scope resolution must not read split receipts.");
+      });
+      const targetClockRead = vi.fn((resolvedScopeId: ScopeId) =>
+        persistence.getScopeClock(resolvedScopeId),
+      );
+      const targetResolution = vi.fn(
+        async (_physicalLocator: ScopePhysicalLocator) =>
+          ({
+            physicalLocator: sharedLocator,
+            getCurrentClock: targetClockRead,
+          }) satisfies LocatedScopeClockReader,
+      );
 
-    expect(authority).toEqual({
-      deploymentId: provisioned.scope.deploymentId,
-      scopeId: provisioned.scope.scopeId,
-      physicalLocator: sharedLocator,
-      storageGeneration: provisioned.clock.storageGeneration,
-      storageGenerationFence: provisioned.clock.storageGenerationFence,
-      epoch: provisioned.clock.epoch,
-      lastCommitSeq: provisioned.clock.lastCommitSeq,
+      const authority = await resolveTrustedScopeAuthority(
+        "deployment_shared",
+        {
+          scopeMetadata: persistence,
+          provisioningReceipts: {
+            getScopeAuthorityProvisioningReceipt: provisioningReceiptRead,
+          },
+          scopeClockTargets: { resolve: targetResolution },
+        },
+      );
+
+      expect(authority).toEqual({
+        deploymentId: provisioned.scope.deploymentId,
+        scopeId: provisioned.scope.scopeId,
+        physicalLocator: sharedLocator,
+        storageGeneration: provisioned.clock.storageGeneration,
+        storageGenerationFence: provisioned.clock.storageGenerationFence,
+        epoch: provisioned.clock.epoch,
+        lastCommitSeq: provisioned.clock.lastCommitSeq,
+      });
+      expect(Object.isFrozen(authority)).toBe(true);
+      expect(Object.isFrozen(authority.physicalLocator)).toBe(true);
+      expect(provisioningReceiptRead).not.toHaveBeenCalled();
+      expect(targetResolution).toHaveBeenCalledExactlyOnceWith(sharedLocator);
+      expect(targetClockRead)
+        .toHaveBeenCalledExactlyOnceWith(provisioned.scope.scopeId);
     });
-    expect(Object.isFrozen(authority)).toBe(true);
-    expect(Object.isFrozen(authority.physicalLocator)).toBe(true);
-    expect(provisioningReceiptRead).not.toHaveBeenCalled();
-    expect(targetResolution).toHaveBeenCalledExactlyOnceWith(sharedLocator);
-    expect(targetClockRead)
-      .toHaveBeenCalledExactlyOnceWith(provisioned.scope.scopeId);
   });
 
   it("rejects a shared clock target for a different persisted placement", async () => {
