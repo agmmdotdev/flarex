@@ -41,6 +41,7 @@ import type { FrameworkMigrationRepositoryError } from
   "../../../src/installation/migrationCoordination/repositoryErrors";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
+  useFileScopedFrameworkCoordinatorGraphPersistence,
   rejectingSelectTransaction,
   createSuccessfulTerminalPlanValues,
   storeSuccessfulAvailabilityHistoryGraphInTransaction,
@@ -68,9 +69,9 @@ const laterAvailabilitySpecs = Object.freeze([
   }),
 ] satisfies readonly AvailabilitySpec[]);
 
-describe("framework coordinator schema-availability-head repository", () => {
-  it("reads absence, initializes exact normalized storage, and replays", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+describe("framework coordinator schema-availability-head repository", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
+  it("reads absence, initializes exact normalized storage, and replays", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const stored = await persistence.drizzle.transaction(async transaction => {
       const prepared = await prepareAvailabilityHeadGraph(transaction, values);
@@ -127,10 +128,9 @@ describe("framework coordinator schema-availability-head repository", () => {
     );
     expect(separateReplay.head.sha256).toBe(stored.initialized.head.sha256);
     expectAvailabilityHeadIdentity(separateReplay);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("applies exact CAS without adding sequence or transition policy", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("applies exact CAS without adding sequence or transition policy", () => withPersistence(async persistence => {
     const stored = await initializedAvailabilityHeadFixture(persistence);
     expect(stored.histories.ready.history.frame.availabilitySequence).toBe("3");
 
@@ -185,10 +185,9 @@ describe("framework coordinator schema-availability-head repository", () => {
     await expect(storedAvailabilityHeadRow(persistence)).resolves.toEqual(
       expectedAvailabilityHeadRow(movedBackward),
     );
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("reports stale initialization and refuses forged dependency authority", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("reports stale initialization and refuses forged dependency authority", () => withPersistence(async persistence => {
     const stored = await initializedAvailabilityHeadFixture(persistence);
     const before = await storedAvailabilityHeadRow(persistence);
 
@@ -257,7 +256,7 @@ describe("framework coordinator schema-availability-head repository", () => {
       operation: "readAvailabilityHead",
       reason: "referenceRefusal",
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("refuses expected private history authority from another store", async () => {
     const expectedPersistence = await createMigratedPGlitePersistence();
@@ -426,8 +425,7 @@ describe("framework coordinator schema-availability-head repository", () => {
       .toEqual(oversizedBefore);
   }, PGLITE_TEST_TIMEOUT);
 
-  it("follows caller rollback and preserves the exact driver cause", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("follows caller rollback and preserves the exact driver cause", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const prepared = await persistence.drizzle.transaction(
       transaction => prepareAvailabilityHeadGraph(transaction, values),
@@ -459,7 +457,7 @@ describe("framework coordinator schema-availability-head repository", () => {
       reason: "resourceFailure",
       cause,
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 });
 
 async function initializedAvailabilityHeadFixture(

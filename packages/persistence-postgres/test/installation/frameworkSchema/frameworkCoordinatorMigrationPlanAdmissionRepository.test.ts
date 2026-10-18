@@ -1,4 +1,4 @@
-import { rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
+import { useFileScopedFrameworkCoordinatorGraphPersistence, rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
 import { sql } from "drizzle-orm";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import {
@@ -54,10 +54,10 @@ const PGLITE_TEST_TIMEOUT = 30_000;
 const FIRST_ADMITTED_AT = "2026-08-27T08:30:00.000Z";
 const SECOND_ADMITTED_AT = "2026-08-27T08:31:00.000Z";
 
-describe("framework coordinator migration-plan admission repository", () => {
+describe("framework coordinator migration-plan admission repository", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
 
-  it("ensures, reads, and exactly replays an ordered admission aggregate", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("ensures, reads, and exactly replays an ordered admission aggregate", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const restored = await persistence.drizzle.transaction(
       async transaction => {
@@ -136,10 +136,9 @@ describe("framework coordinator migration-plan admission repository", () => {
           assignmentSha256: assignment.assignmentSha256,
         }),
       ));
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("restores an optional previous plan from the same collision domain", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("restores an optional previous plan from the same collision domain", () => withPersistence(async persistence => {
     const previousValues = await freshPlanRepositoryValues();
     const currentValues = await nextFreshPlanRepositoryValues();
     const stored = await persistence.drizzle.transaction(
@@ -204,10 +203,9 @@ describe("framework coordinator migration-plan admission repository", () => {
     expect(stored.admission.frame.planSha256).toBe(
       stored.currentPlan.plan.migrationPlanSha256,
     );
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("replays duplicate ensures from separate caller transactions", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("replays duplicate ensures from separate caller transactions", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const plan = await persistence.drizzle.transaction(
       transaction => ensureStoredPlan(transaction, values),
@@ -218,7 +216,7 @@ describe("framework coordinator migration-plan admission repository", () => {
       FIRST_ADMITTED_AT,
     );
 
-    const ensured = await Promise.all([
+    const ensuring = [
       persistence.drizzle.transaction(transaction => runEffect(
         ensureFrameworkMigrationPlanAdmissionInTransactionEffect(
           transaction,
@@ -235,17 +233,19 @@ describe("framework coordinator migration-plan admission repository", () => {
           admission,
         ),
       )),
-    ]);
+    ];
+    const ensured = await Promise.all(ensuring).finally(async () => {
+      await Promise.allSettled(ensuring);
+    });
 
     expect(ensured[0]?.storageId).toBe(ensured[1]?.storageId);
     await expect(admissionAggregateCounts(persistence)).resolves.toEqual({
       admissions: "1",
       assignments: String(admission.frame.nameAssignments.length),
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("fully reloads the stored occupant after losing an immutable insert", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("fully reloads the stored occupant after losing an immutable insert", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const stored = await persistence.drizzle.transaction(
       async transaction => {
@@ -288,10 +288,9 @@ describe("framework coordinator migration-plan admission repository", () => {
       admissions: "1",
       assignments: String(stored.admission.frame.nameAssignments.length),
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("refuses forged, missing, and wrong previous-plan references", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("refuses forged, missing, and wrong previous-plan references", () => withPersistence(async persistence => {
     const previousValues = await freshPlanRepositoryValues();
     const currentValues = await nextFreshPlanRepositoryValues();
     const stored = await persistence.drizzle.transaction(
@@ -386,10 +385,9 @@ describe("framework coordinator migration-plan admission repository", () => {
       admissions: "0",
       assignments: "0",
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("classifies a mismatched authentic admission occupant as immutable conflict", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("classifies a mismatched authentic admission occupant as immutable conflict", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const stored = await persistence.drizzle.transaction(
       async transaction => {
@@ -429,10 +427,10 @@ describe("framework coordinator migration-plan admission repository", () => {
       operation: "readAdmission",
       reason: "immutableConflict",
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("reports committed sidecar loss without healing and rolls back with its caller", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+    await withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const stored = await persistence.drizzle.transaction(
       async transaction => {
@@ -498,8 +496,9 @@ describe("framework coordinator migration-plan admission repository", () => {
     await expect(admissionAggregateCounts(persistence)).resolves.toEqual(
       corruptedCounts,
     );
+    });
 
-    const rollbackPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async rollbackPersistence => {
     const rollbackValues = await freshPlanRepositoryValues();
     const rollbackPlan = await rollbackPersistence.drizzle.transaction(
       transaction => ensureStoredPlan(transaction, rollbackValues),
@@ -525,6 +524,7 @@ describe("framework coordinator migration-plan admission repository", () => {
     )).rejects.toBe(deliberateRollback);
     await expect(admissionAggregateCounts(rollbackPersistence)).resolves
       .toEqual({ admissions: "0", assignments: "0" });
+    });
   }, PGLITE_TEST_TIMEOUT);
 
   it("rejects corrupt or over-limit stored admission bytes", async () => {

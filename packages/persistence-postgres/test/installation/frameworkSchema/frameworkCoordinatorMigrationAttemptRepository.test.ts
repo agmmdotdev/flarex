@@ -1,4 +1,4 @@
-import { rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
+import { useFileScopedFrameworkCoordinatorGraphPersistence, rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { eq } from "drizzle-orm";
@@ -59,10 +59,10 @@ const LEASE_ONE = "2026-08-27T08:31:00.000Z";
 const LEASE_TWO = "2026-08-27T08:32:00.000Z";
 const LEASE_THREE = "2026-08-27T08:33:00.000Z";
 
-describe("framework coordinator migration-attempt repository", () => {
+describe("framework coordinator migration-attempt repository", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
 
-  it("ensures, reads, and exactly replays a genesis attempt", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("ensures, reads, and exactly replays a genesis attempt", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const stored = await persistence.drizzle.transaction(
       async transaction => {
@@ -149,10 +149,9 @@ describe("framework coordinator migration-attempt repository", () => {
     expect(row.canonicalBytes).toEqual(
       new TextEncoder().encode(stored.attempt.canonicalJson),
     );
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("restores a three-attempt chain across collision-local admissions", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("restores a three-attempt chain across collision-local admissions", () => withPersistence(async persistence => {
     const previousValues = await freshPlanRepositoryValues();
     const currentValues = await nextFreshPlanRepositoryValues();
     const stored = await persistence.drizzle.transaction(
@@ -275,10 +274,9 @@ describe("framework coordinator migration-attempt repository", () => {
       stored.currentAdmission.storageId,
     );
     await expect(attemptCount(persistence)).resolves.toBe("3");
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("classifies independent attempt-id and fence occupants as conflicts", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("classifies independent attempt-id and fence occupants as conflicts", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const stored = await persistence.drizzle.transaction(
       async transaction => {
@@ -361,10 +359,9 @@ describe("framework coordinator migration-attempt repository", () => {
       reason: "immutableConflict",
     });
     await expect(attemptCount(persistence)).resolves.toBe("2");
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("refuses forged, missing, wrong, and cross-collision references", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("refuses forged, missing, wrong, and cross-collision references", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const foreignValues = await currencyPlanRepositoryValues();
     const stored = await persistence.drizzle.transaction(
@@ -510,10 +507,10 @@ describe("framework coordinator migration-attempt repository", () => {
       reason: "referenceRefusal",
     });
     await expect(attemptCount(persistence)).resolves.toBe("3");
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("reports a changed lease projection and broken predecessor without healing", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+    await withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const stored = await persistence.drizzle.transaction(
       async transaction => {
@@ -572,6 +569,7 @@ describe("framework coordinator migration-attempt repository", () => {
       reason: "storedCorruption",
     });
     await expect(attemptCount(persistence)).resolves.toBe("2");
+    });
 
     const chainPersistence = await createMigratedPGlitePersistence();
     const chainValues = await freshPlanRepositoryValues();
@@ -822,8 +820,7 @@ describe("framework coordinator migration-attempt repository", () => {
     await expect(attemptCount(persistence)).resolves.toBe("2");
   }, 60_000);
 
-  it("rejects extended-year leases, follows caller rollback, and projects driver failure", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects extended-year leases, follows caller rollback, and projects driver failure", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const admission = await persistence.drizzle.transaction(
       transaction => ensureStoredAdmission(transaction, values),
@@ -889,7 +886,7 @@ describe("framework coordinator migration-attempt repository", () => {
       reason: "resourceFailure",
       cause: driverCause,
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 });
 
 async function freshPlanRepositoryValues() {

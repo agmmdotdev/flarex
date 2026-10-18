@@ -39,6 +39,7 @@ import type { FrameworkMigrationRepositoryError } from
   "../../../src/installation/migrationCoordination/repositoryErrors";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
+  useFileScopedFrameworkCoordinatorGraphPersistence,
   rejectingSelectTransaction,
   createSuccessfulTerminalPlanValues,
   storeSuccessfulReadinessGraphInTransaction,
@@ -82,9 +83,9 @@ const availabilitySpecs = Object.freeze([
   }),
 ] satisfies readonly AvailabilitySpec[]);
 
-describe("framework coordinator schema-availability-history repository", () => {
-  it("appends, reads, and exactly replays a three-state history", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+describe("framework coordinator schema-availability-history repository", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
+  it("appends, reads, and exactly replays a three-state history", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const stored = await persistence.drizzle.transaction(async transaction => {
       const graph = await storeSuccessfulReadinessGraphInTransaction(
@@ -223,10 +224,9 @@ describe("framework coordinator schema-availability-history repository", () => {
       }
     });
     await expect(availabilityHistoryCount(persistence)).resolves.toBe("3");
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("resolves sequence occupants before lazily consulting the digest", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("resolves sequence occupants before lazily consulting the digest", () => withPersistence(async persistence => {
     const stored = await storedAvailabilityHistoryFixture(persistence, 1);
     const entry = stored.entries[0];
     if (entry === undefined) throw new Error("Missing availability history");
@@ -339,10 +339,9 @@ describe("framework coordinator schema-availability-history repository", () => {
     );
     expect(Option.isNone(absent)).toBe(true);
     expect(digestReads).toBe(3);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("refuses an immutable sequence conflict without mutating history", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("refuses an immutable sequence conflict without mutating history", () => withPersistence(async persistence => {
     const stored = await storedAvailabilityHistoryFixture(persistence, 1);
     const entry = stored.entries[0];
     if (entry === undefined) throw new Error("Missing availability history");
@@ -383,10 +382,9 @@ describe("framework coordinator schema-availability-history repository", () => {
     await expect(storedAvailabilityHistoryRows(persistence)).resolves.toEqual(
       before,
     );
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("refuses forged and mismatched private dependency authority", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("refuses forged and mismatched private dependency authority", () => withPersistence(async persistence => {
     const stored = await storedAvailabilityHistoryFixture(persistence, 2);
     const root = stored.entries[1]?.restored;
     if (root === undefined) throw new Error("Missing dependency history");
@@ -419,10 +417,10 @@ describe("framework coordinator schema-availability-history repository", () => {
     await expect(storedAvailabilityHistoryRows(persistence)).resolves.toEqual(
       before,
     );
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("rejects projected, changed, oversized, cyclic, broken, and corrupt-ancestor state", async () => {
-    const projectionPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async projectionPersistence => {
     const projection = await storedAvailabilityHistoryFixture(
       projectionPersistence,
       2,
@@ -465,8 +463,9 @@ describe("framework coordinator schema-availability-history repository", () => {
     await expect(
       storedAvailabilityHistoryRows(projectionPersistence),
     ).resolves.toEqual(projectionBefore);
+    });
 
-    const changedPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async changedPersistence => {
     const changed = await storedAvailabilityHistoryFixture(
       changedPersistence,
       1,
@@ -498,6 +497,7 @@ describe("framework coordinator schema-availability-history repository", () => {
     await expect(
       storedAvailabilityHistoryRows(changedPersistence),
     ).resolves.toEqual(changedBefore);
+    });
 
     const oversizedPersistence = await createMigratedPGlitePersistence();
     const oversized = await storedAvailabilityHistoryFixture(
@@ -674,8 +674,7 @@ describe("framework coordinator schema-availability-history repository", () => {
     ).resolves.toEqual(ancestorBefore);
   }, PGLITE_TEST_TIMEOUT);
 
-  it("follows caller rollback and preserves the exact driver cause", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("follows caller rollback and preserves the exact driver cause", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const prepared = await persistence.drizzle.transaction(
       async transaction => {
@@ -721,7 +720,7 @@ describe("framework coordinator schema-availability-history repository", () => {
       reason: "resourceFailure",
       cause,
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 });
 
 async function storedAvailabilityHistoryFixture(

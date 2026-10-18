@@ -45,6 +45,7 @@ import {
 } from "../../../src/installation/migrationCoordination/storedEventRestoration";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
+  useFileScopedFrameworkCoordinatorGraphPersistence,
   rejectingSelectTransaction,
   createSuccessfulTerminalPlanValues,
   storeSuccessfulReadinessGraphInTransaction,
@@ -67,9 +68,9 @@ type FrameworkMigrationEventCommon = Pick<
     "recordedAt"
 >;
 
-describe("framework coordinator migration-event repository", () => {
-  it.each([4, 5, 6])("restores standalone subject %i through its stored prerequisite edges", async index => {
-    const persistence = await createMigratedPGlitePersistence();
+describe("framework coordinator migration-event repository", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
+  it.each([4, 5, 6])("restores standalone subject %i through its stored prerequisite edges", index => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const stored = await persistence.drizzle.transaction(async transaction => {
       const graph = await storeSuccessfulReadinessGraphInTransaction(transaction, values);
@@ -85,10 +86,9 @@ describe("framework coordinator migration-event repository", () => {
     ));
     expect(restored.event.canonicalJson).toBe(stored.appended.event.canonicalJson);
     expect(restoredFrameworkMigrationEventAuthority(restored)?.subject.kind).toBe(stored.appended.event.frame.kind);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("hands terminal and publication evidence forward with the optional memo exhausted", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("hands terminal and publication evidence forward with the optional memo exhausted", () => withPersistence(async persistence => {
     const stored = await storedEventFixture(persistence, 7);
     const tail = stored.restored.at(-1);
     if (tail === undefined) throw new Error("Missing event tail");
@@ -111,10 +111,9 @@ describe("framework coordinator migration-event repository", () => {
       expect(await runEffectFailure(storedValues.restoreStoredFrameworkMigrationAttemptTerminal({ ...terminalInput,
         stepReceipts: { kind: "restoredFrameworkMigrationReceiptPrefix" } }))).toMatchObject({ reason: "storedStateCorrupt" });
     } finally { attempts.mockRestore(); terminals.mockRestore(); receipts.mockRestore(); }
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("appends, reads, and exactly replays all seven event kinds", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("appends, reads, and exactly replays all seven event kinds", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const stored = await persistence.drizzle.transaction(async transaction => {
       const graph = await storeSuccessfulReadinessGraphInTransaction(
@@ -236,10 +235,9 @@ describe("framework coordinator migration-event repository", () => {
       }
     });
     await expect(eventCount(persistence)).resolves.toBe("7");
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("resolves sequence occupants before lazily consulting the digest", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("resolves sequence occupants before lazily consulting the digest", () => withPersistence(async persistence => {
     const stored = await storedEventFixture(persistence, 1);
     const value = stored.restored[0];
     const entry = stored.chain[0];
@@ -356,10 +354,9 @@ describe("framework coordinator migration-event repository", () => {
     );
     expect(Option.isNone(absent)).toBe(true);
     expect(digestReads).toBe(3);
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("restores an incumbent through its actual predecessor", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("restores an incumbent through its actual predecessor", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const result = await persistence.drizzle.transaction(async transaction => {
       const graph = await storeSuccessfulReadinessGraphInTransaction(
@@ -432,10 +429,10 @@ describe("framework coordinator migration-event repository", () => {
       reason: "immutableConflict",
     });
     await expect(eventCount(persistence)).resolves.toBe("3");
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("rejects cyclic, projected, changed, and oversized state without healing", async () => {
-    const projectionPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async projectionPersistence => {
     const projection = await storedEventFixture(projectionPersistence, 1);
     const projectionValue = projection.restored[0];
     const projectionEntry = projection.chain[0];
@@ -463,8 +460,9 @@ describe("framework coordinator migration-event repository", () => {
     await expect(storedEventRows(projectionPersistence)).resolves.toEqual(
       projectionBefore,
     );
+    });
 
-    const changedPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async changedPersistence => {
     const changed = await storedEventFixture(changedPersistence, 1);
     const changedValue = changed.restored[0];
     const changedEntry = changed.chain[0];
@@ -490,6 +488,7 @@ describe("framework coordinator migration-event repository", () => {
         changedEntry.event,
       ),
     );
+    });
 
     const oversizedPersistence = await createMigratedPGlitePersistence();
     const oversized = await storedEventFixture(oversizedPersistence, 1);
@@ -599,8 +598,7 @@ describe("framework coordinator migration-event repository", () => {
     );
   }, PGLITE_TEST_TIMEOUT);
 
-  it.each(["plan", "sidecar"] as const)("revalidates %s corruption after an earlier graph read in the same transaction", async kind => {
-    const persistence = await createMigratedPGlitePersistence();
+  it.each(["plan", "sidecar"] as const)("revalidates %s corruption after an earlier graph read in the same transaction", kind => withPersistence(async persistence => {
     const stored = await storedEventFixture(persistence, 7);
     const tail = stored.restored.at(-1);
     if (tail === undefined) throw new Error("Missing event tail");
@@ -623,10 +621,9 @@ describe("framework coordinator migration-event repository", () => {
         : sql`update fx_system_framework_migration_plan_step set dependency_count = dependency_count - 1`));
       expect((await runEffect(read)).event.sha256).toBe(tail.event.sha256);
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("follows caller rollback and preserves the exact driver cause", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("follows caller rollback and preserves the exact driver cause", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const prepared = await persistence.drizzle.transaction(
       async transaction => {
@@ -670,7 +667,7 @@ describe("framework coordinator migration-event repository", () => {
       reason: "resourceFailure",
       cause,
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 });
 
 async function storedEventFixture(

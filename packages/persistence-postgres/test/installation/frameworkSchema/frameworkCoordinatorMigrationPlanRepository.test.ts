@@ -1,4 +1,4 @@
-import { rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
+import { useFileScopedFrameworkCoordinatorGraphPersistence, rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
 import { sql } from "drizzle-orm";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { eq } from "drizzle-orm";
@@ -47,9 +47,9 @@ import { createFileScopedPostgresFixture, postgresUrl } from "../../support/post
 
 const PGLITE_TEST_TIMEOUT = 30_000;
 
-describe("framework coordinator migration-plan repository", () => {
-  it("shares successful references across diagnostic operations and retries failures under the current operation", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+describe("framework coordinator migration-plan repository", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
+  it("shares successful references across diagnostic operations and retries failures under the current operation", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     await persistence.drizzle.transaction(async transaction => {
       const { collision } = await ensurePlanPrerequisites(transaction, values);
@@ -67,7 +67,7 @@ describe("framework coordinator migration-plan repository", () => {
         }
       }), transaction));
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   for (const driver of ["pglite", "postgres"] as const) it.skipIf(driver === "postgres" && postgresUrl === null)(`rechecks stored bytes and projections across transactions with warm verification on ${driver}`, async () => {
     const queries: string[] = [];
@@ -116,8 +116,7 @@ describe("framework coordinator migration-plan repository", () => {
     })));
   }, PGLITE_TEST_TIMEOUT);
 
-  it("ensures, reads, and exactly replays an ordered plan aggregate", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("ensures, reads, and exactly replays an ordered plan aggregate", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const restored = await persistence.drizzle.transaction(
       async transaction => {
@@ -198,15 +197,15 @@ describe("framework coordinator migration-plan repository", () => {
       operation: "readPlan",
       reason: "immutableConflict",
     });
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("converges duplicate ensures and rolls the aggregate back with its caller", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const values = await freshPlanRepositoryValues();
+    await withPersistence(async persistence => {
     const { collision } = await persistence.drizzle.transaction(
       transaction => ensurePlanPrerequisites(transaction, values),
     );
-    const ensured = await Promise.all([
+    const ensuring = [
       persistence.drizzle.transaction(transaction => runEffect(
         ensureFreshRelationalMigrationPlanInTransactionEffect(
           transaction,
@@ -221,15 +220,19 @@ describe("framework coordinator migration-plan repository", () => {
           values.plan,
         ),
       )),
-    ]);
+    ];
+    const ensured = await Promise.all(ensuring).finally(async () => {
+      await Promise.allSettled(ensuring);
+    });
     expect(ensured[0]?.storageId).toBe(ensured[1]?.storageId);
     await expect(planAggregateCounts(persistence)).resolves.toEqual({
       plans: "1",
       steps: String(values.plan.frame.steps.length),
       dependencies: String(expectedDependencies(values.plan).length),
     });
+    });
 
-    const rollbackPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async rollbackPersistence => {
     const rollbackParents = await rollbackPersistence.drizzle.transaction(
       transaction => ensurePlanPrerequisites(transaction, values),
     );
@@ -249,11 +252,12 @@ describe("framework coordinator migration-plan repository", () => {
       steps: "0",
       dependencies: "0",
     });
+    });
   }, PGLITE_TEST_TIMEOUT);
 
   it("refuses missing assignments and a collision from another coordinate", async () => {
     const values = await freshPlanRepositoryValues();
-    const missingPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async missingPersistence => {
     const { collision: collisionWithoutAssignments } =
       await missingPersistence.drizzle.transaction(
         transaction => ensurePlanParents(transaction, values),
@@ -278,8 +282,9 @@ describe("framework coordinator migration-plan repository", () => {
       steps: "0",
       dependencies: "0",
     });
+    });
 
-    const wrongCollisionPersistence = await createMigratedPGlitePersistence();
+    await withPersistence(async wrongCollisionPersistence => {
     const otherValues = await currencyPlanRepositoryValues();
     const { collision: wrongCollision } =
       await wrongCollisionPersistence.drizzle.transaction(
@@ -300,10 +305,10 @@ describe("framework coordinator migration-plan repository", () => {
       operation: "ensurePlan",
       reason: "referenceRefusal",
     });
+    });
   }, PGLITE_TEST_TIMEOUT);
 
-  it("reports committed sidecar loss without healing the aggregate", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("reports committed sidecar loss without healing the aggregate", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const { collision } = await persistence.drizzle.transaction(
       async transaction => {
@@ -368,10 +373,9 @@ describe("framework coordinator migration-plan repository", () => {
     await expect(planAggregateCounts(persistence)).resolves.toEqual(
       corruptedCounts,
     );
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
-  it("classifies a missing stored assignment as aggregate corruption on replay", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("classifies a missing stored assignment as aggregate corruption on replay", () => withPersistence(async persistence => {
     const values = await freshPlanRepositoryValues();
     const { collision } = await persistence.drizzle.transaction(
       async transaction => {
@@ -420,7 +424,7 @@ describe("framework coordinator migration-plan repository", () => {
     await expect(storedAssignmentCount(persistence)).resolves.toBe(
       missingAssignmentCount,
     );
-  }, PGLITE_TEST_TIMEOUT);
+  }), PGLITE_TEST_TIMEOUT);
 
   it("does not hide an orphan dependency sidecar", async () => {
     const persistence = await createMigratedPGlitePersistence();
