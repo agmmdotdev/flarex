@@ -56,7 +56,7 @@ import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
@@ -66,7 +66,7 @@ const LOCATOR = Object.freeze({
   schemaName: "public",
 } as const satisfies ScopePhysicalLocator);
 
-describePostgres("M03-A candidate validation - PostgreSQL", () => {
+describePostgres("M03-A candidate validation - PostgreSQL", { concurrent: false }, () => {
   it("invalidates retained installed candidate artifacts and reconstructs under the original charged lease", async () => {
     const cleanup: Array<() => Promise<void>> = [];
     try {
@@ -158,179 +158,182 @@ describePostgres("M03-A candidate validation - PostgreSQL", () => {
     } finally { for (const close of cleanup.reverse()) await close(); }
   }, 240_000);
 
-  it("serializes concurrent replacements behind the scope clock", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
-      const fixture = await fixtureFor(persistence, "concurrency");
-      await persistence.insertScopeMetadata({
-        deploymentId: fixture.deploymentId,
-        scopeId: ScopeIdSchema.make("scope_m03_pg_peer"),
-        physicalLocator: LOCATOR,
-      });
-      await runEffect(installAppSchemaCandidateValidationEffect(
-        port(fixture),
-        input(fixture, fixture.schemaVersionId),
-      ));
+  describe("Scope-clock candidate validation", { concurrent: false }, () => {
+    const withPersistence = useFileScopedPostgresPersistence();
 
-      const dependencies = portDependencies(fixture);
-      const pointCommitAuthority = { scopeMetadata: dependencies.authority.scopeMetadata,
-        provisioningReceipts: dependencies.authority.provisioningReceipts,
-        scopeSessionTargets: dependencies.authority.scopeClockTargets };
-      const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(persistence.drizzle),
-        prepareFiniteAppSchemaCandidateWriteGuardPortEffect({
-          candidateValidation: createAppSchemaCandidateValidationPort(dependencies), pointCommitAuthority,
-        }, { profile: "fullArtifactProof", deploymentId: fixture.deploymentId, scopeId: fixture.scopeId })));
-      const guard = await runEffect(retained.use(Effect.succeed));
-      let preparation: PreparedAppSchemaCandidateWriteGuard;
-      const blocker = await persistence.pool.connect();
-      let released = false;
-      let replacements: ReadonlyArray<PromiseSettledResult<Awaited<
-        ReturnType<typeof install>
-      >>> | undefined;
-      try {
-        await blocker.query("begin");
-        const pid = await blocker.query<{ pid: number }>(
-          "select pg_backend_pid()::int as pid",
-        );
-        const blockerPid = pid.rows[0]?.pid;
-        if (blockerPid === undefined) throw new Error("Missing blocker PID.");
-        await blocker.query(
-          `select 1 from fx_system_scope_clock where scope_id = $1 for update`,
-          [fixture.scopeId],
-        );
-        await blocker.query(
-          "select 1 from fx_system_app_schema_candidate_validation where scope_id = $1 for update",
-          [fixture.scopeId],
-        );
-        const clock = await fixture.target.getCurrentClock(fixture.scopeId);
-        if (clock === null) throw new Error("Missing candidate capture clock.");
-        const capture = await persistence.drizzle.transaction(tx => runEffect(
-          captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect(tx,
-            { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId, physicalLocator: LOCATOR,
-              storageGeneration: clock.storageGeneration, storageGenerationFence: clock.storageGenerationFence,
-              epoch: clock.epoch, lastCommitSeq: clock.lastCommitSeq }, pointCommitAuthority),
-        ));
-        const finiteInput = { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId };
-        expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard,
-          { ...capture }, finiteInput))).toMatchObject({ reason: "notIssued" });
-        expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard,
-          capture, { ...finiteInput, scopeId: ScopeIdSchema.make("scope_m03_pg_wrong_capture") })))
-          .toMatchObject({ reason: "compositionMismatch" });
-        const foreignGuard = createAppSchemaCandidateWriteGuardPort({
-          candidateValidation: createAppSchemaCandidateValidationPort(dependencies), pointCommitAuthority: { ...pointCommitAuthority },
+    it("serializes concurrent replacements behind the scope clock", async () => {
+      await withPersistence(async persistence => {
+        const fixture = await fixtureFor(persistence, "concurrency");
+        await persistence.insertScopeMetadata({
+          deploymentId: fixture.deploymentId,
+          scopeId: ScopeIdSchema.make("scope_m03_pg_peer"),
+          physicalLocator: LOCATOR,
         });
-        expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(foreignGuard,
-          capture, finiteInput))).toMatchObject({ reason: "compositionMismatch" });
-        preparation = await runEffect(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard,
-          capture, finiteInput).pipe(Effect.timeout(2_000)));
-        const first = install(fixture, fixture.replacementSchemaVersionId);
-        const second = install(fixture, fixture.emptySchemaVersionId);
-        await waitForBlockedBy(persistence, blockerPid, 2);
-        await blocker.query("commit");
-        released = true;
-        replacements = await Promise.allSettled([first, second]);
-      } finally {
-        if (!released) await blocker.query("rollback").catch(() => undefined);
-        blocker.release();
-      }
-      await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
-        const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
-        const authority = { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId,
-          physicalLocator: LOCATOR, storageGeneration: clock.storageGeneration,
-          storageGenerationFence: clock.storageGenerationFence, epoch: clock.epoch,
-          lastCommitSeq: clock.lastCommitSeq };
-        expect(yield* Effect.flip(applyAppSchemaCandidateWriteGuardInTransactionEffect(tx,
-          guard, preparation, authority, clock, CommitSeqSchema.make(1n), [])))
-          .toMatchObject({ reason: "concurrentStateChange" });
-      })));
-      expect(replacements).toBeDefined();
-      const successful = (replacements ?? []).flatMap(result =>
-        result.status === "fulfilled" ? [result.value] : []
-      );
-      expect(successful).toHaveLength(2);
-      expect(successful.map(result => result.disposition)).toEqual([
-        "superseded",
-        "superseded",
-      ]);
-      expect(successful.map(result => result.head.frame.attemptFence).sort())
-        .toEqual([2n, 3n]);
-      const finalResult = successful.find(
-        result => result.head.frame.attemptFence === 3n,
-      );
-      if (finalResult === undefined) {
-        throw new Error("Concurrent replacements produced no final head.");
-      }
-      await expect(runEffect(loadAppSchemaCandidateValidationEffect(
-        port(fixture),
-        input(fixture, finalResult.head.schemaVersionId),
-      ))).resolves.toMatchObject({
-        status: "present",
-        head: { frame: { attemptFence: 3n } },
-      });
-      const rows = await persistence.query<{ count: number }>(
-        `select count(*)::int as count
+        await runEffect(installAppSchemaCandidateValidationEffect(
+          port(fixture),
+          input(fixture, fixture.schemaVersionId),
+        ));
+
+        const dependencies = portDependencies(fixture);
+        const pointCommitAuthority = { scopeMetadata: dependencies.authority.scopeMetadata,
+          provisioningReceipts: dependencies.authority.provisioningReceipts,
+          scopeSessionTargets: dependencies.authority.scopeClockTargets };
+        const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(persistence.drizzle),
+          prepareFiniteAppSchemaCandidateWriteGuardPortEffect({
+            candidateValidation: createAppSchemaCandidateValidationPort(dependencies), pointCommitAuthority,
+          }, { profile: "fullArtifactProof", deploymentId: fixture.deploymentId, scopeId: fixture.scopeId })));
+        const guard = await runEffect(retained.use(Effect.succeed));
+        let preparation: PreparedAppSchemaCandidateWriteGuard;
+        const blocker = await persistence.pool.connect();
+        let released = false;
+        let replacements: ReadonlyArray<PromiseSettledResult<Awaited<
+          ReturnType<typeof install>
+        >>> | undefined;
+        try {
+          await blocker.query("begin");
+          const pid = await blocker.query<{ pid: number }>(
+            "select pg_backend_pid()::int as pid",
+          );
+          const blockerPid = pid.rows[0]?.pid;
+          if (blockerPid === undefined) throw new Error("Missing blocker PID.");
+          await blocker.query(
+            `select 1 from fx_system_scope_clock where scope_id = $1 for update`,
+            [fixture.scopeId],
+          );
+          await blocker.query(
+            "select 1 from fx_system_app_schema_candidate_validation where scope_id = $1 for update",
+            [fixture.scopeId],
+          );
+          const clock = await fixture.target.getCurrentClock(fixture.scopeId);
+          if (clock === null) throw new Error("Missing candidate capture clock.");
+          const capture = await persistence.drizzle.transaction(tx => runEffect(
+            captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect(tx,
+              { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId, physicalLocator: LOCATOR,
+                storageGeneration: clock.storageGeneration, storageGenerationFence: clock.storageGenerationFence,
+                epoch: clock.epoch, lastCommitSeq: clock.lastCommitSeq }, pointCommitAuthority),
+          ));
+          const finiteInput = { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId };
+          expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard,
+            { ...capture }, finiteInput))).toMatchObject({ reason: "notIssued" });
+          expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard,
+            capture, { ...finiteInput, scopeId: ScopeIdSchema.make("scope_m03_pg_wrong_capture") })))
+            .toMatchObject({ reason: "compositionMismatch" });
+          const foreignGuard = createAppSchemaCandidateWriteGuardPort({
+            candidateValidation: createAppSchemaCandidateValidationPort(dependencies), pointCommitAuthority: { ...pointCommitAuthority },
+          });
+          expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(foreignGuard,
+            capture, finiteInput))).toMatchObject({ reason: "compositionMismatch" });
+          preparation = await runEffect(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard,
+            capture, finiteInput).pipe(Effect.timeout(2_000)));
+          const first = install(fixture, fixture.replacementSchemaVersionId);
+          const second = install(fixture, fixture.emptySchemaVersionId);
+          await waitForBlockedBy(persistence, blockerPid, 2);
+          await blocker.query("commit");
+          released = true;
+          replacements = await Promise.allSettled([first, second]);
+        } finally {
+          if (!released) await blocker.query("rollback").catch(() => undefined);
+          blocker.release();
+        }
+        await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+          const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
+          const authority = { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId,
+            physicalLocator: LOCATOR, storageGeneration: clock.storageGeneration,
+            storageGenerationFence: clock.storageGenerationFence, epoch: clock.epoch,
+            lastCommitSeq: clock.lastCommitSeq };
+          expect(yield* Effect.flip(applyAppSchemaCandidateWriteGuardInTransactionEffect(tx,
+            guard, preparation, authority, clock, CommitSeqSchema.make(1n), [])))
+            .toMatchObject({ reason: "concurrentStateChange" });
+        })));
+        expect(replacements).toBeDefined();
+        const successful = (replacements ?? []).flatMap(result =>
+          result.status === "fulfilled" ? [result.value] : []
+        );
+        expect(successful).toHaveLength(2);
+        expect(successful.map(result => result.disposition)).toEqual([
+          "superseded",
+          "superseded",
+        ]);
+        expect(successful.map(result => result.head.frame.attemptFence).sort())
+          .toEqual([2n, 3n]);
+        const finalResult = successful.find(
+          result => result.head.frame.attemptFence === 3n,
+        );
+        if (finalResult === undefined) {
+          throw new Error("Concurrent replacements produced no final head.");
+        }
+        await expect(runEffect(loadAppSchemaCandidateValidationEffect(
+          port(fixture),
+          input(fixture, finalResult.head.schemaVersionId),
+        ))).resolves.toMatchObject({
+          status: "present",
+          head: { frame: { attemptFence: 3n } },
+        });
+        const rows = await persistence.query<{ count: number }>(
+          `select count(*)::int as count
            from fx_system_app_schema_candidate_validation
           where scope_id = $1`,
-        [fixture.scopeId],
-      );
-      expect(rows.rows[0]?.count).toBe(1);
-    });
-  }, 180_000);
+          [fixture.scopeId],
+        );
+        expect(rows.rows[0]?.count).toBe(1);
+      });
+    }, 180_000);
 
-  it("scans the pinned frontier, settles, and refuses malformed state", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
-      const fixture = await fixtureFor(persistence, "frontier");
-      await appendLive(fixture, rowId(1), 1n, null, { name: "before" });
-      await setClockCommit(fixture, 1n);
-      await install(fixture, fixture.schemaVersionId);
-      await appendLive(fixture, rowId(1), 2n, 1n, { name: 42 });
-      await setClockCommit(fixture, 2n);
+    it("scans the pinned frontier, settles, and refuses malformed state", async () => {
+      await withPersistence(async persistence => {
+        const fixture = await fixtureFor(persistence, "frontier");
+        await appendLive(fixture, rowId(1), 1n, null, { name: "before" });
+        await setClockCommit(fixture, 1n);
+        await install(fixture, fixture.schemaVersionId);
+        await appendLive(fixture, rowId(1), 2n, 1n, { name: 42 });
+        await setClockCommit(fixture, 2n);
 
-      await expect(runEffect(advanceAppSchemaCandidateValidationEffect(
-        port(fixture),
-        input(fixture, fixture.schemaVersionId),
-      ))).resolves.toMatchObject({
-        disposition: "readyToSettle",
-        validatedRows: 1,
-        head: { frame: {
+        await expect(runEffect(advanceAppSchemaCandidateValidationEffect(
+          port(fixture),
+          input(fixture, fixture.schemaVersionId),
+        ))).resolves.toMatchObject({
+          disposition: "readyToSettle",
+          validatedRows: 1,
+          head: { frame: {
+            frontierCommitSeq: 1n,
+            validatedRowCount: 1n,
+          } },
+        });
+        const settled = await runEffect(settleAppSchemaCandidateValidationEffect(
+          port(fixture),
+          input(fixture, fixture.schemaVersionId),
+        ));
+        expect(settled.frame).toMatchObject({
+          kind: "app_schema_candidate_validation_receipt",
           frontierCommitSeq: 1n,
-          validatedRowCount: 1n,
-        } },
-      });
-      const settled = await runEffect(settleAppSchemaCandidateValidationEffect(
-        port(fixture),
-        input(fixture, fixture.schemaVersionId),
-      ));
-      expect(settled.frame).toMatchObject({
-        kind: "app_schema_candidate_validation_receipt",
-        frontierCommitSeq: 1n,
-        settlementCommitSeq: 2n,
-        scanCompleted: true,
-      });
-      await expect(persistence.query(
-        `update fx_system_app_schema_candidate_validation
+          settlementCommitSeq: 2n,
+          scanCompleted: true,
+        });
+        await expect(persistence.query(
+          `update fx_system_app_schema_candidate_validation
             set frame_byte_length = 0
           where scope_id = $1`,
-        [fixture.scopeId],
-      )).rejects.toThrow();
-      await expect(runEffect(loadAppSchemaCandidateValidationEffect(
-        port(fixture),
-        input(fixture, fixture.schemaVersionId),
-      ))).resolves.toMatchObject({
-        status: "present",
-        head: { frame: { kind: "app_schema_candidate_validation_receipt" } },
+          [fixture.scopeId],
+        )).rejects.toThrow();
+        await expect(runEffect(loadAppSchemaCandidateValidationEffect(
+          port(fixture),
+          input(fixture, fixture.schemaVersionId),
+        ))).resolves.toMatchObject({
+          status: "present",
+          head: { frame: { kind: "app_schema_candidate_validation_receipt" } },
+        });
       });
-    });
-  }, 180_000);
+    }, 180_000);
 
-  it("uses bounded current-directory and authenticated-root indexes", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
-      const fixture = await fixtureFor(persistence, "frontier_plan");
-      await appendLive(fixture, rowId(1), 1n, null, { name: "eligible" });
-      await setClockCommit(fixture, 1n);
-      await install(fixture, fixture.schemaVersionId);
+    it("uses bounded current-directory and authenticated-root indexes", async () => {
+      await withPersistence(async persistence => {
+        const fixture = await fixtureFor(persistence, "frontier_plan");
+        await appendLive(fixture, rowId(1), 1n, null, { name: "eligible" });
+        await setClockCommit(fixture, 1n);
+        await install(fixture, fixture.schemaVersionId);
 
-      await persistence.query(
-        `insert into fx_app_row_rev
+        await persistence.query(
+          `insert into fx_app_row_rev
           (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
            write_epoch_uuid, schema_version_id, creation_time,
            value_codec_version, is_tombstone, value_bytes,
@@ -343,43 +346,44 @@ describePostgres("M03-A candidate validation - PostgreSQL", () => {
          join fx_system_scope_execution_authority as authority using (scope_id)
          cross join generate_series(1000, 5999) as series(value)
          where clock.scope_id = $1`,
-        [fixture.scopeId, fixture.tableId, fixture.schemaVersionId],
-      );
-      await persistence.query(
-        `insert into fx_app_row_current
+          [fixture.scopeId, fixture.tableId, fixture.schemaVersionId],
+        );
+        await persistence.query(
+          `insert into fx_app_row_current
           (scope_uuid, table_id, row_id, commit_seq)
          select clock.scope_uuid, $2::integer,
            decode(lpad(to_hex(series.value), 32, '0'), 'hex'), 2
          from fx_system_scope_clock as clock
          cross join generate_series(1000, 5999) as series(value)
          where clock.scope_id = $1`,
-        [fixture.scopeId, fixture.tableId],
-      );
-      await persistence.query("analyze fx_app_row_rev");
-      await persistence.query("analyze fx_app_row_current");
+          [fixture.scopeId, fixture.tableId],
+        );
+        await persistence.query("analyze fx_app_row_rev");
+        await persistence.query("analyze fx_app_row_current");
 
-      for (const after of [null, rowId(3000)] as const) {
-        const plan = await explainCurrentDirectory(
-          persistence,
-          fixture,
-          after,
-        );
-        const planText = JSON.stringify(plan.rows);
-        expect(planText).toContain(
-          "fx_app_row_current_scope_uuid_table_id_row_id_pk",
-        );
-        expect(planText).toContain("fx_app_row_rev_first_identity_unique");
-      }
-      await expect(runEffect(advanceAppSchemaCandidateValidationEffect(
-        port(fixture),
-        input(fixture, fixture.schemaVersionId),
-      ))).resolves.toMatchObject({
-        disposition: "advanced",
-        processedIdentities: 128,
-        validatedRows: 1,
+        for (const after of [null, rowId(3000)] as const) {
+          const plan = await explainCurrentDirectory(
+            persistence,
+            fixture,
+            after,
+          );
+          const planText = JSON.stringify(plan.rows);
+          expect(planText).toContain(
+            "fx_app_row_current_scope_uuid_table_id_row_id_pk",
+          );
+          expect(planText).toContain("fx_app_row_rev_first_identity_unique");
+        }
+        await expect(runEffect(advanceAppSchemaCandidateValidationEffect(
+          port(fixture),
+          input(fixture, fixture.schemaVersionId),
+        ))).resolves.toMatchObject({
+          disposition: "advanced",
+          processedIdentities: 128,
+          validatedRows: 1,
+        });
       });
-    });
-  }, 180_000);
+    }, 180_000);
+  });
 });
 
 interface Fixture {

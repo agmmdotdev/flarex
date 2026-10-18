@@ -20,7 +20,7 @@ import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   locateApplicationRelationManifestBindingEffect,
@@ -47,7 +47,7 @@ beforeAll(() => {
 
 beforeAll(() => migratedPGliteDataDir(), 120_000);
 
-describe("Application relation binding", () => {
+describe("Application relation binding", { concurrent: false }, () => {
   it("publishes, replays, and reuses one bound schema across full manifests", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_relation_binding_replay";
@@ -291,122 +291,128 @@ describe("Application relation binding", () => {
     });
   });
 
-  it("fails closed when retained application-schema collision evidence drifts", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const deploymentId = "deployment_relation_binding_schema_evidence";
-    await insertDeployment(persistence, deploymentId);
-    const repository = repositoryFor(persistence);
-    const input = await publicationInput(
-      deploymentId,
-      "a".repeat(64),
-      [{ relationOrdinal: 1, evolution: { kind: "new" } }],
-    );
-    await runEffect(publishApplicationRelationBindingEffect(repository, input));
-    await persistence.drizzle.update(fxControlBoundApplicationSchemas).set({
-      applicationSchemaFrameBytes: new Uint8Array([1]),
-    }).where(eq(
-      fxControlBoundApplicationSchemas.deploymentId,
-      deploymentId,
-    ));
+  describe("Deployment-qualified relation evidence", { concurrent: false }, () => {
+    let persistence: PGlitePersistence;
+    let dispose: (() => Promise<void>) | undefined;
 
-    const replay = await runEffect(Effect.result(
-      publishApplicationRelationBindingEffect(repository, input),
-    ));
-    expect(Result.isFailure(replay)).toBe(true);
-    if (Result.isFailure(replay)) {
-      expect(replay.failure.reason).toBe("storedState");
-    }
-  });
+    beforeAll(async () => {
+      persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
+    }, 120_000);
 
-  it("fails closed when retained analyzed-manifest collision evidence drifts", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const deploymentId = "deployment_relation_binding_manifest_evidence";
-    await insertDeployment(persistence, deploymentId);
-    const repository = repositoryFor(persistence);
-    const input = await publicationInput(
-      deploymentId,
-      "a".repeat(64),
-      [{ relationOrdinal: 1, evolution: { kind: "new" } }],
-    );
-    const publication = await runEffect(
-      publishApplicationRelationBindingEffect(repository, input),
-    );
-    await persistence.drizzle.update(
-      fxControlApplicationManifestSchemaBindings,
-    ).set({
-      applicationManifestBytes: new Uint8Array([1]),
-    }).where(eq(
-      fxControlApplicationManifestSchemaBindings.deploymentId,
-      deploymentId,
-    ));
+    afterAll(async () => { await dispose?.(); }, 120_000);
 
-    const located = await runEffect(Effect.result(
-      locateApplicationRelationManifestBindingEffect(persistence.drizzle, {
-        deploymentId,
-        applicationManifestSha256:
-          publication.manifestBinding.applicationManifestSha256,
-      }),
-    ));
-    expect(Result.isFailure(located)).toBe(true);
-    if (Result.isFailure(located)) {
-      expect(located.failure).toMatchObject({
-        operation: "locateManifestBinding",
-        reason: "storedState",
-      });
-    }
-
-    const replay = await runEffect(Effect.result(
-      publishApplicationRelationBindingEffect(repository, input),
-    ));
-    expect(Result.isFailure(replay)).toBe(true);
-    if (Result.isFailure(replay)) {
-      expect(replay.failure.reason).toBe("bindingConflict");
-    }
-  });
-
-  it("round-trips canonical negative zero through JSONB", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const deploymentId = "deployment_relation_binding_negative_zero";
-    await insertDeployment(persistence, deploymentId);
-    const repository = repositoryFor(persistence);
-    const input = await publicationInput(
-      deploymentId,
-      "a".repeat(64),
-      [{ relationOrdinal: 1, evolution: { kind: "new" } }],
-      { many: true, minItems: -0 },
-    );
-
-    const created = await runEffect(publishApplicationRelationBindingEffect(
-      repository,
-      input,
-    ));
-    const replay = await runEffect(publishApplicationRelationBindingEffect(
-      repository,
-      input,
-    ));
-
-    expect(created.status).toBe("created");
-    expect(replay.status).toBe("existing");
-    expect(replay.boundPublicationSha256).toBe(
-      created.boundPublicationSha256,
-    );
-  });
-
-  it("rejects missing and self-referential preserved origins in SQL", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const deploymentId = "deployment_relation_binding_origin_check";
-    await insertDeployment(persistence, deploymentId);
-    const repository = repositoryFor(persistence);
-    await runEffect(publishApplicationRelationBindingEffect(
-      repository,
-      await publicationInput(
+    it("fails closed when retained application-schema collision evidence drifts", async () => {
+      const deploymentId = "deployment_relation_binding_schema_evidence";
+      await insertDeployment(persistence, deploymentId);
+      const repository = repositoryFor(persistence);
+      const input = await publicationInput(
         deploymentId,
         "a".repeat(64),
         [{ relationOrdinal: 1, evolution: { kind: "new" } }],
-      ),
-    ));
+      );
+      await runEffect(publishApplicationRelationBindingEffect(repository, input));
+      await persistence.drizzle.update(fxControlBoundApplicationSchemas).set({
+        applicationSchemaFrameBytes: new Uint8Array([1]),
+      }).where(eq(
+        fxControlBoundApplicationSchemas.deploymentId,
+        deploymentId,
+      ));
 
-    await expect(persistence.query(`
+      const replay = await runEffect(Effect.result(
+        publishApplicationRelationBindingEffect(repository, input),
+      ));
+      expect(Result.isFailure(replay)).toBe(true);
+      if (Result.isFailure(replay)) {
+        expect(replay.failure.reason).toBe("storedState");
+      }
+    });
+
+    it("fails closed when retained analyzed-manifest collision evidence drifts", async () => {
+      const deploymentId = "deployment_relation_binding_manifest_evidence";
+      await insertDeployment(persistence, deploymentId);
+      const repository = repositoryFor(persistence);
+      const input = await publicationInput(
+        deploymentId,
+        "a".repeat(64),
+        [{ relationOrdinal: 1, evolution: { kind: "new" } }],
+      );
+      const publication = await runEffect(
+        publishApplicationRelationBindingEffect(repository, input),
+      );
+      await persistence.drizzle.update(
+        fxControlApplicationManifestSchemaBindings,
+      ).set({
+        applicationManifestBytes: new Uint8Array([1]),
+      }).where(eq(
+        fxControlApplicationManifestSchemaBindings.deploymentId,
+        deploymentId,
+      ));
+
+      const located = await runEffect(Effect.result(
+        locateApplicationRelationManifestBindingEffect(persistence.drizzle, {
+          deploymentId,
+          applicationManifestSha256:
+            publication.manifestBinding.applicationManifestSha256,
+        }),
+      ));
+      expect(Result.isFailure(located)).toBe(true);
+      if (Result.isFailure(located)) {
+        expect(located.failure).toMatchObject({
+          operation: "locateManifestBinding",
+          reason: "storedState",
+        });
+      }
+
+      const replay = await runEffect(Effect.result(
+        publishApplicationRelationBindingEffect(repository, input),
+      ));
+      expect(Result.isFailure(replay)).toBe(true);
+      if (Result.isFailure(replay)) {
+        expect(replay.failure.reason).toBe("bindingConflict");
+      }
+    });
+
+    it("round-trips canonical negative zero through JSONB", async () => {
+      const deploymentId = "deployment_relation_binding_negative_zero";
+      await insertDeployment(persistence, deploymentId);
+      const repository = repositoryFor(persistence);
+      const input = await publicationInput(
+        deploymentId,
+        "a".repeat(64),
+        [{ relationOrdinal: 1, evolution: { kind: "new" } }],
+        { many: true, minItems: -0 },
+      );
+
+      const created = await runEffect(publishApplicationRelationBindingEffect(
+        repository,
+        input,
+      ));
+      const replay = await runEffect(publishApplicationRelationBindingEffect(
+        repository,
+        input,
+      ));
+
+      expect(created.status).toBe("created");
+      expect(replay.status).toBe("existing");
+      expect(replay.boundPublicationSha256).toBe(
+        created.boundPublicationSha256,
+      );
+    });
+
+    it("rejects missing and self-referential preserved origins in SQL", async () => {
+      const deploymentId = "deployment_relation_binding_origin_check";
+      await insertDeployment(persistence, deploymentId);
+      const repository = repositoryFor(persistence);
+      await runEffect(publishApplicationRelationBindingEffect(
+        repository,
+        await publicationInput(
+          deploymentId,
+          "a".repeat(64),
+          [{ relationOrdinal: 1, evolution: { kind: "new" } }],
+        ),
+      ));
+
+      await expect(persistence.query(`
       update fx_control_schema_relation_binding
       set evolution_kind = 'preserve',
           origin_schema_version_id = null,
@@ -414,7 +420,7 @@ describe("Application relation binding", () => {
           physical_evolution = 'reuse'
       where deployment_id = $1
     `, [deploymentId])).rejects.toThrow();
-    await expect(persistence.query(`
+      await expect(persistence.query(`
       update fx_control_schema_relation_binding
       set evolution_kind = 'preserve',
           origin_schema_version_id = schema_version_id,
@@ -423,23 +429,24 @@ describe("Application relation binding", () => {
       where deployment_id = $1
     `, [deploymentId])).rejects.toThrow();
 
-    const retained = await persistence.query<{
-      evolution_kind: string;
-      origin_schema_version_id: string | null;
-      origin_relation_ordinal: number | null;
-      physical_evolution: string;
-    }>(`
+      const retained = await persistence.query<{
+        evolution_kind: string;
+        origin_schema_version_id: string | null;
+        origin_relation_ordinal: number | null;
+        physical_evolution: string;
+      }>(`
       select evolution_kind, origin_schema_version_id,
         origin_relation_ordinal, physical_evolution
       from fx_control_schema_relation_binding
       where deployment_id = $1
     `, [deploymentId]);
-    expect(retained.rows).toEqual([{
-      evolution_kind: "new",
-      origin_schema_version_id: null,
-      origin_relation_ordinal: null,
-      physical_evolution: "new",
-    }]);
+      expect(retained.rows).toEqual([{
+        evolution_kind: "new",
+        origin_schema_version_id: null,
+        origin_relation_ordinal: null,
+        physical_evolution: "new",
+      }]);
+    });
   });
 });
 

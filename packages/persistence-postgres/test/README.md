@@ -346,6 +346,14 @@ The allocating Application native-mutation PGlite fixture restores independent
 control and target stores and registers cleanup with the current test. Its
 PGlite fixture dependency loads only in that allocating path; caller-supplied,
 mixed and native fixtures retain their own resource owners.
+Relation-binding cases with whole-catalog counts keep independent backends;
+their four deployment-isolated row cases share one serial image-backed lifetime.
+The first two full-proof preparation cases share a distinct control/target pair
+with separate fixture identities. The case that selects unfiltered catalog rows
+and the native installation scenarios retain independent stores.
+Native candidate-validation replacement, frontier and query-plan cases reuse
+the existing PostgreSQL file fixture. Its installed-runtime case keeps its own
+installation fixture.
 Point finishing, replacement and relation suites retain their file lifetime
 and register the migrated fixture disposer with a static `afterAll` hook.
 Commit-feed row cases share one serial image-backed database with distinct

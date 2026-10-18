@@ -1,5 +1,5 @@
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Scope, Tracer } from "effect";
-import { expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   isPreparedApplicationBinding,
   readApplicationBindingTargetProtection,
@@ -175,73 +175,90 @@ async function verifyRequestedScopeRefusal(
   expect(constructions).toBe(0);
 }
 
-it("acquires fresh full-proof finite graphs while original attempts remain borrowed", async () => {
-  const control = await createMigratedPGlitePersistence();
-  const target = await createMigratedPGlitePersistence();
-  const application = await createApplicationNativeMutationPGliteFixtureWithPersistence({
-    runtimeHostIdentity: "flarex.test/current-scoped-full-proof", compatibilityDate: "2026-09-28",
-  }, { control, target });
-  await verifyRequestedScopeRefusal(application, target.drizzle);
-  let constructions = 0;
-  const selection = { deploymentId: application.deploymentId, scopeId: application.authority.scopeId };
-  const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(target.drizzle),
-    prepareCurrentApplicationBinding(application.activation, target.drizzle, () => Effect.sync(() => {
-      constructions++;
-      // Later caller mutation cannot replace the captured preparation selector.
-      selection.scopeId = ScopeIdSchema.make("scope_current_preparation_unprovisioned_peer");
-    }), { selection })));
-  try {
-    await verifyScopedFreshFiniteGenerations(retained.use(slot => slot.acquireFreshFinitePreparation),
-      () => application.moveHead(), () => constructions);
-  } finally { await runEffect(retained.close); }
-}, 180_000);
+describe("full-proof finite preparation", { concurrent: false }, () => {
+  let control: Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
+  let target: Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
+  const cleanup: Array<() => Promise<void>> = [];
 
-it("cancels fresh finite staging without losing the original borrow or gate", async () => {
-  const control = await createMigratedPGlitePersistence();
-  const target = await createMigratedPGlitePersistence();
-  const application = await createApplicationNativeMutationPGliteFixtureWithPersistence({
-    runtimeHostIdentity: "flarex.test/current-scoped-cancellation", compatibilityDate: "2026-09-28",
-  }, { control, target });
-  const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(target.drizzle),
-    prepareCurrentApplicationBinding(application.activation, target.drizzle, () => Effect.void,
-      { selection: { deploymentId: application.deploymentId, scopeId: application.authority.scopeId } })));
-  const originalScope = await runEffect(Scope.make());
-  try {
-    const original = await runEffect(retained.use(slot => slot.acquireFreshFinitePreparation).pipe(Scope.provide(originalScope)));
-    const charged = Result.getOrThrow(retained.readUsage()).chargedBytes;
-    await application.moveHead();
-    let injected = false;
-    let interrupt: (() => void) | undefined;
-    const tracer = Tracer.make({ span(options) {
-      if (options.name === "ApplicationActivation.currentBindingSchema" && !injected && interrupt !== undefined) {
-        injected = true;
-        interrupt();
-      }
-      return new Tracer.NativeSpan(options);
-    } });
-    const diagnostics = { observe: <A, E, R>(name: string, work: Effect.Effect<A, E, R>) => work.pipe(Effect.withSpan(name)) };
-    const pending = Effect.runFork(Effect.withFiber(fiber => {
-      interrupt = () => fiber.interruptUnsafe();
-      return Effect.scoped(retained.use(slot => slot.acquireFreshFinitePreparation)).pipe(Effect.withTracer(tracer),
-        Effect.provideService(ExecutionDiagnostics, diagnostics));
-    }));
-    const cancelled = await runEffect(Fiber.await(pending));
-    expect(injected).toBe(true);
-    expect(Exit.isFailure(cancelled) && Cause.hasInterruptsOnly(cancelled.cause)).toBe(true);
-    expect(isPreparedApplicationBinding(original.binding)).toBe(true);
-    expect(Result.getOrThrow(retained.readUsage()).chargedBytes).toBe(charged);
-    await runEffect(Effect.scoped(retained.use(slot => slot.acquireFreshFinitePreparation).pipe(Effect.tap(fresh => Effect.sync(() => {
-      expect(fresh.binding).not.toBe(original.binding);
-      expect(isPreparedApplicationBinding(fresh.binding)).toBe(true);
+  beforeAll(async () => {
+    control = await createMigratedPGlitePersistence(close => cleanup.push(close));
+    target = await createMigratedPGlitePersistence(close => cleanup.push(close));
+  }, 120_000);
+
+  afterAll(async () => {
+    const settled = await Promise.allSettled(cleanup.map(close => close()));
+    const failures: unknown[] = settled.flatMap(result => result.status === "rejected" ? [result.reason] : []);
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) throw new AggregateError(failures, "Preparation fixture cleanup failed");
+  }, 120_000);
+
+  it("acquires fresh full-proof finite graphs while original attempts remain borrowed", async () => {
+    const application = await createApplicationNativeMutationPGliteFixtureWithPersistence({
+      runtimeHostIdentity: "flarex.test/current-scoped-full-proof", compatibilityDate: "2026-09-28",
+    }, { control, target });
+    await verifyRequestedScopeRefusal(application, target.drizzle);
+    let constructions = 0;
+    const selection = { deploymentId: application.deploymentId, scopeId: application.authority.scopeId };
+    const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(target.drizzle),
+      prepareCurrentApplicationBinding(application.activation, target.drizzle, () => Effect.sync(() => {
+        constructions++;
+        // Later caller mutation cannot replace the captured preparation selector.
+        selection.scopeId = ScopeIdSchema.make("scope_current_preparation_unprovisioned_peer");
+      }), { selection })));
+    try {
+      await verifyScopedFreshFiniteGenerations(retained.use(slot => slot.acquireFreshFinitePreparation),
+        () => application.moveHead(), () => constructions);
+    } finally { await runEffect(retained.close); }
+  }, 180_000);
+
+  it("cancels fresh finite staging without losing the original borrow or gate", async () => {
+    const application = await createApplicationNativeMutationPGliteFixtureWithPersistence({
+      runtimeHostIdentity: "flarex.test/current-scoped-cancellation", compatibilityDate: "2026-09-28",
+      fixtureIdentity: { deploymentId: "deployment_current_preparation_cancellation",
+        projectId: "project_current_preparation_cancellation", uuidOffset: 100 },
+    }, { control, target });
+    const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(target.drizzle),
+      prepareCurrentApplicationBinding(application.activation, target.drizzle, () => Effect.void,
+        { selection: { deploymentId: application.deploymentId, scopeId: application.authority.scopeId } })));
+    const originalScope = await runEffect(Scope.make());
+    try {
+      const original = await runEffect(retained.use(slot => slot.acquireFreshFinitePreparation).pipe(Scope.provide(originalScope)));
+      const charged = Result.getOrThrow(retained.readUsage()).chargedBytes;
+      await application.moveHead();
+      let injected = false;
+      let interrupt: (() => void) | undefined;
+      const tracer = Tracer.make({ span(options) {
+        if (options.name === "ApplicationActivation.currentBindingSchema" && !injected && interrupt !== undefined) {
+          injected = true;
+          interrupt();
+        }
+        return new Tracer.NativeSpan(options);
+      } });
+      const diagnostics = { observe: <A, E, R>(name: string, work: Effect.Effect<A, E, R>) => work.pipe(Effect.withSpan(name)) };
+      const pending = Effect.runFork(Effect.withFiber(fiber => {
+        interrupt = () => fiber.interruptUnsafe();
+        return Effect.scoped(retained.use(slot => slot.acquireFreshFinitePreparation)).pipe(Effect.withTracer(tracer),
+          Effect.provideService(ExecutionDiagnostics, diagnostics));
+      }));
+      const cancelled = await runEffect(Fiber.await(pending));
+      expect(injected).toBe(true);
+      expect(Exit.isFailure(cancelled) && Cause.hasInterruptsOnly(cancelled.cause)).toBe(true);
       expect(isPreparedApplicationBinding(original.binding)).toBe(true);
-    })))));
-    await runEffect(Scope.close(originalScope, Exit.succeed(undefined)));
-    expect(isPreparedApplicationBinding(original.binding)).toBe(false);
-  } finally {
-    await runEffect(Scope.close(originalScope, Exit.succeed(undefined)));
-    await runEffect(retained.close);
-  }
-}, 180_000);
+      expect(Result.getOrThrow(retained.readUsage()).chargedBytes).toBe(charged);
+      await runEffect(Effect.scoped(retained.use(slot => slot.acquireFreshFinitePreparation).pipe(Effect.tap(fresh => Effect.sync(() => {
+        expect(fresh.binding).not.toBe(original.binding);
+        expect(isPreparedApplicationBinding(fresh.binding)).toBe(true);
+        expect(isPreparedApplicationBinding(original.binding)).toBe(true);
+      })))));
+      await runEffect(Scope.close(originalScope, Exit.succeed(undefined)));
+      expect(isPreparedApplicationBinding(original.binding)).toBe(false);
+    } finally {
+      await runEffect(Scope.close(originalScope, Exit.succeed(undefined)));
+      await runEffect(retained.close);
+    }
+  }, 180_000);
+
+});
 
 it.skipIf(postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
   "acquires fresh managed finite graphs while original attempts remain borrowed", async () => {
