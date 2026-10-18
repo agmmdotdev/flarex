@@ -108,126 +108,132 @@ describe("framework coordinator target/collision repository", { concurrent: fals
     });
   }));
 
-  it("converges duplicate target ensures and rolls back both roots together", () => withPersistence(async persistence => {
-    const values = await freshRepositoryValues();
+  describe("independent stores", { concurrent: false }, () => {
+    const withOtherPersistence = useFileScopedFrameworkCoordinatorPersistence();
 
-    const ensuring = [
-      persistence.drizzle.transaction(transaction => runEffect(
-        ensureFrameworkSchemaTargetNamespaceInTransactionEffect(
-          transaction,
-          values.target,
-        ),
-      )),
-      persistence.drizzle.transaction(transaction => runEffect(
-        ensureFrameworkSchemaTargetNamespaceInTransactionEffect(
-          transaction,
-          values.target,
-        ),
-      )),
-    ];
-    const ensured = await Promise.all(ensuring).finally(async () => {
-      await Promise.allSettled(ensuring);
-    });
-    expect(ensured[0]?.storageId).toBe(ensured[1]?.storageId);
-    await expect(repositoryCounts(persistence)).resolves.toEqual({
-      targets: "1",
-      collisions: "0",
-    });
+    it("converges duplicate target ensures and rolls back both roots together", () => withPersistence(async persistence => {
+      const values = await freshRepositoryValues();
 
-    const rollbackPersistence = await createMigratedPGlitePersistence();
-    const deliberateRollback = new Error("deliberate rollback");
-    await expect(rollbackPersistence.drizzle.transaction(
-      async transaction => {
-        const target = await runEffect(
+      const ensuring = [
+        persistence.drizzle.transaction(transaction => runEffect(
           ensureFrameworkSchemaTargetNamespaceInTransactionEffect(
             transaction,
             values.target,
           ),
-        );
-        await runEffect(
-          ensureFrameworkMigrationCollisionDomainInTransactionEffect(
-            transaction,
-            target,
-            values.plan,
-          ),
-        );
-        throw deliberateRollback;
-      },
-    )).rejects.toBe(deliberateRollback);
-    await expect(repositoryCounts(rollbackPersistence)).resolves.toEqual({
-      targets: "0",
-      collisions: "0",
-    });
-  }));
-
-  it("refuses forged and cross-target collision dependencies", () => withPersistence(async persistence => {
-    const values = await freshRepositoryValues();
-
-    const storedTargetFromAnotherDatabase =
-      await persistence.drizzle.transaction(async transaction => {
-        const target = await runEffect(
+        )),
+        persistence.drizzle.transaction(transaction => runEffect(
           ensureFrameworkSchemaTargetNamespaceInTransactionEffect(
             transaction,
             values.target,
           ),
-        );
-        const forgedFailure = await runEffectFailure(
-          ensureFrameworkMigrationCollisionDomainInTransactionEffect(
-            transaction,
-            { ...target },
-            values.plan,
-          ),
-        );
-        expect(forgedFailure).toMatchObject({
-          _tag: "FrameworkMigrationRepositoryError",
-          operation: "ensureCollisionDomain",
-          reason: "referenceRefusal",
-        });
-
-        const otherTargetValue = await runEffect(
-          captureFrameworkSchemaTargetNamespace({
-            deploymentId: values.target.frame.deploymentId,
-            physicalDatabaseIdentity: "postgres-cluster-a/database-other",
-            schemaName: "flarex_other",
-          }),
-        );
-        const otherTarget = await runEffect(
-          ensureFrameworkSchemaTargetNamespaceInTransactionEffect(
-            transaction,
-            otherTargetValue,
-          ),
-        );
-        const crossTargetFailure = await runEffectFailure(
-          ensureFrameworkMigrationCollisionDomainInTransactionEffect(
-            transaction,
-            otherTarget,
-            values.plan,
-          ),
-        );
-        expect(crossTargetFailure).toMatchObject({
-          _tag: "FrameworkMigrationRepositoryError",
-          operation: "ensureCollisionDomain",
-          reason: "referenceRefusal",
-        });
-        return target;
+        )),
+      ];
+      const ensured = await Promise.all(ensuring).finally(async () => {
+        await Promise.allSettled(ensuring);
+      });
+      expect(ensured[0]?.storageId).toBe(ensured[1]?.storageId);
+      await expect(repositoryCounts(persistence)).resolves.toEqual({
+        targets: "1",
+        collisions: "0",
       });
 
-    const otherPersistence = await createMigratedPGlitePersistence();
-    const missingParentFailure = await otherPersistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        ensureFrameworkMigrationCollisionDomainInTransactionEffect(
-          transaction,
-          storedTargetFromAnotherDatabase,
-          values.plan,
-        ),
-      ),
-    );
-    expect(missingParentFailure).toMatchObject({
-      _tag: "FrameworkMigrationRepositoryError",
-      operation: "ensureCollisionDomain",
-      reason: "referenceRefusal",
-    });
-  }));
+      await withOtherPersistence(async rollbackPersistence => {
+        const deliberateRollback = new Error("deliberate rollback");
+        await expect(rollbackPersistence.drizzle.transaction(
+          async transaction => {
+            const target = await runEffect(
+              ensureFrameworkSchemaTargetNamespaceInTransactionEffect(
+                transaction,
+                values.target,
+              ),
+            );
+            await runEffect(
+              ensureFrameworkMigrationCollisionDomainInTransactionEffect(
+                transaction,
+                target,
+                values.plan,
+              ),
+            );
+            throw deliberateRollback;
+          },
+        )).rejects.toBe(deliberateRollback);
+        await expect(repositoryCounts(rollbackPersistence)).resolves.toEqual({
+          targets: "0",
+          collisions: "0",
+        });
+      });
+    }));
+
+    it("refuses forged and cross-target collision dependencies", () => withPersistence(async persistence => {
+      const values = await freshRepositoryValues();
+
+      const storedTargetFromAnotherDatabase =
+        await persistence.drizzle.transaction(async transaction => {
+          const target = await runEffect(
+            ensureFrameworkSchemaTargetNamespaceInTransactionEffect(
+              transaction,
+              values.target,
+            ),
+          );
+          const forgedFailure = await runEffectFailure(
+            ensureFrameworkMigrationCollisionDomainInTransactionEffect(
+              transaction,
+              { ...target },
+              values.plan,
+            ),
+          );
+          expect(forgedFailure).toMatchObject({
+            _tag: "FrameworkMigrationRepositoryError",
+            operation: "ensureCollisionDomain",
+            reason: "referenceRefusal",
+          });
+
+          const otherTargetValue = await runEffect(
+            captureFrameworkSchemaTargetNamespace({
+              deploymentId: values.target.frame.deploymentId,
+              physicalDatabaseIdentity: "postgres-cluster-a/database-other",
+              schemaName: "flarex_other",
+            }),
+          );
+          const otherTarget = await runEffect(
+            ensureFrameworkSchemaTargetNamespaceInTransactionEffect(
+              transaction,
+              otherTargetValue,
+            ),
+          );
+          const crossTargetFailure = await runEffectFailure(
+            ensureFrameworkMigrationCollisionDomainInTransactionEffect(
+              transaction,
+              otherTarget,
+              values.plan,
+            ),
+          );
+          expect(crossTargetFailure).toMatchObject({
+            _tag: "FrameworkMigrationRepositoryError",
+            operation: "ensureCollisionDomain",
+            reason: "referenceRefusal",
+          });
+          return target;
+        });
+
+      await withOtherPersistence(async otherPersistence => {
+        const missingParentFailure = await otherPersistence.drizzle.transaction(
+          transaction => runEffectFailure(
+            ensureFrameworkMigrationCollisionDomainInTransactionEffect(
+              transaction,
+              storedTargetFromAnotherDatabase,
+              values.plan,
+            ),
+          ),
+        );
+        expect(missingParentFailure).toMatchObject({
+          _tag: "FrameworkMigrationRepositoryError",
+          operation: "ensureCollisionDomain",
+          reason: "referenceRefusal",
+        });
+      });
+    }));
+  });
 
   it("rejects corrupt or over-limit stored target bytes before restoration", async () => {
     const persistence = await createMigratedPGlitePersistence();

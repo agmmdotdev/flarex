@@ -11,60 +11,82 @@ import { runAdditiveFrameworkMigrationCoordinatorEffect } from "../../../src/ins
 import { fxSystemFrameworkMigrationAttemptStarts } from "../../../src/installation/migrationCoordination/schema";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { createAdditiveFixture } from "./frameworkCoordinatorAdditiveTestSupport";
-import { createSuccessfulTerminalPlanValues, storeSuccessfulTerminalGraphInTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
+import { createSuccessfulTerminalPlanValues, storeSuccessfulTerminalGraphInTransaction, useFileScopedFrameworkCoordinatorGraphPersistence } from "./frameworkCoordinatorRepositoryTestSupport";
 import { withAdministrativeFrameworkMetadataRepair } from "./frameworkMetadataRepairTestSupport";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 
 describe("event receipt graph restoration", () => {
-  it.each([
-    { extraTables: 0, reverse: false },
-    { extraTables: 0, reverse: true },
-    { extraTables: 14, reverse: false },
-    { extraTables: 14, reverse: true },
-  ])("restores each node once with $extraTables extra tables and reverse=$reverse", async ({ extraTables, reverse }) => {
-    const persistence = await createMigratedPGlitePersistence();
-    const values = await createSuccessfulTerminalPlanValues(extraTables);
-    const graph = await persistence.drizzle.transaction(transaction =>
-      storeSuccessfulTerminalGraphInTransaction(transaction, values));
-    const digests = graph.receipts.map(receipt => receipt.receipt.sha256);
-    const requested = reverse ? digests.toReversed() : digests;
-    const edges = graph.receipts.reduce((count, receipt) => count + receipt.receipt.frame.dependencyReceipts.length, 0);
-    let receiptRows = 0;
-    let dependencyRows = 0;
-    const detach = driverRows.detachDriverRows;
-    const reads = vi.spyOn(driverRows, "detachDriverRows").mockImplementation(rows => {
-      const detached = detach(rows);
-      for (const row of detached) {
-        if (Object.hasOwn(row, "dependencyCount") && Object.hasOwn(row, "observedPostconditionSha256")) receiptRows += 1;
-        if (Object.hasOwn(row, "dependencyReceiptStorageId")) dependencyRows += 1;
+  describe("metadata graph", { concurrent: false }, () => {
+    const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
+    it.each([
+      { extraTables: 0, reverse: false },
+      { extraTables: 0, reverse: true },
+      { extraTables: 14, reverse: false },
+      { extraTables: 14, reverse: true },
+    ])("restores each node once with $extraTables extra tables and reverse=$reverse", ({ extraTables, reverse }) => withPersistence(async persistence => {
+      const values = await createSuccessfulTerminalPlanValues(extraTables);
+      const graph = await persistence.drizzle.transaction(transaction =>
+        storeSuccessfulTerminalGraphInTransaction(transaction, values));
+      const digests = graph.receipts.map(receipt => receipt.receipt.sha256);
+      const requested = reverse ? digests.toReversed() : digests;
+      const edges = graph.receipts.reduce((count, receipt) => count + receipt.receipt.frame.dependencyReceipts.length, 0);
+      let receiptRows = 0;
+      let dependencyRows = 0;
+      const detach = driverRows.detachDriverRows;
+      const reads = vi.spyOn(driverRows, "detachDriverRows").mockImplementation(rows => {
+        const detached = detach(rows);
+        for (const row of detached) {
+          if (Object.hasOwn(row, "dependencyCount") && Object.hasOwn(row, "observedPostconditionSha256")) receiptRows += 1;
+          if (Object.hasOwn(row, "dependencyReceiptStorageId")) dependencyRows += 1;
+        }
+        return detached;
+      });
+      const restorations = vi.spyOn(storedValues, "restoreStoredFrameworkMigrationStepReceipt");
+      const attempts = vi.spyOn(storedValues, "restoreStoredFrameworkMigrationAttemptStart");
+      try {
+        const subjects = await persistence.drizzle.transaction(transaction => runEffect(readSubjectsWithFullMemo(
+          transaction, graph.collision, [...requested, ...requested.slice(0, 2)])));
+        expect(subjects.size).toBe(graph.receipts.length);
+        for (const expected of graph.receipts) {
+          const actual = subjects.get(expected.receipt.sha256);
+          expect(actual?.receipt.canonicalJson).toBe(expected.receipt.canonicalJson);
+          expect(actual?.attempt.attempt.canonicalJson).toBe(expected.attempt.attempt.canonicalJson);
+        }
+        expect(restorations).toHaveBeenCalledTimes(graph.receipts.length);
+        expect(attempts).toHaveBeenCalledTimes(1);
+        expect(dependencyRows).toBe(edges);
+        // Reverse input can fetch a prerequisite before its later digest batch.
+        // It still restores that prerequisite once and fetches at most twice.
+        expect(receiptRows).toBeLessThanOrEqual((reverse ? 2 : 1) * graph.receipts.length);
+        process.stdout.write(JSON.stringify({ steps: graph.receipts.length, edges, reverse, receiptRows,
+          dependencyRows, restoredNodes: restorations.mock.calls.length, restoredAttempts: attempts.mock.calls.length }) + "\n");
+      } finally {
+        reads.mockRestore();
+        restorations.mockRestore();
+        attempts.mockRestore();
       }
-      return detached;
-    });
-    const restorations = vi.spyOn(storedValues, "restoreStoredFrameworkMigrationStepReceipt");
-    const attempts = vi.spyOn(storedValues, "restoreStoredFrameworkMigrationAttemptStart");
-    try {
-      const subjects = await persistence.drizzle.transaction(transaction => runEffect(readSubjectsWithFullMemo(
-        transaction, graph.collision, [...requested, ...requested.slice(0, 2)])));
-      expect(subjects.size).toBe(graph.receipts.length);
-      for (const expected of graph.receipts) {
-        const actual = subjects.get(expected.receipt.sha256);
-        expect(actual?.receipt.canonicalJson).toBe(expected.receipt.canonicalJson);
-        expect(actual?.attempt.attempt.canonicalJson).toBe(expected.attempt.attempt.canonicalJson);
-      }
-      expect(restorations).toHaveBeenCalledTimes(graph.receipts.length);
-      expect(attempts).toHaveBeenCalledTimes(1);
-      expect(dependencyRows).toBe(edges);
-      // Reverse input can fetch a prerequisite before its later digest batch.
-      // It still restores that prerequisite once and fetches at most twice.
-      expect(receiptRows).toBeLessThanOrEqual((reverse ? 2 : 1) * graph.receipts.length);
-      process.stdout.write(JSON.stringify({ steps: graph.receipts.length, edges, reverse, receiptRows,
-        dependencyRows, restoredNodes: restorations.mock.calls.length, restoredAttempts: attempts.mock.calls.length }) + "\n");
-    } finally {
-      reads.mockRestore();
-      restorations.mockRestore();
-      attempts.mockRestore();
-    }
-  }, 90_000);
+    }), 90_000);
+
+    it("rechecks producer bytes after a completed read and after a failed read", () => withPersistence(async persistence => {
+      const values = await createSuccessfulTerminalPlanValues();
+      const graph = await persistence.drizzle.transaction(transaction => storeSuccessfulTerminalGraphInTransaction(transaction, values));
+      const digests = graph.receipts.map(receipt => receipt.receipt.sha256);
+      await persistence.drizzle.transaction(async transaction => {
+        const read = () => readSubjectsWithFullMemo(transaction, graph.collision, digests);
+        expect((await runEffect(read())).size).toBe(digests.length);
+        const original = new TextEncoder().encode(graph.attempt.attempt.canonicalJson);
+        const changed = new TextEncoder().encode(graph.attempt.attempt.canonicalJson.replace("worker-a", "worker-b"));
+        expect(changed).not.toEqual(original);
+        expect(changed.byteLength).toBe(original.byteLength);
+        const replaceBytes = (canonicalBytes: Uint8Array) => withAdministrativeFrameworkMetadataRepair(transaction,
+          ["fx_system_framework_migration_attempt_start"], () => transaction.update(fxSystemFrameworkMigrationAttemptStarts)
+            .set({ canonicalBytes }).where(eq(fxSystemFrameworkMigrationAttemptStarts.attemptStorageId, graph.attempt.storageId)));
+        await replaceBytes(changed);
+        expect(await runEffectFailure(read())).toMatchObject({ reason: "storedCorruption" });
+        await replaceBytes(original);
+        expect((await runEffect(read())).size).toBe(digests.length);
+      });
+    }), 90_000);
+  });
 
   it.each([false, true])("isolates producer state on A/B/A plan traversal with shared graph=%s", async shared => {
     const fixture = await createAdditiveFixture();
@@ -93,28 +115,6 @@ describe("event receipt graph restoration", () => {
       expect(producerRestorations).toHaveLength(1);
     } finally { attempts.mockRestore(); }
   }, 180_000);
-
-  it("rechecks producer bytes after a completed read and after a failed read", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const values = await createSuccessfulTerminalPlanValues();
-    const graph = await persistence.drizzle.transaction(transaction => storeSuccessfulTerminalGraphInTransaction(transaction, values));
-    const digests = graph.receipts.map(receipt => receipt.receipt.sha256);
-    await persistence.drizzle.transaction(async transaction => {
-      const read = () => readSubjectsWithFullMemo(transaction, graph.collision, digests);
-      expect((await runEffect(read())).size).toBe(digests.length);
-      const original = new TextEncoder().encode(graph.attempt.attempt.canonicalJson);
-      const changed = new TextEncoder().encode(graph.attempt.attempt.canonicalJson.replace("worker-a", "worker-b"));
-      expect(changed).not.toEqual(original);
-      expect(changed.byteLength).toBe(original.byteLength);
-      const replaceBytes = (canonicalBytes: Uint8Array) => withAdministrativeFrameworkMetadataRepair(transaction,
-        ["fx_system_framework_migration_attempt_start"], () => transaction.update(fxSystemFrameworkMigrationAttemptStarts)
-          .set({ canonicalBytes }).where(eq(fxSystemFrameworkMigrationAttemptStarts.attemptStorageId, graph.attempt.storageId)));
-      await replaceBytes(changed);
-      expect(await runEffectFailure(read())).toMatchObject({ reason: "storedCorruption" });
-      await replaceBytes(original);
-      expect((await runEffect(read())).size).toBe(digests.length);
-    });
-  }, 90_000);
 });
 
 const readSubjectsWithFullMemo = Effect.fn("EventReceiptGraphTest.readSubjectsWithFullMemo")(
