@@ -60,12 +60,13 @@ import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../src/execution/readCommittedTransactionFailure";
 import { runEffect } from "../support/effectTestRuntime";
+import { useFileScopedPersistence } from "../support/fileScopedPersistenceFixture";
 import { runEffectTransaction } from "../../src/database/effectTransaction";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../../src/scope/scopeClock";
 import { fxSystemScopeClocks } from "../../src/database/schema";
 import {
+  createFileScopedPostgresFixture,
   postgresUrl,
-  withTemporaryPostgresSchema,
 } from "../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
@@ -100,8 +101,90 @@ class ScopeExecutionPostgresTestError extends Data.TaggedError(
 
 describePostgres(
   "real PostgreSQL scoped execution",
-  { timeout: 180_000 },
+  { timeout: 180_000, concurrent: false },
   () => {
+    const withScopeDatabase = useFileScopedPersistence(async () => {
+      const owner = await createFileScopedPostgresFixture();
+      return {
+        persistence: owner,
+        reset: () => owner.reset(),
+        dispose: () => owner.dispose(),
+      };
+    }, postgresUrl !== null);
+
+    async function withScopedPostgres(
+      maximumPoolSize: number,
+      run: (fixture: ScopedPostgresFixture) => Promise<void>,
+    ): Promise<void> {
+      await withScopeDatabase(async owner => {
+        const poolOptions = owner.persistence.pool.options;
+        const persistence = await createPostgresPersistence({
+          poolConfig: { ...poolOptions, max: maximumPoolSize },
+          migrationsSchema: owner.migrationsSchema,
+          migrationsTable: owner.migrationsTable,
+        });
+        const pool = persistence.pool;
+        const failures: unknown[] = [];
+        try {
+          await run(Object.freeze({
+            persistence,
+            pool,
+            poolWithMaximum: (maximum: number) => new Pool({
+              ...poolOptions,
+              max: maximum,
+            }),
+            provision: async (
+              deploymentId: string,
+              target: LocatedReadCommittedAttemptTargetV1,
+              randomUuid: () => string,
+            ) => {
+              const provisioned = await createPostgresSharedScopeAuthorityProvisioner(
+                persistence,
+                { physicalLocator: locator, randomUuid },
+              ).ensure({
+                deploymentId,
+                projectId: `${deploymentId}_project`,
+              });
+              await persistence.query(
+                `update fx_system_scope_execution_authority
+                    set storage_generation = 'flarexdb_v1'
+                  where scope_id = $1`,
+                [provisioned.scope.scopeId],
+              );
+              const ports = {
+                scopeMetadata: persistence,
+                provisioningReceipts: {
+                  getScopeAuthorityProvisioningReceipt: async (_scopeId: ScopeId) => {
+                    throw new Error(
+                      "Shared PostgreSQL scope resolution must not read split receipts.",
+                    );
+                  },
+                },
+                scopeClockTargets: {
+                  resolve: async () => target,
+                },
+              } satisfies TrustedScopeAuthorityResolutionPorts<
+                LocatedReadCommittedAttemptTargetV1
+              >;
+              return runEffect(resolveLocatedTrustedScopeAuthorityEffect(
+                provisioned.scope.deploymentId,
+                ports,
+              ));
+            },
+          }));
+        } catch (cause: unknown) {
+          failures.push(cause);
+        } finally {
+          try { await persistence.close(); }
+          catch (cause: unknown) { failures.push(cause); }
+        }
+        if (failures.length === 1) throw failures[0];
+        if (failures.length > 1) {
+          throw new AggregateError(failures, "Scoped execution fixture and pool cleanup failed");
+        }
+      });
+    }
+
     it("distinguishes ordinary writes from scope transitions under snapshot protection", async () => {
       await withScopedPostgres(3, async fixture => {
         const located = await fixture.provision("deployment_scope_snapshot_protection",
@@ -827,75 +910,6 @@ interface ScopedPostgresFixture {
   ) => Promise<
     LocatedTrustedScopeAuthority<LocatedReadCommittedAttemptTargetV1>
   >;
-}
-
-async function withScopedPostgres(
-  maximumPoolSize: number,
-  run: (fixture: ScopedPostgresFixture) => Promise<void>,
-): Promise<void> {
-  await withTemporaryPostgresSchema(async options => {
-    const poolOptions = Object.freeze({
-      connectionString: options.connectionString,
-      ...options.poolConfig,
-    });
-    const pool = new Pool({ ...poolOptions, max: maximumPoolSize });
-    const persistence = await createPostgresPersistence({
-      pool,
-      migrationsSchema: options.migrationsSchema,
-    });
-    try {
-      await persistence.migrate();
-      await run(Object.freeze({
-        persistence,
-        pool,
-        poolWithMaximum: (maximum: number) => new Pool({
-          ...poolOptions,
-          max: maximum,
-        }),
-        provision: async (
-          deploymentId: string,
-          target: LocatedReadCommittedAttemptTargetV1,
-          randomUuid: () => string,
-        ) => {
-          const provisioned = await createPostgresSharedScopeAuthorityProvisioner(
-            persistence,
-            { physicalLocator: locator, randomUuid },
-          ).ensure({
-            deploymentId,
-            projectId: `${deploymentId}_project`,
-          });
-          await persistence.query(
-            `update fx_system_scope_execution_authority
-                set storage_generation = 'flarexdb_v1'
-              where scope_id = $1`,
-            [provisioned.scope.scopeId],
-          );
-          const ports = {
-            scopeMetadata: persistence,
-            provisioningReceipts: {
-              getScopeAuthorityProvisioningReceipt: async (_scopeId: ScopeId) => {
-                throw new Error(
-                  "Shared PostgreSQL scope resolution must not read split receipts.",
-                );
-              },
-            },
-            scopeClockTargets: {
-              resolve: async () => target,
-            },
-          } satisfies TrustedScopeAuthorityResolutionPorts<
-            LocatedReadCommittedAttemptTargetV1
-          >;
-          return runEffect(resolveLocatedTrustedScopeAuthorityEffect(
-            provisioned.scope.deploymentId,
-            ports,
-          ));
-        },
-      }));
-    } finally {
-      await persistence.close();
-      await pool.end();
-    }
-  });
 }
 
 function locatedTarget(

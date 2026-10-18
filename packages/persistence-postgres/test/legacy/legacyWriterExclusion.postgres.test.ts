@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Effect } from "effect";
 import { sql } from "drizzle-orm";
-import { postgresUrl, withTemporaryPostgresPersistencePair } from "../support/postgresHelpers";
+import { postgresUrl, withTemporaryPostgresPersistence, withTemporaryPostgresPersistencePair } from "../support/postgresHelpers";
 import { legacyWriterExclusionScenario } from "./legacyWriterExclusionScenario";
 import {
   createApplicationNativeMutationPostgresFixture,
@@ -25,7 +25,7 @@ describe.skipIf(postgresUrl === null)("legacy writer exclusion (ordinary Postgre
       scopeId: fixture.authority.scopeId, schemaVersionId: fixture.schemaAuthority.schemaVersionId });
   }), 90_000);
 
-  it("orders legacy refusal after contract 2 activation and preserves prior replay", () => withTemporaryPostgresPersistencePair(async (_control, target) => {
+  it("orders legacy refusal after contract 2 activation and preserves prior replay", () => withTemporaryPostgresPersistence(async target => {
     const fixture = await relationReadinessFixture({ persistence: target });
     await legacyWriterExclusionScenario({ target, ports: fixture.pointCommitAuthority, deploymentId: fixture.deploymentId,
       scopeId: fixture.authority.scopeId, schemaVersionId: fixture.relation.binding.schemaVersionId }, async () => {
