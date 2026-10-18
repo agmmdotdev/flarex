@@ -68,11 +68,13 @@ Address creation and cumulative selector metadata. Its explicit borrowed-operati
 scheduling selects the shared owner without changing existing profiles or limits.
 The bounded
 [native Stock Location deletion](./preflight/114-native-stock-location-delete-workflow.md)
-profile is implemented for the installed Sales Channel Link graph. It retains
+profile includes the installed Sales Channel and Location–Fulfillment Set Link
+graph through [137](./preflight/137-native-location-fulfillment-set-workflow.md). It retains
 actual-result Link cleanup, native module lifecycle events, retained compensation
 and Addresses/Inventory/Store data. Its shared composite-key reverse path keeps
-active partial-index access distinct from all-row restoration. Additional default
-Fulfillment and Pricing cascade branches retain their separate connected admission.
+active partial-index access distinct from all-row restoration. The complete
+bounded Fulfillment forest participates in the same atomic root. Provider and
+Pricing Link families retain their separate connected admission.
 The bounded
 [native Inventory Item update](./preflight/115-native-inventory-item-update-workflow.md)
 profile preserves keyed final patches, native preimages and compensation,
@@ -384,6 +386,21 @@ Option/provider authority or new schema inventory. Native in-process scheduler
 characterization and portable atomic settlement remain distinct evidence
 boundaries. Chunked Product import and Product export remain deferred.
 
+The [Location–Fulfillment Set slice](./preflight/137-native-location-fulfillment-set-workflow.md)
+implements genuine linked creation, stored Link installation and both existing
+StockLocation and Fulfillment Set deletion compositions. Creation admits one new Set and Link, preserves ignored composer
+extras and accepts native missing or historical Location endpoints. Its inverse
+dismisses the actual pair and physically deletes the Set. Both deletion routers
+retain full native Fulfillment metadata and genuine callbacks, including the
+Set inverse's repeated restoration. Complete Link history admits eight physical
+rows and four distinct Sets. The approved native return-map correction selects
+the first declared key actually returned, retaining traversal and writes.
+Fresh Link storage keeps preflight 63's accepted active-cardinality contract
+and its explicit native restore divergence. Stock Location selects a named
+256-call/128-event profile; Set deletion selects 512 calls and 256 events.
+Other resource limits remain unchanged. General Shipping Option/provider
+workflows, populated upgrades and public/hosted activation remain separate.
+
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
 The genuine creation step remains unchanged and returns complete native rows,
@@ -526,18 +543,19 @@ serial Set soft deletion then common Link cleanup; its retained callbacks restor
 Link then the exact raw Set IDs. Historical roots can be skipped forward yet
 revived by that broader native inverse, and reached historical descendants and
 already-active restores retain native timestamp writes and deleted/restored
-events. The complete root plus retained inverse selects a scoped identity-bound
-256-call/128-event profile; other profiles and resource limits remain unchanged.
-The selected genuine empty Link resource preserves mandatory empty endpoint
-delete/restore calls without installing a stored LocationFulfillmentSet family.
+events. The installed LocationFulfillmentSet composition in
+[137](./preflight/137-native-location-fulfillment-set-workflow.md) selects a scoped
+identity-bound 512-call/256-event profile for the complete root and genuine
+retained callbacks. The actual stored Link router preserves mandatory empty
+endpoint calls and full native Fulfillment metadata.
 Module event infrastructure and active-restore policy remain required. Shared
 Fulfillment receipts authenticate actual final observations against final
 mutation afterimages separately from planning preimages for both Set and Zone
-lifecycle consumers. Installing LocationFulfillmentSet later must migrate this
-resource and Stock Location deletion together. Set creation, general Shipping
-Option/provider workflows, populated upgrades and public/hosted activation
-remain outside this slice; chunked Product file import and Product export remain
-deferred.
+lifecycle consumers. Linked Set creation and both deletion migrations share
+137's connected outcome. Future provider/Pricing Link installation must migrate
+every affected deletion composition together. General Shipping Option/provider
+workflows, populated upgrades and public/hosted activation remain separate;
+chunked Product file import and Product export remain deferred.
 
 The [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)
 is complete within its approved bounded profiles. Persistence now owns protected

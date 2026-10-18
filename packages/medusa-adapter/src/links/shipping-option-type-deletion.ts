@@ -11,7 +11,7 @@ const decodeEndpoint = commerceDecoder(Schema.Tuple([
 ]), "invalidInput");
 const decodeEmptyCascade = (value: Parameters<typeof decodeLinkCascade>[0]) => Result.gen(function* () {
   const tuple = yield* decodeLinkCascade(value);
-  if (tuple[0] !== null || Object.keys(tuple[1]).length !== 0)
+  if (Object.keys(tuple[1]).length !== 0)
     return yield* Result.fail(commerceError("storedCorruption"));
   return tuple;
 });

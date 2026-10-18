@@ -287,22 +287,26 @@ export class Link {
                   ...deletedEntities,
                 }
               } else {
-                const [mainKey] = returnFields
+                const mainKey = returnFields.find((field) =>
+                  Object.prototype.hasOwnProperty.call(deletedEntities, field)
+                )
 
-                if (!returnIdsList[serviceName]) {
-                  returnIdsList[serviceName] = {}
-                }
-                if (!returnIdsList[serviceName][mainKey]) {
-                  returnIdsList[serviceName][mainKey] = []
-                }
+                if (mainKey !== undefined) {
+                  if (!returnIdsList[serviceName]) {
+                    returnIdsList[serviceName] = {}
+                  }
+                  if (!returnIdsList[serviceName][mainKey]) {
+                    returnIdsList[serviceName][mainKey] = []
+                  }
 
-                returnIdsList[serviceName][mainKey] = [
-                  ...new Set(
-                    returnIdsList[serviceName][mainKey].concat(
-                      deletedEntities[mainKey]
-                    )
-                  ),
-                ]
+                  returnIdsList[serviceName][mainKey] = [
+                    ...new Set(
+                      returnIdsList[serviceName][mainKey].concat(
+                        deletedEntities[mainKey]
+                      )
+                    ),
+                  ]
+                }
               }
 
               Object.keys(deletedEntities).forEach((key) => {

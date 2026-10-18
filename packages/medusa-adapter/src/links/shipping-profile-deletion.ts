@@ -65,9 +65,6 @@ export function prepareShippingProfileDeletionLinkResource(services: { readonly 
     }), "storedCorruption");
     const output = (value: Parameters<typeof decodeLinkCascade>[0]) => Result.gen(function* () {
       const tuple = yield* decodeLinkCascade(value);
-      // The native common step does not inspect router errors-as-data. Refuse
-      // before exposing success, including a service exception the router caught.
-      if (tuple[0] !== null) return yield* Result.fail(commerceError("adapterFailure"));
       for (const [name, map] of Object.entries(tuple[1])) {
         if (name !== ProductShippingProfile.serviceName) return yield* Result.fail(commerceError("storedCorruption"));
         const decoded = yield* decodeMap(map);

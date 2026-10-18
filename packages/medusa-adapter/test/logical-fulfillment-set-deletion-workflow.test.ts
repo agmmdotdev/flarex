@@ -3,6 +3,7 @@ import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { StepResponse } from "@medusajs/workflows-sdk";
 import { FulfillmentModuleService } from "@medusajs/fulfillment/services";
 import { Link } from "@medusajs/modules-sdk/link";
+import { LocationFulfillmentSet } from "@medusajs/link-modules";
 import { CommerceTransactionError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { fulfillmentSetDeletionResources } from "../src/workflow/policy";
@@ -11,6 +12,8 @@ import { prepareLogicalFulfillmentSetDeletion, fulfillmentSetDeletionGraph } fro
 import { serviceZoneParents, serviceZoneSeedTime } from "./support/logical-service-zone-creation-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
+const locationSetFamily = LocationFulfillmentSet.serviceName;
+if (locationSetFamily === undefined) throw new Error("Missing native Location Fulfillment Set family");
 const cleanup: Array<() => Promise<void>> = []; let sharedCleanupCount = 0, scopeOrdinal = 0;
 let connected: Awaited<ReturnType<typeof prepareLogicalFulfillmentSetDeletion>>;
 const graph = {
@@ -56,7 +59,11 @@ function retainedTap() {
   if (getter === undefined) throw new Error("Missing genuine SDK retained-response getter");
   const values: unknown[] = [];
   const spy = vi.spyOn(StepResponse.prototype, "compensateInput", "get").mockImplementation(function (this: StepResponse<unknown, unknown>) {
-    const value: unknown = Reflect.apply(getter, this, []); values.push(structuredClone(value)); return value;
+    const value: unknown = Reflect.apply(getter, this, []);
+    // The SDK reads every StepResponse, including the noncompensable probe's
+    // StepResponse(null). Retain the two genuine raw cohorts in encounter order.
+    if (value !== null) values.push(structuredClone(value));
+    return value;
   });
   return { get: () => { if (values.length !== 2) throw new Error("Expected exactly the genuine Set and Link retained values"); return { set: values[0], link: values[1] }; },
     restore: () => spy.mockRestore() };
@@ -71,6 +78,122 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
   beforeAll(async () => { connected = await prepareLogicalFulfillmentSetDeletion(driver, close => cleanup.push(close), Object.values(graph)); sharedCleanupCount = cleanup.length; }, 240_000);
   afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
+
+  it.each([false, true])("retains the complete installed locfs forest and genuine double restore (history=%s)", async history => {
+    const selected = fulfillmentSetDeletionGraph("set-installed-" + history, { sets: 4, zones: 4, geos: 16, options: 8, rules: 16,
+      links: 4, ...(history ? { history: { zones: 2, geos: 8, options: 4, rules: 8 } } : {}) });
+    const fixture = await scenario("installed-" + history, [selected]), tap = retainedTap();
+    const remove = vi.spyOn(FulfillmentModuleService.prototype, "softDeleteFulfillmentSets"),
+      restore = vi.spyOn(FulfillmentModuleService.prototype, "restoreFulfillmentSets"), linkRestore = vi.spyOn(Link.prototype, "restore");
+    try {
+      const host = await fixture.prepareRoundtrip(tap.get), before = await fixture.snapshot();
+      const protectedIds = fixture.protectedRows.map(row => String(row.row.id)), untouched = await fixture.read(protectedIds);
+      const original = await fixture.read(selected.allIds), ids = [...selected.ids].reverse(), key = host.newRequestKey(); let calls = 0;
+      expect(await Effect.runPromise(host.run(key, { ids }).pipe(Effect.provideService(ExecutionDiagnostics, {
+        observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") calls++; }).pipe(Effect.andThen(work)),
+      })))).toBeNull();
+      expect(tap.get()).toEqual({ set: ids, link: endpoint(ids) });
+      expect(remove.mock.calls[0]?.[0]).toEqual(ids);
+      expect(restore.mock.calls).toHaveLength(2);
+      const cascade = restore.mock.calls[0];
+      expect(cascade?.[0]).toEqual({ id: expect.arrayContaining(selected.ids) });
+      expect(cascade?.[1]?.returnLinkableKeys).toHaveLength(12);
+      expect(cascade?.[1]?.returnLinkableKeys?.[0]).toBe("fulfillment_address_id");
+      expect(restore.mock.calls[1]?.[0]).toEqual(ids);
+      completeMap(await restore.mock.results[0]?.value, selected); completeMap(await restore.mock.results[1]?.value, selected);
+      expect(await linkRestore.mock.results[0]?.value).toEqual([null, {
+        [locationSetFamily]: expect.any(Object), fulfillment: { fulfillment_set_id: expect.arrayContaining(selected.ids) },
+      }]);
+      const after = await fixture.snapshot(), events = newEvents(before, after);
+      console.info("FulfillmentSet installed48row root plus genuine double restore", { calls, eventMessages: events.length, history });
+      expect(calls).toBeLessThanOrEqual(fulfillmentSetDeletionResources.calls);
+      expect(events).toHaveLength(146); expect(events.every(event => event.envelope.internal)).toBe(true);
+      expect(after.rowChanges).toHaveLength(before.rowChanges.length + 52);
+      expect((await fixture.read(selected.allIds)).map(stable)).toEqual(original.map(stable));
+      expect((await fixture.read([...selected.allIds, ...fixture.linkRows.map(row => String(row.row.id))])).every(row => row.deleted_at === null)).toBe(true);
+      expect(await fixture.read(protectedIds)).toEqual(untouched);
+      expect(await Effect.runPromise(host.run(key, { ids }))).toBeNull(); expect(await fixture.snapshot()).toEqual(after);
+    } finally { tap.restore(); remove.mockRestore(); restore.mockRestore(); linkRestore.mockRestore(); }
+  }, 300_000);
+
+  it("refuses conflicting eight-row Link history restoration and nine-row physical history atomically", async () => {
+    const selected = fulfillmentSetDeletionGraph("set-installed-eight-history", { sets: 4, zones: 4, geos: 16, options: 8, rules: 16, links: 8, historicalLinks: 4 });
+    const fixture = await scenario("eight-history", [selected]), tap = retainedTap(), restore = vi.spyOn(FulfillmentModuleService.prototype, "restoreFulfillmentSets"),
+      linkRestore = vi.spyOn(Link.prototype, "restore");
+    try {
+      const host = await fixture.prepareRoundtrip(tap.get);
+      // The accepted scalar-Link correction refuses native restoration of two
+      // historical/current partners before endpoint restoration can proceed.
+      // The separately checked selector contract retains eight raw IDs.
+      const before = await fixture.snapshot(), outcome = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { ids: selected.ids })));
+      expect(Result.isFailure(outcome)).toBe(true); if (Result.isFailure(outcome)) expect(reasons(outcome.failure)).toContain("invalidInput");
+      expect(linkRestore).toHaveBeenCalledExactlyOnceWith(endpoint(selected.ids)); expect(restore).not.toHaveBeenCalled();
+      expect(await fixture.snapshot()).toEqual(before);
+    } finally { tap.restore(); restore.mockRestore(); linkRestore.mockRestore(); }
+    const overflow = fulfillmentSetDeletionGraph("set-installed-nine-history", { links: 9, historicalLinks: 8 });
+    const overflowing = await scenario("nine-history", [overflow]), host = await overflowing.prepare(), before = await overflowing.snapshot(),
+      linkDelete = vi.spyOn(Link.prototype, "delete");
+    try {
+      const outcome = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { ids: overflow.ids })));
+      expect(Result.isFailure(outcome)).toBe(true); if (Result.isFailure(outcome)) expect(reasons(outcome.failure)).toContain("limitExceeded");
+      expect(linkDelete).toHaveBeenCalledExactlyOnceWith(endpoint(overflow.ids)); expect(await overflowing.snapshot()).toEqual(before);
+    } finally { linkDelete.mockRestore(); }
+  }, 300_000);
+
+  it("rolls back a late failure after installed Link restoration and both native Set restorations", async () => {
+    const selected = fulfillmentSetDeletionGraph("set-installed-late-failure", { geos: 1, links: 1 }), fixture = await scenario("installed-late", [selected]), tap = retainedTap();
+    const restore = vi.spyOn(FulfillmentModuleService.prototype, "restoreFulfillmentSets");
+    try {
+      const host = await fixture.prepareRoundtrip(tap.get, fulfillmentSetDeletionResources, true), before = await fixture.snapshot();
+      expect(Result.isFailure(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { ids: selected.ids }))))).toBe(true);
+      expect(restore).toHaveBeenCalledTimes(2); expect(await fixture.snapshot()).toEqual(before);
+    } finally { tap.restore(); restore.mockRestore(); }
+  }, 180_000);
+
+  it("cancels after both installed participants stage without publishing their rows or events", async () => {
+    const selected = fulfillmentSetDeletionGraph("set-installed-cancel", { geos: 1, links: 1 }), fixture = await scenario("installed-cancel", [selected]);
+    const reached = Deferred.makeUnsafe<void>(), finished = Deferred.makeUnsafe<void>(), original = Link.prototype.delete;
+    let finish: (() => void) | undefined;
+    const wait = new Promise<void>(resolve => { finish = resolve; });
+    const link = vi.spyOn(Link.prototype, "delete").mockImplementation(async function (this: Link, ...args) {
+      const result = await Reflect.apply(original, this, args);
+      await Effect.runPromise(Deferred.succeed(reached, undefined)); await wait;
+      await Effect.runPromise(Deferred.succeed(finished, undefined)); return result;
+    });
+    try {
+      const host = await fixture.prepare(), before = await fixture.snapshot();
+      const outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const pending = yield* Effect.forkChild(host.run(host.newRequestKey(), { ids: selected.ids }));
+        yield* Deferred.await(reached).pipe(Effect.timeout(30_000)); yield* Fiber.interrupt(pending); return yield* Fiber.await(pending);
+      })));
+      expect(Exit.isFailure(outcome)).toBe(true); if (Exit.isFailure(outcome)) expect(reasons(outcome.cause)).toContain("Interrupt");
+      expect(await fixture.snapshot()).toEqual(before); finish?.();
+      await Effect.runPromise(Deferred.await(finished).pipe(Effect.timeout(5_000))); expect(await fixture.snapshot()).toEqual(before);
+    } finally { finish?.(); link.mockRestore(); }
+  }, 180_000);
+
+  it.skipIf(driver !== "postgres")("settles one competing deletion of the installed Set and locfs graph", async () => {
+    const selected = fulfillmentSetDeletionGraph("set-installed-contention", { zones: 0, links: 1 }), fixture = await scenario("installed-contention", [selected]);
+    const left = await fixture.prepare(), right = await fixture.prepare(), reached = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>();
+    const original = Link.prototype.delete; let arrivals = 0;
+    const link = vi.spyOn(Link.prototype, "delete").mockImplementation(async function (this: Link, ...args) {
+      const result = await Reflect.apply(original, this, args);
+      if (++arrivals === 2) await Effect.runPromise(Deferred.succeed(reached, undefined));
+      await Effect.runPromise(Deferred.await(release)); return result;
+    });
+    try {
+      const before = await fixture.snapshot(), outcomes = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const first = yield* Effect.forkChild(left.run(left.newRequestKey(), { ids: selected.ids }).pipe(Effect.timeout(45_000)));
+        const second = yield* Effect.forkChild(right.run(right.newRequestKey(), { ids: selected.ids }).pipe(Effect.timeout(45_000)));
+        yield* Deferred.await(reached).pipe(Effect.timeout(30_000), Effect.ensuring(Deferred.succeed(release, undefined)));
+        return [yield* Fiber.await(first), yield* Fiber.await(second)];
+      })));
+      expect(arrivals).toBe(2); expect(outcomes.filter(Exit.isSuccess)).toHaveLength(1); expect(outcomes.filter(Exit.isFailure)).toHaveLength(1);
+      const failed = outcomes.find(Exit.isFailure); if (failed !== undefined && Exit.isFailure(failed)) expect(reasons(failed.cause)).toContain("writeConflict");
+      const after = await fixture.snapshot(); expect(after.commits).toHaveLength(before.commits.length + 1);
+      expect(after.rowChanges).toHaveLength(before.rowChanges.length + 2);
+    } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); link.mockRestore(); }
+  }, 240_000);
 
   it("accepts the complete 48-row genuine root plus actual retained Link and Set inverse in one settlement", async () => {
     const tap = retainedTap(), remove = vi.spyOn(FulfillmentModuleService.prototype, "softDeleteFulfillmentSets"),
@@ -279,7 +402,7 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
       expect(native).not.toHaveBeenCalled();
       // The facade authenticates the source issuer before resource admission.
       await expect(Effect.runPromise(prepareFulfillmentSetDeletionWorkflow({ ...connected.options,
-        modules: { fulfillment: { ...connected.installed, module: { ...connected.fulfillment.workflow } } } }))).rejects.toMatchObject({ reason: "invalidAuthority" });
+        modules: { ...connected.options.modules, fulfillment: { ...connected.installed, module: { ...connected.fulfillment.workflow } } } }))).rejects.toMatchObject({ reason: "invalidAuthority" });
       await expect(Effect.runPromise(prepareFulfillmentSetDeletionWorkflow({ ...connected.options, link: { ...connected.link } }))).rejects.toMatchObject({ reason: "unsupportedProfile" });
       // @ts-expect-error The public workflow facade admits no caller resource overrides.
       await expect(Effect.runPromise(prepareFulfillmentSetDeletionWorkflow({ ...connected.options, requestCallLimit: 256 }))).rejects.toMatchObject({ reason: "unsupportedProfile" });

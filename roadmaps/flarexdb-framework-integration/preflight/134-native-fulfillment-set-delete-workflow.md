@@ -2,6 +2,10 @@
 
 Status: implemented within the bounded private portable profile. This record
 does not activate a public API, bootstrap host or populated schema upgrade.
+The original empty-Link baseline below is preserved as a distinct native
+witness. [137](./137-native-location-fulfillment-set-workflow.md) replaces that
+assembly with the stored LocationFulfillmentSet family and owns the current
+512-call/256-event allowance, complete history and genuine double restoration.
 
 ## Complete selected outcome
 
@@ -9,7 +13,7 @@ Admit the genuine `deleteFulfillmentSetsWorkflow` with zero to four raw Set IDs,
 the complete local Set/Zone/GeoZone/ShippingOption/ShippingOptionRule soft cascade,
 the genuine common remote-Link cleanup, and the retained raw restore callbacks.
 Reuse the eight-table Fulfillment source already selected by 131–133. Installing
-a LocationFulfillmentSet Link or implementing Set creation is a later connected
+a LocationFulfillmentSet Link and linked Set creation belong to 137's connected
 outcome. Chunked Product file import and Product export remain deferred.
 
 Native authority is Medusa 2.13.4, commit
@@ -68,7 +72,7 @@ its empty raw array. Both genuine empty Link methods return `[null,{}]`.
 Passing `[]` directly to the common step is different: its entries array is empty
 and neither forward nor absent retained inverse resolves Link.
 
-Use the genuine promoted Link class with an explicitly selected empty Link
+The original 134 baseline uses the genuine promoted Link class with an explicitly selected empty Link
 registry. `new Link([])` natively falls back to `MedusaModule.getLoadedModules()`;
 the comparison retains that exact constructor and authentic static Map/accessor
 implementation. Its selected registry is genuinely empty, with full Fulfillment
@@ -186,7 +190,7 @@ evidence validation; it does not change the shared storage protocol, introduce
 an extra read or alter native business behavior. Existing132 regression coverage
 and adversarial missing/forged final-observation cases remain required.
 
-## Bounds, source reuse and resource profile
+## Original 134 Bounds, Source Reuse And Resource Profile
 
 Admission is zero to four raw IDs, each nonempty and at most 256
 characters, preserving duplicates and Unicode. The complete aggregate graph is
@@ -196,8 +200,8 @@ coverage and distinguish physical candidates from active forward results.
 
 Keep existing per-record/value/read/write/scan/byte caps and identity/replay
 proofs. The complete 48-row forward plus actual retained Link/Set inverse selects
-the scoped 134 identity-bound optimistic 256-call/128-event profile through the
-existing trusted API. Its complete composition uses 173 bounded calls and 96
+the original 134 identity-bound optimistic 256-call/128-event profile through the
+existing trusted API. That empty-Link composition uses 173 bounded calls and 96
 events on both drivers; separate method maxima do not establish this allowance.
 Default 64 limits cannot admit that composition. Do not shrink the connected
 graph or widen any other profile. This named allowance uses the existing
@@ -211,19 +215,19 @@ five-family Set graph. All 131–133 callers use that owner; the displaced
 service-zone-graph-contracts source/export/inventory entry is removed.
 No populated upgrade or reset is selected.
 
-## Future Link installation is a connected migration gate
+## Location Link installation is owned by 137
 
-No LocationFulfillmentSet family is installed by this slice. Native
+The original 134 slice installed no LocationFulfillmentSet family. Native
 `packages/modules/link-modules/src/definitions/fulfillment-set-location.ts:4–72`
 owns `location_fulfillment_set`, StockLocation/Set endpoints and deletion cascade
-into FulfillmentSet. Installing it must migrate this deletion resource and the
-existing Stock Location deletion together; see preflight 114's Additional Default
-Graph Admission and 131's source-composition gate. Endpoint installation/schema
+into FulfillmentSet. 137 migrates this deletion resource and the existing Stock
+Location deletion together, satisfying 114's connected-family admission and
+131's source-composition gate. Endpoint installation/schema
 authority does not imply referenced-row existence: accepted stored-Link policy
 uses no endpoint FKs, and native dangling scalar endpoint success is preserved.
 
 Native Set creation is `createLocationFulfillmentSetWorkflow`, not an isolated
-module-create root: its required Location Link belongs to that future outcome.
+module-create root: its required Location Link belongs to 137's connected outcome.
 General ShippingOption creation additionally requires actual provider/Query,
 Pricing/Link and conditional Region closure and remains unadmitted.
 

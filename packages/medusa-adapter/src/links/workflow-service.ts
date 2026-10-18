@@ -1,4 +1,5 @@
 import { Effect, Result, Schema } from "effect";
+import { LocationFulfillmentSet } from "@medusajs/link-modules";
 import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../value/decoder";
 import { commerceServiceCommands, commerceCommandPreparation } from "../module/commands";
@@ -11,7 +12,7 @@ const decodeRows = commerceDecoder(Rows, "storedCorruption");
 const decodeRead = commerceDecoder(Schema.Struct({ filters: Schema.JsonObject, config: Schema.JsonObject }), "invalidInput");
 const decodeReadArguments = commerceDecoder(Schema.Tuple([Schema.JsonObject, Schema.JsonObject]), "invalidInput");
 interface LinkWorkflowServiceDefinition {
-  readonly admission: "create" | "dismiss" | "cascade" | "product-deletions" | "inventory-deletions" | "inventory-item-deletions" | "sales-channel-deletions" | "stock-location-deletions" | "shipping-profile-deletions";
+  readonly admission: "create" | "dismiss" | "cascade" | "product-deletions" | "inventory-deletions" | "inventory-item-deletions" | "sales-channel-deletions" | "stock-location-deletions" | "shipping-profile-deletions" | "fulfillment-set-deletions";
   readonly routing: Effect.Success<ReturnType<typeof prepareLinkService>>["routing"];
   readonly lifecycle: Effect.Success<ReturnType<typeof prepareLinkService>>["lifecycle"];
   readonly createMethod: WorkflowMethod<readonly unknown[], readonly JsonObject[]>;
@@ -34,7 +35,7 @@ export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<t
   return Result.gen(function* () {
     const lifecycle = linkServiceLifecycleDefinition(prepared);
     if (lifecycle === undefined) return yield* Result.fail(commerceError("invalidAuthority"));
-    if ((admission === "inventory-item-deletions" || admission === "shipping-profile-deletions") && (lifecycle.maximumRows !== 8 || lifecycle.completeHistory !== true))
+    if ((admission === "inventory-item-deletions" || admission === "shipping-profile-deletions" || admission === "fulfillment-set-deletions" || admission === "stock-location-deletions" && prepared.serviceName === LocationFulfillmentSet.serviceName) && (lifecycle.maximumRows !== 8 || lifecycle.completeHistory !== true))
       return yield* Result.fail(commerceError("unsupportedProfile"));
     const extras = Schema.Struct({ id: Schema.optionalKey(Id),
       ...Object.fromEntries(Object.keys(prepared.joiner.databaseConfig?.extraFields ?? {}).map(name =>
@@ -63,7 +64,7 @@ export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<t
     const [primary, foreign] = prepared.joiner.relationships ?? [];
     if (primary === undefined || foreign === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const endpointIds = Schema.Array(Id).check(Schema.isMaxLength(4));
-    const reverseIds = Schema.Array(Id).check(Schema.isMaxLength(admission === "inventory-deletions" ? 8 : 4));
+    const reverseIds = Schema.Array(Id).check(Schema.isMaxLength(admission === "inventory-deletions" || admission === "fulfillment-set-deletions" ? 8 : 4));
     const Endpoint = admission === "shipping-profile-deletions" ? Schema.Struct({ [foreign.foreignKey]: reverseIds })
       : Schema.Union([Schema.Struct({ [primary.foreignKey]: endpointIds }), Schema.Struct({ [foreign.foreignKey]: reverseIds })]);
     const ReturnKeys = Schema.Struct({ returnLinkableKeys: Schema.Array(Schema.Literals(["id", primary.foreignKey, foreign.foreignKey])).check(Schema.isLengthBetween(3, 3)) });
@@ -73,14 +74,14 @@ export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<t
     const softDelete = commands.write(softDeleteName, prepare(decodeSoftDelete), ({ service, context }, input) =>
       service.softDelete(input.selector, { returnLinkableKeys: [...input.config.returnLinkableKeys] }, context));
     const decodeLifecycle = commerceDecoder(Schema.Struct({ [primary.foreignKey]: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(8))),
-      [foreign.foreignKey]: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(8))) }), "storedCorruption");
+      [foreign.foreignKey]: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(8))) }).check(Schema.makeFilter(result => prepared.serviceName !== LocationFulfillmentSet.serviceName || new Set(result[foreign.foreignKey] ?? []).size <= 4)), "storedCorruption");
     const softDeleteMethod = yield* defineWorkflowMethod({ command: softDelete, arguments: decodeSoftDeleteArguments,
       encode: ([selector, config]) => ({ selector, config }),
       output: decodeLifecycle,
       moduleEvents: [prepared.entityName + ".detached"] });
     // Restoration belongs to the connected endpoint-deletion profiles, whose
     // retained native compensators supply the authenticated forward endpoint.
-    const restoration = (admission === "inventory-item-deletions" || admission === "sales-channel-deletions" || admission === "stock-location-deletions" || admission === "shipping-profile-deletions") ? yield* Result.gen(function* () {
+    const restoration = (admission === "inventory-item-deletions" || admission === "sales-channel-deletions" || admission === "stock-location-deletions" || admission === "shipping-profile-deletions" || admission === "fulfillment-set-deletions") ? yield* Result.gen(function* () {
       const restoreName = prefix + "NativeRestore";
       const restore = commands.write(restoreName, prepare(decodeSoftDelete), ({ service, context }, input) =>
         service.restore(input.selector, { returnLinkableKeys: [...input.config.returnLinkableKeys] }, context));
@@ -89,7 +90,7 @@ export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<t
         moduleEvents: [prepared.entityName + ".attached"] });
       return { restore, restoreName, restoreMethod };
     }) : undefined;
-    const deletes = admission === "cascade" || admission === "product-deletions" || admission === "inventory-deletions" || admission === "inventory-item-deletions" || admission === "sales-channel-deletions" || admission === "stock-location-deletions" || admission === "shipping-profile-deletions";
+    const deletes = admission === "cascade" || admission === "product-deletions" || admission === "inventory-deletions" || admission === "inventory-item-deletions" || admission === "sales-channel-deletions" || admission === "stock-location-deletions" || admission === "shipping-profile-deletions" || admission === "fulfillment-set-deletions";
     const result = Object.freeze({ create, list, createName, createMethod, listMethod, routing: structuredClone(prepared.routing),
       ...(admission === "create" ? {} : { dismiss, dismissName, dismissMethod }),
       ...(deletes ? { softDelete, softDeleteName, softDeleteMethod } : {}), ...restoration });

@@ -63,6 +63,6 @@ export function compileServiceZoneCreationContracts(metadata: Metadata) {
       return yield* decodeRows(rows);
     });
     const Output = Schema.Array(Schema.JsonObject).check(Schema.makeFilter(rows => Result.isSuccess(decodeRows(rows)) || "Expected complete native ServiceZone creation rows"));
-    return { zone, geo, option, rule, entities, relation, defaults, decodeZoneRow, decodeGeoRow, decodeRows, initializeRows, Output };
+    return { tables: metadata.tables, zone, geo, option, rule, entities, relation, defaults, decodeZoneRow, decodeGeoRow, decodeRows, initializeRows, Output };
   });
 }

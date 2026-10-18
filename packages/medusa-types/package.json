@@ -102,6 +102,11 @@
       "types": "./dist/workflow/fulfillment/service-zones.d.ts",
       "source": "./src/workflow/fulfillment/service-zones.ts",
       "default": "./dist/workflow/fulfillment/service-zones.js"
+    },
+    "./workflows/stock-locations/mutations": {
+      "types": "./dist/workflows/stock-locations/mutations.d.ts",
+      "source": "./src/workflows/stock-locations/mutations.ts",
+      "default": "./dist/workflows/stock-locations/mutations.js"
     }
   },
   "license": "MIT",

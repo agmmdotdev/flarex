@@ -9,6 +9,12 @@ const promotion = verifyCurrencyPromotion(root);
 const admitted = new Set(promotion.files.map((file) => path.resolve(root, file.target).replaceAll("\\", "/")));
 const inputs = new Set();
 for (const entry of [
+  "packages/medusa-core-flows/src/stock-location/workflows/create-location-fulfillment-set.ts",
+  "packages/medusa-core-flows/src/fulfillment/steps/create-fulfillment-set.ts",
+  "packages/medusa-core-flows/src/stock-location/steps/associate-locations-with-fulfillment-sets.ts",
+  "packages/medusa-link-modules/src/definitions/fulfillment-set-location.ts",
+  "packages/medusa-adapter/src/workflows/stock-location/create-location-fulfillment-set.ts",
+  "packages/medusa-adapter/src/modules/fulfillment/fulfillment-set-create-service.ts",
   "packages/medusa-core-flows/src/fulfillment/workflows/batch-shipping-option-rules.ts",
   "packages/medusa-adapter/src/workflows/fulfillment/batch-shipping-option-rules.ts",
   "packages/medusa-adapter/src/modules/fulfillment/shipping-option-rule-service.ts",

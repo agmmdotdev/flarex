@@ -40,8 +40,7 @@ export function prepareInventoryItemDeletionLinkResource(services: { readonly in
       variant_id: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(8))),
       inventory_item_id: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(8))),
     }), "storedCorruption");
-    const decodeErrorSelector = commerceDecoder(Schema.Struct({ inventory_item_id: Ids }), "storedCorruption");
-    const output = (method: "softDelete" | "restore") => (value: Json) => Result.gen(function* () {
+    const output = (value: Json) => Result.gen(function* () {
       const tuple = yield* decodeLinkCascade(value);
       for (const [name, map] of Object.entries(tuple[1])) {
         if (name !== family) return yield* Result.fail(commerceError("storedCorruption"));
@@ -49,19 +48,11 @@ export function prepareInventoryItemDeletionLinkResource(services: { readonly in
         if (Object.keys(decoded).length !== 0 && (decoded.variant_id === undefined || decoded.inventory_item_id === undefined ||
           decoded.variant_id.length !== decoded.inventory_item_id.length)) return yield* Result.fail(commerceError("storedCorruption"));
       }
-      if (tuple[0] !== null) {
-        if (tuple[0].length !== 1 || Object.keys(tuple[1]).length !== 0) return yield* Result.fail(commerceError("storedCorruption"));
-        for (const error of tuple[0]) {
-          if (error.serviceName !== family || error.method !== method) return yield* Result.fail(commerceError("storedCorruption"));
-          yield* decodeErrorSelector(error.args);
-        }
-      }
       return tuple;
     });
     return yield* defineComposedWorkflowResource({ identity: { format: "medusa.inventory-item.deletion-links",
       services: [inventory.routing], lifecycle: inventory.lifecycle }, dependencies: [softDelete, restore],
-      methods: { delete: { arguments: decodeEndpoint, output: output("softDelete") },
-        restore: { arguments: decodeEndpoint, output: output("restore") } },
+      methods: { delete: { arguments: decodeEndpoint, output }, restore: { arguments: decodeEndpoint, output } },
       bind: invoke => {
         const loaded = { ...structuredClone(inventory.routing),
           softDelete: (selector: unknown, config: unknown) => invoke(softDelete, selector, config),

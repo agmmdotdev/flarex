@@ -6,6 +6,7 @@ import { jsonEqual } from "flarex-protocol/json";
 import { FulfillmentSetDeletionIds } from "../../modules/fulfillment/fulfillment-set-delete-input";
 import type { makeFulfillmentSetDeletionCommands } from "../../modules/fulfillment/fulfillment-set-delete-service";
 import type { prepareFulfillmentSetDeletionLinkResource } from "../../links/fulfillment-set-deletion";
+import type { prepareLocationFulfillmentSetDeletionLinks } from "../../links/location-fulfillment-set-deletion";
 import { fulfillmentSetDeletionResources } from "../../workflow/policy";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { internalModuleWorkflowEvents } from "../../workflow/events";
@@ -16,13 +17,14 @@ import { prepareWorkflowResources } from "../../workflow/resources";
 
 type Fulfillment = Effect.Success<ReturnType<typeof makeFulfillmentSetDeletionCommands>>["workflow"];
 type Links = Result.Result.Success<ReturnType<typeof prepareFulfillmentSetDeletionLinkResource>>;
+type LocationLinks = Effect.Success<ReturnType<typeof prepareLocationFulfillmentSetDeletionLinks>>["workflow"];
 export const FulfillmentSetDeletionInput = Schema.Struct({ ids: FulfillmentSetDeletionIds });
 
-/** The genuine Set lifecycle and empty installed Link router share one outer
+/** The genuine Set lifecycle and installed locfs router share one outer
  * settlement, including the actual raw-input retained callbacks. */
 export const prepareFulfillmentSetDeletionWorkflow = Effect.fn("FulfillmentSet.prepareDeletion")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly fulfillment: InstalledWorkflowModule<Fulfillment> };
+  readonly modules: { readonly fulfillment: InstalledWorkflowModule<Fulfillment>; readonly locationLinks: InstalledWorkflowModule<LocationLinks> };
   readonly link: Links;
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
@@ -31,17 +33,21 @@ export const prepareFulfillmentSetDeletionWorkflow = Effect.fn("FulfillmentSet.p
   if (Object.keys(options).some(key => !["execution", "modules", "link", "revision", "subscribers"].includes(key)))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const registrations = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
-  if (Object.keys(registrations).length !== 1) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const installed = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, ["fulfillment"]));
+  if (Object.keys(registrations).length !== 2) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const installed = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, ["fulfillment", "locationLinks"]));
   const source = workflowModuleDefinition(installed.fulfillment.module)?.source;
   if (source?.name !== "flarex-fulfillment-set-delete" || source.profile !== "fulfillment-set-delete")
     return yield* Effect.fail(commerceError("invalidAuthority"));
-  if (installed.fulfillment.logicalResources !== undefined && !jsonEqual(installed.fulfillment.logicalResources, fulfillmentSetDeletionResources))
-    return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const modules = { fulfillment: { ...installed.fulfillment, logicalResources: fulfillmentSetDeletionResources } };
+  const linkSource = workflowModuleDefinition(installed.locationLinks.module)?.source;
+  if (linkSource?.profile !== "fulfillment-set-deletions") return yield* Effect.fail(commerceError("invalidAuthority"));
+  for (const registration of Object.values(installed))
+    if (registration.logicalResources !== undefined && !jsonEqual(registration.logicalResources, fulfillmentSetDeletionResources))
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const modules = { fulfillment: { ...installed.fulfillment, logicalResources: fulfillmentSetDeletionResources },
+    locationLinks: { ...installed.locationLinks, logicalResources: fulfillmentSetDeletionResources } };
   const resources = yield* Effect.fromResult(prepareWorkflowResources({ fulfillment: {
     module: modules.fulfillment.module, methods: ["softDeleteFulfillmentSets", "restoreFulfillmentSets"], graph: false,
-  } }, true, { link: options.link }));
+  }, locationLinks: { module: modules.locationLinks.module, methods: ["create", "list", "softDelete", "restore"], graph: false, expose: false } }, true, { link: options.link }));
   const prepared = yield* Effect.fromResult(deleteFulfillmentSetsWorkflow.prepare()).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   return yield* prepareAtomicWorkflowHost({ ...options, modules, operationScheduling: "queued",
     requestCallLimit: fulfillmentSetDeletionResources.calls, requestEventLimit: fulfillmentSetDeletionResources.eventMessages,

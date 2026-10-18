@@ -2,19 +2,21 @@
 
 ## Status And Authority
 
-Status: implemented private bounded native workflow for the installed Stock
-Location and SalesChannelLocation graph, including the shared reverse access
-correction below. Hosted activation and additional default graph admission
-remain pending.
+Status: implemented private bounded native workflow. The current installed
+LocationFulfillmentSet/Fulfillment composition and named resource allowance are
+owned by [137](./137-native-location-fulfillment-set-workflow.md); this record
+retains the original SalesChannelLocation baseline and shared reverse-access
+correction. Hosted activation and further default graph admission remain pending.
 Authority is the accepted Flarex design, package boundaries, Medusa adoption
 roadmap and Medusa 2.13.4 at `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`.
 The source island remains read-only. Chunked File import and Product export
 remain deferred.
 
-This selects the currently installed Stock Location and SalesChannelLocation
-graph. Full default-Medusa deletion additionally reaches unadmitted Fulfillment
-and Pricing cascade branches. Their real connected admission remains necessary
-before expanding this deletion profile to those installed sources.
+The original 114 selection covered Stock Location and SalesChannelLocation.
+137 extends it with the complete bounded Fulfillment forest through the stored
+LocationFulfillmentSet family. Provider and ShippingOptionPriceSet/Pricing Link
+families remain unadmitted; their installation requires connected migration of
+every affected deletion composition.
 
 ## Native Closure
 
@@ -56,7 +58,7 @@ uses `stock_location.stock-location.deleted` and source `stock_location`.
 Preserve and authenticate these distinct native spellings; do not rename the
 restoration message to match the module key.
 
-## Implementation Plan And Owners
+## Original 114 Implementation And Owners
 
 1. Promote the native composer and deletion step with narrow imports/exports,
    exact provenance and retained transaction-covered compensation callbacks.
@@ -71,9 +73,9 @@ restoration message to match the module key.
    impersonate Sales Channel deletion or load unrelated Product participants.
 4. Construct native `Link` with exactly that loaded family. Decode the complete
    native cascade tuple and grouped Stock Location endpoint, including empty
-   maps and both aliases. Preserve native errors-as-data; an underlying borrowed
-   refusal must still poison and roll back the root even when the step ignores
-   the returned tuple.
+   maps and both aliases. Native Link retains errors-as-data. The current atomic
+   boundary refuses a nonempty error tuple under preflight 56/137 and retains its
+   complete cause through the existing sticky refusal owner.
 5. Add `src/workflows/stock-location/delete.ts`, exact module/resource identity
    checks, graph disabled, module-only events, existing queued root scheduling
    and null completion. No Sales Channel endpoint service is required for this
@@ -81,7 +83,8 @@ restoration message to match the module key.
 
 Admit zero to four raw requested IDs and at most eight affected active pivots.
 Refuse overflow without truncation and roll back the entire root. Retain current
-call/event/byte/catalog/identity limits pending the connected maximum proof. No
+call/event/byte/catalog/identity limits in this original baseline; 137 owns the
+expanded installed graph's named allowance. No
 new schema, source lineage, initialization or durable reset is implied. There
 was no statically identified core blocker. The preserved connected witness
 exposed a shared access gap: forward deletion succeeded, but all-row reverse
@@ -111,7 +114,7 @@ Stock Location update, Sales Channel links/deletion and shared lifecycle owners.
 Complete affected types/builds, source/portability/lint and both reviews before
 a scoped commit. Hosted activation and arbitrary installed graphs remain open.
 
-## Additional Default Graph Admission
+## Further Default Graph Admission
 
 The pinned native graph also defines `LocationFulfillmentProvider` and
 `LocationFulfillmentSet`; the former deletes pivots only, while the latter
@@ -119,8 +122,10 @@ cascades into FulfillmentSet. Its DML reaches ServiceZone, GeoZone,
 ShippingOption and ShippingOptionRule. ShippingOptionPriceSet then reaches
 Pricing PriceSet, Price and PriceRule lifecycle and reverse VariantPriceSet
 pivots. These require real schemas, services, Link families and bounded receipt/
-event closure, beyond the current ShippingProfile-only storage profile. Source
-promotion alone grants none of those capabilities.
+event closure. 137 installs LocationFulfillmentSet and the bounded eight-table
+Fulfillment source; LocationFulfillmentProvider and ShippingOptionPriceSet with
+their further cascades retain separate admission. Source promotion alone grants
+none of those capabilities.
 
 InventoryLevelStockLocation is a native read-only Link, excluded by
 `Link.addModule` from mutation routing. It supplies no Inventory deletion branch.

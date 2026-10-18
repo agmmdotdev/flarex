@@ -982,6 +982,62 @@ export function verifyShippingProfileCreateCallbacks(nativeWorkflow, workflow, n
   if (creationTypes(nativeTypes) !== creationTypes(types)) throw new Error("Changed native ShippingProfile creation public contract");
 }
 
+/** Preserve native Location/Set creation, endpoint links and physical inverse.
+ * The only runtime representation seam is the existing explicit void response;
+ * imports, erased types and transaction-covered step metadata are fixed below.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeSetStep @param {string} setStep
+ * @param {string} nativeAssociation @param {string} association
+ * @param {string} nativeDefinition @param {string} definition
+ * @param {string} nativeTypes @param {string} types */
+export function verifyLocationFulfillmentSetCallbacks(nativeWorkflow, workflow, nativeSetStep, setStep, nativeAssociation, association, nativeDefinition, definition, nativeTypes, types) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types/workflows/stock-locations/mutations"')
+    .replace("  transform,", "  transform,\n  WorkflowResponse,")
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "../../fulfillment"', 'from "../../fulfillment/steps/create-fulfillment-set"')
+    .replace("        fulfillment_set_ids: [data.fulfillmentSet[0].id],",
+      "        // @ts-expect-error Native creation assumes a first Set; preserve its missing-first property-read failure.\n        fulfillment_set_ids: [data.fulfillmentSet[0].id],")
+    .replace("      input: data,\n    })", "      input: data,\n    })\n    return new WorkflowResponse(void 0)");
+  const expectedSetStep = nativeSetStep.replaceAll("\r\n", "\n")
+    .replace("import {", "import type {")
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types/fulfillment/index"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  createFulfillmentSetsId,", '  { name: createFulfillmentSetsId, compensation: "transactionCovered" },');
+  const expectedAssociation = nativeAssociation.replaceAll("\r\n", "\n")
+    .replace('import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"',
+      'import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"\nimport { Modules } from "@medusajs/utils/modules-sdk/definition"\nimport type { Link } from "@medusajs/modules-sdk/link"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  associateFulfillmentSetsWithLocationStepId,", '  { name: associateFulfillmentSetsWithLocationStepId, compensation: "transactionCovered" },')
+    .replaceAll("container.resolve(ContainerRegistrationKeys.LINK)", 'container.resolve<Pick<Link, "create" | "dismiss">>(ContainerRegistrationKeys.LINK)');
+  const expectedDefinition = nativeDefinition.replaceAll("\r\n", "\n")
+    .replace("import { ModuleJoinerConfig }", "import type { ModuleJoinerConfig }")
+    .replace('import { LINKS, Modules } from "@medusajs/framework/utils"',
+      'import { Modules } from "@medusajs/framework/utils/portable"\nimport { composeLinkName } from "@medusajs/utils/link/compose-link-name"')
+    .replaceAll("LINKS.LocationFulfillmentSet", 'composeLinkName(Modules.STOCK_LOCATION, "stock_location_id", Modules.FULFILLMENT, "fulfillment_set_id")');
+  const pairs = [[expectedWorkflow, workflow], [expectedSetStep, setStep],
+    [expectedAssociation, association], [expectedDefinition, definition], [nativeTypes, types]];
+  const syntaxFailure = "Invalid native LocationFulfillmentSet callback syntax";
+  for (const [expected, target] of pairs) {
+    if (expected === undefined || target === undefined ||
+      nativeWorkflowProgram(expected, syntaxFailure) !== nativeWorkflowProgram(target, syntaxFailure))
+      throw new Error("Changed native LocationFulfillmentSet callback behavior");
+  }
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("location-fulfillment-set.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  for (const [expected, target] of pairs) {
+    if (expected === undefined || target === undefined || typedProgram(expected) !== typedProgram(target))
+      throw new Error("Changed native LocationFulfillmentSet public contract");
+  }
+  const firstResultComment = "// @ts-expect-error Native creation assumes a first Set; preserve its missing-first property-read failure.";
+  const normalizedWorkflow = workflow.replaceAll("\r\n", "\n");
+  if (normalizedWorkflow.split(firstResultComment).length !== 2 ||
+    !normalizedWorkflow.includes(firstResultComment + "\n        fulfillment_set_ids: [data.fulfillmentSet[0].id],"))
+    throw new Error("Changed native LocationFulfillmentSet first-result type seam");
+}
+
 /** Preserve all native batch branches, public DTOs, real projected preimages,
  * absence and physical recreation. The named composer result expresses actual
  * empty-branch absence without leaking SDK brands; exported native DTOs remain

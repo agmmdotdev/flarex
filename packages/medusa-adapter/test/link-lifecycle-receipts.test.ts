@@ -51,6 +51,29 @@ beforeAll(async () => {
 });
 
 describe("rich generated Link lifecycle receipts", () => {
+  it("bounds distinct endpoint members across complete selected history without changing ordinary profiles", async () => {
+    const metadata = await Effect.runPromise(captureVariantInventoryLinkMetadata());
+    const configuration = { table: metadata.frame, endpoints: ["variant_id", "inventory_item_id"] as const,
+      returnLinkableKeys: ["id", "variant_id", "inventory_item_id"], softDeleteCommand: "deleteLink", restoreCommand: "restoreLink",
+      maximumEndpoints: 4, maximumRows: 8, selectionPlan };
+    const bounded = Result.getOrThrow(compileLinkLifecycleReceipt({ ...configuration, distinctEndpoint: { name: "variant_id", maximum: 4 } }));
+    for (const count of [4, 5]) {
+      const rows = Array.from({ length: count }, (_, index) => row("history" + index, "i", time));
+      const activity = { ...empty(), relationalReads: evidence(["i"], count), observedRows: rows.map(row => ({ table, row })) };
+      await Effect.runPromise(validate(call(["i"], []), activity));
+      const outcome = await Effect.runPromise(Effect.result(bounded(call(["i"], []), activity)));
+      if (count === 4) expect(Result.isSuccess(outcome)).toBe(true);
+      else {
+        expect(outcome).toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+        const malformedSelection = { ...activity, relationalReads: evidence(["i"], count - 1) };
+        expect(await Effect.runPromise(Effect.result(bounded(call(["i"], []), malformedSelection))))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+      }
+    }
+    for (const distinctEndpoint of [{ name: "invented", maximum: 4 }, { name: "variant_id", maximum: 0 },
+      { name: "variant_id", maximum: 9 }, { name: "variant_id", maximum: 1.5 }])
+      expect(compileLinkLifecycleReceipt({ ...configuration, distinctEndpoint })).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
   it("correlates all eight rows and exact ordered endpoint maps despite raw duplicates and missing Items", async () => {
     const rows = Array.from({ length: 8 }, (_, index) => row("link" + index, "i" + index % 2));
     const receipt = call(["i1", "i0", "missing", "i1"], rows), activity = {

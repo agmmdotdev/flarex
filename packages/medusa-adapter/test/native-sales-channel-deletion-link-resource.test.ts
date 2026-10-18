@@ -60,7 +60,7 @@ describe("native Sales Channel deletion Link resource", () => {
     expect(calls).toEqual([]);
   });
 
-  it("retains native parallel dispatch and full errors-as-data tuples", async () => {
+  it("retains native parallel dispatch and refuses reported errors at the atomic boundary", async () => {
     let release!: () => void, locationEntered!: () => void;
     const blocked = new Promise<void>(resolve => { release = resolve; });
     const entered = new Promise<void>(resolve => { locationEntered = resolve; });
@@ -74,7 +74,7 @@ describe("native Sales Channel deletion Link resource", () => {
     const result = await pending;
     expect(result[0]).toMatchObject([{ serviceName: links.nativeServices.sales.routing.__joinerConfig.serviceName,
       method: "softDelete", args: { sales_channel_id: ["sc"] }, error: { message: "native Link failure" } }]);
-    expect(Result.isSuccess(definition.methods.delete!.output(result))).toBe(true);
+    expect(definition.methods.delete!.output(result)).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure", cause: result } });
   });
 
   it("keeps genuine families in distinct source modules and binds lifecycle-only resource dependencies", () => {

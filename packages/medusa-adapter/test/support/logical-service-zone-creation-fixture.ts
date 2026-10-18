@@ -78,8 +78,10 @@ export function maximumServiceZoneCreationInput(prefix: string): typeof ServiceZ
 
 export async function prepareLogicalServiceZoneCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
   graphs: readonly ReturnType<typeof serviceZoneDeletionGraph>[], shared?: Readonly<{ resource: LogicalCurrencyFixture["resource"];
-    fixtureIdentity: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }> }>) {
-  const configuration = { includeShippingProfile: true, includeServiceZoneCreation: true };
+    fixtureIdentity: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }> }>,
+  installedLinks: Readonly<{ includeStockLocation?: boolean; includeLocationFulfillmentSetLink?: boolean;
+    includeSalesChannelLocationLink?: boolean; includeSalesChannel?: boolean }> = {}) {
+  const configuration = { ...installedLinks, includeShippingProfile: true, includeServiceZoneCreation: true };
   const fixture = await logicalCurrencyFixture(driver, close, shared === undefined ? configuration : { ...configuration, ...shared });
   const fulfillment = await Effect.runPromise(makeServiceZoneCreationCommands()), definition = fixture.shippingProfileDefinition;
   if (definition === undefined || definition.schema.tables.length !== 8) throw new Error("Missing fresh eight-table Fulfillment source");

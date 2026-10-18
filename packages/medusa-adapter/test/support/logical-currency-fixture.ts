@@ -141,6 +141,7 @@ import { compileStoreDefinition } from "../../src/modules/store/schema";
 import { compileProductLinksDefinition } from "../../src/links/product-definition";
 import { compileStockLocationDefinition } from "../../src/modules/stock-location/schema";
 import { compileSalesChannelLocationLinkDefinition } from "../../src/links/sales-channel-location-schema";
+import { compileLocationFulfillmentSetLinkDefinition } from "../../src/links/location-fulfillment-set-schema";
 import { compileShippingProfileDefinition, compileShippingProfileDeletionDefinition, compileServiceZoneCreationDefinition } from "../../src/modules/fulfillment/shipping-profile-schema";
 import {
   currencyAnnouncementWrite,
@@ -187,6 +188,7 @@ type LogicalCurrencyFixtureOptions = Readonly<{
   includeStore?: boolean;
   includeStockLocation?: boolean;
   includeSalesChannelLocationLink?: boolean;
+  includeLocationFulfillmentSetLink?: boolean;
   includeProductSalesChannelLink?: boolean;
   includeShippingProfile?: boolean;
   includeShippingProfileDeletion?: boolean;
@@ -238,6 +240,7 @@ export interface LogicalCurrencyFixture {
   readonly storeDefinition: Effect.Success<ReturnType<typeof compileStoreDefinition>> | undefined;
   readonly stockLocationDefinition: Effect.Success<ReturnType<typeof compileStockLocationDefinition>> | undefined;
   readonly salesChannelLocationLinkDefinition: Effect.Success<ReturnType<typeof compileSalesChannelLocationLinkDefinition>> | undefined;
+  readonly locationFulfillmentSetLinkDefinition: Effect.Success<ReturnType<typeof compileLocationFulfillmentSetLinkDefinition>> | undefined;
   readonly productLinksDefinition: Effect.Success<ReturnType<typeof compileProductLinksDefinition>> | undefined;
   readonly shippingProfileDefinition: Effect.Success<ReturnType<typeof compileShippingProfileDefinition>> | undefined;
   readonly physicalTablesBeforeCandidate: readonly Readonly<{ name: string }>[];
@@ -378,6 +381,7 @@ export async function logicalCurrencyFixture(
         ...(options?.includeSalesChannel === true ? ["salesChannel" as const] : []),
         ...(options?.includeStore === true ? ["store" as const] : []),
         ...(options?.includeSalesChannelLocationLink === true ? ["salesChannelLocationLink" as const] : []),
+        ...(options?.includeLocationFulfillmentSetLink === true ? ["locationFulfillmentSetLink" as const] : []),
         ...(options?.includeProductSalesChannelLink === true ? ["productSalesChannelLink" as const] : []),
         ...(options?.includeShippingProfile === true ? ["shippingProfile" as const] : []),
         ...(options?.includeShippingProfileDeletion === true ? ["shippingProfileDeletion" as const] : []),
@@ -413,6 +417,8 @@ export async function logicalCurrencyFixture(
       ? yield* compileStockLocationDefinition() : undefined;
     const salesChannelLocationLinkDefinition = options?.includeSalesChannelLocationLink === true
       ? yield* compileSalesChannelLocationLinkDefinition() : undefined;
+    const locationFulfillmentSetLinkDefinition = options?.includeLocationFulfillmentSetLink === true
+      ? yield* compileLocationFulfillmentSetLinkDefinition() : undefined;
     const productLinksDefinition = options?.includeProductSalesChannelLink === true || options?.includeProductShippingProfileLink === true
       ? yield* compileProductLinksDefinition({ salesChannel: options?.includeProductSalesChannelLink === true,
         shippingProfile: options?.includeProductShippingProfileLink === true }) : undefined;
@@ -538,7 +544,7 @@ export async function logicalCurrencyFixture(
       metadataCounts: logicalReadMetadataCounts(candidate.sources),
       metadataScaling: metadataScaling === undefined ? undefined : {
         scale: metadataScaling.scale, counts: metadataScaling.counts, added: metadataScaling.added },
-      pricingDefinition, variantPricingLinkDefinition, salesChannelDefinition, storeDefinition, stockLocationDefinition, salesChannelLocationLinkDefinition, productLinksDefinition,
+      pricingDefinition, variantPricingLinkDefinition, salesChannelDefinition, storeDefinition, stockLocationDefinition, salesChannelLocationLinkDefinition, locationFulfillmentSetLinkDefinition, productLinksDefinition,
       shippingProfileDefinition, physicalTablesBeforeCandidate,
       ...(pair.kind === "pglite" ? { observeSql: pair.observeSql } : {}) };
   })());

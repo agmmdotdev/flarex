@@ -1,13 +1,19 @@
+import { makeFulfillmentSetDeletionCommands } from "../src/modules/fulfillment/fulfillment-set-delete-service";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { commerceCommandIdentity } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareStockLocationDeletionLinks, prepareStockLocationDeletionLinkResource } from "../src/links/stock-location-deletion";
 import { prepareSalesChannelDeletionLinks } from "../src/links/sales-channel-deletion";
+import { captureLocationFulfillmentSetLinkMetadata } from "../src/links/location-fulfillment-set-schema";
+import { captureSalesChannelLocationLinkMetadata } from "../src/links/sales-channel-location-schema";
+import { prepareLinkService } from "../src/links/service";
+import { prepareLinkWorkflowService } from "../src/links/workflow-service";
 import { composedWorkflowResourceDefinition, type ComposedWorkflowServices, type InvokeWorkflowMethod } from "../src/workflow/composed-resource";
 import { workflowMethodDefinition, workflowModuleDefinition, type WorkflowMethod } from "../src/workflow/module";
 
 let links: Effect.Success<ReturnType<typeof prepareStockLocationDeletionLinks>>;
+let fulfillment: Effect.Success<ReturnType<typeof makeFulfillmentSetDeletionCommands>>;
 type Service = ComposedWorkflowServices<{ readonly link: typeof links.resource }>["link"];
 
 /** Real native Link routing over authentic method contracts. Connected tests
@@ -33,18 +39,20 @@ function bind(respond: (name: string, args: readonly unknown[]) => Json | Promis
 const endpoint = (ids: string[]) => ({ stock_location: { stock_location_id: [...ids], location_id: [...ids] } });
 
 describe("native Stock Location deletion Link resource", () => {
-  beforeAll(async () => { links = await Effect.runPromise(prepareStockLocationDeletionLinks()); });
+  beforeAll(async () => { fulfillment = await Effect.runPromise(makeFulfillmentSetDeletionCommands()); links = await Effect.runPromise(prepareStockLocationDeletionLinks(fulfillment.workflow)); });
 
   it.each(["delete", "restore"] as const)("routes %s once through stock_location_id and ignores the agreed authored alias", async operation => {
     const family = links.nativeServices.location;
-    const { service, calls, definition } = bind(() => ({ sales_channel_id: ["sc1", "sc2"], stock_location_id: ["loc", "loc"] }));
+    const { service, calls, definition } = bind(name => name.startsWith("stockLocationSalesChannel") ? { sales_channel_id: ["sc1", "sc2"], stock_location_id: ["loc", "loc"] } : {});
     const input = endpoint(["loc", "missing", "loc"]);
     expect(await service[operation](input)).toEqual([null, {
       [family.routing.__joinerConfig.serviceName!]: { sales_channel_id: ["sc1", "sc2"], stock_location_id: ["loc", "loc"] },
     }]);
-    expect(calls).toEqual([{ name: operation === "delete" ? family.softDeleteName : family.restoreName,
-      args: [{ stock_location_id: ["loc", "missing", "loc"] }, { returnLinkableKeys: family.routing.__joinerConfig.primaryKeys }] }]);
-    expect(definition.dependencies).toEqual([family.softDeleteMethod, family.restoreMethod]);
+    expect(calls[0]).toEqual({ name: operation === "delete" ? family.softDeleteName : family.restoreName,
+      args: [{ stock_location_id: ["loc", "missing", "loc"] }, { returnLinkableKeys: family.routing.__joinerConfig.primaryKeys }] });
+    expect(calls[1]).toEqual({ name: operation === "delete" ? links.nativeServices.fulfillmentSet.softDeleteName : links.nativeServices.fulfillmentSet.restoreName,
+      args: [{ stock_location_id: ["loc", "missing", "loc"] }, { returnLinkableKeys: links.nativeServices.fulfillmentSet.routing.__joinerConfig.primaryKeys }] });
+    expect(definition.dependencies).toHaveLength(6);
     expect(Object.keys(definition.methods)).toEqual(["delete", "restore"]);
     expect(input).toEqual(endpoint(["loc", "missing", "loc"]));
   });
@@ -58,14 +66,30 @@ describe("native Stock Location deletion Link resource", () => {
     expect(calls).toEqual([]);
   });
 
+  it.each(["delete", "restore"] as const)("preserves eight raw cascade IDs and full native return keys for %s", async operation => {
+    const ids = ["s2", "s1", "s2", "s3", "s4", "s1", "s4", "s3"], actual = ["s2", "s1", "s3", "s4"];
+    const { service, calls } = bind(name => name.startsWith("stockLocationSalesChannel") ? {}
+      : name.startsWith("stockLocationFulfillmentSet") ? { stock_location_id: ids.map(() => "loc"), fulfillment_set_id: ids }
+      : { fulfillment_set_id: actual });
+    expect(await service[operation](endpoint(["loc"]))).toEqual([null, {
+      [links.nativeServices.fulfillmentSet.routing.__joinerConfig.serviceName!]: { stock_location_id: ids.map(() => "loc"), fulfillment_set_id: ids },
+      fulfillment: { fulfillment_set_id: actual },
+    }]);
+    const nativeCall = calls.find(call => call.name === (operation === "delete" ? "fulfillmentSetSoftDeleteForWorkflow" : "fulfillmentSetRestoreForWorkflow"));
+    expect(nativeCall?.args[0]).toEqual({ id: ids });
+    const config = nativeCall?.args[1];
+    expect(config).toMatchObject({ returnLinkableKeys: expect.arrayContaining(["fulfillment_address_id", "fulfillment_set_id", "shipping_profile_id"]) });
+    expect(calls).toHaveLength(3);
+  });
+
   it.each(["delete", "restore"] as const)("preserves complete native errors-as-data for %s", async operation => {
     const { service, calls, definition } = bind(async () => { throw new Error("native Link failure"); });
     const result = await service[operation](endpoint(["loc"]));
-    expect(result[0]).toMatchObject([{ serviceName: links.nativeServices.location.routing.__joinerConfig.serviceName,
+    expect(result[0]).toMatchObject([links.nativeServices.location, links.nativeServices.fulfillmentSet].map(family => ({ serviceName: family.routing.__joinerConfig.serviceName,
       method: operation === "delete" ? "softDelete" : "restore", args: { stock_location_id: ["loc"] },
-      error: { message: "native Link failure" } }]);
-    expect(result[1]).toEqual({}); expect(calls).toHaveLength(1);
-    expect(Result.isSuccess(definition.methods[operation]!.output(result))).toBe(true);
+      error: { message: "native Link failure" } })));
+    expect(result[1]).toEqual({}); expect(calls).toHaveLength(2);
+    expect(definition.methods[operation]!.output(result)).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure", cause: result } });
   });
 
   it("binds the one genuine family and retained restoration to a distinct admitted source", () => {
@@ -78,13 +102,26 @@ describe("native Stock Location deletion Link resource", () => {
   });
 
   it("rejects forged services and another endpoint's genuine admission", async () => {
-    expect(prepareStockLocationDeletionLinkResource({ location: { ...links.nativeServices.location } }))
+    expect(prepareStockLocationDeletionLinkResource({ ...links.nativeServices, location: { ...links.nativeServices.location } }, fulfillment.workflow))
       .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
     const sales = await Effect.runPromise(prepareSalesChannelDeletionLinks());
-    expect(prepareStockLocationDeletionLinkResource({ location: sales.nativeServices.location }))
+    expect(prepareStockLocationDeletionLinkResource({ ...links.nativeServices, location: sales.nativeServices.location }, fulfillment.workflow))
       .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
-    expect(prepareStockLocationDeletionLinkResource({ location: sales.nativeServices.sales }))
+    expect(prepareStockLocationDeletionLinkResource({ ...links.nativeServices, location: sales.nativeServices.sales }, fulfillment.workflow))
       .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
+
+  it("refuses altered native joiners even on authentic prepared Link services", async () => {
+    for (const family of ["location", "fulfillmentSet"] as const) {
+      const metadata = await Effect.runPromise(family === "location" ? captureSalesChannelLocationLinkMetadata() : captureLocationFulfillmentSetLinkMetadata());
+      const prepared = await Effect.runPromise(prepareLinkService(metadata, 8, true));
+      const relationships = prepared.routing.__joinerConfig.relationships;
+      if (relationships?.[1] === undefined) throw new Error("Missing genuine Link relationship");
+      relationships[1].deleteCascade = !relationships[1].deleteCascade;
+      const altered = Result.getOrThrow(prepareLinkWorkflowService(prepared, "alteredStockLocationJoiner", "stock-location-deletions"));
+      expect(prepareStockLocationDeletionLinkResource({ ...links.nativeServices, [family]: altered }, fulfillment.workflow))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    }
   });
 
   it("authenticates both aliases including order, exact endpoint shape, empty maps and bounds", () => {

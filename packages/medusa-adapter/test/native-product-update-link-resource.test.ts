@@ -71,7 +71,7 @@ describe("native whole-Product Link resource ABI", () => {
     expect(Result.isSuccess(definition.methods.delete!.output(result))).toBe(true);
   });
 
-  it("preserves the native errors-as-data tuple instead of projecting partial success", async () => {
+  it("preserves the native error tuple and refuses partial success at the atomic boundary", async () => {
     const { service, definition } = bind(name => {
       if (name === "inventoryLinkNativeSoftDelete") return {};
       if (name === "pricingLinkNativeSoftDelete") return { variant_id: ["v"], price_set_id: ["ps"] };
@@ -81,7 +81,7 @@ describe("native whole-Product Link resource ABI", () => {
     expect(result[0]).toMatchObject([{ serviceName: "pricing", method: "softDeletePriceSets", args: { id: ["ps"] },
       error: { message: "Pricing lifecycle observation failed" } }]);
     expect(result[1]).toHaveProperty(variant.nativeServices.pricing.routing.__joinerConfig.serviceName!);
-    expect(Result.isSuccess(definition.methods.delete!.output(result))).toBe(true);
+    expect(definition.methods.delete!.output(result)).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure", cause: result } });
   });
 
   it("routes native replacement preimages, dismissal and creation without endpoint reads", async () => {

@@ -16,6 +16,7 @@ import { compileStoreDefinition } from "../modules/store/schema";
 import { compileProductLinksDefinition } from "../links/product-definition";
 import { compileShippingProfileDefinition, compileShippingProfileDeletionDefinition, compileServiceZoneCreationDefinition } from "../modules/fulfillment/shipping-profile-schema";
 import { compileSalesChannelLocationLinkDefinition } from "../links/sales-channel-location-schema";
+import { compileLocationFulfillmentSetLinkDefinition } from "../links/location-fulfillment-set-schema";
 import type {
   ApplicationAnalysisAuthority,
   ApplicationAnalysisRepository,
@@ -31,7 +32,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
-const MedusaModule = Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "store", "productSalesChannelLink", "shippingProfile", "shippingProfileDeletion", "serviceZoneCreation", "productShippingProfileLink", "inventory", "stockLocation", "variantLinks", "salesChannelLocationLink"]);
+const MedusaModule = Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "store", "productSalesChannelLink", "shippingProfile", "shippingProfileDeletion", "serviceZoneCreation", "productShippingProfileLink", "inventory", "stockLocation", "variantLinks", "salesChannelLocationLink", "locationFulfillmentSetLink"]);
 const decodeModules = Schema.decodeUnknownResult(Schema.Array(MedusaModule));
 const Request = Schema.Struct({
   applicationCandidateId: Schema.NonEmptyString,
@@ -81,6 +82,9 @@ export function makeSchemaComposer(configuration: {
       return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
     }
     if (modules.includes("salesChannelLocationLink") && (!modules.includes("salesChannel") || !modules.includes("stockLocation"))) {
+      return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
+    }
+    if (modules.includes("locationFulfillmentSetLink") && (!modules.includes("stockLocation") || !modules.includes("serviceZoneCreation"))) {
       return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
     }
     if (modules.includes("variantLinks") && (!modules.includes("product") || !modules.includes("pricing") || !modules.includes("inventory") || modules.includes("variantPricingLink"))) {
@@ -202,6 +206,7 @@ export function makeSchemaComposer(configuration: {
       ["store", "medusa.store", compileStoreDefinition],
       ["variantLinks", "medusa.variantLinks", compileVariantLinksDefinition],
       ["salesChannelLocationLink", "medusa.link.salesChannelLocation", compileSalesChannelLocationLinkDefinition],
+      ["locationFulfillmentSetLink", "medusa.link.locationFulfillmentSet", compileLocationFulfillmentSetLinkDefinition],
     ] as const) {
       if (!modules.includes(selected)) continue;
       const definition = yield* compile();

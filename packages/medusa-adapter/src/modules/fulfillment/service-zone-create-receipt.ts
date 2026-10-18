@@ -3,8 +3,8 @@ import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils
 import { jsonEqual } from "flarex-protocol/json";
 import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
-import { matchesPublicRow, orderNativeIdRows, projectNativeRow } from "../../repository/result";
-import { commerceRelationReadQuery } from "../../query/relations";
+import { matchesPublicRow, projectNativeRow } from "../../repository/result";
+import { correlatePhysicalGraphReceipt } from "../../repository/physical-graph-receipt";
 import { moduleEventDecoder } from "../../module/events";
 import { decodeServiceZoneCreates, decodeServiceZonePhysicalDeletionIds, type compileServiceZoneCreationContracts } from "./service-zone-create-input";
 
@@ -87,61 +87,9 @@ export function serviceZoneCreationPolicy(contracts: Contracts) {
     } else {
       if (call.result !== null) return yield* Effect.fail(mismatch());
       const rawIds = yield* Effect.fromResult(decodeServiceZonePhysicalDeletionIds(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-      const observed = new Map<string, Map<string, JsonObject & Readonly<{ id: string }>>>();
-      const record = Effect.fn("ServiceZoneCreate.observeInverse")(function* (table: string, value: JsonObject) {
-        const entity = byTable.get(table);
-        if (entity === undefined) return yield* Effect.fail(mismatch());
-        const row = yield* Effect.fromResult(entity.decodeRow(projectNativeRow(value))).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-        if (typeof row.id !== "string") return yield* Effect.fail(mismatch());
-        const group = observed.get(table) ?? new Map<string, JsonObject & Readonly<{ id: string }>>(), prior = group.get(row.id);
-        if (prior !== undefined && !jsonEqual(prior, row)) return yield* Effect.fail(mismatch());
-        group.set(row.id, { ...row, id: row.id }); observed.set(table, group);
-        if (group.size > entity.maximum) return yield* Effect.fail(mismatch());
-      });
-      for (const observation of activity.observedRows) yield* record(observation.table, observation.row);
-      for (const mutation of activity.mutations) {
-        if (mutation.before === null) return yield* Effect.fail(mismatch());
-        yield* record(mutation.table, mutation.before);
-      }
-      const roots = orderNativeIdRows([...observed.get(contracts.zone.name)?.values() ?? []], {});
-      if (roots.some(row => typeof row.id !== "string" || !rawIds.includes(row.id))) return yield* Effect.fail(mismatch());
-      const expectedReads: JsonObject[] = [], selected = new Set<string>();
-      if (rawIds.length) expectedReads.push({ table: contracts.zone.name,
-        query: commerceRelationReadQuery(defaultCommerceResources, { kind: "in", column: "id", values: rawIds }), total: roots.length, returned: roots.length });
-      const children = (table: string, column: string, parentId: string) => {
-        const members = orderNativeIdRows([...observed.get(table)?.values() ?? []].filter(member => member[column] === parentId), {});
-        expectedReads.push({ table, query: commerceRelationReadQuery(defaultCommerceResources,
-          { kind: "in", column, values: [parentId] }), total: members.length, returned: members.length });
-        for (const member of members) selected.add(table + ":" + String(member.id));
-        return members;
-      };
-      // The checked installed native topology has three cascade edges. Keep
-      // their required reads explicit; medusaLifecycle owns traversal/execution.
-      for (const root of roots) {
-        if (typeof root.id !== "string") return yield* Effect.fail(mismatch());
-        selected.add(contracts.zone.name + ":" + String(root.id));
-        for (const option of children(contracts.option.name, "service_zone_id", root.id)) {
-          if (typeof option.id !== "string") return yield* Effect.fail(mismatch());
-          children(contracts.rule.name, "shipping_option_id", option.id);
-        }
-        children(contracts.geo.name, "service_zone_id", root.id);
-      }
-      if (!jsonEqual(expectedReads, activity.relationalReads)) return yield* Effect.fail(mismatch());
-      const pending = new Set([...observed].flatMap(([table, rows]) => [...rows.keys()].map(id => table + ":" + id)));
-      if (pending.size !== selected.size || [...pending].some(identity => !selected.has(identity))) return yield* Effect.fail(mismatch());
-      for (const [ordinal, mutation] of activity.mutations.entries()) {
-        const row = mutation.before;
-        if (row === null || typeof row.id !== "string" || mutation.ordinal !== ordinal || mutation.operation !== "delete" || mutation.after !== null ||
-          !pending.delete(mutation.table + ":" + row.id)) return yield* Effect.fail(mismatch());
-        const children = mutation.table === contracts.zone.name
-          ? [[contracts.option.name, "service_zone_id"], [contracts.geo.name, "service_zone_id"]] as const
-          : mutation.table === contracts.option.name ? [[contracts.rule.name, "shipping_option_id"]] as const : [];
-        for (const [table, column] of children) for (const member of observed.get(table)?.values() ?? []) {
-          if (member[column] === row.id && pending.has(table + ":" + String(member.id))) return yield* Effect.fail(mismatch());
-        }
-        if (mutation.table === contracts.zone.name) orderedEvents.push({ object: contracts.zone.name, id: row.id });
-      }
-      if (pending.size) return yield* Effect.fail(mismatch());
+      const rootIds = yield* Effect.fromResult(correlatePhysicalGraphReceipt({ tables: contracts.tables,
+        entities: contracts.entities, root: contracts.zone, requestedIds: rawIds, activity }));
+      for (const id of rootIds) orderedEvents.push({ object: contracts.zone.name, id });
     }
     let emitted = 0;
     for (const event of call.events) {

@@ -20,11 +20,15 @@ export function compileLinkLifecycleReceipt(configuration: {
   readonly restoreCommand: string;
   readonly maximumEndpoints: number;
   readonly maximumRows: number;
+  readonly distinctEndpoint?: Readonly<{ name: string; maximum: number }>;
   readonly selectionPlan: Result.Result.Success<ReturnType<typeof prepareLinkRepository>>["lifecycleReadPlan"];
 }) {
   return Result.gen(function* () {
     const complete = yield* compileCompleteRow(configuration.table);
     const [primary, foreign] = configuration.endpoints;
+    const distinct = configuration.distinctEndpoint;
+    if (distinct !== undefined && (![primary, foreign].includes(distinct.name) || !Number.isSafeInteger(distinct.maximum) ||
+      distinct.maximum < 1 || distinct.maximum > configuration.maximumRows)) return yield* Result.fail(commerceError("unsupportedProfile"));
     const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
     const Ids = Schema.Array(Id).check(Schema.isMaxLength(configuration.maximumEndpoints));
     const decodeInput = commerceDecoder(Schema.Struct({
@@ -89,6 +93,8 @@ export function compileLinkLifecycleReceipt(configuration: {
       const selected = members.filter(([, row]) => plan.withDeleted || row.deleted_at === null);
       if (members.length > configuration.maximumRows || activity.relationalReads.some(read => read.total !== selected.length))
         return yield* Effect.fail(mismatch());
+      if (distinct !== undefined && new Set(members.map(([, row]) => row[distinct.name])).size > distinct.maximum)
+        return yield* Effect.fail(commerceError("limitExceeded"));
       const pending = new Map(members.filter(([, row]) => operation === "restore" || row.deleted_at === null));
       const matched = new Set<number>(), ordered: JsonObject[] = [];
       for (const change of activity.lifecycle) {

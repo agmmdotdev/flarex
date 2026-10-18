@@ -3,6 +3,8 @@ import { Effect, Result } from "effect";
 import { captureServiceZoneCreationMetadata } from "../src/modules/fulfillment/shipping-profile-schema";
 import { compileFulfillmentSetDeletionContracts, decodeFulfillmentSetDeletionIds, decodeFulfillmentSetDeletionArguments,
   decodeFulfillmentSetDeletionOutput } from "../src/modules/fulfillment/fulfillment-set-delete-input";
+import { decodeFulfillmentSetLifecycleArguments, decodeFulfillmentSetLifecycleIds, decodeFulfillmentSetRepositoryIds,
+  fulfillmentSetDeletionRouting } from "../src/modules/fulfillment/fulfillment-set-delete-input";
 import { fulfillmentSetDeletionGraph } from "./support/logical-fulfillment-set-deletion-fixture";
 
 let contracts: Result.Result.Success<ReturnType<typeof compileFulfillmentSetDeletionContracts>>;
@@ -14,6 +16,18 @@ const cascades = Object.fromEntries(models.map(([model, table]) => [model, graph
 beforeAll(async () => { contracts = Result.getOrThrow(compileFulfillmentSetDeletionContracts((await Effect.runPromise(captureServiceZoneCreationMetadata())).frame)); });
 
 describe("native Fulfillment Set deletion boundaries", () => {
+  it("preserves all raw history selector IDs and authenticates the complete native return-key order", () => {
+    const ids = ["b", "a", "b", "c", "d", "c", "a", "d"];
+    const config = { returnLinkableKeys: Object.keys(fulfillmentSetDeletionRouting().__joinerConfig.linkableKeys ?? {}) };
+    expect(config.returnLinkableKeys[0]).toBe("fulfillment_address_id");
+    expect(config.returnLinkableKeys).toHaveLength(12);
+    expect(Result.getOrThrow(decodeFulfillmentSetLifecycleArguments([{ id: ids }, config]))).toEqual([{ id: ids }, config]);
+    expect(Result.getOrThrow(decodeFulfillmentSetLifecycleIds({ selector: { id: ids }, config }))).toEqual(ids);
+    expect(Result.getOrThrow(decodeFulfillmentSetRepositoryIds([{ id: ids }]))).toEqual(ids);
+    for (const input of [[{ id: [...ids, "b"] }, config], [{ id: ["a", "b", "c", "d", "e"] }, config],
+      [{ id: ids }, { returnLinkableKeys: ["fulfillment_set_id"] }], [{ id: ids }, { returnLinkableKeys: [...config.returnLinkableKeys].reverse() }]])
+      expect(Result.isFailure(decodeFulfillmentSetLifecycleArguments(input))).toBe(true);
+  });
   it("preserves bounded raw IDs, duplicate position, whitespace and Unicode for both retained steps", () => {
     for (const ids of [[], ["missing", " raw ", "missing", "set-\u{10000}"]]) {
       expect(Result.getOrThrow(decodeFulfillmentSetDeletionIds(ids))).toEqual(ids);

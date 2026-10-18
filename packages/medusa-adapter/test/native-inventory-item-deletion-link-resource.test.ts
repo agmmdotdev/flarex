@@ -1,3 +1,4 @@
+import { makeFulfillmentSetDeletionCommands } from "../src/modules/fulfillment/fulfillment-set-delete-service";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { commerceCommandIdentity } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -62,14 +63,14 @@ describe("native Inventory Item deletion Link resource", () => {
     expect(Result.isSuccess(definition.methods[operation]!.output(result))).toBe(true);
   });
 
-  it.each(["delete", "restore"] as const)("preserves authentic errors-as-data for %s", async operation => {
+  it.each(["delete", "restore"] as const)("preserves authentic errors-as-data and refuses them at the atomic %s boundary", async operation => {
     const { service, calls, definition } = bind(async () => { throw new Error("native rich Link failure"); });
     const result = await service[operation](endpoint(["item"]));
     expect(result[0]).toMatchObject([{ serviceName: links.nativeServices.inventory.routing.__joinerConfig.serviceName,
       method: operation === "delete" ? "softDelete" : "restore", args: { inventory_item_id: ["item"] },
       error: { message: "native rich Link failure" } }]);
     expect(result[1]).toEqual({}); expect(calls).toHaveLength(1);
-    expect(Result.isSuccess(definition.methods[operation]!.output(result))).toBe(true);
+    expect(definition.methods[operation]!.output(result)).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure", cause: result } });
   });
 
   it("uses a distinct single-family admission without loading Pricing", () => {
@@ -86,7 +87,7 @@ describe("native Inventory Item deletion Link resource", () => {
     expect(prepareInventoryItemDeletionLinkResource({ inventory: { ...links.nativeServices.inventory } }))
       .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
     const previous = await Effect.runPromise(prepareLocalVariantLinks("product-deletions"));
-    const location = await Effect.runPromise(prepareStockLocationDeletionLinks());
+    const location = await Effect.runPromise(prepareStockLocationDeletionLinks((await Effect.runPromise(makeFulfillmentSetDeletionCommands())).workflow));
     for (const inventory of [previous.nativeServices.inventory, previous.nativeServices.pricing, location.nativeServices.location])
       expect(prepareInventoryItemDeletionLinkResource({ inventory }))
         .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });

@@ -124,7 +124,10 @@
     "./fulfillment/batch-shipping-option-rules": "./src/fulfillment/workflows/batch-shipping-option-rules.ts",
     "./fulfillment/create-shipping-option-rules-step": "./src/fulfillment/steps/create-shipping-option-rules.ts",
     "./fulfillment/update-shipping-option-rules-step": "./src/fulfillment/steps/update-shipping-option-rules.ts",
-    "./fulfillment/delete-shipping-option-rules-step": "./src/fulfillment/steps/delete-shipping-option-rules.ts"
+    "./fulfillment/delete-shipping-option-rules-step": "./src/fulfillment/steps/delete-shipping-option-rules.ts",
+    "./stock-location/create-location-fulfillment-set": "./src/stock-location/workflows/create-location-fulfillment-set.ts",
+    "./fulfillment/create-fulfillment-set-step": "./src/fulfillment/steps/create-fulfillment-set.ts",
+    "./stock-location/associate-locations-with-fulfillment-sets-step": "./src/stock-location/steps/associate-locations-with-fulfillment-sets.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

@@ -1,9 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { Effect, Option, Result, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
+import { LocationFulfillmentSet } from "@medusajs/link-modules";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareFulfillmentSetDeletionLinkResource } from "../src/links/fulfillment-set-deletion";
+import { makeFulfillmentSetDeletionCommands } from "../src/modules/fulfillment/fulfillment-set-delete-service";
+import { prepareLocationFulfillmentSetDeletionLinks } from "../src/links/location-fulfillment-set-deletion";
 import { composedWorkflowResourceDefinition, type ComposedWorkflowServices } from "../src/workflow/composed-resource";
 import { prepareWorkflowResources, workflowResourceSelections } from "../src/workflow/resources";
 import { bindWorkflowResources } from "../src/workflow/binding";
@@ -14,14 +17,25 @@ import { commerceDecoder } from "../src/value/decoder";
 type Resource = Result.Result.Success<ReturnType<typeof prepareFulfillmentSetDeletionLinkResource>>;
 type Service = ComposedWorkflowServices<{ readonly link: Resource }>["link"];
 const endpoint = (ids: string[]) => ({ fulfillment: { fulfillment_set_id: ids } });
+async function prepare() {
+  const fulfillment = await Effect.runPromise(makeFulfillmentSetDeletionCommands());
+  const links = await Effect.runPromise(prepareLocationFulfillmentSetDeletionLinks("fulfillment-set-deletions", "setResourceLocationLink"));
+  const resource = Result.getOrThrow(prepareFulfillmentSetDeletionLinkResource({ location: links.nativeService, fulfillment: fulfillment.workflow }));
+  return { resource, resources: Result.getOrThrow(prepareWorkflowResources({
+    fulfillment: { module: fulfillment.workflow, methods: ["softDeleteFulfillmentSets", "restoreFulfillmentSets"], graph: false },
+    locationLinks: { module: links.workflow, methods: ["create", "list", "softDelete", "restore"], graph: false, expose: false },
+  }, false, { link: resource })) };
+}
+let prepared: Awaited<ReturnType<typeof prepare>>;
+beforeAll(async () => { prepared = await prepare(); });
 
-/** This observes the actual empty-registry native Link ABI under the genuine
- * composed callback owner. Persistence and atomicity belong to connected tests. */
+/** Empty selected rows still reach the installed native family. Persistence
+ * and atomicity belong to the connected tests. */
 async function bind() {
-  const resource = Result.getOrThrow(prepareFulfillmentSetDeletionLinkResource()), resources = Result.getOrThrow(prepareWorkflowResources({}, false, { link: resource }));
+  const { resource, resources } = prepared;
   const selected = workflowResourceSelections(resources); if (selected === undefined) throw new Error("Missing genuine Set Link selection");
   const decodeJson = commerceDecoder(Schema.Json, "invalidInput");
-  const call = vi.fn<AtomicCommerceContext["call"]>(() => Effect.fail(commerceError("invalidAuthority")));
+  const call = vi.fn<AtomicCommerceContext["call"]>(() => Effect.succeed({}));
   const emit = vi.fn<AtomicCommerceContext["emit"]>(() => Effect.fail(commerceError("unadmittedEvent")));
   const refuse = vi.fn<AtomicCommerceContext["refuse"]>(error => Effect.fail(error));
   const context: AtomicCommerceContext = { eventGroupId: "native-fulfillment-set-links", checkpoint: Effect.void,
@@ -31,7 +45,7 @@ async function bind() {
   return { resource, service, owner, call, emit, refuse };
 }
 
-describe("native Fulfillment Set deletion explicit empty installed Link resource", () => {
+describe("native Fulfillment Set deletion installed Location Link resource", () => {
   it.each(["delete", "restore"] as const)("invokes actual Link.%s for raw and truthy empty grouped endpoints", async operation => {
     const bound = await bind(), native = vi.spyOn(Link.prototype, operation);
     try {
@@ -39,16 +53,16 @@ describe("native Fulfillment Set deletion explicit empty installed Link resource
         const input = endpoint(ids), original = structuredClone(input);
         expect(await bound.service[operation](input)).toEqual([null, {}]); expect(input).toEqual(original); expect(native.mock.calls.at(-1)?.[0]).toEqual(original);
       }
-      expect(native).toHaveBeenCalledTimes(2); expect(bound.call).not.toHaveBeenCalled(); expect(bound.emit).not.toHaveBeenCalled();
+      expect(native).toHaveBeenCalledTimes(2); expect(bound.call).toHaveBeenCalledTimes(1); expect(bound.emit).not.toHaveBeenCalled();
       expect(Option.isNone(bound.owner.refusal())).toBe(true);
       const definition = composedWorkflowResourceDefinition(bound.resource);
-      expect(definition?.dependencies).toEqual([]); expect(Object.keys(definition?.methods ?? {})).toEqual(["delete", "restore"]);
-      expect(definition?.identity).toEqual({ format: "medusa.fulfillment-set.deletion-links", services: [] });
+      expect(definition?.dependencies).toHaveLength(4); expect(Object.keys(definition?.methods ?? {})).toEqual(["delete", "restore"]);
+      expect(definition?.identity).toMatchObject({ format: "medusa.fulfillment-set.deletion-links", lifecycle: { maximumRows: 8, completeHistory: true } });
     } finally { native.mockRestore(); await Effect.runPromise(bound.owner.close); }
   });
 
-  it("refuses other endpoints and every nonempty/error native cascade result", () => {
-    const resource = Result.getOrThrow(prepareFulfillmentSetDeletionLinkResource()), definition = composedWorkflowResourceDefinition(resource);
+  it("accepts installed identity maps and refuses malformed endpoints and foreign/error cascade results", () => {
+    const definition = composedWorkflowResourceDefinition(prepared.resource);
     if (definition === undefined) throw new Error("Missing authentic Set Link definition");
     for (const operation of ["delete", "restore"] as const) {
       const method = definition.methods[operation]; if (method === undefined) throw new Error("Missing selected Link method");
@@ -58,14 +72,22 @@ describe("native Fulfillment Set deletion explicit empty installed Link resource
         { fulfillment: { shipping_profile_id: ["profile"] } }, { fulfillment: { fulfillment_set_id: [] }, product: { product_id: [] } }])
         expect(method.arguments([input])).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
       expect(Result.isSuccess(method.output([null, {}]))).toBe(true);
+      const family = LocationFulfillmentSet.serviceName;
+      if (family === undefined) throw new Error("Missing installed native family");
+      expect(Result.isSuccess(method.output([null, { [family]: { stock_location_id: ["location"], fulfillment_set_id: ["set"] },
+        fulfillment: { fulfillment_set_id: ["set"] } }]))).toBe(true);
+      for (const value of [{ [family]: { stock_location_id: ["location"] } },
+        { [family]: { stock_location_id: ["location"], fulfillment_set_id: ["set", "other"] } },
+        { fulfillment: { fulfillment_address_id: ["address"] } }, { fulfillment: { fulfillment_set_id: [] } }])
+        expect(Result.isFailure(method.output([null, value]))).toBe(true);
       for (const output of [[null, { futureLink: {} }], [[], {}], [[{ serviceName: "future-link", method: "softDelete", args: {}, error: { message: "failed" } }], {}],
         [null, {}, "extra"], [null], {}, null] satisfies Json[]) expect(Result.isFailure(method.output(output))).toBe(true);
     }
   });
 
   it("rejects copied, serialized and inherited resource identities before admission", () => {
-    const resource = Result.getOrThrow(prepareFulfillmentSetDeletionLinkResource());
-    expect(Result.isSuccess(prepareWorkflowResources({}, false, { link: resource }))).toBe(true);
+    const resource = prepared.resource;
+    expect(composedWorkflowResourceDefinition(resource)).toBeDefined();
     for (const forged of [{ ...resource }, structuredClone(resource), Object.create(resource)]) {
       expect(composedWorkflowResourceDefinition(forged)).toBeUndefined();
       expect(Reflect.apply(prepareWorkflowResources, undefined, [{}, false, { link: forged }])).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });

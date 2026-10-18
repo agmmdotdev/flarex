@@ -16,6 +16,9 @@ export const linkSchemaOrigins = {
 
 export class LinkSchemaError extends Data.TaggedError("LinkSchemaError")<{ readonly cause: unknown }> {}
 const Name = Schema.String.check(Schema.isPattern(/^[a-zA-Z_][a-zA-Z0-9_]*$/));
+// Native simpleHash returns signed hexadecimal text. These quoted generated
+// index identities are distinct from authored table/column identifiers.
+const GeneratedIndexName = Schema.String.check(Schema.isPattern(/^IDX_[a-zA-Z_][a-zA-Z0-9_]*_-?[0-9a-f]+$/));
 const Relationship = Schema.Struct({ serviceName: Name, foreignKey: Name, primaryKey: Name, alias: Name,
   hasMany: Schema.optionalKey(Schema.Boolean), deleteCascade: Schema.optionalKey(Schema.Boolean) });
 const decodeDefinition = Schema.decodeUnknownEffect(Schema.Struct({
@@ -62,7 +65,7 @@ export const captureLinkMetadata = Effect.fn("Link.captureMetadata")(function* (
     properties: Schema.Struct({ id: Text, [primary.foreignKey]: Key, [foreign.foreignKey]: Key,
       created_at: Timestamp, updated_at: Timestamp, deleted_at: Deleted, ...extraProperties }),
     indexes: Schema.Array(Schema.Struct({
-      properties: Schema.Union([Schema.String, Schema.Array(Schema.String)]), name: Name,
+      properties: Schema.Union([Schema.String, Schema.Array(Schema.String)]), name: GeneratedIndexName,
       unique: Schema.optionalKey(Schema.Literal(true)), expression: Schema.optionalKey(Schema.String),
     })).check(Schema.isLengthBetween(4, 4)),
   }), { onExcessProperty: "error" });

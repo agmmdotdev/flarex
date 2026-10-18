@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -26,7 +26,7 @@ export function verifyModuleTypeFork(source, target) {
   if (emit(portableSource) !== emit(target)) throw new Error("Module type adaptation changes runtime behavior");
 }
 /** @param {string} text */
-function emitInventoryRestoreRuntime(text) {
+function emitForkRuntime(text) {
     const result = ts.transpileModule(text, { reportDiagnostics: true, compilerOptions: {
       target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext,
       experimentalDecorators: true, removeComments: true, newLine: ts.NewLineKind.LineFeed,
@@ -34,6 +34,65 @@ function emitInventoryRestoreRuntime(text) {
     if (result.diagnostics?.some(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error))
       throw new Error("Invalid module type adaptation syntax");
     return result.outputText;
+}
+
+/** Only the approved nested cascade return-map selection may change in this
+ * native method. Constructor/bootstrap and batch uniqueness have separate seams.
+ * @param {string} source @param {string} target */
+export function verifyLinkCascadeReturnMapFork(source, target) {
+  const message = "Changed native Link cascade return-map fork behavior";
+  /** @param {string} text */
+  const method = text => {
+    emitForkRuntime(text);
+    const parsed = ts.createSourceFile("link.ts", text, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+    const classes = parsed.statements.filter(node => ts.isClassDeclaration(node) && node.name?.text === "Link");
+    if (classes.length !== 1 || !ts.isClassDeclaration(classes[0])) throw new Error(message);
+    const methods = classes[0].members.filter(node => ts.isMethodDeclaration(node)
+      && ts.isIdentifier(node.name) && node.name.text === "executeCascade");
+    if (methods.length !== 1 || !ts.isMethodDeclaration(methods[0]) || !methods[0].body) throw new Error(message);
+    return methods[0].getText(parsed);
+  };
+  const before = `                const [mainKey] = returnFields
+
+                if (!returnIdsList[serviceName]) {
+                  returnIdsList[serviceName] = {}
+                }
+                if (!returnIdsList[serviceName][mainKey]) {
+                  returnIdsList[serviceName][mainKey] = []
+                }
+
+                returnIdsList[serviceName][mainKey] = [
+                  ...new Set(
+                    returnIdsList[serviceName][mainKey].concat(
+                      deletedEntities[mainKey]
+                    )
+                  ),
+                ]`;
+  const after = `                const mainKey = returnFields.find((field) =>
+                  Object.prototype.hasOwnProperty.call(deletedEntities, field)
+                )
+
+                if (mainKey !== undefined) {
+                  if (!returnIdsList[serviceName]) {
+                    returnIdsList[serviceName] = {}
+                  }
+                  if (!returnIdsList[serviceName][mainKey]) {
+                    returnIdsList[serviceName][mainKey] = []
+                  }
+
+                  returnIdsList[serviceName][mainKey] = [
+                    ...new Set(
+                      returnIdsList[serviceName][mainKey].concat(
+                        deletedEntities[mainKey]
+                      )
+                    ),
+                  ]
+                }`;
+  const original = method(source).replaceAll("\r\n", "\n");
+  if (original.split(before).length !== 2) throw new Error(message);
+  /** @param {string} body */
+  const emit = body => emitForkRuntime("class LinkCascadeGuard {\n" + body + "\n}");
+  if (emit(original.replace(before, after)) !== emit(method(target))) throw new Error(message);
 }
 
 /** The approved restore correction and exact portable arithmetic extraction.
@@ -44,7 +103,7 @@ export function verifyInventoryReservationRestoreFork(source, target, helper) {
   const methodName = "restoreReservationItemsByLineItem_";
   /** @param {string} text */
   const select = text => {
-    emitInventoryRestoreRuntime(text);
+    emitForkRuntime(text);
     const parsed = ts.createSourceFile("inventory-module.ts", text, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
     const classes = parsed.statements.filter(node => ts.isClassDeclaration(node) && node.name?.text === "InventoryModuleService");
     if (classes.length !== 1 || !ts.isClassDeclaration(classes[0])) throw new Error(message);
@@ -57,7 +116,7 @@ export function verifyInventoryReservationRestoreFork(source, target, helper) {
   const corrected = "@InjectTransactionManager()\nprotected async restoreReservationItemsByLineItem_(\n    lineItemId: string | string[],\n    @MedusaContext() context: Context = {}\n  ): Promise<void> {\n    const reservations: InventoryTypes.ReservationItemDTO[] =\n      await this.reservationItemService_.list(\n        { line_item_id: lineItemId },\n        { withDeleted: true },\n        context\n      )\n\n    // Snapshot deleted preimages before restore can mutate managed entities.\n    const reservationsToRestore = reservations\n      .filter((reservation) => reservation.deleted_at !== null)\n      .map((reservation) => ({ ...reservation }))\n\n    await this.reservationItemService_.restore(\n      { line_item_id: lineItemId },\n      context\n    )\n\n    await this.adjustInventoryLevelsForReservationsRestore(\n      reservationsToRestore,\n      context\n    )\n  }";
   const native = select(source), adapted = select(target);
   /** @param {string} method */
-  const emitMethod = method => emitInventoryRestoreRuntime("class InventoryRestoreGuard {\n" + method + "\n}");
+  const emitMethod = method => emitForkRuntime("class InventoryRestoreGuard {\n" + method + "\n}");
   if (emitMethod(native.method.getText(native.parsed)) !== emitMethod(original)
     || emitMethod(adapted.method.getText(adapted.parsed)) !== emitMethod(corrected)) throw new Error(message);
   // Only the authenticated method is restored for whole-module runtime parity.
@@ -72,7 +131,7 @@ export function verifyInventoryReservationArithmeticExtraction(source, target, h
   const methodName = "adjustInventoryLevelsForReservations_";
   /** @param {string} text */
   const parse = text => {
-    emitInventoryRestoreRuntime(text);
+    emitForkRuntime(text);
     const parsed = ts.createSourceFile("inventory-arithmetic.ts", text, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
     return parsed;
   };
@@ -99,7 +158,7 @@ export function verifyInventoryReservationArithmeticExtraction(source, target, h
     + "\nconst levelAdjustmentUpdates = inventoryLevelReservationAdjustments(reservations, inventoryLevels, isDelete);\n"
     + apply.getText(native) + "\n}";
   /** @param {string} method */
-  const emitMethod = method => emitInventoryRestoreRuntime("class InventoryArithmeticGuard {\n" + method + "\n}");
+  const emitMethod = method => emitForkRuntime("class InventoryArithmeticGuard {\n" + method + "\n}");
   if (emitMethod(delegated.getText(adapted)) !== emitMethod(expectedMethod)) throw new Error(message);
   const helperFile = parse(helper);
   const helperStatements = helperFile.statements.filter(node => ts.isFunctionDeclaration(node) && node.name?.text === "inventoryLevelReservationAdjustments");
@@ -107,14 +166,14 @@ export function verifyInventoryReservationArithmeticExtraction(source, target, h
   const extracted = helperStatements[0];
   const expectedHelper = "export function inventoryLevelReservationAdjustments(reservations, inventoryLevels, isDelete) {\n"
     + multiplier.getText(native) + "\n" + grouping.getText(native) + "\nreturn " + update.initializer.getText(native) + ";\n}";
-  if (emitInventoryRestoreRuntime(extracted.getText(helperFile)) !== emitInventoryRestoreRuntime(expectedHelper)) throw new Error(message);
+  if (emitForkRuntime(extracted.getText(helperFile)) !== emitForkRuntime(expectedHelper)) throw new Error(message);
   // The pre-existing availability extraction and utility import are unchanged.
   const beforeHelper = helper.slice(0, extracted.getStart(helperFile)) + helper.slice(extracted.end);
   const originalHelper = 'import { BigNumber, MathBN } from "@medusajs/framework/utils/portable"\n'
     + 'import type { BigNumberInput } from "@medusajs/framework/types"\n'
     + 'export function inventoryLevelAvailableQuantity(stocked: BigNumberInput, reserved: BigNumberInput) {\n'
     + 'return new BigNumber(MathBN.sub(stocked, reserved))\n}\n';
-  if (emitInventoryRestoreRuntime(beforeHelper) !== emitInventoryRestoreRuntime(originalHelper)) throw new Error(message);
+  if (emitForkRuntime(beforeHelper) !== emitForkRuntime(originalHelper)) throw new Error(message);
   const imports = adapted.statements.filter(node => ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)
     && node.moduleSpecifier.text === "../utils/inventory-level-quantity");
   if (imports.length !== 1 || !ts.isImportDeclaration(imports[0])) throw new Error(message);
@@ -354,6 +413,18 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/common/steps/remove-remote-links.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/common/steps/remove-remote-links.ts"), "utf8"),
   );
+  verifyLocationFulfillmentSetCallbacks(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/stock-location/workflows/create-location-fulfillment-set.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/stock-location/workflows/create-location-fulfillment-set.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/fulfillment/steps/create-fulfillment-set.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/fulfillment/steps/create-fulfillment-set.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/stock-location/steps/associate-locations-with-fulfillment-sets.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/stock-location/steps/associate-locations-with-fulfillment-sets.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/modules/link-modules/src/definitions/fulfillment-set-location.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-link-modules/src/definitions/fulfillment-set-location.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/types/src/workflows/stock-locations/mutations.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-types/src/workflows/stock-locations/mutations.ts"), "utf8"),
+  );
   verifyShippingOptionRuleBatchCallbacks(
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/fulfillment/workflows/batch-shipping-option-rules.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/fulfillment/workflows/batch-shipping-option-rules.ts"), "utf8"),
@@ -430,6 +501,17 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, csvTarget, "csv-normalizer.spec.ts"), "utf8"),
     fixtureText(csvSource), fixtureText(csvTarget));
   for (const file of promotion.files) {
+    if (["packages/medusa-core-flows/src/stock-location/workflows/create-location-fulfillment-set.ts",
+      "packages/medusa-core-flows/src/fulfillment/steps/create-fulfillment-set.ts",
+      "packages/medusa-core-flows/src/stock-location/steps/associate-locations-with-fulfillment-sets.ts"].includes(file.target)
+      && (file.classification !== "workflowFork" || file.source !== sourcePrefix + "packages/core/core-flows/src/" + file.target.slice("packages/medusa-core-flows/src/".length)))
+      throw new Error("LocationFulfillmentSet workflow adaptation outside its exact pinned source pair");
+    if (file.target === "packages/medusa-link-modules/src/definitions/fulfillment-set-location.ts"
+      && (file.classification !== "linkFork" || file.source !== sourcePrefix + "packages/modules/link-modules/src/definitions/fulfillment-set-location.ts"))
+      throw new Error("LocationFulfillmentSet definition adaptation outside its exact pinned source pair");
+    if (file.target === "packages/medusa-types/src/workflows/stock-locations/mutations.ts"
+      && (file.classification !== "unchanged" || file.source !== sourcePrefix + "packages/core/types/src/workflows/stock-locations/mutations.ts"))
+      throw new Error("LocationFulfillmentSet workflow type outside its exact unchanged pinned source");
     if (["packages/medusa-core-flows/src/fulfillment/workflows/batch-shipping-option-rules.ts",
       ...["create", "update", "delete"].map(kind => "packages/medusa-core-flows/src/fulfillment/steps/" + kind + "-shipping-option-rules.ts")].includes(file.target)
       && (file.classification !== "workflowFork" || file.source !== sourcePrefix + "packages/core/core-flows/src/" + file.target.slice("packages/medusa-core-flows/src/".length)))
@@ -477,6 +559,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     ].includes(file.target))) {
       throw new Error("Workflow fork adaptation outside its approved source closure");
     }
+    if (file.target === "packages/medusa-modules-sdk/src/link.ts"
+      && (file.classification !== "linkFork" || file.source !== sourcePrefix + "packages/core/modules-sdk/src/link.ts"))
+      throw new Error("Link cascade adaptation outside its exact pinned source pair");
     if (file.classification === "linkFork" && ![
       "packages/medusa-modules-sdk/src/link.ts",
       "packages/medusa-link-modules/src/utils/generate-entity.ts",
@@ -487,6 +572,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       "packages/medusa-link-modules/src/definitions/product-variant-price-set.ts",
       "packages/medusa-link-modules/src/definitions/product-variant-inventory-item.ts",
       "packages/medusa-link-modules/src/definitions/sales-channel-location.ts",
+      "packages/medusa-link-modules/src/definitions/fulfillment-set-location.ts",
     ].includes(file.target)) throw new Error("Link adaptation outside its approved finite source closure");
     if (file.classification === "productServiceFork" && ![
       "packages/medusa-product/src/services/product-module-service.ts",
@@ -535,6 +621,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       if (file.classification === "inventoryServiceFork")
         verifyInventoryReservationRestoreFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"),
           readFileSync(path.join(root, "packages/medusa-inventory/src/utils/inventory-level-quantity.ts"), "utf8"));
+      if (file.target === "packages/medusa-modules-sdk/src/link.ts") {
+        verifyLinkCascadeReturnMapFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
+      }
       if (file.classification === "storeCreationTypeFork")
         verifyStoreCreationTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.classification === "shippingProfileWorkflowTypeFork")

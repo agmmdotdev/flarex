@@ -98,7 +98,7 @@ describe("native Product deletion Link resource ABI", () => {
     expect(Result.isSuccess(definition.methods.delete!.output(result))).toBe(true);
   });
 
-  it("preserves simultaneous native family dispatch and errors as tuple data", async () => {
+  it("preserves native parallel dispatch and refuses reported errors at the atomic boundary", async () => {
     let releaseSales!: () => void;
     const salesPending = new Promise<void>(resolve => { releaseSales = resolve; });
     let shippingStarted!: () => void;
@@ -116,7 +116,7 @@ describe("native Product deletion Link resource ABI", () => {
     expect(calls).toHaveLength(4);
     expect(result[0]).toMatchObject([{ serviceName: product.nativeServices.sales.routing.__joinerConfig.serviceName,
       method: "softDelete", args: { product_id: ["p"] }, error: { message: "Sales Link lifecycle failed" } }]);
-    expect(Result.isSuccess(definition.methods.delete!.output(result))).toBe(true);
+    expect(definition.methods.delete!.output(result)).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure", cause: result } });
   });
 
   it("retains native empty deletion behavior", async () => {

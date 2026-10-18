@@ -1,13 +1,41 @@
 // @ts-check
-import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyShippingProfileWorkflowTypeFork } from "./check-medusa-currency-promotion.mjs";
+import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
 import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
 
 const root = process.cwd();
 const promotion = verifyCurrencyPromotion(root);
 const source = "packages/medusa-currency/src/models/currency.ts";
+
+describe("native Link cascade return-map correction provenance", () => {
+  const native = readFileSync("third_party/medusa/upstream/packages/core/modules-sdk/src/link.ts", "utf8");
+  const adapted = readFileSync("packages/medusa-modules-sdk/src/link.ts", "utf8");
+  it("admits the approved correction and refuses the uncorrected native map", () => {
+    expect(() => verifyLinkCascadeReturnMapFork(native, adapted)).not.toThrow();
+    expect(() => verifyLinkCascadeReturnMapFork(native, native)).toThrow("Changed native Link cascade return-map fork behavior");
+  });
+  it.each([
+    ["declared key order", "returnFields.find((field)", "returnFields.reverse().find((field)"],
+    ["owned key presence", "Object.prototype.hasOwnProperty.call(deletedEntities, field)", "deletedEntities[field]?.length"],
+    ["missing key guard", "if (mainKey !== undefined)", "if (mainKey === undefined)"],
+    ["accumulation", "...new Set(", "...Array.of("],
+    ["returned IDs", "deletedEntities[mainKey]", "[]"],
+    ["processed ID tracking", "processedIds[hash].add(id)", "processedIds[hash].delete(id)"],
+    ["recursive continuation", "deleteKeys: deletedEntities as DeleteEntities", "deleteKeys: {} as DeleteEntities"],
+    ["native lifecycle call", "service[method]", "service.restore"],
+  ])("rejects changed %s", (_label, before, after) => {
+    expect(adapted).toContain(before);
+    expect(() => verifyLinkCascadeReturnMapFork(native, adapted.replace(before, after)))
+      .toThrow("Changed native Link cascade return-map fork behavior");
+  });
+  it("refuses reclassifying the exact source pair as authored", () => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(file =>
+      file.target === "packages/medusa-modules-sdk/src/link.ts" ? { ...file, classification: "authored", source: undefined } : file) }))
+      .toThrow("Link cascade adaptation outside its exact pinned source pair");
+  });
+});
 
 describe("native Inventory reservation line-item restore correction provenance", () => {
   const native = readFileSync("third_party/medusa/upstream/packages/modules/inventory/src/services/inventory-module.ts", "utf8");
@@ -1649,6 +1677,134 @@ describe("native metadata-only relation scalar-field projection provenance", () 
   });
 });
 
+
+describe("native LocationFulfillmentSet callback provenance", () => {
+  const paths = [
+    ["packages/core/core-flows/src/stock-location/workflows/create-location-fulfillment-set.ts", "packages/medusa-core-flows/src/stock-location/workflows/create-location-fulfillment-set.ts"],
+    ["packages/core/core-flows/src/fulfillment/steps/create-fulfillment-set.ts", "packages/medusa-core-flows/src/fulfillment/steps/create-fulfillment-set.ts"],
+    ["packages/core/core-flows/src/stock-location/steps/associate-locations-with-fulfillment-sets.ts", "packages/medusa-core-flows/src/stock-location/steps/associate-locations-with-fulfillment-sets.ts"],
+    ["packages/modules/link-modules/src/definitions/fulfillment-set-location.ts", "packages/medusa-link-modules/src/definitions/fulfillment-set-location.ts"],
+    ["packages/core/types/src/workflows/stock-locations/mutations.ts", "packages/medusa-types/src/workflows/stock-locations/mutations.ts"],
+  ];
+  const native = paths.map(([file]) => readFileSync("third_party/medusa/upstream/" + file, "utf8").replaceAll("\r\n", "\n"));
+  const promoted = paths.map(([, file]) => readFileSync(file, "utf8").replaceAll("\r\n", "\n"));
+  const verify = (workflow = promoted[0], setStep = promoted[1], association = promoted[2], definition = promoted[3], types = promoted[4]) =>
+    verifyLocationFulfillmentSetCallbacks(native[0], workflow, native[1], setStep, native[2], association, native[3], definition, native[4], types);
+  it("admits native creation, empty association branches, raw retained endpoints and physical inverse", () => {
+    expect(() => verify()).not.toThrow();
+  });
+  /** @type {Array<[number, string, string, string]>} */
+  const runtimeMutations = [
+    [0, "root identity", '"create-location-fulfillment-set"', '"other-location-fulfillment-set"'],
+    [0, "name forwarding", "name: input.fulfillment_set_data.name", 'name: "other"'],
+    [0, "type forwarding", "type: input.fulfillment_set_data.type", 'type: "other"'],
+    [0, "ignored supplied fields", "name: input.fulfillment_set_data.name,", 'name: input.fulfillment_set_data.name, id: "invented",'],
+    [0, "actual created ID", "[data.fulfillmentSet[0].id]", '["invented"]'],
+    [0, "location forwarding", "location_id: data.input.location_id", 'location_id: "other"'],
+    [0, "association invocation", "      input: data,", "      input: [],"],
+    [0, "root void seam", "return new WorkflowResponse(void 0)", "return new WorkflowResponse(null)"],
+    [0, "native step import", 'from "../../fulfillment/steps/create-fulfillment-set"', 'from "../../fulfillment"'],
+    [0, "extra resolution", "    const fulfillmentSet =", '    container.resolve("query"); const fulfillmentSet ='],
+    [1, "step identity", '"create-fulfillment-sets"', '"create-other-fulfillment-sets"'],
+    [1, "mandatory empty creation", "    const service =", "    if (!data.length) return\n    const service ="],
+    [1, "module capability", "Modules.FULFILLMENT", "Modules.STOCK_LOCATION"],
+    [1, "create arguments", "service.createFulfillmentSets(data)", "service.createFulfillmentSets([])"],
+    [1, "create await", "await service.createFulfillmentSets(data)", "service.createFulfillmentSets(data)"],
+    [1, "actual output", "      createSets,", "      [],"],
+    [1, "retained created IDs", "createSets.map((createdSet) => createdSet.id)", "[]"],
+    [1, "inverse empty guard", "if (!createSetIds?.length)", "if (!createSetIds)"],
+    [1, "physical inverse", "service.deleteFulfillmentSets(createSetIds)", "service.softDeleteFulfillmentSets(createSetIds)"],
+    [1, "inverse await", "await service.deleteFulfillmentSets(createSetIds)", "service.deleteFulfillmentSets(createSetIds)"],
+    [2, "association identity", '"associate-fulfillment-sets-with-location-step"', '"other-fulfillment-sets-with-location-step"'],
+    [2, "empty outer guard", "if (!data.input.length)", "if (!data.input)"],
+    [2, "empty outer response", "new StepResponse([], [])", "new StepResponse([], undefined)"],
+    [2, "raw flatten order", "      .flat()", "      .flat().reverse()"],
+    [2, "Location endpoint", "stock_location_id: link.location_id", 'stock_location_id: "other"'],
+    [2, "Set endpoint", "fulfillment_set_id: id", 'fulfillment_set_id: "other"'],
+    [2, "Link capability", "ContainerRegistrationKeys.LINK", "ContainerRegistrationKeys.QUERY"],
+    [2, "mandatory empty inner call", "    const createdLinks =", "    if (!links.length) return new StepResponse([], [])\n    const createdLinks ="],
+    [2, "create arguments", "remoteLink.create(links)", "remoteLink.create([])"],
+    [2, "create await", "await remoteLink.create(links)", "remoteLink.create(links)"],
+    [2, "retained raw definitions", "new StepResponse(createdLinks, links)", "new StepResponse(createdLinks, createdLinks)"],
+    [2, "actual created output", "new StepResponse(createdLinks, links)", "new StepResponse(links, links)"],
+    [2, "inverse empty guard", "if (!links?.length)", "if (!links)"],
+    [2, "native dismiss inverse", "remoteLink.dismiss(links)", "remoteLink.delete(links)"],
+    [2, "inverse await", "await remoteLink.dismiss(links)", "remoteLink.dismiss(links)"],
+    [3, "native Link identity", 'idPrefix: "locfs"', 'idPrefix: "other"'],
+    [3, "native Link registration", "isLink: true", "isLink: false"],
+    [3, "native table identity", 'tableName: "location_fulfillment_set"', 'tableName: "other"'],
+    [3, "endpoint primary keys", '["id", "stock_location_id", "fulfillment_set_id"]', '["id", "stock_location_id"]'],
+    [3, "cascade authority", "deleteCascade: true", "deleteCascade: false"],
+    [3, "native relationship cardinality", "hasMany: true", "hasMany: false"],
+    [3, "native extension cardinality", "isList: true", "isList: false"],
+    [3, "native Set endpoint", 'foreignKey: "fulfillment_set_id"', 'foreignKey: "stock_location_id"'],
+    [3, "native Location endpoint", 'foreignKey: "stock_location_id"', 'foreignKey: "fulfillment_set_id"'],
+    [3, "native alias", 'alias: "locations_link"', 'alias: "other_link"'],
+    [3, "canonical link name", 'composeLinkName(Modules.STOCK_LOCATION, "stock_location_id", Modules.FULFILLMENT, "fulfillment_set_id")', 'composeLinkName(Modules.STOCK_LOCATION, "id", Modules.FULFILLMENT, "fulfillment_set_id")'],
+    ...[1, 2].flatMap(index => {
+      /** @type {Array<[number, string, string, string]>} */
+      const mutations = [[index, "covered compensation metadata", 'compensation: "transactionCovered"', 'compensation: "none"']];
+      return mutations;
+    }),
+    ...[0, 1, 2].flatMap(index => {
+      /** @type {Array<[number, string, string, string]>} */
+      const mutations = [[index, "runtime SDK import", 'from "@medusajs/workflows-sdk"', 'from "@medusajs/framework/workflows-sdk"']];
+      return mutations;
+    }),
+    ...[0, 1, 2, 3].flatMap(index => {
+      /** @type {Array<[number, string, string, string]>} */
+      const mutations = [[index, "extra backend import", "import ", 'import "node:fs";\nimport ']];
+      return mutations;
+    }),
+  ];
+  it.each(runtimeMutations)("rejects changed runtime %s %s", (index, _label, before, after) => {
+    const changed = promoted[index].replace(before, after); expect(changed).not.toBe(promoted[index]);
+    const values = [...promoted]; values[index] = changed;
+    expect(() => verify(values[0], values[1], values[2], values[3], values[4])).toThrow("Changed native LocationFulfillmentSet callback behavior");
+  });
+  it.each([
+    [0, "WorkflowData<CreateLocationFulfillmentSetWorkflowInputDTO>", "WorkflowData<never>"],
+    [0, 'from "@medusajs/types/workflows/stock-locations/mutations"', 'from "@medusajs/framework/types"'],
+    [1, "CreateFulfillmentSetDTO[]", "ReadonlyArray<CreateFulfillmentSetDTO>"],
+    [1, "data: CreateFulfillmentSetsStepInput", "data: never"],
+    [1, "container.resolve<IFulfillmentModuleService>", "container.resolve<never>"],
+    [2, "location_id: string", "location_id?: string"],
+    [2, "fulfillment_set_ids: string[]", "fulfillment_set_ids: string"],
+    [2, 'Pick<Link, "create" | "dismiss">', 'Pick<Link, "create">'],
+    [3, "LocationFulfillmentSet: ModuleJoinerConfig", "LocationFulfillmentSet: never"],
+    [4, "location_id: string", "location_id?: string"],
+    [4, "fulfillment_set_data: {", "fulfillment_set_data?: {"],
+    [4, "name: string", "name: string | null"],
+    [4, "type: string", "type: number"],
+  ])("rejects changed public contract %s %s", (index, before, after) => {
+    const changed = promoted[index].replace(before, after); expect(changed).not.toBe(promoted[index]);
+    const values = [...promoted]; values[index] = changed;
+    expect(() => verify(values[0], values[1], values[2], values[3], values[4])).toThrow("Changed native LocationFulfillmentSet public contract");
+  });
+  it.each([0, 1, 2, 3, 4])("rejects malformed syntax in file %s", index => {
+    const values = [...promoted]; values[index] += "\nconst invalid = (";
+    expect(() => verify(values[0], values[1], values[2], values[3], values[4])).toThrow("Invalid native LocationFulfillmentSet callback syntax");
+  });
+  it.each(["removed", "widened", "relocated", "duplicated"])("rejects a %s first-result type seam", mutation => {
+    const comment = "// @ts-expect-error Native creation assumes a first Set; preserve its missing-first property-read failure.";
+    const changed = mutation === "removed" ? promoted[0].replace(comment, "") :
+      mutation === "widened" ? promoted[0].replace("@ts-expect-error", "@ts-ignore") :
+        mutation === "relocated" ? promoted[0].replace(comment, "") + "\n" + comment + "\n" :
+          promoted[0] + "\n" + comment + "\n";
+    expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native LocationFulfillmentSet first-result type seam");
+  });
+  it.each(paths.flatMap(([, target], index) => [
+    [target, index, "source", { source: "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment/steps/create-shipping-profiles.ts" }],
+    [target, index, "classification", { classification: "selectedExportFacade" }],
+  ]))("rejects displaced %s %s %s", (target, index, _label, mutation) => {
+    const failure = index === 4 ? "LocationFulfillmentSet workflow type outside its exact unchanged pinned source" :
+      index === 3 ? "LocationFulfillmentSet definition adaptation outside its exact pinned source pair" :
+        "LocationFulfillmentSet workflow adaptation outside its exact pinned source pair";
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(entry =>
+      entry.target === target ? { ...entry, ...mutation } : entry) })).toThrow(failure);
+  });
+});
 
 describe("native ShippingOptionRule batch callback provenance", () => {
   const paths = ["fulfillment/workflows/batch-shipping-option-rules.ts",
