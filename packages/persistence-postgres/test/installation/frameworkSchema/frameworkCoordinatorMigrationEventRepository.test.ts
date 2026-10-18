@@ -46,6 +46,7 @@ import {
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   useFileScopedFrameworkCoordinatorGraphPersistence,
+  resetFrameworkCoordinatorGraphRows,
   rejectingSelectTransaction,
   createSuccessfulTerminalPlanValues,
   storeSuccessfulReadinessGraphInTransaction,
@@ -560,17 +561,14 @@ describe("framework coordinator migration-event repository", { concurrent: false
       ),
     );
 
-    const ancestorPersistence = await createMigratedPGlitePersistence();
+    await resetFrameworkCoordinatorGraphRows(oversizedPersistence.drizzle);
+    const ancestorPersistence = oversizedPersistence;
     const ancestor = await storedEventFixture(ancestorPersistence, 2);
     const ancestorRoot = ancestor.restored[1];
     const ancestorPrevious = ancestor.restored[0];
     if (ancestorRoot === undefined || ancestorPrevious === undefined) {
       throw new Error("Missing ancestor event");
     }
-    await ancestorPersistence.query(`
-      alter table fx_system_framework_migration_event
-        drop constraint fx_framework_migration_event_frame_check
-    `);
     const oversizedAncestorBytes = new Uint8Array(
       MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES + 1,
     ).fill(0x20);

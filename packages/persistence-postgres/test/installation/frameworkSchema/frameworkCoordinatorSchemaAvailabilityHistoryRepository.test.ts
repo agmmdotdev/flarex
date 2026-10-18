@@ -40,6 +40,7 @@ import type { FrameworkMigrationRepositoryError } from
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   useFileScopedFrameworkCoordinatorGraphPersistence,
+  resetFrameworkCoordinatorGraphRows,
   rejectingSelectTransaction,
   createSuccessfulTerminalPlanValues,
   storeSuccessfulReadinessGraphInTransaction,
@@ -585,7 +586,8 @@ describe("framework coordinator schema-availability-history repository", { concu
       storedAvailabilityHistoryRows(cyclePersistence),
     ).resolves.toEqual(cycleBefore);
 
-    const brokenPersistence = await createMigratedPGlitePersistence();
+    await resetFrameworkCoordinatorGraphRows(cyclePersistence.drizzle);
+    const brokenPersistence = cyclePersistence;
     const broken = await storedAvailabilityHistoryFixture(
       brokenPersistence,
       2,
@@ -595,10 +597,6 @@ describe("framework coordinator schema-availability-history repository", { concu
     if (brokenFirst === undefined || brokenRoot === undefined) {
       throw new Error("Missing broken-chain history");
     }
-    await brokenPersistence.query(`
-      alter table fx_system_framework_schema_availability_history
-        drop constraint fx_framework_availability_history_previous_fk
-    `);
     await administrativelyRepairFrameworkMetadata(brokenPersistence.drizzle, ["fx_system_framework_schema_availability_history"], async repairTransaction => repairTransaction.delete(
       fxSystemFrameworkSchemaAvailabilityHistory,
     ).where(eq(
@@ -626,7 +624,8 @@ describe("framework coordinator schema-availability-history repository", { concu
       storedAvailabilityHistoryRows(brokenPersistence),
     ).resolves.toEqual(brokenBefore);
 
-    const ancestorPersistence = await createMigratedPGlitePersistence();
+    await resetFrameworkCoordinatorGraphRows(oversizedPersistence.drizzle);
+    const ancestorPersistence = oversizedPersistence;
     const ancestor = await storedAvailabilityHistoryFixture(
       ancestorPersistence,
       3,
@@ -636,10 +635,6 @@ describe("framework coordinator schema-availability-history repository", { concu
     if (ancestorFirst === undefined || ancestorRoot === undefined) {
       throw new Error("Missing ancestor history");
     }
-    await ancestorPersistence.query(`
-      alter table fx_system_framework_schema_availability_history
-        drop constraint fx_framework_availability_history_frame_check
-    `);
     const oversizedAncestorBytes = new Uint8Array(
       MAX_FRAMEWORK_SCHEMA_AVAILABILITY_CANONICAL_BYTES + 1,
     ).fill(0x20);

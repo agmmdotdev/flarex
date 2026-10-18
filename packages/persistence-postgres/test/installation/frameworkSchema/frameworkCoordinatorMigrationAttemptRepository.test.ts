@@ -1,10 +1,9 @@
-import { useFileScopedFrameworkCoordinatorGraphPersistence, rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
+import { useFileScopedFrameworkCoordinatorGraphPersistence, resetFrameworkCoordinatorGraphRows, rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { eq } from "drizzle-orm";
 import { Encoding, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
-
 
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
 import {
@@ -51,7 +50,8 @@ import {
   syntheticSchemaInput,
   syntheticSystemArtifact,
 } from "./frameworkMigrationValueFixtures";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import { createFileScopedPGliteFixture, createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
 
 const PGLITE_TEST_TIMEOUT = 30_000;
 const STARTED_AT = "2026-08-27T08:30:00.000Z";
@@ -509,131 +509,240 @@ describe("framework coordinator migration-attempt repository", { concurrent: fal
     await expect(attemptCount(persistence)).resolves.toBe("3");
   }), PGLITE_TEST_TIMEOUT);
 
-  it("reports a changed lease projection and broken predecessor without healing", async () => {
-    await withPersistence(async persistence => {
-    const values = await freshPlanRepositoryValues();
-    const stored = await persistence.drizzle.transaction(
-      async transaction => {
-        const admission = await ensureStoredAdmission(transaction, values);
-        const firstValue = await captureAttempt(
-          admission,
-          "attempt-a",
-          "1",
-          LEASE_ONE,
-          null,
-        );
-        const first = await runEffect(
-          ensureFrameworkMigrationAttemptStartInTransactionEffect(
-            transaction,
-            admission,
-            null,
-            firstValue,
-          ),
-        );
-        const secondValue = await captureAttempt(
-          admission,
-          "attempt-b",
-          "2",
-          LEASE_TWO,
-          first,
-        );
-        const second = await runEffect(
-          ensureFrameworkMigrationAttemptStartInTransactionEffect(
-            transaction,
-            admission,
-            first,
-            secondValue,
-          ),
-        );
-        return { admission, first, second, secondValue };
-      },
-    );
-    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_attempt_start"], async repairTransaction => repairTransaction.update(
-      fxSystemFrameworkMigrationAttemptStarts,
-    ).set({ leaseExpiresAt: new Date(Date.parse(LEASE_TWO) + 1) }).where(eq(
-      fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
-      stored.second.storageId,
-    )));
-    const leaseFailure = await persistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        readFrameworkMigrationAttemptStartInTransactionEffect(
-          transaction,
-          stored.admission,
-          stored.first,
-          stored.secondValue,
-        ),
-      ),
-    );
-    expect(leaseFailure).toMatchObject({
-      operation: "readAttemptStart",
-      reason: "storedCorruption",
-    });
-    await expect(attemptCount(persistence)).resolves.toBe("2");
-    });
+  describe("broken predecessor storage", { concurrent: false }, () => {
+    const withBrokenPredecessorPersistence = useFileScopedPersistence(() =>
+      createFileScopedPGliteFixture(async db => {
+        await db.exec(`
+          alter table fx_system_framework_migration_attempt_start
+            drop constraint fx_framework_migration_attempt_previous_fk
+        `);
+        return persistence => resetFrameworkCoordinatorGraphRows(persistence.drizzle);
+      }));
 
-    const chainPersistence = await createMigratedPGlitePersistence();
-    const chainValues = await freshPlanRepositoryValues();
-    const chain = await chainPersistence.drizzle.transaction(
-      async transaction => {
-        const admission = await ensureStoredAdmission(transaction, chainValues);
-        const firstValue = await captureAttempt(
-          admission,
-          "attempt-chain-a",
-          "1",
-          LEASE_ONE,
-          null,
+    it("reports a changed lease projection and broken predecessor without healing", async () => {
+      await withPersistence(async persistence => {
+        const values = await freshPlanRepositoryValues();
+        const stored = await persistence.drizzle.transaction(
+          async transaction => {
+            const admission = await ensureStoredAdmission(transaction, values);
+            const firstValue = await captureAttempt(
+              admission,
+              "attempt-a",
+              "1",
+              LEASE_ONE,
+              null,
+            );
+            const first = await runEffect(
+              ensureFrameworkMigrationAttemptStartInTransactionEffect(
+                transaction,
+                admission,
+                null,
+                firstValue,
+              ),
+            );
+            const secondValue = await captureAttempt(
+              admission,
+              "attempt-b",
+              "2",
+              LEASE_TWO,
+              first,
+            );
+            const second = await runEffect(
+              ensureFrameworkMigrationAttemptStartInTransactionEffect(
+                transaction,
+                admission,
+                first,
+                secondValue,
+              ),
+            );
+            return { admission, first, second, secondValue };
+          },
         );
-        const first = await runEffect(
-          ensureFrameworkMigrationAttemptStartInTransactionEffect(
-            transaction,
-            admission,
-            null,
-            firstValue,
+        await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_attempt_start"], async repairTransaction => repairTransaction.update(
+          fxSystemFrameworkMigrationAttemptStarts,
+        ).set({ leaseExpiresAt: new Date(Date.parse(LEASE_TWO) + 1) }).where(eq(
+          fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
+          stored.second.storageId,
+        )));
+        const leaseFailure = await persistence.drizzle.transaction(
+          transaction => runEffectFailure(
+            readFrameworkMigrationAttemptStartInTransactionEffect(
+              transaction,
+              stored.admission,
+              stored.first,
+              stored.secondValue,
+            ),
           ),
         );
-        const secondValue = await captureAttempt(
-          admission,
-          "attempt-chain-b",
-          "2",
-          LEASE_TWO,
-          first,
+        expect(leaseFailure).toMatchObject({
+          operation: "readAttemptStart",
+          reason: "storedCorruption",
+        });
+        await expect(attemptCount(persistence)).resolves.toBe("2");
+      });
+
+      await withBrokenPredecessorPersistence(async chainPersistence => {
+        const chainValues = await freshPlanRepositoryValues();
+        const chain = await chainPersistence.drizzle.transaction(
+          async transaction => {
+            const admission = await ensureStoredAdmission(transaction, chainValues);
+            const firstValue = await captureAttempt(
+              admission,
+              "attempt-chain-a",
+              "1",
+              LEASE_ONE,
+              null,
+            );
+            const first = await runEffect(
+              ensureFrameworkMigrationAttemptStartInTransactionEffect(
+                transaction,
+                admission,
+                null,
+                firstValue,
+              ),
+            );
+            const secondValue = await captureAttempt(
+              admission,
+              "attempt-chain-b",
+              "2",
+              LEASE_TWO,
+              first,
+            );
+            const second = await runEffect(
+              ensureFrameworkMigrationAttemptStartInTransactionEffect(
+                transaction,
+                admission,
+                first,
+                secondValue,
+              ),
+            );
+            return { admission, first, second, secondValue };
+          },
         );
-        const second = await runEffect(
-          ensureFrameworkMigrationAttemptStartInTransactionEffect(
-            transaction,
+        await administrativelyRepairFrameworkMetadata(chainPersistence.drizzle, ["fx_system_framework_migration_attempt_start"], async repairTransaction => repairTransaction.update(
+          fxSystemFrameworkMigrationAttemptStarts,
+        ).set({ previousAttemptStorageId: 9_999n }).where(eq(
+          fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
+          chain.second.storageId,
+        )));
+        const chainFailure = await chainPersistence.drizzle.transaction(
+          transaction => runEffectFailure(
+            readFrameworkMigrationAttemptStartInTransactionEffect(
+              transaction,
+              chain.admission,
+              chain.first,
+              chain.secondValue,
+            ),
+          ),
+        );
+        expect(chainFailure).toMatchObject({
+          operation: "readAttemptStart",
+          reason: "storedCorruption",
+        });
+      });
+    }, 60_000);
+
+    it("rejects a cyclic stored predecessor chain", () => withBrokenPredecessorPersistence(async persistence => {
+      const values = await freshPlanRepositoryValues();
+      const stored = await persistence.drizzle.transaction(
+        async transaction => {
+          const admission = await ensureStoredAdmission(transaction, values);
+          const firstValue = await captureAttempt(
+            admission,
+            "attempt-cycle-a",
+            "1",
+            LEASE_ONE,
+            null,
+          );
+          const first = await runEffect(
+            ensureFrameworkMigrationAttemptStartInTransactionEffect(
+              transaction,
+              admission,
+              null,
+              firstValue,
+            ),
+          );
+          const secondValue = await captureAttempt(
+            admission,
+            "attempt-cycle-b",
+            "2",
+            LEASE_TWO,
+            null,
+          );
+          const second = await runEffect(
+            ensureFrameworkMigrationAttemptStartInTransactionEffect(
+              transaction,
+              admission,
+              null,
+              secondValue,
+            ),
+          );
+          const cyclicFirst = await captureAttemptWithPreviousId(
+            admission,
+            "attempt-cycle-a",
+            "1",
+            LEASE_ONE,
+            "attempt-cycle-b",
+          );
+          const cyclicSecond = await captureAttemptWithPreviousId(
+            admission,
+            "attempt-cycle-b",
+            "2",
+            LEASE_TWO,
+            "attempt-cycle-a",
+          );
+          return {
             admission,
             first,
-            secondValue,
+            firstValue,
+            second,
+            cyclicFirst,
+            cyclicSecond,
+          };
+        },
+      );
+      await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_attempt_start"], async repairTransaction => repairTransaction.update(
+        fxSystemFrameworkMigrationAttemptStarts,
+      ).set({
+        previousAttemptStorageId: stored.second.storageId,
+        previousAttemptId: stored.cyclicFirst.frame.previousAttemptId,
+        attemptStartSha256: decodeSha256(stored.cyclicFirst.sha256),
+        canonicalByteLength: canonicalBytes(stored.cyclicFirst).byteLength,
+        canonicalBytes: canonicalBytes(stored.cyclicFirst),
+      }).where(eq(
+        fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
+        stored.first.storageId,
+      )));
+      await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_attempt_start"], async repairTransaction => repairTransaction.update(
+        fxSystemFrameworkMigrationAttemptStarts,
+      ).set({
+        previousAttemptStorageId: stored.first.storageId,
+        previousAttemptId: stored.cyclicSecond.frame.previousAttemptId,
+        attemptStartSha256: decodeSha256(stored.cyclicSecond.sha256),
+        canonicalByteLength: canonicalBytes(stored.cyclicSecond).byteLength,
+        canonicalBytes: canonicalBytes(stored.cyclicSecond),
+      }).where(eq(
+        fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
+        stored.second.storageId,
+      )));
+
+      const failure = await persistence.drizzle.transaction(
+        transaction => runEffectFailure(
+          readFrameworkMigrationAttemptStartInTransactionEffect(
+            transaction,
+            stored.admission,
+            null,
+            stored.firstValue,
           ),
-        );
-        return { admission, first, second, secondValue };
-      },
-    );
-    await chainPersistence.query(`
-      alter table fx_system_framework_migration_attempt_start
-        drop constraint fx_framework_migration_attempt_previous_fk
-    `);
-    await administrativelyRepairFrameworkMetadata(chainPersistence.drizzle, ["fx_system_framework_migration_attempt_start"], async repairTransaction => repairTransaction.update(
-      fxSystemFrameworkMigrationAttemptStarts,
-    ).set({ previousAttemptStorageId: 9_999n }).where(eq(
-      fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
-      chain.second.storageId,
-    )));
-    const chainFailure = await chainPersistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        readFrameworkMigrationAttemptStartInTransactionEffect(
-          transaction,
-          chain.admission,
-          chain.first,
-          chain.secondValue,
         ),
-      ),
-    );
-    expect(chainFailure).toMatchObject({
-      operation: "readAttemptStart",
-      reason: "storedCorruption",
-    });
-  }, 60_000);
+      );
+      expect(failure).toMatchObject({
+        operation: "readAttemptStart",
+        reason: "storedCorruption",
+      });
+      await expect(attemptCount(persistence)).resolves.toBe("2");
+    }), 60_000);
+  });
 
   it("rejects corrupt and over-limit canonical attempt bytes", async () => {
     const persistence = await createMigratedPGlitePersistence();
@@ -712,112 +821,6 @@ describe("framework coordinator migration-attempt repository", { concurrent: fal
       operation: "readAttemptStart",
       reason: "storedCorruption",
     });
-  }, 60_000);
-
-  it("rejects a cyclic stored predecessor chain", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const values = await freshPlanRepositoryValues();
-    const stored = await persistence.drizzle.transaction(
-      async transaction => {
-        const admission = await ensureStoredAdmission(transaction, values);
-        const firstValue = await captureAttempt(
-          admission,
-          "attempt-cycle-a",
-          "1",
-          LEASE_ONE,
-          null,
-        );
-        const first = await runEffect(
-          ensureFrameworkMigrationAttemptStartInTransactionEffect(
-            transaction,
-            admission,
-            null,
-            firstValue,
-          ),
-        );
-        const secondValue = await captureAttempt(
-          admission,
-          "attempt-cycle-b",
-          "2",
-          LEASE_TWO,
-          null,
-        );
-        const second = await runEffect(
-          ensureFrameworkMigrationAttemptStartInTransactionEffect(
-            transaction,
-            admission,
-            null,
-            secondValue,
-          ),
-        );
-        const cyclicFirst = await captureAttemptWithPreviousId(
-          admission,
-          "attempt-cycle-a",
-          "1",
-          LEASE_ONE,
-          "attempt-cycle-b",
-        );
-        const cyclicSecond = await captureAttemptWithPreviousId(
-          admission,
-          "attempt-cycle-b",
-          "2",
-          LEASE_TWO,
-          "attempt-cycle-a",
-        );
-        return {
-          admission,
-          first,
-          firstValue,
-          second,
-          cyclicFirst,
-          cyclicSecond,
-        };
-      },
-    );
-    await persistence.query(`
-      alter table fx_system_framework_migration_attempt_start
-        drop constraint fx_framework_migration_attempt_previous_fk
-    `);
-    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_attempt_start"], async repairTransaction => repairTransaction.update(
-      fxSystemFrameworkMigrationAttemptStarts,
-    ).set({
-      previousAttemptStorageId: stored.second.storageId,
-      previousAttemptId: stored.cyclicFirst.frame.previousAttemptId,
-      attemptStartSha256: decodeSha256(stored.cyclicFirst.sha256),
-      canonicalByteLength: canonicalBytes(stored.cyclicFirst).byteLength,
-      canonicalBytes: canonicalBytes(stored.cyclicFirst),
-    }).where(eq(
-      fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
-      stored.first.storageId,
-    )));
-    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_attempt_start"], async repairTransaction => repairTransaction.update(
-      fxSystemFrameworkMigrationAttemptStarts,
-    ).set({
-      previousAttemptStorageId: stored.first.storageId,
-      previousAttemptId: stored.cyclicSecond.frame.previousAttemptId,
-      attemptStartSha256: decodeSha256(stored.cyclicSecond.sha256),
-      canonicalByteLength: canonicalBytes(stored.cyclicSecond).byteLength,
-      canonicalBytes: canonicalBytes(stored.cyclicSecond),
-    }).where(eq(
-      fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
-      stored.second.storageId,
-    )));
-
-    const failure = await persistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        readFrameworkMigrationAttemptStartInTransactionEffect(
-          transaction,
-          stored.admission,
-          null,
-          stored.firstValue,
-        ),
-      ),
-    );
-    expect(failure).toMatchObject({
-      operation: "readAttemptStart",
-      reason: "storedCorruption",
-    });
-    await expect(attemptCount(persistence)).resolves.toBe("2");
   }, 60_000);
 
   it("rejects extended-year leases, follows caller rollback, and projects driver failure", () => withPersistence(async persistence => {

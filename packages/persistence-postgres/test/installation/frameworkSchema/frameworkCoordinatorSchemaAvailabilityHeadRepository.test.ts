@@ -42,6 +42,7 @@ import type { FrameworkMigrationRepositoryError } from
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   useFileScopedFrameworkCoordinatorGraphPersistence,
+  resetFrameworkCoordinatorGraphRows,
   rejectingSelectTransaction,
   createSuccessfulTerminalPlanValues,
   storeSuccessfulAvailabilityHistoryGraphInTransaction,
@@ -187,139 +188,140 @@ describe("framework coordinator schema-availability-head repository", { concurre
     );
   }), PGLITE_TEST_TIMEOUT);
 
-  it("reports stale initialization and refuses forged dependency authority", () => withPersistence(async persistence => {
-    const stored = await initializedAvailabilityHeadFixture(persistence);
-    const before = await storedAvailabilityHeadRow(persistence);
+  describe("independent store authority", { concurrent: false }, () => {
+    const withIndependentPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
 
-    const stale = await persistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        initializeFrameworkSchemaAvailabilityHeadInTransactionEffect(
-          transaction,
-          stored.histories.ready,
-          stored.heads.ready,
-        ),
-      ),
-    );
-    expect(stale).toMatchObject({
-      operation: "initializeAvailabilityHead",
-      reason: "staleHead",
-    });
+    it("reports stale initialization and refuses forged dependency authority", () => withPersistence(async persistence => withIndependentPersistence(async emptyPersistence => {
+      const stored = await initializedAvailabilityHeadFixture(persistence);
+      const before = await storedAvailabilityHeadRow(persistence);
 
-    const forgedExpected = Object.freeze({ ...stored.initialized });
-    expect(isRestoredFrameworkSchemaAvailabilityHead(forgedExpected)).toBe(
-      false,
-    );
-    const forgedExpectedFailure = await persistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect(
-          transaction,
-          forgedExpected,
-          stored.histories.ready,
-          stored.heads.ready,
-        ),
-      ),
-    );
-    expect(forgedExpectedFailure).toMatchObject({
-      operation: "compareAndSwapAvailabilityHead",
-      reason: "referenceRefusal",
-    });
-
-    const forgedHistory = Object.freeze({ ...stored.histories.ready });
-    const forgedHistoryFailure = await persistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect(
-          transaction,
-          stored.initialized,
-          forgedHistory,
-          stored.heads.ready,
-        ),
-      ),
-    );
-    expect(forgedHistoryFailure).toMatchObject({
-      operation: "compareAndSwapAvailabilityHead",
-      reason: "referenceRefusal",
-    });
-    await expect(storedAvailabilityHeadRow(persistence)).resolves.toEqual(
-      before,
-    );
-
-    const emptyPersistence = await createMigratedPGlitePersistence();
-    const missingInstallation = await emptyPersistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        readFrameworkSchemaAvailabilityHeadInTransactionEffect(
-          transaction,
-          stored.initialized.installation,
-        ),
-      ),
-    );
-    expect(missingInstallation).toMatchObject({
-      operation: "readAvailabilityHead",
-      reason: "referenceRefusal",
-    });
-  }), PGLITE_TEST_TIMEOUT);
-
-  it("refuses expected private history authority from another store", async () => {
-    const expectedPersistence = await createMigratedPGlitePersistence();
-    const actualPersistence = await createMigratedPGlitePersistence();
-    const values = await createSuccessfulTerminalPlanValues();
-    const expected = await expectedPersistence.drizzle.transaction(
-      async transaction => {
-        const prepared = await prepareAvailabilityHeadGraph(
-          transaction,
-          values,
-        );
-        const initialized = await runEffect(
+      const stale = await persistence.drizzle.transaction(
+        transaction => runEffectFailure(
           initializeFrameworkSchemaAvailabilityHeadInTransactionEffect(
             transaction,
-            prepared.histories.initial,
-            prepared.heads.initial,
+            stored.histories.ready,
+            stored.heads.ready,
           ),
-        );
-        return Object.freeze({ ...prepared, initialized });
-      },
-    );
-    await actualPersistence.query(`
+        ),
+      );
+      expect(stale).toMatchObject({
+        operation: "initializeAvailabilityHead",
+        reason: "staleHead",
+      });
+
+      const forgedExpected = Object.freeze({ ...stored.initialized });
+      expect(isRestoredFrameworkSchemaAvailabilityHead(forgedExpected)).toBe(
+        false,
+      );
+      const forgedExpectedFailure = await persistence.drizzle.transaction(
+        transaction => runEffectFailure(
+          compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect(
+            transaction,
+            forgedExpected,
+            stored.histories.ready,
+            stored.heads.ready,
+          ),
+        ),
+      );
+      expect(forgedExpectedFailure).toMatchObject({
+        operation: "compareAndSwapAvailabilityHead",
+        reason: "referenceRefusal",
+      });
+
+      const forgedHistory = Object.freeze({ ...stored.histories.ready });
+      const forgedHistoryFailure = await persistence.drizzle.transaction(
+        transaction => runEffectFailure(
+          compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect(
+            transaction,
+            stored.initialized,
+            forgedHistory,
+            stored.heads.ready,
+          ),
+        ),
+      );
+      expect(forgedHistoryFailure).toMatchObject({
+        operation: "compareAndSwapAvailabilityHead",
+        reason: "referenceRefusal",
+      });
+      await expect(storedAvailabilityHeadRow(persistence)).resolves.toEqual(
+        before,
+      );
+
+      const missingInstallation = await emptyPersistence.drizzle.transaction(
+        transaction => runEffectFailure(
+          readFrameworkSchemaAvailabilityHeadInTransactionEffect(
+            transaction,
+            stored.initialized.installation,
+          ),
+        ),
+      );
+      expect(missingInstallation).toMatchObject({
+        operation: "readAvailabilityHead",
+        reason: "referenceRefusal",
+      });
+    })), PGLITE_TEST_TIMEOUT);
+
+    it("refuses expected private history authority from another store", () => withPersistence(async actualPersistence => withIndependentPersistence(async expectedPersistence => {
+      const values = await createSuccessfulTerminalPlanValues();
+      const expected = await expectedPersistence.drizzle.transaction(
+        async transaction => {
+          const prepared = await prepareAvailabilityHeadGraph(
+            transaction,
+            values,
+          );
+          const initialized = await runEffect(
+            initializeFrameworkSchemaAvailabilityHeadInTransactionEffect(
+              transaction,
+              prepared.histories.initial,
+              prepared.heads.initial,
+            ),
+          );
+          return Object.freeze({ ...prepared, initialized });
+        },
+      );
+      await actualPersistence.query(`
       select nextval('fx_framework_availability_history_storage_id_seq')
     `);
-    const actual = await actualPersistence.drizzle.transaction(
-      async transaction => {
-        const prepared = await prepareAvailabilityHeadGraph(
-          transaction,
-          values,
-        );
-        const initialized = await runEffect(
-          initializeFrameworkSchemaAvailabilityHeadInTransactionEffect(
+      const actual = await actualPersistence.drizzle.transaction(
+        async transaction => {
+          const prepared = await prepareAvailabilityHeadGraph(
             transaction,
-            prepared.histories.initial,
-            prepared.heads.initial,
+            values,
+          );
+          const initialized = await runEffect(
+            initializeFrameworkSchemaAvailabilityHeadInTransactionEffect(
+              transaction,
+              prepared.histories.initial,
+              prepared.heads.initial,
+            ),
+          );
+          return Object.freeze({ ...prepared, initialized });
+        },
+      );
+      expect(expected.initialized.head).toEqual(actual.initialized.head);
+      expect(expected.initialized.history.storageId).not.toBe(
+        actual.initialized.history.storageId,
+      );
+      const before = await storedAvailabilityHeadRow(actualPersistence);
+      const failure = await actualPersistence.drizzle.transaction(
+        transaction => runEffectFailure(
+          compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect(
+            transaction,
+            expected.initialized,
+            actual.histories.ready,
+            actual.heads.ready,
           ),
-        );
-        return Object.freeze({ ...prepared, initialized });
-      },
-    );
-    expect(expected.initialized.head).toEqual(actual.initialized.head);
-    expect(expected.initialized.history.storageId).not.toBe(
-      actual.initialized.history.storageId,
-    );
-    const before = await storedAvailabilityHeadRow(actualPersistence);
-    const failure = await actualPersistence.drizzle.transaction(
-      transaction => runEffectFailure(
-        compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect(
-          transaction,
-          expected.initialized,
-          actual.histories.ready,
-          actual.heads.ready,
         ),
-      ),
-    );
-    expect(failure).toMatchObject({
-      operation: "compareAndSwapAvailabilityHead",
-      reason: "referenceRefusal",
-    });
-    await expect(storedAvailabilityHeadRow(actualPersistence)).resolves.toEqual(
-      before,
-    );
-  }, PGLITE_TEST_TIMEOUT);
+      );
+      expect(failure).toMatchObject({
+        operation: "compareAndSwapAvailabilityHead",
+        reason: "referenceRefusal",
+      });
+      await expect(storedAvailabilityHeadRow(actualPersistence)).resolves.toEqual(
+        before,
+      );
+    })), PGLITE_TEST_TIMEOUT);
+  });
 
   it("rejects corrupt projections, references, and over-limit bytes without healing", async () => {
     const projectionPersistence = await createMigratedPGlitePersistence();
@@ -362,14 +364,11 @@ describe("framework coordinator schema-availability-head repository", { concurre
       storedAvailabilityHeadRow(projectionPersistence),
     ).resolves.toEqual(projectionBefore);
 
-    const referencePersistence = await createMigratedPGlitePersistence();
+    await resetFrameworkCoordinatorGraphRows(projectionPersistence.drizzle);
+    const referencePersistence = projectionPersistence;
     const reference = await initializedAvailabilityHeadFixture(
       referencePersistence,
     );
-    await referencePersistence.query(`
-      alter table fx_system_framework_schema_availability_head
-        drop constraint fx_framework_availability_head_history_fk
-    `);
     await referencePersistence.drizzle.update(
       fxSystemFrameworkSchemaAvailabilityHeads,
     ).set({ availabilityHistoryStorageId: 999_999n }).where(eq(
