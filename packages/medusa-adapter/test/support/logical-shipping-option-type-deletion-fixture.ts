@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Effect, Result, Schema } from "effect";
-import { createStep, createWorkflow, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, transform, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { deleteShippingOptionTypesWorkflow } from "@medusajs/core-flows/shipping-options/delete-shipping-option-types";
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
@@ -89,7 +89,7 @@ export async function prepareLogicalShippingOptionTypeDeletion(driver: "pglite" 
       await linkStep.compensate!({ fulfillment: { shipping_option_type_id: [...input.ids] } }, context);
       await typeStep.compensate!([...input.ids], context);
       if (input.fail === true) throw new Error("Late native Type deletion inverse failure");
-      return null;
+      return new StepResponse(null);
     }));
     const workflow = createWorkflow(roundtrip ? "probe-type-deletion-roundtrip" : "probe-type-deletion-inverse", (input: WorkflowData<typeof Restore.Type>) => {
       if (roundtrip) {

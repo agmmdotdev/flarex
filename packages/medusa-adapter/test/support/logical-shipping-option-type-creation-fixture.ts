@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Effect, Result, Schema } from "effect";
-import { createStep, createWorkflow, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, transform, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { createShippingOptionTypesWorkflow } from "@medusajs/core-flows/shipping-options/create-shipping-option-types";
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
@@ -79,7 +79,7 @@ export async function prepareLogicalShippingOptionTypeCreation(driver: "pglite" 
     createStep("probe-native-shipping-option-type-inverse", resources.callback(async (ids: typeof ShippingOptionTypePhysicalDeletionIds.Type, context) => {
       await compensate([...ids], context);
       if (lateFailure) throw new Error("Late native Type inverse failure");
-      return null;
+      return new StepResponse(null);
     }));
   const prepareRoundtrip = async (lateFailure = false) => {
     const undo = inverseStep(lateFailure);
@@ -109,7 +109,7 @@ export async function prepareLogicalShippingOptionTypeCreation(driver: "pglite" 
   };
   const prepareAbsentInverse = async () => {
     const undo = createStep("probe-absent-native-type-inverse", resources.callback(async (_input: null, context) => {
-      await compensate(undefined, context); await compensate([], context); return null;
+      await compensate(undefined, context); await compensate([], context); return new StepResponse(null);
     }));
     const flow = createWorkflow("probe-absent-native-type-inverse", (value: WorkflowData<null>) => new WorkflowResponse(undo(value)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...options, workflow: { name: "probeAbsentNativeTypeInverse",

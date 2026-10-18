@@ -81,7 +81,7 @@ export async function prepareLogicalShippingProfileUpdate(driver: "pglite" | "po
   };
   const prepareAbsentInverse = async () => {
     const undo = createStep("probe-native-shipping-profile-empty-inverses", resources.callback(async (_input: null, context) => {
-      await compensate(undefined, context); await compensate([], context); return null;
+      await compensate(undefined, context); await compensate([], context); return new StepResponse(null);
     }));
     const workflow = createWorkflow("probe-native-shipping-profile-empty-inverses", (input: WorkflowData<null>) => new WorkflowResponse(undo(input)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution, modules: { fulfillment: installed },

@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { Effect, Result } from "effect";
-import { createHook, createStep, createWorkflow, transform, when, WorkflowResponse, type Hook, type StepOutput, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createHook, createStep, createWorkflow, StepResponse, transform, when, WorkflowResponse, type Hook, type StepOutput, type WorkflowData } from "@medusajs/workflows-sdk";
 import { executeWorkflow, type WorkflowExecutionPort } from "@medusajs/workflows-sdk/native";
 import { runEffect } from "../../persistence-postgres/test/support/effectTestRuntime";
 
@@ -89,7 +89,7 @@ describe("native named workflow conditions", () => {
     expect(await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port))).toEqual([2, 1]);
   });
 
-  it("supports named instances whose declared output is null, undefined or void", async () => {
+  it("preserves native named raw and explicit null, undefined or void results", async () => {
     const missing = createStep("missing-output", () => undefined);
     const empty = createStep("null-output", () => null);
     const completed = createStep<void, void>("void-output", () => {});
@@ -105,7 +105,28 @@ describe("native named workflow conditions", () => {
         return [value.first ?? null, value.second ?? null, value.nil, value.done ?? null];
       }));
     });
-    expect(await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port))).toEqual([null, null, null, null]);
+    // Frozen native136 differential: raw nullish callbacks retain the outer
+    // workflow-data representation, despite their declared authoring types.
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port))).toEqual([
+      { __type: "Symbol(WorkflowWorkflowData)" }, { __type: "Symbol(WorkflowWorkflowData)" },
+      { __type: "Symbol(WorkflowWorkflowData)", output: null }, { __type: "Symbol(WorkflowWorkflowData)" },
+    ]);
+    const explicitMissing = createStep("explicit-missing-output", () => new StepResponse(undefined));
+    const explicitNull = createStep("explicit-null-output", () => new StepResponse(null));
+    const explicitVoid = createStep<void, void>("explicit-void-output", () => new StepResponse<void>(undefined));
+    const explicit = createWorkflow("explicit-absence-instances", () => {
+      const first = explicitMissing(undefined).config({ name: "first-missing" });
+      const second = explicitMissing(undefined).config({ name: "second-missing" });
+      const nil = explicitNull(undefined).config({ name: "nil" });
+      const done = explicitVoid(undefined).config({ name: "done" });
+      return new WorkflowResponse(transform({ first, second, nil, done }, value => {
+        expectTypeOf(value.first).toEqualTypeOf<undefined>();
+        expectTypeOf(value.nil).toEqualTypeOf<null>();
+        expectTypeOf(value.done).toEqualTypeOf<void>();
+        return [value.first ?? null, value.second ?? null, value.nil, value.done ?? null];
+      }));
+    });
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(explicit.prepare()), undefined, port))).toEqual([null, null, null, null]);
   });
 
   it("requires narrowing optional conditional values before required step inputs", () => {

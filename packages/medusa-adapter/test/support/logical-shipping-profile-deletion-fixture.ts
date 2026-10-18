@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Effect, Result, Schema } from "effect";
-import { createStep, createWorkflow, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, transform, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { deleteShippingProfileWorkflow } from "@medusajs/core-flows/shipping-profile/delete-shipping-profile";
 import { createProductsStep } from "@medusajs/core-flows/product/create-products-step";
 import { createShippingProfilesStep } from "@medusajs/core-flows/fulfillment/create-shipping-profiles-step";
@@ -133,7 +133,7 @@ export async function prepareLogicalShippingProfileDeletion(driver: "pglite" | "
       await restoreLinks({ fulfillment: { shipping_profile_id: [...input.ids] } }, context);
       await restoreProfiles([...input.ids], context);
       if (input.fail === true) throw new Error("Late native ShippingProfile inverse failure");
-      return null;
+      return new StepResponse(null);
     }));
     const workflow = createWorkflow(roundtrip ? "probe-shipping-profile-deletion-roundtrip" : "probe-shipping-profile-deletion-inverse", (input: WorkflowData<typeof Restore.Type>) => {
       if (roundtrip) {

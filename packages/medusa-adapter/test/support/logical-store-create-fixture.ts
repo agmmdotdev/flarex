@@ -137,12 +137,12 @@ export async function prepareLogicalStoreCreation(driver: "pglite" | "postgres",
     const undoStore = createStep("probe-retained-store-create-inverse", resources.callback(async (input: typeof StorePhysicalDeletionIds.Type, context) => {
       await storeCallbacks.compensate(input, context);
       if (failAfterInverse === "store") throw new Error("Late probe failure after genuine Store physical inverse");
-      return null;
+      return new StepResponse(null);
     }));
     const undoPreferences = createStep("probe-retained-store-preferences-inverse", resources.callback(async (input: typeof Compensation.Type, context) => {
       await preferenceCallbacks.compensate(input, context);
       if (failAfterInverse === "pricing") throw new Error("Late probe failure after genuine Pricing inverse");
-      return null;
+      return new StepResponse(null);
     }));
     const storeForward = createWorkflow("probe-native-store-create", (input: WorkflowData<typeof StoreCreates.Type>) => new WorkflowResponse(forwardStore(input)));
     const pricingForward = createWorkflow("probe-native-store-preferences", (input: WorkflowData<typeof StorePreferenceUpserts.Type>) => new WorkflowResponse(forwardPreferences(input)));
@@ -164,7 +164,7 @@ export async function prepareLogicalStoreCreation(driver: "pglite" | "postgres",
     // inverse intentionally skips [], so it cannot prove native deleteStores([]).
     const prepareDirectDelete = async () => {
       const step = createStep("probe-direct-store-delete", resources.callback(async (input: typeof StorePhysicalDeletionIds.Type, context) => {
-        await context.resources.store.deleteStores([...input]); return null;
+        await context.resources.store.deleteStores([...input]); return new StepResponse(null);
       }));
       const workflow = createWorkflow("probe-direct-store-delete", (input: WorkflowData<typeof StorePhysicalDeletionIds.Type>) => new WorkflowResponse(step(input)));
       const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...probeOptions, workflow: { name: "probeDirectStoreDelete", resources,

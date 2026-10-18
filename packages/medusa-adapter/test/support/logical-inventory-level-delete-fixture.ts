@@ -1,5 +1,5 @@
 import { Effect, Result, Schema } from "effect";
-import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { deleteInventoryLevelsWorkflow } from "@medusajs/core-flows/inventory/delete-inventory-levels";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
@@ -55,7 +55,7 @@ export async function prepareLogicalInventoryLevelDeletion(driver: "pglite" | "p
       methods: ["restoreInventoryLevels"], graph: false } }, true));
     const invoke = createStep("invoke-retained-level-delete-compensation", resources.callback(async (ids: typeof InventoryLevelDeletionIds.Type, context) => {
       await compensate({ entityIdentifiers: [...ids], moduleRegistrationName: "inventory", compensateMethod: "restoreInventoryLevels" }, context);
-      return null;
+      return new StepResponse(null);
     }));
     const workflow = createWorkflow("probe-retained-level-delete-compensation", (input: WorkflowData<typeof InventoryLevelDeletionIds.Type>) => new WorkflowResponse(invoke(input)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution, modules: options.modules,

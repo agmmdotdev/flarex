@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Effect, Result, Schema } from "effect";
-import { createStep, createWorkflow, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, transform, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { deleteServiceZonesWorkflow } from "@medusajs/core-flows/fulfillment/delete-service-zones";
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
@@ -37,7 +37,7 @@ export async function prepareLogicalServiceZoneDeletion(driver: "pglite" | "post
   const Restore = Schema.Struct({ ids: ServiceZoneDeletionIds, fail: Schema.optionalKey(Schema.Boolean) });
   const prepareInverse = async (roundtrip: boolean, limits: Readonly<{ calls: number; eventMessages: number }> = serviceZoneDeletionResources) => {
     const inverse = createStep("probe-native-service-zone-deletion-inverse", resources.callback(async (value: typeof Restore.Type, context) => {
-      await compensate([...value.ids], context); if (value.fail === true) throw new Error("Late native ServiceZone restoration failure"); return null;
+      await compensate([...value.ids], context); if (value.fail === true) throw new Error("Late native ServiceZone restoration failure"); return new StepResponse(null);
     }));
     const flow = createWorkflow(roundtrip ? "probe-native-service-zone-deletion-roundtrip" : "probe-native-service-zone-deletion-inverse", (value: WorkflowData<typeof Restore.Type>) => {
       if (roundtrip) {
@@ -67,7 +67,7 @@ export async function prepareLogicalServiceZoneDeletion(driver: "pglite" | "post
   };
   const prepareAbsentInverse = async () => {
     const undo = createStep("probe-absent-native-service-zone-deletion-inverse", resources.callback(async (_value: null, context) => {
-      await compensate(undefined, context); await compensate([], context); return null;
+      await compensate(undefined, context); await compensate([], context); return new StepResponse(null);
     }));
     const flow = createWorkflow("probe-absent-native-service-zone-deletion-inverse", (value: WorkflowData<null>) => new WorkflowResponse(undo(value)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...options, requestCallLimit: serviceZoneDeletionResources.calls,

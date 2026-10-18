@@ -86,9 +86,20 @@ export interface WorkflowResolutionFrame {
   readonly owner: object;
   readonly input: unknown;
   readonly outputs: ReadonlyMap<object, unknown>;
+  /** Only actual captured StepResponse/child/hook results issue this provenance.
+   * A literal undefined, skipped branch or caller-supplied marker cannot. */
+  readonly undefinedStepOutputs: ReadonlySet<object>;
   readonly transforms: Map<object, unknown>;
 }
+// Traversal-private absence provenance; it never reaches callbacks or capture.
+// Native serialization omits an undefined StepResponse object member while
+// preserving its direct undefined result and positional array member.
+const undefinedStepResult = Symbol("MedusaWorkflow.undefinedStepResult");
+const resultValue = (value: unknown) => value === undefinedStepResult ? undefined : value;
 interface TransformResolution { readonly reference: Reference; readonly input: unknown; readonly depth: number }
+/** Private traversal outcome. Only resolving an issued callback reference can
+ * propagate its undefined-result provenance through another staged reference. */
+export interface WorkflowResolvedValue { readonly value: unknown; readonly undefinedStepResult: boolean }
 type Task =
   | { readonly kind: "visit"; readonly resolution: WorkflowResolution; readonly depth: number }
   | { readonly kind: "select"; readonly property: PropertyKey | undefined }
@@ -99,7 +110,7 @@ type Task =
  * transform boundary; the caller retains capture, invocation and cancellation.
  * The explicit stack preserves member order without a runtime per scalar. */
 export function* resolveWorkflowValue(resolution: WorkflowResolution, frame: WorkflowResolutionFrame, depth = 0):
-  Generator<TransformResolution, Result.Result<unknown, ReturnType<typeof definitionError>>, unknown> {
+  Generator<TransformResolution, Result.Result<WorkflowResolvedValue, ReturnType<typeof definitionError>>, WorkflowResolvedValue> {
   const tasks: Task[] = [{ kind: "visit", resolution, depth }];
   const values: unknown[] = [];
   let visited = 0;
@@ -108,19 +119,20 @@ export function* resolveWorkflowValue(resolution: WorkflowResolution, frame: Wor
     if (task.kind === "select") {
       const value = values.pop();
       if (task.property === undefined) return Result.fail(definitionError("invalidReference", "Missing property key"));
-      values.push(value == null ? undefined : Reflect.get(Object(value), task.property));
+      values.push(value === undefinedStepResult ? undefinedStepResult : value == null ? undefined : Reflect.get(Object(value), task.property));
       continue;
     }
     if (task.kind === "assemble") {
       const members = values.splice(values.length - task.resolution.members.length);
-      values.push(task.resolution.kind === "array" ? members
-        : Object.fromEntries(task.resolution.keys.map((key, index) => [key, members[index]])));
+      values.push(task.resolution.kind === "array" ? members.map(resultValue)
+        : Object.fromEntries(task.resolution.keys.flatMap((key, index) => members[index] === undefinedStepResult ? [] : [[key, members[index]]])));
       continue;
     }
     if (task.kind === "transform") {
-      const captured = yield { reference: task.reference, input: values.pop(), depth: task.depth };
-      frame.transforms.set(task.reference, captured);
-      values.push(captured);
+      const captured = yield { reference: task.reference, input: resultValue(values.pop()), depth: task.depth };
+      const value = captured.value === undefined && captured.undefinedStepResult ? undefinedStepResult : captured.value;
+      frame.transforms.set(task.reference, value);
+      values.push(value);
       continue;
     }
     // Shared source objects compile to a DAG. Charge every expanded visit,
@@ -142,7 +154,8 @@ export function* resolveWorkflowValue(resolution: WorkflowResolution, frame: Wor
     if (reference.kind === "input") { values.push(frame.input); continue; }
     if (reference.kind === "step") {
       if (reference.step === undefined || !frame.outputs.has(reference.step)) return Result.fail(definitionError("invalidReference", "Step has not completed"));
-      values.push(frame.outputs.get(reference.step));
+      const output = frame.outputs.get(reference.step);
+      values.push(output === undefined && frame.undefinedStepOutputs.has(reference.step) ? undefinedStepResult : output);
       continue;
     }
     if (reference.kind === "property") tasks.push({ kind: "select", property: reference.property });
@@ -155,5 +168,5 @@ export function* resolveWorkflowValue(resolution: WorkflowResolution, frame: Wor
     if (current.input === undefined) throw new Error("Missing prepared reference input");
     tasks.push({ kind: "visit", resolution: current.input, depth: task.depth + 1 });
   }
-  return Result.succeed(values[0]);
+  return Result.succeed({ value: resultValue(values[0]), undefinedStepResult: values[0] === undefinedStepResult });
 }

@@ -1,6 +1,6 @@
 import { Effect, Result, Schema } from "effect";
 import { and, eq } from "drizzle-orm";
-import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { deleteInventoryItemWorkflow } from "@medusajs/core-flows/inventory/delete-inventory-items";
 import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { defineCommerceCommand } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
@@ -90,7 +90,7 @@ export async function prepareLogicalInventoryItemDeletion(driver: "pglite" | "po
       inventory_item_links: { module: links.inventory.workflow, methods: ["softDelete", "restore"], graph: false, expose: false },
     }, true, { link: links.resource }));
     const invoke = createStep("invoke-retained-item-delete-compensators", resources.callback(async (ids: typeof InventoryItemDeletionInput.Type, context) => {
-      await restoreItems([...ids], context); await restoreLinks({ inventory: { inventory_item_id: [...ids] } }, context); return null;
+      await restoreItems([...ids], context); await restoreLinks({ inventory: { inventory_item_id: [...ids] } }, context); return new StepResponse(null);
     }));
     const workflow = createWorkflow("probe-retained-item-delete-compensation", (input: WorkflowData<typeof InventoryItemDeletionInput.Type>) => new WorkflowResponse(invoke(input)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution, modules, operationScheduling: "queued", revision: "d".repeat(64), subscribers,
@@ -103,7 +103,7 @@ export async function prepareLogicalInventoryItemDeletion(driver: "pglite" | "po
       inventory_item_links: { module: links.inventory.workflow, methods: ["softDelete", "restore"], graph: false, expose: false },
     }, true, { link: links.resource }));
     const invoke = createStep("invoke-genuine-item-link-delete", resources.callback(async (ids: typeof InventoryItemDeletionInput.Type, context) => {
-      await deleteLinkCallback({ inventory: { inventory_item_id: [...ids] } }, context); return null;
+      await deleteLinkCallback({ inventory: { inventory_item_id: [...ids] } }, context); return new StepResponse(null);
     }));
     const workflow = createWorkflow("seed-predeleted-item-links", (input: WorkflowData<typeof InventoryItemDeletionInput.Type>) => new WorkflowResponse(invoke(input)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution, modules: { inventory_item_links: modules.inventory_item_links },

@@ -1,5 +1,5 @@
 import { Effect, Result, Schema } from "effect";
-import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { createInventoryLevelsWorkflow } from "@medusajs/core-flows/inventory/create-inventory-levels";
 import { makeLocalInventoryCommands } from "../../src/modules/inventory/service";
 import { InventoryId } from "../../src/modules/inventory/item-input";
@@ -37,7 +37,7 @@ export async function prepareLogicalInventoryLevelCreation(driver: "pglite" | "p
     const resources = Result.getOrThrow(prepareWorkflowResources({ inventory: { module: creation.workflow,
       methods: ["deleteInventoryLevels"], graph: false } }, true));
     const inverse = createStep("probe-standalone-level-creation-inverse", resources.callback(async (ids: typeof Ids.Type, context) => {
-      await compensate(ids, context); return null;
+      await compensate(ids, context); return new StepResponse(null);
     }));
     const workflow = createWorkflow("probe-standalone-level-creation-inverse", (input: WorkflowData<typeof Ids.Type>) => new WorkflowResponse(inverse(input)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution: common.execution,

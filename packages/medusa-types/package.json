@@ -48,6 +48,11 @@
       "source": "./src/common/common.ts",
       "default": "./dist/common/common.js"
     },
+    "./common/rule": {
+      "types": "./dist/common/rule.d.ts",
+      "source": "./src/common/rule.ts",
+      "default": "./dist/common/rule.js"
+    },
     "./currency/service": {
       "types": "./dist/currency/service.d.ts",
       "source": "./src/currency/service.ts",

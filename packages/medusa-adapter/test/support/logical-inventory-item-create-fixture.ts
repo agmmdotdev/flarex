@@ -61,8 +61,8 @@ export async function prepareLogicalInventoryItemCreation(driver: "pglite" | "po
     const result = await invokeItemCreation(input, context); if (!(result instanceof StepResponse)) throw new Error("Missing genuine Item create response");
     return { output: result.output, compensation: result.compensateInput };
   }));
-  const inverse = createStep("probe-retained-item-create-inverse", resources.callback(async (ids: typeof Ids.Type, context) => { await undoItems(ids, context); return null; }));
-  const levelInverse = createStep("probe-retained-child-level-create-inverse", resources.callback(async (ids: typeof LevelIds.Type, context) => { await undoLevels(ids, context); return null; }));
+  const inverse = createStep("probe-retained-item-create-inverse", resources.callback(async (ids: typeof Ids.Type, context) => { await undoItems(ids, context); return new StepResponse(null); }));
+  const levelInverse = createStep("probe-retained-child-level-create-inverse", resources.callback(async (ids: typeof LevelIds.Type, context) => { await undoLevels(ids, context); return new StepResponse(null); }));
   const forwardProbe = createWorkflow("probe-item-create", (input: WorkflowData<typeof Items.Type>) => new WorkflowResponse(forward(input)));
   const inverseProbe = createWorkflow("probe-item-create-inverse", (input: WorkflowData<typeof Ids.Type>) => new WorkflowResponse(inverse(input)));
   const levelInverseProbe = createWorkflow("probe-item-child-level-create-inverse", (input: WorkflowData<typeof LevelIds.Type>) => new WorkflowResponse(levelInverse(input)));
@@ -88,7 +88,7 @@ export async function prepareLogicalInventoryItemCreation(driver: "pglite" | "po
       methods: ["softDeleteStockLocations", "restoreStockLocations"], graph: false } }, true));
     const invoke = createStep("competing-native-location-soft-delete", resources.callback(async (ids: typeof StockLocationDeletionIds.Type, context) => {
       const service = context.container.resolve<Pick<StockLocationModuleService, "softDeleteStockLocations">>("stock_location");
-      await service.softDeleteStockLocations([...ids]); return null;
+      await service.softDeleteStockLocations([...ids]); return new StepResponse(null);
     }));
     const workflow = createWorkflow("competing-native-location-soft-delete", (input: WorkflowData<typeof StockLocationDeletionIds.Type>) => new WorkflowResponse(invoke(input)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution: common.execution,

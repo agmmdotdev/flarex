@@ -65,7 +65,7 @@ export async function prepareLogicalServiceZoneUpdate(driver: "pglite" | "postgr
   };
   const prepareInverse = async () => {
     const undo = createStep("probe-native-service-zone-update-inverse", resources.callback(async (preimages: typeof ServiceZoneUpdateUpserts.Type, context) => {
-      await compensate(preimages, context); return null;
+      await compensate(preimages, context); return new StepResponse(null);
     }));
     const flow = createWorkflow("probe-native-service-zone-update-inverse", (value: WorkflowData<typeof ServiceZoneUpdateUpserts.Type>) => new WorkflowResponse(undo(value)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...hostOptions, workflow: { name: "probeNativeServiceZoneUpdateInverse", resources,
@@ -91,7 +91,7 @@ export async function prepareLogicalServiceZoneUpdate(driver: "pglite" | "postgr
   };
   const prepareAbsentInverse = async () => {
     const undo = createStep("probe-native-service-zone-update-absent-inverse", resources.callback(async (_value: null, context) => {
-      await compensate(undefined, context); await compensate([], context); return null;
+      await compensate(undefined, context); await compensate([], context); return new StepResponse(null);
     }));
     const flow = createWorkflow("probe-native-service-zone-update-absent-inverse", (value: WorkflowData<null>) => new WorkflowResponse(undo(value)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...hostOptions, workflow: { name: "probeNativeServiceZoneUpdateAbsentInverse", resources,

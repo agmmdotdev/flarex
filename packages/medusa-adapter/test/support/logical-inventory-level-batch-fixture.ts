@@ -59,17 +59,17 @@ export async function prepareLogicalInventoryLevelBatch(driver: "pglite" | "post
     return { output: result.output, compensation: result.compensateInput };
   }));
   const createInverse = createStep("probe-retained-level-batch-create-inverse", resources.callback(async (ids: typeof Created.fields.compensation.Type, context) => {
-    if (creation.compensate === undefined) throw new Error("Missing genuine physical inverse"); await creation.compensate(ids, context); return null;
+    if (creation.compensate === undefined) throw new Error("Missing genuine physical inverse"); await creation.compensate(ids, context); return new StepResponse(null);
   }));
   const updateForward = createStep("probe-retained-level-batch-update", resources.callback(async (input: typeof InventoryLevelUpdates.Type, context) => {
     const result = await update.invoke(input, context); if (!(result instanceof StepResponse)) throw new Error("Missing genuine update response");
     return { output: result.output, compensation: result.compensateInput };
   }));
   const updateInverse = createStep("probe-retained-level-batch-update-inverse", resources.callback(async (input: typeof Preimages.Type, context) => {
-    if (update.compensate === undefined) throw new Error("Missing genuine update inverse"); await update.compensate(input, context); return null;
+    if (update.compensate === undefined) throw new Error("Missing genuine update inverse"); await update.compensate(input, context); return new StepResponse(null);
   }));
   const deletionInverse = createStep("probe-retained-level-batch-delete-inverse", resources.callback(async (ids: typeof InventoryLevelDeletionIds.Type, context) => {
-    await restoreLevels({ entityIdentifiers: [...ids], moduleRegistrationName: "inventory", compensateMethod: "restoreInventoryLevels" }, context); return null;
+    await restoreLevels({ entityIdentifiers: [...ids], moduleRegistrationName: "inventory", compensateMethod: "restoreInventoryLevels" }, context); return new StepResponse(null);
   }));
   const createProbe = createWorkflow("probe-level-batch-create", (input: WorkflowData<typeof Creates.Type>) => new WorkflowResponse(createForward(input)));
   const createRestoreProbe = createWorkflow("probe-level-batch-create-inverse", (input: WorkflowData<typeof Created.fields.compensation.Type>) => new WorkflowResponse(createInverse(input)));

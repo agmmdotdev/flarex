@@ -66,7 +66,9 @@ describe("native workflow composition", () => {
   it("skips all child work and evaluates reached child results even when unused", async () => {
     const predicate = vi.fn(() => true), result = vi.fn(() => 5), input = vi.fn(() => 1);
     const child = createWorkflow("guard-child", () => new WorkflowResponse(when("inner", null, predicate).then(() => transform(null, result))));
-    const after = createStep("after", () => { expect(result).toHaveBeenCalledTimes(1); return null; });
+    // The child-order assertion wants a literal null output. Native raw null
+    // callbacks retain their workflow-data envelope; StepResponse unwraps it.
+    const after = createStep("after", () => { expect(result).toHaveBeenCalledTimes(1); return new StepResponse(null); });
     const flow = createWorkflow("guard-parent", (enabled: WorkflowData<boolean>) => {
       when("outer", enabled, value => value).then(() => child.runAsStep({ input: transform(null, input) }));
       return new WorkflowResponse(null);
@@ -134,7 +136,7 @@ describe("native workflow composition", () => {
   });
 
   it("executes nested children and counts repeated definitions against one node ceiling", async () => {
-    const step = createStep("leaf", () => null);
+    const step = createStep("leaf", () => new StepResponse(null));
     let child = createWorkflow("leaf-flow", () => new WorkflowResponse(step(undefined)));
     for (let depth = 0; depth < 4; depth++) {
       const previous = child;

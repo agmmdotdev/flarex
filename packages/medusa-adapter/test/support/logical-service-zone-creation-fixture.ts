@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Effect, Result, Schema } from "effect";
-import { createStep, createWorkflow, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, transform, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { createServiceZonesWorkflow } from "@medusajs/core-flows/fulfillment/create-service-zones";
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
@@ -116,7 +116,7 @@ export async function prepareLogicalServiceZoneCreation(driver: "pglite" | "post
   const resources = Result.getOrThrow(prepareWorkflowResources({ fulfillment: { module: fulfillment.workflow,
     methods: ["createServiceZones", "deleteServiceZones"], graph: false } }, true));
   const inverseStep = (lateFailure = false) => createStep("probe-native-service-zone-inverse", resources.callback(async (ids: typeof ServiceZonePhysicalDeletionIds.Type, context) => {
-    await compensate([...ids], context); if (lateFailure) throw new Error("Late native ServiceZone inverse failure"); return null;
+    await compensate([...ids], context); if (lateFailure) throw new Error("Late native ServiceZone inverse failure"); return new StepResponse(null);
   }));
   const prepareRoundtrip = async (lateFailure = false) => {
     const undo = inverseStep(lateFailure);
@@ -138,7 +138,7 @@ export async function prepareLogicalServiceZoneCreation(driver: "pglite" | "post
   };
   const prepareAbsentInverse = async () => {
     const undo = createStep("probe-absent-native-zone-inverse", resources.callback(async (_input: null, context) => {
-      await compensate(undefined, context); await compensate([], context); return null;
+      await compensate(undefined, context); await compensate([], context); return new StepResponse(null);
     }));
     const flow = createWorkflow("probe-absent-native-zone-inverse", (value: WorkflowData<null>) => new WorkflowResponse(undo(value)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...options, workflow: { name: "probeAbsentNativeZoneInverse", resources,

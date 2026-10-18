@@ -1,3 +1,15 @@
+import { SymbolWorkflowWorkflowData } from "@medusajs/utils/orchestration/symbol";
+
+/** Native create-step-handler wraps a raw callback result before storing it;
+ * resolve-value selects response.output ?? response. Nullish raw results retain
+ * that outer representation, with undefined omitted by native serialization.
+ * This applies only to an executed regular callback, never a literal or skip. */
+export function stepCallbackOutput(value: unknown): unknown {
+  if (value === undefined) return { __type: SymbolWorkflowWorkflowData };
+  if (value === null) return { __type: SymbolWorkflowWorkflowData, output: null };
+  return value;
+}
+
 /** Adapted from the pinned SDK response wrappers. Compensation is retained as
  * declaration data; the selected atomic runtime delegates rollback to its owner. */
 export class StepResponse<Output = undefined, Compensation = Output> {

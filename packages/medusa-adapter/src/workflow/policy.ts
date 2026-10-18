@@ -26,6 +26,8 @@ export const productImageVariantResources = Object.freeze({ ...defaultCommerceRe
 export const productShippingProfileResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Four native ShippingProfile roots and their genuine physical inverse. */
 export const shippingProfileCreationResources = Object.freeze({ ...defaultCommerceResources });
+/** Native Rule batch and retained callbacks share one scoped allowance. */
+export const shippingOptionRuleBatchResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 export const productVariantPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Complete finite Variant graph, including Inventory children and both Link families. */
 export const productVariantInventoryResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });

@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyShippingProfileWorkflowTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -1646,5 +1646,126 @@ describe("native metadata-only relation scalar-field projection provenance", () 
     expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(file =>
       file.target === "packages/medusa-drizzle/src/relation-query.ts" ? { ...file, ...mutation } : file) }))
       .toThrow("Native relation projection extraction outside its exact pinned source pair");
+  });
+});
+
+
+describe("native ShippingOptionRule batch callback provenance", () => {
+  const paths = ["fulfillment/workflows/batch-shipping-option-rules.ts",
+    ...["create", "update", "delete"].map(kind => "fulfillment/steps/" + kind + "-shipping-option-rules.ts")];
+  const native = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8").replaceAll("\r\n", "\n"));
+  const promoted = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8").replaceAll("\r\n", "\n"));
+  const verify = (workflow = promoted[0], create = promoted[1], update = promoted[2], deleted = promoted[3]) =>
+    verifyShippingOptionRuleBatchCallbacks(native[0], workflow, native[1], create, native[2], update, native[3], deleted);
+  it("admits unchanged parallel branches, empty absence and actual retained physical inverses", () => {
+    expect(() => verify()).not.toThrow();
+  });
+  it.each([
+    ["root identity", '"batch-shipping-option-rules"', '"batch-other-shipping-option-rules"'],
+    ["create transform", "createInput: { data: create ?? [] }", "createInput: { data: [] }"],
+    ["update transform", "updateInput: { data: update ?? [] }", "updateInput: { data: [] }"],
+    ["delete transform", "deleteInput: { ids: del ?? [] }", "deleteInput: { ids: [] }"],
+    ["nullish behavior", "create ?? []", "create || []"],
+    ["branch identity", "const [created, updated, deleted]", "const [updated, created, deleted]"],
+    ["create branch", "createShippingOptionRulesStep(actionInputs.createInput)", "createShippingOptionRulesStep(actionInputs.updateInput)"],
+    ["update branch", "updateShippingOptionRulesStep(actionInputs.updateInput)", "updateShippingOptionRulesStep(actionInputs.createInput)"],
+    ["delete branch", "deleteShippingOptionRulesStep(actionInputs.deleteInput)", "deleteShippingOptionRulesStep({ ids: [] })"],
+    ["omitted branch", "      deleteShippingOptionRulesStep(actionInputs.deleteInput)\n", ""],
+    ["result", "transform({ created, deleted, updated },", "transform({ created, deleted },"],
+    ["direct step import", 'from "../steps/create-shipping-option-rules"', 'from "../steps"'],
+    ["runtime SDK seam", 'from "@medusajs/workflows-sdk"', 'from "@medusajs/framework/workflows-sdk"'],
+    ["extra dependency", 'from "../steps/delete-shipping-option-rules"', 'from "../steps/delete-shipping-option-rules"; import "node:fs"'],
+  ])("rejects changed root %s", (_label, before, after) => {
+    const changed = promoted[0].replace(before, after); expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native ShippingOptionRule batch callback behavior");
+  });
+  /** @type {Array<[number, string, string, string]>} */
+  const stepMutations = [
+    [1, "step identity", '"create-shipping-option-rules"', '"create-other-shipping-option-rules"'],
+    [1, "mandatory empty create", "    const { data } = input", "    if (!input.data?.length) return\n    const { data } = input"],
+    [1, "create arguments", "fulfillmentModule.createShippingOptionRules(data)", "fulfillmentModule.createShippingOptionRules([])"],
+    [1, "create await", "await fulfillmentModule.createShippingOptionRules", "fulfillmentModule.createShippingOptionRules"],
+    [1, "actual output", "      createdShippingOptionRules,", "      [],"],
+    [1, "retained IDs", "createdShippingOptionRules.map((pr) => pr.id)", "[]"],
+    [1, "inverse empty guard", "if (!ruleIds?.length)", "if (!ruleIds)"],
+    [1, "physical inverse", "fulfillmentModule.deleteShippingOptionRules(ruleIds)", "fulfillmentModule.softDeleteShippingOptionRules(ruleIds)"],
+    [1, "inverse await", "await fulfillmentModule.deleteShippingOptionRules", "fulfillmentModule.deleteShippingOptionRules"],
+    [2, "empty update absence", "if (!input.data?.length)", "if (!input.data)"],
+    [2, "projected preimage", 'select: ["id", "attribute", "operator", "value", "shipping_option_id"]', 'select: ["id", "attribute", "operator"]'],
+    [2, "preimage selector", "{ id: ids }", "{ id: [] }"],
+    [2, "preimage await", "await fulfillmentModule.listShippingOptionRules", "fulfillmentModule.listShippingOptionRules"],
+    [2, "update arguments", "fulfillmentModule.updateShippingOptionRules(data)", "fulfillmentModule.updateShippingOptionRules([])"],
+    [2, "retained preimage", "shippingOptionRules as unknown as UpdateShippingOptionRuleDTO[]", "[] as unknown as UpdateShippingOptionRuleDTO[]"],
+    [2, "actual output", "      updatedPromotionRules,", "      shippingOptionRules,"],
+    [2, "inverse empty guard", "if (!previousRulesData?.length)", "if (!previousRulesData)"],
+    [2, "inverse update", "fulfillmentModule.updateShippingOptionRules(previousRulesData)", "fulfillmentModule.upsertShippingOptionRules(previousRulesData)"],
+    [2, "inverse await", "await fulfillmentModule.updateShippingOptionRules(previousRulesData)", "fulfillmentModule.updateShippingOptionRules(previousRulesData)"],
+    [3, "empty delete absence", "if (!input.ids?.length)", "if (!input.ids)"],
+    [3, "projected preimage", 'select: ["attribute", "operator", "value", "shipping_option_id"]', 'select: ["attribute", "operator", "value"]'],
+    [3, "native implicit ID selection", 'select: ["attribute", "operator", "value", "shipping_option_id"]', 'select: ["id", "attribute", "operator", "value", "shipping_option_id"]'],
+    [3, "physical deletion", "fulfillmentModule.deleteShippingOptionRules(ids)", "fulfillmentModule.softDeleteShippingOptionRules(ids)"],
+    [3, "delete await", "await fulfillmentModule.deleteShippingOptionRules(ids)", "fulfillmentModule.deleteShippingOptionRules(ids)"],
+    [3, "raw requested output", "new StepResponse(ids, shippingOptionRules)", "new StepResponse([], shippingOptionRules)"],
+    [3, "actual retained rows", "new StepResponse(ids, shippingOptionRules)", "new StepResponse(ids, [])"],
+    [3, "inverse empty guard", "if (!shippingOptionRules?.length)", "if (!shippingOptionRules)"],
+    [3, "native recreation", "await fulfillmentModule.createShippingOptionRules(", "await fulfillmentModule.upsertShippingOptionRules("],
+    [3, "recreation await", "await fulfillmentModule.createShippingOptionRules(", "fulfillmentModule.createShippingOptionRules("],
+    [3, "original ID", "id: rule.id", 'id: "new-rule"'],
+    [3, "original attribute", "attribute: rule.attribute", 'attribute: "other"'],
+    [3, "original operator", "operator: rule.operator as RuleOperatorType", 'operator: "eq" as RuleOperatorType'],
+    [3, "original value", "value: rule.value as unknown as string | string[]", 'value: "other" as unknown as string | string[]'],
+    [3, "original owner", "shipping_option_id: rule.shipping_option_id", 'shipping_option_id: "other-option"'],
+    [3, "invented timestamp restoration", "id: rule.id,", "id: rule.id, created_at: rule.created_at,"],
+    ...[1, 2, 3].flatMap(index => {
+      /** @type {Array<[number, string, string, string]>} */
+      const sharedMutations = [
+        [index, "covered metadata", 'compensation: "transactionCovered"', 'compensation: "none"'],
+        [index, "Fulfillment capability", "Modules.FULFILLMENT", "Modules.PRODUCT"],
+        [index, "extra inverse resolution", "    const fulfillmentModule = container.resolve", '    container.resolve("query"); const fulfillmentModule = container.resolve'],
+      ];
+      return sharedMutations;
+    }),
+  ];
+  it.each(stepMutations)("rejects changed step %s %s", (index, _label, before, after) => {
+    const changed = promoted[index].replace(before, after); expect(changed).not.toBe(promoted[index]);
+    const values = [...promoted]; values[index] = changed;
+    expect(() => verify(values[0], values[1], values[2], values[3])).toThrow("Changed native ShippingOptionRule batch callback behavior");
+  });
+  it.each([
+    [0, "extends BatchWorkflowInput<", "extends Partial<"],
+    [0, "extends BatchWorkflowOutput<ShippingOptionRuleDTO>", "extends BatchWorkflowOutput<never>"],
+    [0, "WorkflowData<BatchShippingOptionRulesInput>", "WorkflowData<never>"],
+    [0, "WorkflowResponse<BatchShippingOptionRulesComposerResult>", "WorkflowResponse<BatchShippingOptionRulesOutput>"],
+    [0, "WorkflowResponse<BatchShippingOptionRulesComposerResult>", "WorkflowResponse<never>"],
+    [0, "): WorkflowResponse<BatchShippingOptionRulesComposerResult> => {", ") => {"],
+    [0, 'created: BatchShippingOptionRulesOutput["created"]', 'created: BatchShippingOptionRulesOutput["created"] | undefined'],
+    [0, 'updated: BatchShippingOptionRulesOutput["updated"] | undefined', 'updated: BatchShippingOptionRulesOutput["updated"]'],
+    [0, 'deleted: BatchShippingOptionRulesOutput["deleted"] | undefined', 'deleted: BatchShippingOptionRulesOutput["deleted"]'],
+    [0, "extends BatchWorkflowOutput<ShippingOptionRuleDTO>", "extends Partial<BatchWorkflowOutput<ShippingOptionRuleDTO>>"],
+    [0, 'from "@medusajs/types/fulfillment/index"', 'from "@medusajs/framework/types"'],
+    [1, "input: AddFulfillmentShippingOptionRulesWorkflowDTO", "input: never"],
+    [2, "input: UpdateFulfillmentShippingOptionRulesWorkflowDTO", "input: never"],
+    [2, "as unknown as UpdateShippingOptionRuleDTO[]", "as unknown as never[]"],
+    [3, "input: RemoveFulfillmentShippingOptionRulesWorkflowDTO", "input: never"],
+    [3, 'from "@medusajs/types/common/rule"', 'from "@medusajs/framework/types"'],
+    [3, "as RuleOperatorType", "as string"],
+    [3, "as unknown as string | string[]", "as unknown as string"],
+  ])("rejects changed erased public contract %s %s", (index, before, after) => {
+    const changed = promoted[index].replace(before, after); expect(changed).not.toBe(promoted[index]);
+    const values = [...promoted]; values[index] = changed;
+    expect(() => verify(values[0], values[1], values[2], values[3])).toThrow("Changed native ShippingOptionRule batch public contract");
+  });
+  it.each([0, 1, 2, 3])("rejects malformed syntax in file %s", index => {
+    const changed = promoted[index] + "\nconst invalid = (";
+    const values = [...promoted]; values[index] = changed;
+    expect(() => verify(values[0], values[1], values[2], values[3])).toThrow("Invalid native ShippingOptionRule batch callback syntax");
+  });
+  it.each(paths.flatMap(file => [
+    [file, "source", { source: "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment/steps/create-shipping-profiles.ts" }],
+    [file, "classification", { classification: "selectedExportFacade" }],
+  ]))("rejects displaced %s %s", (file, _label, mutation) => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(entry =>
+      entry.target === "packages/medusa-core-flows/src/" + file ? { ...entry, ...mutation } : entry) }))
+      .toThrow("ShippingOptionRule batch adaptation outside its exact pinned source pair");
   });
 });

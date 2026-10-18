@@ -982,6 +982,56 @@ export function verifyShippingProfileCreateCallbacks(nativeWorkflow, workflow, n
   if (creationTypes(nativeTypes) !== creationTypes(types)) throw new Error("Changed native ShippingProfile creation public contract");
 }
 
+/** Preserve all native batch branches, public DTOs, real projected preimages,
+ * absence and physical recreation. The named composer result expresses actual
+ * empty-branch absence without leaking SDK brands; exported native DTOs remain
+ * exact. Other seams are imports/metadata only.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeCreate @param {string} create
+ * @param {string} nativeUpdate @param {string} update
+ * @param {string} nativeDelete @param {string} deleted */
+export function verifyShippingOptionRuleBatchCallbacks(nativeWorkflow, workflow, nativeCreate, create, nativeUpdate, update, nativeDelete, deleted) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('import {\n  BatchWorkflowInput,\n  BatchWorkflowOutput,\n',
+      'import type { BatchWorkflowInput, BatchWorkflowOutput } from "@medusajs/types"\nimport type {\n')
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types/fulfillment/index"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('): WorkflowResponse<BatchShippingOptionRulesOutput> => {',
+      '): WorkflowResponse<BatchShippingOptionRulesComposerResult> => {')
+    .replace('export const batchShippingOptionRulesWorkflowId =',
+      'type BatchShippingOptionRulesComposerResult = {\n  created: BatchShippingOptionRulesOutput["created"]\n  updated: BatchShippingOptionRulesOutput["updated"] | undefined\n  deleted: BatchShippingOptionRulesOutput["deleted"] | undefined\n}\n\nexport const batchShippingOptionRulesWorkflowId =')
+    .replace('import {\n  createShippingOptionRulesStep,\n  deleteShippingOptionRulesStep,\n} from "../steps"',
+      'import { createShippingOptionRulesStep } from "../steps/create-shipping-option-rules"\nimport { deleteShippingOptionRulesStep } from "../steps/delete-shipping-option-rules"');
+  /** @param {string} source @param {"create"|"update"|"delete"} kind */
+  const expectedStep = (source, kind) => {
+    let expected = source.replaceAll("\r\n", "\n")
+      .replace('import {', 'import type {')
+      .replace('from "@medusajs/framework/types"', 'from "@medusajs/types/fulfillment/index"')
+      .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+      .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+      .replace(`  ${kind}ShippingOptionRulesStepId,`, `  { name: ${kind}ShippingOptionRulesStepId, compensation: "transactionCovered" },`);
+    if (kind === "delete") expected = expected.replace("  RuleOperatorType,\n", "")
+      .replace('from "@medusajs/types/fulfillment/index"',
+        'from "@medusajs/types/fulfillment/index"\nimport type { RuleOperatorType } from "@medusajs/types/common/rule"');
+    return expected;
+  };
+  const pairs = [[expectedWorkflow, workflow], [expectedStep(nativeCreate, "create"), create],
+    [expectedStep(nativeUpdate, "update"), update], [expectedStep(nativeDelete, "delete"), deleted]];
+  const syntaxFailure = "Invalid native ShippingOptionRule batch callback syntax";
+  for (const [expected, target] of pairs) {
+    if (expected === undefined || target === undefined ||
+      nativeWorkflowProgram(expected, syntaxFailure) !== nativeWorkflowProgram(target, syntaxFailure))
+      throw new Error("Changed native ShippingOptionRule batch callback behavior");
+  }
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("shipping-option-rule-batch.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  for (const [expected, target] of pairs) {
+    if (expected === undefined || target === undefined || typedProgram(expected) !== typedProgram(target))
+      throw new Error("Changed native ShippingOptionRule batch public contract");
+  }
+}
+
 /** Preserve the complete native Set/Link deletion topology, raw-ID restoration,
  * public input aliases and established portable void-result representation.
  * @param {string} nativeWorkflow @param {string} workflow

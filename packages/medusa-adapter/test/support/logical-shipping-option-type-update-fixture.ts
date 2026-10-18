@@ -98,7 +98,7 @@ export async function prepareLogicalShippingOptionTypeUpdate(driver: "pglite" | 
     // required-field validation is observed through the genuine inverse.
     const Input = ShippingOptionTypeUpsertRows;
     const undo = createStep("probe-native-shipping-option-type-update-inverse", resources.callback(async (preimages: typeof Input.Type, context) => {
-      await compensate(preimages, context); return null;
+      await compensate(preimages, context); return new StepResponse(null);
     }));
     const workflow = createWorkflow("probe-native-shipping-option-type-update-inverse", (input: WorkflowData<typeof Input.Type>) => new WorkflowResponse(undo(input)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...options,
@@ -108,7 +108,7 @@ export async function prepareLogicalShippingOptionTypeUpdate(driver: "pglite" | 
   };
   const prepareAbsentInverse = async () => {
     const undo = createStep("probe-native-shipping-option-type-empty-inverses", resources.callback(async (_input: null, context) => {
-      await compensate(undefined, context); await compensate([], context); return null;
+      await compensate(undefined, context); await compensate([], context); return new StepResponse(null);
     }));
     const workflow = createWorkflow("probe-native-shipping-option-type-empty-inverses", (input: WorkflowData<null>) => new WorkflowResponse(undo(input)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...options,

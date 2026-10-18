@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { expireEventClaims, makeEventRetriesDue, corruptEventCount, replaceEventEnvelope, explainSparseEventDirectory } from "../../persistence-postgres/test/commit/commitEventTestSupport";
 import { Cause, Deferred, Effect, Exit, Fiber, Option, Result, Schema } from "effect";
-import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import type { Json } from "flarex-protocol/json";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { prepareProductTagWorkflow, type ProductTagWorkflowHooks } from "../src/workflows/product/tag";
@@ -469,6 +469,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     let executions = 0; let validations = 0;
     const step = createStep("observe-currency-read", resources.callback(async (_input: undefined, { resources }) => {
       executions++; await resources.currency.retrieveCurrency("usd");
+      return new StepResponse(undefined);
     }));
     const flow = createWorkflow("currency-void-completion", () => new WorkflowResponse(step(undefined)));
     const host = await runEffect(prepareAtomicWorkflowHost({ execution: execution(), modules: { currency: modules.currency }, revision, subscribers,

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Effect, Result, Schema } from "effect";
-import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { deleteSalesChannelsWorkflow } from "@medusajs/core-flows/sales-channel/delete-sales-channels";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
@@ -106,7 +106,7 @@ export async function prepareLogicalSalesChannelDeletion(
     const restore = createStep("invoke-retained-sales-channel-compensators", resources.callback(async (input: typeof SalesChannelDeletionInput.Type, context) => {
       await restoreChannels([...input.ids], context);
       await restoreLinks({ sales_channel: { sales_channel_id: [...input.ids] } }, context);
-      return null;
+      return new StepResponse(null);
     }));
     const workflow = createWorkflow("probe-retained-sales-channel-compensation", (input: WorkflowData<typeof SalesChannelDeletionInput.Type>) =>
       new WorkflowResponse(restore(input)));

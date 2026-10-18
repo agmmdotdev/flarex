@@ -369,6 +369,21 @@ Channels before ShippingProfiles, reads five pending roots and settles once.
 The source closure remains broader than table/API grants; provider execution,
 deletion, hydration, full Fulfillment and public activation remain unadmitted.
 
+The [native Shipping Option Rule batch](./preflight/136-native-shipping-option-rule-batch-workflow.md)
+root and private adapter implement genuine create/update/delete branches and
+retained callbacks over existing Options. The bounded profile admits zero to
+four raw entries per branch, twelve distinct Rules and four selected parents,
+with a named 128-call/64-event allowance. Native projection, duplicate selectors,
+historical physical deletion, fresh recreation and storage-ordered deletion
+events retain their separate contracts. Existing trusted queuing admits DAL
+jobs without serializing native workflow branches or changing overlap/inverse
+failures. The finite SDK preserves native referenced void/null envelopes and
+explicit undefined StepResponse omission through private reference provenance.
+The slice reuses the existing eight-table source and native validator, with no
+Option/provider authority or new schema inventory. Native in-process scheduler
+characterization and portable atomic settlement remain distinct evidence
+boundaries. Chunked Product import and Product export remain deferred.
+
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
 The genuine creation step remains unchanged and returns complete native rows,

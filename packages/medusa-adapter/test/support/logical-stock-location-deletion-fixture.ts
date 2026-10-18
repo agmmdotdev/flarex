@@ -3,7 +3,7 @@ import { Effect, Result, Schema } from "effect";
 import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { deleteStockLocationsWorkflow } from "@medusajs/core-flows/stock-location/delete-stock-locations";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
@@ -102,7 +102,7 @@ export async function prepareLogicalStockLocationDeletion(
     const restore = createStep("invoke-retained-stock-location-compensators", resources.callback(async (input: typeof StockLocationDeletionInput.Type, context) => {
       await restoreLocations([...input.ids], context);
       await restoreLinks({ stock_location: input.ids.length === 0 ? {} : { stock_location_id: [...input.ids], location_id: [...input.ids] } }, context);
-      return null;
+      return new StepResponse(null);
     }));
     const workflow = createWorkflow("probe-retained-stock-location-compensation", (input: WorkflowData<typeof StockLocationDeletionInput.Type>) => new WorkflowResponse(restore(input)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution, modules, operationScheduling: "queued",
@@ -138,7 +138,7 @@ export async function prepareLogicalStockLocationDeletion(
     const step = createStep("seed-retained-inventory", resources.callback(async (id: string, { resources }) => {
       await resources.inventory.createInventoryItems([{ id: id + "-item", sku: id + "-sku" }]);
       await resources.inventory.createInventoryLevels([{ inventory_item_id: id + "-item", location_id: id, stocked_quantity: 10 }]);
-      return null;
+      return new StepResponse(null);
     }));
     const workflow = createWorkflow("seed-stock-location-deletion-inventory", (input: WorkflowData<string>) => new WorkflowResponse(step(input)));
     const module = { module: inventory.workflow, logicalStorage: inventoryInput.logicalStorage };

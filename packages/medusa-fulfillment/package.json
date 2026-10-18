@@ -6,6 +6,7 @@
   "exports": {
     "./models": { "types": "./dist/models/index.d.ts", "source": "./src/models/index.ts", "default": "./dist/models/index.js" },
     "./services": { "types": "./dist/services/index.d.ts", "source": "./src/services/index.ts", "default": "./dist/services/index.js" },
+    "./rule-validation": { "types": "./dist/utils/utils.d.ts", "source": "./src/utils/utils.ts", "default": "./dist/utils/utils.js" },
     "./static-manifest": { "types": "./dist/static-manifest.d.ts", "source": "./src/static-manifest.ts", "default": "./dist/static-manifest.js" }
   },
   "dependencies": {

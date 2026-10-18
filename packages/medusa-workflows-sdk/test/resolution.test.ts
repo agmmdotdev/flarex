@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, Result } from "effect";
-import { createStep, createWorkflow, isPreparedWorkflow, transform, when, WorkflowResponse, type WorkflowData } from "../src/index";
+import { createHook, createStep, createWorkflow, isPreparedWorkflow, StepResponse, transform, when, WorkflowResponse, type WorkflowData } from "../src/index";
 import { executeWorkflow, type WorkflowExecutionPort } from "../src/runtime";
 import { proxify, referenceOf } from "../src/references";
 
@@ -18,6 +18,122 @@ const port: WorkflowExecutionPort<Error> = {
 };
 
 describe("prepared workflow resolution", () => {
+  // Frozen native136 SDK differential, pin48d5cc675e4e8bc821e22c20c88a751acc66fb5f:
+  // create-step-handler's stored response -> resolve-value -> WorkflowResponse.
+  // These are actual native result shapes, including the surprising raw-void
+  // marker; they are not derived by calling the portable representation helper.
+  it("preserves the native distinction between raw void/null and explicit StepResponse outputs", async () => {
+    const rawVoid = createStep("native-raw-void", () => undefined);
+    const rawNull = createStep("native-raw-null", () => null);
+    const wrappedVoid = createStep("native-wrapped-void", () => new StepResponse(undefined));
+    const wrappedNull = createStep("native-wrapped-null", () => new StepResponse(null));
+    const flow = createWorkflow("native-callback-output-kinds", () => new WorkflowResponse({
+      rawVoid: rawVoid(undefined), rawNull: rawNull(undefined), wrappedVoid: wrappedVoid(undefined), wrappedNull: wrappedNull(undefined),
+      literal: undefined,
+    }));
+    const result = await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port));
+    expect(result).toEqual({ rawVoid: { __type: "Symbol(WorkflowWorkflowData)" },
+      rawNull: { __type: "Symbol(WorkflowWorkflowData)", output: null }, wrappedNull: null, literal: undefined });
+    expect(Object.hasOwn(Object(result), "wrappedVoid")).toBe(false);
+    expect(Object.hasOwn(Object(result), "literal")).toBe(true);
+  });
+
+  it.each([false, 0, "", [], { id: "actual-value" }].map(value => ({ value })))("keeps non-nullish raw and wrapped callback output $value", async ({ value }) => {
+    const raw = createStep("native-falsy-raw", () => value);
+    const wrapped = createStep("native-falsy-wrapped", () => new StepResponse(value));
+    const flow = createWorkflow("native-non-nullish-output", () => new WorkflowResponse({ raw: raw(undefined), wrapped: wrapped(undefined) }));
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port))).toEqual({ raw: value, wrapped: value });
+  });
+
+  it("keeps direct and ignored void results undefined without turning literal null into a callback marker", async () => {
+    const raw = createStep("ignored-native-void", () => undefined);
+    const ignored = createWorkflow("ignored-native-callback", () => { raw(undefined); return new WorkflowResponse(undefined); });
+    const direct = createWorkflow("direct-native-void", () => new WorkflowResponse(undefined));
+    const nullable = createWorkflow("direct-native-null", () => new WorkflowResponse(null));
+    for (const flow of [ignored, direct]) expect(await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port))).toBeUndefined();
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(nullable.prepare()), undefined, port))).toBeNull();
+  });
+
+  it("captures actual retained inputs before omitting explicit void record members and keeps array positions", async () => {
+    const compensation = ["retained-native-id"], captures: unknown[] = [];
+    const wrapped = createStep("native-void-with-retained", () => new StepResponse(undefined, compensation));
+    const flow = createWorkflow("native-retained-void-projection", () => {
+      const result = wrapped(undefined);
+      return new WorkflowResponse({ omitted: result, positional: [result, undefined], literal: undefined });
+    });
+    const result = await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, {
+      ...port, capture: value => Effect.sync(() => { const captured = structuredClone(value); captures.push(captured); return captured; }),
+    }));
+    expect(result).toEqual({ positional: [undefined, undefined], literal: undefined });
+    expect(Object.hasOwn(Object(result), "omitted")).toBe(false);
+    expect(captures).toContainEqual({ output: undefined, compensation: ["retained-native-id"] });
+    compensation.push("later-caller-mutation");
+    expect(captures).toContainEqual({ output: undefined, compensation: ["retained-native-id"] });
+  });
+
+  it("passes omitted native void members to transformers without dropping literal undefined", async () => {
+    const wrapped = createStep("native-transform-void", () => new StepResponse(undefined));
+    const inspect = vi.fn((value: { omitted?: undefined; literal: undefined }) => ({ keys: Object.keys(value), literal: value.literal }));
+    const flow = createWorkflow("native-void-transform-input", () => {
+      const output = wrapped(undefined);
+      return new WorkflowResponse(transform({ omitted: output, literal: undefined }, inspect));
+    });
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port))).toEqual({ keys: ["literal"], literal: undefined });
+    expect(inspect).toHaveBeenCalledWith({ literal: undefined }, port.context);
+  });
+
+  it("keeps skipped references distinct from executed void callbacks", async () => {
+    const callback = vi.fn(() => new StepResponse(undefined));
+    const step = createStep("native-guarded-void", callback);
+    const flow = createWorkflow("native-skipped-void", (input: WorkflowData<boolean>) => {
+      const selected = when("native-void-enabled", input, enabled => enabled).then(() => step(undefined));
+      return new WorkflowResponse({ selected, literal: undefined });
+    });
+    const prepared = Result.getOrThrow(flow.prepare());
+    const skipped = await runEffect(executeWorkflow(prepared, false, port));
+    expect(skipped).toEqual({ selected: undefined, literal: undefined });
+    expect(Object.hasOwn(Object(skipped), "selected")).toBe(true);
+    expect(callback).not.toHaveBeenCalled();
+    expect(await runEffect(executeWorkflow(prepared, true, port))).toEqual({ literal: undefined });
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps child and folded hook void results explicit while omitting their nested record slots", async () => {
+    const child = createWorkflow("native-void-child", () => new WorkflowResponse(undefined));
+    const parent = createWorkflow("native-void-parent", () => {
+      const hook = createHook("native-void-hook", {});
+      return new WorkflowResponse({ child: child.runAsStep({ input: undefined }), hook: hook.getResult(), literal: undefined }, { hooks: [hook] });
+    });
+    const expected = { literal: undefined };
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(parent.prepare()), undefined, port))).toEqual(expected);
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(parent.prepare({ "native-void-hook": () => new StepResponse(undefined) })), undefined, port))).toEqual(expected);
+    const direct = createWorkflow("native-direct-child-void", () => new WorkflowResponse(child.runAsStep({ input: undefined })));
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(direct.prepare()), undefined, port))).toBeUndefined();
+  });
+
+  it.each([
+    { value: { __type: "Symbol(WorkflowStepResponse)", output: undefined, compensation: ["data-only"] } },
+    { value: { __type: "Symbol(WorkflowWorkflowData)", output: null, extra: "ordinary-input" } },
+    { value: { __type: "Symbol(WorkflowWorkflowData)", undefinedStepResult: true, output: undefined } },
+  ])("does not interpret caller marker data as StepResponse or omission provenance: $value.__type", async ({ value: input }) => {
+    const step = createStep("native-data-marker", (value: unknown) => value);
+    const flow = createWorkflow("native-untrusted-marker-data", (input: WorkflowData<unknown>) => new WorkflowResponse({ result: step(input), literal: undefined }));
+    const result = await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), input, port));
+    expect(result).toEqual({ result: input, literal: undefined });
+    expect(Object.hasOwn(Object(result), "result")).toBe(true);
+  });
+
+  it("does not let native void omission bypass retained-value capture failure or run later callbacks", async () => {
+    const wrapped = createStep("native-refused-retained", () => new StepResponse(undefined, ["refused-retained-id"]));
+    const later = vi.fn(() => "later"), next = createStep("native-after-retained", later);
+    const flow = createWorkflow("native-retained-capture-refusal", () => { wrapped(undefined); return new WorkflowResponse(next(undefined)); });
+    const failure = new Error("Retained input capture refused");
+    await expect(runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, { ...port,
+      capture: value => typeof value === "object" && value !== null && "compensation" in value ? Effect.fail(failure) : port.capture(value),
+    }))).rejects.toBe(failure);
+    expect(later).not.toHaveBeenCalled();
+  });
+
   it("assembles ordered records and arrays across async transforms without sharing frame results", async () => {
     const calls: number[] = [];
     const flow = createWorkflow("ordered-resolution", (input: WorkflowData<number>) => {

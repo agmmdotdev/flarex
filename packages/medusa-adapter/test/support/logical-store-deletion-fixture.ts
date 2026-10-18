@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Effect, Result, Schema } from "effect";
-import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { deleteStoresWorkflow } from "@medusajs/core-flows/store/delete-stores";
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
@@ -104,7 +104,7 @@ export async function prepareLogicalStoreDeletion(driver: "pglite" | "postgres",
     const restore = createStep("invoke-retained-store-compensators", resources.callback(async (input: typeof StoreDeletionInput.Type, context) => {
       await restoreStores([...input.ids], context);
       await restoreLinks({ store: { store_id: [...input.ids] } }, context);
-      return null;
+      return new StepResponse(null);
     }));
     const workflow = createWorkflow("probe-retained-store-compensation", (input: WorkflowData<typeof StoreDeletionInput.Type>) =>
       new WorkflowResponse(restore(input)));

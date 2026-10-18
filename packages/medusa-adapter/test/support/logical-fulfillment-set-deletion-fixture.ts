@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Effect, Result, Schema } from "effect";
-import { createStep, createWorkflow, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, transform, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { deleteFulfillmentSetsWorkflow } from "@medusajs/core-flows/fulfillment/delete-fulfillment-sets";
 import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
@@ -103,7 +103,7 @@ export async function prepareLogicalFulfillmentSetDeletion(driver: "pglite" | "p
     const inverse = createStep("probe-native-fulfillment-set-retained-inverses", resources.callback(async (_value: null, context) => {
       const actual = actualRetained();
       await restoreLinks(actual.link, context); await restoreSet(actual.set, context);
-      if (lateFailure) throw new Error("Late genuine FulfillmentSet retained inverse failure"); return null;
+      if (lateFailure) throw new Error("Late genuine FulfillmentSet retained inverse failure"); return new StepResponse(null);
     }));
     const flow = createWorkflow("probe-native-fulfillment-set-root-roundtrip", (value: WorkflowData<typeof FulfillmentSetDeletionInput.Type>) => {
       const deleted = deleteFulfillmentSetsWorkflow.runAsStep({ input: { ids: value.ids } });
@@ -120,7 +120,7 @@ export async function prepareLogicalFulfillmentSetDeletion(driver: "pglite" | "p
   };
   const prepareAbsentInverse = async () => {
     const inverse = createStep("probe-native-fulfillment-set-absent-inverses", resources.callback(async (_value: null, context) => {
-      await restoreSet(undefined, context); await restoreSet([], context); await restoreLinks(undefined, context); return null;
+      await restoreSet(undefined, context); await restoreSet([], context); await restoreLinks(undefined, context); return new StepResponse(null);
     }));
     const flow = createWorkflow("probe-native-fulfillment-set-absent-inverses", (value: WorkflowData<null>) => new WorkflowResponse(inverse(value)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...hostOptions, workflow: { name: "probeNativeFulfillmentSetAbsentInverses", resources,

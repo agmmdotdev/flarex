@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Effect, Result, Schema } from "effect";
-import { createStep, createWorkflow, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, transform, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { createShippingProfilesWorkflow } from "@medusajs/core-flows/fulfillment/create-shipping-profiles";
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
@@ -92,7 +92,7 @@ export async function prepareLogicalShippingProfileCreation(driver: "pglite" | "
   const prepareInverse = async (lateFailure = false) => {
     const undo = createStep("probe-native-profile-physical-inverse", resources.callback(async (ids: typeof ShippingProfilePhysicalDeletionIds.Type, context) => {
       await compensate([...ids], context);
-      if (lateFailure) throw new Error("Late genuine Profile physical inverse failure"); return null;
+      if (lateFailure) throw new Error("Late genuine Profile physical inverse failure"); return new StepResponse(null);
     }));
     const flow = createWorkflow("probe-native-profile-physical-inverse", (ids: WorkflowData<typeof ShippingProfilePhysicalDeletionIds.Type>) => new WorkflowResponse(undo(ids)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution, modules, revision: options.revision, subscribers: options.subscribers,
@@ -103,7 +103,7 @@ export async function prepareLogicalShippingProfileCreation(driver: "pglite" | "
   };
   const prepareAbsentInverse = async () => {
     const undo = createStep("probe-absent-native-profile-inverse", resources.callback(async (_input: null, context) => {
-      await compensate(undefined, context); await compensate([], context); return null;
+      await compensate(undefined, context); await compensate([], context); return new StepResponse(null);
     }));
     const flow = createWorkflow("probe-absent-native-profile-inverse", (value: WorkflowData<null>) => new WorkflowResponse(undo(value)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution, modules, revision: options.revision, subscribers: options.subscribers,

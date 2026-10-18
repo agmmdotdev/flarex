@@ -1,8 +1,8 @@
 import { Deferred, Effect, Result } from "effect";
-import { StepResponse } from "./responses";
+import { StepResponse, stepCallbackOutput } from "./responses";
 import { definitionError, type ParallelGroup, type StepExecutionContext } from "./model";
 import { isPreparedWorkflow, type PreparedWorkflow } from "./definition";
-import { prepareTransformResolution, resolveWorkflowValue, type WorkflowResolution } from "./resolution";
+import { prepareTransformResolution, resolveWorkflowValue, type WorkflowResolution, type WorkflowResolvedValue } from "./resolution";
 
 export interface WorkflowExecutionPort<Failure> {
   readonly checkpoint: Effect.Effect<void, Failure>;
@@ -25,11 +25,12 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
   definition: PreparedWorkflow, input: unknown, port: WorkflowExecutionPort<Failure>, root = false,
 ): Effect.fn.Return<unknown, Failure | ReturnType<typeof definitionError>> {
   const outputs = new Map<object, unknown>();
+  const undefinedStepOutputs = new Set<object>();
   const transforms = new Map<object, unknown>();
-  const pendingTransforms = new Map<object, Deferred.Deferred<unknown, Failure | ReturnType<typeof definitionError>>>();
+  const pendingTransforms = new Map<object, Deferred.Deferred<WorkflowResolvedValue, Failure | ReturnType<typeof definitionError>>>();
   const transformDependencies = new Map<object, Set<object>>();
-  const frame = { owner: definition.owner, input, outputs, transforms };
-  const sharedTransform = (reference: object, parent: object | undefined, work: Effect.Effect<unknown, Failure | ReturnType<typeof definitionError>>) => Effect.suspend(() => {
+  const frame = { owner: definition.owner, input, outputs, undefinedStepOutputs, transforms };
+  const sharedTransform = (reference: object, parent: object | undefined, work: Effect.Effect<WorkflowResolvedValue, Failure | ReturnType<typeof definitionError>>) => Effect.suspend(() => {
     if (parent !== undefined) {
       const pending = [reference], seen = new Set<object>();
       while (pending.length !== 0) {
@@ -47,27 +48,28 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
     if (pendingTransforms.size >= 4096) return Effect.fail(definitionError("invalidReference", "Transform resolution bounds exceeded"));
     // Register synchronously before any sibling can suspend on this transform.
     // This cell belongs only to this invocation frame and retains its full Exit.
-    const pending = Deferred.makeUnsafe<unknown, Failure | ReturnType<typeof definitionError>>();
+    const pending = Deferred.makeUnsafe<WorkflowResolvedValue, Failure | ReturnType<typeof definitionError>>();
     pendingTransforms.set(reference, pending);
     return Deferred.complete(pending, work).pipe(Effect.andThen(Deferred.await(pending)));
   });
-  const resolve = Effect.fn("MedusaWorkflow.resolve")(function* (resolution: WorkflowResolution, parent?: object, depth = 0): Effect.fn.Return<unknown, Failure | ReturnType<typeof definitionError>> {
+  const resolve = Effect.fn("MedusaWorkflow.resolve")(function* (resolution: WorkflowResolution, parent?: object, depth = 0): Effect.fn.Return<WorkflowResolvedValue, Failure | ReturnType<typeof definitionError>> {
     const evaluation = resolveWorkflowValue(resolution, frame, depth);
     let next = evaluation.next();
     while (!next.done) {
       const request = next.value;
       const captured = yield* sharedTransform(request.reference, parent, Effect.gen(function* () {
-        const resolved = yield* port.capture(request.input);
+        const resolvedInput = yield* port.capture(request.input);
         const transform = request.reference.transform;
         if (transform === undefined) return yield* Effect.fail(definitionError("invalidReference", "Missing transformer"));
-        const output = yield* port.invoke(() => transform(resolved, port.context));
+        const output = yield* port.invoke(() => transform(resolvedInput, port.context));
         // Foreign Proxy descriptor traps belong to the same callback boundary
         // as transformer invocation. The initialized failure also refuses a
         // broken port that reports success without running its callback.
         let inspected: ReturnType<typeof prepareTransformResolution> = Result.fail(definitionError("invalidReference", "Transform result inspection did not complete"));
         yield* port.invoke(() => { inspected = prepareTransformResolution(output); });
         const returned = yield* Effect.fromResult(inspected);
-        return yield* port.capture(yield* resolve(returned, request.reference, request.depth + 1));
+        const resolved = yield* resolve(returned, request.reference, request.depth + 1);
+        return { value: yield* port.capture(resolved.value), undefinedStepResult: resolved.undefinedStepResult };
       }));
       next = evaluation.next(captured);
     }
@@ -80,11 +82,18 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
       return;
     }
     const resolution = definition.resolution.inputs[index]!;
-    if (node.kind === "branchResult") { outputs.set(node.id, yield* resolve(resolution)); return; }
-    const input = yield* port.capture(yield* resolve(resolution));
+    if (node.kind === "branchResult") {
+      const resolved = yield* resolve(resolution);
+      outputs.set(node.id, resolved.value);
+      if (resolved.undefinedStepResult) undefinedStepOutputs.add(node.id);
+      return;
+    }
+    const input = yield* port.capture((yield* resolve(resolution)).value);
     if (node.kind === "workflow") {
       const output = yield* executeFrame(node.workflow, input, port);
       outputs.set(node.id, yield* port.capture(output));
+      // Native runAsStep wraps a child's result in StepResponse, including void.
+      if (output === undefined) undefinedStepOutputs.add(node.id);
       return;
     }
     const returned = yield* port.invoke(() => {
@@ -104,7 +113,13 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
         if (typeof captured !== "object" || captured === null || !("output" in captured)) return yield* Effect.fail(definitionError("invalidReference", "Invalid captured step response"));
         outputs.set(node.id, captured.output);
       }
-    } else outputs.set(node.id, yield* port.capture(returned));
+      if (output === undefined) undefinedStepOutputs.add(node.id);
+    } else if (node.hook) {
+      // The folded native get-hook-result step returns StepResponse(undefined)
+      // for an absent result. It is distinct from a raw regular-step callback.
+      outputs.set(node.id, yield* port.capture(returned));
+      if (returned === undefined) undefinedStepOutputs.add(node.id);
+    } else outputs.set(node.id, yield* port.capture(stepCallbackOutput(returned)));
   });
   const executeRange = Effect.fn("MedusaWorkflow.region")(function* (start: number, end: number, parent?: ParallelGroup): Effect.fn.Return<void, Failure | ReturnType<typeof definitionError>> {
     for (let index = start; index < end;) {
@@ -121,5 +136,5 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
   });
   yield* executeRange(0, definition.nodes.length);
   if (root) yield* port.checkpoint;
-  return yield* resolve(definition.resolution.result);
+  return (yield* resolve(definition.resolution.result)).value;
 });

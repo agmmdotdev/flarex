@@ -87,15 +87,17 @@ export async function prepareLogicalReservationLineItems(driver: "pglite" | "pos
       if (!(response instanceof StepResponse) || response.output !== undefined) throw new Error("Missing native void StepResponse");
       return { output: null, compensation: response.compensateInput };
     }));
+    // These authored probes declare Schema.Null. Native raw-null step output
+    // retains its workflow-data envelope, so explicitly return literal null.
     const undo = createStep("probe-retained-reservation-line-item-inverse", resources.callback(async (ids: typeof ReservationLineItemIds.Type, context) => {
-      await compensate(ids, context); return null;
+      await compensate(ids, context); return new StepResponse(null);
     }));
     const undoAbsent = createStep("probe-retained-reservation-line-item-absent-inverse", resources.callback(async (_input: null, context) => {
-      await compensate(undefined, context); return null;
+      await compensate(undefined, context); return new StepResponse(null);
     }));
     const directRestore = createStep("probe-native-reservation-line-item-restore", resources.callback(async (ids: typeof ReservationLineItemIds.Type, context) => {
       const service = context.container.resolve<Pick<InventoryModuleService, "restoreReservationItemsByLineItem">>("inventory");
-      await service.restoreReservationItemsByLineItem(ids); return null;
+      await service.restoreReservationItemsByLineItem(ids); return new StepResponse(null);
     }));
     const rollback = createStep("probe-retained-reservation-line-item-roundtrip-rollback", resources.callback(async (ids: typeof ReservationLineItemIds.Type, context) => {
       const response = await forward(ids, context); if (!(response instanceof StepResponse)) throw new Error("Missing native forward response");
@@ -127,7 +129,7 @@ export async function prepareLogicalReservationLineItems(driver: "pglite" | "pos
       methods: ["deleteInventoryLevels", "softDeleteInventoryLevels"], graph: false } }, true));
     const invoke = createStep("probe-reservation-line-item-level-removal", selected.callback(async (ids: typeof InventoryLevelDeletionIds.Type, context) => {
       const service = context.container.resolve<Pick<InventoryModuleService, "softDeleteInventoryLevels" | "deleteInventoryLevels">>("inventory");
-      if (physical) await service.deleteInventoryLevels([...ids]); else await service.softDeleteInventoryLevels([...ids]); return null;
+      if (physical) await service.deleteInventoryLevels([...ids]); else await service.softDeleteInventoryLevels([...ids]); return new StepResponse(null);
     }));
     const root = createWorkflow("probe-reservation-line-item-level-removal", (ids: WorkflowData<typeof InventoryLevelDeletionIds.Type>) => new WorkflowResponse(invoke(ids)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution,
