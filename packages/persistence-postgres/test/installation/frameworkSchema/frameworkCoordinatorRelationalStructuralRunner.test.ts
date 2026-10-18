@@ -49,6 +49,7 @@ import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   createSuccessfulTerminalPlanValues,
   storeSuccessfulTerminalGraphInTransaction,
+  useFileScopedFrameworkCoordinatorPersistence,
 } from "./frameworkCoordinatorRepositoryTestSupport";
 import {
   currencyArtifact,
@@ -483,141 +484,94 @@ describe("private relational structural runner", () => {
     expect(rawExecuteCalls).toBe(1);
   }, TEST_TIMEOUT);
 
-  it("rejects equal-but-distinct steps and cross-target transactions before raw SQL", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const plan = await captureSyntheticPlan();
-    const closedTransaction = await persistence.drizzle.transaction(
-      async transaction => transaction,
-    );
-    let rawExecuteCalls = 0;
-    const countedTransaction = new Proxy(closedTransaction, {
-      get: (target, property, receiver) => property === "execute"
-        ? () => {
-            rawExecuteCalls += 1;
-            throw new Error("Runner reached raw SQL after rejected authority");
-          }
-        : Reflect.get(target, property, receiver),
-    });
-    const runTransactionEffect: RunFrameworkMigrationDriverTransaction =
-      (_request, work) => work(countedTransaction);
-    const driver = makeFrameworkMigrationSessionDriver(
-      persistence.drizzle,
-      runTransactionEffect,
-    );
-    const firstTarget = await makeTarget(
-      persistence.drizzle,
-      driver,
-      plan,
-    );
-    const secondTarget = await makeTarget(
-      persistence.drizzle,
-      driver,
-      plan,
-    );
-    const token = await runEffect(
-      issueRelationalStructuralRunnerTokenEffect(firstTarget, plan),
-    );
-    const step = plan.frame.steps[0];
-    expect(step).toBeDefined();
-    if (step === undefined) return;
-    const clonedStep = Object.freeze({ ...step });
+  describe("foreign driver boundaries", { concurrent: false }, () => {
+    const withPersistence = useFileScopedFrameworkCoordinatorPersistence();
 
-    const clonedFailure = await runEffectFailure(
-      runFrameworkMigrationTargetTransactionEffect(
-        firstTarget,
-        TRANSACTION_REQUEST,
-        transaction => observeRelationalStructuralStepEffect(
-          token,
-          transaction,
-          clonedStep,
-        ),
-      ),
-    );
-    expectRunnerFailure(clonedFailure, "invalidAuthority");
-    expect(rawExecuteCalls).toBe(0);
-
-    const crossTargetFailure = await runEffectFailure(
-      runFrameworkMigrationTargetTransactionEffect(
-        secondTarget,
-        TRANSACTION_REQUEST,
-        transaction => observeRelationalStructuralStepEffect(
-          token,
-          transaction,
-          step,
-        ),
-      ),
-    );
-    expect(crossTargetFailure).toMatchObject({
-      _tag: "FrameworkMigrationTargetCompositionError",
-      reason: "targetMismatch",
-    });
-    expect(rawExecuteCalls).toBe(0);
-  }, TEST_TIMEOUT);
-
-  it("maps a synchronous raw execute throw to typed resource failure", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const plan = await captureSyntheticPlan();
-    const closedTransaction = await persistence.drizzle.transaction(
-      async transaction => transaction,
-    );
-    const executeCause = new Error("synchronous structural execute failure");
-    const throwingTransaction = new Proxy(closedTransaction, {
-      get: (target, property, receiver) => property === "execute"
-        ? () => {
-            throw executeCause;
-          }
-        : Reflect.get(target, property, receiver),
-    });
-    const runTransactionEffect: RunFrameworkMigrationDriverTransaction =
-      (_request, work) => work(throwingTransaction);
-    const driver = makeFrameworkMigrationSessionDriver(
-      persistence.drizzle,
-      runTransactionEffect,
-    );
-    const target = await makeTarget(persistence.drizzle, driver, plan);
-    const token = await runEffect(
-      issueRelationalStructuralRunnerTokenEffect(target, plan),
-    );
-    const step = plan.frame.steps[0];
-    expect(step).toBeDefined();
-    if (step === undefined) return;
-
-    const failure = await runEffectFailure(
-      runFrameworkMigrationTargetTransactionEffect(
-        target,
-        TRANSACTION_REQUEST,
-        transaction => observeRelationalStructuralStepEffect(
-          token,
-          transaction,
-          step,
-        ),
-      ),
-    );
-    expectRunnerFailure(failure, "resourceFailure");
-    expect(failure).toMatchObject({ cause: executeCause });
-  }, TEST_TIMEOUT);
-
-  it("maps malformed raw execute result shapes to typed resource failure", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const plan = await captureSyntheticPlan();
-    const closedTransaction = await persistence.drizzle.transaction(
-      async transaction => transaction,
-    );
-    const step = plan.frame.steps[0];
-    expect(step).toBeDefined();
-    if (step === undefined) return;
-    const malformedResults = Object.freeze([
-      Object.freeze({ rows: "not-an-array" }),
-      Object.freeze({ rows: Object.freeze([42]) }),
-    ]);
-    for (const malformedResult of malformedResults) {
-      const malformedTransaction = new Proxy(closedTransaction, {
+    it("rejects equal-but-distinct steps and cross-target transactions before raw SQL", () => withPersistence(async persistence => {
+      const plan = await captureSyntheticPlan();
+      const closedTransaction = await persistence.drizzle.transaction(
+        async transaction => transaction,
+      );
+      let rawExecuteCalls = 0;
+      const countedTransaction = new Proxy(closedTransaction, {
         get: (target, property, receiver) => property === "execute"
-          ? () => Promise.resolve(malformedResult)
+          ? () => {
+              rawExecuteCalls += 1;
+              throw new Error("Runner reached raw SQL after rejected authority");
+            }
           : Reflect.get(target, property, receiver),
       });
       const runTransactionEffect: RunFrameworkMigrationDriverTransaction =
-        (_request, work) => work(malformedTransaction);
+        (_request, work) => work(countedTransaction);
+      const driver = makeFrameworkMigrationSessionDriver(
+        persistence.drizzle,
+        runTransactionEffect,
+      );
+      const firstTarget = await makeTarget(
+        persistence.drizzle,
+        driver,
+        plan,
+      );
+      const secondTarget = await makeTarget(
+        persistence.drizzle,
+        driver,
+        plan,
+      );
+      const token = await runEffect(
+        issueRelationalStructuralRunnerTokenEffect(firstTarget, plan),
+      );
+      const step = plan.frame.steps[0];
+      expect(step).toBeDefined();
+      if (step === undefined) return;
+      const clonedStep = Object.freeze({ ...step });
+
+      const clonedFailure = await runEffectFailure(
+        runFrameworkMigrationTargetTransactionEffect(
+          firstTarget,
+          TRANSACTION_REQUEST,
+          transaction => observeRelationalStructuralStepEffect(
+            token,
+            transaction,
+            clonedStep,
+          ),
+        ),
+      );
+      expectRunnerFailure(clonedFailure, "invalidAuthority");
+      expect(rawExecuteCalls).toBe(0);
+
+      const crossTargetFailure = await runEffectFailure(
+        runFrameworkMigrationTargetTransactionEffect(
+          secondTarget,
+          TRANSACTION_REQUEST,
+          transaction => observeRelationalStructuralStepEffect(
+            token,
+            transaction,
+            step,
+          ),
+        ),
+      );
+      expect(crossTargetFailure).toMatchObject({
+        _tag: "FrameworkMigrationTargetCompositionError",
+        reason: "targetMismatch",
+      });
+      expect(rawExecuteCalls).toBe(0);
+    }), TEST_TIMEOUT);
+
+    it("maps a synchronous raw execute throw to typed resource failure", () => withPersistence(async persistence => {
+      const plan = await captureSyntheticPlan();
+      const closedTransaction = await persistence.drizzle.transaction(
+        async transaction => transaction,
+      );
+      const executeCause = new Error("synchronous structural execute failure");
+      const throwingTransaction = new Proxy(closedTransaction, {
+        get: (target, property, receiver) => property === "execute"
+          ? () => {
+              throw executeCause;
+            }
+          : Reflect.get(target, property, receiver),
+      });
+      const runTransactionEffect: RunFrameworkMigrationDriverTransaction =
+        (_request, work) => work(throwingTransaction);
       const driver = makeFrameworkMigrationSessionDriver(
         persistence.drizzle,
         runTransactionEffect,
@@ -626,6 +580,10 @@ describe("private relational structural runner", () => {
       const token = await runEffect(
         issueRelationalStructuralRunnerTokenEffect(target, plan),
       );
+      const step = plan.frame.steps[0];
+      expect(step).toBeDefined();
+      if (step === undefined) return;
+
       const failure = await runEffectFailure(
         runFrameworkMigrationTargetTransactionEffect(
           target,
@@ -638,8 +596,52 @@ describe("private relational structural runner", () => {
         ),
       );
       expectRunnerFailure(failure, "resourceFailure");
-    }
-  }, TEST_TIMEOUT);
+      expect(failure).toMatchObject({ cause: executeCause });
+    }), TEST_TIMEOUT);
+
+    it("maps malformed raw execute result shapes to typed resource failure", () => withPersistence(async persistence => {
+      const plan = await captureSyntheticPlan();
+      const closedTransaction = await persistence.drizzle.transaction(
+        async transaction => transaction,
+      );
+      const step = plan.frame.steps[0];
+      expect(step).toBeDefined();
+      if (step === undefined) return;
+      const malformedResults = Object.freeze([
+        Object.freeze({ rows: "not-an-array" }),
+        Object.freeze({ rows: Object.freeze([42]) }),
+      ]);
+      for (const malformedResult of malformedResults) {
+        const malformedTransaction = new Proxy(closedTransaction, {
+          get: (target, property, receiver) => property === "execute"
+            ? () => Promise.resolve(malformedResult)
+            : Reflect.get(target, property, receiver),
+        });
+        const runTransactionEffect: RunFrameworkMigrationDriverTransaction =
+          (_request, work) => work(malformedTransaction);
+        const driver = makeFrameworkMigrationSessionDriver(
+          persistence.drizzle,
+          runTransactionEffect,
+        );
+        const target = await makeTarget(persistence.drizzle, driver, plan);
+        const token = await runEffect(
+          issueRelationalStructuralRunnerTokenEffect(target, plan),
+        );
+        const failure = await runEffectFailure(
+          runFrameworkMigrationTargetTransactionEffect(
+            target,
+            TRANSACTION_REQUEST,
+            transaction => observeRelationalStructuralStepEffect(
+              token,
+              transaction,
+              step,
+            ),
+          ),
+        );
+        expectRunnerFailure(failure, "resourceFailure");
+      }
+    }), TEST_TIMEOUT);
+  });
 
   it("authenticates only one complete coherent restored receipt chain", async () => {
     const values = await createSuccessfulTerminalPlanValues();

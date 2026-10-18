@@ -3,12 +3,12 @@ import * as driverRows from "../../../src/database/detachDriverRows";
 import { capturedPlanForStep, capturedStepForPlan } from "../../../src/installation/migrationCoordination/authority";
 import { readFrameworkMigrationStepReceiptPrefixInTransactionEffect } from "../../../src/installation/migrationCoordination/migrationStepReceiptRepository";
 import { runEffect } from "../../support/effectTestRuntime";
-import { createSuccessfulTerminalPlanValues, storeSuccessfulTerminalGraphInTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import { createSuccessfulTerminalPlanValues, storeSuccessfulTerminalGraphInTransaction, useFileScopedFrameworkCoordinatorGraphPersistence } from "./frameworkCoordinatorRepositoryTestSupport";
 
-describe("migration receipt lookup work", () => {
-  it.each([0, 10])("visits sidecar owners linearly with %i extra tables", async extraTables => {
-    const persistence = await createMigratedPGlitePersistence();
+describe("migration receipt lookup work", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
+
+  it.each([0, 10])("visits sidecar owners linearly with %i extra tables", extraTables => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues(extraTables);
     const graph = await persistence.drizzle.transaction(transaction =>
       storeSuccessfulTerminalGraphInTransaction(transaction, values));
@@ -41,10 +41,9 @@ describe("migration receipt lookup work", () => {
     } finally {
       observation.mockRestore();
     }
-  }, 60_000);
+  }), 60_000);
 
-  it("retains bounded per-receipt reads when the sidecar batch is oversized", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("retains bounded per-receipt reads when the sidecar batch is oversized", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const graph = await persistence.drizzle.transaction(transaction =>
       storeSuccessfulTerminalGraphInTransaction(transaction, values));
@@ -74,10 +73,9 @@ describe("migration receipt lookup work", () => {
     } finally {
       observation.mockRestore();
     }
-  }, 30_000);
+  }), 30_000);
 
-  it("resolves only each captured or restored plan's own issued steps", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("resolves only each captured or restored plan's own issued steps", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const graph = await persistence.drizzle.transaction(transaction =>
       storeSuccessfulTerminalGraphInTransaction(transaction, values));
@@ -93,5 +91,5 @@ describe("migration receipt lookup work", () => {
     for (const step of values.planValue.frame.steps) {
       expect(capturedStepForPlan(graph.plan.plan, step.stepId)).not.toBe(step);
     }
-  }, 30_000);
+  }), 30_000);
 });
