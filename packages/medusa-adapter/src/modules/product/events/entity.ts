@@ -94,7 +94,7 @@ export function productLogicalNullableReferenceDeleteEventPolicy(catalog: Produc
         return yield* Effect.fail(commerceError("receiptMismatch"));
       }
       if (setNull.length !== deleted.size || new Set(setNull.map(intent => intent.targetKey)).size !== setNull.length ||
-        setNull.some(intent => intent.sourceTable !== catalog.product.table.name || intent.sourceColumn !== referenceColumn ||
+        setNull.some(intent => intent.managedUpdate !== "advance" || intent.sourceTable !== catalog.product.table.name || intent.sourceColumn !== referenceColumn ||
           intent.targetTable !== target.table.name || intent.targetColumn !== "id" || !deleted.has(intent.targetKey)))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       for (const event of emitted) {

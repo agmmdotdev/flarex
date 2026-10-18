@@ -24,6 +24,8 @@ export const productOptionDeletionResources = Object.freeze({ ...defaultCommerce
 /** Native Image-to-Variants removal retains complete thumbnail preparation. */
 export const productImageVariantResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 export const productShippingProfileResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
+/** Four native ShippingProfile roots and their genuine physical inverse. */
+export const shippingProfileCreationResources = Object.freeze({ ...defaultCommerceResources });
 export const productVariantPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Complete finite Variant graph, including Inventory children and both Link families. */
 export const productVariantInventoryResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });

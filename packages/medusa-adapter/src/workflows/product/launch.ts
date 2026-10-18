@@ -167,7 +167,7 @@ export const preparePrivateProductLaunchAttempt = Effect.fn("MedusaWorkflow.prep
     yield* Effect.fromResult(requirePreparedAtomicCommerceLogicalParticipant(member, original));
     if (original === undefined || member.participant !== original.participant || member.commands.size !== original.commands.length ||
       original.commands.some(command => !member.commands.has(command)) ||
-      member.validateLogicalCall !== original.validateLogicalCall || member.allowSetNull !== original.allowSetNull ||
+      member.validateLogicalCall !== original.validateLogicalCall || member.setNullPolicy?.managedUpdate !== original.setNullPolicy?.managedUpdate ||
       member.allowReferenceReplacement !== original.allowReferenceReplacement || member.events?.select !== original.events?.select)
       return yield* Effect.fail(commerceError("invalidAuthority"));
   }

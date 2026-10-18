@@ -243,7 +243,7 @@ export function productIntegrationTestRunner(options: ProductRunnerOptions,
           participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
             logicalResources: logicalCommerceBatchResources,
             commands, validateLogicalCall: product.runtime.logicalPolicy.validateLogicalCall,
-            allowSetNull: true, allowReferenceReplacement: true,
+            setNullPolicy: { managedUpdate: "advance" }, allowReferenceReplacement: true,
             derivedIdEvent: { contract: derivedContract },
             events: { contracts, select: message => {
               const contract = isJsonObject(message) && typeof message.name === "string"

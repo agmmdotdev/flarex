@@ -38,7 +38,7 @@ import { relationalPartialIndexScenario } from "../../persistence-postgres/test/
 import { currencyInitialization } from "../src/modules/currency/contract";
 import { relationalValueAdmissionScenario } from "../../persistence-postgres/test/storage/relationalSchema/relationalValueAdmissionScenario";
 import { backfillLogicalReadProjections, ensureLogicalStorageDefinitions } from "../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
-import { productForeignKeyScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/productForeignKeyScenario";
+import { productForeignKeyScenario, type SetNullPreflightCase } from "../../persistence-postgres/test/frameworks/commerceTransaction/productForeignKeyScenario";
 import { productHistoricalWorkingSetScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/productHistoricalWorkingSetScenario";
 
 const deploymentId = "shared-candidate";
@@ -60,6 +60,24 @@ const sourceArtifact = {
 };
 
 describe("shared schema composition and catalog admission", () => {
+  for (const setNullPreflight of ["observedSource", "bornDeletedTarget", "preserveManagedTimestamp", "negativeBoundaries"] satisfies readonly SetNullPreflightCase[]) {
+    it(`135 requested terminal set-null profile ${setNullPreflight} on PGlite`, async () => {
+      const persistence = await createMigratedPGlitePersistence();
+      const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence);
+      await witness(persistence, fixture.controlSessionStarter, false, "created", null, false, setNullPreflight);
+      expect(fixture.isTransactionActive()).toBe(false);
+    });
+    it.skipIf(postgresUrl === null)(`135 requested terminal set-null profile ${setNullPreflight} on ordinary-role PostgreSQL`, async () => {
+      await withTemporaryPostgresPersistence(async persistence => {
+        const role = await persistence.query<{ rolsuper: boolean; rolcreatedb: boolean; rolcreaterole: boolean }>(
+          "select rolsuper, rolcreatedb, rolcreaterole from pg_roles where rolname = current_user");
+        expect(role.rows).toEqual([{ rolsuper: false, rolcreatedb: false, rolcreaterole: false }]);
+        const session = makeCatalogControlSessionStarter({ controlDb: persistence.drizzle,
+          driver: makePostgresCatalogControlSessionDriver(persistence.pool) });
+        await witness(persistence, session, false, "created", null, false, setNullPreflight);
+      });
+    });
+  }
   it("persists native outputs, shared views and Product definitions on PGlite", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence);
@@ -131,6 +149,7 @@ async function witness(
   initialStatus: "created" | "existing" = "created",
   historyLimits: "records" | "bytes" | null = null,
   proveForeignKeys = false,
+  setNullPreflight?: SetNullPreflightCase,
 ) {
   await persistence.drizzle.insert(deployments).values({ deploymentId, projectId: "project" });
   await persistence.drizzle.insert(fxControlScopes).values({ scopeId: authority.scopeId, deploymentId,
@@ -303,13 +322,14 @@ async function witness(
     expect(productIndexes).toHaveLength(61);
     expect(productIndexes.filter(index => index.descriptor === "strong-reference/handle")).toHaveLength(1);
     expect(definitions.requirements.unique.filter(unique => productTableIds.has(unique.tableId))).toHaveLength(24);
-    if (proveForeignKeys) {
+    if (proveForeignKeys || setNullPreflight !== undefined) {
       const productBindings = stored.tableBindings.filter(binding => binding.table.namespace === "medusa" &&
         binding.table.logicalName.startsWith("commerce.product/")).map(binding => ({
         localName: binding.table.logicalName.slice("commerce.product/".length), tableId: binding.tableId,
       }));
       await Effect.runPromise(productForeignKeyScenario(persistence.drizzle, deploymentId,
-        authority.scopeId, identity.schemaVersionId, productDefinition.schema, productBindings));
+        authority.scopeId, identity.schemaVersionId, productDefinition.schema, productBindings, setNullPreflight));
+      if (setNullPreflight !== undefined) return;
       await Effect.runPromise(productHistoricalWorkingSetScenario(persistence.drizzle, deploymentId,
         authority.scopeId, identity.schemaVersionId, productDefinition.schema, productBindings));
     }

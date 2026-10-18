@@ -97,6 +97,6 @@ describe("native ShippingOptionType command receipt correlation", () => {
     await refused(call, { ...activity, lifecycle: [{ table: "shipping_option_type", operation: "softDelete", key: { id: "sotype-a" },
       beforeDeletedAt: null, afterDeletedAt: stamp, attemptOrdinal: 0, rowAtOperation: null }] });
     const intent = { sourceTable: "shipping_option", sourceColumn: "shipping_option_type_id", targetTable: "shipping_option_type", targetColumn: "id", targetKey: "sotype-a" };
-    await refused(call, { ...activity, setNull: [intent] }); await refused(call, { ...activity, referenceReplacements: [{ ...intent, desiredKeys: [] }] });
+    await refused(call, { ...activity, setNull: [{ ...intent, managedUpdate: "advance" }] }); await refused(call, { ...activity, referenceReplacements: [{ ...intent, desiredKeys: [] }] });
   });
 });

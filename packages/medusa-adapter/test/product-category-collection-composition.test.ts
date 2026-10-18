@@ -53,7 +53,7 @@ async function hostFor(root: AtomicCommerceCommand,
         commands.deleteCollections, commands.retrieveCollection, commands.listCollections,
         commands.createTags, commands.updateTagsBySelector, commands.softDeleteTags],
       validateLogicalCall,
-      ...(terminal === "delete" ? { allowSetNull: true as const } : {}),
+      ...(terminal === "delete" ? { setNullPolicy: { managedUpdate: "advance" as const } } : {}),
       ...(terminal === "replace" ? { allowReferenceReplacement: true as const,
         derivedIdEvent: { contract: updatedProduct } } : {}),
       events: { contracts, select: event => {

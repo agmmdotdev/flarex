@@ -12,7 +12,7 @@ import {
   AppUniqueKeyHashError,
 } from "../../unique/appUniqueKeyErrors";
 import type { LogicalDocumentChanges } from "./workingSet";
-import type { LogicalDocumentFailure } from "./model";
+import type { LogicalDocumentFailure, LogicalSetNullPolicy } from "./model";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { CatalogTableId, CatalogIndexDefinitionId, CatalogIndexId } from "flarex-protocol/catalog";
@@ -131,11 +131,13 @@ export const validateLogicalDocumentReadDependencies = Effect.fn("LogicalDocumen
 export const validateLogicalDocumentChanges = Effect.fn(
   "LogicalDocuments.validateContribution",
 )(function* <Failure>(input: LogicalDocumentReadDependencyValidationInput<Failure> & Readonly<{
-  allowSetNull?: true; allowReferenceReplacement?: true;
+  setNullPolicy?: LogicalSetNullPolicy; allowReferenceReplacement?: true;
 }>, closed: LogicalDocumentChanges) {
   const { scopeId, tables: allowed, error } = input;
   if (!hasLogicalInsertionGraph(scopeId, closed)) return yield* Effect.fail(error("invalidAuthority"));
-  if ((closed.setNull.length !== 0 && input.allowSetNull !== true) ||
+  if ((closed.setNull.length !== 0 && (input.setNullPolicy === undefined ||
+      input.setNullPolicy.managedUpdate !== "advance" && input.setNullPolicy.managedUpdate !== "preserve" ||
+      closed.setNull.some(intent => intent.managedUpdate !== input.setNullPolicy?.managedUpdate))) ||
     (closed.referenceReplacements.length !== 0 && input.allowReferenceReplacement !== true))
     return yield* Effect.fail(error("invalidAuthority"));
   const reads = new Map(
@@ -161,7 +163,10 @@ export const validateLogicalDocumentChanges = Effect.fn(
       );
     }) ||
     closed.setNull.some(intent => !allowed.has(intent.sourceTableId) || !allowed.has(intent.targetTableId) ||
-      !closed.changes.some(change => change.kind === "deleted" && change.tableId === intent.targetTableId)) ||
+      !closed.attempts.some(attempt => attempt.operation === "delete" && attempt.tableId === intent.targetTableId &&
+        attempt.after === null && attempt.before !== null && isJsonObject(attempt.before.valueJson) &&
+        attempt.before.valueJson[intent.targetColumn] === intent.targetKey &&
+        (changes.get(attempt.documentId)?.kind === "deleted" || closed.noFinalRows.includes(attempt.documentId)))) ||
     closed.referenceReplacements.length > 1 ||
     closed.referenceReplacements.some(intent => !allowed.has(intent.sourceTableId) ||
       !allowed.has(intent.targetTableId) || intent.desiredKeys.length > 256 ||

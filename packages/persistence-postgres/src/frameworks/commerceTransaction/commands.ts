@@ -4,12 +4,14 @@ import type { Json } from "flarex-protocol/json";
 import type { CommerceStore } from "./storeModel";
 import type { BoundedRequestContext } from "../../execution/preparation/boundedRequestLifetime";
 import type { CommerceTransactionError } from "./model";
+import type { LogicalSetNullPolicy } from "../../storage/documents/logicalDocuments/model";
 export interface CommerceSetNullSelection {
   readonly sourceTable: string;
   readonly sourceColumn: string;
   readonly targetTable: string;
   readonly targetColumn: string;
   readonly targetKey: string;
+  readonly managedUpdate: LogicalSetNullPolicy["managedUpdate"];
 }
 export interface CommerceReferenceReplacement {
   readonly sourceTable: string;

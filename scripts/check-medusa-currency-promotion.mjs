@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -354,6 +354,14 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/common/steps/remove-remote-links.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/common/steps/remove-remote-links.ts"), "utf8"),
   );
+  verifyShippingProfileCreateCallbacks(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/fulfillment/workflows/create-shipping-profiles.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/fulfillment/workflows/create-shipping-profiles.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/fulfillment/steps/create-shipping-profiles.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/fulfillment/steps/create-shipping-profiles.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/types/src/workflow/fulfillment/shipping-profiles.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-types/src/workflow/fulfillment/shipping-profiles.ts"), "utf8"),
+  );
   verifyShippingProfileUpdateCallbacks(
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/fulfillment/workflows/update-shipping-profiles.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/fulfillment/workflows/update-shipping-profiles.ts"), "utf8"),
@@ -412,6 +420,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, csvTarget, "csv-normalizer.spec.ts"), "utf8"),
     fixtureText(csvSource), fixtureText(csvTarget));
   for (const file of promotion.files) {
+    if (["packages/medusa-core-flows/src/fulfillment/workflows/create-shipping-profiles.ts", "packages/medusa-core-flows/src/fulfillment/steps/create-shipping-profiles.ts"].includes(file.target)
+      && (file.classification !== "workflowFork" || file.source !== sourcePrefix + "packages/core/core-flows/src/" + file.target.slice("packages/medusa-core-flows/src/".length)))
+      throw new Error("ShippingProfile creation adaptation outside its exact pinned source pair");
     if (["packages/medusa-core-flows/src/fulfillment/workflows/delete-fulfillment-sets.ts", "packages/medusa-core-flows/src/fulfillment/steps/delete-fulfillment-sets.ts"].includes(file.target)
       && (file.classification !== "workflowFork" || file.source !== sourcePrefix + "packages/core/core-flows/src/" + file.target.slice("packages/medusa-core-flows/src/".length)))
       throw new Error("FulfillmentSet deletion adaptation outside its exact pinned source pair");

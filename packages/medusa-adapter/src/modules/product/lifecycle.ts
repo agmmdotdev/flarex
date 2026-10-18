@@ -99,7 +99,7 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
         for (const root of roots) {
           if (typeof root.id !== "string") return yield* Effect.fail(commerceError("storedCorruption"));
           plannedDetach.push({ sourceTable: catalog.product.table.name, sourceColumn: reference,
-            targetTable: entity.table.name, targetColumn: "id", targetKey: root.id });
+            targetTable: entity.table.name, targetColumn: "id", targetKey: root.id, managedUpdate: "advance" });
         }
         continue;
       }

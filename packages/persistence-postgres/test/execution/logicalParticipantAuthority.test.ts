@@ -98,9 +98,9 @@ it("keeps participant method and table authority private after construction and 
 it("exposes participant inspection without the source issuer through the package facade", async () => {
   const packageJson = await import("../../package.json", { with: { type: "json" } });
   expect(packageJson.default.exports["./internal/logical-participant-admission"])
-    .toBe("./src/logicalParticipantAuthority.ts");
+    .toBe("./src/execution/logicalParticipantAuthority.ts");
   expect(packageJson.default.exports["./internal/logical-document-admission"])
-    .toBe("./src/logicalDocumentAdmission.ts");
+    .toBe("./src/execution/logicalDocumentAdmission.ts");
   expect(participantFacade).not.toHaveProperty("issueLogicalParticipantAttemptAdmission");
   expect(participantFacade).not.toHaveProperty("issueLogicalParticipantCommitAuthority");
 });

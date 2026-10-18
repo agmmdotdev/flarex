@@ -946,6 +946,42 @@ export function verifyServiceZoneDeleteCallbacks(nativeWorkflow, workflow, nativ
     throw new Error("Changed native ServiceZone deletion public contract");
 }
 
+/** Preserve native Profile creation, full returned rows, exact retained IDs and
+ * physical inverse. Existing step adaptation is fixed, not changed by this root.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step
+ * @param {string} nativeTypes @param {string} types */
+export function verifyShippingProfileCreateCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeTypes, types) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/create-shipping-profiles"');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  createShippingProfilesStepId,", '  { name: createShippingProfilesStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native ShippingProfile creation callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native ShippingProfile creation callback behavior");
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("shipping-profile-create.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  if (typedProgram(expectedWorkflow) !== typedProgram(workflow) || typedProgram(expectedStep) !== typedProgram(step))
+    throw new Error("Changed native ShippingProfile creation public contract");
+  /** @param {string} source */
+  const creationTypes = source => {
+    const parsed = ts.createSourceFile("shipping-profile-create-types.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const names = ["CreateShippingProfile", "CreateShippingProfilesWorkflowInput", "CreateShippingProfilesWorkflowOutput"];
+    return names.map(name => {
+      const declarations = parsed.statements.filter(node => (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) && node.name.text === name);
+      if (declarations.length !== 1 || declarations[0] === undefined) throw new Error("Changed native ShippingProfile creation public contract");
+      return ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed }).printNode(ts.EmitHint.Unspecified, declarations[0], parsed);
+    }).join("\n");
+  };
+  if (creationTypes(nativeTypes) !== creationTypes(types)) throw new Error("Changed native ShippingProfile creation public contract");
+}
+
 /** Preserve the complete native Set/Link deletion topology, raw-ID restoration,
  * public input aliases and established portable void-result representation.
  * @param {string} nativeWorkflow @param {string} workflow

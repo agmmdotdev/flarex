@@ -108,13 +108,9 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
         store, resources,
         table: (manager, table) => working.relationalTable(manager, id, table),
         transactionTime: manager => working.readTransactionTime(manager, id),
-        planSetNull: (manager, selection) => Effect.gen(function* () {
-          const source = state.writeMechanics.tableId(selection.sourceTable);
-          const target = state.writeMechanics.tableId(selection.targetTable);
-          if (source === undefined || target === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
-          yield* working.planSetNull(manager, id, { sourceTableId: source, sourceColumn: selection.sourceColumn,
-            targetTableId: target, targetColumn: selection.targetColumn, targetKey: selection.targetKey });
-        }),
+        // Durable borrowed journals do not admit terminal reference maintenance.
+        // Keep an explicit refusal so a module cannot choose a fallback loop.
+        planSetNull: () => Effect.fail(commerceError("invalidAuthority")),
         planReferenceReplacement: (manager, selection) => Effect.gen(function* () {
           const source = state.writeMechanics.tableId(selection.sourceTable);
           const target = state.writeMechanics.tableId(selection.targetTable);

@@ -8,6 +8,7 @@ import { prepareWorkflowResources } from "../src/workflow/resources";
 import { captureProductSchema } from "../src/modules/product/schema";
 import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
@@ -71,7 +72,7 @@ describe("native Product Type on shared logical Product storage", () => {
             ? Effect.fail(commerceError("receiptMismatch"))
             : afterValidation === undefined ? Effect.void : Effect.promise(afterValidation)))
           : policy.validateLogicalCall,
-        ...(operation === "delete" ? { allowSetNull: true as const,
+        ...(operation === "delete" ? { setNullPolicy: { managedUpdate: "advance" as const },
           logicalResources: logicalCommerceBatchResources } : {}),
         events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
       commands: [root], events: { producerRevision: revision, contracts: [contract],
@@ -126,7 +127,7 @@ describe("native Product Type on shared logical Product storage", () => {
     let forwarded = false;
     await expect(Effect.runPromise(prepareAtomicWorkflowHost({
       execution: { identityAndAccessPolicy: {}, prepare: composition => {
-        forwarded = composition.participants[0]?.allowSetNull === true;
+        forwarded = composition.participants[0]?.setNullPolicy?.managedUpdate === "advance";
         return Effect.fail(commerceError("invalidAuthority"));
       } },
       modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } },
@@ -134,6 +135,52 @@ describe("native Product Type on shared logical Product storage", () => {
         input: Schema.Json, output: Schema.Json }, revision: "a".repeat(64),
     }))).rejects.toMatchObject({ reason: "invalidAuthority" });
     expect(forwarded).toBe(true);
+  });
+
+  it("binds terminal set-null timestamp mode into same-key replay identity", async () => {
+    let callbacks = 0;
+    const command = defineCommerceCommand("setNullModeIdentity", "write", () => Effect.sync(() => { callbacks++; return null; }));
+    const participant = defineAtomicCommerceParticipant("setNullModeIdentity");
+    const root = defineAtomicCommerceCommand("setNullModeIdentityRoot", ctx => ctx.call(participant, command, null));
+    const prepare = (managedUpdate: "advance" | "preserve") => Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
+      identityAndAccessPolicy: { profile: "set-null-mode-identity" }, commands: [root], participants: [{ participant,
+        logicalStorage: product.hostInput.logicalStorage, commands: [command], validateLogicalCall: () => Effect.void,
+        setNullPolicy: { managedUpdate } }] }));
+    const advance = await prepare("advance"), preserve = await prepare("preserve");
+    try {
+      const key = advance.newRequestKey();
+      expect(await Effect.runPromise(advance.run(key, root, null))).toBeNull();
+      const accepted = await logicalCurrencyInventory(fixture);
+      expect(await Effect.runPromise(advance.run(key, root, null))).toBeNull();
+      expect(callbacks).toBe(1);
+      await expect(Effect.runPromise(preserve.run(key, root, null))).rejects.toMatchObject({ reason: "requestConflict" });
+      expect(callbacks).toBe(1); expect(await logicalCurrencyInventory(fixture)).toEqual(accepted);
+    } finally { await Effect.runPromise(advance.close); await Effect.runPromise(preserve.close); }
+  });
+
+  it("refuses unselected or mismatched terminal set-null mode before planning", async () => {
+    const command = defineCommerceCommand("setNullModeRefusal", "write", Effect.fn(function* (ctx) {
+      const table = yield* ctx.table("product_type");
+      yield* table.write(ctx.manager, "insert", [{ id: "ptype_set_null_mode", value: "Set null mode" }]);
+      yield* table.delete(ctx.manager, ["ptype_set_null_mode"]);
+      if (ctx.planSetNull === undefined) return yield* ctx.refuse(commerceError("invalidAuthority"));
+      yield* ctx.planSetNull({ sourceTable: "product", sourceColumn: "type_id", targetTable: "product_type", targetColumn: "id",
+        targetKey: "ptype_set_null_mode", managedUpdate: "preserve" });
+      return null;
+    }));
+    const participant = defineAtomicCommerceParticipant("setNullModeRefusal");
+    const root = defineAtomicCommerceCommand("setNullModeRefusalRoot", ctx => ctx.call(participant, command, null));
+    for (const managedUpdate of [undefined, "advance"] as const) {
+      const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
+        identityAndAccessPolicy: { profile: "set-null-mode-refusal" }, commands: [root], participants: [{ participant,
+          logicalStorage: product.hostInput.logicalStorage, commands: [command], validateLogicalCall: () => Effect.void,
+          ...(managedUpdate === undefined ? {} : { setNullPolicy: { managedUpdate } }) }] }));
+      try {
+        const before = await logicalCurrencyInventory(fixture);
+        await expect(Effect.runPromise(host.run(host.newRequestKey(), root, null))).rejects.toMatchObject({ reason: "invalidAuthority" });
+        expect(await logicalCurrencyInventory(fixture)).toEqual(before);
+      } finally { await Effect.runPromise(host.close); }
+    }
   });
 
   it("uses native Type service, shared unique/FK enforcement and one publication per command", async () => {

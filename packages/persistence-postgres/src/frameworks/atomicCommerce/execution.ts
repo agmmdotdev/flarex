@@ -176,7 +176,8 @@ function makeAtomicCommerceExecution(
     if (member?.kind !== "logical") return yield* Effect.fail(commerceError("invalidAuthority"));
     const created = yield* makeLogicalCommerceParticipant(admission.admission, tx, lifetime, manager, id,
       member.allowReferenceReplacement === true, member.selectedResources, member.logicalPublication,
-      member.allowReconstitution === true, member.allowPreservingDeletionUpsert === true, member.allowActiveRestoreUpdate === true, member.allowStorageInsertionOrder === true);
+      member.allowReconstitution === true, member.allowPreservingDeletionUpsert === true, member.allowActiveRestoreUpdate === true, member.allowStorageInsertionOrder === true,
+      member.setNullPolicy);
     logicalWork.set(admission, created);
     contributions.push({ kind: "logical", token: admission, working: created });
     return created;
@@ -338,7 +339,8 @@ function makeAtomicCommerceExecution(
         const member = members[admissions.indexOf(contribution.token)];
         if (member === undefined || member.kind !== "logical") return yield* Effect.fail(commerceError("invalidAuthority"));
         const activity = yield* inspectLogicalCommerceActivity(closure, lifetime);
-        if (activity.setNull.length !== 0 && member.allowSetNull !== true)
+        if (activity.setNull.length !== 0 && (member.setNullPolicy === undefined ||
+          activity.setNull.some(intent => intent.managedUpdate !== member.setNullPolicy?.managedUpdate)))
           return yield* Effect.fail(commerceError("invalidAuthority"));
         if (activity.referenceReplacements.length !== 0) {
           if (activity.referenceReplacements.length !== 1 || member.allowReferenceReplacement !== true ||

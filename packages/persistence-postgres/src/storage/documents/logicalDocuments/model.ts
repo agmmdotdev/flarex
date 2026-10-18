@@ -3,7 +3,8 @@ import type {
   FiniteStorageCaptureEnvelopes,
   FiniteStorageCaptureError,
 } from "../../../execution/finiteStorageCapture";
-import type { Effect } from "effect";
+import { Schema, type Effect } from "effect";
+
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import type { AppRowIdHexV1 } from "flarex-protocol/app-document-id";
@@ -36,6 +37,10 @@ import type { LogicalDocumentRootEvaluator } from "./rootEvaluator";
 import type { PreparedLogicalRelationalTableMechanics } from "./relationalRows";
 import type { LocatedAppIndexDefinitionV1 } from "../../indexes/appIndexDefinitions";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/appUniqueConstraintDefinitions";
+
+/** Trusted terminal reference maintenance; native profiles choose timestamp semantics. */
+export const LogicalSetNullPolicy = Schema.Struct({ managedUpdate: Schema.Literals(["advance", "preserve"]) });
+export type LogicalSetNullPolicy = typeof LogicalSetNullPolicy.Type;
 
 export type LogicalDocumentFailureReason = "invalidInput" | "invalidAuthority" | "closed" | "limitExceeded"
   | "documentMissing" | "documentInvalid" | "uniqueConflict" | "writeConflict" | "storedCorruption"

@@ -4,6 +4,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { prepareScalarRepository } from "../../repository/scalar";
 import type { ScalarFilter, WherePolicy } from "../../query/predicate";
 import type { captureShippingProfileMetadata } from "./shipping-profile-schema";
+import { compileShippingProfileCreationOutput } from "./shipping-profile-create-output";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const strings = commerceDecoder(Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))]), "unsupportedProfile");
@@ -19,6 +20,16 @@ export function prepareShippingProfileRepository(metadata: Effect.Success<Return
   return Result.gen(function* () {
     const table = metadata.tables[0];
     if (metadata.tables.length !== 1 || table?.name !== "shipping_profile") return yield* Result.fail(commerceError("unsupportedProfile"));
-    return yield* prepareScalarRepository(table, "ShippingProfile", where);
+    const scalar = yield* prepareScalarRepository(table, "ShippingProfile", where);
+    const output = yield* compileShippingProfileCreationOutput(table, 256);
+    const bind: typeof scalar.bind = (...args) => {
+      const bound = scalar.bind(...args), { bridge } = bound;
+      return { ...bound, repository: { ...bound.repository,
+        create: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
+          return yield* Effect.fromResult(output.initializeRows(yield* bound.createRows(ctx, captured, shared)));
+        }))),
+      } };
+    };
+    return { ...scalar, bind, creation: output };
   });
 }

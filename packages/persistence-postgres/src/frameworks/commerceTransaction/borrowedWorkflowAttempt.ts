@@ -186,10 +186,11 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
                     transactionTime: current => working.readTransactionTime(current, id),
                     planSetNull: (current, selection) => {
                       const sourceTableId = state.writeMechanics.tableId(selection.sourceTable), targetTableId = state.writeMechanics.tableId(selection.targetTable);
-                      return sourceTableId === undefined || targetTableId === undefined
+                      return sourceTableId === undefined || targetTableId === undefined || member.setNullPolicy === undefined ||
+                        selection.managedUpdate !== member.setNullPolicy.managedUpdate
                         ? Effect.fail(commerceError("invalidAuthority"))
                         : working.planSetNull(current, id, { sourceTableId, sourceColumn: selection.sourceColumn,
-                          targetTableId, targetColumn: selection.targetColumn, targetKey: selection.targetKey });
+                          targetTableId, targetColumn: selection.targetColumn, targetKey: selection.targetKey, managedUpdate: member.setNullPolicy.managedUpdate });
                     },
                     planReferenceReplacement: (current, selection) => {
                       const sourceTableId = state.writeMechanics.tableId(selection.sourceTable), targetTableId = state.writeMechanics.tableId(selection.targetTable);

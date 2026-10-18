@@ -155,7 +155,7 @@ describe("native ShippingProfile deletion receipt correlation", () => {
       await refused(call(), { ...evidence, observedRows: [...evidence.observedRows, { table, row: option("so-a") }] });
     const intent = { sourceTable: "shipping_option", sourceColumn: "shipping_profile_id", targetTable: "shipping_profile",
       targetColumn: "id", targetKey: "sp-a" };
-    await refused(call(), { ...evidence, setNull: [intent] });
+    await refused(call(), { ...evidence, setNull: [{ ...intent, managedUpdate: "advance" }] });
     await refused(call(), { ...evidence, referenceReplacements: [{ ...intent, desiredKeys: [] }] });
   });
 

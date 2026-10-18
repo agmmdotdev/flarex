@@ -368,6 +368,33 @@ one native router. The private workflow creates the endpoints, associates Sales
 Channels before ShippingProfiles, reads five pending roots and settles once.
 The source closure remains broader than table/API grants; provider execution,
 deletion, hydration, full Fulfillment and public activation remain unadmitted.
+
+The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
+root and private adapter implement the bounded portable slice.
+The genuine creation step remains unchanged and returns complete native rows,
+including creation-only empty shipping_options initialization. The existing
+private creation repository and its consumers migrate at that owner; the authored
+Product/ShippingProfile workflow still returns its own scalar Query projection.
+No parallel omission-compatibility profile or persisted inverse-relation field
+is introduced. Native scalar list/projection/update results remain distinct.
+
+The selected root admits zero to four creates and retains their actual IDs for
+physical deletion. That inverse runs the genuine active Option guard, then
+imperatively detaches nullable Option references across history while preserving
+Option timestamps and emitting only Profile deletion events. Its existing
+validation cohort is bounded to eight Options; complete historical detachment
+uses the shared reference/materialization/resource bounds rather than an
+invented eight-child physical ceiling. The physical FK stays NO ACTION.
+The neutral [fan-out owner](../shared-logical-storage/28-core-relational-fanout-transition.md)
+implements explicit timestamp mode, born/delete targets and read-only source
+observations; Product consumers retain advance and Profile
+selects preserve. Matching pending source mutation and post-plan reads/writes
+remain unadmitted. The selected profile retains 64 calls and 64 events: the full
+four-create plus genuine retained inverse consumes 36 calls and eight events on
+both drivers, and the mixed four-Profile/eight-Option physical inverse consumes
+21 calls. Existing source lineage and required Option schema are
+reused; no populated upgrade, provider, Link or public/hosted activation follows.
+
 The separate [native Shipping Profile update](./preflight/126-native-shipping-profile-update-workflow.md)
 admits an explicit selector of up to four raw IDs and native name/type/metadata
 patches through the genuine update and retained upsert callbacks. It preserves

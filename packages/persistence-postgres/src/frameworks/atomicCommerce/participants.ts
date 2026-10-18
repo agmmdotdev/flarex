@@ -26,6 +26,7 @@ import type { LogicalCommerceLifecycleObservation, LogicalCommerceMutation,
   LogicalCommerceObservedRow, LogicalCommerceSetNull,
   LogicalCommerceReferenceReplacement, LogicalCommerceActivity } from "../commerceTransaction/logicalParticipant";
 import type { Json } from "flarex-protocol/json";
+import { LogicalSetNullPolicy } from "../../storage/documents/logicalDocuments/model";
 
 export interface LogicalCommerceCallObservation {
   readonly commandName: string;
@@ -68,7 +69,7 @@ interface AtomicCommerceParticipantBase {
   /** Validates each successful outer call before it becomes aggregate evidence.
    * A refusal prevents aggregate validation and publication. */
   readonly validateLogicalCall?: LogicalCommerceCallValidation;
-  readonly allowSetNull?: true;
+  readonly setNullPolicy?: LogicalSetNullPolicy;
   readonly allowReferenceReplacement?: true;
   readonly allowReconstitution?: true;
   /** Explicit logical conflict merge, retaining omitted deletion fields and
@@ -90,15 +91,16 @@ export type AtomicCommerceParticipantInput = AtomicCommerceParticipantBase & (
 export const isCommerceDefinitionName = (name: string) => /^[a-z][a-zA-Z0-9_-]{0,63}$/.test(name) && name !== "initialize";
 
 function captureParticipant(member: AtomicCommerceParticipantInput, logicalPublication: "mixed" | undefined,
-  allowReconstitution: true | undefined, allowPreservingDeletionUpsert: true | undefined, allowActiveRestoreUpdate: true | undefined, allowStorageInsertionOrder: true | undefined) {
+  allowReconstitution: true | undefined, allowPreservingDeletionUpsert: true | undefined, allowActiveRestoreUpdate: true | undefined, allowStorageInsertionOrder: true | undefined,
+  setNullPolicy: LogicalSetNullPolicy | undefined) {
   const logicalStorage = member.logicalStorage;
-  if ((logicalPublication !== undefined || allowReconstitution === true || allowPreservingDeletionUpsert === true || allowActiveRestoreUpdate === true || allowStorageInsertionOrder === true) && logicalStorage === undefined)
+  if ((logicalPublication !== undefined || setNullPolicy !== undefined || allowReconstitution === true || allowPreservingDeletionUpsert === true || allowActiveRestoreUpdate === true || allowStorageInsertionOrder === true) && logicalStorage === undefined)
     return Result.fail(commerceError("unsupportedProfile"));
   const derived = member.derivedIdEvent;
   return Result.succeed(Object.freeze({ factoryInput: member, participant: member.participant,
     commands: Object.freeze([...member.commands]), validate: member.validate, validateLogical: member.validateLogical,
     validateLogicalCall: member.validateLogicalCall,
-    allowSetNull: member.allowSetNull, allowReferenceReplacement: member.allowReferenceReplacement, allowReconstitution, allowPreservingDeletionUpsert, allowActiveRestoreUpdate, allowStorageInsertionOrder,
+    setNullPolicy: setNullPolicy === undefined ? undefined : Object.freeze({ ...setNullPolicy }), allowReferenceReplacement: member.allowReferenceReplacement, allowReconstitution, allowPreservingDeletionUpsert, allowActiveRestoreUpdate, allowStorageInsertionOrder,
     derivedIdEvent: derived === undefined ? undefined : Object.freeze({ contract: derived.contract }),
     events: captureParticipantEvents(member.events),
     ...(logicalStorage === undefined
@@ -114,6 +116,7 @@ const decodeReconstitution = Schema.decodeUnknownResult(Schema.UndefinedOr(Schem
 const decodePreservingDeletionUpsert = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal(true)));
 const decodeActiveRestoreUpdate = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal(true)));
 const decodeStorageInsertionOrder = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal(true)));
+const decodeSetNullPolicy = Schema.decodeUnknownResult(Schema.UndefinedOr(LogicalSetNullPolicy), { onExcessProperty: "error" });
 const preparedLogicalMembers = new WeakMap<object, Readonly<{ factory: AtomicCommerceParticipantInput;
   commands: readonly CommerceCommand[]; lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>> }>>();
 
@@ -135,7 +138,9 @@ export function captureAtomicCommerceParticipants(input: readonly AtomicCommerce
         .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
       const storageInsertionOrder = yield* decodeStorageInsertionOrder(member.allowStorageInsertionOrder)
         .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
-      captured.push(yield* captureParticipant(member, publication, reconstitution, preservingDeletionUpsert, activeRestoreUpdate, storageInsertionOrder));
+      const setNullPolicy = yield* decodeSetNullPolicy(member.setNullPolicy)
+        .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
+      captured.push(yield* captureParticipant(member, publication, reconstitution, preservingDeletionUpsert, activeRestoreUpdate, storageInsertionOrder, setNullPolicy));
     }
     return Object.freeze(captured);
   });
@@ -172,14 +177,14 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
       .pipe(Effect.mapError(projectCommerceRequestFailure));
     const common = { participant: member.participant, name, commands,
       commandNames: [...commandNames].toSorted(compareUtf16Strings), validate: member.validate,
-      validateLogical: member.validateLogical, validateLogicalCall: member.validateLogicalCall, allowSetNull: member.allowSetNull,
+      validateLogical: member.validateLogical, validateLogicalCall: member.validateLogicalCall, setNullPolicy: member.setNullPolicy,
       allowReferenceReplacement: member.allowReferenceReplacement, allowReconstitution: member.allowReconstitution,
       allowPreservingDeletionUpsert: member.allowPreservingDeletionUpsert, allowActiveRestoreUpdate: member.allowActiveRestoreUpdate, allowStorageInsertionOrder: member.allowStorageInsertionOrder, derivedIdEvent, events };
     if (member.kind === "logical") {
       const validated = member.validateLogical !== undefined || member.validateLogicalCall !== undefined;
       if (location === undefined || member.validate !== undefined ||
         (events !== undefined && !validated)
-        || (member.allowSetNull === true && !validated)
+        || (member.setNullPolicy !== undefined && !validated)
         || (member.allowReconstitution === true && !validated)
         || (member.allowPreservingDeletionUpsert === true && !validated)
         || (member.allowActiveRestoreUpdate === true && !validated)
@@ -229,7 +234,7 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     yield* chargeHostPreparation(reference).pipe(Effect.mapError(projectCommerceRequestFailure));
     if (member.profile === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
     const descriptor = yield* requireCommerceProfile(member.profile);
-    if (member.validateLogical !== undefined || member.validateLogicalCall !== undefined || member.allowSetNull === true ||
+    if (member.validateLogical !== undefined || member.validateLogicalCall !== undefined || member.setNullPolicy !== undefined ||
       member.allowReferenceReplacement === true || member.allowReconstitution === true || member.allowPreservingDeletionUpsert === true || member.allowActiveRestoreUpdate === true || member.allowStorageInsertionOrder === true || derivedIdEvent !== undefined)
       return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (descriptor.localOnly !== (member.validate !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));

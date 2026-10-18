@@ -62,7 +62,7 @@ export function moduleIntegrationTestRunner(options: ProductRunnerOptions): void
         identityAndAccessPolicy: { profile: "native-public-type-" + operation },
         participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
           commands: [selected], validateLogicalCall: policy.validateLogicalCall,
-          ...(operation === "delete" ? { allowSetNull: true as const } : {}),
+          ...(operation === "delete" ? { setNullPolicy: { managedUpdate: "advance" as const } } : {}),
           events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
         commands: [root[operation]],
         events: { producerRevision: revision, contracts: [contract],

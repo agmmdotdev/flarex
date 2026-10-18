@@ -292,7 +292,7 @@ describe("native Collection workflow receipts", () => {
     await refused(call, { ...activity, observedRows: [...activity.observedRows,
       { table: catalog.collection.table.name, row: { ...before, id: "missing" } }] });
     await refused(call, { ...activity, setNull: [{ sourceTable: catalog.product.table.name, sourceColumn: "collection_id",
-      targetTable: catalog.collection.table.name, targetColumn: "id", targetKey: "collection" }] });
+      targetTable: catalog.collection.table.name, targetColumn: "id", targetKey: "collection", managedUpdate: "advance" }] });
   });
 
   it("admits missing/already-deleted lifecycle no-ops without transitions or Product effects", async () => {

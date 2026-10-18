@@ -9,6 +9,12 @@ declared affected-row, byte and time budgets; broader relationship transitions,
 large-document and hot-shop capacity, and pending reads after a plan remain
 separate gates.
 
+The explicit managed-update policy, born/delete target and read-only observed
+source extension is implemented for its selected bounded profiles.
+It supports the native ShippingProfile physical-detach boundary described below;
+that status does not admit a new public API, arbitrary pending source writes or
+broader fan-out capacity.
+
 ## Trigger and ownership
 
 Native ProductType deletion detaches each Product with the deleted `type_id`
@@ -108,8 +114,10 @@ The current-index range scan selects its bounded
 keyset page before joining revision metadata, so late pages do not join the
 whole current range first.
 The neutral `set null` operation uses the admitted row normalization policy to
-preserve native fields, set the declared nullable FK to null and update managed
-timestamps. It builds ordinary logical row intents page by page, requires the
+preserve native fields, set the declared nullable FK to null and apply the
+selected managed-update mode. Existing Product consumers select advance;
+explicit preserve consumers keep managed timestamps. It builds ordinary
+logical row intents page by page, requires the
 trusted caller to lower each page, then rejects any matching reference left in
 the current index. A multi-page fixture proves 144 derived Product changes at
 one sequence and rollback after a late injected failure. Native Type deletion
@@ -140,10 +148,62 @@ logical transition.
 
 ## Coherent implementation and acceptance gate
 
-The private contract seals a declared `set null` intent only after its committed
-target row has been selected for deletion. It forbids later command reads or
-writes, rejects pending source-row overlays, and authenticates the exact FK and
-root. The publisher consumes the intent before making the Type deletion visible.
+The private contract seals a declared `set null` intent only after an authentic
+target deletion attempt. The selected extension admits a committed target or a
+target genuinely born and deleted in the same root; a nonexistent target or an
+invented delete remains invalid. It forbids later command reads or writes,
+rejects matching source mutation attempts and borrowed source overlays, and
+authenticates the exact nullable NO ACTION FK and root. Read-only source
+observations retain their normal dependency validation and do not themselves
+authorize a write. The publisher consumes the intent before making the Type
+deletion visible.
+
+### Explicit mode and native physical detachment
+
+The [native ShippingProfile creation/inverse boundary](../flarexdb-framework-integration/preflight/135-native-shipping-profile-create-workflow.md)
+exposed three limits of the former owner contract. A native physical Profile
+delete can operate on a target created earlier in the same root, its real
+business guard reads Option references before deletion, and its DAL detaches
+nullable Option FKs without advancing Option timestamps. The former committed-
+target requirement and observation exclusion refused those valid shapes; its
+fixed advancing normalization did not preserve the native child afterimage.
+
+The correction replaces the private allowSetNull flag with
+`setNullPolicy:{managedUpdate:"advance"|"preserve"}`. Trusted preparation binds
+that policy to canonical profile/replay identity, and every sealed intent and
+activity record carries its required mode. Issuance, closure and publication
+must agree with the selected mode; command input cannot choose a different
+policy. Product type/collection consumers migrate explicitly to advance, while
+the Profile consumer selects preserve. Reference-replacement authority remains
+independent; selecting one operation does not grant the other. No parallel
+obsolete boolean policy is retained.
+
+Core retains actual deletion-attempt authority for born/delete targets even if
+the final row state coalesces away. Read-only committed reference observations
+are admitted without treating caller-supplied identities as the affected range.
+Matching source mutations, including pending insert/delete attempts or borrowed
+overlays, remain refused, and the plan remains terminal for subsequent command
+reads/writes. Supporting arbitrary pending reference writes or post-plan reads
+requires a separately proven visibility contract.
+
+Preserve mode changes only the declared FK in each selected native row. It keeps
+managed timestamps and the other scalar fields, while ordinary core revision,
+index/unique, history, fact and recovery effects still occur at one accepting
+sequence. Framework event policy remains with the native adapter; core must not
+invent child update events. The physical schema FK stays NO ACTION because this
+is an explicit operation, not an automatic schema-wide delete action.
+
+Complete historical reverse selection remains with the indexed shared owner
+under the scope publication lock. An adapter's smaller native validation cohort
+does not cap that range or excuse truncation. Existing reference/materialization,
+affected-row, byte, time and fact budgets still govern the complete derived
+closure; they have not been widened by this policy correction. Mode binding,
+wrong scope/root/FK, immutable observations, same-root target history, rejection
+of unsupported source overlays, concurrency and existing advance consumers need
+owner and consumer validation for each additional selected profile. The current
+ShippingProfile consumer uses preserve mode, while the existing Product Type
+and Collection consumers retain advance mode. This does not admit arbitrary
+pending reference visibility or widen fan-out capacity.
 
 The publisher writes compact derived row identities after each lowered page
 inside the same uncommitted transaction, enforces the materializer's

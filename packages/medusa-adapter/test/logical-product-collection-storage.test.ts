@@ -77,7 +77,7 @@ describe("native Collection service on shared logical Product storage", () => {
       participants: [{ participant, logicalStorage: selectedProduct.hostInput.logicalStorage,
         commands: pendingRead ? [native, selectedProduct.runtime.commands.retrieveCollection] : [native],
         validateLogicalCall: (...args) => policy.validateLogicalCall(...args).pipe(Effect.andThen(afterReceipt)),
-        ...(operation === "deleteCollection" ? { allowSetNull: true as const } : {}),
+        ...(operation === "deleteCollection" ? { setNullPolicy: { managedUpdate: "advance" as const } } : {}),
         ...(replacement && productUpdatedContract !== undefined ? { allowReferenceReplacement: true as const,
           derivedIdEvent: { contract: productUpdatedContract.token } } : {}),
         events: { contracts, select: event => {
@@ -609,7 +609,7 @@ describe("native Collection service on shared logical Product storage", () => {
 
   it("rejects a Product field change unrelated to Collection membership", async () => {
     const policy = productCallReceipts(catalog);
-    const createdCollection = { id: "pcol_receipt", title: "Collection", deleted_at: null };
+    const createdCollection = { id: "pcol_receipt", title: "Collection", handle: "collection", deleted_at: null };
     const beforeProduct = { id: "prod_receipt", title: "Original", collection_id: null, deleted_at: null };
     const attachedProduct = { ...beforeProduct, collection_id: createdCollection.id };
     const attempts = [
@@ -658,12 +658,12 @@ describe("native Collection service on shared logical Product storage", () => {
       const policy = productCallReceipts(catalog);
       const id = "pcol_scalar_receipt";
       const call = { commandName, mode: "write" as const, input: { title: "Scalar" },
-        result: { id, title: "Scalar", deleted_at: null, products: [] },
+        result: { id, title: "Scalar", handle: "scalar", deleted_at: null, products: [] },
         events: [{ name: catalog.collection.createdEvent, metadata: { source: Modules.PRODUCT,
           object: catalog.collection.eventObject, action: CommonEvents.CREATED }, data: { id } }],
         fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 };
       const activity = { mutations: [{ ordinal: 0, table: catalog.collection.table.name,
-        operation: "insert" as const, before: null, after: { id, title: "Scalar", deleted_at: null } }],
+        operation: "insert" as const, before: null, after: { id, title: "Scalar", handle: "scalar", deleted_at: null } }],
       lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] };
       await Effect.runPromise(policy.validateLogicalCall(call, activity));
       expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall(
@@ -736,7 +736,7 @@ describe("native Collection service on shared logical Product storage", () => {
     const id = "pcol_generated_receipt", member = "prod_generated_receipt";
     const beforeProduct = { id: member, title: "Member", collection_id: null, deleted_at: null };
     const mutations = [{ ordinal: 0, table: catalog.collection.table.name, operation: "insert" as const,
-      before: null, after: { id, title: "Created", deleted_at: null } },
+      before: null, after: { id, title: "Created", handle: "created", deleted_at: null } },
     { ordinal: 1, table: catalog.product.table.name, operation: "patch" as const,
       before: beforeProduct, after: { ...beforeProduct, collection_id: id } }];
     const events = [
@@ -747,7 +747,7 @@ describe("native Collection service on shared logical Product storage", () => {
     ];
     const call = { commandName: "productCreatecollection", mode: "write" as const,
       input: { title: "Created", product_ids: [member] },
-      result: { id, title: "Created", deleted_at: null, products: [{ ...beforeProduct, collection_id: id }] }, events,
+      result: { id, title: "Created", handle: "created", deleted_at: null, products: [{ ...beforeProduct, collection_id: id }] }, events,
       fromAttempt: 0, toAttempt: 2, fromLifecycle: 0, toLifecycle: 0 };
     await Effect.runPromise(policy.validateLogicalCall(call, { mutations: mutations, lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }));
     expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ ...call, result: { id: "pcol_wrong_result" } }, { mutations: mutations, lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] }))))
@@ -761,7 +761,7 @@ describe("native Collection service on shared logical Product storage", () => {
     const roots = ["pcol_generated_first", "pcol_generated_second"] as const;
     const mutations = roots.map((id, ordinal) => ({ ordinal, table: catalog.collection.table.name,
       operation: "insert" as const, before: null,
-      after: { id, title: ordinal === 0 ? "First" : "Second", deleted_at: null } }));
+      after: { id, title: ordinal === 0 ? "First" : "Second", handle: ordinal === 0 ? "first" : "second", deleted_at: null } }));
     const events = roots.map(id => ({ name: catalog.collection.createdEvent,
       metadata: { source: Modules.PRODUCT, object: catalog.collection.eventObject, action: CommonEvents.CREATED },
       data: { id } }));
@@ -886,7 +886,7 @@ describe("native Collection service on shared logical Product storage", () => {
       operation: "delete" as const, before: { id, deleted_at: null }, after: null }],
     lifecycle: [], observedRows: [], relationalReads: [], referenceReplacements: [],
     setNull: [{ sourceTable: catalog.product.table.name, sourceColumn: "collection_id",
-      targetTable: catalog.collection.table.name, targetColumn: "id", targetKey: id }] };
+      targetTable: catalog.collection.table.name, targetColumn: "id", targetKey: id, managedUpdate: "advance" as const }] };
     await Effect.runPromise(policy.validateLogicalCall(call, activity));
     for (const forged of [{ ...call, input: ["pcol_other"] }, { ...call, result: { id } }]) {
       expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall(forged, activity))))

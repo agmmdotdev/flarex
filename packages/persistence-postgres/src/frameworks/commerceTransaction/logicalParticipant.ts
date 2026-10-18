@@ -9,7 +9,7 @@ import type { BoundedRequestContext, BoundedRequestLifetime } from "../../execut
 import { requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../../storage/documents/logicalDocuments/relationalAdmission";
 import { requireLogicalRelationalReadAdmission, type LogicalRelationalReadAdmission } from "../../storage/documents/logicalDocuments/relationalAdmission";
 import { makeLogicalDocumentWorkingSet, type LogicalDocumentChanges, type LogicalDocumentActivity } from "../../storage/documents/logicalDocuments/workingSet";
-import type { LogicalStorageReadReadiness } from "../../storage/documents/logicalDocuments/model";
+import { LogicalSetNullPolicy, type LogicalStorageReadReadiness } from "../../storage/documents/logicalDocuments/model";
 import type { CommerceSetNullSelection, CommerceReferenceReplacement } from "./commands";
 import { bindPreparedLogicalRelationalRows, detachLogicalRelationalActivityJson } from "../../storage/documents/logicalDocuments/relationalRows";
 import { commerceError, logicalCommerceError, type CommerceTransactionError } from "./model";
@@ -66,14 +66,17 @@ const ReadCount = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum
 const decodeRelationalRead = Schema.decodeUnknownEffect(Schema.Struct({ query: Schema.Json, total: ReadCount, returned: ReadCount, orderedIdentities: Schema.optionalKey(Schema.Array(Schema.Record(Schema.String, Schema.String))) })
   .check(Schema.makeFilter(value => value.returned <= value.total &&
     (value.orderedIdentities === undefined || value.orderedIdentities.length === value.returned))), { onExcessProperty: "error" });
-export interface LogicalCommerceSetNull {
+export interface LogicalCommerceReferenceSelection {
   readonly sourceTable: string;
   readonly sourceColumn: string;
   readonly targetTable: string;
   readonly targetColumn: string;
   readonly targetKey: string;
 }
-export interface LogicalCommerceReferenceReplacement extends LogicalCommerceSetNull {
+export interface LogicalCommerceSetNull extends LogicalCommerceReferenceSelection {
+  readonly managedUpdate: LogicalSetNullPolicy["managedUpdate"];
+}
+export interface LogicalCommerceReferenceReplacement extends LogicalCommerceReferenceSelection {
   readonly desiredKeys: readonly string[];
 }
 export interface LogicalCommerceLifecycleObservation {
@@ -95,8 +98,10 @@ interface ClosureState {
   readonly maximumFacts: number;
   readonly maximumIdentities: number;
   readonly logicalPublication: "mixed" | undefined;
+  readonly setNullPolicy: LogicalSetNullPolicy | undefined;
 }
 const closures = new WeakMap<object, ClosureState>();
+const decodeSetNullPolicy = Schema.decodeUnknownEffect(Schema.UndefinedOr(LogicalSetNullPolicy), { onExcessProperty: "error" });
 
 /** A native participant borrows its root's transaction and lifetime. It owns no
  * commit allocation, outcome, initialization receipt or physical settlement. */
@@ -105,7 +110,11 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, initialContext: BoundedRequestContext, id: string,
   allowReferenceReplacement = false, selectedResources?: CommerceResources, logicalPublication?: "mixed",
   allowReconstitution = false, allowPreservingDeletionUpsert = false, allowActiveRestoreUpdate = false, allowStorageInsertionOrder = false,
+  setNullPolicy?: LogicalSetNullPolicy,
 ) {
+  const decodedSetNullPolicy = yield* decodeSetNullPolicy(setNullPolicy)
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const selectedSetNullPolicy = decodedSetNullPolicy === undefined ? undefined : Object.freeze({ ...decodedSetNullPolicy });
   const resources = selectedResources ?? defaultCommerceResources;
   const maximumIdentities = selectedResources?.catalogRows ?? logicalCommerceWorkingSetLimits.identities;
   const state = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
@@ -157,7 +166,7 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
     const closure = Object.freeze({}) as LogicalCommerceClosure;
     closures.set(closure, { admission, tx, lifetime, changes, activity: () => projectActivity(activity),
       maximumIndexEntries: selectedResources?.catalogRows ?? logicalCommerceWorkingSetLimits.identities,
-      maximumFacts: resources.facts, maximumIdentities, logicalPublication });
+      maximumFacts: resources.facts, maximumIdentities, logicalPublication, setNullPolicy: selectedSetNullPolicy });
     return closure;
   }, work => observeExecution("LogicalCommerce.close", work, "caller"));
   const callActivity = Effect.fnUntraced(function* (
@@ -170,12 +179,14 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
     activityCursor: working.activityCursor, callActivity,
     attemptCount: working.attemptCount, lifecycleCount: working.lifecycleCount,
     planSetNull: (context: BoundedRequestContext, selection: CommerceSetNullSelection) => Effect.gen(function* () {
+      if (selectedSetNullPolicy === undefined || selection.managedUpdate !== selectedSetNullPolicy.managedUpdate)
+        return yield* Effect.fail(commerceError("invalidAuthority"));
       const admitted = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
       const source = admitted.tables.find(table => table.localName === selection.sourceTable);
       const target = admitted.tables.find(table => table.localName === selection.targetTable);
       if (source === undefined || target === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
       yield* working.planSetNull(context, id, { sourceTableId: source.tableId, sourceColumn: selection.sourceColumn,
-        targetTableId: target.tableId, targetColumn: selection.targetColumn, targetKey: selection.targetKey });
+        targetTableId: target.tableId, targetColumn: selection.targetColumn, targetKey: selection.targetKey, managedUpdate: selectedSetNullPolicy.managedUpdate });
     }),
     ...(allowReferenceReplacement ? { planReferenceReplacement: (context: BoundedRequestContext,
       selection: CommerceReferenceReplacement) => Effect.gen(function* () {
@@ -254,7 +265,7 @@ export const projectLogicalCommerceActivity = Effect.fnUntraced(function* (
     const targetTable = names.get(intent.targetTableId);
     if (sourceTable === undefined || targetTable === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
     setNull.push(Object.freeze({ sourceTable, sourceColumn: intent.sourceColumn, targetTable,
-      targetColumn: intent.targetColumn, targetKey: intent.targetKey }));
+      targetColumn: intent.targetColumn, targetKey: intent.targetKey, managedUpdate: intent.managedUpdate }));
   }
   const referenceReplacements: LogicalCommerceReferenceReplacement[] = [];
   for (const intent of activity.referenceReplacements) {

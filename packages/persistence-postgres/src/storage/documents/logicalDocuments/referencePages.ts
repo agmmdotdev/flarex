@@ -39,7 +39,7 @@ import type { FlarexMetadataTransaction } from "../../../database/metadataTransa
 import { runDrizzleStatementEffect } from "../../../database/drizzleStatementEffect";
 import { databaseTimestampFromUnknown } from "../../../database/databaseTimestamp";
 import { fxSystemScopeClocks } from "../../../database/schema";
-import type { LogicalDocumentFailure } from "./model";
+import type { LogicalDocumentFailure, LogicalSetNullPolicy } from "./model";
 import type { LogicalDocumentChange } from "./workingSet";
 import { logicalMaterializationBatchBudget } from "./materialization";
 import type { LogicalRelationalAdmissionState } from "./relationalAdmission";
@@ -249,9 +249,11 @@ export const forEachLogicalReferencePage = Effect.fn("LogicalReferences.forEachP
  * intents. The callback lowers it in the same transaction; it never receives
  * storage authority or a framework-supplied affected-row list. */
 export const forEachLogicalSetNullPage = Effect.fn("LogicalReferences.forEachSetNullPage")(function* <Failure>(
-  input: Readonly<LogicalReferencePageInput<Failure>>,
+  input: Readonly<LogicalReferencePageInput<Failure> & LogicalSetNullPolicy>,
   onPage: (changes: readonly LogicalDocumentChange[]) => Effect.Effect<void, Failure>,
 ) {
+  if (input.managedUpdate !== "advance" && input.managedUpdate !== "preserve")
+    return yield* Effect.fail(input.error("invalidAuthority"));
   const admission = yield* input.requireAdmission;
   if (admission.tx !== input.tx) return yield* Effect.fail(input.error("invalidAuthority"));
   const stableInput = { ...input, requireAdmission: input.requireAdmission.pipe(Effect.flatMap(current =>
@@ -279,7 +281,7 @@ export const forEachLogicalSetNullPage = Effect.fn("LogicalReferences.forEachSet
       const native = Object.fromEntries(Object.entries(previous).filter(([name]) => name !== "_id" && name !== "_creationTime"));
       yield* Effect.fromResult(policy.validate(native, "storedCorruption"));
       const updated = yield* Effect.fromResult(policy.normalize({ [input.sourceColumn]: null }, native,
-        yield* transactionTime).pipe(Result.mapError(cause => input.error("storedCorruption", cause))));
+        yield* transactionTime, input.managedUpdate).pipe(Result.mapError(cause => input.error("storedCorruption", cause))));
       const document = yield* canonicalizeFlarexValueV1Effect({ ...updated, _id: documentId,
         _creationTime: row.creationTime }, "appDocument").pipe(Effect.mapError(cause => input.error("storedCorruption", cause)));
       changes.push(Object.freeze({ documentId, tableId: row.tableId, rowId: row.rowId, readAt: clock.lastCommitSeq,

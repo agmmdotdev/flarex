@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyShippingProfileWorkflowTypeFork } from "./check-medusa-currency-promotion.mjs";
@@ -954,6 +954,81 @@ describe("native ShippingProfile workflow metadata type seam", () => {
   });
 });
 
+
+describe("native ShippingProfile creation root, retained physical inverse and public contract provenance", () => {
+  const paths = ["fulfillment/workflows/create-shipping-profiles.ts", "fulfillment/steps/create-shipping-profiles.ts"];
+  const native = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8").replaceAll("\r\n", "\n"));
+  const promoted = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8").replaceAll("\r\n", "\n"));
+  const nativeTypes = readFileSync("third_party/medusa/upstream/packages/core/types/src/workflow/fulfillment/shipping-profiles.ts", "utf8");
+  const types = readFileSync("packages/medusa-types/src/workflow/fulfillment/shipping-profiles.ts", "utf8");
+  const verify = (workflow = promoted[0], step = promoted[1], publicTypes = types) =>
+    verifyShippingProfileCreateCallbacks(native[0], workflow, native[1], step, nativeTypes, publicTypes);
+  it("admits the exact native root, unchanged existing step and approved shared type seam", () => expect(() => verify()).not.toThrow());
+  it.each([
+    ["root identity", '"create-shipping-profiles-workflow"', '"create-other-shipping-profiles-workflow"'],
+    ["whole input", "createShippingProfilesStep(input.data)", "createShippingProfilesStep([])"],
+    ["complete returned rows", "new WorkflowResponse(createShippingProfilesStep(input.data))", "new WorkflowResponse([])"],
+    ["direct step import", 'from "../steps/create-shipping-profiles"', 'from "../steps"'],
+    ["extra resource", 'from "../steps/create-shipping-profiles"', 'from "../steps/create-shipping-profiles"; import "node:fs"'],
+    ["extra runtime effect", "    return new WorkflowResponse", "    console.log(input); return new WorkflowResponse"],
+    ["empty creation elision", "createShippingProfilesStep(input.data)", "input.data.length ? createShippingProfilesStep(input.data) : []"],
+    ["input mutation", "    return new WorkflowResponse", "    input.data.reverse(); return new WorkflowResponse"],
+  ])("rejects changed root %s", (_label, before, after) => {
+    const changed = promoted[0].replace(before, after); expect(changed).not.toBe(promoted[0]);
+    expect(() => verify(changed)).toThrow("Changed native ShippingProfile creation callback behavior");
+  });
+  it.each([
+    ["step identity", '"create-shipping-profiles"', '"create-other-shipping-profiles"'],
+    ["covered metadata", 'compensation: "transactionCovered"', 'compensation: "none"'],
+    ["Fulfillment resource", "Modules.FULFILLMENT", "Modules.PRODUCT"],
+    ["complete create input", "service.createShippingProfiles(input)", "service.createShippingProfiles([])"],
+    ["native create method", "service.createShippingProfiles(input)", "service.upsertShippingProfiles(input)"],
+    ["create await", "await service.createShippingProfiles", "service.createShippingProfiles"],
+    ["actual returned rows", "      createdShippingProfiles,", "      [],"],
+    ["actual retained IDs", "createdShippingProfiles.map((created) => created.id)", "[]"],
+    ["inverse empty guard", "if (!createdShippingProfiles?.length)", "if (!createdShippingProfiles)"],
+    ["physical inverse", "service.deleteShippingProfiles(createdShippingProfiles)", "service.softDeleteShippingProfiles(createdShippingProfiles)"],
+    ["raw retained inverse", "service.deleteShippingProfiles(createdShippingProfiles)", "service.deleteShippingProfiles([])"],
+    ["inverse await", "await service.deleteShippingProfiles", "service.deleteShippingProfiles"],
+    ["extra inverse resource", "    await service.deleteShippingProfiles", '    container.resolve("query"); await service.deleteShippingProfiles'],
+  ])("rejects changed existing native step %s", (_label, before, after) => {
+    const changed = promoted[1].replace(before, after); expect(changed).not.toBe(promoted[1]);
+    expect(() => verify(promoted[0], changed)).toThrow("Changed native ShippingProfile creation callback behavior");
+  });
+  it.each([
+    [0, "WorkflowData<FulfillmentWorkflow.CreateShippingProfilesWorkflowInput>", "WorkflowData<never>"],
+    [0, "WorkflowResponse<FulfillmentWorkflow.CreateShippingProfilesWorkflowOutput>", "WorkflowResponse<never>"],
+    [0, 'from "@medusajs/framework/types"', 'from "@medusajs/types"'],
+    [1, "CreateShippingProfileDTO[]", "readonly CreateShippingProfileDTO[]"],
+    [1, "input: CreateShippingProfilesStepInput", "input: never"],
+    [1, 'from "@medusajs/types"', 'from "@medusajs/framework/types"'],
+  ])("rejects changed erased public contract %s / %s", (index, before, after) => {
+    const changed = promoted[index].replace(before, after); expect(changed).not.toBe(promoted[index]);
+    expect(() => index === 0 ? verify(changed) : verify(promoted[0], changed)).toThrow("Changed native ShippingProfile creation public contract");
+  });
+  it.each([
+    ["required name", "  name: string", "  name?: string"],
+    ["required type", "  type: string", "  type: number"],
+    ["complete data", "data: CreateShippingProfile[]", "data: readonly CreateShippingProfile[]"],
+    ["DTO output", "= ShippingProfileDTO[]", "= readonly ShippingProfileDTO[]"],
+    ["extra relation input", "  type: string", "  type: string\n  shipping_options?: unknown[]"],
+  ])("rejects changed public creation types %s", (_label, before, after) => {
+    const changed = types.replace(before, after); expect(changed).not.toBe(types);
+    expect(() => verify(promoted[0], promoted[1], changed)).toThrow("Changed native ShippingProfile creation public contract");
+  });
+  it("rejects malformed callback syntax", () => {
+    expect(() => verify(promoted[0], promoted[1].replace("return new StepResponse(", "return new StepResponse(,")))
+      .toThrow("Invalid native ShippingProfile creation callback syntax");
+  });
+  it.each(paths.flatMap(file => [
+    [file, "source", { source: "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment/steps/create-service-zones.ts" }],
+    [file, "classification", { classification: "selectedExportFacade" }],
+  ]))("rejects displaced %s %s", (file, _label, mutation) => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(entry =>
+      entry.target === "packages/medusa-core-flows/src/" + file ? { ...entry, ...mutation } : entry) }))
+      .toThrow("ShippingProfile creation adaptation outside its exact pinned source pair");
+  });
+});
 
 describe("native ShippingProfile deletion callback provenance", () => {
   const paths = ["shipping-profile/workflows/delete-shipping-profile.ts", "shipping-profile/steps/delete-shipping-profile.ts", "common/steps/remove-remote-links.ts"];

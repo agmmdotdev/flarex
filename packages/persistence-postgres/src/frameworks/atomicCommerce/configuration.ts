@@ -211,6 +211,7 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
       ...(taskControlNames === undefined ? {} : { taskControlCommands: taskControlNames }) },
     participants: capturedMembers.map(member => ({
       commandCount: member.commands.length, derivedIdEvent: member.derivedIdEvent ?? null,
+      ...(member.setNullPolicy === undefined ? {} : { setNullPolicy: member.setNullPolicy }),
       ...(member.allowReconstitution === true ? { allowReconstitution: true } : {}),
       ...(member.allowPreservingDeletionUpsert === true ? { allowPreservingDeletionUpsert: true } : {}),
       ...(member.allowActiveRestoreUpdate === true ? { allowActiveRestoreUpdate: true } : {}),
@@ -287,6 +288,10 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     ...(members.some(member => member.validateLogicalCall !== undefined) ? {
       logicalCallValidation: members.filter(member => member.validateLogicalCall !== undefined).map(member => member.name),
     } : {}),
+    ...(members.some(member => member.setNullPolicy !== undefined) ? {
+      setNullPolicy: members.flatMap(member => member.setNullPolicy === undefined ? [] :
+        [{ participant: member.name, ...member.setNullPolicy }]),
+    } : {}),
     ...(members.some(member => member.allowReconstitution === true) ? {
       reconstitution: members.filter(member => member.allowReconstitution === true).map(member => member.name),
     } : {}),
@@ -330,7 +335,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     ? Math.min(logicalMaterializationBatchBudget.rows,
       Math.max(defaultCommerceResources.facts, ...members.map(member => member.descriptor.resources.facts),
         members.some(member => member.kind === "logical" &&
-          (member.allowSetNull === true || member.allowReferenceReplacement === true))
+          (member.setNullPolicy !== undefined || member.allowReferenceReplacement === true))
           ? logicalMaterializationBatchBudget.rows : 0))
     : defaultCommerceResources.facts;
   const factLimit = Math.min(transitionFacts,

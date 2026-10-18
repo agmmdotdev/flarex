@@ -119,7 +119,8 @@
     "./fulfillment/update-service-zones": "./src/fulfillment/workflows/update-service-zones.ts",
     "./fulfillment/update-service-zones-step": "./src/fulfillment/steps/update-service-zones.ts",
     "./fulfillment/delete-fulfillment-sets": "./src/fulfillment/workflows/delete-fulfillment-sets.ts",
-    "./fulfillment/delete-fulfillment-sets-step": "./src/fulfillment/steps/delete-fulfillment-sets.ts"
+    "./fulfillment/delete-fulfillment-sets-step": "./src/fulfillment/steps/delete-fulfillment-sets.ts",
+    "./fulfillment/create-shipping-profiles": "./src/fulfillment/workflows/create-shipping-profiles.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

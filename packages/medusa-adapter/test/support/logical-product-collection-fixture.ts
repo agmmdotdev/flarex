@@ -83,7 +83,7 @@ export async function prepareLogicalProductCollection(driver: "pglite" | "postgr
     const root = defineAtomicCommerceCommand("physicalCollectionDeleteContrast", (ctx, input) => ctx.call(participant, commands.deleteCollections, input));
     const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
       identityAndAccessPolicy: { profile: "collection-workflow-physical-delete-contrast" },
-      participants: [{ participant, logicalStorage: product.hostInput.logicalStorage, commands: [commands.deleteCollections], allowSetNull: true,
+      participants: [{ participant, logicalStorage: product.hostInput.logicalStorage, commands: [commands.deleteCollections], setNullPolicy: { managedUpdate: "advance" },
         validateLogicalCall: logicalPolicy.validateLogicalCall, events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
       commands: [root], events: { producerRevision: options.revision, contracts: [contract], subscribers: options.subscribers,
         validate: values => values.some(value => !value.internal) ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },

@@ -9,7 +9,7 @@ import { moduleAliases, scalarGraphDefinition } from "../../local-graph/module";
 
 import type { FindConfig, ShippingProfileDTO, CreateShippingProfileDTO, FilterableShippingProfileProps } from "@medusajs/framework/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
 import { commerceServiceCommands, commerceCommandPreparation } from "../../module/commands";
 import { commerceDecoder } from "../../value/decoder";
@@ -25,9 +25,6 @@ export const SimpleShippingProfileInput = Schema.Struct({ id: Schema.optionalKey
 const decodeCreateArguments = commerceDecoder(Schema.Tuple([
   Schema.Array(SimpleShippingProfileInput).check(Schema.isMaxLength(256)),
 ]), "invalidInput");
-const decodeCreatedProfiles = commerceDecoder(Schema.Array(Schema.StructWithRest(
-  Schema.Struct({ id: Id, name: Schema.String, type: Schema.String }), [Schema.Record(Schema.String, Schema.Json)],
-)).check(Schema.isMaxLength(256)), "storedCorruption");
 const Create = Schema.StructWithRest(Schema.Struct({ name: Schema.String, type: Schema.String }), [Schema.Record(Schema.String, Schema.Json)]);
 const decodeCreate = commerceDecoder(Schema.Union([Create, Schema.Array(Create).check(Schema.isMaxLength(256))]), "invalidInput");
 const Filters = Schema.Struct({
@@ -53,7 +50,7 @@ const decodeRetrieve = commerceDecoder(Schema.Struct({ id: Id, config: Schema.op
 export const makeLocalShippingProfileCommands = Effect.fn("ShippingProfileAdapter.commands")(function* () {
   const metadata = yield* captureShippingProfileMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
-    const { bind, table } = yield* prepareShippingProfileRepository(metadata.frame);
+    const { bind, table, creation } = yield* prepareShippingProfileRepository(metadata.frame);
     const bindModule = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const bound = bind(ctx, owner);
       const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
@@ -88,7 +85,7 @@ export const makeLocalShippingProfileCommands = Effect.fn("ShippingProfileAdapte
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const graph = yield* scalarGraphDefinition(yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : joiner.alias === undefined ? [] : [joiner.alias]).filter(alias => alias.entity === "ShippingProfile") }), "ShippingProfile", count, table);
     const createShippingProfiles = yield* defineWorkflowMethod({ command: create, arguments: decodeCreateArguments,
-      encode: ([profiles]) => profiles, output: decodeCreatedProfiles,
+      encode: ([profiles]) => profiles, output: creation.decodeRows,
       moduleEvents: [buildModuleResourceEventName({ prefix: Modules.FULFILLMENT, objectName: "shipping_profile", action: "created" })] });
     const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description, methods: { createShippingProfiles }, graph, logical: { ...shippingProfileLogicalEventPolicy(), commands: [create, list, count, retrieve] } });
     return { create, list, count, retrieve, graph, workflow,

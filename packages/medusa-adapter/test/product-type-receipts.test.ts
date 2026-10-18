@@ -119,7 +119,7 @@ describe("native Product Type receipt boundaries", () => {
     const changed = deletion(), call = receipt("productSoftDeleteTypesForWorkflow", ["type"], { product_type_id: ["type"] }, changed,
       [event("deleted", "type")]);
     await refused(call, { ...changed, setNull: [{ sourceTable: catalog.product.table.name, sourceColumn: "type_id",
-      targetTable: catalog.type.table.name, targetColumn: "id", targetKey: "type" }] });
+      targetTable: catalog.type.table.name, targetColumn: "id", targetKey: "type", managedUpdate: "advance" }] });
     await refused({ ...call, input: Array.from({ length: 5 }, () => "type") }, changed);
   });
 });

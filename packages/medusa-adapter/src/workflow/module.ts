@@ -1,6 +1,6 @@
 import { Effect, Result, Schema } from "effect";
 import { commerceCommandIdentity, type CommerceCommand, type LogicalCommerceCallValidation, type LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, LogicalSetNullPolicy, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceModuleDescription } from "../module/definition";
 import type { GraphModuleDefinition } from "../local-graph/model";
 import { prepareLocalGraph } from "../local-graph/query";
@@ -57,7 +57,7 @@ export interface WorkflowLogicalPolicy {
   readonly validateLogicalCall: LogicalCommerceCallValidation;
   /** Module-owned conjunction over the closed activity of the same participant. */
   readonly validateLogical?: LogicalCommerceEventValidation;
-  readonly allowSetNull?: true;
+  readonly setNullPolicy?: LogicalSetNullPolicy;
   readonly allowReconstitution?: true;
   readonly allowPreservingDeletionUpsert?: true;
   readonly allowActiveRestoreUpdate?: true;
@@ -107,11 +107,12 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
     const supplied = definition.logical === undefined ? undefined : yield* captureWorkflowRecord(definition.logical);
     if (supplied !== undefined && (typeof supplied.capture !== "function" || typeof supplied.validateLogicalCall !== "function" ||
       supplied.validateLogical !== undefined && typeof supplied.validateLogical !== "function" ||
-      supplied.allowSetNull !== undefined && supplied.allowSetNull !== true ||
       supplied.allowReconstitution !== undefined && supplied.allowReconstitution !== true ||
       supplied.allowPreservingDeletionUpsert !== undefined && supplied.allowPreservingDeletionUpsert !== true ||
       supplied.allowActiveRestoreUpdate !== undefined && supplied.allowActiveRestoreUpdate !== true ||
       supplied.allowStorageInsertionOrder !== undefined && supplied.allowStorageInsertionOrder !== true)) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const setNullPolicy = supplied?.setNullPolicy === undefined ? undefined : yield* captureCommerceInput(supplied.setNullPolicy)
+      .pipe(Result.flatMap(commerceDecoder(LogicalSetNullPolicy, "unsupportedProfile")));
     const replacement = supplied?.referenceReplacement === undefined ? undefined : yield* captureWorkflowRecord(supplied.referenceReplacement);
     const commands = supplied === undefined ? [] : yield* captureWorkflowArray(supplied.commands);
     if (commands.some(command => commerceCommandIdentity(command) === undefined)) return yield* Result.fail(commerceError("invalidAuthority"));
@@ -132,7 +133,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
         yield* supplied.validateLogicalCall(call, activity, command);
       }),
       commands,
-      ...(supplied.allowSetNull === undefined ? {} : { allowSetNull: supplied.allowSetNull }),
+      ...(setNullPolicy === undefined ? {} : { setNullPolicy: Object.freeze({ ...setNullPolicy }) }),
       ...(supplied.allowReconstitution === undefined ? {} : { allowReconstitution: supplied.allowReconstitution }),
       ...(supplied.allowPreservingDeletionUpsert === undefined ? {} : { allowPreservingDeletionUpsert: supplied.allowPreservingDeletionUpsert }),
       ...(supplied.allowActiveRestoreUpdate === undefined ? {} : { allowActiveRestoreUpdate: supplied.allowActiveRestoreUpdate }),

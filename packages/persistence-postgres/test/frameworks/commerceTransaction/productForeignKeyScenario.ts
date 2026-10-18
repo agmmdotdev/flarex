@@ -38,15 +38,19 @@ import { forEachLogicalSetNullPage } from "../../../src/storage/documents/logica
 import { readBoundedCurrentAppRowsInTransactionEffect } from "../../../src/storage/documents/appRows";
 import { readLogicalStorageRequirements } from "../../../src/storage/catalog/logicalStorageDefinitions";
 
+export type SetNullPreflightCase = "observedSource" | "bornDeletedTarget" | "preserveManagedTimestamp" | "negativeBoundaries";
+
 /** Whole-candidate Product index coverage and native row/FK execution through
  * the shared working set. The committed cases materialize row deltas; full
  * publication and native workflow selection retain separate gates. */
 export const productForeignKeyScenario: (
   db: FlarexMetadataDatabase, deploymentId: string, scopeId: ScopeId, schemaVersionId: CatalogSchemaVersionId,
   schema: RelationalSchema, bindings: readonly Readonly<{ localName: string; tableId: CatalogTableId }>[],
+  setNullPreflight?: SetNullPreflightCase,
 ) => Effect.Effect<void, unknown> = Effect.fn("ProductForeignKey.scenario")(function* (
   db: FlarexMetadataDatabase, deploymentId: string, scopeId: ScopeId, schemaVersionId: CatalogSchemaVersionId,
   schema: RelationalSchema, bindings: readonly Readonly<{ localName: string; tableId: CatalogTableId }>[],
+  setNullPreflight?: SetNullPreflightCase,
 ) {
   const target = createLocatedIndexBuildReconciliationTargetV1(db,
     { kind: "shared_database", databaseKey: "test", schemaName: "public" });
@@ -136,6 +140,184 @@ export const productForeignKeyScenario: (
   const transact = <Value, Failure>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>) =>
     runEffectTransaction(callback => db.transaction(callback), "Product FK working set fixture", work,
       cause => new Error("Product FK fixture transaction", { cause }));
+  if (setNullPreflight !== undefined) {
+    const productTableId = nativeTables.find(table => table.logicalName === "product")?.tableId;
+    const typeTableId = nativeTables.find(table => table.logicalName === "product_type")?.tableId;
+    if (productTableId === undefined || typeTableId === undefined) throw new Error("Missing declared nullable-reference fixture tables");
+    const parent = "set-null135-parent", stamp = "2026-10-01T00:00:00.000Z";
+    const intent = { sourceTableId: productTableId, sourceColumn: "type_id", targetTableId: typeTableId,
+      targetColumn: "id", targetKey: parent, managedUpdate: "preserve" as const };
+    const prepareWorking = (tx: FlarexMetadataTransaction) => Effect.gen(function* () {
+      const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
+      const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
+        { calls: 64, commandBytes: 1_048_576, commandMs: 60_000 }, {}, {}, `set-null135-${setNullPreflight}`, "write"),
+      owner => owner.close);
+      const working = yield* makeLogicalDocumentWorkingSet({ tx, scopeId, clock, lifetime,
+        tables: nativeTables, relationalCapabilities: schema.capabilities, requireAdmission: Effect.void,
+        validateDocument: write => Effect.fromResult(values.validate(write.tableId, write.document)).pipe(
+          Effect.mapError(cause => failure("documentInvalid", cause))), error: failure, uniqueConflict: () => failure("uniqueConflict"),
+        limits: { pageRows: 32, identities: 16, documentBytes: 65_536 },
+      }, AppCreationTimeV1Schema.make(135), constraints, selectedIndexes);
+      const id = yield* lifetime.begin(lifetime.context);
+      return { tx, clock, lifetime, working, id };
+    });
+    type PreparedWorking = Effect.Success<ReturnType<typeof prepareWorking>>;
+    const run = <Value, Failure>(work: (prepared: PreparedWorking) => Effect.Effect<Value, Failure>) =>
+      transact(tx => Effect.scoped(prepareWorking(tx).pipe(Effect.flatMap(work))));
+    const materializer = (prepared: Pick<PreparedWorking, "tx" | "clock">, batch = false) => enterLogicalDocumentMaterialization({ coverage: "sourceBound",
+      ...(batch ? { batch: true as const } : {}),
+      command: { authorityPins: { deploymentId: TransactionGrantDeploymentIdV1Schema.make(deploymentId),
+        scopeId: scope.scopeId, schemaVersionId }, rowIntents: tableIds.map(tableId => ({ tableId })) },
+      intrinsic: selectedIndexes.filter(index => index.access.kind === "by_creation_time"),
+      developer: selectedIndexes.filter(index => index.access.kind === "developer"), unique: constraints,
+      relations: null, options: {}, requireAdmission: Effect.void,
+      validateWrites: (_, changes) => Effect.forEach(changes, change => change.kind === "deleted" ? Effect.void :
+        Effect.fromResult(values.validate(change.tableId, change.document)), { discard: true }),
+    }, prepared.tx, resolved.authority, prepared.clock);
+    if (setNullPreflight !== "bornDeletedTarget") yield* run(prepared => Effect.gen(function* () {
+      const { lifetime, working, id, tx, clock } = prepared;
+      yield* (yield* working.relationalTable(lifetime.context, id, "product_type")).write(lifetime.context, "insert", [{ id: parent, value: "Parent135" }]);
+      if (setNullPreflight === "negativeBoundaries") yield* (yield* working.relationalTable(lifetime.context, id, "product_type"))
+        .write(lifetime.context, "insert", [{ id: "set-null135-other", value: "Other135" }]);
+      yield* (yield* working.relationalTable(lifetime.context, id, "product")).write(lifetime.context, "insert", [
+        { id: "set-null135-child", handle: "set-null135-child", title: "Child135", type_id: parent,
+          created_at: stamp, updated_at: stamp, deleted_at: stamp },
+      ]);
+      if (setNullPreflight === "negativeBoundaries") yield* (yield* working.relationalTable(lifetime.context, id, "product"))
+        .write(lifetime.context, "insert", [{ id: "set-null135-through", handle: "set-null135-through", title: "Through135", type_id: "set-null135-other" }]);
+      yield* lifetime.seal;
+      const closed = yield* working.close();
+      const contribution = yield* validateLogicalDocumentChanges({ tx, scopeId, tables: new Set(tableIds), maximumIndexEntries: 64, error: failure }, closed);
+      const core = yield* materializer(prepared), delta = yield* core.prepareDelta(contribution.changes, contribution.dependencies);
+      const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
+      yield* delta.lower(commitSeq);
+      yield* runDrizzleStatementEffect(tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq })
+        .where(eq(fxSystemScopeClocks.scopeId, scopeId)), cause => failure("statementFailure", cause));
+    }));
+    if (setNullPreflight === "negativeBoundaries") {
+      const before = yield* runDrizzleStatementEffect(db.select().from(fxAppRowRevisions), cause => failure("statementFailure", cause));
+      for (const scenario of ["neverDeleted", "wrongExactTarget", "pendingPatch", "pendingDelete", "pendingBornDeleted", "pendingRepointAway", "pendingRepointThrough"] as const) {
+        const result = yield* Effect.result(run(prepared => Effect.gen(function* () {
+          const { working, lifetime, id } = prepared;
+          const targets = yield* working.relationalTable(lifetime.context, id, "product_type");
+          if (scenario.startsWith("pending")) {
+            const sources = yield* working.relationalTable(lifetime.context, id, "product");
+            if (scenario === "pendingPatch") yield* sources.write(lifetime.context, "update", [{ id: "set-null135-child", title: "Pending135" }]);
+            if (scenario === "pendingDelete") yield* sources.delete(lifetime.context, ["set-null135-child"]);
+            if (scenario === "pendingBornDeleted") {
+              yield* sources.write(lifetime.context, "insert", [{ id: "set-null135-born", handle: "set-null135-born", title: "Born135", type_id: parent }]);
+              yield* sources.delete(lifetime.context, ["set-null135-born"]);
+            }
+            if (scenario === "pendingRepointAway") yield* sources.write(lifetime.context, "update", [{ id: "set-null135-child", type_id: "set-null135-other" }]);
+            if (scenario === "pendingRepointThrough") {
+              yield* sources.write(lifetime.context, "update", [{ id: "set-null135-through", type_id: parent }]);
+              yield* sources.write(lifetime.context, "update", [{ id: "set-null135-through", type_id: "set-null135-other" }]);
+            }
+          }
+          if (scenario !== "neverDeleted") yield* targets.delete(lifetime.context, [scenario === "wrongExactTarget" ? "set-null135-other" : parent]);
+          yield* working.planSetNull(lifetime.context, id, intent);
+        })));
+        expect(result, scenario).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+      }
+      // Each refusal closes its own original lifetime. The first failed
+      // operation is sticky, so another probe must not reuse that failed owner.
+      for (const operation of ["read", "write", "replacement"] as const) {
+        const refused = yield* Effect.result(run(prepared => Effect.gen(function* () {
+          const { working, lifetime, id } = prepared;
+          const targets = yield* working.relationalTable(lifetime.context, id, "product_type");
+          const sources = yield* working.relationalTable(lifetime.context, id, "product");
+          yield* targets.delete(lifetime.context, [parent]);
+          yield* working.planSetNull(lifetime.context, id, intent);
+          if (operation === "read") yield* sources.find(lifetime.context, { take: 4, order: { column: "id", direction: "asc" },
+            predicate: { kind: "in", column: "id", values: ["set-null135-child"] } });
+          else if (operation === "write") yield* targets.write(lifetime.context, "insert", [{ id: "after-plan135", value: "After135" }]);
+          else yield* working.planReferenceReplacement(lifetime.context, id, { sourceTableId: productTableId,
+            sourceColumn: "type_id", targetTableId: typeTableId, targetColumn: "id", targetKey: "set-null135-other", desiredKeys: [] });
+        })));
+        expect(refused, operation).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+      }
+      yield* run(prepared => Effect.gen(function* () {
+        const { working, lifetime, id, tx } = prepared;
+        const targets = yield* working.relationalTable(lifetime.context, id, "product_type");
+        yield* targets.delete(lifetime.context, [parent]);
+        yield* working.planSetNull(lifetime.context, id, intent);
+        yield* lifetime.seal;
+        const closed = yield* working.close();
+        for (const policy of [undefined, { managedUpdate: "advance" as const }]) {
+          expect(yield* Effect.result(validateLogicalDocumentChanges({ tx, scopeId, tables: new Set(tableIds), maximumIndexEntries: 64,
+            error: failure, ...(policy === undefined ? {} : { setNullPolicy: policy }) }, closed)))
+            .toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+        }
+        yield* validateLogicalDocumentChanges({ tx, scopeId, tables: new Set(tableIds), maximumIndexEntries: 64,
+          error: failure, setNullPolicy: { managedUpdate: "preserve" } }, closed);
+      }));
+      expect(yield* runDrizzleStatementEffect(db.select().from(fxAppRowRevisions), cause => failure("statementFailure", cause))).toEqual(before);
+      return;
+    }
+    if (setNullPreflight === "preserveManagedTimestamp") {
+      const boundTables = nativeTables.map(table => {
+        const mechanics = prepareLogicalRelationalTableMechanics(table.relational, schema.capabilities);
+        return { tableId: table.tableId, localName: table.logicalName, definition: mechanics.table, mechanics };
+      });
+      // Explicit preservation uses the actual page/row/materialization owners;
+      // the existing Product advance profile is exercised separately below.
+      const updated = yield* transact(tx => Effect.gen(function* () {
+        const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
+        const previous = yield* readBoundedCurrentAppRowsInTransactionEffect(tx, { scopeId, tableId: productTableId,
+          minimumCommitSeq: clock.lastCommitSeq, maximumIdentities: 16, maximumDocumentBytes: 65_536, maximumTotalValueBytes: 1_048_576 });
+        const prior = previous.rows[0];
+        if (prior?.kind !== "live") throw new Error("Missing source revision before preserving detach");
+        const core = yield* materializer({ tx, clock }, true), commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
+        const after: unknown[] = [];
+        const requested = { tx, ...intent, error: failure,
+          requireAdmission: Effect.succeed(Object.freeze({ tx, authority: resolved.authority, schema, tables: boundTables,
+            indexes: selectedIndexes.filter(index => index.access.kind === "developer"), unique: constraints })) };
+        const count = yield* forEachLogicalSetNullPage(requested, changes => Effect.gen(function* () {
+          for (const change of changes) if (change.kind === "live" && isJsonObject(change.document.valueJson)) after.push(change.document.valueJson);
+          yield* (yield* core.prepareDelta(changes, changes)).lower(commitSeq);
+        }));
+        expect(count).toBe(1);
+        yield* core.completeBatch();
+        yield* runDrizzleStatementEffect(tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq })
+          .where(eq(fxSystemScopeClocks.scopeId, scopeId)), cause => failure("statementFailure", cause));
+        const current = yield* readBoundedCurrentAppRowsInTransactionEffect(tx, { scopeId, tableId: productTableId,
+          minimumCommitSeq: commitSeq, maximumIdentities: 16, maximumDocumentBytes: 65_536, maximumTotalValueBytes: 1_048_576 });
+        const actual = current.rows[0];
+        if (actual?.kind !== "live") throw new Error("Missing source revision after preserving detach");
+        expect(actual.rowId).toBe(prior.rowId); expect(actual.creationTime).toBe(prior.creationTime);
+        expect(prior.insertionOrder).toBeDefined(); expect(actual.insertionOrder).toEqual(prior.insertionOrder);
+        return after;
+      }));
+      expect(updated, "Selected preserve profile must retain native timestamps").toEqual([
+        expect.objectContaining({ type_id: null, updated_at: stamp, deleted_at: stamp }),
+      ]);
+      return;
+    }
+    yield* run(prepared => Effect.gen(function* () {
+      const { lifetime, working, id, tx } = prepared;
+      const target = yield* working.relationalTable(lifetime.context, id, "product_type");
+      if (setNullPreflight === "bornDeletedTarget") yield* target.write(lifetime.context, "insert", [{ id: parent, value: "Born135" }]);
+      else {
+        const child = yield* working.relationalTable(lifetime.context, id, "product");
+        const found = yield* child.find(lifetime.context, { take: 4, order: { column: "id", direction: "asc" },
+          predicate: { kind: "in", column: "id", values: ["set-null135-child"] } });
+        expect(found).toHaveLength(1);
+      }
+      yield* target.delete(lifetime.context, [parent]);
+      // Selection authenticates the exact actual deletion, including roots
+      // born and physically removed inside this original working set.
+      yield* working.planSetNull(lifetime.context, id, intent);
+      yield* lifetime.seal;
+      const closed = yield* working.close();
+      yield* validateLogicalDocumentChanges({ tx, scopeId, tables: new Set(tableIds), maximumIndexEntries: 64,
+        error: failure, setNullPolicy: { managedUpdate: "preserve" } }, closed);
+      expect(closed.setNull).toEqual([intent]);
+      if (setNullPreflight === "bornDeletedTarget") {
+        expect(closed.changes).toEqual([]); expect(closed.noFinalRows).toHaveLength(1);
+      } else expect(closed.changes).toMatchObject([{ kind: "deleted", tableId: typeTableId }]);
+    }));
+    return;
+  }
   for (const scenario of ["childFirst", "missing", "requiredMissing", "cascade", "selfCascade", "replacement",
     "noAction", "persist", "unchangedParent", "deletePersisted"] as const)
     yield* transact(tx => Effect.scoped(Effect.gen(function* () {
@@ -402,7 +584,7 @@ export const productForeignKeyScenario: (
       const callback = () => Effect.sync(() => { callbacksEntered++; });
       const refusals = [
         yield* Effect.result(forEachLogicalReferencePage(input, callback)),
-        yield* Effect.result(forEachLogicalSetNullPage(input, callback)),
+        yield* Effect.result(forEachLogicalSetNullPage({ ...input, managedUpdate: "advance" }, callback)),
         yield* Effect.result(selectLogicalReferenceReplacement({ ...input, pendingChanges: [], desiredKeys: ["batch_product_0"] })),
       ];
       for (const refusal of refusals)
@@ -477,7 +659,7 @@ export const productForeignKeyScenario: (
     yield* (yield* working.relationalTable(lifetime.context, id, "product_type"))
       .delete(lifetime.context, ["batch_type"]);
     yield* working.planSetNull(lifetime.context, id, { sourceTableId: productTableId,
-      sourceColumn: "type_id", targetTableId: typeTableId, targetColumn: "id", targetKey: "batch_type" });
+      sourceColumn: "type_id", targetTableId: typeTableId, targetColumn: "id", targetKey: "batch_type", managedUpdate: "advance" });
     yield* lifetime.seal;
     const closed = yield* working.close();
     const rejected = yield* Effect.result(validateLogicalDocumentChanges({ tx, scopeId,
@@ -485,14 +667,14 @@ export const productForeignKeyScenario: (
     return { closed, rejected };
   })));
   expect(planned.closed.setNull).toEqual([{ sourceTableId: productTableId, sourceColumn: "type_id",
-    targetTableId: typeTableId, targetColumn: "id", targetKey: "batch_type" }]);
+    targetTableId: typeTableId, targetColumn: "id", targetKey: "batch_type", managedUpdate: "advance" }]);
   expect(planned.closed.changes).toMatchObject([{ kind: "deleted", tableId: typeTableId }]);
   expect(planned.rejected).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
   const undeclared = yield* Effect.result(transact(tx => forEachLogicalReferencePage({ ...referenceInput(tx),
     sourceColumn: "handle" }, () => Effect.void)));
   expect(undeclared).toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
   const unstableAdmission = yield* Effect.result(transact(tx => forEachLogicalSetNullPage({
-    ...referenceInput(tx), requireAdmission: Effect.sync(() => Object.freeze({ tx, authority: resolved.authority,
+    ...referenceInput(tx), managedUpdate: "advance", requireAdmission: Effect.sync(() => Object.freeze({ tx, authority: resolved.authority,
       schema, tables: boundTables, indexes: selectedIndexes, unique: constraints })),
   }, () => Effect.void)));
   expect(unstableAdmission).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
@@ -508,7 +690,7 @@ export const productForeignKeyScenario: (
     isJsonObject(row.document.valueJson) && row.document.valueJson.id === "batch_product_0");
   if (priorProduct?.kind !== "live" || !isJsonObject(priorProduct.document.valueJson))
     throw new Error("Missing reference Product before detach");
-  const omitted = yield* Effect.result(transact(tx => forEachLogicalSetNullPage(referenceInput(tx), () => Effect.void)));
+  const omitted = yield* Effect.result(transact(tx => forEachLogicalSetNullPage({ ...referenceInput(tx), managedUpdate: "advance" }, () => Effect.void)));
   expect(omitted).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
   expect(yield* inventory).toEqual(beforeDetach);
   let detachedPages = 0;
@@ -524,7 +706,7 @@ export const productForeignKeyScenario: (
         Effect.fromResult(values.validate(change.tableId, change.document)), { discard: true }),
     }, tx, resolved.authority, clock);
     const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
-    const changed = yield* forEachLogicalSetNullPage(referenceInput(tx),
+    const changed = yield* forEachLogicalSetNullPage({ ...referenceInput(tx), managedUpdate: "advance" },
       changes => Effect.gen(function* () {
         yield* (yield* core.prepareDelta(changes, changes)).lower(commitSeq);
         detachedPages++;

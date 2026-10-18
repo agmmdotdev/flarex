@@ -25,7 +25,7 @@ const prepareClosedCommerceSource = Effect.fn("LogicalCommerce.prepareClosedSour
   const { state, tx } = closed;
   const contribution = yield* validateLogicalDocumentChanges({ tx, scopeId: state.authority.scopeId,
     tables: new Set(state.tables.map(table => table.tableId)), maximumIndexEntries: closed.maximumIndexEntries,
-    error: logicalCommerceError, ...(closed.changes.setNull.length === 0 ? {} : { allowSetNull: true as const }),
+    error: logicalCommerceError, ...(closed.setNullPolicy === undefined ? {} : { setNullPolicy: closed.setNullPolicy }),
     ...(allowReferenceReplacement ? { allowReferenceReplacement: true as const } : {}) }, closed.changes);
   const admitted = requireLogicalRelationalAdmission(closed.admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
   const replacements = yield* Effect.forEach(closed.changes.referenceReplacements, intent =>

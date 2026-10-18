@@ -63,7 +63,7 @@ import { fxSystemScopeClocks } from "../../../database/schema";
 import { hasProtectedScopeTransactionTimestampIssuer, protectedScopeTransactionTimestampObservationIdentity, readProtectedScopeTransactionTimestamp } from "../../../scope/scopeClock";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
 import type { BoundedRequestContext, PresentedTransactionId, BoundedRequestLifetime } from "../../../execution/preparation/boundedRequestLifetime";
-import type { LogicalDocumentWorkingSetInput, LogicalRelationalStore, LogicalRelationalReadProgram, LogicalStorageReadDemand } from "./model";
+import type { LogicalDocumentWorkingSetInput, LogicalRelationalStore, LogicalRelationalReadProgram, LogicalStorageReadDemand, LogicalSetNullPolicy } from "./model";
 import { attachLogicalDocumentRootEvaluator, consumeLogicalDocumentRootMetadataDependency } from "./rootEvaluator";
 import { finiteMetadataTableKey, finiteMetadataAccessKey,
   finiteMetadataDefinitionKey, type PreparedFiniteMetadataProjection } from "../../../execution/finiteMetadataDependencies";
@@ -177,16 +177,19 @@ declare const activityContributionBrand: unique symbol;
 export interface LogicalDocumentActivityContribution { readonly [activityContributionBrand]: true }
 /** A sealed command decision; affected rows are selected only by the trusted
  * settlement owner after publication exclusion. */
-export interface LogicalSetNullIntent {
+export interface LogicalReferenceSelection {
   readonly sourceTableId: CatalogTableId;
   readonly sourceColumn: string;
   readonly targetTableId: CatalogTableId;
   readonly targetColumn: string;
   readonly targetKey: string;
 }
+export interface LogicalSetNullIntent extends LogicalReferenceSelection {
+  readonly managedUpdate: LogicalSetNullPolicy["managedUpdate"];
+}
 /** The framework chooses one root and desired keys. Core selects and lowers
  * the complete affected set after publication exclusion. */
-export interface LogicalReferenceReplacementIntent extends LogicalSetNullIntent {
+export interface LogicalReferenceReplacementIntent extends LogicalReferenceSelection {
   readonly desiredKeys: readonly string[];
 }
 export interface LogicalUniqueRead {
@@ -2309,21 +2312,26 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         key.source.column === intent.sourceColumn && key.target.tableId === intent.targetTableId &&
         key.target.column === intent.targetColumn && key.source.nullable && key.onDelete === "noAction");
       if (foreignKey === undefined || typeof intent.targetKey !== "string" ||
+        intent.managedUpdate !== "advance" && intent.managedUpdate !== "preserve" ||
         setNull.some(prior => prior.sourceTableId === intent.sourceTableId && prior.sourceColumn === intent.sourceColumn &&
           prior.targetTableId === intent.targetTableId && prior.targetColumn === intent.targetColumn &&
           prior.targetKey === intent.targetKey)) return yield* Effect.fail(error("invalidAuthority"));
-      const roots = [...rows.values()].filter(row => row.tableId === intent.targetTableId && row.base?.kind === "live" &&
+      const roots = [...rows.values()].filter(row => row.tableId === intent.targetTableId &&
         row.current === null && row.deletedValue !== undefined && isJsonObject(row.deletedValue.valueJson) &&
-        row.deletedValue.valueJson[intent.targetColumn] === intent.targetKey);
-      if (roots.length !== 1 || [...rows.values()].some(row => row.tableId === intent.sourceTableId &&
-        ((row.base?.kind === "live" && isJsonObject(row.base.document.valueJson) &&
-          row.base.document.valueJson[intent.sourceColumn] === intent.targetKey) ||
-          (row.current !== null && isJsonObject(row.current.valueJson) &&
-            row.current.valueJson[intent.sourceColumn] === intent.targetKey))))
+        row.deletedValue.valueJson[intent.targetColumn] === intent.targetKey && row.attempts.some(ordinal =>
+          attempts[ordinal]?.operation === "delete" && attempts[ordinal]?.before === row.deletedValue));
+      const referencesSelected = (value: CanonicalFlarexValueV1 | null | undefined) =>
+        value != null && isJsonObject(value.valueJson) && value.valueJson[intent.sourceColumn] === intent.targetKey;
+      const attemptedSource = attempts.some(attempt => attempt.tableId === intent.sourceTableId &&
+        (referencesSelected(attempt.before) || referencesSelected(attempt.after)));
+      const borrowedSource = [...rows.values()].some(row => row.tableId === intent.sourceTableId && row.borrowedOverlay === true &&
+        (referencesSelected(row.base?.kind === "live" ? row.base.document : undefined) ||
+          referencesSelected(row.current) || referencesSelected(row.deletedValue)));
+      if (roots.length !== 1 || attemptedSource || borrowedSource)
         return yield* Effect.fail(error("invalidAuthority"));
       yield* charge(128 + intent.targetKey.length * 2);
       setNull.push(Object.freeze({ sourceTableId: intent.sourceTableId, sourceColumn: intent.sourceColumn,
-        targetTableId: intent.targetTableId, targetColumn: intent.targetColumn, targetKey: intent.targetKey }));
+        targetTableId: intent.targetTableId, targetColumn: intent.targetColumn, targetKey: intent.targetKey, managedUpdate: intent.managedUpdate }));
     }))));
   const planReferenceReplacement = (context: BoundedRequestContext,
     id: PresentedTransactionId, intent: LogicalReferenceReplacementIntent) => observeExecution("LogicalDocuments.planReferenceReplacement", Effect.suspend(() => lifetime.operation(context, id, "write", Effect.gen(function* () {

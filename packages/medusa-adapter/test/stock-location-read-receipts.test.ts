@@ -126,7 +126,7 @@ it("refuses fabricated matching IDs and count when the actual requested ID was a
       { ...activity, lifecycle: [{ table: "stock_location", key: { id: "selected" }, operation: "softDelete" as const,
         beforeDeletedAt: null, afterDeletedAt: instant, attemptOrdinal: null, rowAtOperation: row }] },
       { ...activity, setNull: [{ sourceTable: "stock_location", sourceColumn: "address_id", targetTable: "stock_location_address",
-        targetColumn: "id", targetKey: "address" }] },
+        targetColumn: "id", targetKey: "address", managedUpdate: "advance" as const }] },
       { ...activity, referenceReplacements: [{ sourceTable: "stock_location", sourceColumn: "address_id",
         targetTable: "stock_location_address", targetColumn: "id", targetKey: "address", desiredKeys: [] }] },
     ];

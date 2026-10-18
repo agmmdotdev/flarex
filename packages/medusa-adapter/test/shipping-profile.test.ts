@@ -78,15 +78,22 @@ describe("native ShippingProfile on shared logical storage", () => {
     const key = host.newRequestKey();
     const created = await Effect.runPromise(host.run(key, create,
       { id: "sp_logical", name: "Logical", type: "default", metadata: { tags: ["fragile"] } }));
-    expect(created).toMatchObject({ id: "sp_logical", name: "Logical", type: "default", metadata: { tags: ["fragile"] }, deleted_at: null });
+    expect(created).toEqual({ id: "sp_logical", name: "Logical", type: "default", metadata: { tags: ["fragile"] },
+      created_at: expect.any(String), updated_at: expect.any(String), deleted_at: null, shipping_options: [] });
     expect(await Effect.runPromise(host.run(key, create,
       { id: "sp_logical", name: "Logical", type: "default", metadata: { tags: ["fragile"] } }))).toEqual(created);
     const many = await Effect.runPromise(host.run(host.newRequestKey(), create,
       [{ id: "sp_batch_a", name: "Batch A", type: "default" }, { id: "sp_batch_b", name: "Batch B", type: "custom" }]));
     expect(many).toHaveLength(2);
+    expect(many).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "sp_batch_a", shipping_options: [] }),
+      expect.objectContaining({ id: "sp_batch_b", shipping_options: [] }),
+    ]));
     expect(await Effect.runPromise(host.run(host.newRequestKey(), create, []))).toEqual([]);
     expect((await events()).slice(beforeEvents.length).map(event => event.envelope.contract)).toEqual([eventName, eventName, eventName]);
-    expect(await Effect.runPromise(reader.read(shipping.runtime.retrieve, { id: "sp_logical" }))).toMatchObject({ name: "Logical" });
+    const retrieved = await Effect.runPromise(reader.read(shipping.runtime.retrieve, { id: "sp_logical" }));
+    expect(retrieved).toMatchObject({ name: "Logical" });
+    expect(retrieved).not.toHaveProperty("shipping_options");
     expect(await Effect.runPromise(reader.read(shipping.runtime.count,
       { filters: { type: "custom" }, config: { select: ["id", "name"], take: 1 } })))
       .toEqual([[{ id: "sp_batch_b", name: "Batch B" }], 1]);

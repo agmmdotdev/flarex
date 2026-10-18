@@ -91,15 +91,16 @@ missing hasMany or manyToMany descriptor it assigns an empty array. It is not a
 Type-specific business rule. With only the admitted scalar Type create input,
 the actual fresh Type result therefore contains `shipping_options: []`.
 
-Existing scalar Profile admission deliberately omits unpopulated inverse fields
-(preflight 126, lines 63-64). Preserve that existing profile and its tests. It does
-not establish complete native Drizzle creation-result parity for the new Type
-root. For 128, extract and reuse the pinned storage-independent generic
+Profile creation now uses native empty inverse initialization under
+[preflight135](./135-native-shipping-profile-create-workflow.md), superseding
+this slice's earlier instruction to preserve the private creation omission.
+Scalar Profile reads and updates retain their separate presentation. For 128,
+extract and reuse the pinned storage-independent generic
 zero-to-many initialization in the existing Medusa Drizzle relation owner. Keep
 the original algorithm and authenticate it against pinned source; only erase or
 narrow SQL-specific descriptor types to the structural relationship data actually
 read. Do not import the SQLite manager, copy a Type-only empty-array algorithm,
-fabricate relation DTOs or rewrite older Profile output contracts.
+fabricate relation DTOs.
 
 The Type repository will validate complete native scalar rows, run the authentic
 initialization over a detached native result using checked Type relationship

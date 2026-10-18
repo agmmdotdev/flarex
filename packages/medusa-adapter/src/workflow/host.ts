@@ -201,7 +201,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
       }
     }
     const selected = { participant: member.participant, commands: [...commands],
-      ...(moduleEvents?.allowSetNull === true ? { allowSetNull: true as const } : {}),
+      ...(moduleEvents?.setNullPolicy === undefined ? {} : { setNullPolicy: moduleEvents.setNullPolicy }),
       ...(moduleEvents?.allowReconstitution === true ? { allowReconstitution: true as const } : {}),
       ...(moduleEvents?.allowPreservingDeletionUpsert === true ? { allowPreservingDeletionUpsert: true as const } : {}),
       ...(moduleEvents?.allowActiveRestoreUpdate === true ? { allowActiveRestoreUpdate: true as const } : {}),
