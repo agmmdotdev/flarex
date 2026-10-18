@@ -47,7 +47,7 @@ import {
 import { appendFrameworkSchemaAvailabilityHistoryInTransactionEffect } from "../../../src/installation/frameworkSchema/installation/availabilityHistoryRepository";
 import { compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect } from "../../../src/installation/frameworkSchema/installation/availabilityHeadRepository";
 import type { RestoredFrameworkSchemaAvailabilityHead } from "../../../src/installation/frameworkSchema/installation/storedMetadataRestoration";
-import { bindingInput } from "./frameworkDataBindingTestSupport";
+import { bindingInput, expectBindingReadinessCorruption } from "./frameworkDataBindingTestSupport";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   isDataBindingSetFrame,
@@ -415,19 +415,20 @@ export async function exercisePhysicalBindings<
   await fixture.target.drizzle
     .delete(fxSystemDataBindingPhysicalLanes)
     .where(laneCondition);
-  expect(await runEffectFailure(host.prepare(nextFrame))).toMatchObject({
-    reason: "storedCorruption",
-  });
-  expect(await readSelectedFailure()).toMatchObject({ reason: "storedCorruption" });
-  expect(
+  try {
+    expectBindingReadinessCorruption(await runEffectFailure(host.prepare(nextFrame)));
+    expect(await readSelectedFailure()).toMatchObject({ reason: "storedCorruption" });
+    expect(
+      await fixture.target.drizzle
+        .select()
+        .from(fxSystemDataBindingPhysicalLanes)
+        .where(laneCondition),
+    ).toEqual([]);
+  } finally {
     await fixture.target.drizzle
-      .select()
-      .from(fxSystemDataBindingPhysicalLanes)
-      .where(laneCondition),
-  ).toEqual([]);
-  await fixture.target.drizzle
-    .insert(fxSystemDataBindingPhysicalLanes)
-    .values(laneRows);
+      .insert(fxSystemDataBindingPhysicalLanes)
+      .values(laneRows);
+  }
   const lane = laneRows[0];
   if (lane === undefined) throw new Error("Missing physical sidecar fixture");
   // An extra valid physical endpoint is still not a member of this candidate.

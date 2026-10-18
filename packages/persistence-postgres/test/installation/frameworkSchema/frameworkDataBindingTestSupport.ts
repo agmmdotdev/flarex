@@ -31,6 +31,20 @@ import {
   isDataBindingSetFrame,
 } from "../../../src/installation/frameworkSchema/binding/canonical";
 
+export function expectBindingReadinessCorruption(failure: unknown): void {
+  expect(failure).toMatchObject({
+    _tag: "ApplicationReadinessError",
+    operation: "readReady",
+    reason: "storedState",
+    retryable: false,
+    cause: {
+      _tag: "IndexMaintenanceError",
+      reason: "storedState",
+      cause: { _tag: "DataBindingError", reason: "storedCorruption" },
+    },
+  });
+}
+
 export function bindingInput<
   Persistence extends ApplicationNativeMutationPersistence,
 >(
@@ -317,14 +331,17 @@ export async function exerciseBindingLifecycle<
     .update(fxSystemDataBindingCandidates)
     .set({ canonicalBytes: corrupt })
     .where(condition);
-  expect(
-    await runEffectFailure(host.withCurrent(readAdmittedDataBinding)),
-  ).toMatchObject({ reason: "storedCorruption" });
-  expect(await readSelectedFailure()).toMatchObject({ reason: "storedCorruption" });
-  await fixture.target.drizzle
-    .update(fxSystemDataBindingCandidates)
-    .set({ canonicalBytes: row.canonicalBytes })
-    .where(condition);
+  try {
+    expectBindingReadinessCorruption(
+      await runEffectFailure(host.withCurrent(readAdmittedDataBinding)),
+    );
+    expect(await readSelectedFailure()).toMatchObject({ reason: "storedCorruption" });
+  } finally {
+    await fixture.target.drizzle
+      .update(fxSystemDataBindingCandidates)
+      .set({ canonicalBytes: row.canonicalBytes })
+      .where(condition);
+  }
   expect(
     Result.getOrThrow((await runEffect(host.recover(secondRequest))).current)
       .selected,

@@ -72,6 +72,13 @@ credentials; PostgreSQL prerequisites still fail closed in the manifest runner.
 Run these driver commands sequentially; each supplies its own bounded parallel
 worker pool and selects its memory budget at startup.
 
+Multi-file framework repository groups share one schema-only migration image
+through `vitest.framework.pglite.config.ts`, which composes the existing PGlite
+image and framework worker configurations. Dedicated fresh/upgrade migration
+steps retain the original framework configuration and execute their own database
+migrations. Other named multi-consumer PGlite commands reuse the image config;
+pure, raw-only and single-consumer selections retain their existing startup.
+
 ## Current Sources Of Truth
 
 Use these sources in order when they disagree:

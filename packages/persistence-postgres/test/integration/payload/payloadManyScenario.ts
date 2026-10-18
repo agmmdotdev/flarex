@@ -144,12 +144,15 @@ export async function payloadManyScenario(input: Parameters<typeof payloadRelati
           const target = id(await create(`many-race-${first}`));
           await update(source, { relatedPosts: [], relatedPost: null });
           const entered = barrier<void>(); const release = barrier<void>();
-          const held = await runEffect(makeCmsHost(composition, { afterAdmission: () => Effect.promise(async () => { entered.resolve(); await release.promise; }) }));
+          const held = await runEffect(makeCmsHost(composition, { afterPreferenceCleanup: () => Effect.promise(async () => { entered.resolve(); await release.promise; }) }));
           const inserting = (first === "insert" ? held : host).run(host.newRequestKey(), inspectPayloadRuntimeForTest(conformance.runtime).commands.update, { collection: "posts", id: source, data: { relatedPosts: [target] } });
           const deleting = (first === "delete" ? held : host).run(host.newRequestKey(), inspectPayloadRuntimeForTest(conformance.runtime).commands.delete, { collection: "posts", id: target });
           const results = await heldNativeRace(persistence, first === "insert" ? inserting : deleting, first === "insert" ? deleting : inserting, entered.promise, () => release.resolve());
           expect(results[0]).toMatchObject({ status: "fulfilled", value: { _tag: "Success" } });
-          expect(results[1]).toMatchObject({ status: "fulfilled", value: { _tag: "Failure", failure: { reason: first === "insert" ? "relationDeleteRestricted" : "relationTargetMissing" } } });
+          // Delete-first invalidates the loser's captured target read at settlement.
+          expect(results[1]).toMatchObject({ status: "fulfilled", value: { _tag: "Failure", failure: first === "insert"
+            ? { reason: "relationDeleteRestricted" }
+            : { _tag: "CmsTransactionError", reason: "writeConflict" } } });
           if (first === "insert") { await update(source, { relatedPosts: [] }); await write(inspectPayloadRuntimeForTest(conformance.runtime).commands.delete, { collection: "posts", id: target }); }
         }
         await update(source, { relatedPosts: [a, b] });

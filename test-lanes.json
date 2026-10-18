@@ -438,6 +438,7 @@
             "exec",
             "vitest",
             "run",
+            "--config=vitest.pglite.config.ts",
             {
               "testFileGroup": "framework-payload-many-pglite"
             },
@@ -1036,7 +1037,7 @@
             "exec",
             "vitest",
             "run",
-            "--config=vitest.framework.config.ts",
+            "--config=vitest.framework.pglite.config.ts",
             {
               "testFileGroup": "framework-coordinator-checkpoint2-pglite"
             },
@@ -1209,6 +1210,7 @@
             "exec",
             "vitest",
             "run",
+            "--config=vitest.pglite.config.ts",
             "test/tasks/taskRepairSchedulerCheckpointV1.test.ts",
             "test/execution/recovery/pointMutationRedeliverySchedulerCheckpoint.test.ts",
             "--no-file-parallelism",
@@ -1231,6 +1233,7 @@
             "exec",
             "vitest",
             "run",
+            "--config=vitest.pglite.config.ts",
             "test/storage/unique/appUniqueConstraintDefinitions.test.ts",
             {
               "testFileGroup": "c08-b2-o09-b-pglite"
@@ -1255,6 +1258,7 @@
             "exec",
             "vitest",
             "run",
+            "--config=vitest.pglite.config.ts",
             {
               "testFileGroup": "c08-b2-o09-b-pglite"
             },
@@ -1415,7 +1419,7 @@
             "exec",
             "vitest",
             "run",
-            "--config=vitest.framework.config.ts",
+            "--config=vitest.framework.pglite.config.ts",
             {
               "testFileGroup": "framework-coordinator-additive-pglite"
             },
@@ -1466,7 +1470,7 @@
             "exec",
             "vitest",
             "run",
-            "--config=vitest.framework.config.ts",
+            "--config=vitest.framework.pglite.config.ts",
             {
               "testFileGroup": "framework-coordinator-pglite"
             },
@@ -1523,7 +1527,7 @@
             "exec",
             "vitest",
             "run",
-            "--config=vitest.framework.config.ts",
+            "--config=vitest.framework.pglite.config.ts",
             {
               "testFileGroup": "framework-bindings-pglite"
             },
@@ -1693,6 +1697,7 @@
             "exec",
             "vitest",
             "run",
+            "--config=vitest.pglite.config.ts",
             "test/storage/indexes/intrinsicCreationTimeIndexBuildV1.test.ts",
             "test/execution/storedAttemptEvidence.test.ts",
             "--no-file-parallelism",

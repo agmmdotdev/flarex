@@ -3,7 +3,7 @@ import { it, expect } from "vitest";
 import { Effect } from "effect";
 import { verifyApplicationManifestV3 } from "@flarex/analysis/application-analysis";
 import { policyManifestFixture, hashPolicyFixture } from "../../application/ownership/applicationWritePolicyFixture";
-import { payloadScalarFields } from "../../../../payload-adapter/src/testing/profiles";
+import { payloadScalarFields, payloadScalarConfiguration } from "../../../../payload-adapter/src/testing/profiles";
 import { payloadRelationManifest } from "./payloadRelationFixture";
 import { isOptionalPostRelationSuccessor, admitsApplicationOwnershipSuccessor } from "../../../src/application/ownership/Successor";
 import { compilePayloadCollections } from "../../../../payload-adapter/src/collections";
@@ -23,7 +23,7 @@ it("does not turn fresh configurable relationships into existing-row successor a
 });
 
 it("admits only the additive optional-one configuration without reinterpreting scalar bytes", async () => {
-  const prior = (await policyManifestFixture(undefined, true, payloadScalarFields)).manifest;
+  const prior = (await policyManifestFixture(undefined, true, payloadScalarFields, payloadScalarConfiguration)).manifest;
   const next = (await payloadRelationManifest(prior)).manifest;
   expect(isOptionalPostRelationSuccessor(prior, next)).toBe(true);
   expect(isOptionalPostRelationSuccessor(next, prior)).toBe(false);

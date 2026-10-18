@@ -124,7 +124,7 @@ describe("private fresh framework migration coordinator", () => {
       fixture.persistence,
       "fx_system_framework_schema_target_namespace",
     )).toBe(0);
-    expect(await generatedTableNames(fixture.persistence)).toEqual([]);
+    expect(await generatedTableNames(fixture)).toEqual([]);
   }, TEST_TIMEOUT);
 
   it("installs and replays a fifteen-step plan within the default run budget", async () => {
@@ -137,7 +137,7 @@ describe("private fresh framework migration coordinator", () => {
     } finally { preparation.mockRestore(); }
     const counts = await coordinatorRootCounts(fixture.persistence);
     expect(counts.receipts).toBe(15);
-    expect(await generatedTableNames(fixture.persistence)).toHaveLength(6);
+    expect(await generatedTableNames(fixture)).toHaveLength(6);
     expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input)))
       .toMatchObject({ kind: "ready", replayed: true });
     expect(await coordinatorRootCounts(fixture.persistence)).toEqual(counts);
@@ -167,7 +167,7 @@ describe("private fresh framework migration coordinator", () => {
       targets: 1,
       terminals: 1,
     });
-    expect(await generatedTableNames(fixture.persistence)).toHaveLength(2);
+    expect(await generatedTableNames(fixture)).toHaveLength(2);
 
     const replay = await runEffect(runFreshFrameworkMigrationCoordinatorEffect({
       ...fixture.input,
@@ -333,13 +333,14 @@ describe("private fresh framework migration coordinator", () => {
     }>(`
       select indexname, indexdef
       from pg_indexes
-      where schemaname = 'flarex_shared'
+      where schemaname = $1
+        and tablename = any($2::text[])
         and indexdef not like 'CREATE UNIQUE INDEX%'
-    `);
+    `, [fixture.schemaName, await generatedTableNames(fixture)]);
     const ordinaryIndex = indexes.rows[0];
     if (ordinaryIndex === undefined) throw new Error("Expected ordinary index");
     await fixture.persistence.query(
-      `drop index "flarex_shared".${identifier(ordinaryIndex.indexname)}`,
+      `drop index ${identifier(fixture.schemaName)}.${identifier(ordinaryIndex.indexname)}`,
     );
 
     const refused = await runEffect(
@@ -395,7 +396,7 @@ describe("private fresh framework migration coordinator", () => {
       runFreshFrameworkMigrationCoordinatorEffect(fixture.input),
     );
     expect(ready.kind).toBe("ready");
-    expect(await generatedTableNames(fixture.persistence)).toHaveLength(1);
+    expect(await generatedTableNames(fixture)).toHaveLength(1);
   }, TEST_TIMEOUT);
 
   it.each([
@@ -498,6 +499,8 @@ async function createCoordinatorFixture(
   }> = {},
 ) {
   const persistence = await createMigratedPGlitePersistence();
+  const schemaName = "public";
+  const baselineTableNames = await tableNames(persistence, schemaName);
   await persistence.query(`
     insert into deployments (deployment_id, project_id)
     values ('deployment-a', 'project-a')
@@ -515,14 +518,6 @@ async function createCoordinatorFixture(
       prepared.success,
     ));
   }
-  await persistence.query(`create schema "flarex_shared"`);
-  await persistence.query(`
-    create table "flarex_shared"."fx_system_scope_clock" (
-      scope_uuid uuid not null,
-      constraint "fx_system_scope_clock_scope_uuid_unique"
-        unique (scope_uuid)
-    )
-  `);
   const faults = options.targetFaults === true
     ? makeTargetTransactionFaultController(persistence.drizzle)
     : null;
@@ -530,7 +525,7 @@ async function createCoordinatorFixture(
     persistence: { drizzle: faults?.database ?? persistence.drizzle },
     deploymentId: "deployment-a",
     canonicalPhysicalDatabaseIdentity: "pglite://fresh-coordinator",
-    physicalLocator: FRAMEWORK_VALUE_LOCATOR,
+    physicalLocator: { ...FRAMEWORK_VALUE_LOCATOR, schemaName },
   }));
   const input = Object.freeze({
     artifactRepository: artifactFixture.repository,
@@ -544,6 +539,8 @@ async function createCoordinatorFixture(
   } satisfies RunFreshFrameworkMigrationCoordinatorInput);
   return Object.freeze({
     persistence,
+    schemaName,
+    baselineTableNames,
     captured,
     artifactFixture,
     target,
@@ -567,15 +564,22 @@ async function countRows(
 }
 
 async function generatedTableNames(
+  fixture: Awaited<ReturnType<typeof createCoordinatorFixture>>,
+): Promise<readonly string[]> {
+  const current = await tableNames(fixture.persistence, fixture.schemaName);
+  return current.filter(name => !fixture.baselineTableNames.includes(name));
+}
+
+async function tableNames(
   persistence: CoordinatorPersistence,
+  schemaName: string,
 ): Promise<readonly string[]> {
   const result = await persistence.query<{ table_name: string }>(`
     select table_name
     from information_schema.tables
-    where table_schema = 'flarex_shared'
-      and table_name <> 'fx_system_scope_clock'
+    where table_schema = $1
     order by table_name
-  `);
+  `, [schemaName]);
   return result.rows.map(row => row.table_name);
 }
 

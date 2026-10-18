@@ -160,7 +160,7 @@ describe("test lane manifest and runner", () => {
     ).toEqual([
       "exec",
       "vitest",
-      "run", "--config=vitest.framework.config.ts",
+      "run", "--config=vitest.framework.pglite.config.ts",
       "test/installation/frameworkSchema/frameworkCoordinatorGraphReadPass.test.ts",
       "test/values/privateCanonicalValue.test.ts",
       "test/storage/relationalSchema/relationalSchemaPhysical.test.ts",
@@ -229,7 +229,7 @@ describe("test lane manifest and runner", () => {
     const acceptance = steps.at(-1);
     if (acceptance === undefined) throw new Error("Missing combined acceptance");
     const args = resolveTestLaneStepArguments(manifest, acceptance);
-    expect(args).toContain(`--config=vitest.framework${driver === "postgres" ? ".postgres" : ""}.config.ts`);
+    expect(args).toContain(`--config=vitest.framework.${driver}.config.ts`);
     expect(args).toContain(driver === "postgres" ? "--testTimeout=300000" : "--testTimeout=180000");
     expect(args.filter(arg => arg.endsWith(".test.ts"))).toEqual(expected);
   });
@@ -332,6 +332,7 @@ describe("test lane manifest and runner", () => {
           "exec",
           "vitest",
           "run",
+          "--config=vitest.pglite.config.ts",
           "test/storage/unique/appUniqueConstraintDefinitions.test.ts",
           "test/storage/unique/appUniqueKeys.test.ts",
           "test/execution/storedAttemptEvidence.test.ts",
@@ -345,6 +346,7 @@ describe("test lane manifest and runner", () => {
           "exec",
           "vitest",
           "run",
+          "--config=vitest.pglite.config.ts",
           "test/storage/unique/appUniqueKeys.test.ts",
           "test/execution/storedAttemptEvidence.test.ts",
           "--no-file-parallelism",

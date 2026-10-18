@@ -4,7 +4,7 @@ import { verifyApplicationManifestV3 } from "@flarex/analysis/application-analys
 import { appDocumentIdV1FromRowIdentity, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { payloadManyIds, makePayloadPopulation } from "../../../../payload-adapter/src/testing";
-import { payloadScalarFields, payloadManyConfiguration } from "../../../../payload-adapter/src/testing/profiles";
+import { payloadScalarFields, payloadScalarConfiguration, payloadManyConfiguration } from "../../../../payload-adapter/src/testing/profiles";
 import { isOptionalPostRelationSuccessor } from "../../../src/application/ownership/Successor";
 import { policyManifestFixture } from "../../application/ownership/applicationWritePolicyFixture";
 import { payloadRelationManifest } from "./payloadRelationFixture";
@@ -23,7 +23,7 @@ it("captures only dense, canonical, unique arrays within the private bound", () 
 });
 
 it("preserves old profile identities and refuses an implicit many successor", async () => {
-  const scalar = (await policyManifestFixture(undefined, true, payloadScalarFields)).manifest;
+  const scalar = (await policyManifestFixture(undefined, true, payloadScalarFields, payloadScalarConfiguration)).manifest;
   const one = (await payloadRelationManifest(scalar)).manifest;
   const many = (await payloadRelationManifest(scalar, true)).manifest;
   expect(isOptionalPostRelationSuccessor(scalar, one)).toBe(true);

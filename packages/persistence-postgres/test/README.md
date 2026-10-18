@@ -202,6 +202,11 @@ The PGlite lane builds a fresh schema-only image once per invocation using
 `vitest.pglite.config.ts`. Fresh fixtures restore independent databases;
 file-backed Worker restarts reopen their modified data, never the baseline.
 Direct focused invocations without that config retain per-file image creation.
+Named multi-file commands with multiple image consumers select the same config;
+their test inventories, ordering and deadlines remain unchanged. Framework
+repository groups use `vitest.framework.pglite.config.ts` to compose that image
+with the existing memory-aware worker budget. Raw migration steps, pure-only and
+single-consumer selections retain their existing configurations.
 Historical/upgrade migration tests still create their own fresh databases.
 Migration-copy fixtures, including historical verifier setup, share
 `src/testing/systemTestMigrationFiles` to retain SQL and the journal without
