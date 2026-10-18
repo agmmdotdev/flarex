@@ -2,7 +2,7 @@ import { newTestPGlite } from "../support/pgliteSearchExtensions";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { createPGlitePersistence } from "../../src/database/pglite";
-import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
+import { useFileScopedPGliteCommitSchemaPersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import {
   insertPendingWake,
   insertWakeHeader,
@@ -17,10 +17,10 @@ import { verifyCommitWakeMigration } from "./commitWakeMigrationScenario";
 import { makeDrizzleCopyFixture } from "../support/migrationFixtureSupport";
 
 beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
+const withPersistence = useFileScopedPGliteCommitSchemaPersistence();
 
-describe("S09-B commit-wake outbox schema", () => {
-  it("installs only the private replacement wake table beside the legacy outbox", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+describe("S09-B commit-wake outbox schema", { concurrent: false }, () => {
+  it("installs only the private replacement wake table beside the legacy outbox", () => withPersistence(async persistence => {
     const tables = await persistence.query<{ table_name: string }>(`
       select table_name
       from information_schema.tables
@@ -43,7 +43,7 @@ describe("S09-B commit-wake outbox schema", () => {
     expect(constraints.rows).toEqual([
       { constraint_name: "fx_system_commit_wake_scope_clock_fk" },
     ]);
-  });
+  }));
 
   it("preserves all delivery states, rolls back 0092 failure, and replays", async () => {
     const fixture = await makeDrizzleCopyFixture("flarex-commit-wake", "pglite", "0092_commit-wake.sql");
@@ -57,8 +57,7 @@ describe("S09-B commit-wake outbox schema", () => {
     }
   });
 
-  it("rejects every nullable state-matrix escape and non-finite time", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects every nullable state-matrix escape and non-finite time", () => withPersistence(async persistence => {
     await insertWakeScope(persistence, {
       scopeUuid: WAKE_SCOPE_A,
       epochUuid: WAKE_EPOCH_A,
@@ -85,10 +84,9 @@ describe("S09-B commit-wake outbox schema", () => {
       `select count(*)::int as count from fx_system_commit_wake`,
     );
     expect(count.rows).toEqual([{ count: 0 }]);
-  });
+  }));
 
-  it("enforces exact UTF-8 and signed-int64 boundaries", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("enforces exact UTF-8 and signed-int64 boundaries", () => withPersistence(async persistence => {
     await insertWakeScope(persistence, {
       scopeUuid: WAKE_SCOPE_A,
       epochUuid: WAKE_EPOCH_A,
@@ -136,10 +134,9 @@ describe("S09-B commit-wake outbox schema", () => {
         (scope_uuid, epoch_uuid, commit_seq)
       values ('${WAKE_SCOPE_B}', '${WAKE_EPOCH_C}', 9223372036854775808)
     `)).rejects.toThrow();
-  });
+  }));
 
-  it("keeps scopes isolated and feed-header retention independent", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("keeps scopes isolated and feed-header retention independent", () => withPersistence(async persistence => {
     await insertWakeScope(persistence, {
       scopeUuid: WAKE_SCOPE_A,
       epochUuid: WAKE_EPOCH_A,
@@ -181,5 +178,5 @@ describe("S09-B commit-wake outbox schema", () => {
       delete from fx_system_scope_clock
       where scope_uuid = '${WAKE_SCOPE_A}'::uuid
     `)).rejects.toThrow(/fx_system_commit_wake_scope_clock_fk/);
-  });
+  }));
 });

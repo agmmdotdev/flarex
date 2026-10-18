@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { createTestPGlite } from "./pgliteSearchExtensions";
-import { PGlite } from "@electric-sql/pglite";
+import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { openPreparedHostTestRuntime, closePreparedHostTestRuntime } from "../execution/preparation/preparedHostRuntimeTestSupport";
 import { inject, onTestFinished } from "vitest";
 import { buildMigratedPGliteDataDir } from "./pgliteMigrationBaseline";
@@ -65,6 +65,12 @@ export function useFileScopedPGliteStoragePersistence() {
   return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () => resetStorageRows(db)));
 }
 
+/** Current feed/wake schema cases only. Additional publication families and
+ * persistent DDL keep independent databases; unexpected dependants fail closed. */
+export function useFileScopedPGliteCommitSchemaPersistence() {
+  return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () => resetCommitSchemaRows(db)));
+}
+
 /** Single-database scheduler cases only. Multi-database and persistent schema
  * corruption witnesses keep independent fixtures. */
 export function useFileScopedPGliteRedeliverySchedulerPersistence() {
@@ -103,18 +109,32 @@ async function resetRuntimeRows(db: PGlite): Promise<void> {
 }
 
 async function resetStorageRows(db: PGlite): Promise<void> {
+  await db.transaction(resetStorageRowsInTransaction);
+}
+
+async function resetCommitSchemaRows(db: PGlite): Promise<void> {
   await db.transaction(async transaction => {
-    // DELETE preserves constraints from other table families. The deferred
-    // authority/clock pair must disappear in the same committed transaction.
     await transaction.exec(`
-      delete from fx_app_edge_current;
-      delete from fx_app_edge_adjacency_version;
-      delete from fx_app_row_current;
-      delete from fx_app_row_rev;
-      delete from fx_system_scope_execution_authority;
-      delete from fx_system_scope_clock;
+      delete from fx_system_commit_wake;
+      delete from fx_system_commit_app_row_change;
+      delete from fx_system_commit_relation_adjacency_change;
+      delete from fx_system_commit;
     `);
+    await resetStorageRowsInTransaction(transaction);
   });
+}
+
+async function resetStorageRowsInTransaction(transaction: Transaction): Promise<void> {
+  // DELETE preserves constraints from other table families. The deferred
+  // authority/clock pair must disappear in the same committed transaction.
+  await transaction.exec(`
+    delete from fx_app_edge_current;
+    delete from fx_app_edge_adjacency_version;
+    delete from fx_app_row_current;
+    delete from fx_app_row_rev;
+    delete from fx_system_scope_execution_authority;
+    delete from fx_system_scope_clock;
+  `);
 }
 
 async function createFileScopedPGliteFixture(

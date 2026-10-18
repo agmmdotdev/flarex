@@ -250,6 +250,13 @@ suites restore fresh databases from the shared
 image through `createMigratedPGlitePersistence`; they retain foreign-database
 identity witnesses and register runtime/database cleanup rather than migrating
 or leaving a backend open for each case.
+Current feed and wake schema cases use `useFileScopedPGliteCommitSchemaPersistence`
+to share one backend per file. Its transaction deletes wake and feed children,
+headers, then the existing storage rows and paired scope authority/clock state.
+Unexpected dependants still fail reset and require a rebuild; migration seeds
+remain intact. Historical feed and wake cutovers keep independent databases.
+The migration suite owns fresh-install replay; feed inventory and floor-default
+assertions remain with the feed schema suite.
 Publication preparation, table-only artifact compatibility and table/app-schema
 binding cases share one serial file-owned migrated backend, with distinct deployments
 and deployment-local allocation frontiers. The table-wide RETURNING-corruption

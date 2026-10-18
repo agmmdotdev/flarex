@@ -9,7 +9,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import type { FlarexPersistence } from "../../src";
 import { createPGlitePersistence } from "../../src/database/pglite";
-import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
+import { useFileScopedPGliteCommitSchemaPersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { writeJournalThrough } from "../support/migrationFixtureSupport";
 
 const SCOPE_A = "81000000-0000-0000-0000-000000000001";
@@ -25,14 +25,10 @@ const POSTGRES_SIGNED_BIGINT_MAX = "9223372036854775807";
 type SqlPersistence = Pick<FlarexPersistence, "query">;
 
 beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
+const withPersistence = useFileScopedPGliteCommitSchemaPersistence();
 
-describe("S08 commit/change-feed schema", () => {
-  it("installs the additive inventory idempotently and keeps legacy storage intact", async () => {
-    const persistence = await createPGlitePersistence();
-
-    await expect(persistence.migrate()).resolves.toBeUndefined();
-    await expect(persistence.migrate()).resolves.toBeUndefined();
-
+describe("S08 commit/change-feed schema", { concurrent: false }, () => {
+  it("exposes the feed and legacy tables with a zero non-null retention-floor default", () => withPersistence(async persistence => {
     const tables = await persistence.query<{ table_name: string }>(`
       select table_name
       from information_schema.tables
@@ -70,7 +66,7 @@ describe("S08 commit/change-feed schema", () => {
     expect(floor.rows).toEqual([
       { column_default: "0", is_nullable: "NO" },
     ]);
-  });
+  }));
 
   it("upgrades 0028 scope authority with floor zero and leaves legacy rows untouched", async () => {
     const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-s08-upgrade-"));
@@ -330,8 +326,7 @@ describe("S08 commit/change-feed schema", () => {
     }
   });
 
-  it("enforces floor, header, child identity, and signed-bigint bounds", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("enforces floor, header, child identity, and signed-bigint bounds", () => withPersistence(async persistence => {
     await insertScope(persistence, SCOPE_A, EPOCH_A, "10");
 
     for (const statement of [
@@ -533,10 +528,9 @@ describe("S08 commit/change-feed schema", () => {
       limit 1
     `);
     expect(exact.rows).toEqual([{ commit_seq: POSTGRES_SIGNED_BIGINT_MAX }]);
-  });
+  }));
 
-  it("physically binds each change to one header and the same-epoch row revision", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("physically binds each change to one header and the same-epoch row revision", () => withPersistence(async persistence => {
     await insertScope(persistence, SCOPE_A, EPOCH_B, "4");
     await insertRevision(persistence, {
       scopeUuid: SCOPE_A,
@@ -603,7 +597,7 @@ describe("S08 commit/change-feed schema", () => {
     ]);
     expect(sequenceOrdered.rows[0]?.committed_at.getTime())
       .toBeGreaterThan(sequenceOrdered.rows[2]?.committed_at.getTime() ?? 0);
-  });
+  }));
 });
 
 async function writeJournalThrough0028(

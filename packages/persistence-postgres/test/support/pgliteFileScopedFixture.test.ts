@@ -3,9 +3,10 @@ import { ScopeEpochSchema, ScopeIdSchema } from "flarex-protocol/storage-authori
 import type { PGliteFlarexPersistence } from "../../src/database/pglite";
 import { preparedHostTestRuntime } from "../execution/preparation/preparedHostRuntimeTestSupport";
 import { registerFileScopedPersistenceTests } from "./fileScopedPersistenceScenario";
-import { useFileScopedPGliteRuntimePersistence, useFileScopedPGliteStoragePersistence,
+import { useFileScopedPGliteRuntimePersistence, useFileScopedPGliteCommitSchemaPersistence,
   useFileScopedPGliteRedeliverySchedulerPersistence } from "./pgliteTestFixture";
 import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
+import { insertPendingWake, insertWakeHeader, insertWakeScope, WAKE_SCOPE_A, WAKE_EPOCH_A } from "../commit/commitWakeOutboxTestSupport";
 
 describe("file-scoped PGlite runtime fixture", () => {
   const withPersistence = useFileScopedPGliteRuntimePersistence();
@@ -45,8 +46,8 @@ describe("file-scoped PGlite runtime fixture", () => {
   });
 });
 
-describe("file-scoped PGlite storage fixture", () => {
-  const withPersistence = useFileScopedPGliteStoragePersistence();
+describe("file-scoped PGlite storage and commit schema fixture", () => {
+  const withPersistence = useFileScopedPGliteCommitSchemaPersistence();
 
   it("resets scope authority atomically, preserves seeds and rebuilds after an unexpected dependant", async () => {
     const scope = { scopeId: ScopeIdSchema.make("scope_72000000-0000-4000-8000-000000000001"),
@@ -56,12 +57,25 @@ describe("file-scoped PGlite storage fixture", () => {
       baseline = await seededRows(persistence);
       expect(baseline).toHaveLength(5);
       await insertCurrentScopeClockFixture(persistence.drizzle, scope);
+      await insertWakeScope(persistence, { scopeUuid: WAKE_SCOPE_A, epochUuid: WAKE_EPOCH_A, lastCommitSeq: 1n });
+      await insertWakeHeader(persistence, WAKE_SCOPE_A, WAKE_EPOCH_A, 1n);
+      await insertPendingWake(persistence, { scopeUuid: WAKE_SCOPE_A, epochUuid: WAKE_EPOCH_A, commitSeq: 1n });
     });
 
     await expect(withPersistence(async persistence => {
       expect(await seededRows(persistence)).toEqual(baseline);
       expect(await persistence.getScopeClock(scope.scopeId)).toBeNull();
       expect((await persistence.query("select scope_id from fx_system_scope_execution_authority")).rows).toEqual([]);
+      expect((await persistence.query(`
+        select 'header' as kind, count(*)::int as count from fx_system_commit
+        union all select 'wake', count(*)::int from fx_system_commit_wake
+        union all select 'row_change', count(*)::int from fx_system_commit_app_row_change
+        union all select 'relation_change', count(*)::int from fx_system_commit_relation_adjacency_change
+        order by kind
+      `)).rows).toEqual([
+        { kind: "header", count: 0 }, { kind: "relation_change", count: 0 },
+        { kind: "row_change", count: 0 }, { kind: "wake", count: 0 },
+      ]);
       await insertCurrentScopeClockFixture(persistence.drizzle, scope);
       await persistence.query("delete from fx_system_retained_history_scheduler");
       await persistence.query(`create table fixture_storage_reset_ref (
