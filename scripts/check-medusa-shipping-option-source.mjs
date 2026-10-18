@@ -54,6 +54,16 @@ export function verifyShippingOptionUpdateCallbacks(root, overrides = {}) {
   ], "Changed native Shipping Option update callback behavior", overrides);
 }
 
+/** Exact native deletion composer and raw-ID retained callback; empty-reference
+ * representation remains with the existing SDK and common Link step.
+ * @param {string} root @param {Record<string, {source?: string, target?: string}>} overrides */
+export function verifyShippingOptionDeleteCallbacks(root, overrides = {}) {
+  return verifyShippingCallbacks(root, [
+    ["workflows/delete-shipping-options.ts", undefined],
+    ["steps/delete-shipping-options.ts", "deleteShippingOptionsStepId"],
+  ], "Changed native Shipping Option deletion callback behavior", overrides);
+}
+
 /** @param {string} root @param {ReadonlyArray<readonly [string, string | undefined]>} files
  * @param {string} failure @param {Record<string, {source?: string, target?: string}>} overrides */
 function verifyShippingCallbacks(root, files, failure, overrides) {
@@ -67,7 +77,8 @@ function verifyShippingCallbacks(root, files, failure, overrides) {
       : file === "steps/set-shipping-options-prices.ts" ? adaptRuleCompensation(source, "pricing", failure) : source;
     if (file !== "../common/steps/emit-event.ts") {
       expected = replaceChecked(expected, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"', 1, failure);
-      expected = replaceChecked(expected, 'from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"', 1, failure);
+      expected = replaceChecked(expected, 'from "@medusajs/framework/utils"', file === "steps/delete-shipping-options.ts"
+        ? 'from "@medusajs/utils/modules-sdk/definition"' : 'from "@medusajs/framework/utils/portable"', 1, failure);
     } else expected = replaceChecked(expected, "      options: input.options,",
       "      ...(input.options === undefined ? {} : { options: input.options }),", 1, failure);
     if (file === "workflows/create-shipping-options.ts") {
@@ -79,6 +90,18 @@ function verifyShippingCallbacks(root, files, failure, overrides) {
       expected = replaceChecked(expected, 'import {\n  setShippingOptionsPricesStep,\n  upsertShippingOptionsStep,\n} from "../steps"',
         'import { setShippingOptionsPricesStep } from "../steps/set-shipping-options-prices"\nimport { upsertShippingOptionsStep } from "../steps/upsert-shipping-options"', 1, failure);
       expected = replaceChecked(expected, 'from "../../common"', 'from "../../common/steps/emit-event"', 1, failure);
+    }
+    if (file === "workflows/delete-shipping-options.ts") {
+      expected = replaceChecked(expected, "  WorkflowData,\n", "  WorkflowData,\n  WorkflowResponse,\n", 1, failure);
+      expected = replaceChecked(expected, 'from "../steps"', 'from "../steps/delete-shipping-options"', 1, failure);
+      expected = replaceChecked(expected, 'import { emitEventStep, removeRemoteLinkStep } from "../../common"',
+        'import { emitEventStep } from "../../common/steps/emit-event"\nimport { removeRemoteLinkStep } from "../../common/steps/remove-remote-links"', 1, failure);
+      expected = replaceChecked(expected, "    )\n  }\n)", "    )\n    return new WorkflowResponse(void 0)\n  }\n)", 1, failure);
+    }
+    if (file === "steps/delete-shipping-options.ts") {
+      expected = replaceChecked(expected, 'import { DeleteEntityInput } from "@medusajs/framework/modules-sdk"',
+        'import type { DeleteEntityInput } from "../../common/steps/remove-remote-links"', 1, failure);
+      expected = replaceChecked(expected, 'from "@medusajs/framework/types"', 'from "@medusajs/types/fulfillment/index"', 1, failure);
     }
     if (file === "steps/set-shipping-options-price-sets.ts") expected = replaceChecked(expected,
       'from "@medusajs/framework/modules-sdk"', 'from "@medusajs/modules-sdk/link"', 1, failure);

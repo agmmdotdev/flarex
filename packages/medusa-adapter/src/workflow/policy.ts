@@ -33,6 +33,9 @@ export const shippingOptionCreationResources = Object.freeze({ ...defaultCommerc
 /** Complete Option/Pricing replacement and retained Rule reconstitution. */
 export const shippingOptionUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 768, eventMessages: 256, commandBytes: 2_097_152 });
 export const shippingOptionUpdateCommandMs = 30_000;
+/** Native Option/Rule deletion, installed Pricing Link cascade and retained history. */
+export const shippingOptionDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 512, eventMessages: 256, commandBytes: 2_097_152 });
+export const shippingOptionDeletionCommandMs = 30_000;
 /** Complete installed Location/Link/Fulfillment deletion graph and retained inverse. */
 export const stockLocationDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 512, eventMessages: 256, commandBytes: 2_097_152 });
 export const stockLocationDeletionCommandMs = 30_000;

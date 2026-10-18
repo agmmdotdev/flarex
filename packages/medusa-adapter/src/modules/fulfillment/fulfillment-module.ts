@@ -13,6 +13,13 @@ const fulfillmentModels = [FulfillmentAddress, Fulfillment, FulfillmentItem, Ful
   GeoZone, ServiceZone, ShippingOption, ShippingOptionRule, ShippingOptionType, ShippingProfile] as const;
 export type FulfillmentPersistenceModel = typeof fulfillmentModels[number];
 
+const nativeRouting = { __joinerConfig: FulfillmentModuleService.prototype.__joinerConfig(),
+  __definition: { key: Modules.FULFILLMENT, defaultPackage: "@medusajs/fulfillment", label: "Fulfillment", isQueryable: true,
+    defaultModuleDeclaration: { scope: "internal" as const } } };
+/** Complete native module metadata; selected profiles authenticate their own
+ * callable methods separately from this routing description. */
+export const fulfillmentServiceRouting = () => structuredClone(nativeRouting);
+
 /** One genuine Fulfillment constructor closure. Each selected model profile
  * still selects its own repository and exact native service methods. */
 export function defineFulfillmentPersistenceModule<

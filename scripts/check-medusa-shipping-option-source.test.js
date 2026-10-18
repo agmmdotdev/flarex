@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
+import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 
 const root = process.cwd();
 /** @param {string} file */
@@ -14,6 +14,34 @@ const upsert = "steps/upsert-shipping-options.ts";
 const providers = "steps/validate-fulfillment-providers.ts";
 const validation = "steps/validate-shipping-option-prices.ts";
 const emit = "../common/steps/emit-event.ts";
+
+describe("native Shipping Option deletion composer and retained IDs", () => {
+  const deleting = "workflows/delete-shipping-options.ts", step = "steps/delete-shipping-options.ts";
+  it("authenticates exact native execution with only finite SDK and import adaptations", () => {
+    expect(() => verifyShippingOptionDeleteCallbacks(root)).not.toThrow();
+  });
+  it.each([
+    ["raw requested identities", deleting, "deleteShippingOptionsStep(input.ids)", "deleteShippingOptionsStep([])"],
+    ["actual affected Link map", deleting, "removeRemoteLinkStep(softDeletedEntities as WorkflowData<DeleteEntityInput>)", "removeRemoteLinkStep({})"],
+    ["workflow event", deleting, "ShippingOptionWorkflowEvents.DELETED", "ShippingOptionWorkflowEvents.UPDATED"],
+    ["raw event data", deleting, "data: input.ids", "data: []"],
+    ["parallel native declaration", deleting, "    parallelize(", "    changedParallelize("],
+    ["void root result", deleting, "new WorkflowResponse(void 0)", "new WorkflowResponse([])"],
+    ["empty branch", step, "if (!ids?.length)", "if (false)"],
+    ["native soft deletion", step, "service.softDeleteShippingOptions(ids)", "service.deleteShippingOptions(ids)"],
+    ["affected map", step, "[Modules.FULFILLMENT]: softDeletedEntities", "[Modules.FULFILLMENT]: {}"],
+    ["inverse early return", step, "if (!prevIds?.length)", "if (false)"],
+    ["raw inverse identities", step, "service.restoreShippingOptions(prevIds)", "service.restoreShippingOptions([])"],
+    ["transaction-covered inverse", step, 'compensation: "transactionCovered"', 'compensation: "none"'],
+  ])("rejects changed %s", (_name, file, before, after) => {
+    const current = target(file), changed = current.replace(before, after);
+    expect(changed).not.toBe(current);
+    expect(() => verifyShippingOptionDeleteCallbacks(root, { [file]: { target: changed } })).toThrow();
+  });
+  it("rejects extra runtime helpers outside the exact selected native bodies", () => {
+    expect(() => verifyShippingOptionDeleteCallbacks(root, { [step]: { target: target(step) + '\nthrow new Error("extra");' } })).toThrow();
+  });
+});
 
 describe("complete native Shipping Option root, helpers and retained callbacks", () => {
   it("admits the pinned packet, erased strict types and formatting", () => {

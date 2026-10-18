@@ -110,6 +110,7 @@ export function fulfillmentLifecyclePolicy(contracts: LifecycleGraph & { readonl
     };
     for (const root of roots) {
       if (contracts.root === contracts.set) for (const zone of children(contracts.zone.name, "fulfillment_set_id", root.id)) zoneChildren(zone.id);
+      else if (contracts.root === contracts.option) children(contracts.rule.name, "shipping_option_id", root.id);
       else zoneChildren(root.id);
     }
     if (!jsonEqual(activity.relationalReads, expectedReads)) return yield* Effect.fail(commerceError("receiptMismatch"));

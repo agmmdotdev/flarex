@@ -129,7 +129,8 @@
     "./fulfillment/create-fulfillment-set-step": "./src/fulfillment/steps/create-fulfillment-set.ts",
     "./stock-location/associate-locations-with-fulfillment-sets-step": "./src/stock-location/steps/associate-locations-with-fulfillment-sets.ts",
     "./fulfillment/create-shipping-options": "./src/fulfillment/workflows/create-shipping-options.ts",
-    "./fulfillment/update-shipping-options": "./src/fulfillment/workflows/update-shipping-options.ts"
+    "./fulfillment/update-shipping-options": "./src/fulfillment/workflows/update-shipping-options.ts",
+    "./fulfillment/delete-shipping-options": "./src/fulfillment/workflows/delete-shipping-options.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

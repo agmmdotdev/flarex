@@ -52,14 +52,17 @@ export function compileFulfillmentGraphContracts(metadata: Metadata) {
 
 /** The selected native lifecycle root owns its tuple and declared model order;
  * scalar row contracts and complete graph topology have already been checked. */
-export function compileFulfillmentLifecycleGraph(metadata: Metadata, selection: "serviceZone" | "fulfillmentSet") {
+export function compileFulfillmentLifecycleGraph(metadata: Metadata, selection: "serviceZone" | "fulfillmentSet" | "shippingOption") {
   return Result.gen(function* () {
     const graph = yield* compileFulfillmentGraphContracts(metadata);
     if (graph.zone.cascades.delete.length !== 2 || graph.zone.cascades.delete[0] !== "geo_zones" || graph.zone.cascades.delete[1] !== "shipping_options" ||
       graph.option.cascades.delete.length !== 1 || graph.option.cascades.delete[0] !== "rules" || graph.geo.cascades.delete.length || graph.rule.cascades.delete.length)
       return yield* Result.fail(commerceError("unsupportedProfile"));
-    const root = selection === "fulfillmentSet" ? graph.set : graph.zone;
-    const entities = (selection === "fulfillmentSet" ? graph.entities : graph.zoneEntities)
+    const root = selection === "fulfillmentSet" ? graph.set : selection === "shippingOption" ? graph.option : graph.zone;
+    const selected = selection === "shippingOption" ? graph.entities.filter(entity => entity.table === graph.option || entity.table === graph.rule)
+      .map(entity => entity.table === graph.option ? { ...entity, maximum: 4 } : entity)
+      : selection === "fulfillmentSet" ? graph.entities : graph.zoneEntities;
+    const entities = selected
       .map(entity => ({ ...entity, linkableKey: entity.table.name + "_id" }));
     const rootEntity = entities[0];
     if (rootEntity === undefined || rootEntity.table !== root) return yield* Result.fail(commerceError("unsupportedProfile"));

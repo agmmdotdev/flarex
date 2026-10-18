@@ -4,7 +4,7 @@ import { defaultCommerceResources, type Json } from "@flarex/persistence-postgre
 import type { LogicalCallReceiptValidation } from "../src/repository/call-receipt";
 import { captureServiceZoneCreationMetadata } from "../src/modules/fulfillment/shipping-profile-schema";
 import { compileFulfillmentSetDeletionContracts } from "../src/modules/fulfillment/fulfillment-set-delete-input";
-import { fulfillmentSetDeletionRouting } from "../src/modules/fulfillment/fulfillment-set-delete-input";
+import { fulfillmentServiceRouting } from "../src/modules/fulfillment/fulfillment-module";
 import { fulfillmentSetDeletionPolicy } from "../src/modules/fulfillment/fulfillment-set-delete-receipt";
 import { fulfillmentSetDeletionGraph } from "./support/logical-fulfillment-set-deletion-fixture";
 import { serviceZoneSeedTime } from "./support/logical-service-zone-creation-fixture";
@@ -49,7 +49,7 @@ beforeAll(async () => { policy = fulfillmentSetDeletionPolicy(Result.getOrThrow(
 describe("native complete Fulfillment Set lifecycle receipts", () => {
   it("authenticates the real Link selector/config through the same complete lifecycle receipt", async () => {
     const ids = Array.from({ length: 8 }, () => graph.ids[0]!);
-    const config = { returnLinkableKeys: Object.keys(fulfillmentSetDeletionRouting().__joinerConfig.linkableKeys ?? {}) };
+    const config = { returnLinkableKeys: Object.keys(fulfillmentServiceRouting().__joinerConfig.linkableKeys ?? {}) };
     for (const operation of ["softDelete", "restore"] as const) {
       const { call, activity } = transcript(operation);
       const selected = { ...call, input: { selector: { id: ids }, config } };

@@ -5,13 +5,13 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 import { commerceServiceCommands, commerceCommandPreparation } from "../../module/commands";
 import { commerceModuleEventBus } from "../../module/events";
 import { defineWorkflowModule, defineWorkflowMethod, type WorkflowMethod } from "../../workflow/module";
-import { defineFulfillmentPersistenceModule, type FulfillmentPersistenceModel } from "./fulfillment-module";
+import { defineFulfillmentPersistenceModule, fulfillmentServiceRouting, type FulfillmentPersistenceModel } from "./fulfillment-module";
 import { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
 import { prepareFulfillmentSetDeletionRepository } from "./fulfillment-set-delete-repository";
-import { decodeFulfillmentSetLifecycleArguments, decodeFulfillmentSetLifecycleInput, fulfillmentSetDeletionRouting } from "./fulfillment-set-delete-input";
+import { decodeFulfillmentSetLifecycleArguments, decodeFulfillmentSetLifecycleInput } from "./fulfillment-set-delete-input";
 import { fulfillmentSetDeletionPolicy } from "./fulfillment-set-delete-receipt";
 
-const definitions = new WeakMap<object, { readonly routing: ReturnType<typeof fulfillmentSetDeletionRouting>;
+const definitions = new WeakMap<object, { readonly routing: ReturnType<typeof fulfillmentServiceRouting>;
   readonly softDelete: WorkflowMethod;
   readonly restore: WorkflowMethod }>();
 export function fulfillmentSetDeletionServiceDefinition(input: unknown) {
@@ -49,7 +49,7 @@ export const makeFulfillmentSetDeletionCommands = Effect.fn("FulfillmentSetAdapt
     const admitted = [softDeleteForWorkflow, restoreForWorkflow], policy = fulfillmentSetDeletionPolicy(prepared.contracts);
     const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description,
       methods: { softDeleteFulfillmentSets, restoreFulfillmentSets }, graph: { aliases: [], reads: [] }, logical: { ...policy, commands: admitted } });
-    definitions.set(workflow, { routing: fulfillmentSetDeletionRouting(), softDelete: softDeleteFulfillmentSets, restore: restoreFulfillmentSets });
+    definitions.set(workflow, { routing: fulfillmentServiceRouting(), softDelete: softDeleteFulfillmentSets, restore: restoreFulfillmentSets });
     return { softDeleteForWorkflow, restoreForWorkflow, commands: admitted, workflow, withService: module.use,
       logicalEventPolicy: () => policy, output: prepared.contracts.Output, decodeOutput: prepared.contracts.decodeOutput };
   }));

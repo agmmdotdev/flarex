@@ -3,8 +3,8 @@ import { Effect, Result } from "effect";
 import { captureServiceZoneCreationMetadata } from "../src/modules/fulfillment/shipping-profile-schema";
 import { compileFulfillmentSetDeletionContracts, decodeFulfillmentSetDeletionIds, decodeFulfillmentSetDeletionArguments,
   decodeFulfillmentSetDeletionOutput } from "../src/modules/fulfillment/fulfillment-set-delete-input";
-import { decodeFulfillmentSetLifecycleArguments, decodeFulfillmentSetLifecycleIds, decodeFulfillmentSetRepositoryIds,
-  fulfillmentSetDeletionRouting } from "../src/modules/fulfillment/fulfillment-set-delete-input";
+import { decodeFulfillmentSetLifecycleArguments, decodeFulfillmentSetLifecycleIds, decodeFulfillmentSetRepositoryIds } from "../src/modules/fulfillment/fulfillment-set-delete-input";
+import { fulfillmentServiceRouting } from "../src/modules/fulfillment/fulfillment-module";
 import { fulfillmentSetDeletionGraph } from "./support/logical-fulfillment-set-deletion-fixture";
 
 let contracts: Result.Result.Success<ReturnType<typeof compileFulfillmentSetDeletionContracts>>;
@@ -18,7 +18,7 @@ beforeAll(async () => { contracts = Result.getOrThrow(compileFulfillmentSetDelet
 describe("native Fulfillment Set deletion boundaries", () => {
   it("preserves all raw history selector IDs and authenticates the complete native return-key order", () => {
     const ids = ["b", "a", "b", "c", "d", "c", "a", "d"];
-    const config = { returnLinkableKeys: Object.keys(fulfillmentSetDeletionRouting().__joinerConfig.linkableKeys ?? {}) };
+    const config = { returnLinkableKeys: Object.keys(fulfillmentServiceRouting().__joinerConfig.linkableKeys ?? {}) };
     expect(config.returnLinkableKeys[0]).toBe("fulfillment_address_id");
     expect(config.returnLinkableKeys).toHaveLength(12);
     expect(Result.getOrThrow(decodeFulfillmentSetLifecycleArguments([{ id: ids }, config]))).toEqual([{ id: ids }, config]);

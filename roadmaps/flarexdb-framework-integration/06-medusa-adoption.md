@@ -488,6 +488,26 @@ read coverage. Native Pricing owns the extracted normalization algorithm. These
 extensions preserve the separate creation, Product, Store and lifecycle profiles.
 Public/hosted activation and populated upgrades remain separate.
 
+The [native Shipping Option deletion](./preflight/140-native-shipping-option-deletion.md)
+root implements private bounded Option→Rule deletion, actual stored Link and
+Pricing cascades, raw-string workflow events and all three genuine retained
+callbacks in one outer settlement. It admits zero to four raw Option IDs,
+sixteen historical Rules, eight stored Link histories/eight PriceSets, sixteen
+Prices and 48 PriceRules. Missing and duplicate requested IDs retain their
+native workflow-message behavior independently of actual affected-row maps.
+The empty branch still executes genuine Link delete/restore with the exact
+private SDK void marker; the public input remains strict `{ ids }`.
+
+Retained inverses preserve native historical revival rather than snapshot undo.
+Conflicting historical Link restoration remains an atomic refusal under the
+accepted scalar-Link invariant; caught native Pricing cascade errors remain
+atomic root failures under the existing authenticated tuple/sticky-refusal
+boundary. The selected root uses 512 calls, 256 events, 2 MiB and 30 seconds
+through the existing identity-bound API. Shared Fulfillment routing metadata
+and lifecycle owners also retain the existing Set/Zone profiles and bounds.
+Fresh private installation is reused without a new schema or migration;
+public/hosted activation and populated upgrades remain separate.
+
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
 The genuine creation step remains unchanged and returns complete native rows,

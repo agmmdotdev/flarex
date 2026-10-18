@@ -1,8 +1,8 @@
 import { Result, Schema, type Effect } from "effect";
-import { FulfillmentModuleService } from "@medusajs/fulfillment/services";
 import { commerceDecoder } from "../../value/decoder";
 import { compileFulfillmentLifecycleGraph } from "./fulfillment-graph-contracts";
 import type { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
+import { fulfillmentServiceRouting } from "./fulfillment-module";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 export const FulfillmentSetDeletionIds = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4));
@@ -13,15 +13,12 @@ export const decodeFulfillmentSetDeletionArguments = commerceDecoder(Schema.Tupl
 const CascadeIds = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(8),
   Schema.makeFilter(ids => new Set(ids).size <= 4));
 const Selector = Schema.Struct({ id: CascadeIds });
-const nativeRouting = { __joinerConfig: FulfillmentModuleService.prototype.__joinerConfig(),
-  __definition: { key: "fulfillment", defaultPackage: "@medusajs/fulfillment", label: "Fulfillment", isQueryable: true,
-    defaultModuleDeclaration: { scope: "internal" as const } } };
+const nativeRouting = fulfillmentServiceRouting();
 const ReturnKeys = Schema.Struct({ returnLinkableKeys: Schema.Array(Schema.String).pipe(Schema.mutable).check(
   Schema.makeFilter(keys => {
     const declared = Object.keys(nativeRouting.__joinerConfig.linkableKeys ?? {});
     return keys.length === declared.length && keys.every((key, index) => key === declared[index]);
   })) });
-export const fulfillmentSetDeletionRouting = () => structuredClone(nativeRouting);
 const CascadeInput = Schema.Struct({ selector: Selector, config: ReturnKeys });
 export const decodeFulfillmentSetLifecycleInput = commerceDecoder(Schema.Union([FulfillmentSetDeletionIds, CascadeInput]), "invalidInput");
 export const decodeFulfillmentSetLifecycleArguments = commerceDecoder(Schema.Union([
