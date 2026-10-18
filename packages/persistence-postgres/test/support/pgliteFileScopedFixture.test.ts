@@ -9,6 +9,7 @@ import { useFileScopedPGliteRuntimePersistence, useFileScopedPGliteCommitSchemaP
   useFileScopedPGliteTaskRepairSchedulerPersistence, useFileScopedPGliteRetainedHistorySchedulerPersistence } from "./pgliteTestFixture";
 import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
 import { insertPendingWake, insertWakeHeader, insertWakeScope, WAKE_SCOPE_A, WAKE_EPOCH_A } from "../commit/commitWakeOutboxTestSupport";
+import { insertCanonicalAvailableOutcome, insertCanonicalExpiredOutcome, insertOutcomeHeader, insertOutcomeScope } from "../commit/committedPointOutcomeTestSupport";
 import { reserveScopeAuthorityProvisioningReceiptInTransaction } from "../../src/scope/scopeAuthorityProvisioningReceipt";
 import { createSuccessfulTerminalPlanValues, storeBaseBackedCoordinatorGraphInTransaction,
   useFileScopedFrameworkCoordinatorPersistence, useFileScopedFrameworkCoordinatorGraphPersistence } from "../installation/frameworkSchema/frameworkCoordinatorRepositoryTestSupport";
@@ -67,40 +68,62 @@ describe("file-scoped PGlite storage and commit schema fixture", () => {
   it("resets scope authority atomically, preserves seeds and rebuilds after an unexpected dependant", async () => {
     const scope = { scopeId: ScopeIdSchema.make("scope_72000000-0000-4000-8000-000000000001"),
       epoch: ScopeEpochSchema.make("epoch_72000000-0000-4000-8000-000000000002") };
-    let baseline: Awaited<ReturnType<typeof seededRows>> = [];
-    await withPersistence(async persistence => {
-      baseline = await seededRows(persistence);
-      expect(baseline).toHaveLength(5);
+    const seed = async (persistence: PGliteFlarexPersistence) => {
       await insertCurrentScopeClockFixture(persistence.drizzle, scope);
       await insertWakeScope(persistence, { scopeUuid: WAKE_SCOPE_A, epochUuid: WAKE_EPOCH_A, lastCommitSeq: 1n });
       await insertWakeHeader(persistence, WAKE_SCOPE_A, WAKE_EPOCH_A, 1n);
       await insertPendingWake(persistence, { scopeUuid: WAKE_SCOPE_A, epochUuid: WAKE_EPOCH_A, commitSeq: 1n });
+      await insertOutcomeScope(persistence);
+      await insertOutcomeHeader(persistence);
+      await insertCanonicalAvailableOutcome(persistence, { requestKey: "fixture_available" });
+      await insertCanonicalExpiredOutcome(persistence, { requestKey: "fixture_expired" });
+    };
+    const counts = async (persistence: PGliteFlarexPersistence) => (await persistence.query(`
+      select 'header' as kind, count(*)::int as count from fx_system_commit
+      union all select 'wake', count(*)::int from fx_system_commit_wake
+      union all select 'row_change', count(*)::int from fx_system_commit_app_row_change
+      union all select 'relation_change', count(*)::int from fx_system_commit_relation_adjacency_change
+      union all select 'outcome', count(*)::int from fx_system_idempotency
+      order by kind
+    `)).rows;
+    const emptyCounts = [
+      { kind: "header", count: 0 }, { kind: "outcome", count: 0 },
+      { kind: "relation_change", count: 0 }, { kind: "row_change", count: 0 }, { kind: "wake", count: 0 },
+    ];
+    let baseline: Awaited<ReturnType<typeof seededRows>> = [];
+    let previous: PGliteFlarexPersistence | undefined;
+    let populated: Awaited<ReturnType<typeof counts>> = [];
+    await withPersistence(async persistence => {
+      baseline = await seededRows(persistence);
+      expect(baseline).toHaveLength(5);
+      await seed(persistence);
+      populated = await counts(persistence);
+      expect(populated).toEqual([
+        { kind: "header", count: 2 }, { kind: "outcome", count: 2 },
+        { kind: "relation_change", count: 0 }, { kind: "row_change", count: 0 }, { kind: "wake", count: 1 },
+      ]);
     });
 
     await expect(withPersistence(async persistence => {
       expect(await seededRows(persistence)).toEqual(baseline);
       expect(await persistence.getScopeClock(scope.scopeId)).toBeNull();
       expect((await persistence.query("select scope_id from fx_system_scope_execution_authority")).rows).toEqual([]);
-      expect((await persistence.query(`
-        select 'header' as kind, count(*)::int as count from fx_system_commit
-        union all select 'wake', count(*)::int from fx_system_commit_wake
-        union all select 'row_change', count(*)::int from fx_system_commit_app_row_change
-        union all select 'relation_change', count(*)::int from fx_system_commit_relation_adjacency_change
-        order by kind
-      `)).rows).toEqual([
-        { kind: "header", count: 0 }, { kind: "relation_change", count: 0 },
-        { kind: "row_change", count: 0 }, { kind: "wake", count: 0 },
-      ]);
-      await insertCurrentScopeClockFixture(persistence.drizzle, scope);
+      expect(await counts(persistence)).toEqual(emptyCounts);
+      await seed(persistence);
+      previous = persistence;
       await persistence.query("delete from fx_system_retained_history_scheduler");
       await persistence.query(`create table fixture_storage_reset_ref (
         scope_id text references fx_system_scope_clock (scope_id))`);
       await persistence.query("insert into fixture_storage_reset_ref values ($1)", [scope.scopeId]);
     })).rejects.toMatchObject({ code: "23503" });
+    if (previous === undefined) throw new Error("Missing failed commit fixture");
+    expect(await counts(previous)).toEqual(populated);
+    expect(await previous.getScopeClock(scope.scopeId)).not.toBeNull();
 
     await withPersistence(async persistence => {
       expect(await seededRows(persistence)).toEqual(baseline);
       expect(await persistence.getScopeClock(scope.scopeId)).toBeNull();
+      expect(await counts(persistence)).toEqual(emptyCounts);
       expect((await persistence.query("select to_regclass('fixture_storage_reset_ref') as relation")).rows)
         .toEqual([{ relation: null }]);
     });

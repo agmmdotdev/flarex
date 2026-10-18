@@ -78,7 +78,7 @@ export function useFileScopedPGliteScopeAuthorityPersistence() {
   return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () => resetScopeAuthorityRows(db)));
 }
 
-/** Current feed/wake schema cases only. Additional publication families and
+/** Current outcome/feed/wake schema cases only. Additional publication families and
  * persistent DDL keep independent databases; unexpected dependants fail closed. */
 export function useFileScopedPGliteCommitSchemaPersistence() {
   return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () => resetCommitSchemaRows(db)));
@@ -164,6 +164,7 @@ async function resetControlScopeRowsInTransaction(transaction: Transaction): Pro
 async function resetCommitSchemaRows(db: PGlite): Promise<void> {
   await db.transaction(async transaction => {
     await transaction.exec(`
+      delete from fx_system_idempotency;
       delete from fx_system_commit_wake;
       delete from fx_system_commit_app_row_change;
       delete from fx_system_commit_relation_adjacency_change;

@@ -1,5 +1,9 @@
 import { createTestPGlite } from "../support/pgliteSearchExtensions";
-import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
+import {
+  createMigratedPGlitePersistence,
+  migratedPGliteDataDir,
+  useFileScopedPGliteCommitSchemaPersistence,
+} from "../support/pgliteTestFixture";
 import { Effect, Exit } from "effect";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 } from "flarex-protocol/commit-protocol";
@@ -42,7 +46,9 @@ import {
 } from "./committedPointOutcomeTestSupport";
 import { runEffect } from "../support/effectTestRuntime";
 
-describe("O07-A committed point outcome resolver", () => {
+const withPersistence = useFileScopedPGliteCommitSchemaPersistence();
+
+describe("O07-A committed point outcome resolver", { concurrent: false }, () => {
   it("stays source-private and rejects closed-record input failures before I/O", async () => {
     type RootLeak = Extract<
       keyof typeof persistenceRoot,
@@ -154,131 +160,134 @@ describe("O07-A committed point outcome resolver", () => {
   });
 
   it("resolves missing, matching available, and matching expired outcomes", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    await insertOutcomeScope(persistence);
-    await insertOutcomeHeader(persistence);
-    await insertCanonicalAvailableOutcome(persistence, {
-      requestKey: "available",
-      value: { nested: [1, true, "ok"] },
-    });
-    await insertCanonicalExpiredOutcome(persistence, {
-      requestKey: "expired",
-    });
-    const resolver = createCommittedPointOutcomeResolverV1(
-      persistence.drizzle,
-    );
-
-    await expect(resolve(resolver, "missing")).resolves.toEqual({
-      kind: "missing",
-    });
-    const available = await resolve(resolver, "available");
-    expect(available).toMatchObject({
-      kind: "available",
-      token: {
-        scopeUuid: OUTCOME_SCOPE_A,
-        epochUuid: OUTCOME_EPOCH_A,
-        commitSeq: 1n,
-      },
-      successfulResult: {
-        valueJson: { nested: [1, true, "ok"] },
-      },
-    });
-    expect(Object.isFrozen(available)).toBe(true);
-    if (available.kind === "available") {
-      expect(Object.isFrozen(available.token)).toBe(true);
-      expect(Object.isFrozen(available.successfulResult)).toBe(true);
-      expect(Object.isFrozen(available.successfulResult.valueJson)).toBe(true);
-      if (isJsonObject(available.successfulResult.valueJson)) {
-        expect(
-          Object.isFrozen(available.successfulResult.valueJson.nested),
-        ).toBe(true);
-      }
-      const bytes = available.successfulResult.canonicalBytes;
-      const digest = available.successfulResult.sha256;
-      bytes.fill(0);
-      digest.fill(0);
-      expect(available.successfulResult.canonicalBytes[0]).not.toBe(0);
-      expect(available.successfulResult.sha256.some((byte) => byte !== 0)).toBe(
-        true,
+    await withPersistence(async (persistence) => {
+      await insertOutcomeScope(persistence);
+      await insertOutcomeHeader(persistence);
+      await insertCanonicalAvailableOutcome(persistence, {
+        requestKey: "available",
+        value: { nested: [1, true, "ok"] },
+      });
+      await insertCanonicalExpiredOutcome(persistence, {
+        requestKey: "expired",
+      });
+      const resolver = createCommittedPointOutcomeResolverV1(
+        persistence.drizzle,
       );
-    }
-    await expect(resolve(resolver, "expired")).resolves.toEqual({
-      kind: "expired",
-      token: {
-        scopeUuid: OUTCOME_SCOPE_A,
-        epochUuid: OUTCOME_EPOCH_A,
-        commitSeq: 1n,
-      },
+
+      await expect(resolve(resolver, "missing")).resolves.toEqual({
+        kind: "missing",
+      });
+      const available = await resolve(resolver, "available");
+      expect(available).toMatchObject({
+        kind: "available",
+        token: {
+          scopeUuid: OUTCOME_SCOPE_A,
+          epochUuid: OUTCOME_EPOCH_A,
+          commitSeq: 1n,
+        },
+        successfulResult: {
+          valueJson: { nested: [1, true, "ok"] },
+        },
+      });
+      expect(Object.isFrozen(available)).toBe(true);
+      if (available.kind === "available") {
+        expect(Object.isFrozen(available.token)).toBe(true);
+        expect(Object.isFrozen(available.successfulResult)).toBe(true);
+        expect(Object.isFrozen(available.successfulResult.valueJson)).toBe(true);
+        if (isJsonObject(available.successfulResult.valueJson)) {
+          expect(
+            Object.isFrozen(available.successfulResult.valueJson.nested),
+          ).toBe(true);
+        }
+        const bytes = available.successfulResult.canonicalBytes;
+        const digest = available.successfulResult.sha256;
+        bytes.fill(0);
+        digest.fill(0);
+        expect(available.successfulResult.canonicalBytes[0]).not.toBe(0);
+        expect(available.successfulResult.sha256.some((byte) => byte !== 0)).toBe(
+          true,
+        );
+      }
+      await expect(resolve(resolver, "expired")).resolves.toEqual({
+        kind: "expired",
+        token: {
+          scopeUuid: OUTCOME_SCOPE_A,
+          epochUuid: OUTCOME_EPOCH_A,
+          commitSeq: 1n,
+        },
+      });
     });
   });
 
   it("copies caller hashes before the one bounded query and decodes only after it settles", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    await insertOutcomeScope(persistence);
-    await insertOutcomeHeader(persistence);
-    await insertCanonicalAvailableOutcome(persistence, {
-      requestKey: "owned-input",
-    });
-    const lookup = outcomeLookup("owned-input");
-    const identity = lookup.expectedIdentityAccessPolicySha256;
-    const request = lookup.expectedRequestSha256;
-    let statementSettled = false;
-    let observedSql = "";
-    const resolver = createCommittedPointOutcomeResolverV1(
-      persistence.drizzle,
-      {
-        observeQuery: (query) => {
-          observedSql = query.sql;
-          identity.fill(0);
-          request.fill(0);
+    await withPersistence(async (persistence) => {
+      await insertOutcomeScope(persistence);
+      await insertOutcomeHeader(persistence);
+      await insertCanonicalAvailableOutcome(persistence, {
+        requestKey: "owned-input",
+      });
+      const lookup = outcomeLookup("owned-input");
+      const identity = lookup.expectedIdentityAccessPolicySha256;
+      const request = lookup.expectedRequestSha256;
+      let statementSettled = false;
+      let observedSql = "";
+      const resolver = createCommittedPointOutcomeResolverV1(
+        persistence.drizzle,
+        {
+          observeQuery: (query) => {
+            observedSql = query.sql;
+            identity.fill(0);
+            request.fill(0);
+          },
+          afterStatement: () => { statementSettled = true; },
+          beforeResultVerification: () => {
+            expect(statementSettled).toBe(true);
+          },
         },
-        afterStatement: () => { statementSettled = true; },
-        beforeResultVerification: () => {
-          expect(statementSettled).toBe(true);
-        },
-      },
-    );
-    await expect(runEffect(resolver.resolve(lookup))).resolves.toMatchObject({
-      kind: "available",
+      );
+      await expect(runEffect(resolver.resolve(lookup))).resolves.toMatchObject({
+        kind: "available",
+      });
+      expect(observedSql).toContain("octet_length");
+      expect(observedSql).toContain("case when");
+      expect(observedSql).toContain("result_bytes");
     });
-    expect(observedSql).toContain("octet_length");
-    expect(observedSql).toContain("case when");
-    expect(observedSql).toContain("result_bytes");
   });
 
   it("returns redacted typed conflicts for every exact request-key mismatch", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    await insertOutcomeScope(persistence);
-    await insertOutcomeHeader(persistence);
-    await insertCanonicalAvailableOutcome(persistence, {
-      requestKey: "reuse",
-    });
-    const resolver = createCommittedPointOutcomeResolverV1(
-      persistence.drizzle,
-    );
-    const cases = [
-      outcomeLookup("reuse", {
-        expectedIdentityAccessPolicySha256:
-          TransactionIdentityAccessPolicySha256V1Schema.make(
-            new Uint8Array(32).fill(OUTCOME_IDENTITY_BYTE + 1),
-          ),
-      }),
-      outcomeLookup("reuse", {
-        expectedFunctionPath: TransactionFunctionPathV1Schema.make(
-          "messages:other",
-        ),
-      }),
-      outcomeLookup("reuse", {
-        expectedRequestSha256: TransactionRequestSha256V1Schema.make(
-          new Uint8Array(32).fill(OUTCOME_REQUEST_BYTE + 1),
-        ),
-      }),
-    ];
-    for (const lookup of cases) {
-      await expect(runEffect(resolver.resolve(lookup))).rejects.toBeInstanceOf(
-        CommittedPointOutcomeRequestKeyReuseErrorV1,
+    await withPersistence(async (persistence) => {
+      await insertOutcomeScope(persistence);
+      await insertOutcomeHeader(persistence);
+      await insertCanonicalAvailableOutcome(persistence, {
+        requestKey: "reuse",
+      });
+      const resolver = createCommittedPointOutcomeResolverV1(
+        persistence.drizzle,
       );
-    }
+      const cases = [
+        outcomeLookup("reuse", {
+          expectedIdentityAccessPolicySha256:
+            TransactionIdentityAccessPolicySha256V1Schema.make(
+              new Uint8Array(32).fill(OUTCOME_IDENTITY_BYTE + 1),
+            ),
+        }),
+        outcomeLookup("reuse", {
+          expectedFunctionPath: TransactionFunctionPathV1Schema.make(
+            "messages:other",
+          ),
+        }),
+        outcomeLookup("reuse", {
+          expectedRequestSha256: TransactionRequestSha256V1Schema.make(
+            new Uint8Array(32).fill(OUTCOME_REQUEST_BYTE + 1),
+          ),
+        }),
+      ];
+      for (const lookup of cases) {
+        await expect(runEffect(resolver.resolve(lookup))).rejects.toBeInstanceOf(
+          CommittedPointOutcomeRequestKeyReuseErrorV1,
+        );
+      }
+    });
   });
 
   it("classifies a constraint-bypassed whitespace-only function path as corruption", async () => {
@@ -314,33 +323,34 @@ describe("O07-A committed point outcome resolver", () => {
   });
 
   it("accepts retained and compacted old-epoch tokens without comparing current epoch", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    await insertOutcomeScope(persistence, {
-      epochUuid: OUTCOME_EPOCH_B,
-      lastCommitSeq: 2n,
-    });
-    await insertOutcomeHeader(persistence, { epochUuid: OUTCOME_EPOCH_A });
-    await insertCanonicalAvailableOutcome(persistence, {
-      requestKey: "old-epoch",
-      epochUuid: OUTCOME_EPOCH_A,
-    });
-    const resolver = createCommittedPointOutcomeResolverV1(
-      persistence.drizzle,
-    );
-    await expect(resolve(resolver, "old-epoch")).resolves.toMatchObject({
-      kind: "available",
-      token: { epochUuid: OUTCOME_EPOCH_A },
-    });
-    await persistence.query(
-      `delete from fx_system_commit where scope_uuid = $1::uuid and commit_seq = 1`,
-      [OUTCOME_SCOPE_A],
-    );
-    await persistence.query(
-      `update fx_system_scope_execution_authority set oldest_available_commit_seq = 2 where scope_id = (select scope_id from fx_system_scope_clock where scope_uuid = $1::uuid)`,
-      [OUTCOME_SCOPE_A],
-    );
-    await expect(resolve(resolver, "old-epoch")).resolves.toMatchObject({
-      kind: "available",
+    await withPersistence(async (persistence) => {
+      await insertOutcomeScope(persistence, {
+        epochUuid: OUTCOME_EPOCH_B,
+        lastCommitSeq: 2n,
+      });
+      await insertOutcomeHeader(persistence, { epochUuid: OUTCOME_EPOCH_A });
+      await insertCanonicalAvailableOutcome(persistence, {
+        requestKey: "old-epoch",
+        epochUuid: OUTCOME_EPOCH_A,
+      });
+      const resolver = createCommittedPointOutcomeResolverV1(
+        persistence.drizzle,
+      );
+      await expect(resolve(resolver, "old-epoch")).resolves.toMatchObject({
+        kind: "available",
+        token: { epochUuid: OUTCOME_EPOCH_A },
+      });
+      await persistence.query(
+        `delete from fx_system_commit where scope_uuid = $1::uuid and commit_seq = 1`,
+        [OUTCOME_SCOPE_A],
+      );
+      await persistence.query(
+        `update fx_system_scope_execution_authority set oldest_available_commit_seq = 2 where scope_id = (select scope_id from fx_system_scope_clock where scope_uuid = $1::uuid)`,
+        [OUTCOME_SCOPE_A],
+      );
+      await expect(resolve(resolver, "old-epoch")).resolves.toMatchObject({
+        kind: "available",
+      });
     });
   });
 
@@ -522,35 +532,36 @@ describe("O07-A committed point outcome resolver", () => {
       CommittedPointOutcomeSqlErrorV1,
     );
 
-    const live = await createMigratedPGlitePersistence();
-    await insertOutcomeScope(live);
-    await insertOutcomeHeader(live);
-    await insertCanonicalAvailableOutcome(live, { requestKey: "defect" });
-    const defect = new Error("verification hook defect");
-    const resolver = createCommittedPointOutcomeResolverV1(live.drizzle, {
-      beforeResultVerification: () => { throw defect; },
-    });
-    const exit = await Effect.runPromiseExit(resolver.resolve(outcomeLookup("defect")));
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) expect(exit.cause.toString()).toContain(defect.message);
+    await withPersistence(async (live) => {
+      await insertOutcomeScope(live);
+      await insertOutcomeHeader(live);
+      await insertCanonicalAvailableOutcome(live, { requestKey: "defect" });
+      const defect = new Error("verification hook defect");
+      const resolver = createCommittedPointOutcomeResolverV1(live.drizzle, {
+        beforeResultVerification: () => { throw defect; },
+      });
+      const exit = await Effect.runPromiseExit(resolver.resolve(outcomeLookup("defect")));
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) expect(exit.cause.toString()).toContain(defect.message);
 
-    const observationDefect = new Error("query observation defect");
-    const observationResolver = createCommittedPointOutcomeResolverV1(
-      live.drizzle,
-      { observeQuery: () => { throw observationDefect; } },
-    );
-    const observationExit = await Effect.runPromiseExit(
-      observationResolver.resolve(outcomeLookup("defect")),
-    );
-    expect(Exit.isFailure(observationExit)).toBe(true);
-    if (Exit.isFailure(observationExit)) {
-      expect(observationExit.cause.toString()).toContain(
-        observationDefect.message,
+      const observationDefect = new Error("query observation defect");
+      const observationResolver = createCommittedPointOutcomeResolverV1(
+        live.drizzle,
+        { observeQuery: () => { throw observationDefect; } },
       );
-      expect(observationExit.cause.toString()).not.toContain(
-        "CommittedPointOutcomeSqlErrorV1",
+      const observationExit = await Effect.runPromiseExit(
+        observationResolver.resolve(outcomeLookup("defect")),
       );
-    }
+      expect(Exit.isFailure(observationExit)).toBe(true);
+      if (Exit.isFailure(observationExit)) {
+        expect(observationExit.cause.toString()).toContain(
+          observationDefect.message,
+        );
+        expect(observationExit.cause.toString()).not.toContain(
+          "CommittedPointOutcomeSqlErrorV1",
+        );
+      }
+    });
   });
 });
 
