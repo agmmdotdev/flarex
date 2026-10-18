@@ -7,13 +7,13 @@ import { capturedAuthorityForStepReceipt } from "../../../src/installation/migra
 import { ensureFrameworkMigrationAttemptStartInTransactionEffect } from "../../../src/installation/migrationCoordination/migrationAttemptRepository";
 import { readFrameworkMigrationDirectCompletionsInTransactionEffect, ensureFrameworkMigrationCommittedCompletionInTransactionEffect } from "../../../src/installation/migrationCoordination/migrationStepReceiptRepository";
 import { createSuccessfulTerminalPlanValues, storeSuccessfulTerminalGraphInTransaction,
-  COORDINATOR_STARTED_AT, COORDINATOR_TERMINAL_AT } from "./frameworkCoordinatorRepositoryTestSupport";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+  COORDINATOR_STARTED_AT, COORDINATOR_TERMINAL_AT, useFileScopedFrameworkCoordinatorGraphPersistence } from "./frameworkCoordinatorRepositoryTestSupport";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
-describe("protected command direct completion references", () => {
-  it("encodes detached exact receipt bytes without granting restored or captured authority", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+describe("protected command direct completion references", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
+
+  it("encodes detached exact receipt bytes without granting restored or captured authority", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const graph = await persistence.drizzle.transaction(transaction => storeSuccessfulTerminalGraphInTransaction(transaction, values));
     const expected = graph.receipts.at(-1)?.receipt;
@@ -30,10 +30,9 @@ describe("protected command direct completion references", () => {
     expect(encoded).not.toHaveProperty("storageId");
     expect(await runEffectFailure(encodeFrameworkMigrationStepReceiptFrame({ ...input, unexpected: true })))
       .toMatchObject({ reason: "invalidInput" });
-  }, 90_000);
+  }), 90_000);
 
-  it("rereads exact committed roots and sidecars on replay and refuses altered returned projections", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rereads exact committed roots and sidecars on replay and refuses altered returned projections", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const graph = await persistence.drizzle.transaction(transaction => storeSuccessfulTerminalGraphInTransaction(transaction, values));
     const receipt = graph.receipts.at(-1);
@@ -58,10 +57,9 @@ describe("protected command direct completion references", () => {
       finally { reads.mockRestore(); }
     }
     expect(await replay()).toMatchObject({ storageId: receipt.storageId });
-  }, 90_000);
+  }), 90_000);
 
-  it.each([0, 14])("reads one normalized reference per direct edge with %i extra tables", async extraTables => {
-    const persistence = await createMigratedPGlitePersistence();
+  it.each([0, 14])("reads one normalized reference per direct edge with %i extra tables", extraTables => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues(extraTables);
     const graph = await persistence.drizzle.transaction(transaction => storeSuccessfulTerminalGraphInTransaction(transaction, values));
     const lineage = new Map([[graph.attempt.storageId, graph.attempt]]);
@@ -98,10 +96,9 @@ describe("protected command direct completion references", () => {
       expect(receipts).not.toHaveBeenCalled();
       expect(attempts).not.toHaveBeenCalled();
     } finally { reads.mockRestore(); receipts.mockRestore(); attempts.mockRestore(); }
-  }, 90_000);
+  }), 90_000);
 
-  it("retains the actual producer across takeover and refuses an unrelated greater fence", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("retains the actual producer across takeover and refuses an unrelated greater fence", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const graph = await persistence.drizzle.transaction(transaction => storeSuccessfulTerminalGraphInTransaction(transaction, values));
     const branches = await persistence.drizzle.transaction(async transaction => {
@@ -131,5 +128,5 @@ describe("protected command direct completion references", () => {
       readFrameworkMigrationDirectCompletionsInTransactionEffect(transaction, unrelated, unrelatedStep, unrelatedStep.ordinal,
         new Map([[unrelated.storageId, unrelated], [graph.attempt.storageId, graph.attempt]])),
     ))).toMatchObject({ reason: "storedCorruption" });
-  }, 90_000);
+  }), 90_000);
 });

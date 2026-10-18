@@ -12,13 +12,13 @@ import * as receiptRepository from "../../../src/installation/migrationCoordinat
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../../../src/installation/migrationCoordination/graphReadPass";
 import { ensureFrameworkMigrationAttemptStartInTransactionEffect, restoreFrameworkMigrationEventAttemptSubjectsInTransactionEffect } from "../../../src/installation/migrationCoordination/migrationAttemptRepository";
 import { restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect } from "../../../src/installation/migrationCoordination/migrationStepReceiptRepository";
-import { createSuccessfulTerminalPlanValues, storeSuccessfulTerminalGraphInTransaction, COORDINATOR_STARTED_AT, COORDINATOR_TERMINAL_AT } from "./frameworkCoordinatorRepositoryTestSupport";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import { createSuccessfulTerminalPlanValues, storeSuccessfulTerminalGraphInTransaction, COORDINATOR_STARTED_AT, COORDINATOR_TERMINAL_AT, useFileScopedFrameworkCoordinatorGraphPersistence } from "./frameworkCoordinatorRepositoryTestSupport";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
-describe("attempt evidence graph", () => {
-  it("refuses a changed canonical root during the terminal inventory reread", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+describe("attempt evidence graph", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
+
+  it("refuses a changed canonical root during the terminal inventory reread", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const graph = await persistence.drizzle.transaction(transaction => storeSuccessfulTerminalGraphInTransaction(transaction, values));
     const first = graph.receipts[0];
@@ -50,20 +50,18 @@ describe("attempt evidence graph", () => {
       })))).rejects.toMatchObject({ reason: "storedCorruption" });
       expect(altered).toBe(true);
     } finally { reads.mockRestore(); }
-  }, 90_000);
+  }), 90_000);
 
-  it("refuses a receipt graph borrowed from a different transaction", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("refuses a receipt graph borrowed from a different transaction", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const graph = await persistence.drizzle.transaction(transaction => storeSuccessfulTerminalGraphInTransaction(transaction, values));
     const foreign = await persistence.drizzle.transaction(async transaction => receiptRepository.makeFrameworkMigrationReceiptReadGraph(transaction));
     expect(await persistence.drizzle.transaction(transaction => runEffectFailure(
       restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect(transaction, graph.collision, [], "readEvent", undefined, foreign),
     ))).toMatchObject({ reason: "storedCorruption" });
-  }, 90_000);
+  }), 90_000);
 
-  it("retains an earlier empty terminal while later-fence receipts occupy the plan", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("retains an earlier empty terminal while later-fence receipts occupy the plan", () => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues();
     const graph = await persistence.drizzle.transaction(transaction => storeSuccessfulTerminalGraphInTransaction(transaction, values));
     const earlier = await persistence.drizzle.transaction(async transaction => {
@@ -95,10 +93,9 @@ describe("attempt evidence graph", () => {
     expect(emptyAuthority?.completedStepCount).toBe(0);
     expect(completeAuthority?.completedStepCount).toBe(graph.receipts.length);
     expect(emptyAuthority?.stepReceipts).toBe(completeAuthority?.stepReceipts);
-  }, 90_000);
+  }), 90_000);
 
-  it.each([{ count: 4, extraTables: 0 }, { count: 16, extraTables: 0 }, { count: 4, extraTables: 14 }])("shares receipt evidence across $count attempts and $extraTables extra tables", async ({ count, extraTables }) => {
-    const persistence = await createMigratedPGlitePersistence();
+  it.each([{ count: 4, extraTables: 0 }, { count: 16, extraTables: 0 }, { count: 4, extraTables: 14 }])("shares receipt evidence across $count attempts and $extraTables extra tables", ({ count, extraTables }) => withPersistence(async persistence => {
     const values = await createSuccessfulTerminalPlanValues(extraTables);
     const graph = await persistence.drizzle.transaction(transaction => storeSuccessfulTerminalGraphInTransaction(transaction, values));
     const attempts = [graph.attempt];
@@ -207,5 +204,5 @@ describe("attempt evidence graph", () => {
           [{ kind: "leaseRenewed", attemptId: graph.attempt.attempt.frame.attemptId, attemptFence: "999" }], "readEvent"),
       ))).toMatchObject({ reason: "storedCorruption" });
     } finally { reads.mockRestore(); issued.mockRestore(); receiptNodes.mockRestore(); prefixReads.mockRestore(); }
-  }, 120_000);
+  }), 120_000);
 });
