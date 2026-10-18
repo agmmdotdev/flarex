@@ -32,7 +32,6 @@ import {
   postgresUrl,
   rollbackAndReleasePostgresClient,
   useFileScopedPostgresPersistence,
-  withTemporaryPostgresPersistence,
 } from "../../support/postgresHelpers";
 import { runEffect, runEffectFailure as runFailure } from "../../support/effectTestRuntime";
 import { activatePointMutationSession, loadPointMutationSessionAttempt } from "./support/attemptFixture";
@@ -61,7 +60,7 @@ import {
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
-describePostgres("real Postgres O03-B session authority", () => {
+describePostgres("real Postgres O03-B session authority", { concurrent: false }, () => {
   const withPostgresPersistence = useFileScopedPostgresPersistence();
 
 
@@ -447,7 +446,7 @@ describePostgres("real Postgres O03-B session authority", () => {
 
 
   it("allows an independent scope to reload while another exact attempt is paused", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const contextA = await provisionContext(
         persistence,
@@ -490,20 +489,37 @@ describePostgres("real Postgres O03-B session authority", () => {
         loaderA,
         selectorFromAnchor(anchorA),
       );
-      await entered.promise;
-
-      let resultB;
+      let pendingB: ReturnType<typeof loadPointMutationSessionAttempt> | undefined;
+      const failures: unknown[] = [];
       try {
-        resultB = await Promise.race([
-          loadPointMutationSessionAttempt(loaderB, selectorFromAnchor(anchorB)),
+        await waitForTransactionEntryOrFailure(entered.promise, pendingA, "independent-scope paused reload");
+        pendingB = loadPointMutationSessionAttempt(loaderB, selectorFromAnchor(anchorB));
+        await Promise.race([
+          pendingB,
           delay(5_000).then(() => {
             throw new Error("Independent-scope attempt reload timed out.");
           }),
         ]);
+      } catch (cause: unknown) {
+        failures.push(cause);
       } finally {
         release.resolve();
+        for (const result of await Promise.allSettled([
+          pendingA,
+          ...(pendingB === undefined ? [] : [pendingB]),
+        ])) {
+          if (result.status === "rejected" && !failures.includes(result.reason)) {
+            failures.push(result.reason);
+          }
+        }
+      }
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) {
+        throw new AggregateError(failures, "Independent-scope reload and cleanup failed");
       }
       const resultA = await pendingA;
+      if (pendingB === undefined) throw new Error("Independent-scope reload did not start.");
+      const resultB = await pendingB;
 
       expect(resultA.anchor).toEqual(anchorA);
       expect(resultB.anchor).toEqual(anchorB);

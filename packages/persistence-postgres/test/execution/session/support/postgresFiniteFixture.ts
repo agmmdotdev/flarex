@@ -32,19 +32,12 @@ import {
 import type {
   LocatedReadCommittedAttemptTargetV1,
 } from "../../../../src/database/locatedTransactionIdentity";
-import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture, createCoLocatedReadInstallationFixture, rollbackAndReleasePostgresClient, withTemporaryPostgresPersistence } from "../../../support/postgresHelpers";
+import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture, createCoLocatedReadInstallationFixture, rollbackAndReleasePostgresClient } from "../../../support/postgresHelpers";
 import { getCoLocatedReadInstallationReferencesResult } from "../../../../src/installation/installationLifecycle";
 import { prepareProtectedMetadata } from "../../../../src/execution/preparation/preparedMetadataEpoch";
 import { runEffect, runEffectFailure as runFailure } from "../../../support/effectTestRuntime";
 import { pointMutationSessionActivationFixture } from "./activationEvidence";
 import { provisionContext, createExecutionClaimAcquisition, selectorFromAnchor, expireFiniteExecutionClaim, sharedLocator, uuidFactory } from "./postgresFixture";
-
-export async function withFiniteKernelFixture(label: string, profile: "direct" | "installed", expireSoon: boolean,
-  work: (persistence: PostgresFlarexPersistence, fixture: Awaited<ReturnType<typeof finiteBarrierFixture>>) => Promise<void>) {
-  if (profile === "direct") return withTemporaryPostgresPersistence(async persistence =>
-    work(persistence, await finiteBarrierFixture(persistence, label, expireSoon)), { transport: "finiteCapture" });
-  return withInstalledFiniteKernelFixture(label, expireSoon, work);
-}
 
 /** Hold the real claim row so the named statement retains its earlier authority
  * and installation locks. No consumer callback receives the statement's transaction. */

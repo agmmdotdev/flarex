@@ -23,7 +23,7 @@ import {
 } from "flarex-protocol/transaction-session";
 import type { PoolClient } from "pg";
 import { describe, expect, it, vi, type MockInstance } from "vitest";
-import { createPostgresLocatedRetainedHistoryFloorTarget } from "../../../src/database/postgres";
+import { createPostgresLocatedRetainedHistoryFloorTarget, type PostgresFlarexPersistence } from "../../../src/database/postgres";
 import type { AppRowTransaction } from "../../../src/storage/documents/appRows";
 import {
   fxControlScopes,
@@ -57,7 +57,6 @@ import { runEffect, runEffectFailure as runFailure } from "../../support/effectT
 import { provisionContext } from "./support/postgresFixture";
 import { transactionBackendPid, waitForTransactionEntryOrFailure, deferred } from "./support/postgresLocks";
 import {
-  withFiniteKernelFixture,
   holdNamedFiniteCapture,
   withInstalledFiniteKernelFixture,
   finiteBarrierFixture,
@@ -70,62 +69,12 @@ import {
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
-describePostgres("finite running authority barrier", () => {
-
-  describe("direct refusals", { concurrent: false }, () => {
-    const withFinitePersistence = useFileScopedPersistence(
-      () => createFileScopedPostgresFixture({}, {}, "finiteCapture"),
-      postgresUrl !== null,
-    );
-
-    for (const [dimension, reason] of [
-      ["generation", "unsupportedStorageGeneration"],
-      ["fence", "storageGenerationFenceChanged"],
-      ["epoch", "scopeEpochChanged"],
-    ] as const) {
-      it(`refuses changed ${dimension} before data and before later claim refusal`, async () => {
-        await withFinitePersistence(async persistence => {
-          const fixture = await finiteBarrierFixture(persistence, `refuse_${dimension}`, false);
-          const currentInput = await captureExpiredFiniteFixtureRecovery(persistence, fixture);
-          const nextFence = StorageGenerationFenceSchema.make(currentInput.preliminaryAuthority.storageGenerationFence + 1n);
-          const nextEpoch = ScopeEpochSchema.make("epoch_64000000-0000-4000-8000-000000000902");
-          await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set(
-            dimension === "generation" ? { storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1") }
-              : dimension === "fence" ? { storageGenerationFence: nextFence } : { epoch: nextEpoch },
-          ).where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.context.scopeId));
-          await expectFiniteRefusalBeforeData(persistence, fixture, currentInput, reason);
-          // Add only later refusals: generation precedes fence/epoch; fence
-          // precedes epoch; every authority refusal precedes the stale claim.
-          if (dimension !== "epoch") await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({
-            ...(dimension === "generation" ? { storageGenerationFence: nextFence } : {}), epoch: nextEpoch,
-          }).where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.context.scopeId));
-          await expectFiniteRefusalBeforeData(persistence, fixture,
-            { ...currentInput, executionClaim: fixture.input.executionClaim }, reason);
-        });
-      }, 120_000);
-    }
-
-
-    for (const dimension of ["owner", "fence"] as const) {
-      it(`refuses an independently stale claim ${dimension} before data`, async () => {
-        await withFinitePersistence(async persistence => {
-          const fixture = await finiteBarrierFixture(persistence, `refuse_claim_${dimension}`, false);
-          // Trusted negative storage fixture changes exactly one persisted claim
-          // scalar. The original issued owner input remains unchanged.
-          await persistence.query(`update fx_system_tx_session set ${dimension === "owner"
-            ? "finite_claim_owner = $2::uuid" : "finite_claim_fence = $2::bigint"} where session_id = $1`,
-          [fixture.activated.anchor.sessionId, dimension === "owner"
-            ? "64000000-0000-4000-8000-000000000901" : fixture.input.executionClaim.claimFence + 1n]);
-          await expectFiniteRefusalBeforeData(persistence, fixture, fixture.input, "ownershipChanged");
-        });
-      }, 120_000);
-    }
-  });
-
-  for (const profile of ["direct", "installed"] as const) {
+function registerFiniteKernelScenarios(profile: "direct" | "installed",
+  withFiniteKernelFixture: (label: string, expireSoon: boolean,
+    work: (persistence: PostgresFlarexPersistence, fixture: Awaited<ReturnType<typeof finiteBarrierFixture>>) => Promise<void>) => Promise<void>) {
   it.skipIf(profile === "installed" && !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
     `allows sequencer publication while retaining authority through lease expiry and floor publication${profile === "installed" ? " (qualified installed)" : ""}`, async () => {
-    await withFiniteKernelFixture("floor", profile, true, async (persistence, fixture) => {
+    await withFiniteKernelFixture("floor", true, async (persistence, fixture) => {
       const held = await holdNamedFiniteCapture(persistence, fixture);
       const reading = held.reading;
       void reading.catch(() => undefined);
@@ -177,13 +126,10 @@ describePostgres("finite running authority barrier", () => {
       }
     });
   }, 120_000);
-  }
 
-
-  for (const profile of ["direct", "installed"] as const) {
   it.skipIf(profile === "installed" && !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
     `holds revocation behind the finite reader and refuses the next frontier${profile === "installed" ? " (qualified installed)" : ""}`, async () => {
-    await withFiniteKernelFixture("revocation", profile, false, async (persistence, fixture) => {
+    await withFiniteKernelFixture("revocation", false, async (persistence, fixture) => {
       const held = await holdNamedFiniteCapture(persistence, fixture);
       const reading = held.reading;
       void reading.catch(() => undefined);
@@ -203,13 +149,10 @@ describePostgres("finite running authority barrier", () => {
       } finally { await held.release(); await reading.catch(() => undefined); await revocation?.catch(() => undefined); }
     });
   }, 120_000);
-  }
 
-
-  for (const profile of ["direct", "installed"] as const) {
   it.skipIf(profile === "installed" && !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
     `samples expiry after waiting for the live claim lock${profile === "installed" ? " (qualified installed)" : ""}`, async () => {
-    await withFiniteKernelFixture("expiry", profile, true, async (persistence, fixture) => {
+    await withFiniteKernelFixture("expiry", true, async (persistence, fixture) => {
       const held = await persistence.pool.connect();
       let pending: Promise<unknown> | undefined;
       let entered = false;
@@ -229,7 +172,136 @@ describePostgres("finite running authority barrier", () => {
       } finally { await rollbackAndReleasePostgresClient(held); await pending?.catch(() => undefined); }
     });
   }, 120_000);
-  }
+
+    it.skipIf(profile === "installed" && !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
+      `preserves exact anchor body, digest and scalar corruption refusal in the frontier projection (${profile})`, async () => {
+      await withFiniteKernelFixture("body_integrity", false, async (persistence, fixture) => {
+        const sessionId = fixture.activated.anchor.sessionId;
+        const original = (await persistence.drizzle.select({ body: fxSystemTransactionSessions.finiteAttemptBytes,
+          digest: fxSystemTransactionSessions.finiteAttemptSha256 }).from(fxSystemTransactionSessions)
+          .where(eq(fxSystemTransactionSessions.sessionId, sessionId)))[0];
+        if (original?.body === null || original?.body === undefined || original.digest === null)
+          throw new Error("Missing genuine finite anchor body");
+        for (const corrupt of ["body", "digest"] as const) {
+          const body = new Uint8Array(original.body), digest = new Uint8Array(original.digest);
+          if (corrupt === "body") body[body.length - 1] = body[body.length - 1]! ^ 1;
+          else digest[0] = digest[0]! ^ 1;
+          await persistence.drizzle.update(fxSystemTransactionSessions).set({ finiteAttemptBytes: body,
+            finiteAttemptSha256: digest }).where(eq(fxSystemTransactionSessions.sessionId, sessionId));
+          for (const input of [fixture.input]) {
+            let entered = false;
+            const failure = await runFailure(captureFiniteStorageEffect(fixture.target,
+              input, { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { entered = true; }))));
+            expect(failure).toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "storedCorruption" });
+            expect(entered).toBe(false);
+          }
+          await persistence.drizzle.update(fxSystemTransactionSessions).set({ finiteAttemptBytes: original.body,
+            finiteAttemptSha256: original.digest }).where(eq(fxSystemTransactionSessions.sessionId, sessionId));
+        }
+        const storedRequest = (await persistence.drizzle.select({ digest: fxSystemTransactionSessions.requestSha256 })
+          .from(fxSystemTransactionSessions).where(eq(fxSystemTransactionSessions.sessionId, sessionId)))[0];
+        if (storedRequest === undefined) throw new Error("Missing original request pin");
+        const changedRequest = new Uint8Array(storedRequest.digest);
+        changedRequest[0] = changedRequest[0]! ^ 1;
+        await persistence.drizzle.update(fxSystemTransactionSessions).set({ requestSha256: TransactionRequestSha256V1Schema.make(changedRequest) })
+          .where(eq(fxSystemTransactionSessions.sessionId, sessionId));
+        let enteredWithChangedRequest = false;
+        expect(await runFailure(captureFiniteStorageEffect(fixture.target, fixture.input, { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { enteredWithChangedRequest = true; })))))
+          .toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "storedCorruption" });
+        expect(enteredWithChangedRequest).toBe(false);
+        await persistence.drizzle.update(fxSystemTransactionSessions).set({ requestSha256: storedRequest.digest })
+          .where(eq(fxSystemTransactionSessions.sessionId, sessionId));
+        const acceptedRow = (await persistence.drizzle.select().from(fxSystemTransactionSessions)
+          .where(eq(fxSystemTransactionSessions.sessionId, sessionId)))[0];
+        if (acceptedRow === undefined) throw new Error("Missing genuinely accepted finite session");
+        await persistence.drizzle.update(fxSystemTransactionSessions).set({
+          policyVersion: TransactionPolicyVersionV1Schema.make(`${acceptedRow.policyVersion}_changed`),
+        }).where(eq(fxSystemTransactionSessions.sessionId, sessionId));
+        let enteredWithChangedPolicy = false;
+        expect(await runFailure(captureFiniteStorageEffect(fixture.target, fixture.input, { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { enteredWithChangedPolicy = true; })))))
+          .toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "storedCorruption" });
+        expect(enteredWithChangedPolicy).toBe(false);
+        await persistence.drizzle.update(fxSystemTransactionSessions).set({ policyVersion: acceptedRow.policyVersion })
+          .where(eq(fxSystemTransactionSessions.sessionId, sessionId));
+        // The persisted protocol constraint remains intact. Decode unsupported
+        // protocol scalars on a detached copy of this genuine accepted row, both
+        // with the original capture and at cold durable resolution.
+        const unsupportedProtocol = { ...acceptedRow };
+        Reflect.set(unsupportedProtocol, "protocolVersion", TRANSACTION_SESSION_PROTOCOL_VERSION_V1 + 1);
+        for (const anchor of [fixture.input.finiteAnchor, undefined]) {
+          let enteredWithUnsupportedProtocol = false;
+          expect(await runFailure(readFiniteAttemptAnchorRow(unsupportedProtocol, anchor).pipe(
+            Effect.flatMap(() => Effect.sync(() => { enteredWithUnsupportedProtocol = true; })),
+          ))).toMatchObject({ _tag: "FiniteAttemptAnchorError", reason: "storedCorruption" });
+          expect(enteredWithUnsupportedProtocol).toBe(false);
+        }
+        expect(await runFailure(captureFiniteStorageEffect(fixture.target, { selector: fixture.input.selector,
+          executionClaim: fixture.input.executionClaim, preliminaryAuthority: fixture.input.preliminaryAuthority },
+          { kind: "transactionTime" }))).toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "invalidInput" });
+        await runEffect(captureFiniteStorageEffect(fixture.target, fixture.input, { kind: "transactionTime" }));
+      });
+    }, 120_000);
+}
+
+describePostgres("finite running authority barrier", { concurrent: false }, () => {
+
+  describe("direct", { concurrent: false }, () => {
+    const withFinitePersistence = useFileScopedPersistence(
+      () => createFileScopedPostgresFixture({}, {}, "finiteCapture"),
+      postgresUrl !== null,
+    );
+
+    for (const [dimension, reason] of [
+      ["generation", "unsupportedStorageGeneration"],
+      ["fence", "storageGenerationFenceChanged"],
+      ["epoch", "scopeEpochChanged"],
+    ] as const) {
+      it(`refuses changed ${dimension} before data and before later claim refusal`, async () => {
+        await withFinitePersistence(async persistence => {
+          const fixture = await finiteBarrierFixture(persistence, `refuse_${dimension}`, false);
+          const currentInput = await captureExpiredFiniteFixtureRecovery(persistence, fixture);
+          const nextFence = StorageGenerationFenceSchema.make(currentInput.preliminaryAuthority.storageGenerationFence + 1n);
+          const nextEpoch = ScopeEpochSchema.make("epoch_64000000-0000-4000-8000-000000000902");
+          await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set(
+            dimension === "generation" ? { storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1") }
+              : dimension === "fence" ? { storageGenerationFence: nextFence } : { epoch: nextEpoch },
+          ).where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.context.scopeId));
+          await expectFiniteRefusalBeforeData(persistence, fixture, currentInput, reason);
+          // Add only later refusals: generation precedes fence/epoch; fence
+          // precedes epoch; every authority refusal precedes the stale claim.
+          if (dimension !== "epoch") await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({
+            ...(dimension === "generation" ? { storageGenerationFence: nextFence } : {}), epoch: nextEpoch,
+          }).where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.context.scopeId));
+          await expectFiniteRefusalBeforeData(persistence, fixture,
+            { ...currentInput, executionClaim: fixture.input.executionClaim }, reason);
+        });
+      }, 120_000);
+    }
+
+
+    for (const dimension of ["owner", "fence"] as const) {
+      it(`refuses an independently stale claim ${dimension} before data`, async () => {
+        await withFinitePersistence(async persistence => {
+          const fixture = await finiteBarrierFixture(persistence, `refuse_claim_${dimension}`, false);
+          // Trusted negative storage fixture changes exactly one persisted claim
+          // scalar. The original issued owner input remains unchanged.
+          await persistence.query(`update fx_system_tx_session set ${dimension === "owner"
+            ? "finite_claim_owner = $2::uuid" : "finite_claim_fence = $2::bigint"} where session_id = $1`,
+          [fixture.activated.anchor.sessionId, dimension === "owner"
+            ? "64000000-0000-4000-8000-000000000901" : fixture.input.executionClaim.claimFence + 1n]);
+          await expectFiniteRefusalBeforeData(persistence, fixture, fixture.input, "ownershipChanged");
+        });
+      }, 120_000);
+    }
+
+    registerFiniteKernelScenarios("direct", (label, expireSoon, work) =>
+      withFinitePersistence(async persistence =>
+        work(persistence, await finiteBarrierFixture(persistence, label, expireSoon))));
+  });
+
+  describe("installed", { concurrent: false }, () => {
+    registerFiniteKernelScenarios("installed", withInstalledFiniteKernelFixture);
+  });
 
 
   it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
@@ -325,77 +397,6 @@ describePostgres("finite running authority barrier", () => {
     });
   }, 180_000);
 
-
-  for (const profile of ["direct", "installed"] as const) {
-    it.skipIf(profile === "installed" && !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
-      `preserves exact anchor body, digest and scalar corruption refusal in the frontier projection (${profile})`, async () => {
-      await withFiniteKernelFixture("body_integrity", profile, false, async (persistence, fixture) => {
-        const sessionId = fixture.activated.anchor.sessionId;
-        const original = (await persistence.drizzle.select({ body: fxSystemTransactionSessions.finiteAttemptBytes,
-          digest: fxSystemTransactionSessions.finiteAttemptSha256 }).from(fxSystemTransactionSessions)
-          .where(eq(fxSystemTransactionSessions.sessionId, sessionId)))[0];
-        if (original?.body === null || original?.body === undefined || original.digest === null)
-          throw new Error("Missing genuine finite anchor body");
-        for (const corrupt of ["body", "digest"] as const) {
-          const body = new Uint8Array(original.body), digest = new Uint8Array(original.digest);
-          if (corrupt === "body") body[body.length - 1] = body[body.length - 1]! ^ 1;
-          else digest[0] = digest[0]! ^ 1;
-          await persistence.drizzle.update(fxSystemTransactionSessions).set({ finiteAttemptBytes: body,
-            finiteAttemptSha256: digest }).where(eq(fxSystemTransactionSessions.sessionId, sessionId));
-          for (const input of [fixture.input]) {
-            let entered = false;
-            const failure = await runFailure(captureFiniteStorageEffect(fixture.target,
-              input, { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { entered = true; }))));
-            expect(failure).toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "storedCorruption" });
-            expect(entered).toBe(false);
-          }
-          await persistence.drizzle.update(fxSystemTransactionSessions).set({ finiteAttemptBytes: original.body,
-            finiteAttemptSha256: original.digest }).where(eq(fxSystemTransactionSessions.sessionId, sessionId));
-        }
-        const storedRequest = (await persistence.drizzle.select({ digest: fxSystemTransactionSessions.requestSha256 })
-          .from(fxSystemTransactionSessions).where(eq(fxSystemTransactionSessions.sessionId, sessionId)))[0];
-        if (storedRequest === undefined) throw new Error("Missing original request pin");
-        const changedRequest = new Uint8Array(storedRequest.digest);
-        changedRequest[0] = changedRequest[0]! ^ 1;
-        await persistence.drizzle.update(fxSystemTransactionSessions).set({ requestSha256: TransactionRequestSha256V1Schema.make(changedRequest) })
-          .where(eq(fxSystemTransactionSessions.sessionId, sessionId));
-        let enteredWithChangedRequest = false;
-        expect(await runFailure(captureFiniteStorageEffect(fixture.target, fixture.input, { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { enteredWithChangedRequest = true; })))))
-          .toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "storedCorruption" });
-        expect(enteredWithChangedRequest).toBe(false);
-        await persistence.drizzle.update(fxSystemTransactionSessions).set({ requestSha256: storedRequest.digest })
-          .where(eq(fxSystemTransactionSessions.sessionId, sessionId));
-        const acceptedRow = (await persistence.drizzle.select().from(fxSystemTransactionSessions)
-          .where(eq(fxSystemTransactionSessions.sessionId, sessionId)))[0];
-        if (acceptedRow === undefined) throw new Error("Missing genuinely accepted finite session");
-        await persistence.drizzle.update(fxSystemTransactionSessions).set({
-          policyVersion: TransactionPolicyVersionV1Schema.make(`${acceptedRow.policyVersion}_changed`),
-        }).where(eq(fxSystemTransactionSessions.sessionId, sessionId));
-        let enteredWithChangedPolicy = false;
-        expect(await runFailure(captureFiniteStorageEffect(fixture.target, fixture.input, { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { enteredWithChangedPolicy = true; })))))
-          .toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "storedCorruption" });
-        expect(enteredWithChangedPolicy).toBe(false);
-        await persistence.drizzle.update(fxSystemTransactionSessions).set({ policyVersion: acceptedRow.policyVersion })
-          .where(eq(fxSystemTransactionSessions.sessionId, sessionId));
-        // The persisted protocol constraint remains intact. Decode unsupported
-        // protocol scalars on a detached copy of this genuine accepted row, both
-        // with the original capture and at cold durable resolution.
-        const unsupportedProtocol = { ...acceptedRow };
-        Reflect.set(unsupportedProtocol, "protocolVersion", TRANSACTION_SESSION_PROTOCOL_VERSION_V1 + 1);
-        for (const anchor of [fixture.input.finiteAnchor, undefined]) {
-          let enteredWithUnsupportedProtocol = false;
-          expect(await runFailure(readFiniteAttemptAnchorRow(unsupportedProtocol, anchor).pipe(
-            Effect.flatMap(() => Effect.sync(() => { enteredWithUnsupportedProtocol = true; })),
-          ))).toMatchObject({ _tag: "FiniteAttemptAnchorError", reason: "storedCorruption" });
-          expect(enteredWithUnsupportedProtocol).toBe(false);
-        }
-        expect(await runFailure(captureFiniteStorageEffect(fixture.target, { selector: fixture.input.selector,
-          executionClaim: fixture.input.executionClaim, preliminaryAuthority: fixture.input.preliminaryAuthority },
-          { kind: "transactionTime" }))).toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "invalidInput" });
-        await runEffect(captureFiniteStorageEffect(fixture.target, fixture.input, { kind: "transactionTime" }));
-      });
-    }, 120_000);
-  }
 
 
   it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
