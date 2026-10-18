@@ -1,5 +1,6 @@
 import { Effect, Result, Schema } from "effect";
 import { coerceFilterValue } from "@medusajs/drizzle/filter-value";
+import { MedusaError } from "@medusajs/framework/utils/portable";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, commerceLimits } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { PreparedLocalGraph } from "../local-graph/model";
@@ -15,12 +16,31 @@ const decodeRemote = commerceDecoder(Schema.Union([
     variables: Schema.Struct({ id: Schema.Array(Schema.UndefinedOr(Schema.String)).check(Schema.isMaxLength(commerceLimits.catalogRows)) }) }),
   Schema.Struct({ service: Name, fields: Fields, variables: Schema.Struct({ filters: Schema.JsonObject }) }),
 ]), "unsupportedProfile");
+const decodeSingleton = commerceDecoder(Schema.Tuple([
+  Schema.Struct({ entryPoint: Schema.Literal("stock_location"), fields: Fields, variables: Schema.Struct({ id: Schema.String }) }),
+  Schema.Struct({ throwIfKeyNotFound: Schema.Literal(true), throwIfRelationNotFound: Schema.optionalKey(Schema.Undefined) }),
+]), "unsupportedProfile");
 
-/** Two selected native callable ABIs over the same authenticated graph. This
+/** Selected native callable ABIs over the same authenticated graph. This
  * facade owns no reads, synthetic rows, aliases, transactions or finalization. */
 export function bindWorkflowQuery(graph: PreparedLocalGraph, context: AtomicCommerceContext, owner: CommercePromiseOwner) {
   const query = graph.bind(context);
   const remote = (...args: unknown[]) => owner.run(Effect.gen(function* () {
+    if (args.length === 2) {
+      const [input] = yield* checkedCommerceValue(context, () => captureWorkflowInput(args).pipe(Result.flatMap(decodeSingleton)));
+      // The pinned singleton RemoteQuery and graph both remove hydration-only
+      // join columns. Existing array-ID and service callers retain their native
+      // projection, including their admitted Link join fields.
+      const result = yield* query.graph({ entity: input.entryPoint, fields: input.fields,
+        filters: { id: [input.variables.id] }, pagination: { take: commerceLimits.catalogRows } });
+      if (result.metadata.count > commerceLimits.catalogRows) return yield* context.refuse(commerceError("unsupportedProfile"));
+      if (result.data.length !== result.metadata.count || result.data.length > 1) return yield* context.refuse(commerceError("storedCorruption"));
+      // This is the native business failure, not an ABI or authority refusal.
+      // The workflow's existing invoke owner latches an unhandled rejection.
+      if (result.data.length === 0) return yield* Effect.fail(commerceError("adapterFailure",
+        new MedusaError(MedusaError.Types.NOT_FOUND, "StockLocation id not found: " + input.variables.id)));
+      return result.data;
+    }
     if (args.length !== 1) return yield* context.refuse(commerceError("unsupportedProfile"));
     const input = yield* checkedCommerceValue(context, () => captureWorkflowInput(args[0]).pipe(Result.flatMap(decodeRemote)));
     const result = yield* "entryPoint" in input

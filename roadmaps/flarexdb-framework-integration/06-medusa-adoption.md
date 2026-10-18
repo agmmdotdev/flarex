@@ -508,6 +508,32 @@ and lifecycle owners also retain the existing Set/Zone profiles and bounds.
 Fresh private installation is reused without a new schema or migration;
 public/hosted activation and populated upgrades remain separate.
 
+The [native Fulfillment creation](./preflight/141-native-fulfillment-creation.md)
+root is implemented for one private local Manual fulfillment, an optional
+delivery Address, up to four Items and four Labels. Genuine singleton Location
+Query, provider creation, exception cleanup and retained native cancellation
+borrow one outer settlement. Signed/fractional quantities, original creation
+DTOs, provider-updated storage, optional-field omissions and native cancellation
+guards remain distinct. Historical reference visibility masks read DTOs without
+rewriting stored FKs. The named profile uses 128 calls, the existing 64-event
+and 1 MiB limits, and a 30-second command lifetime.
+
+Fresh composition selects the complete twelve-table native Fulfillment source;
+the integrated Shipping Option consumers reuse it. Real standalone eight-table
+consumers retain their named selection. This is no populated-source upgrade.
+Public/hosted activation, external providers and broader Fulfillment workflows
+remain separate.
+
+Physical Option deletion with existing Fulfillment references remains a
+connected compatibility gate. Both unchanged native backends clear that FK
+without touching Fulfillment timestamps or emitting its update event; Drizzle
+does so through `detachDeletedRelations`, independently of SQLite FK DDL.
+The shared Medusa lifecycle and physical receipt owners must gain the native
+metadata-derived detachment using existing core set-null mechanics, with pending
+and historical-row proofs, before broader composed deletion/inverse support is
+claimed. The create/cancel slice changes no FK rule and establishes no such
+deletion parity.
+
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
 The genuine creation step remains unchanged and returns complete native rows,

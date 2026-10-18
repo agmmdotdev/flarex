@@ -9,6 +9,7 @@ import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persis
 import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
 import { makeStockLocationCommands } from "../../src/modules/stock-location/service";
 import { makeLocalShippingOptionCreationCommands } from "../../src/modules/fulfillment/shipping-option-create-service";
+import { compileFulfillmentCreationDefinition } from "../../src/modules/fulfillment/shipping-profile-schema";
 import { makeLocalPricingCommands } from "../../src/modules/pricing/service";
 import { makeLocalRegionReadCommands } from "../../src/modules/region/service";
 import { prepareLocationFulfillmentSetLinkRead } from "../../src/links/location-fulfillment-set-service";
@@ -52,7 +53,7 @@ export function shippingOptionCreationInput(prefix: string, count = 1): typeof S
 export async function prepareLogicalShippingOptionCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
   shared?: Readonly<{ resource: LogicalCurrencyFixture["resource"];
     fixtureIdentity: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }> }>) {
-  const configuration = { includeShippingProfile: true, includeServiceZoneCreation: true,
+  const configuration = { includeShippingProfile: true, includeServiceZoneCreation: true, includeFulfillmentCreation: true,
     includeStockLocation: true, includeLocationFulfillmentSetLink: true, includeLocationFulfillmentProviderLink: true,
     includeShippingOptionPriceSetLink: true, includePricing: true, includeRegion: true };
   const fixture = await logicalCurrencyFixture(driver, close, shared === undefined ? configuration : { ...configuration, ...shared });
@@ -60,7 +61,7 @@ export async function prepareLogicalShippingOptionCreation(driver: "pglite" | "p
     region = await Effect.runPromise(makeLocalRegionReadCommands()), stockLocation = await Effect.runPromise(makeStockLocationCommands("read")),
     locationLinks = await Effect.runPromise(prepareLocationFulfillmentSetLinkRead()), providerLinks = await Effect.runPromise(prepareLocationFulfillmentProviderLink()),
     priceSetLinks = await Effect.runPromise(prepareShippingOptionPriceSetLink());
-  const definitions = { fulfillment: fixture.shippingProfileDefinition, pricing: fixture.pricingDefinition, region: fixture.regionDefinition,
+  const definitions = { fulfillment: await Effect.runPromise(compileFulfillmentCreationDefinition()), pricing: fixture.pricingDefinition, region: fixture.regionDefinition,
     stockLocation: fixture.stockLocationDefinition, locationLinks: fixture.locationFulfillmentSetLinkDefinition,
     providerLinks: fixture.locationFulfillmentProviderLinkDefinition, priceSetLinks: fixture.shippingOptionPriceSetLinkDefinition };
   const initialize = async (key: string, definition: NonNullable<typeof definitions.fulfillment> | undefined,

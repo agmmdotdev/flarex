@@ -18,6 +18,7 @@ import { NativePreimageConfig, nativePreimageSelection } from "../../workflow/pr
 import { captureStockLocationMetadata } from "./schema";
 import { prepareStockLocationUpdateRepository } from "./update-repository";
 import { stockLocationUpdateEventPolicy } from "./update-events";
+import { compileStockLocationUpdateReadReceipt } from "./update-read-receipt";
 import { compileStockLocationUpdateContracts, StockLocationUpdateSelector, StockLocationRootUpdate,
   StockLocationAddressSelector, StockLocationAddressUpserts, StockLocationUpdateReadInput, StockLocationAddressReadInput,
   decodeStockLocationRootUpdateInput, decodeStockLocationAddressUpserts } from "./update-input";
@@ -37,6 +38,7 @@ export const makeStockLocationUpdateCommands = Effect.fn("StockLocationAdapter.u
     if (table === undefined || address === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const prepared = yield* prepareStockLocationUpdateRepository(table, address);
     const contracts = yield* compileStockLocationUpdateContracts(table, address);
+    const validateRead = yield* compileStockLocationUpdateReadReceipt(table, address, prepared.reads);
     const module = yield* defineCommerceModule({ name: "flarex-stock-location-update", models: [StockLocation, StockLocationAddress],
       profile: { name: "stock-location-update", capabilities: [], bind: (ctx, owner) => {
         const bound = prepared.bind(ctx, owner);
@@ -67,7 +69,7 @@ export const makeStockLocationUpdateCommands = Effect.fn("StockLocationAdapter.u
     const graph: GraphModuleDefinition = { aliases: yield* moduleAliases({ ...joiner,
       alias: (Array.isArray(joiner.alias) ? joiner.alias : []).filter(alias => alias.entity === "StockLocation") }),
       reads: [{ model: "StockLocation", command: count, table: prepared.table,
-        paths: [{ path: "address", table: prepared.address, many: false, optional: true }],
+        paths: [{ path: "address", table: prepared.address, many: false, optional: true, sourceFields: [...prepared.reads.relation.join.foreignKeys] }],
         orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] };
     const read = graph.reads[0];
     if (read === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
@@ -88,7 +90,7 @@ export const makeStockLocationUpdateCommands = Effect.fn("StockLocationAdapter.u
     const admitted = [list, count, listAddresses, upsertAddresses, updateBySelector];
     const workflow = yield* defineWorkflowModule({ name: Modules.STOCK_LOCATION, source: module.description,
       methods: { listStockLocations, listStockLocationAddresses, upsertStockLocationAddresses, updateStockLocations }, graph,
-      logical: { ...stockLocationUpdateEventPolicy(contracts), commands: admitted } });
+      logical: { ...stockLocationUpdateEventPolicy(contracts, validateRead), commands: admitted } });
     return { list, count, listAddresses, upsertAddresses, updateBySelector, commands: admitted, workflow, graph, withService: module.use };
   }));
 });

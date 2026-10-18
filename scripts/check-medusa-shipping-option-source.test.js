@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
+import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 
 const root = process.cwd();
 /** @param {string} file */
@@ -14,6 +14,42 @@ const upsert = "steps/upsert-shipping-options.ts";
 const providers = "steps/validate-fulfillment-providers.ts";
 const validation = "steps/validate-shipping-option-prices.ts";
 const emit = "../common/steps/emit-event.ts";
+
+describe("complete native Fulfillment creation and retained cancellation", () => {
+  const creating = "workflows/create-fulfillment.ts", step = "steps/create-fulfillment.ts";
+  it("authenticates the complete native callback packet with erased partial-query types", () => {
+    expect(() => verifyFulfillmentCreationCallbacks(root)).not.toThrow();
+    expect(() => verifyFulfillmentCreationCallbacks(root, { [creating]: { target: target(creating)
+      .replace("const location =", "const location: unknown =") + "\n// erased formatting\n" } })).not.toThrow();
+  });
+  it.each([
+    ["actual Location selector", creating, "variables: { id: input.location_id }", "variables: { id: input.provider_id }"],
+    ["selected native Address country", creating, '"address.country_code"', '"address.city"'],
+    ["singleton result", creating, "list: false", "list: true"],
+    ["missing Location failure", creating, "throw_if_key_not_found: true", "throw_if_key_not_found: false"],
+    ["queried Location overrides input", creating, "        location,", "        location: input.location,"],
+    ["genuine service input", step, "service.createFulfillment(data)", "service.createFulfillment({})"],
+    ["retained fulfillment identity", step, "new StepResponse(fulfillment, fulfillment.id)", "new StepResponse(fulfillment, data.location_id)"],
+    ["native cancellation inverse", step, "service.cancelFulfillment(id)", "service.deleteFulfillment(id)"],
+    ["finite compensation selection", step, 'compensation: "transactionCovered"', 'compensation: "none"'],
+  ])("rejects changed %s", (_name, file, before, after) => {
+    const original = target(file), changed = original.replace(before, after);
+    expect(changed).not.toBe(original);
+    expect(() => verifyFulfillmentCreationCallbacks(root, { [file]: { target: changed } }))
+      .toThrow("Changed native Fulfillment creation callback behavior");
+  });
+  it.each([creating, step])("rejects arbitrary extra runtime outside the native callbacks in %s", file => {
+    for (const extra of ['\nthrow new Error("extra");', '\nexport async function additionalHandler() { return null; }']) {
+      expect(() => verifyFulfillmentCreationCallbacks(root, { [file]: { target: target(file) + extra } })).toThrow();
+    }
+  });
+  it("rejects changed import adaptation anchors and unrelated packet files", () => {
+    const native = readFileSync(path.join(root, "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment", creating), "utf8");
+    expect(() => verifyFulfillmentCreationCallbacks(root, { [creating]: { source: native.replace('from "../steps"', 'from "../other-step"') } }))
+      .toThrow("native adaptation anchor");
+    expect(() => verifyFulfillmentCreationCallbacks(root, { unknown: { target: "" } })).toThrow("unknown packet file");
+  });
+});
 
 describe("native Shipping Option deletion composer and retained IDs", () => {
   const deleting = "workflows/delete-shipping-options.ts", step = "steps/delete-shipping-options.ts";

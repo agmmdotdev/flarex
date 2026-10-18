@@ -3,6 +3,11 @@
   "version": "2.13.4",
   "private": true,
   "exports": {
+    "./common/trim-zeros": {
+      "types": "./dist/common/trim-zeros.d.ts",
+      "source": "./src/common/trim-zeros.ts",
+      "default": "./dist/common/trim-zeros.js"
+    },
     "./common/merge-metadata": {
       "types": "./dist/common/merge-metadata.d.ts",
       "source": "./src/common/merge-metadata.ts",

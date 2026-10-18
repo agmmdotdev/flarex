@@ -80,13 +80,94 @@ const rows: readonly Json[] = [
   [[{ id: "c", detail_id: "d", detail: { id: "d" } }], 1], [[{ detail_id: "d", place_id: "p" }], 1],
   [[{ id: "p" }], 1], [[{ place_id: "p", credential_id: "key" }], 1], [[{ id: "key" }], 1],
 ];
-async function withQuery<Value>(results: readonly Json[], work: (query: ReturnType<typeof bindWorkflowQuery>, calls: Array<{ command: unknown; args: Json }>) => Promise<Value>) {
+async function withQuery<Value>(results: readonly Json[], work: (query: ReturnType<typeof bindWorkflowQuery>, calls: Array<{ command: unknown; args: Json }>) => Promise<Value>, selected = participants()) {
   const owner = await runEffect(makeCommercePromiseOwner()), calls: Array<{ command: unknown; args: Json }> = [];
-  try { return await work(bindWorkflowQuery(Result.getOrThrow(prepareLocalGraph(participants())), context(results, calls), owner), calls); }
+  try { return await work(bindWorkflowQuery(Result.getOrThrow(prepareLocalGraph(selected)), context(results, calls), owner), calls); }
   finally { await runEffect(owner.close); }
 }
+const singletonParticipants = (): GraphParticipant[] => [{ participant: defineAtomicCommerceParticipant("neutral-singleton"), module: {
+  aliases: [{ name: "stock_location", model: "StockLocation" }], reads: [{
+    ...read("StockLocation", containerRead, { ...table("location", ["id", "name", "address_id"]), foreignKeys: ["address_id"] }),
+    paths: [{ path: "address", table: table("address", ["id", "city"]), many: false, optional: true, sourceFields: ["address_id"] }],
+  }],
+} }];
+const singletonInput = { entryPoint: "stock_location", fields: ["id", "name", "address.id", "address.city"], variables: { id: "sloc" } };
+const singletonOptions = { throwIfKeyNotFound: true, throwIfRelationNotFound: undefined };
 
 describe("bounded native callable Query boundaries", () => {
+  it("projects exact native singleton fields without leaking the Address hydration key", async () => {
+    await withQuery([[[{ id: "sloc", name: "Warehouse", address_id: "addr", address: { id: "addr", city: "Yangon" } }], 1]], async (query, calls) => {
+      expect(await query(singletonInput, singletonOptions)).toStrictEqual([{ id: "sloc", name: "Warehouse", address: { id: "addr", city: "Yangon" } }]);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.args).toMatchObject({ filters: { id: ["sloc"] }, config: { relations: ["address"], take: 256 } });
+    }, singletonParticipants());
+    await withQuery([[[{ id: "sloc", name: "Warehouse", address_id: null, address: null }], 1]], async query => {
+      expect(await query(singletonInput, singletonOptions)).toStrictEqual([{ id: "sloc", name: "Warehouse", address: null }]);
+    }, singletonParticipants());
+  });
+
+  it("preserves the native not-found failure and its exact error cause", async () => {
+    await withQuery([[[], 0]], async query => {
+      await expect(query(singletonInput, singletonOptions)).rejects.toMatchObject({ reason: "adapterFailure",
+        cause: { type: "not_found", message: "StockLocation id not found: sloc" } });
+    }, singletonParticipants());
+  });
+
+  it("allows native not-found recovery before an unrelated Query without latching refusal", async () => {
+    const owner = await runEffect(makeCommercePromiseOwner());
+    const calls: Array<{ command: unknown; args: Json }> = [], refusals: unknown[] = [];
+    const ctx = context([[[], 0], [[{ id: "other" }], 1]], calls);
+    const graph = Result.getOrThrow(prepareLocalGraph(singletonParticipants()));
+    const query = bindWorkflowQuery(graph, { ...ctx, refuse: error => {
+      refusals.push(error);
+      return ctx.refuse(error);
+    } }, owner);
+    try {
+      await expect(query(singletonInput, singletonOptions)).rejects.toMatchObject({ reason: "adapterFailure",
+        cause: { type: "not_found", message: "StockLocation id not found: sloc" } });
+      expect(await query.graph({ entity: "stock_location", fields: ["id"], filters: { id: ["other"] }, pagination: { take: 1 } }))
+        .toStrictEqual({ data: [{ id: "other" }], metadata: { count: 1, skip: 0, take: 1 } });
+      expect(calls).toHaveLength(2);
+      expect(calls[1]?.args).toMatchObject({ filters: { id: ["other"] } });
+      expect(refusals).toEqual([]);
+    } finally { await runEffect(owner.close); }
+  });
+
+  it("refuses broader singleton options before dispatch and preserves no-getter capture", async () => {
+    const getter = vi.fn(() => true);
+    const accessor = Object.defineProperty({}, "throwIfKeyNotFound", { enumerable: true, get: getter });
+    await withQuery([], async (query, calls) => {
+      for (const args of [[singletonInput], [singletonInput, {}], [singletonInput, { throwIfKeyNotFound: false }],
+        [singletonInput, { ...singletonOptions, throwIfRelationNotFound: true }], [singletonInput, { ...singletonOptions, unknown: true }],
+        [singletonInput, singletonOptions, undefined],
+        [{ ...singletonInput, entryPoint: "container" }, singletonOptions],
+        [{ ...singletonInput, variables: { filters: { id: "sloc" } } }, singletonOptions],
+        [{ ...singletonInput, variables: { id: ["sloc"] } }, singletonOptions]]) {
+        await expect(query(...args)).rejects.toMatchObject({ reason: "unsupportedProfile" });
+      }
+      // Descriptor/prototype rejection belongs to the shared value-capture
+      // owner and precedes the selected Query ABI decoder.
+      for (const options of [accessor, Object.create(singletonOptions)]) {
+        await expect(query(singletonInput, options)).rejects.toMatchObject({ reason: "invalidInput" });
+      }
+      expect(calls).toHaveLength(0);
+    }, singletonParticipants());
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it("refuses incomplete or multirow singleton results and closes the callable with its owner", async () => {
+    for (const result of [[[{ id: "sloc", name: "Warehouse", address: null }], 2],
+      [[{ id: "sloc", name: "Warehouse", address: null }, { id: "other", name: "Other", address: null }], 2]] satisfies Json[]) {
+      await withQuery([result], async query => {
+        await expect(query(singletonInput, singletonOptions)).rejects.toMatchObject({ reason: "storedCorruption" });
+      }, singletonParticipants());
+    }
+    let retained: ReturnType<typeof bindWorkflowQuery> | undefined;
+    await withQuery([], async query => { retained = query; }, singletonParticipants());
+    if (retained === undefined) throw new Error("Missing closed Query fixture");
+    await expect(retained(singletonInput, singletonOptions)).rejects.toMatchObject({ reason: "closed" });
+  });
+
   it("uses native singleton aliases, optional extension entities and checked endpoints across a local prefix and two Links", async () => {
     expect(paths()).toMatchObject([{ sourceModel: "Detail", targetModel: "Place", path: "detail.places" },
       { sourceModel: "Place", targetModel: "Credential", path: "detail.places.credentials" }]);

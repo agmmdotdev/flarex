@@ -1,6 +1,6 @@
 // @ts-check
 import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
-import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
+import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 import { verifyPricingNormalizationExtraction } from "./check-medusa-pricing-normalization.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
@@ -511,6 +511,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyShippingOptionCreateCallbacks(root);
   verifyShippingOptionUpdateCallbacks(root);
   verifyShippingOptionDeleteCallbacks(root);
+  verifyFulfillmentCreationCallbacks(root);
   verifyNativeFilterValue(
     readFileSync(path.join(root, sourcePrefix + "packages/database/drizzle/src/repository.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-drizzle/src/filter-value.ts"), "utf8"));
@@ -532,7 +533,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   const shippingUnchangedSources = new Map([
     ...["common.ts", "mutations.ts", "service.ts", "index.ts"].map(file =>
       shippingSourcePair("packages/medusa-types/src/region/" + file, "packages/core/types/src/region/" + file)),
-    ...["create-shipping-options.ts", "update-shipping-options.ts", "delete-shipping-options.ts"].map(file =>
+    ...["create-shipping-options.ts", "update-shipping-options.ts", "delete-shipping-options.ts", "create-fulfillment.ts"].map(file =>
       shippingSourcePair("packages/medusa-types/src/workflow/fulfillment/" + file, "packages/core/types/src/workflow/fulfillment/" + file)),
     ["packages/medusa-utils/src/fulfillment/provider.ts", "packages/core/utils/src/fulfillment/provider.ts"],
     ["packages/medusa-utils/src/link/links.ts", "packages/core/utils/src/link/links.ts"],
@@ -549,7 +550,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       ["workflows/create-shipping-options.ts", "steps/upsert-shipping-options.ts", "steps/validate-fulfillment-providers.ts",
         "steps/validate-shipping-option-prices.ts", "steps/add-shipping-options-prices.ts", "steps/set-shipping-options-price-sets.ts",
         "workflows/update-shipping-options.ts", "steps/set-shipping-options-prices.ts",
-        "workflows/delete-shipping-options.ts", "steps/delete-shipping-options.ts"]
+        "workflows/delete-shipping-options.ts", "steps/delete-shipping-options.ts",
+        "workflows/create-fulfillment.ts", "steps/create-fulfillment.ts"]
         .includes(file.target.slice("packages/medusa-core-flows/src/fulfillment/".length)) &&
       (file.classification !== "workflowFork" || file.source !== sourcePrefix + "packages/core/core-flows/src/" + file.target.slice("packages/medusa-core-flows/src/".length)))
       throw new Error("Shipping Option workflow outside its exact pinned source pair");

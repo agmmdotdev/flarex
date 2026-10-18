@@ -5,11 +5,18 @@ import type { LogicalCallReceiptValidation } from "../src/repository/call-receip
 import { captureStockLocationMetadata } from "../src/modules/stock-location/schema";
 import { compileStockLocationUpdateContracts } from "../src/modules/stock-location/update-input";
 import { stockLocationUpdateEventPolicy } from "../src/modules/stock-location/update-events";
+import { prepareStockLocationUpdateRepository } from "../src/modules/stock-location/update-repository";
+import { compileStockLocationUpdateReadReceipt } from "../src/modules/stock-location/update-read-receipt";
+import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
+import { commerceRelationReadQuery } from "../src/query/relations";
+import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
+import { captureCommerceInput } from "../src/value/input";
 
 type Call = Parameters<LogicalCallReceiptValidation>[0];
 type Activity = Parameters<LogicalCallReceiptValidation>[1];
 let contracts: Result.Result.Success<ReturnType<typeof compileStockLocationUpdateContracts>>;
 let policy: ReturnType<typeof stockLocationUpdateEventPolicy>;
+let prepared: Result.Result.Success<ReturnType<typeof prepareStockLocationUpdateRepository>>;
 const instant = "2026-10-16T00:00:00.000Z", changed = "2026-10-16T00:01:00.000Z";
 const location = (id: string): JsonObject => ({ id, name: "Warehouse", metadata: null, address_id: null,
   created_at: instant, updated_at: instant, deleted_at: null });
@@ -42,10 +49,14 @@ describe("Stock Location update checked contracts and logical receipts", () => {
     const child = metadata.frame.tables.find(table => table.name === "stock_location_address");
     if (root === undefined || child === undefined) throw new Error("Missing genuine checked Stock Location DML");
     contracts = await Effect.runPromise(Effect.fromResult(compileStockLocationUpdateContracts(root, child)));
-    policy = stockLocationUpdateEventPolicy(contracts);
+    prepared = await Effect.runPromise(Effect.fromResult(prepareStockLocationUpdateRepository(root, child)));
+    const validateRead = await Effect.runPromise(Effect.fromResult(compileStockLocationUpdateReadReceipt(root, child, prepared.reads)));
+    policy = stockLocationUpdateEventPolicy(contracts, validateRead);
   });
 
   it("distinguishes genuine selected preimages from complete native rows and refuses unknown/corrupt values", () => {
+    expect(prepared.table.foreignKeys).toContain("address_id");
+    expect(prepared.reads.relation.join.foreignKeys).toEqual(["address_id"]);
     expect(Result.isSuccess(contracts.decodePreimages([{ id: "a" }]))).toBe(true);
     expect(Result.isSuccess(contracts.decodeAddressPreimages([{ id: "a", city: null }]))).toBe(true);
     expect(Result.isSuccess(contracts.decodeAddressPreimages([{ id: "a", metadata: { retained: true } }]))).toBe(true);
@@ -160,5 +171,118 @@ describe("Stock Location update checked contracts and logical receipts", () => {
     await refused({ ...receipt, mode: "read", events: [event("stock_location", "updated", "a")] }, activity);
     await refused({ ...receipt, mode: "read" }, evidence("stock_location", [row], [row]));
     await refused(receipt, { ...activity, mutations: [{ ordinal: 3, table: "stock_location", operation: "patch", before: row, after: row }] });
+  });
+
+  it("refuses invented scalar and nested read results without correlated selection evidence", async () => {
+    const activity = evidence("stock_location", [], []);
+    const scalar = { ...call("stockLocationListForUpdate", { filters: { id: "missing" } },
+      [location("missing")], []), mode: "read" as const };
+    await refused(scalar, activity);
+    const nested = { ...scalar, input: { filters: { id: "missing" }, config: { relations: ["address"] } },
+      result: [{ ...location("missing"), address_id: "invented-address", address: address("invented-address") }] };
+    await refused(nested, activity);
+  });
+
+  it("refuses uncorrelated read evidence and forged counts", async () => {
+    const row = location("selected");
+    const receipt = { ...call("stockLocationCountForUpdate", { filters: { id: "selected" } }, [[row], 2], []), mode: "read" as const };
+    await refused(receipt, evidence("stock_location", [row], []));
+    await refused({ ...receipt, result: [[], 0] }, evidence("stock_location_address", [address("unrelated")], []));
+  });
+
+  it("authenticates selected nested Address values, the FK, pagination count and both complete-set reads", async () => {
+    const a = { ...location("a"), address_id: "address-a" }, b = location("b"), child = address("address-a");
+    const input = { filters: { id: ["a", "b"] }, config: { select: ["id", "address.city"], relations: ["address"], take: 1 } };
+    const result = [[{ id: "a", address_id: "address-a", address: { id: "address-a", city: null } }], 2];
+    const receipt = { ...call("stockLocationCountForUpdate", input, result, []), mode: "read" as const };
+    const query = await Effect.runPromise(Effect.fromResult(captureCommerceInput(buildQuery(input.filters, input.config))
+      .pipe(Result.flatMap(query => prepared.reads.query("stock_location", query)))));
+    const activity: Activity = { ...evidence("stock_location", [b, a], []),
+      observedRows: [...evidence("stock_location", [b, a], []).observedRows, { table: "stock_location_address", row: child }],
+      relationalReads: [
+        { table: "stock_location", query: commerceRelationReadQuery(defaultCommerceResources, query.plan.query.predicate), total: 2, returned: 2 },
+        { table: "stock_location_address", query: commerceRelationReadQuery(defaultCommerceResources,
+          { kind: "and", children: [{ kind: "in", column: "id", values: ["address-a"] }, { kind: "isNull", column: "deleted_at" }] }), total: 1, returned: 1 },
+      ] };
+    await Effect.runPromise(policy.validateLogicalCall(receipt, activity));
+    for (const forged of [
+      [[{ id: "a", address_id: "address-a", address: { id: "address-a", city: "Invented" } }], 2],
+      [[{ id: "a", address_id: "outside", address: { id: "address-a", city: null } }], 2],
+      [[{ id: "a", address_id: "address-a", address: null }], 2],
+      [[{ id: "a", address_id: "address-a", address: { id: "address-a", city: null, country_code: "US" } }], 2],
+      [[], 2], [result[0]!, 1],
+    ]) await refused({ ...receipt, result: forged }, activity);
+    for (const relationalReads of [[], activity.relationalReads.slice(0, 1), [...activity.relationalReads].reverse(),
+      [...activity.relationalReads, activity.relationalReads[0]!], activity.relationalReads.map(read => ({ ...read, returned: 0 }))])
+      await refused(receipt, { ...activity, relationalReads });
+    for (const observedRows of [activity.observedRows.slice(0, 2), [...activity.observedRows, { table: "stock_location_address", row: address("outside") }],
+      [...activity.observedRows, activity.observedRows[0]!], [{ table: "stock_location", row: { ...a, invented: true } }, ...activity.observedRows.slice(1)]])
+      await refused(receipt, { ...activity, observedRows });
+  });
+
+  it("authenticates nullable or deleted Address population without inventing omitted reads", async () => {
+    for (const attached of [false, true]) {
+      const row = { ...location("a"), address_id: attached ? "deleted" : null };
+      const child = { ...address("deleted"), deleted_at: instant };
+      const input = { filters: { id: "a" }, config: { relations: ["address"] } };
+      const query = await Effect.runPromise(Effect.fromResult(captureCommerceInput(buildQuery(input.filters, input.config))
+        .pipe(Result.flatMap(query => prepared.reads.query("stock_location", query)))));
+      const activity: Activity = { ...evidence("stock_location", [row], []),
+        observedRows: [{ table: "stock_location", row }, ...(attached ? [{ table: "stock_location_address", row: child }] : [])],
+        relationalReads: [{ table: "stock_location", query: commerceRelationReadQuery(defaultCommerceResources, query.plan.query.predicate), total: 1, returned: 1 },
+          ...(attached ? [{ table: "stock_location_address", query: commerceRelationReadQuery(defaultCommerceResources,
+            { kind: "and", children: [{ kind: "in", column: "id", values: ["deleted"] }, { kind: "isNull", column: "deleted_at" }] }), total: 0, returned: 0 }] : [])] };
+      const receipt = { ...call("stockLocationListForUpdate", input, [{ ...row, address: null }], []), mode: "read" as const };
+      await Effect.runPromise(policy.validateLogicalCall(receipt, activity));
+      await refused({ ...receipt, result: [{ ...row, address: child }] }, activity);
+      await refused(receipt, { ...activity, relationalReads: [] });
+    }
+  });
+
+  it("uses native ID-filter ordering, deleted residuals and the same standalone Address projection", async () => {
+    const a = location("a"), b = location("b"), deleted = { ...location("deleted"), deleted_at: instant };
+    const input = { filters: { id: ["b", "a", "deleted"] }, config: { select: ["id"], skip: 1, take: 1 } };
+    const query = await Effect.runPromise(Effect.fromResult(captureCommerceInput(buildQuery(input.filters, input.config))
+      .pipe(Result.flatMap(query => prepared.reads.query("stock_location", query)))));
+    const activity: Activity = { ...evidence("stock_location", [a, deleted, b], []),
+      relationalReads: [{ table: "stock_location", query: commerceRelationReadQuery(defaultCommerceResources, query.plan.query.predicate), total: 2, returned: 2 }] };
+    const receipt = { ...call("stockLocationCountForUpdate", input, [[{ id: "a" }], 2], []), mode: "read" as const };
+    await Effect.runPromise(policy.validateLogicalCall(receipt, activity));
+    await refused({ ...receipt, result: [[{ id: "b" }], 2] }, activity);
+    await refused(receipt, { ...activity, observedRows: [...activity.observedRows, { table: "stock_location", row: location("unselected") }] });
+    const child = { ...address("child"), deleted_at: instant }, addressInput = { filters: { id: "child" }, config: { select: ["id", "city"], withDeleted: true } };
+    const addressPlan = await Effect.runPromise(Effect.fromResult(captureCommerceInput(buildQuery(addressInput.filters, addressInput.config))
+      .pipe(Result.flatMap(query => prepared.reads.query("stock_location_address", query)))));
+    const addressActivity: Activity = { ...evidence("stock_location_address", [child], []), relationalReads: [
+      { table: "stock_location_address", query: commerceRelationReadQuery(defaultCommerceResources, addressPlan.plan.query.predicate), total: 1, returned: 1 }] };
+    const addressReceipt = { ...call("stockLocationAddressListForUpdate", addressInput, [{ id: "child", city: null }], []), mode: "read" as const };
+    await Effect.runPromise(policy.validateLogicalCall(addressReceipt, addressActivity));
+    await refused({ ...addressReceipt, result: [{ id: "child", city: "Forged" }] }, addressActivity);
+    await refused({ ...addressReceipt, commandName: "stockLocationInventedRead" }, addressActivity);
+    await refused(addressReceipt, { ...addressActivity, observedRows: [...addressActivity.observedRows, { table: "stock_location", row: a }] });
+  });
+
+  it("authenticates name residuals over identity candidates and complete-range observations", async () => {
+    const a = location("a"), b = { ...location("b"), name: "Matching warehouse" };
+    for (const filters of [{ id: ["a"], name: "Nonmatching warehouse" }, { name: "Nonmatching warehouse", id: "a" }]) {
+      const input = { filters, config: { select: ["id"] } };
+      const query = await Effect.runPromise(Effect.fromResult(captureCommerceInput(buildQuery(input.filters, input.config))
+        .pipe(Result.flatMap(query => prepared.reads.query("stock_location", query)))));
+      const activity: Activity = { ...evidence("stock_location", [a], []), relationalReads: [
+        { table: "stock_location", query: commerceRelationReadQuery(defaultCommerceResources, query.plan.query.predicate), total: 0, returned: 0 }] };
+      const receipt = { ...call("stockLocationCountForUpdate", input, [[], 0], []), mode: "read" as const };
+      await Effect.runPromise(policy.validateLogicalCall(receipt, activity));
+      await refused({ ...receipt, result: [[{ id: "a" }], 1] }, activity);
+      await refused(receipt, { ...activity, observedRows: [...activity.observedRows, { table: "stock_location", row: b }] });
+    }
+    const input = { filters: { name: "Matching warehouse" }, config: { select: ["id"] } };
+    const query = await Effect.runPromise(Effect.fromResult(captureCommerceInput(buildQuery(input.filters, input.config))
+      .pipe(Result.flatMap(query => prepared.reads.query("stock_location", query)))));
+    const activity: Activity = { ...evidence("stock_location", [a, b], []), relationalReads: [
+      { table: "stock_location", query: commerceRelationReadQuery(defaultCommerceResources, query.plan.query.predicate), total: 1, returned: 1 }] };
+    const receipt = { ...call("stockLocationCountForUpdate", input, [[{ id: "b" }], 1], []), mode: "read" as const };
+    await Effect.runPromise(policy.validateLogicalCall(receipt, activity));
+    await refused({ ...receipt, result: [[{ id: "a" }], 1] }, activity);
+    await refused({ ...receipt, result: [[{ id: "a" }, { id: "b" }], 2] }, activity);
   });
 });

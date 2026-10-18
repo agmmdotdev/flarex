@@ -19,6 +19,7 @@ const decodeNativeInventory = Schema.decodeUnknownEffect(Schema.Struct({
 const deletionTables = ["shipping_profile", "shipping_option", "service_zone", "fulfillment_set",
   "shipping_option_type", "fulfillment_provider"] as const;
 const serviceZoneCreationTables = [...deletionTables, "geo_zone", "shipping_option_rule"] as const;
+const fulfillmentCreationTables = [...serviceZoneCreationTables, "fulfillment_address", "fulfillment", "fulfillment_label", "fulfillment_item"] as const;
 
 const captureSelectedMetadata = Effect.fn("ShippingProfile.captureSelectedMetadata")(function* (names: readonly string[]) {
   const input = yield* Effect.try({
@@ -56,6 +57,11 @@ export const captureShippingProfileDeletionMetadata = Effect.fn("ShippingProfile
 /** Fresh graph composition for ServiceZone creation and its physical inverse. */
 export const captureServiceZoneCreationMetadata = Effect.fn("ServiceZone.captureCreationMetadata")(function* () {
   return yield* captureSelectedMetadata(serviceZoneCreationTables);
+});
+
+/** Fresh complete native inventory for the selected Fulfillment create root. */
+export const captureFulfillmentCreationMetadata = Effect.fn("Fulfillment.captureCreationMetadata")(function* () {
+  return yield* captureSelectedMetadata(fulfillmentCreationTables);
 });
 
 export const shippingProfileSourceProvenance = Object.freeze({
@@ -100,6 +106,16 @@ export const compileServiceZoneCreationDefinition = Effect.fn("ServiceZone.compi
   const schema = yield* compileSelectedDefinition(yield* captureServiceZoneCreationMetadata());
   const provenance = Object.freeze({ ...shippingProfileSourceProvenance,
     paths: Object.freeze([...serviceZoneCreationTables.map(name => `packages/modules/fulfillment/src/models/${name.replaceAll("_", "-")}.ts`),
+      "packages/modules/fulfillment/src/static-manifest.ts", "packages/database/drizzle/src/schema.ts"]),
+  });
+  return Object.freeze({ schema, provenance });
+});
+
+/** Fresh twelve-table composition; this does not upgrade installed eight-table sources. */
+export const compileFulfillmentCreationDefinition = Effect.fn("Fulfillment.compileCreationDefinition")(function* () {
+  const schema = yield* compileSelectedDefinition(yield* captureFulfillmentCreationMetadata());
+  const provenance = Object.freeze({ ...shippingProfileSourceProvenance,
+    paths: Object.freeze([...fulfillmentCreationTables.map(name => `packages/modules/fulfillment/src/models/${name === "fulfillment_address" ? "address" : name.replaceAll("_", "-")}.ts`),
       "packages/modules/fulfillment/src/static-manifest.ts", "packages/database/drizzle/src/schema.ts"]),
   });
   return Object.freeze({ schema, provenance });

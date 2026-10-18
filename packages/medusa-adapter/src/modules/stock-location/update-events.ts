@@ -20,7 +20,7 @@ const orderRows = (rows: readonly JsonObject[], where: unknown) => preservePrima
 
 /** Bind every native return/event to actual scalar writes or observed no-op
  * rows. Address upsert may create standalone rows: no Location owner is assumed. */
-export function stockLocationUpdateEventPolicy(contracts: Contracts) {
+export function stockLocationUpdateEventPolicy(contracts: Contracts, validateRead: LogicalCallReceiptValidation) {
   const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(Modules.STOCK_LOCATION),
@@ -38,8 +38,7 @@ export function stockLocationUpdateEventPolicy(contracts: Contracts) {
       activity.mutations.some((mutation, index) => mutation.ordinal !== index))
       return yield* Effect.fail(commerceError("receiptMismatch"));
     if (call.mode === "read") {
-      if (activity.mutations.length || call.events.length) return yield* Effect.fail(commerceError("receiptMismatch"));
-      return;
+      return yield* validateRead(call, activity);
     }
     const expectedEvents: string[] = [];
     const observed = new Map<string, JsonObject>();

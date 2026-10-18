@@ -78,6 +78,20 @@ describe("native Stock Location selector and Address update on shared logical st
     } finally { native.mockRestore(); }
   }, 120_000);
 
+  it("preserves an empty native result when an indexed ID candidate fails the admitted name residual", async () => {
+    const ids = await connected.seed("stock-update-id-name-residual", 1);
+    const host = await connected.prepare();
+    const before = await snapshot();
+    expect(await Effect.runPromise(host.run(host.newRequestKey(), {
+      selector: { id: ids, name: "A different warehouse name" }, update: {},
+    }))).toBeNull();
+    const after = await snapshot();
+    expect(after.rows).toEqual(before.rows);
+    expect(after.facts).toEqual(before.facts);
+    expect(after.events).toEqual(before.events);
+    expect(after.commits.length - before.commits.length).toBe(1);
+  }, 120_000);
+
   it("retains partial Address patches and ordered metadata merge while Address-only input leaves Location rows untouched", async () => {
     const ids = await connected.seed("stock-update-partial", 2), addressIds = ids.map((_, index) => "stock-update-partial-address-" + index);
     const host = await connected.prepare();

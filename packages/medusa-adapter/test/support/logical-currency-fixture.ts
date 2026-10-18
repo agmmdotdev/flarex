@@ -145,7 +145,7 @@ import { compileLocationFulfillmentSetLinkDefinition } from "../../src/links/loc
 import { compileLocationFulfillmentProviderLinkDefinition } from "../../src/links/location-fulfillment-provider-schema";
 import { compileShippingOptionPriceSetLinkDefinition } from "../../src/links/shipping-option-price-set-schema";
 import { compileRegionDefinition } from "../../src/modules/region/schema";
-import { compileShippingProfileDefinition, compileShippingProfileDeletionDefinition, compileServiceZoneCreationDefinition } from "../../src/modules/fulfillment/shipping-profile-schema";
+import { compileShippingProfileDefinition, compileShippingProfileDeletionDefinition, compileServiceZoneCreationDefinition, compileFulfillmentCreationDefinition } from "../../src/modules/fulfillment/shipping-profile-schema";
 import {
   currencyAnnouncementWrite,
   currencyCommands,
@@ -199,6 +199,7 @@ type LogicalCurrencyFixtureOptions = Readonly<{
   includeShippingProfile?: boolean;
   includeShippingProfileDeletion?: boolean;
   includeServiceZoneCreation?: boolean;
+  includeFulfillmentCreation?: boolean;
   includeProductShippingProfileLink?: boolean;
   protectedRuntime?: boolean;
   managedRead?: boolean;
@@ -398,6 +399,7 @@ export async function logicalCurrencyFixture(
         ...(options?.includeShippingProfile === true ? ["shippingProfile" as const] : []),
         ...(options?.includeShippingProfileDeletion === true ? ["shippingProfileDeletion" as const] : []),
         ...(options?.includeServiceZoneCreation === true ? ["serviceZoneCreation" as const] : []),
+        ...(options?.includeFulfillmentCreation === true ? ["fulfillmentCreation" as const] : []),
         ...(options?.includeProductShippingProfileLink === true ? ["productShippingProfileLink" as const] : [])] })({ applicationCandidateId: application.active.basis.candidateId,
         payloadCollections: options?.payloadCollections ??
           [{ slug: "news", fields: [{ name: "title", type: "text", required: true, unique: true }] }],
@@ -440,7 +442,7 @@ export async function logicalCurrencyFixture(
       ? yield* compileProductLinksDefinition({ salesChannel: options?.includeProductSalesChannelLink === true,
         shippingProfile: options?.includeProductShippingProfileLink === true }) : undefined;
     const shippingProfileDefinition = options?.includeShippingProfile === true
-      ? yield* (options?.includeServiceZoneCreation === true ? compileServiceZoneCreationDefinition()
+      ? yield* (options?.includeFulfillmentCreation === true ? compileFulfillmentCreationDefinition() : options?.includeServiceZoneCreation === true ? compileServiceZoneCreationDefinition()
         : options?.includeShippingProfileDeletion === true ? compileShippingProfileDeletionDefinition() : compileShippingProfileDefinition()) : undefined;
     const initialization = yield* currencyInitialization();
     const schemaVersionId = decodeCatalogSchemaVersionId("live-logical-currency");

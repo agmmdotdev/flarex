@@ -7,6 +7,8 @@ import { compileLogicalSourceSearches } from "flarex-protocol/internal/logical-s
 import { dmlSchemaOrigins, lowerDmlSchema } from "../src/schema/lower";
 import type { SchemaColumn, SchemaTable } from "../src/schema/model";
 import { decodeCompiledDml } from "../src/schema/compiled";
+import { model } from "@medusajs/framework/utils/portable";
+import { compileDmlSchema } from "@medusajs/drizzle/schema";
 
 const timestamps: readonly SchemaColumn[] = [
   { name: "created_at", type: "dateTime", nullable: false, primaryKey: false },
@@ -57,6 +59,22 @@ const pivot = {
 } as const satisfies SchemaTable;
 
 describe("shared checked DML lowering", () => {
+  it("retains the native owning hasOne variant and its lowered reference", async () => {
+    const target = model.define("owned_reference_target", { id: model.id().primaryKey() });
+    const owner = model.define("owned_reference_owner", { id: model.id().primaryKey(),
+      target: model.hasOne(() => target, { foreignKey: true }).nullable(),
+    });
+    const native = compileDmlSchema([target, owner]);
+    const checked = await Effect.runPromise(decodeCompiledDml(JSON.parse(JSON.stringify(native))));
+    const table = checked.tables.find(table => table.name === "owned_reference_owner");
+    expect(table?.relationships).toContainEqual(expect.objectContaining({ name: "target", type: "hasOneWithFK" }));
+    const lowered = Result.getOrThrow(normalizeRelationalSchema(lowerDmlSchema(checked.tables, "owning-reference")));
+    expect(lowered.tables.find(table => table.identity.tableId === "owned_reference_owner")?.constraints)
+      .toContainEqual(expect.objectContaining({ kind: "foreignKey",
+        sourceColumns: [{ owner: "medusa", lineageId: "owning-reference", tableId: "owned_reference_owner", columnId: "target_id" }],
+        targetColumns: [{ owner: "medusa", lineageId: "owning-reference", tableId: "owned_reference_target", columnId: "id" }] }));
+  });
+
   it("preserves empty native array defaults through neutral lowering", () => {
     const input: SchemaTable = { ...labels, columns: [...labels.columns,
       { name: "channels", type: "array", nullable: false, primaryKey: false, defaultValue: [] },

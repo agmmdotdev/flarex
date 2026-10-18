@@ -191,6 +191,11 @@ async function witness(
   expect(await Effect.runPromise(Effect.result(linkWithoutEndpoints({ ...request, extensions: [] })))).toMatchObject({
     _tag: "Failure", failure: { reason: "missingModuleDependency" },
   });
+  const fulfillmentWithoutSource = makeSchemaComposer({ deploymentId, authority, applicationAnalyses: analyses,
+    medusaModules: ["fulfillmentCreation"] });
+  expect(await Effect.runPromise(Effect.result(fulfillmentWithoutSource({ ...request, extensions: [] })))).toMatchObject({
+    _tag: "Failure", failure: { reason: "missingModuleDependency" },
+  });
   const linkWithoutPricing = makeSchemaComposer({ deploymentId, authority, applicationAnalyses: analyses,
     medusaModules: ["product", "variantPricingLink"] });
   expect(await Effect.runPromise(Effect.result(linkWithoutPricing({ ...request, extensions: [] })))).toMatchObject({
