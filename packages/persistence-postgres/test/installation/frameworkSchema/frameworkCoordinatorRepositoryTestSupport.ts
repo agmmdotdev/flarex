@@ -1,4 +1,6 @@
 import { isNonArrayRecord, type UnknownRecord } from "@flarex/utils/records";
+import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import type { FlarexMetadataTransaction } from
   "../../../src/database/metadataTransaction";
 import {
@@ -62,6 +64,25 @@ export const COORDINATOR_TERMINAL_AT = "2026-08-27T08:33:00.000Z";
 export const COORDINATOR_INSTALLED_AT = "2026-08-27T08:34:00.000Z";
 export const COORDINATOR_VALIDATED_AT = "2026-08-27T08:35:00.000Z";
 export const COORDINATOR_AVAILABLE_AT = "2026-08-27T08:36:00.000Z";
+
+/** Target/collision/assignment rows only. Further graph children, persistent DDL
+ * and independent-store witnesses require separate databases. */
+export function useFileScopedFrameworkCoordinatorPersistence() {
+  return useFileScopedPersistence(async () => {
+    const { createFileScopedPGliteFixture } = await import("../../support/pgliteTestFixture");
+    return createFileScopedPGliteFixture(async () => async persistence => {
+      await administrativelyRepairFrameworkMetadata(persistence.drizzle, [
+        "fx_system_relational_physical_name_assignment",
+        "fx_system_framework_migration_collision_domain",
+        "fx_system_framework_schema_target_namespace",
+      ], async transaction => {
+        await transaction.execute("delete from fx_system_relational_physical_name_assignment");
+        await transaction.execute("delete from fx_system_framework_migration_collision_domain");
+        await transaction.execute("delete from fx_system_framework_schema_target_namespace");
+      });
+    });
+  });
+}
 
 export async function createSuccessfulTerminalPlanValues(extraTables = 0, schemaName: string = FRAMEWORK_VALUE_LOCATOR.schemaName) {
   const artifact = await syntheticSystemArtifact(extraTables);

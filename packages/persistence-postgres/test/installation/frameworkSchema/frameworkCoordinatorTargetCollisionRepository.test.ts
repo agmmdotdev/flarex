@@ -1,3 +1,4 @@
+import { useFileScopedFrameworkCoordinatorPersistence } from "./frameworkCoordinatorRepositoryTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { Option } from "effect";
 import { describe, expect, it } from "vitest";
@@ -28,10 +29,10 @@ import {
 } from "./frameworkMigrationValueFixtures";
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 
-describe("framework coordinator target/collision repository", () => {
+describe("framework coordinator target/collision repository", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorPersistence();
 
-  it("ensures, reads, and exactly replays one target and collision", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("ensures, reads, and exactly replays one target and collision", () => withPersistence(async persistence => {
     const values = await freshRepositoryValues();
 
     const result = await persistence.drizzle.transaction(async transaction => {
@@ -105,13 +106,12 @@ describe("framework coordinator target/collision repository", () => {
       targets: "1",
       collisions: "1",
     });
-  });
+  }));
 
-  it("converges duplicate target ensures and rolls back both roots together", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("converges duplicate target ensures and rolls back both roots together", () => withPersistence(async persistence => {
     const values = await freshRepositoryValues();
 
-    const ensured = await Promise.all([
+    const ensuring = [
       persistence.drizzle.transaction(transaction => runEffect(
         ensureFrameworkSchemaTargetNamespaceInTransactionEffect(
           transaction,
@@ -124,7 +124,10 @@ describe("framework coordinator target/collision repository", () => {
           values.target,
         ),
       )),
-    ]);
+    ];
+    const ensured = await Promise.all(ensuring).finally(async () => {
+      await Promise.allSettled(ensuring);
+    });
     expect(ensured[0]?.storageId).toBe(ensured[1]?.storageId);
     await expect(repositoryCounts(persistence)).resolves.toEqual({
       targets: "1",
@@ -155,10 +158,9 @@ describe("framework coordinator target/collision repository", () => {
       targets: "0",
       collisions: "0",
     });
-  });
+  }));
 
-  it("refuses forged and cross-target collision dependencies", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("refuses forged and cross-target collision dependencies", () => withPersistence(async persistence => {
     const values = await freshRepositoryValues();
 
     const storedTargetFromAnotherDatabase =
@@ -225,7 +227,7 @@ describe("framework coordinator target/collision repository", () => {
       operation: "ensureCollisionDomain",
       reason: "referenceRefusal",
     });
-  });
+  }));
 
   it("rejects corrupt or over-limit stored target bytes before restoration", async () => {
     const persistence = await createMigratedPGlitePersistence();

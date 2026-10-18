@@ -23,9 +23,10 @@ export function administrativelyRepairFrameworkMetadata<Value>(
   );
 }
 
-/** Privileged fault injection only. The caller must own and settle the transaction.
- * Disabling a guard is deliberately visible at each corruption witness; ordinary
- * installation never receives this capability. ALTERs roll back with the test.
+/** Privileged test repair/reset only. The caller must own and settle the transaction.
+ * Disabling a guard is deliberately visible at each corruption witness or reset
+ * policy; ordinary installation never receives this capability. ALTERs roll back
+ * with the transaction.
  */
 export async function withAdministrativeFrameworkMetadataRepair<Value>(
   transaction: FlarexMetadataTransaction,

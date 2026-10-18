@@ -271,6 +271,13 @@ outside this fixture's reset policy.
 Native receipt reservation and ready-CAS cases keep independent file fixtures,
 so migration setup precedes their existing deadlines and the readiness trigger
 cannot affect another witness.
+Coordinator target/collision and physical-name assignment cases use
+`useFileScopedFrameworkCoordinatorPersistence` for their three-table graph.
+Reset reuses administrative guard validation and restoration in one transaction,
+deletes children before parents and preserves restrictive foreign keys and seeds.
+Further graph dependants refuse reset and require a rebuild. Independent
+rollback, cross-database identity and persistent constraint-corruption witnesses
+keep separate databases; concurrent ensures drain before returning the borrow.
 Publication preparation, table-only artifact compatibility and table/app-schema
 binding cases share one serial file-owned migrated backend, with distinct deployments
 and deployment-local allocation frontiers. The table-wide RETURNING-corruption

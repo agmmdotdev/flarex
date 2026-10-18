@@ -176,8 +176,9 @@ async function resetScopeClockRowsInTransaction(transaction: Transaction): Promi
   `);
 }
 
-async function createFileScopedPGliteFixture(
-  createResetRows: (db: PGlite) => Promise<() => Promise<void>>,
+/** Driver lifetime shared by domain-owned row reset policies. */
+export async function createFileScopedPGliteFixture(
+  createResetRows: (db: PGlite) => Promise<(persistence: PGlitePersistence) => Promise<void>>,
 ): Promise<FileScopedPersistenceFixture<PGlitePersistence>> {
   const db = await createTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
   let persistence: PGlitePersistence | undefined;
@@ -205,7 +206,7 @@ async function createFileScopedPGliteFixture(
       get persistence() { return current; },
       async reset() {
         await closePreparedHostTestRuntime(current.drizzle);
-        await resetRows();
+        await resetRows(current);
         // Retain only the backend; database-keyed runtime state gets a fresh owner.
         current = await open();
       },

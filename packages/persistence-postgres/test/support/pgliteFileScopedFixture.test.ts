@@ -8,6 +8,10 @@ import { useFileScopedPGliteRuntimePersistence, useFileScopedPGliteCommitSchemaP
 import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
 import { insertPendingWake, insertWakeHeader, insertWakeScope, WAKE_SCOPE_A, WAKE_EPOCH_A } from "../commit/commitWakeOutboxTestSupport";
 import { reserveScopeAuthorityProvisioningReceiptInTransaction } from "../../src/scope/scopeAuthorityProvisioningReceipt";
+import { createSuccessfulTerminalPlanValues, useFileScopedFrameworkCoordinatorPersistence } from "../installation/frameworkSchema/frameworkCoordinatorRepositoryTestSupport";
+import { ensureFrameworkSchemaTargetNamespaceInTransactionEffect, ensureFrameworkMigrationCollisionDomainInTransactionEffect } from "../../src/installation/migrationCoordination/targetCollisionRepository";
+import { ensureRelationalPhysicalNameAssignmentsInTransactionEffect } from "../../src/installation/migrationCoordination/physicalNameAssignmentRepository";
+import { runEffect } from "./effectTestRuntime";
 
 describe("file-scoped PGlite runtime fixture", () => {
   const withPersistence = useFileScopedPGliteRuntimePersistence();
@@ -158,6 +162,76 @@ describe("file-scoped PGlite scope authority fixture", () => {
     });
   });
 });
+
+describe("file-scoped PGlite framework coordinator fixture", () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorPersistence();
+
+  it("clears the guarded graph, preserves seeds and rebuilds after restrictive reset failure", async () => {
+    const values = await createSuccessfulTerminalPlanValues();
+    let baseline: Awaited<ReturnType<typeof seededRows>> = [];
+    let guards: Awaited<ReturnType<typeof coordinatorGuards>> = [];
+    let previous: PGliteFlarexPersistence | undefined;
+    await withPersistence(async persistence => {
+      previous = persistence;
+      baseline = await seededRows(persistence);
+      expect(baseline).toHaveLength(5);
+      guards = await coordinatorGuards(persistence);
+      expect(guards.length).toBeGreaterThanOrEqual(3);
+      expect(guards.every(guard => guard.enabled === "O")).toBe(true);
+      await persistence.drizzle.transaction(async transaction => {
+        const target = await runEffect(ensureFrameworkSchemaTargetNamespaceInTransactionEffect(transaction, values.targetValue));
+        const collision = await runEffect(ensureFrameworkMigrationCollisionDomainInTransactionEffect(transaction, target, values.planValue));
+        await runEffect(ensureRelationalPhysicalNameAssignmentsInTransactionEffect(transaction, collision, values.physicalLayout.nameAssignments));
+      });
+    });
+
+    await expect(withPersistence(async persistence => {
+      expect(persistence).not.toBe(previous);
+      const prior = previous;
+      if (prior === undefined) throw new Error("Missing previous coordinator fixture");
+      expect(() => preparedHostTestRuntime(prior.drizzle)).toThrow("no open host runtime");
+      expect(await seededRows(persistence)).toEqual(baseline);
+      expect(await coordinatorGuards(persistence)).toEqual(guards);
+      expect((await persistence.query(`select
+        (select count(*)::int from fx_system_framework_schema_target_namespace) as targets,
+        (select count(*)::int from fx_system_framework_migration_collision_domain) as collisions,
+        (select count(*)::int from fx_system_relational_physical_name_assignment) as assignments`)).rows)
+        .toEqual([{ targets: 0, collisions: 0, assignments: 0 }]);
+      previous = persistence;
+      await persistence.drizzle.transaction(transaction => runEffect(
+        ensureFrameworkSchemaTargetNamespaceInTransactionEffect(transaction, values.targetValue),
+      ));
+      await persistence.query(`create table fixture_coordinator_reset_ref (
+        target_storage_id bigint references fx_system_framework_schema_target_namespace (target_namespace_storage_id))`);
+      await persistence.query(`insert into fixture_coordinator_reset_ref
+        select target_namespace_storage_id from fx_system_framework_schema_target_namespace`);
+      await persistence.query("delete from fx_system_retained_history_scheduler");
+    })).rejects.toMatchObject({ errors: [
+      { cause: { code: "23503" } }, { cause: { code: "25P02" } },
+    ] });
+    if (previous === undefined) throw new Error("Missing failed coordinator fixture");
+    expect(await coordinatorGuards(previous)).toEqual(guards);
+
+    await withPersistence(async persistence => {
+      expect(await seededRows(persistence)).toEqual(baseline);
+      expect(await coordinatorGuards(persistence)).toEqual(guards);
+      expect((await persistence.query("select to_regclass('fixture_coordinator_reset_ref') as relation")).rows)
+        .toEqual([{ relation: null }]);
+    });
+  });
+});
+
+async function coordinatorGuards(persistence: PGliteFlarexPersistence) {
+  return (await persistence.query<{ table_name: string; trigger: string; enabled: string }>(`
+    select tgrelid::regclass::text as table_name, tgname as trigger, tgenabled as enabled
+    from pg_catalog.pg_trigger where tgrelid in (
+      'fx_system_framework_schema_target_namespace'::regclass,
+      'fx_system_framework_migration_collision_domain'::regclass,
+      'fx_system_relational_physical_name_assignment'::regclass
+    ) and tgname in ('fx_framework_history_immutable', 'fx_framework_children_sealed')
+    order by table_name, trigger
+  `)).rows;
+}
 
 async function seededRows(persistence: PGliteFlarexPersistence) {
   return (await persistence.query<{ kind: string; value: unknown }>(`

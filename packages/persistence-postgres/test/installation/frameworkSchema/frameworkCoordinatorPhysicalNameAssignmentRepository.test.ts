@@ -1,4 +1,7 @@
-import { rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
+import {
+  rejectingSelectTransaction,
+  useFileScopedFrameworkCoordinatorPersistence,
+} from "./frameworkCoordinatorRepositoryTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { eq, sql } from "drizzle-orm";
 import { Effect, Option } from "effect";
@@ -33,10 +36,10 @@ import {
 } from "./frameworkMigrationValueFixtures";
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 
-describe("framework coordinator physical-name assignment repository", () => {
+describe("framework coordinator physical-name assignment repository", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorPersistence();
 
-  it("ensures, reads, and exactly replays ordinary assignments", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("ensures, reads, and exactly replays ordinary assignments", () => withPersistence(async persistence => {
     const values = await freshAssignmentRepositoryValues();
     const result = await persistence.drizzle.transaction(async transaction => {
       const { collision } = await ensureParents(transaction, values);
@@ -109,15 +112,14 @@ describe("framework coordinator physical-name assignment repository", () => {
     expect(result.second.assignment).toEqual(values.secondAssignment);
     expect(result.first.storageId).not.toBe(result.second.storageId);
     await expect(assignmentCount(persistence)).resolves.toBe("2");
-  });
+  }));
 
-  it("converges duplicate exact ensures and rolls back with its caller", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("converges duplicate exact ensures and rolls back with its caller", () => withPersistence(async persistence => {
     const values = await freshAssignmentRepositoryValues();
     const { collision } = await persistence.drizzle.transaction(
       transaction => ensureParents(transaction, values),
     );
-    const ensured = await Promise.all([
+    const ensuring = [
       persistence.drizzle.transaction(transaction => runEffect(
         ensureRelationalPhysicalNameAssignmentInTransactionEffect(
           transaction,
@@ -132,7 +134,10 @@ describe("framework coordinator physical-name assignment repository", () => {
           values.firstAssignment,
         ),
       )),
-    ]);
+    ];
+    const ensured = await Promise.all(ensuring).finally(async () => {
+      await Promise.allSettled(ensuring);
+    });
     expect(ensured[0]?.storageId).toBe(ensured[1]?.storageId);
     await expect(assignmentCount(persistence)).resolves.toBe("1");
 
@@ -154,10 +159,9 @@ describe("framework coordinator physical-name assignment repository", () => {
       },
     )).rejects.toBe(deliberateRollback);
     await expect(assignmentCount(rollbackPersistence)).resolves.toBe("0");
-  });
+  }));
 
-  it("resolves authenticated occupants in digest-first order", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("resolves authenticated occupants in digest-first order", () => withPersistence(async persistence => {
     const values = await freshAssignmentRepositoryValues();
     const restored = await persistence.drizzle.transaction(
       async transaction => {
@@ -221,10 +225,9 @@ describe("framework coordinator physical-name assignment repository", () => {
       reason: "physicalNameCollision",
       spelling: values.firstAssignment.frame.spelling,
     });
-  });
+  }));
 
-  it("rehydrates a historical occupant through its actual collision lane", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rehydrates a historical occupant through its actual collision lane", () => withPersistence(async persistence => {
     const values = await freshAssignmentRepositoryValues();
     const historicalValues = await currencyAssignmentRepositoryValues();
     const restored = await persistence.drizzle.transaction(
@@ -287,10 +290,9 @@ describe("framework coordinator physical-name assignment repository", () => {
     expect(rehydrated.collision.storageId).not.toBe(
       restored.incoming.collision.storageId,
     );
-  });
+  }));
 
-  it("refuses forged, cross-coordinate, and cross-database references", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("refuses forged, cross-coordinate, and cross-database references", () => withPersistence(async persistence => {
     const values = await freshAssignmentRepositoryValues();
     const parents = await persistence.drizzle.transaction(
       transaction => ensureParents(transaction, values),
@@ -360,7 +362,7 @@ describe("framework coordinator physical-name assignment repository", () => {
       operation: "ensurePhysicalNameAssignment",
       reason: "referenceRefusal",
     });
-  });
+  }));
 
   it("rejects corrupt or over-limit stored assignment bytes", async () => {
     const persistence = await createMigratedPGlitePersistence();
