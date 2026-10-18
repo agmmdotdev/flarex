@@ -14,7 +14,7 @@ export interface GraphFieldPlan {
 
 /** Validate native admission, then reuse the promoted Medusa path tree and shared
  * projection executor. No remote-query AST, row reader or relation loader. */
-export function planGraphFields(read: GraphReadDefinition, fields: readonly string[]): Result.Result<GraphFieldPlan, CommerceTransactionError> {
+export function planGraphFields(read: GraphReadDefinition, fields: readonly string[], native = false): Result.Result<GraphFieldPlan, CommerceTransactionError> {
   return Result.gen(function* () {
     const paths = new Map(read.paths.map(relation => [relation.path, relation]));
     const requested = new Set<string>();
@@ -27,8 +27,8 @@ export function planGraphFields(read: GraphReadDefinition, fields: readonly stri
       for (let index = 1; index <= parts.length; index++) requested.add(parts.slice(0, index).join("."));
     }
     const tree = toPopulateTree(fields);
-    const root = yield* fieldProjection(tree, read.table, paths, "", read.selectedFieldsOnly !== true);
-    const fetch = read.selectedFieldsOnly === true ? yield* fieldProjection(tree, read.table, paths, "", true) : root;
+    const root = yield* fieldProjection(tree, read.table, paths, "", read.selectedFieldsOnly !== true, native);
+    const fetch = read.selectedFieldsOnly === true ? yield* fieldProjection(tree, read.table, paths, "", true, native) : root;
     // Hydration may need root keys not selected by the caller. Fetch all root
     // columns for relation reads, then mask them; all intermediate budgets apply.
     const select = fetch.children.length === 0 ? [...fetch.fields] : [...read.table.columns];
@@ -40,9 +40,9 @@ export function planGraphFields(read: GraphReadDefinition, fields: readonly stri
 /** Native-only policy: expand a node wildcard against its admitted columns and
  * require selected scalars. Prefix normalization and row projection are reused. */
 function fieldProjection(tree: PopulateTree, table: ReadTable, paths: ReadonlyMap<string, GraphRelationPath>, prefix: string,
-  companions: boolean): Result.Result<ProjectionNode, CommerceTransactionError> {
+  companions: boolean, native: boolean, incoming: readonly string[] = []): Result.Result<ProjectionNode, CommerceTransactionError> {
   return Result.gen(function* () {
-    const fields = new Set<string>();
+    const fields = new Set<string>(native ? incoming : []);
     const children: Array<ProjectionNode["children"][number]> = [];
     for (const [name, child] of tree) {
       if (child.size === 0) {
@@ -55,8 +55,12 @@ function fieldProjection(tree: PopulateTree, table: ReadTable, paths: ReadonlyMa
         const path = prefix + name;
         const relation = paths.get(path);
         if (relation === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+        if (native) {
+          if (relation.sourceFields === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+          for (const column of relation.sourceFields) fields.add(column);
+        }
         children.push({ name, many: relation.many, optional: relation.optional === true,
-          node: yield* fieldProjection(child, relation.table, paths, path + ".", companions) });
+          node: yield* fieldProjection(child, relation.table, paths, path + ".", companions, native, relation.table.primaryKeys) });
       }
     }
     return { fields, children, nullRelations: [], requireFields: true };

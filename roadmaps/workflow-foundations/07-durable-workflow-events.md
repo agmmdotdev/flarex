@@ -74,10 +74,18 @@ transaction and becomes eligible only when all admitted steps/hooks succeed.
 The outer owner seals eligibility; no callback invokes subscribers or commits.
 Failure discards the group with the database rollback.
 
-No persisted open-group state machine is needed for this atomic profile.
-Release/clear methods are refused in this profile. Group strings confer no
-authority. No cross-run clearing, pause across commits or after-commit release
-is admitted.
+The atomic context admits pending cancellation only through an opaque external
+event-contract token with explicit `pendingCancellation: true` authority bound
+into host identity. It cancels only prior matching intents in the current
+request/group; group strings confer no authority. Semantic validation retains
+the original captured history before publication filtering. All captured
+messages and canonical aggregate bytes remain charged, including canceled
+history and later derived events; internal module facts, later emissions and
+original participant source ordinals are preserved. This capability adds no
+committed-event deletion, outbox cancellation, retry or extra transaction.
+Unadmitted clearing and group release remain refused; no persisted open-group
+state machine, cross-run clearing, pause across commits or after-commit release
+is admitted by this atomic profile.
 
 The outer owner seals the contribution after module/fact and workflow
 validation, then persists it with row facts, result and the common wake.

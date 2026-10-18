@@ -13,6 +13,9 @@ import { bindWorkflowResources } from "../src/workflow/binding";
 import { makeCommercePromiseOwner } from "../src/module/promise-owner";
 import { captureCommerceInput } from "../src/value/input";
 import { commerceDecoder } from "../src/value/decoder";
+import { makeLocalPricingCommands } from "../src/modules/pricing/service";
+import { prepareLocationFulfillmentProviderLink } from "../src/links/location-fulfillment-provider-service";
+import { prepareShippingOptionPriceSetLink } from "../src/links/shipping-option-price-set-service";
 
 type Resource = Result.Result.Success<ReturnType<typeof prepareFulfillmentSetDeletionLinkResource>>;
 type Service = ComposedWorkflowServices<{ readonly link: Resource }>["link"];
@@ -20,10 +23,16 @@ const endpoint = (ids: string[]) => ({ fulfillment: { fulfillment_set_id: ids } 
 async function prepare() {
   const fulfillment = await Effect.runPromise(makeFulfillmentSetDeletionCommands());
   const links = await Effect.runPromise(prepareLocationFulfillmentSetDeletionLinks("fulfillment-set-deletions", "setResourceLocationLink"));
-  const resource = Result.getOrThrow(prepareFulfillmentSetDeletionLinkResource({ location: links.nativeService, fulfillment: fulfillment.workflow }));
+  const provider = await Effect.runPromise(prepareLocationFulfillmentProviderLink()), priceSet = await Effect.runPromise(prepareShippingOptionPriceSetLink()),
+    pricing = await Effect.runPromise(makeLocalPricingCommands("shipping-options"));
+  const resource = Result.getOrThrow(prepareFulfillmentSetDeletionLinkResource({ location: links.nativeService, fulfillment: fulfillment.workflow,
+    provider: provider.nativeService, priceSet: priceSet.nativeService, pricing: pricing.workflow }));
   return { resource, resources: Result.getOrThrow(prepareWorkflowResources({
     fulfillment: { module: fulfillment.workflow, methods: ["softDeleteFulfillmentSets", "restoreFulfillmentSets"], graph: false },
     locationLinks: { module: links.workflow, methods: ["create", "list", "softDelete", "restore"], graph: false, expose: false },
+    providerLinks: { module: provider.workflow, methods: ["softDelete", "restore"], graph: false, expose: false },
+    priceSetLinks: { module: priceSet.workflow, methods: ["softDelete", "restore"], graph: false, expose: false },
+    pricing: { module: pricing.workflow, methods: ["softDeletePriceSets", "restorePriceSets"], graph: false, expose: false },
   }, false, { link: resource })) };
 }
 let prepared: Awaited<ReturnType<typeof prepare>>;
@@ -39,6 +48,7 @@ async function bind() {
   const emit = vi.fn<AtomicCommerceContext["emit"]>(() => Effect.fail(commerceError("unadmittedEvent")));
   const refuse = vi.fn<AtomicCommerceContext["refuse"]>(error => Effect.fail(error));
   const context: AtomicCommerceContext = { eventGroupId: "native-fulfillment-set-links", checkpoint: Effect.void,
+    clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     capture: (input, normalize) => Effect.suspend(() => Effect.fromResult(captureCommerceInput(input).pipe(Result.flatMap(normalize ?? decodeJson)))), call, emit, refuse };
   const owner = await Effect.runPromise(makeCommercePromiseOwner());
   const service = bindWorkflowResources(resources, selected, undefined, [], context, owner).resolve<Service>("link");
@@ -56,7 +66,7 @@ describe("native Fulfillment Set deletion installed Location Link resource", () 
       expect(native).toHaveBeenCalledTimes(2); expect(bound.call).toHaveBeenCalledTimes(1); expect(bound.emit).not.toHaveBeenCalled();
       expect(Option.isNone(bound.owner.refusal())).toBe(true);
       const definition = composedWorkflowResourceDefinition(bound.resource);
-      expect(definition?.dependencies).toHaveLength(4); expect(Object.keys(definition?.methods ?? {})).toEqual(["delete", "restore"]);
+      expect(definition?.dependencies).toHaveLength(10); expect(Object.keys(definition?.methods ?? {})).toEqual(["delete", "restore"]);
       expect(definition?.identity).toMatchObject({ format: "medusa.fulfillment-set.deletion-links", lifecycle: { maximumRows: 8, completeHistory: true } });
     } finally { native.mockRestore(); await Effect.runPromise(bound.owner.close); }
   });

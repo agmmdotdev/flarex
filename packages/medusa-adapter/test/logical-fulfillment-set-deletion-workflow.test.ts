@@ -2,14 +2,17 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { StepResponse } from "@medusajs/workflows-sdk";
 import { FulfillmentModuleService } from "@medusajs/fulfillment/services";
+import { PricingModuleService } from "@medusajs/pricing/services";
 import { Link } from "@medusajs/modules-sdk/link";
 import { LocationFulfillmentSet } from "@medusajs/link-modules";
-import { CommerceTransactionError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { CommerceTransactionError, commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
-import { fulfillmentSetDeletionResources } from "../src/workflow/policy";
+import { fulfillmentSetDeletionResources, fulfillmentSetDeletionCommandMs } from "../src/workflow/policy";
 import { prepareFulfillmentSetDeletionWorkflow } from "../src/workflows/fulfillment/delete-fulfillment-sets";
 import { prepareLogicalFulfillmentSetDeletion, fulfillmentSetDeletionGraph } from "./support/logical-fulfillment-set-deletion-fixture";
 import { serviceZoneParents, serviceZoneSeedTime } from "./support/logical-service-zone-creation-fixture";
+import { workflowModuleDefinition } from "../src/workflow/module";
+import type { AtomicWorkflowHostComposition } from "../src/workflow/host";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const locationSetFamily = LocationFulfillmentSet.serviceName;
@@ -79,6 +82,25 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
   afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
+  it("selects mixed publication only for authenticated Shipping Pricing and its retained probes", async () => {
+    expect(workflowModuleDefinition(connected.options.modules.pricing.module)?.source.profile).toBe("pricing-shipping-options");
+    expect(Object.entries(connected.options.modules).filter(([, binding]) => binding.logicalPublication === "mixed").map(([name]) => name)).toEqual(["pricing"]);
+    const captured: AtomicWorkflowHostComposition[] = [];
+    const outcome = await Effect.runPromise(Effect.result(prepareFulfillmentSetDeletionWorkflow({ ...connected.options,
+      modules: { ...connected.options.modules,
+        fulfillment: { ...connected.options.modules.fulfillment, logicalPublication: "mixed" },
+        providerLinks: { ...connected.options.modules.providerLinks, logicalPublication: "mixed" } },
+      execution: { ...connected.options.execution, prepare: composition => {
+        captured.push(composition); return Effect.fail(commerceError("invalidAuthority"));
+      } },
+    })));
+    expect(Result.isFailure(outcome)).toBe(true); expect(captured).toHaveLength(1);
+    expect(captured[0]?.participants).toHaveLength(5);
+    expect(captured[0]?.requestCommandMs).toBe(fulfillmentSetDeletionCommandMs);
+    expect(captured[0]?.participants.filter(member => member.logicalPublication === "mixed").map(member =>
+      Schema.decodeUnknownSync(Schema.Struct({ sourceKey: Schema.String }))(member.logicalStorage?.source).sourceKey)).toEqual(["medusa.pricing"]);
+  });
+
   it.each([false, true])("retains the complete installed locfs forest and genuine double restore (history=%s)", async history => {
     const selected = fulfillmentSetDeletionGraph("set-installed-" + history, { sets: 4, zones: 4, geos: 16, options: 8, rules: 16,
       links: 4, ...(history ? { history: { zones: 2, geos: 8, options: 4, rules: 8 } } : {}) });
@@ -105,7 +127,8 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
         [locationSetFamily]: expect.any(Object), fulfillment: { fulfillment_set_id: expect.arrayContaining(selected.ids) },
       }]);
       const after = await fixture.snapshot(), events = newEvents(before, after);
-      console.info("FulfillmentSet installed48row root plus genuine double restore", { calls, eventMessages: events.length, history });
+      process.stdout.write("FulfillmentSet installed48row root plus genuine double restore "
+        + JSON.stringify({ calls, eventMessages: events.length, history }) + "\n");
       expect(calls).toBeLessThanOrEqual(fulfillmentSetDeletionResources.calls);
       expect(events).toHaveLength(146); expect(events.every(event => event.envelope.internal)).toBe(true);
       expect(after.rowChanges).toHaveLength(before.rowChanges.length + 52);
@@ -140,8 +163,43 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
     } finally { linkDelete.mockRestore(); }
   }, 300_000);
 
+  it.each([false, true])("preserves native Set-to-Link reachability and restores the complete 72-row Pricing history (history=%s)", async historical => {
+    const selected = fulfillmentSetDeletionGraph("set-shipping-" + historical, { sets: 4, zones: 4, geos: 16, options: 8, rules: 16,
+      links: 4, shipping: { historical } });
+    const shipping = selected.shipping;
+    if (shipping === undefined) throw new Error("Missing complete Shipping deletion closure");
+    const fixture = await scenario("shipping-" + historical, [selected]), tap = retainedTap();
+    const remove = vi.spyOn(PricingModuleService.prototype, "softDeletePriceSets"), restore = vi.spyOn(PricingModuleService.prototype, "restorePriceSets");
+    try {
+      const host = await fixture.prepareRoundtrip(tap.get), before = await fixture.snapshot(), original = await fixture.read(shipping.allIds),
+        providers = await fixture.read(shipping.providerLinks.flatMap(row => typeof row.row.id === "string" ? [row.row.id] : [])),
+        endpointProviders = await fixture.read(shipping.providers), key = host.newRequestKey(); let calls = 0;
+      expect(await Effect.runPromise(host.run(key, { ids: selected.ids }).pipe(Effect.provideService(ExecutionDiagnostics, {
+        observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") calls++; }).pipe(Effect.andThen(work)),
+      }), Effect.ensuring(Effect.sync(() => process.stdout.write("FulfillmentSet 48 Fulfillment +72 Pricing retained inverse request completed "
+        + JSON.stringify({ historical, boundedRequestEnter: calls }) + "\n")))))).toBeNull();
+      // The native Set root passes only Set IDs to removeRemoteLinks. Its
+      // already-deleted forward Set emits no invented Option/PriceSet cascade.
+      expect(remove).not.toHaveBeenCalled(); expect(restore).toHaveBeenCalledTimes(1);
+      expect(restore.mock.calls[0]?.[0]).toEqual({ id: expect.arrayContaining(shipping.priceSetIds) });
+      const reached = await fixture.read([...shipping.priceSetIds, ...shipping.priceIds, ...shipping.ruleIds,
+        ...shipping.priceSetLinks.flatMap(row => typeof row.row.id === "string" ? [row.row.id] : [])]);
+      expect(reached).toHaveLength(80); expect(reached.every(row => row.deleted_at === null)).toBe(true);
+      expect((await fixture.read(shipping.allIds)).map(stable)).toEqual(original.map(stable));
+      expect(await fixture.read(shipping.providerLinks.flatMap(row => typeof row.row.id === "string" ? [row.row.id] : []))).toEqual(providers);
+      expect(await fixture.read(shipping.providers)).toEqual(endpointProviders);
+      const after = await fixture.snapshot(), emitted = newEvents(before, after);
+      expect(emitted.filter(event => event.envelope.contract.startsWith("pricing.") && event.envelope.contract.endsWith(".restored"))).toHaveLength(72);
+      process.stdout.write("FulfillmentSet 48-row root +72 Pricing retained inverse "
+        + JSON.stringify({ historical, calls, eventMessages: emitted.length }) + "\n");
+      expect(calls).toBeLessThanOrEqual(fulfillmentSetDeletionResources.calls);
+      expect(emitted.length).toBeLessThanOrEqual(fulfillmentSetDeletionResources.eventMessages);
+      expect(await Effect.runPromise(host.run(key, { ids: selected.ids }))).toBeNull(); expect(await fixture.snapshot()).toEqual(after);
+    } finally { tap.restore(); remove.mockRestore(); restore.mockRestore(); }
+  }, 300_000);
+
   it("rolls back a late failure after installed Link restoration and both native Set restorations", async () => {
-    const selected = fulfillmentSetDeletionGraph("set-installed-late-failure", { geos: 1, links: 1 }), fixture = await scenario("installed-late", [selected]), tap = retainedTap();
+    const selected = fulfillmentSetDeletionGraph("set-installed-late-failure", { geos: 1, options: 1, rules: 1, links: 1, shipping: {} }), fixture = await scenario("installed-late", [selected]), tap = retainedTap();
     const restore = vi.spyOn(FulfillmentModuleService.prototype, "restoreFulfillmentSets");
     try {
       const host = await fixture.prepareRoundtrip(tap.get, fulfillmentSetDeletionResources, true), before = await fixture.snapshot();
@@ -203,7 +261,8 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
         protectedRows = await connected.read(protectedIds), ids = [...graph.maximum.ids].reverse(), key = host.newRequestKey(); let calls = 0;
       expect(await Effect.runPromise(host.run(key, { ids }).pipe(Effect.provideService(ExecutionDiagnostics, {
         observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") calls++; }).pipe(Effect.andThen(work)),
-      }), Effect.ensuring(Effect.sync(() => console.info("FulfillmentSet full 48-row root plus retained inverse BoundedRequest.enter", calls)))))).toBeNull();
+      }), Effect.ensuring(Effect.sync(() => process.stdout.write("FulfillmentSet full 48-row root plus retained inverse "
+        + JSON.stringify({ boundedRequestEnter: calls }) + "\n")))))).toBeNull();
       expect(calls).toBeGreaterThan(0); expect(calls).toBeLessThanOrEqual(fulfillmentSetDeletionResources.calls);
       expect(tap.get()).toEqual({ set: ids, link: endpoint(ids) }); completeMap(await remove.mock.results[0]?.value, graph.maximum); completeMap(await restore.mock.results[0]?.value, graph.maximum);
       expect(remove.mock.calls.map(value => value[0])).toEqual([ids]); expect(restore.mock.calls.map(value => value[0])).toEqual([ids]);
@@ -231,7 +290,8 @@ describe("genuine Fulfillment Set deletion and retained Set/Link inverses", { co
       const host = await connected.prepareRoundtrip(tap.get, { calls: defaultCommerceResources.calls, eventMessages: fulfillmentSetDeletionResources.eventMessages }), before = await connected.snapshot();
       const outcome = await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), { ids: graph.maximum.ids }).pipe(Effect.provideService(ExecutionDiagnostics, {
         observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") calls++; }).pipe(Effect.andThen(work)),
-      }), Effect.ensuring(Effect.sync(() => console.info("FulfillmentSet unchanged full graph default-call refusal BoundedRequest.enter", calls))))));
+      }), Effect.ensuring(Effect.sync(() => process.stdout.write("FulfillmentSet unchanged full graph default-call refusal "
+        + JSON.stringify({ boundedRequestEnter: calls }) + "\n"))))));
       expect(Result.isFailure(outcome)).toBe(true); if (Result.isFailure(outcome)) expect(reasons(outcome.failure)).toContain("limitExceeded");
       expect(calls).toBeGreaterThan(defaultCommerceResources.calls); expect(await connected.snapshot()).toEqual(before);
     } finally { tap.restore(); }

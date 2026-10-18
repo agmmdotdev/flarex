@@ -241,6 +241,8 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
             emit: (contract: CommerceEventContract, message: unknown) => lifetime.operation(lifetime.context, id, "write",
               localRootGate.pipe(Effect.andThen(eventCapture.capture(contract, message)),
                 Effect.tap(() => Effect.sync(() => { eventSources.push(null); })), Effect.asVoid)),
+            clearPendingEvents: contract => lifetime.operation(lifetime.context, id, "write",
+              localRootGate.pipe(Effect.andThen(eventCapture.clearPending(contract)))),
             refuse: (error: CommerceTransactionError) => lifetime.operation(lifetime.context, id, "write", Effect.fail(error)),
           });
           let consumed = false;
@@ -249,10 +251,16 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
             yield* lifetime.seal;
             const changes = yield* working.close();
             const captured = yield* consumeCommerceEvents(yield* eventCapture.close(calls), lifetime);
-            if (captured.values.length !== eventSources.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+            if (captured.capturedCount !== eventSources.length || captured.ordinals.length !== captured.values.length)
+              return yield* Effect.fail(commerceError("receiptMismatch"));
             consumed = true;
-            return Object.freeze({ changes, eventIntents: Object.freeze(captured.values.map((intent, index) =>
-              Object.freeze({ sourceKey: eventSources[index]!, intent }))),
+            const eventIntents = [];
+            for (const [index, intent] of captured.values.entries()) {
+              const ordinal = captured.ordinals[index], sourceKey = ordinal === undefined ? undefined : eventSources[ordinal];
+              if (sourceKey === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
+              eventIntents.push(Object.freeze({ sourceKey, intent }));
+            }
+            return Object.freeze({ changes, eventIntents: Object.freeze(eventIntents),
               workBytes: resources.commandBytes - lifetime.remainingBytes(), workCalls: lifetime.usedCalls() });
           }).pipe(Effect.ensuring(lifetime.close));
           return Object.freeze({ context, close, abort: lifetime.close, withinDeadline: lifetime.withinDeadline,

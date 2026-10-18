@@ -80,7 +80,8 @@ export async function prepareLogicalServiceZoneCreation(driver: "pglite" | "post
   graphs: readonly ReturnType<typeof serviceZoneDeletionGraph>[], shared?: Readonly<{ resource: LogicalCurrencyFixture["resource"];
     fixtureIdentity: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }> }>,
   installedLinks: Readonly<{ includeStockLocation?: boolean; includeLocationFulfillmentSetLink?: boolean;
-    includeSalesChannelLocationLink?: boolean; includeSalesChannel?: boolean }> = {}) {
+    includeSalesChannelLocationLink?: boolean; includeSalesChannel?: boolean; includePricing?: boolean;
+    includeLocationFulfillmentProviderLink?: boolean; includeShippingOptionPriceSetLink?: boolean }> = {}) {
   const configuration = { ...installedLinks, includeShippingProfile: true, includeServiceZoneCreation: true };
   const fixture = await logicalCurrencyFixture(driver, close, shared === undefined ? configuration : { ...configuration, ...shared });
   const fulfillment = await Effect.runPromise(makeServiceZoneCreationCommands()), definition = fixture.shippingProfileDefinition;

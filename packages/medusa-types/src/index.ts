@@ -91,4 +91,9 @@ export * from "./store/index";
 export * as StoreWorkflow from "./workflow/store";
 export * as PricingWorkflow from "./workflow/pricing";
 
-export * as FulfillmentWorkflow from "./workflow/fulfillment/shipping-profiles";
+export * as FulfillmentWorkflow from "./workflow/fulfillment/index";
+
+export * as RegionTypes from "./region/index";
+export * from "./region/index";
+export * from "./fulfillment/index";
+export { RemoteQueryFunction } from "./modules-sdk/remote-query";

@@ -1,4 +1,5 @@
 import { makeFulfillmentSetDeletionCommands } from "../src/modules/fulfillment/fulfillment-set-delete-service";
+import { makeLocalPricingCommands } from "../src/modules/pricing/service";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { commerceCommandIdentity } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -39,7 +40,8 @@ function bind(respond: (name: string, args: readonly unknown[]) => Json | Promis
 const endpoint = (ids: string[]) => ({ stock_location: { stock_location_id: [...ids], location_id: [...ids] } });
 
 describe("native Stock Location deletion Link resource", () => {
-  beforeAll(async () => { fulfillment = await Effect.runPromise(makeFulfillmentSetDeletionCommands()); links = await Effect.runPromise(prepareStockLocationDeletionLinks(fulfillment.workflow)); });
+  beforeAll(async () => { fulfillment = await Effect.runPromise(makeFulfillmentSetDeletionCommands());
+    links = await Effect.runPromise(prepareStockLocationDeletionLinks(fulfillment.workflow, (await Effect.runPromise(makeLocalPricingCommands("shipping-options"))).workflow)); });
 
   it.each(["delete", "restore"] as const)("routes %s once through stock_location_id and ignores the agreed authored alias", async operation => {
     const family = links.nativeServices.location;
@@ -52,7 +54,9 @@ describe("native Stock Location deletion Link resource", () => {
       args: [{ stock_location_id: ["loc", "missing", "loc"] }, { returnLinkableKeys: family.routing.__joinerConfig.primaryKeys }] });
     expect(calls[1]).toEqual({ name: operation === "delete" ? links.nativeServices.fulfillmentSet.softDeleteName : links.nativeServices.fulfillmentSet.restoreName,
       args: [{ stock_location_id: ["loc", "missing", "loc"] }, { returnLinkableKeys: links.nativeServices.fulfillmentSet.routing.__joinerConfig.primaryKeys }] });
-    expect(definition.dependencies).toHaveLength(6);
+    expect(calls[2]).toEqual({ name: operation === "delete" ? links.nativeServices.provider.softDeleteName : links.nativeServices.provider.restoreName,
+      args: [{ stock_location_id: ["loc", "missing", "loc"] }, { returnLinkableKeys: links.nativeServices.provider.routing.__joinerConfig.primaryKeys }] });
+    expect(definition.dependencies).toHaveLength(12);
     expect(Object.keys(definition.methods)).toEqual(["delete", "restore"]);
     expect(input).toEqual(endpoint(["loc", "missing", "loc"]));
   });
@@ -70,7 +74,7 @@ describe("native Stock Location deletion Link resource", () => {
     const ids = ["s2", "s1", "s2", "s3", "s4", "s1", "s4", "s3"], actual = ["s2", "s1", "s3", "s4"];
     const { service, calls } = bind(name => name.startsWith("stockLocationSalesChannel") ? {}
       : name.startsWith("stockLocationFulfillmentSet") ? { stock_location_id: ids.map(() => "loc"), fulfillment_set_id: ids }
-      : { fulfillment_set_id: actual });
+      : name.startsWith("fulfillmentSet") ? { fulfillment_set_id: actual } : {});
     expect(await service[operation](endpoint(["loc"]))).toEqual([null, {
       [links.nativeServices.fulfillmentSet.routing.__joinerConfig.serviceName!]: { stock_location_id: ids.map(() => "loc"), fulfillment_set_id: ids },
       fulfillment: { fulfillment_set_id: actual },
@@ -79,16 +83,16 @@ describe("native Stock Location deletion Link resource", () => {
     expect(nativeCall?.args[0]).toEqual({ id: ids });
     const config = nativeCall?.args[1];
     expect(config).toMatchObject({ returnLinkableKeys: expect.arrayContaining(["fulfillment_address_id", "fulfillment_set_id", "shipping_profile_id"]) });
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(4);
   });
 
   it.each(["delete", "restore"] as const)("preserves complete native errors-as-data for %s", async operation => {
     const { service, calls, definition } = bind(async () => { throw new Error("native Link failure"); });
     const result = await service[operation](endpoint(["loc"]));
-    expect(result[0]).toMatchObject([links.nativeServices.location, links.nativeServices.fulfillmentSet].map(family => ({ serviceName: family.routing.__joinerConfig.serviceName,
+    expect(result[0]).toMatchObject([links.nativeServices.location, links.nativeServices.fulfillmentSet, links.nativeServices.provider].map(family => ({ serviceName: family.routing.__joinerConfig.serviceName,
       method: operation === "delete" ? "softDelete" : "restore", args: { stock_location_id: ["loc"] },
       error: { message: "native Link failure" } })));
-    expect(result[1]).toEqual({}); expect(calls).toHaveLength(2);
+    expect(result[1]).toEqual({}); expect(calls).toHaveLength(3);
     expect(definition.methods[operation]!.output(result)).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure", cause: result } });
   });
 

@@ -49,6 +49,7 @@ function context(responses: readonly Json[], calls: Call[] = []): AtomicCommerce
   let index = 0;
   return { eventGroupId: "unit-link-graph", checkpoint: Effect.void,
     capture: () => Effect.fail(commerceError("unsupportedProfile")), emit: () => Effect.fail(commerceError("unadmittedEvent")), refuse: Effect.fail,
+    clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     call: (participant, command, args) => {
       calls.push({ participant, command, args });
       const value = responses[index++];

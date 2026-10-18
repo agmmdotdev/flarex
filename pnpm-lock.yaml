@@ -879,6 +879,9 @@ importers:
       '@medusajs/fulfillment':
         specifier: workspace:*
         version: link:../medusa-fulfillment
+      '@medusajs/fulfillment-manual':
+        specifier: workspace:*
+        version: link:../medusa-fulfillment-manual
       '@medusajs/inventory':
         specifier: workspace:*
         version: link:../medusa-inventory
@@ -903,6 +906,9 @@ importers:
       '@medusajs/product':
         specifier: workspace:*
         version: link:../medusa-product
+      '@medusajs/region':
+        specifier: workspace:*
+        version: link:../medusa-region
       '@medusajs/sales-channel':
         specifier: workspace:*
         version: link:../medusa-sales-channel
@@ -1048,6 +1054,18 @@ importers:
         specifier: workspace:*
         version: link:../medusa-utils
 
+  packages/medusa-fulfillment-manual:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+
   packages/medusa-inventory:
     dependencies:
       '@medusajs/framework':
@@ -1153,6 +1171,21 @@ importers:
       faker:
         specifier: 5.5.3
         version: 5.5.3
+
+  packages/medusa-region:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
+      '@medusajs/modules-sdk':
+        specifier: workspace:*
+        version: link:../medusa-modules-sdk
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
 
   packages/medusa-sales-channel:
     dependencies:

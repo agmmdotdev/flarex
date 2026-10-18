@@ -64,3 +64,8 @@ export { HasOne } from "@medusajs/utils/dml/relations/has-one";
 export { convertItemResponseToUpdateRequest } from "@medusajs/utils/common/convert-item-response-to-update-request";
 export { getSelectsAndRelationsFromObjectArray } from "@medusajs/utils/common/get-selects-and-relations-from-object-array";
 export { getDuplicates } from "@medusajs/utils/common/get-duplicates";
+
+export { AbstractFulfillmentProviderService } from "@medusajs/utils/fulfillment/provider";
+
+export { ShippingOptionWorkflowEvents } from "@medusajs/utils/core-flows/events";
+export { LINKS } from "@medusajs/utils/link/links";

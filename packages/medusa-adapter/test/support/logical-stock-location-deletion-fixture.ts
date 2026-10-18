@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { Effect, Result, Schema } from "effect";
 import type { Json, JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { stockLocationDeletionResources } from "../../src/workflow/policy";
+import { stockLocationDeletionResources, stockLocationDeletionCommandMs } from "../../src/workflow/policy";
 import { makeFulfillmentSetDeletionCommands } from "../../src/modules/fulfillment/fulfillment-set-delete-service";
+import { makeLocalPricingCommands } from "../../src/modules/pricing/service";
 import { fulfillmentSetDeletionGraph } from "./logical-fulfillment-set-deletion-fixture";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
@@ -55,13 +56,15 @@ export async function prepareLogicalStockLocationDeletion(
       table: { namespace: "medusa", logicalName: `${inventoryDefinition.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
   }));
   const configuration = { includeSalesChannel: true, includeStockLocation: true,
-    includeSalesChannelLocationLink: true, includeStore: true, includeShippingProfile: true, includeServiceZoneCreation: true, includeLocationFulfillmentSetLink: true, additionalSources: [inventorySource] };
+    includeSalesChannelLocationLink: true, includeStore: true, includeShippingProfile: true, includeServiceZoneCreation: true, includeLocationFulfillmentSetLink: true,
+    includeLocationFulfillmentProviderLink: true, includeShippingOptionPriceSetLink: true, includePricing: true, additionalSources: [inventorySource] };
   const fixture = await logicalCurrencyFixture(driver, close, shared === undefined ? configuration : { ...configuration, ...shared });
   const endpoints = await prepareLogicalSalesChannelLocation(fixture, close);
   const stock = await Effect.runPromise(makeStockLocationCommands("delete"));
   const reader = await Effect.runPromise(makeStockLocationCommands("update"));
   const fulfillment = await Effect.runPromise(makeFulfillmentSetDeletionCommands());
-  const links = await Effect.runPromise(prepareStockLocationDeletionLinks(fulfillment.workflow));
+  const pricing = await Effect.runPromise(makeLocalPricingCommands("shipping-options"));
+  const links = await Effect.runPromise(prepareStockLocationDeletionLinks(fulfillment.workflow, pricing.workflow));
   const inventory = await Effect.runPromise(makeLocalInventoryCommands("stock"));
   const stockDefinition = fixture.stockLocationDefinition, storeDefinition = fixture.storeDefinition;
   if (stockDefinition === undefined || storeDefinition === undefined) throw new Error("Missing Stock Location/Store sources");
@@ -99,6 +102,21 @@ export async function prepareLogicalStockLocationDeletion(
   const locfs = await Effect.runPromise(makeCommerceHost(locfsInput));
   close(() => Effect.runPromise(locfs.close));
   await Effect.runPromise(locfs.initialize(locfsRows));
+  const initializeShipping = async (key: string, definition: typeof stockDefinition | undefined,
+    commands: LogicalCommerceHostInput<unknown>["commands"], rows: readonly { readonly table: string; readonly row: JsonObject }[]) => {
+    if (definition === undefined) throw new Error("Missing installed Shipping source: " + key);
+    const inputRows = definition.schema.tables.length === 1 ? rows.map(entry => entry.row) : rows;
+    const initial = await dataset(inputRows), base = inputFor(key, definition, commands);
+    const input = { ...base, logicalStorage: { ...base.logicalStorage, initialization: { stepId: key.toLowerCase() + ".stock-delete-initial",
+      datasetSha256: initial.sha256Hex, expectedRowCount: rows.length } } };
+    const host = await Effect.runPromise(makeCommerceHost(input)); close(() => Effect.runPromise(host.close));
+    await Effect.runPromise(host.initialize(inputRows)); return { host, input };
+  };
+  const provider = await initializeShipping("medusa.link.locationFulfillmentProvider", fixture.locationFulfillmentProviderLinkDefinition,
+    links.provider.commands, graphs.flatMap(graph => graph.shipping?.providerLinks ?? []));
+  const priceSet = await initializeShipping("medusa.link.shippingOptionPriceSet", fixture.shippingOptionPriceSetLinkDefinition,
+    links.priceSet.commands, graphs.flatMap(graph => graph.shipping?.priceSetLinks ?? []));
+  const pricingSource = await initializeShipping("medusa.pricing", fixture.pricingDefinition, pricing.commands, graphs.flatMap(graph => graph.shipping?.pricingRows ?? []));
   const stockInput = inputFor("medusa.stockLocation", stockDefinition, reader.commands);
   const stockReader = await Effect.runPromise(makeCommerceHost(stockInput));
   close(() => Effect.runPromise(stockReader.close));
@@ -119,6 +137,9 @@ export async function prepareLogicalStockLocationDeletion(
     sales_channel_location_links: { module: links.location.workflow, logicalStorage: endpoints.linkInput.logicalStorage },
     location_fulfillment_set_links: { module: links.fulfillmentSet.workflow, logicalStorage: locfsInput.logicalStorage },
     fulfillment: { module: fulfillment.workflow, logicalStorage: fulfillmentInput.logicalStorage },
+    providerLinks: { module: links.provider.workflow, logicalStorage: provider.input.logicalStorage },
+    priceSetLinks: { module: links.priceSet.workflow, logicalStorage: priceSet.input.logicalStorage },
+    pricing: { module: pricing.workflow, logicalStorage: pricingSource.input.logicalStorage, logicalPublication: "mixed" },
   };
   const options = { execution, modules, link: links.resource, revision: revision("native-stock-location-delete-114"),
     subscribers: [{ id: "native-stock-location-deletion", revision: "a".repeat(64) }] };
@@ -134,6 +155,9 @@ export async function prepareLogicalStockLocationDeletion(
     sales_channel_location_links: { module: links.location.workflow, methods: ["softDelete", "restore"], graph: false, expose: false },
     location_fulfillment_set_links: { module: links.fulfillmentSet.workflow, methods: ["softDelete", "restore"], graph: false, expose: false },
     fulfillment: { module: fulfillment.workflow, methods: ["softDeleteFulfillmentSets", "restoreFulfillmentSets"], graph: false, expose: false },
+    providerLinks: { module: links.provider.workflow, methods: ["softDelete", "restore"], graph: false, expose: false },
+    priceSetLinks: { module: links.priceSet.workflow, methods: ["softDelete", "restore"], graph: false, expose: false },
+    pricing: { module: pricing.workflow, methods: ["softDeletePriceSets", "restorePriceSets"], graph: false, expose: false },
   }, true, { link: links.resource }));
   const prepareRestore = async () => {
     const resources = Result.getOrThrow(prepareWorkflowResources({
@@ -141,6 +165,9 @@ export async function prepareLogicalStockLocationDeletion(
       sales_channel_location_links: { module: links.location.workflow, methods: ["softDelete", "restore"], graph: false, expose: false },
       location_fulfillment_set_links: { module: links.fulfillmentSet.workflow, methods: ["softDelete", "restore"], graph: false, expose: false },
       fulfillment: { module: fulfillment.workflow, methods: ["softDeleteFulfillmentSets", "restoreFulfillmentSets"], graph: false, expose: false },
+      providerLinks: { module: links.provider.workflow, methods: ["softDelete", "restore"], graph: false, expose: false },
+      priceSetLinks: { module: links.priceSet.workflow, methods: ["softDelete", "restore"], graph: false, expose: false },
+      pricing: { module: pricing.workflow, methods: ["softDeletePriceSets", "restorePriceSets"], graph: false, expose: false },
     }, true, { link: links.resource }));
     const restore = createStep("invoke-retained-stock-location-compensators", resources.callback(async (input: typeof StockLocationDeletionInput.Type, context) => {
       await restoreLocations([...input.ids], context);
@@ -150,13 +177,14 @@ export async function prepareLogicalStockLocationDeletion(
     const workflow = createWorkflow("probe-retained-stock-location-compensation", (input: WorkflowData<typeof StockLocationDeletionInput.Type>) => new WorkflowResponse(restore(input)));
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution, modules: Object.fromEntries(Object.entries(modules).map(([name, value]) => [name, { ...value, logicalResources: stockLocationDeletionResources }])), operationScheduling: "queued",
       requestCallLimit: stockLocationDeletionResources.calls, requestEventLimit: stockLocationDeletionResources.eventMessages,
+      requestByteLimit: stockLocationDeletionResources.commandBytes, requestCommandMs: stockLocationDeletionCommandMs,
       revision: revision("retained-stock-location-compensation-probe"), subscribers: options.subscribers,
       workflow: { name: "probeRetainedStockLocationCompensation", resources, prepared: Result.getOrThrow(workflow.prepare()),
         input: StockLocationDeletionInput, output: Schema.Null, events: internalModuleWorkflowEvents } }));
     close(() => Effect.runPromise(host.close)); return host;
   };
   const prepareRoundtrip = async (retained: () => { readonly stock: unknown; readonly link: unknown }, lateFailure = false,
-    limits: Readonly<{ calls: number; eventMessages: number }> = stockLocationDeletionResources) => {
+    limits: Readonly<{ calls: number; eventMessages: number; commandBytes?: number }> = stockLocationDeletionResources) => {
     const inverse = createStep("invoke-actual-stock-location-retained-inverses", resources.callback(async (_value: null, context) => {
       const actual = retained(); await restoreLinks(actual.link, context); await restoreLocations(actual.stock, context);
       if (lateFailure) throw new Error("Late installed Stock Location retained inverse failure");
@@ -170,6 +198,7 @@ export async function prepareLogicalStockLocationDeletion(
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ execution,
       modules: Object.fromEntries(Object.entries(modules).map(([name, value]) => [name, { ...value, logicalResources: selected }])),
       operationScheduling: "queued", requestCallLimit: selected.calls, requestEventLimit: selected.eventMessages,
+      requestByteLimit: selected.commandBytes, requestCommandMs: stockLocationDeletionCommandMs,
       revision: revision("installed-stock-location-retained-roundtrip"), subscribers: options.subscribers,
       workflow: { name: "probeInstalledStockLocationRootRoundtrip", resources, prepared: Result.getOrThrow(flow.prepare()),
         input: StockLocationDeletionInput, output: Schema.Null, events: internalModuleWorkflowEvents } }));
@@ -241,6 +270,10 @@ export async function prepareLogicalStockLocationDeletion(
     }
     return result;
   };
-  return { snapshot: () => logicalCurrencyInventory(fixture), resources, prepareRoundtrip, readSetLinks, readFulfillment, fixture, stock, fulfillment, links, options, execution, prepare, prepareRestore, seed, attach, detach, seedProtectedInventory,
+  const readProviderLinks = (ids: readonly string[], withDeleted = false) => Effect.runPromise(provider.host.read(links.provider.nativeService.list,
+    { filters: { stock_location_id: [...ids] }, config: { withDeleted, take: 256 } }).pipe(Effect.flatMap(decodeRows)));
+  const readPriceSetLinks = (ids: readonly string[], withDeleted = false) => Effect.runPromise(priceSet.host.read(links.priceSet.nativeService.list,
+    { filters: { shipping_option_id: [...ids] }, config: { withDeleted, take: 256 } }).pipe(Effect.flatMap(decodeRows)));
+  return { snapshot: () => logicalCurrencyInventory(fixture), resources, prepareRoundtrip, readSetLinks, readFulfillment, readProviderLinks, readPriceSetLinks, fixture, stock, fulfillment, pricing, links, options, execution, prepare, prepareRestore, seed, attach, detach, seedProtectedInventory,
     readLocations, readAddresses, readLinks, readChannels };
 }

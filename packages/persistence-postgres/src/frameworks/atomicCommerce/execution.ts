@@ -27,6 +27,7 @@ import { finalizeCommerceCommit } from "../commerceTransaction/publication";
 import type { AtomicCommerceContext } from "./commands";
 import {
   makeAtomicEventCapture,
+  admitCommercePendingEventCancellation,
   type AtomicCommerceCallObservation,
   type CommerceEventClosure,
 } from "./events";
@@ -314,6 +315,14 @@ function makeAtomicCommerceExecution(
     refuse: (error) => operations === undefined
       ? lifetime.operation(lifetime.context, id, "write", Effect.fail(error))
       : operations.submit(() => Result.fail(error), () => Effect.fail(error)),
+    clearPendingEvents: contract => operations !== undefined ? operations.submit(
+      () => replacementPlanned ? Result.fail(commerceError("invalidAuthority")) : admitCommercePendingEventCancellation(eventPolicy, contract),
+      () => lifetime.operation(lifetime.context, id, "write", Effect.suspend(() =>
+        replacementPlanned ? Effect.fail(commerceError("invalidAuthority")) : eventCapture === undefined
+          ? Effect.fail(commerceError("unadmittedEvent")) : eventCapture.clearPending(contract))),
+    ) : lifetime.operation(lifetime.context, id, "write", Effect.suspend(() =>
+      replacementPlanned ? Effect.fail(commerceError("invalidAuthority")) : eventCapture === undefined
+        ? Effect.fail(commerceError("unadmittedEvent")) : eventCapture.clearPending(contract))),
     call: callParticipant,
   });
   scopeExclusions.set(context, rootOperation(lifetime.operation(lifetime.context, id, "read", Effect.suspend(() =>

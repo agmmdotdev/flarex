@@ -1,8 +1,8 @@
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import type { WorkflowContainer } from "@medusajs/workflows-sdk";
 import type { AtomicCommerceContext, CommerceEventContract } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { requireAtomicCommerceScopeExclusion } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, CommerceTransactionError, commerceLimits, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, CommerceTransactionError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommercePromiseOwner } from "../module/promise-owner";
 import { captureCommerceInput } from "../value/input";
 import type { PreparedLocalGraph } from "../local-graph/model";
@@ -10,12 +10,19 @@ import { registerWorkflowResourceContext, workflowComposedResources, type Prepar
 import { workflowMethodDefinition, workflowModuleDefinition, type WorkflowMethod } from "./module";
 import { composedWorkflowResourceDefinition, type InvokeWorkflowMethod } from "./composed-resource";
 import { checkedCommerceValue } from "../value/checked";
+import { commerceDecoder } from "../value/decoder";
+import { bindWorkflowQuery } from "./query";
 
 export interface WorkflowEventDefinition {
   readonly name: string;
+  readonly pendingCancellation?: true;
   readonly decode: (value: unknown) => Result.Result<Json, CommerceTransactionError>;
 }
 export interface BoundWorkflowEvent extends WorkflowEventDefinition { readonly contract: CommerceEventContract }
+
+const decodeGroupedClear = commerceDecoder(Schema.Tuple([Schema.String,
+  Schema.Struct({ eventNames: Schema.Tuple([Schema.String]) }),
+]), "unadmittedEvent");
 
 /** Missing native methods refuse on invocation. Reflection and protocol probes
  * remain inert; the target still exposes only the admitted own properties. */
@@ -83,10 +90,8 @@ export function bindWorkflowResources(selection: PreparedWorkflowResources, memb
     entries.push([member.name, scopedResource(Object.fromEntries(methods), owner)]);
   }
   if (graph !== undefined) {
-    const query = graph.bind(ctx);
-    entries.push(["query", scopedResource({ maxPageSize: commerceLimits.catalogRows,
-      graph: (...args: unknown[]) => owner.run(args.length === 1 ? query.graph(args[0]) : ctx.refuse(commerceError("unsupportedProfile"))),
-    }, owner)]);
+    const query = scopedResource(bindWorkflowQuery(graph, ctx, owner), owner);
+    entries.push(["query", query], ["remoteQuery", query]);
   }
   if (selection.events) {
     const contracts = new Map(events.map(event => [event.name, event]));
@@ -103,7 +108,13 @@ export function bindWorkflowResources(selection: PreparedWorkflowResources, memb
           yield* ctx.emit(contract.contract, decoded);
         }
       })),
-      clearGroupedEvents: () => owner.reject(commerceError("unadmittedEvent")),
+      clearGroupedEvents: (...args: unknown[]) => owner.run(Effect.gen(function* () {
+        const [group, options] = yield* checkedCommerceValue(ctx, () => captureCommerceInput(args).pipe(Result.flatMap(decodeGroupedClear)));
+        const contract = contracts.get(options.eventNames[0]);
+        if (group !== ctx.eventGroupId || contract?.pendingCancellation !== true)
+          return yield* ctx.refuse(commerceError("unadmittedEvent"));
+        yield* ctx.clearPendingEvents(contract.contract);
+      })),
       releaseGroupedEvents: () => owner.reject(commerceError("unadmittedEvent")),
     }, owner)]);
   }

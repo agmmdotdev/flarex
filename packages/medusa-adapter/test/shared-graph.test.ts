@@ -218,6 +218,33 @@ describe("checked complete-child reconstitution delegation", () => {
 });
 
 describe("shared graph planning over renamed module keys", () => {
+  it("captures a new owned to-one before its owner and preserves normalized reference precedence", async () => {
+    const owned: CreationProfile = { ...creation, root: { entity: volume, omitRelations: ["publisher"], steps: [
+      { kind: "ownedToOne", name: "publisher", foreignKey: "publisher_slug", node: { entity: label, omitRelations: [], steps: [] } },
+    ] } };
+    const input = [{ isbn: "inline", publisher_slug: "displaced", publisher: { slug: "press", name: "Press" } },
+      { isbn: "scalar", publisher_slug: "displaced", publisher: "known" },
+      { isbn: "absent" }, { isbn: "null", publisher: null }];
+    const before = structuredClone(input);
+    const captured = await Effect.runPromise(captureGraph(owned, input));
+    expect(captured.rows.get("labels")).toEqual([{ slug: "press", name: "Press" }]);
+    expect(captured.rows.get("volumes")).toEqual([{ isbn: "inline", publisher_slug: "press" },
+      { isbn: "scalar", publisher_slug: "known" }, { isbn: "absent" }, { isbn: "null", publisher_slug: null }]);
+    expect(input).toEqual(before);
+  });
+
+  it("counts owned to-one inserts and refuses malformed and duplicated child identities", async () => {
+    const owned: CreationProfile = { ...creation, root: { entity: volume, omitRelations: ["publisher"], steps: [
+      { kind: "ownedToOne", name: "publisher", foreignKey: "publisher_slug", node: { entity: label, omitRelations: [], steps: [] } },
+    ] } };
+    const result = await Effect.runPromise(captureGraph(owned, [{ isbn: "book", publisher: { slug: "press", name: "Press" } }],
+      { ...defaultCommerceResources, facts: 1 }).pipe(Effect.result));
+    expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded", cause: { attempted: 2 } } });
+    for (const input of [[{ isbn: "book", publisher: false }], [{ isbn: "book", publisher: ["press"] }],
+      [{ isbn: "one", publisher: { slug: "same", name: "Press" } }, { isbn: "two", publisher: { slug: "same", name: "Press" } }]])
+      expect(await Effect.runPromise(captureGraph(owned, input).pipe(Effect.result))).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+  });
+
   it("keeps arbitrary action keys distinct from Product's checked Medusa id contract", () => {
     expectTypeOf<Effect.Success<ReturnType<typeof replaceGraphRows>>["performedActions"]>().not.toMatchTypeOf<PerformedActions>();
     expectTypeOf<Effect.Success<ReturnType<typeof replaceProductRows>>["performedActions"]>().toEqualTypeOf<PerformedActions>();

@@ -61,7 +61,7 @@ export function prepareWorkflowResources<const Selections extends WorkflowSelect
     const seen = new Set<WorkflowModule>();
     for (const [name, member] of Object.entries(record)) {
       const selected = yield* captureWorkflowRecord(member);
-      if (!isWorkflowResourceName(name) || ["query", "event_bus"].includes(name) || typeof selected.graph !== "boolean"
+      if (!isWorkflowResourceName(name) || ["query", "remoteQuery", "event_bus"].includes(name) || typeof selected.graph !== "boolean"
         || selected.expose !== undefined && typeof selected.expose !== "boolean"
         || workflowModuleDefinition(selected.module) === undefined || seen.has(selected.module)) return yield* Result.fail(commerceError("unsupportedProfile"));
       const graph = workflowModuleDefinition(selected.module)?.graph;
@@ -87,7 +87,7 @@ export function prepareWorkflowResources<const Selections extends WorkflowSelect
     })));
     for (const [name, resource] of Object.entries(composedRecord)) {
       const definition = composedWorkflowResourceDefinition(resource);
-      if (!isWorkflowResourceName(name) || ["query", "event_bus"].includes(name) || Object.hasOwn(record, name) ||
+      if (!isWorkflowResourceName(name) || ["query", "remoteQuery", "event_bus"].includes(name) || Object.hasOwn(record, name) ||
         !definition || definition.dependencies.some(method => !selectedMethods.has(method)))
         return yield* Result.fail(commerceError("unsupportedProfile"));
       admitted.push(Object.freeze({ name, resource: definition.resource }));

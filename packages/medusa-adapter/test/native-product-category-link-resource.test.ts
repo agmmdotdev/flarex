@@ -26,6 +26,7 @@ async function bind() {
   const emit = vi.fn<AtomicCommerceContext["emit"]>(() => Effect.fail(commerceError("unadmittedEvent")));
   const refuse = vi.fn<AtomicCommerceContext["refuse"]>(error => Effect.fail(error));
   const ctx: AtomicCommerceContext = { eventGroupId: "native-product-category-links", checkpoint: Effect.void,
+    clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     capture: (input, normalize) => Effect.suspend(() => Effect.fromResult(captureCommerceInput(input).pipe(Result.flatMap(normalize ?? decodeJson)))),
     call, emit, refuse,
   };

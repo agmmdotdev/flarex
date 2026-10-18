@@ -12,6 +12,8 @@ export interface GraphRelationPath {
   readonly many: boolean;
   /** A service-owned absent to-one value, not an arbitrary missing response. */
   readonly optional?: boolean;
+  /** Source join columns from the module's checked relationship catalog. */
+  readonly sourceFields?: readonly string[];
 }
 
 export interface GraphReadDefinition {
@@ -34,6 +36,8 @@ export interface GraphReadDefinition {
 
 export interface GraphModuleDefinition {
   readonly aliases: readonly { readonly name: string; readonly model: string }[];
+  /** Native Link service identities are distinct from public entity aliases. */
+  readonly services?: readonly { readonly name: string; readonly model: string }[];
   readonly reads: readonly GraphReadDefinition[];
   readonly remotePaths?: readonly GraphRemotePath[];
 }
@@ -46,6 +50,9 @@ export type LocalGraphResult = {
 /** Explicit per-transaction instance; several module sets can coexist. */
 export interface LocalGraphQuery {
   readonly graph: (input: unknown) => Effect.Effect<LocalGraphResult, CommerceTransactionError>;
+  readonly service: (input: unknown) => Effect.Effect<LocalGraphResult, CommerceTransactionError>;
+  /** Callable RemoteQuery retains the native join fields used by its plan. */
+  readonly native: (input: unknown) => Effect.Effect<LocalGraphResult, CommerceTransactionError>;
 }
 export interface PreparedLocalGraph {
   readonly entities: readonly string[];

@@ -22,6 +22,11 @@
       "types": "./dist/mutation-events.d.ts",
       "source": "./src/mutation-events.ts",
       "default": "./dist/mutation-events.js"
+    },
+    "./filter-value": {
+      "types": "./dist/filter-value.d.ts",
+      "source": "./src/filter-value.ts",
+      "default": "./dist/filter-value.js"
     }
   },
   "license": "MIT",

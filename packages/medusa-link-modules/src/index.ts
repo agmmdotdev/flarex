@@ -7,3 +7,6 @@ export { generateEntityDefinition } from "./utils/generate-entity";
 export { ProductVariantInventoryItem } from "./definitions/product-variant-inventory-item";
 export { SalesChannelLocation } from "./definitions/sales-channel-location";
 export { LocationFulfillmentSet } from "./definitions/fulfillment-set-location";
+
+export { LocationFulfillmentProvider } from "./definitions/fulfillment-provider-location";
+export { ShippingOptionPriceSet } from "./definitions/shipping-option-price-set";

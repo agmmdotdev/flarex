@@ -1,0 +1,22 @@
+{
+  "name": "@medusajs/fulfillment-manual",
+  "version": "2.13.4",
+  "private": true,
+  "license": "MIT",
+  "exports": {
+    "./services": {
+      "types": "./dist/services/index.d.ts",
+      "source": "./src/services/index.ts",
+      "default": "./dist/services/index.js"
+    }
+  },
+  "dependencies": {
+    "@medusajs/framework": "workspace:*",
+    "@medusajs/types": "workspace:*",
+    "@medusajs/utils": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

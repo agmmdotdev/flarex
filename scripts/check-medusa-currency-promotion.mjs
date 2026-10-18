@@ -1,5 +1,6 @@
 // @ts-check
-import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
+import { verifyShippingOptionCreateCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -196,6 +197,8 @@ const owners = new Map([
   ["packages/medusa-sales-channel", "@medusajs/sales-channel"],
   ["packages/medusa-store", "@medusajs/store"],
   ["packages/medusa-fulfillment", "@medusajs/fulfillment"],
+  ["packages/medusa-fulfillment-manual", "@medusajs/fulfillment-manual"],
+  ["packages/medusa-region", "@medusajs/region"],
   ["packages/medusa-pricing", "@medusajs/pricing"],
   ["packages/medusa-inventory", "@medusajs/inventory"],
   ["packages/medusa-stock-location", "@medusajs/stock-location"],
@@ -500,7 +503,47 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyCsvNormalizerTests(readFileSync(path.join(root, csvSource, "csv-normalizer.spec.ts"), "utf8"),
     readFileSync(path.join(root, csvTarget, "csv-normalizer.spec.ts"), "utf8"),
     fixtureText(csvSource), fixtureText(csvTarget));
+  verifyShippingOptionCreateCallbacks(root);
+  verifyNativeFilterValue(
+    readFileSync(path.join(root, sourcePrefix + "packages/database/drizzle/src/repository.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-drizzle/src/filter-value.ts"), "utf8"));
+  verifyNativeJoinerFieldAlias(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/orchestration/src/joiner/remote-joiner.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-orchestration/src/joiner-field-alias.ts"), "utf8"));
+  verifyNativeNullToOneInitialization(
+    readFileSync(path.join(root, sourcePrefix + "packages/database/drizzle/src/medusa.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-drizzle/src/relation-query.ts"), "utf8"));
+  /** @param {string} target @param {string} source @returns {[string, string]} */
+  const shippingSourcePair = (target, source) => [target, source];
+  const shippingNativeSources = new Map([
+    ...["models/region.ts", "models/country.ts", "models/index.ts", "services/index.ts", "types/index.ts"].map(file =>
+      shippingSourcePair("packages/medusa-region/src/" + file, "packages/modules/region/src/" + file)),
+    ["packages/medusa-fulfillment-manual/src/services/manual-fulfillment.ts", "packages/modules/providers/fulfillment-manual/src/services/manual-fulfillment.ts"],
+    ...["fulfillment-provider-location.ts", "shipping-option-price-set.ts"].map(file =>
+      shippingSourcePair("packages/medusa-link-modules/src/definitions/" + file, "packages/modules/link-modules/src/definitions/" + file)),
+  ]);
+  const shippingUnchangedSources = new Map([
+    ...["common.ts", "mutations.ts", "service.ts", "index.ts"].map(file =>
+      shippingSourcePair("packages/medusa-types/src/region/" + file, "packages/core/types/src/region/" + file)),
+    ...["create-shipping-options.ts", "update-shipping-options.ts"].map(file =>
+      shippingSourcePair("packages/medusa-types/src/workflow/fulfillment/" + file, "packages/core/types/src/workflow/fulfillment/" + file)),
+    ["packages/medusa-utils/src/fulfillment/provider.ts", "packages/core/utils/src/fulfillment/provider.ts"],
+    ["packages/medusa-utils/src/link/links.ts", "packages/core/utils/src/link/links.ts"],
+  ]);
   for (const file of promotion.files) {
+    const shippingNativeSource = shippingNativeSources.get(file.target);
+    if (shippingNativeSource !== undefined && (file.source !== sourcePrefix + shippingNativeSource ||
+      !["unchanged", "importRelocation"].includes(file.classification)))
+      throw new Error("Native Shipping dependency outside its exact pinned source pair");
+    const shippingUnchangedSource = shippingUnchangedSources.get(file.target);
+    if (shippingUnchangedSource !== undefined && (file.source !== sourcePrefix + shippingUnchangedSource || file.classification !== "unchanged"))
+      throw new Error("Native Shipping contract outside its unchanged pinned source pair");
+    if (file.target.startsWith("packages/medusa-core-flows/src/fulfillment/") &&
+      ["workflows/create-shipping-options.ts", "steps/upsert-shipping-options.ts", "steps/validate-fulfillment-providers.ts",
+        "steps/validate-shipping-option-prices.ts", "steps/add-shipping-options-prices.ts", "steps/set-shipping-options-price-sets.ts"]
+        .includes(file.target.slice("packages/medusa-core-flows/src/fulfillment/".length)) &&
+      (file.classification !== "workflowFork" || file.source !== sourcePrefix + "packages/core/core-flows/src/" + file.target.slice("packages/medusa-core-flows/src/".length)))
+      throw new Error("Shipping Option workflow outside its exact pinned source pair");
     if (["packages/medusa-core-flows/src/stock-location/workflows/create-location-fulfillment-set.ts",
       "packages/medusa-core-flows/src/fulfillment/steps/create-fulfillment-set.ts",
       "packages/medusa-core-flows/src/stock-location/steps/associate-locations-with-fulfillment-sets.ts"].includes(file.target)
@@ -545,7 +588,18 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     if (["packages/medusa-core-flows/src/shipping-options/workflows/create-shipping-option-types.ts", "packages/medusa-core-flows/src/shipping-options/steps/create-shipping-option-types.ts"].includes(file.target)
       && (file.classification !== "workflowFork" || file.source !== sourcePrefix + "packages/core/core-flows/src/" + file.target.slice("packages/medusa-core-flows/src/".length)))
       throw new Error("ShippingOptionType creation adaptation outside its exact pinned source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "storeTypeFork", "storeCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
+    if (file.target === "packages/medusa-region/src/services/region-module.ts"
+      && (file.classification !== "regionServiceFork" || file.source !== sourcePrefix + "packages/modules/region/src/services/region-module.ts"))
+      throw new Error("Region service adaptation outside its exact pinned source pair");
+    if (file.classification === "regionServiceFork" && file.target !== "packages/medusa-region/src/services/region-module.ts")
+      throw new Error("Region service adaptation outside its selected native service");
+    for (const [target, source] of [
+      ["packages/medusa-drizzle/src/filter-value.ts", "packages/database/drizzle/src/repository.ts"],
+      ["packages/medusa-orchestration/src/joiner-field-alias.ts", "packages/core/orchestration/src/joiner/remote-joiner.ts"],
+      ["packages/medusa-region/src/static-manifest.ts", "packages/modules/region/src/static-manifest.ts"],
+    ]) if (file.target === target && (file.classification !== "selectedExportFacade" || file.source !== sourcePrefix + source))
+      throw new Error("Shipping Option extraction outside its exact pinned source pair");
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "storeTypeFork", "storeCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.classification === "workflowFork" && !(file.target.startsWith("packages/medusa-workflows-sdk/src/") || file.target.startsWith("packages/medusa-core-flows/src/") || file.target.startsWith("packages/medusa-orchestration/src/") || [
@@ -618,6 +672,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       noSymlinks(root, file.source);
       const hash = sha256(readFileSync(path.join(root, file.source)));
       if (hash !== file.sourceSha256) throw new Error(`Changed promotion source: ${file.source}`);
+      if (shippingNativeSources.has(file.target))
+        verifyModuleTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "inventoryServiceFork")
         verifyInventoryReservationRestoreFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"),
           readFileSync(path.join(root, "packages/medusa-inventory/src/utils/inventory-level-quantity.ts"), "utf8"));
@@ -630,8 +686,10 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
         verifyShippingProfileWorkflowTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "storeTypeFork")
         verifyStoreTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
-      if (file.classification === "salesChannelTypeFork" || file.classification === "stockLocationTypeFork")
+      if (file.classification === "salesChannelTypeFork" || file.classification === "stockLocationTypeFork" || file.classification === "regionServiceFork")
         verifyModuleTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
+      if (file.target === "packages/medusa-region/src/static-manifest.ts")
+        verifyRegionManifestFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "testPort" || file.classification === "testFixturePort") {
         if (!file.target.endsWith(".ts") || !(file.classification === "testPort" ? file.target.includes("/__tests__/") : file.target.includes("/integration-tests/__fixtures__/"))) throw new Error("Invalid test-port target");
         verifyTestPort(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), {

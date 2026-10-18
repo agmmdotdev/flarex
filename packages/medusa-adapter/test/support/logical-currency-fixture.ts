@@ -142,6 +142,9 @@ import { compileProductLinksDefinition } from "../../src/links/product-definitio
 import { compileStockLocationDefinition } from "../../src/modules/stock-location/schema";
 import { compileSalesChannelLocationLinkDefinition } from "../../src/links/sales-channel-location-schema";
 import { compileLocationFulfillmentSetLinkDefinition } from "../../src/links/location-fulfillment-set-schema";
+import { compileLocationFulfillmentProviderLinkDefinition } from "../../src/links/location-fulfillment-provider-schema";
+import { compileShippingOptionPriceSetLinkDefinition } from "../../src/links/shipping-option-price-set-schema";
+import { compileRegionDefinition } from "../../src/modules/region/schema";
 import { compileShippingProfileDefinition, compileShippingProfileDeletionDefinition, compileServiceZoneCreationDefinition } from "../../src/modules/fulfillment/shipping-profile-schema";
 import {
   currencyAnnouncementWrite,
@@ -189,6 +192,9 @@ type LogicalCurrencyFixtureOptions = Readonly<{
   includeStockLocation?: boolean;
   includeSalesChannelLocationLink?: boolean;
   includeLocationFulfillmentSetLink?: boolean;
+  includeLocationFulfillmentProviderLink?: boolean;
+  includeShippingOptionPriceSetLink?: boolean;
+  includeRegion?: boolean;
   includeProductSalesChannelLink?: boolean;
   includeShippingProfile?: boolean;
   includeShippingProfileDeletion?: boolean;
@@ -241,6 +247,9 @@ export interface LogicalCurrencyFixture {
   readonly stockLocationDefinition: Effect.Success<ReturnType<typeof compileStockLocationDefinition>> | undefined;
   readonly salesChannelLocationLinkDefinition: Effect.Success<ReturnType<typeof compileSalesChannelLocationLinkDefinition>> | undefined;
   readonly locationFulfillmentSetLinkDefinition: Effect.Success<ReturnType<typeof compileLocationFulfillmentSetLinkDefinition>> | undefined;
+  readonly locationFulfillmentProviderLinkDefinition: Effect.Success<ReturnType<typeof compileLocationFulfillmentProviderLinkDefinition>> | undefined;
+  readonly shippingOptionPriceSetLinkDefinition: Effect.Success<ReturnType<typeof compileShippingOptionPriceSetLinkDefinition>> | undefined;
+  readonly regionDefinition: Effect.Success<ReturnType<typeof compileRegionDefinition>> | undefined;
   readonly productLinksDefinition: Effect.Success<ReturnType<typeof compileProductLinksDefinition>> | undefined;
   readonly shippingProfileDefinition: Effect.Success<ReturnType<typeof compileShippingProfileDefinition>> | undefined;
   readonly physicalTablesBeforeCandidate: readonly Readonly<{ name: string }>[];
@@ -382,6 +391,9 @@ export async function logicalCurrencyFixture(
         ...(options?.includeStore === true ? ["store" as const] : []),
         ...(options?.includeSalesChannelLocationLink === true ? ["salesChannelLocationLink" as const] : []),
         ...(options?.includeLocationFulfillmentSetLink === true ? ["locationFulfillmentSetLink" as const] : []),
+        ...(options?.includeLocationFulfillmentProviderLink === true ? ["locationFulfillmentProviderLink" as const] : []),
+        ...(options?.includeShippingOptionPriceSetLink === true ? ["shippingOptionPriceSetLink" as const] : []),
+        ...(options?.includeRegion === true ? ["region" as const] : []),
         ...(options?.includeProductSalesChannelLink === true ? ["productSalesChannelLink" as const] : []),
         ...(options?.includeShippingProfile === true ? ["shippingProfile" as const] : []),
         ...(options?.includeShippingProfileDeletion === true ? ["shippingProfileDeletion" as const] : []),
@@ -419,6 +431,11 @@ export async function logicalCurrencyFixture(
       ? yield* compileSalesChannelLocationLinkDefinition() : undefined;
     const locationFulfillmentSetLinkDefinition = options?.includeLocationFulfillmentSetLink === true
       ? yield* compileLocationFulfillmentSetLinkDefinition() : undefined;
+    const locationFulfillmentProviderLinkDefinition = options?.includeLocationFulfillmentProviderLink === true
+      ? yield* compileLocationFulfillmentProviderLinkDefinition() : undefined;
+    const shippingOptionPriceSetLinkDefinition = options?.includeShippingOptionPriceSetLink === true
+      ? yield* compileShippingOptionPriceSetLinkDefinition() : undefined;
+    const regionDefinition = options?.includeRegion === true ? yield* compileRegionDefinition() : undefined;
     const productLinksDefinition = options?.includeProductSalesChannelLink === true || options?.includeProductShippingProfileLink === true
       ? yield* compileProductLinksDefinition({ salesChannel: options?.includeProductSalesChannelLink === true,
         shippingProfile: options?.includeProductShippingProfileLink === true }) : undefined;
@@ -545,7 +562,7 @@ export async function logicalCurrencyFixture(
       metadataScaling: metadataScaling === undefined ? undefined : {
         scale: metadataScaling.scale, counts: metadataScaling.counts, added: metadataScaling.added },
       pricingDefinition, variantPricingLinkDefinition, salesChannelDefinition, storeDefinition, stockLocationDefinition, salesChannelLocationLinkDefinition, locationFulfillmentSetLinkDefinition, productLinksDefinition,
-      shippingProfileDefinition, physicalTablesBeforeCandidate,
+      shippingProfileDefinition, locationFulfillmentProviderLinkDefinition, shippingOptionPriceSetLinkDefinition, regionDefinition, physicalTablesBeforeCandidate,
       ...(pair.kind === "pglite" ? { observeSql: pair.observeSql } : {}) };
   })());
 }

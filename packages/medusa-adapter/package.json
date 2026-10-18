@@ -34,7 +34,9 @@
     "@medusajs/inventory": "workspace:*",
     "@medusajs/stock-location": "workspace:*",
     "@medusajs/notification": "workspace:*",
-    "@medusajs/notification-local": "workspace:*"
+    "@medusajs/notification-local": "workspace:*",
+    "@medusajs/region": "workspace:*",
+    "@medusajs/fulfillment-manual": "workspace:*"
   },
   "devDependencies": {
     "@flarex/application-schema-definition": "workspace:*",

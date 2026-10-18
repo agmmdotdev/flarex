@@ -55,3 +55,5 @@ export { ReservationWorkflow } from "@medusajs/types";
 export { StoreTypes, IStoreModuleService, StoreDTO, CreateStoreDTO, FilterableStoreProps, UpdateStoreDTO, StoreWorkflow, PricingWorkflow } from "@medusajs/types";
 
 export { FulfillmentWorkflow } from "@medusajs/types";
+
+export { RegionTypes, CreateRegionDTO, FilterableRegionProps, IRegionModuleService, RegionCountryDTO, RegionDTO, UpdateRegionDTO, UpsertRegionDTO, RemoteQueryFunction } from "@medusajs/types";

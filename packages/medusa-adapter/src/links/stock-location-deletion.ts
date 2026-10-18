@@ -14,6 +14,9 @@ import { prepareLinkService } from "./service";
 import { prepareLinkWorkflowService, linkWorkflowServiceDefinition } from "./workflow-service";
 import { linkLogicalEventPolicy } from "./events";
 import { decodeLinkCascade } from "./cascade-result";
+import { prepareLocationFulfillmentProviderLink } from "./location-fulfillment-provider-service";
+import { prepareShippingOptionPriceSetLink } from "./shipping-option-price-set-service";
+import { captureShippingDeletionServices } from "./shipping-deletion-services";
 
 const Ids = Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 const Endpoint = Schema.Struct({ stock_location: Schema.Struct({
@@ -29,11 +32,13 @@ const nativeLocationJoiner = getModuleService(SalesChannelLocation).prototype.__
 /** The actual generated Location identity map reaches the genuine router.
  * Its stock_location_id relationship selects both installed Link families;
  * the authenticated location_id alias supplies no additional deletion. */
-export function prepareStockLocationDeletionLinkResource(services: { readonly location: unknown; readonly fulfillmentSet: unknown }, fulfillment: Effect.Success<ReturnType<typeof makeFulfillmentSetDeletionCommands>>["workflow"]) {
+export function prepareStockLocationDeletionLinkResource(services: { readonly location: unknown; readonly fulfillmentSet: unknown;
+  readonly provider: unknown; readonly priceSet: unknown; readonly pricing: unknown }, fulfillment: Effect.Success<ReturnType<typeof makeFulfillmentSetDeletionCommands>>["workflow"]) {
   return Result.gen(function* () {
     const location = linkWorkflowServiceDefinition(services.location);
     const set = yield* captureLocationFulfillmentSetDeletionService(services.fulfillmentSet, "stock-location-deletions");
     const endpoint = fulfillmentSetDeletionServiceDefinition(fulfillment);
+    const shipping = yield* captureShippingDeletionServices(services);
     if (location === undefined || endpoint === undefined) return yield* Result.fail(commerceError("invalidAuthority"));
     if (location.admission !== "stock-location-deletions" ||
       location.routing.__joinerConfig.serviceName !== SalesChannelLocation.serviceName)
@@ -44,8 +49,8 @@ export function prepareStockLocationDeletionLinkResource(services: { readonly lo
     const setSoftDelete = set.softDeleteMethod, setRestore = set.restoreMethod;
     if (softDelete === undefined || restore === undefined || setSoftDelete === undefined || setRestore === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     return yield* defineComposedWorkflowResource({ identity: { format: "medusa.stock-location.deletion-links",
-      services: [location.routing, set.routing, endpoint.routing], lifecycle: set.lifecycle },
-      dependencies: [softDelete, restore, setSoftDelete, setRestore, endpoint.softDelete, endpoint.restore],
+      services: [location.routing, set.routing, endpoint.routing, ...shipping.routing], lifecycle: set.lifecycle },
+      dependencies: [softDelete, restore, setSoftDelete, setRestore, endpoint.softDelete, endpoint.restore, ...shipping.dependencies],
       methods: { delete: { arguments: decodeEndpoint, output: decodeLinkCascade },
         restore: { arguments: decodeEndpoint, output: decodeLinkCascade } },
       bind: invoke => {
@@ -58,7 +63,7 @@ export function prepareStockLocationDeletionLinkResource(services: { readonly lo
         const loadedEndpoint = { ...structuredClone(endpoint.routing),
           softDeleteFulfillmentSets: (selector: unknown, config: unknown) => invoke(endpoint.softDelete, selector, config),
           restoreFulfillmentSets: (selector: unknown, config: unknown) => invoke(endpoint.restore, selector, config) };
-        const native = new Link([loaded, loadedSet, loadedEndpoint]);
+        const native = new Link([loaded, loadedSet, loadedEndpoint, ...shipping.bind(invoke)]);
         return { delete: input => native.delete(structuredClone(input)), restore: input => native.restore(structuredClone(input)) };
       },
     });
@@ -67,7 +72,7 @@ export function prepareStockLocationDeletionLinkResource(services: { readonly lo
 
 /** Both installed native Link families and their genuine Fulfillment endpoint
  * lifecycle share this scoped Stock Location composition. */
-export const prepareStockLocationDeletionLinks = Effect.fn("StockLocationDeletionLinks.prepare")(function* (fulfillment: Effect.Success<ReturnType<typeof makeFulfillmentSetDeletionCommands>>["workflow"]) {
+export const prepareStockLocationDeletionLinks = Effect.fn("StockLocationDeletionLinks.prepare")(function* (fulfillment: Effect.Success<ReturnType<typeof makeFulfillmentSetDeletionCommands>>["workflow"], pricing: unknown) {
   const location = yield* prepareLinkService(yield* captureSalesChannelLocationLinkMetadata(), 8);
   const native = yield* Effect.fromResult(prepareLinkWorkflowService(location, "stockLocationSalesChannelLink", "stock-location-deletions"));
   const softDelete = native.softDeleteMethod, restore = native.restoreMethod;
@@ -77,7 +82,8 @@ export const prepareStockLocationDeletionLinks = Effect.fn("StockLocationDeletio
     softDeleteName === undefined || restoreName === undefined)
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const fulfillmentSet = yield* prepareLocationFulfillmentSetDeletionLinks("stock-location-deletions", "stockLocationFulfillmentSetLink");
-  const nativeServices = { location: native, fulfillmentSet: fulfillmentSet.nativeService };
+  const provider = yield* prepareLocationFulfillmentProviderLink(), priceSet = yield* prepareShippingOptionPriceSetLink();
+  const nativeServices = { location: native, fulfillmentSet: fulfillmentSet.nativeService, provider: provider.nativeService, priceSet: priceSet.nativeService, pricing };
   const resource = yield* Effect.fromResult(prepareStockLocationDeletionLinkResource(nativeServices, fulfillment));
   const commands = [native.create, native.list, softDeleteCommand, restoreCommand];
   const logicalEventPolicy = () => linkLogicalEventPolicy(location.prepared.table.name, location.serviceName, location.entityName,
@@ -86,5 +92,5 @@ export const prepareStockLocationDeletionLinks = Effect.fn("StockLocationDeletio
     source: { name: location.serviceName, profile: "stock-location-deletions" }, graph: { aliases: [], reads: [] },
     methods: { create: native.createMethod, list: native.listMethod, softDelete, restore },
     logical: { ...logicalEventPolicy(), commands } }));
-  return { location: { workflow, commands, logicalEventPolicy }, fulfillmentSet, nativeServices, resource };
+  return { location: { workflow, commands, logicalEventPolicy }, fulfillmentSet, provider, priceSet, nativeServices, resource };
 });

@@ -1,24 +1,25 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { FulfillmentModuleService } from "@medusajs/fulfillment/services";
+import { PricingModuleService } from "@medusajs/pricing/services";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
-import { stockLocationDeletionResources } from "../src/workflow/policy";
+import { stockLocationDeletionResources, stockLocationDeletionCommandMs } from "../src/workflow/policy";
 import { fulfillmentSetDeletionGraph } from "./support/logical-fulfillment-set-deletion-fixture";
 import { StockLocationModuleService } from "@medusajs/stock-location/services";
 import { Link } from "@medusajs/modules-sdk/link";
 import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
-import { CommerceTransactionError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { CommerceTransactionError, commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { fxAppRowCurrent, fxSystemCommits, fxSystemCommitAppRowChanges, fxSystemIdempotency } from "../../persistence-postgres/src/database/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { workflowMethodDefinition } from "../src/workflow/module";
-import { prepareAtomicWorkflowHost } from "../src/workflow/host";
+import { workflowMethodDefinition, workflowModuleDefinition } from "../src/workflow/module";
+import { prepareAtomicWorkflowHost, type AtomicWorkflowHostComposition } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../src/workflow/events";
 import { prepareStockLocationDeletionWorkflow, StockLocationDeletionInput } from "../src/workflows/stock-location/delete";
 import { prepareLogicalStockLocationDeletion } from "./support/logical-stock-location-deletion-fixture";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
-const cleanup: Array<() => Promise<void>> = [];
+const cleanup: Array<() => Promise<void>> = []; let sharedCleanupCount = 0;
 let connected: Awaited<ReturnType<typeof prepareLogicalStockLocationDeletion>>;
 const rows = () => connected.fixture.persistence.drizzle.select().from(fxAppRowCurrent).orderBy(fxAppRowCurrent.tableId, fxAppRowCurrent.rowId);
 const facts = () => connected.fixture.persistence.drizzle.select().from(fxSystemCommitAppRowChanges);
@@ -67,8 +68,28 @@ function stockRetainedTap() {
 }
 
 describe("native Stock Location deletion on shared logical storage", { concurrent: false }, () => {
-  beforeAll(async () => { connected = await prepareLogicalStockLocationDeletion(driver, close => cleanup.push(close)); }, 180_000);
+  beforeAll(async () => { connected = await prepareLogicalStockLocationDeletion(driver, close => cleanup.push(close)); sharedCleanupCount = cleanup.length; }, 180_000);
+  afterEach(async () => { for (const close of cleanup.splice(sharedCleanupCount).reverse()) await close(); }, 120_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
+
+  it("selects mixed publication only for authenticated Shipping Pricing and its retained probes", async () => {
+    expect(workflowModuleDefinition(connected.options.modules.pricing.module)?.source.profile).toBe("pricing-shipping-options");
+    expect(Object.entries(connected.options.modules).filter(([, binding]) => binding.logicalPublication === "mixed").map(([name]) => name)).toEqual(["pricing"]);
+    const captured: AtomicWorkflowHostComposition[] = [];
+    const outcome = await Effect.runPromise(Effect.result(prepareStockLocationDeletionWorkflow({ ...connected.options,
+      modules: { ...connected.options.modules,
+        stock_location: { ...connected.options.modules.stock_location, logicalPublication: "mixed" },
+        providerLinks: { ...connected.options.modules.providerLinks, logicalPublication: "mixed" } },
+      execution: { ...connected.execution, prepare: composition => {
+        captured.push(composition); return Effect.fail(commerceError("invalidAuthority"));
+      } },
+    })));
+    expect(Result.isFailure(outcome)).toBe(true); expect(captured).toHaveLength(1);
+    expect(captured[0]?.participants).toHaveLength(7);
+    expect(captured[0]?.requestCommandMs).toBe(stockLocationDeletionCommandMs);
+    expect(captured[0]?.participants.filter(member => member.logicalPublication === "mixed").map(member =>
+      Schema.decodeUnknownSync(Schema.Struct({ sourceKey: Schema.String }))(member.logicalStorage?.source).sourceKey)).toEqual(["medusa.pricing"]);
+  });
 
   it("retains real empty module/Link calls and rejects malformed input before callbacks", async () => {
     const host = await connected.prepare(), stock = vi.spyOn(StockLocationModuleService.prototype, "softDeleteStockLocations"), link = vi.spyOn(Link.prototype, "delete");
@@ -188,6 +209,9 @@ describe("native Stock Location deletion on shared logical storage", { concurren
         methods: ["softDeleteFulfillmentSets", "restoreFulfillmentSets"], graph: false, expose: false },
       sales_channel_location_links: { module: connected.options.modules.sales_channel_location_links.module,
         methods: ["softDelete", "restore"], graph: false, expose: false },
+      providerLinks: { module: connected.options.modules.providerLinks.module, methods: ["softDelete", "restore"], graph: false, expose: false },
+      priceSetLinks: { module: connected.options.modules.priceSetLinks.module, methods: ["softDelete", "restore"], graph: false, expose: false },
+      pricing: { module: connected.options.modules.pricing.module, methods: ["softDeletePriceSets", "restorePriceSets"], graph: false, expose: false },
     }, true, { link: connected.links.resource }));
     const call = createStep("catch-native-stock-location-cascade-error", resources.callback(async (
       input: typeof StockLocationDeletionInput.Type, context,
@@ -205,6 +229,8 @@ describe("native Stock Location deletion on shared logical storage", { concurren
       new WorkflowResponse(call(input)));
     const host = mode === "uncaught" ? await connected.prepare() : await Effect.runPromise(prepareAtomicWorkflowHost({
       execution: connected.execution, modules: connected.options.modules, operationScheduling: "queued",
+      requestCallLimit: stockLocationDeletionResources.calls, requestEventLimit: stockLocationDeletionResources.eventMessages,
+      requestByteLimit: stockLocationDeletionResources.commandBytes, requestCommandMs: stockLocationDeletionCommandMs,
       revision: "a".repeat(64), subscribers: connected.options.subscribers,
       workflow: { name: "caughtNativeStockLocationCascadeError", resources, prepared: Result.getOrThrow(workflow.prepare()),
         input: StockLocationDeletionInput, output: Schema.Null, events: internalModuleWorkflowEvents },
@@ -362,7 +388,8 @@ describe("native Stock Location deletion on shared logical storage", { concurren
       const host = await fixture.prepareRoundtrip(tap.get), before = await fixture.snapshot(); let calls = 0;
       expect(await Effect.runPromise(host.run(host.newRequestKey(), { ids: seeded.locations }).pipe(Effect.provideService(ExecutionDiagnostics, {
         observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") calls++; }).pipe(Effect.andThen(work)),
-      }), Effect.ensuring(Effect.sync(() => console.info("StockLocation installed full forest retained inverse BoundedRequest.enter", history, calls)))))).toBeNull();
+      }), Effect.ensuring(Effect.sync(() => process.stdout.write("StockLocation installed full forest retained inverse "
+        + JSON.stringify({ history, boundedRequestEnter: calls }) + "\n")))))).toBeNull();
       expect(calls).toBeGreaterThan(0); expect(calls).toBeLessThanOrEqual(stockLocationDeletionResources.calls);
       expect(tap.get()).toEqual({ stock: seeded.locations, link: { stock_location: { stock_location_id: seeded.locations, location_id: seeded.locations } } });
       expect(remove).toHaveBeenCalledTimes(1); expect(restore).toHaveBeenCalledTimes(1);
@@ -405,8 +432,48 @@ describe("native Stock Location deletion on shared logical storage", { concurren
     }
   }, 300_000);
 
-  it("rolls back full installed Link and Fulfillment work after a retained inverse failure", async () => {
-    const prefix = "stock-installed-late", graph = fulfillmentSetDeletionGraph(prefix, { geos: 1, links: 1 });
+  it.each([false, true])("runs the full 48-row Fulfillment and 72-row Pricing closure with genuine retained inverses (history=%s)", async historical => {
+    const prefix = "stock-shipping-" + historical, graph = fulfillmentSetDeletionGraph(prefix, {
+      sets: 4, zones: 4, geos: 16, options: 8, rules: 16, links: 4, shipping: { historical },
+    });
+    const shipping = graph.shipping;
+    if (shipping === undefined) throw new Error("Missing complete Shipping deletion closure");
+    const fixture = await installedScenario("shipping-" + historical, [graph]), seeded = await fixture.seed(prefix, 4, 2), tap = stockRetainedTap();
+    const remove = vi.spyOn(PricingModuleService.prototype, "softDeletePriceSets"), restore = vi.spyOn(PricingModuleService.prototype, "restorePriceSets");
+    const stable = (row: Record<string, unknown>) => { const { updated_at: _updated, deleted_at: _deleted, ...rest } = row; return rest; };
+    try {
+      const host = await fixture.prepareRoundtrip(tap.get), before = await fixture.snapshot(), original = await fixture.readFulfillment(shipping.allIds),
+        protectedProviders = await fixture.readFulfillment(shipping.providers), key = host.newRequestKey(); let calls = 0;
+      expect(await Effect.runPromise(host.run(key, { ids: seeded.locations }).pipe(Effect.provideService(ExecutionDiagnostics, {
+        observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") calls++; }).pipe(Effect.andThen(work)),
+      }), Effect.ensuring(Effect.sync(() => process.stdout.write("StockLocation 48 Fulfillment +72 Pricing retained inverse request completed "
+        + JSON.stringify({ historical, boundedRequestEnter: calls }) + "\n")))))).toBeNull();
+      expect(remove).toHaveBeenCalledTimes(1); expect(restore).toHaveBeenCalledTimes(1);
+      expect(restore.mock.calls[0]?.[0]).toEqual({ id: expect.arrayContaining(shipping.priceSetIds) });
+      expect(await fixture.readProviderLinks(seeded.locations)).toHaveLength(8);
+      expect(await fixture.readPriceSetLinks(graph.optionIds)).toHaveLength(8);
+      const current = await fixture.readFulfillment(shipping.allIds);
+      expect(current).toHaveLength(88); expect(current.every(row => row.deleted_at === null)).toBe(true);
+      expect(current.map(stable)).toEqual(original.map(stable));
+      expect((await fixture.readFulfillment(graph.allIds)).every(row => row.deleted_at === null)).toBe(true);
+      expect(await fixture.readFulfillment(shipping.providers)).toEqual(protectedProviders);
+      const after = await fixture.snapshot(), eventKey = (event: typeof after.events[number]) => `${event.scopeUuid}:${event.epochUuid}:${event.commitSeq}:${event.eventOrdinal}`;
+      const old = new Set(before.events.map(eventKey)), emitted = after.events.filter(event => !old.has(eventKey(event)));
+      expect(emitted.filter(event => event.envelope.contract.startsWith("pricing.") && event.envelope.contract.endsWith(".restored"))).toHaveLength(72);
+      process.stdout.write("StockLocation 48 Fulfillment +72 Pricing +8 locfp +8 SOPS retained inverse "
+        + JSON.stringify({ historical, calls, eventMessages: emitted.length }) + "\n");
+      expect(calls).toBeLessThanOrEqual(stockLocationDeletionResources.calls);
+      expect(emitted.length).toBeLessThanOrEqual(stockLocationDeletionResources.eventMessages);
+      expect(after.commits).toHaveLength(before.commits.length + 1);
+      expect(await Effect.runPromise(host.run(key, { ids: seeded.locations }))).toBeNull(); expect(await fixture.snapshot()).toEqual(after);
+      const again = await fixture.prepareRestore();
+      expect(await Effect.runPromise(again.run(again.newRequestKey(), { ids: seeded.locations }))).toBeNull();
+      expect((await fixture.readFulfillment(shipping.allIds)).map(stable)).toEqual(original.map(stable));
+    } finally { tap.close(); remove.mockRestore(); restore.mockRestore(); }
+  }, 300_000);
+
+  it("rolls back full installed Link, Fulfillment and Pricing work after a retained inverse failure", async () => {
+    const prefix = "stock-installed-late", graph = fulfillmentSetDeletionGraph(prefix, { geos: 1, options: 1, rules: 1, links: 1, shipping: {} });
     const fixture = await installedScenario("late", [graph]), seeded = await fixture.seed(prefix), tap = stockRetainedTap();
     try {
       const host = await fixture.prepareRoundtrip(tap.get, true), before = await fixture.snapshot();
@@ -417,14 +484,20 @@ describe("native Stock Location deletion on shared logical storage", { concurren
   }, 180_000);
 
   it("cancels after all installed participants stage and revokes the native Link continuation", async () => {
-    const prefix = "stock-installed-cancel", graph = fulfillmentSetDeletionGraph(prefix, { geos: 1, links: 1 });
+    const prefix = "stock-installed-cancel", graph = fulfillmentSetDeletionGraph(prefix, { geos: 1, options: 1, rules: 1, links: 1, shipping: {} });
     const fixture = await installedScenario("cancel", [graph]), seeded = await fixture.seed(prefix), host = await fixture.prepare();
     const reached = Deferred.makeUnsafe<void>(), finished = Deferred.makeUnsafe<void>(), original = Link.prototype.delete;
     let finish: (() => void) | undefined;
     const wait = new Promise<void>(resolve => { finish = resolve; });
+    const pricingOriginal = PricingModuleService.prototype.softDeletePriceSets;
+    let escapedPricing: (() => Promise<unknown>) | undefined;
+    const pricing = vi.spyOn(PricingModuleService.prototype, "softDeletePriceSets").mockImplementation(async function (this: PricingModuleService, ...args) {
+      const result = await Reflect.apply(pricingOriginal, this, args); escapedPricing = () => Reflect.apply(pricingOriginal, this, args); return result;
+    });
     const link = vi.spyOn(Link.prototype, "delete").mockImplementation(async function (this: Link, ...args) {
       const result = await Reflect.apply(original, this, args);
       expect(result[0]).toBeNull(); expect(result[1].fulfillment).toEqual({ fulfillment_set_id: graph.ids });
+      expect(pricing).toHaveBeenCalledTimes(1);
       await Effect.runPromise(Deferred.succeed(reached, undefined)); await wait;
       await Effect.runPromise(Deferred.succeed(finished, undefined)); return result;
     });
@@ -437,8 +510,28 @@ describe("native Stock Location deletion on shared logical storage", { concurren
       expect(Exit.isFailure(outcome)).toBe(true); if (Exit.isFailure(outcome)) expect(failurePath(outcome.cause)).toContain("Interrupt");
       expect(await fixture.snapshot()).toEqual(before); finish?.();
       await Effect.runPromise(Deferred.await(finished).pipe(Effect.timeout(5_000))); expect(await fixture.snapshot()).toEqual(before);
-    } finally { finish?.(); link.mockRestore(); }
+      if (escapedPricing === undefined) throw new Error("Missing revoked native Pricing continuation");
+      await expect(escapedPricing()).rejects.toBeDefined(); expect(await fixture.snapshot()).toEqual(before);
+    } finally { finish?.(); link.mockRestore(); pricing.mockRestore(); }
   }, 180_000);
+
+  it("isolates the same installed Pricing and Provider Link identities and request key across scopes", async () => {
+    const prefix = "stock-shipping-scope", graph = fulfillmentSetDeletionGraph(prefix, { options: 1, rules: 1, links: 1, shipping: {} });
+    const shipping = graph.shipping;
+    if (shipping === undefined) throw new Error("Missing scoped Shipping closure");
+    const left = await installedScenario("shipping-scope-a", [graph]), right = await installedScenario("shipping-scope-b", [graph]);
+    const first = await left.seed(prefix), second = await right.seed(prefix);
+    const leftHost = await left.prepare(), rightHost = await right.prepare(), key = leftHost.newRequestKey();
+    const before = await right.readFulfillment(shipping.allIds);
+    expect(await Effect.runPromise(leftHost.run(key, { ids: first.locations }))).toBeNull();
+    expect((await left.readFulfillment(shipping.allIds)).every(row => typeof row.deleted_at === "string")).toBe(true);
+    expect(await right.readFulfillment(shipping.allIds)).toEqual(before);
+    expect(await Effect.runPromise(rightHost.run(key, { ids: second.locations }))).toBeNull();
+    expect((await right.readFulfillment(shipping.allIds)).every(row => typeof row.deleted_at === "string")).toBe(true);
+    const after = await left.snapshot();
+    expect(await Effect.runPromise(leftHost.run(key, { ids: first.locations }))).toBeNull();
+    expect(await Effect.runPromise(rightHost.run(key, { ids: second.locations }))).toBeNull(); expect(await left.snapshot()).toEqual(after);
+  }, 300_000);
 
   it.skipIf(driver !== "postgres")("settles one competing complete installed Stock Location deletion", async () => {
     const prefix = "stock-installed-race", graph = fulfillmentSetDeletionGraph(prefix, { geos: 1, links: 1 });

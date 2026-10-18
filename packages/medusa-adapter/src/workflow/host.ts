@@ -22,7 +22,7 @@ const decodeOperationScheduling = Schema.decodeUnknownEffect(Schema.UndefinedOr(
 const decodeExecutionIsolation = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("scopeExclusive")));
 const decodeLogicalPublication = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal("mixed")));
 
-export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestCallLimit" | "requestByteLimit" | "requestEventLimit" | "executionIsolation" | "operationScheduling" | "borrowedOperationScheduling" | "taskControlCommands">;
+export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestCallLimit" | "requestByteLimit" | "requestEventLimit" | "requestCommandMs" | "executionIsolation" | "operationScheduling" | "borrowedOperationScheduling" | "taskControlCommands">;
 /** The trusted database host closes its own database/session/authority inputs.
  * Only preparation data crosses this portable adapter boundary. */
 export interface AtomicWorkflowExecution<Host extends AtomicCommerceHost = AtomicCommerceHost> {
@@ -99,6 +99,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
   readonly requestCallLimit?: number;
   readonly requestByteLimit?: number;
   readonly requestEventLimit?: number;
+  readonly requestCommandMs?: number;
   readonly operationScheduling?: "queued";
   readonly borrowedOperationScheduling?: "queued";
   /** Trusted native graphs can require the existing writer lock without a provider. */
@@ -132,7 +133,9 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
       const event = yield* Effect.fromResult(captureWorkflowRecord(raw));
       if (typeof event.name !== "string" || names.has(event.name) || typeof event.decode !== "function") return yield* Effect.fail(commerceError("unsupportedProfile"));
       names.add(event.name);
-      const contract = defineCommerceEventContract({ name: event.name, revision: options.revision, internal: false, decode: value => Effect.fromResult(event.decode(value)) });
+      const contract = defineCommerceEventContract({ name: event.name, revision: options.revision, internal: false,
+        ...(event.pendingCancellation === undefined ? {} : { pendingCancellation: event.pendingCancellation }),
+        decode: value => Effect.fromResult(event.decode(value)) });
       emitted.push(Object.freeze({ ...event, contract })); contracts.push(contract);
     }
   }
@@ -226,6 +229,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
       ...(member.expose === false ? { expose: false } : {}),
       graph: member.graph ? { aliases: definition.graph.aliases, reads: graphIdentities,
         ...(definition.graph.remotePaths === undefined ? {} : { remotePaths: definition.graph.remotePaths }),
+        ...(definition.graph.services === undefined ? {} : { services: definition.graph.services }),
       } : null,
     });
   }
@@ -277,6 +281,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
     ...(operationScheduling === undefined ? {} : { operationScheduling }),
     ...(borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling }),
     ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
+    ...(options.requestCommandMs === undefined ? {} : { requestCommandMs: options.requestCommandMs }),
   } }));
   const composition = { participants, commands: [command], identityAndAccessPolicy: identity,
     ...(operationScheduling === undefined ? {} : { operationScheduling }),
@@ -284,6 +289,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
     ...(scopeExclusive ? { executionIsolation: "scopeExclusive" as const } : {}),
     ...(requestEventLimit === undefined ? {} : { requestEventLimit }),
     ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
+    ...(options.requestCommandMs === undefined ? {} : { requestCommandMs: options.requestCommandMs }),
     ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }), ...(events === undefined ? {} : { events }) };
   return Object.freeze({ composition, command, decodeInput, decodeStoredOutput,
     run: (ctx: AtomicCommerceContext, value: Json) => Effect.fromResult(captureCommerceInput(value)).pipe(
@@ -301,6 +307,7 @@ interface WorkflowHostInput<Resources, Input extends Json, Output extends Json, 
   readonly requestCallLimit?: number;
   readonly requestByteLimit?: number;
   readonly requestEventLimit?: number;
+  readonly requestCommandMs?: number;
   readonly operationScheduling?: "queued";
   readonly borrowedOperationScheduling?: "queued";
   readonly executionIsolation?: "scopeExclusive";
@@ -315,6 +322,7 @@ const prepareBoundWorkflowHost = Effect.fn("Workflow.prepareBoundHost")(function
     ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }),
     ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
     ...(options.requestEventLimit === undefined ? {} : { requestEventLimit: options.requestEventLimit }),
+    ...(options.requestCommandMs === undefined ? {} : { requestCommandMs: options.requestCommandMs }),
     ...(options.operationScheduling === undefined ? {} : { operationScheduling: options.operationScheduling }),
     ...(options.borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling: options.borrowedOperationScheduling }),
     ...(options.executionIsolation === undefined ? {} : { executionIsolation: options.executionIsolation }),

@@ -73,8 +73,10 @@ graph through [137](./preflight/137-native-location-fulfillment-set-workflow.md)
 actual-result Link cleanup, native module lifecycle events, retained compensation
 and Addresses/Inventory/Store data. Its shared composite-key reverse path keeps
 active partial-index access distinct from all-row restoration. The complete
-bounded Fulfillment forest participates in the same atomic root. Provider and
-Pricing Link families retain their separate connected admission.
+bounded Fulfillment forest participates in the same atomic root. The connected
+[Shipping Option creation slice](./preflight/138-native-shipping-option-creation.md)
+adds installed Provider and Pricing Links with genuine Pricing lifecycle
+callbacks as implemented private bounded support.
 The bounded
 [native Inventory Item update](./preflight/115-native-inventory-item-update-workflow.md)
 profile preserves keyed final patches, native preimages and compensation,
@@ -396,10 +398,78 @@ Set inverse's repeated restoration. Complete Link history admits eight physical
 rows and four distinct Sets. The approved native return-map correction selects
 the first declared key actually returned, retaining traversal and writes.
 Fresh Link storage keeps preflight 63's accepted active-cardinality contract
-and its explicit native restore divergence. Stock Location selects a named
-256-call/128-event profile; Set deletion selects 512 calls and 256 events.
-Other resource limits remain unchanged. General Shipping Option/provider
-workflows, populated upgrades and public/hosted activation remain separate.
+and its explicit native restore divergence. The expanded installed deletion
+resource selections and Provider/Pricing closure belong to the connected
+Shipping Option profile below. Additional Shipping Option/provider workflows,
+populated upgrades and public/hosted activation remain separate.
+
+The [native Shipping Option creation slice](./preflight/138-native-shipping-option-creation.md)
+is implemented as private bounded support. Its genuine workflow executes both
+validators, native Option upsert, Region-aware PriceSet creation, Link replacement
+and the ordered creation event. Seven selected participants supply Fulfillment,
+Pricing, read-only Region and Stock Location, and the full native
+LocationFulfillmentSet, LocationFulfillmentProvider and ShippingOptionPriceSet
+Link definitions. The selected provider is genuine Manual fulfillment; its
+calculated-price refusal remains native, and external fulfillment effects are
+outside this profile.
+
+Creation admits zero to four Options, four Rules and two prices per Option,
+with up to 24 normalized PriceRules and eight distinct Regions across the root. It supports flat currency
+and Region prices, numeric rules, inline Types without supplied identities and
+the native declared type_id reference branch. The shared graph write owner
+creates an owned inline Type before binding its FK and inserting the Option and
+Rules. Identity-bearing inline Type objects remain refused because native upsert
+would update the referenced Type. Native creation output retains hydrated Type
+and Rules, empty to-many fields and nullable to-one initialization.
+
+The callable Query boundary executes genuine selected reads for both the
+entryPoint ABI and the native Link service-name ABI. Checked native alias
+selection preserves the plural availability path across a local relation and
+both Location Links, including native singleton alias behavior and actual
+hydration keys. The ordinary graph API keeps its existing field mask. A bounded
+own positional undefined in an ID array uses native scalar coercion before
+strict command capture; object undefined omission does not admit unknown
+fields, arbitrary prototypes or unbounded values. Pure extraction proofs keep
+the native coercion, alias merge/selection and relation initializer algorithms
+with their Medusa owners.
+
+The actual retained creation callbacks clear this root's pending external
+creation event, dismiss its new Links and physically delete its PriceSets and
+Options. Internal module evidence and event resource charges remain. Native
+explicit compensation retains inline Types and dismissed Link history;
+whole-root atomic failure still rolls back all staged participants.
+
+Installing both new Link families also migrates the existing Stock Location and
+Fulfillment Set deletion compositions together. Their complete Fulfillment
+history remains four Sets, four Zones, sixteen GeoZones, eight Options and
+sixteen Rules. Pricing lifecycle admits eight PriceSets, sixteen Prices and
+48 PriceRules. The new Link families admit eight physical history rows and up
+to eight distinct endpoint IDs; the existing LocationFulfillmentSet deletion
+profile retains eight history rows and four distinct Sets. Availability reads
+admit eight Locations and Providers. These lifecycle bounds remain distinct from the four-root
+creation and physical creation-inverse bounds.
+
+The routers retain complete generated native routing metadata and genuine
+callbacks. Stock Location deletion reaches Pricing through actual returned
+Fulfillment identities. The literal Set root soft-deletes Sets before common
+Link cleanup; that already-deleted Set call yields no invented forward Pricing
+cascade. Its actual retained Link inverse can restore Option-linked Pricing
+history before the root's repeated Set restoration. Provider endpoints remain
+protected. Only the authenticated Shipping Pricing participant selects the
+existing identity-bound mixed-publication profile; other participants receive
+no override. Packet ceilings, component grouping and singular settlement stay
+with the existing shared owner.
+
+The currently selected creation allowance is 512 calls, 128 events and 2 MiB of
+command bytes. Both installed deletion compositions select 512 calls, 256 events,
+2 MiB and the existing 30-second logical request allowance through their named
+trusted profiles; shared defaults, SQL statement and lock timeouts remain unchanged.
+These selections and the connected outcome remain under implementation
+validation. Required driver, overflow, rollback, replay, callback-lifetime,
+publication, provenance, portability, lint and independent-review gates remain
+open until that validation completes. Populated upgrades, arbitrary provider
+execution, public/hosted activation, Product file import and Product export
+remain separate.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
@@ -552,9 +622,10 @@ Module event infrastructure and active-restore policy remain required. Shared
 Fulfillment receipts authenticate actual final observations against final
 mutation afterimages separately from planning preimages for both Set and Zone
 lifecycle consumers. Linked Set creation and both deletion migrations share
-137's connected outcome. Future provider/Pricing Link installation must migrate
-every affected deletion composition together. General Shipping Option/provider
-workflows, populated upgrades and public/hosted activation remain separate;
+137's connected outcome. The installed Provider/Pricing Link migration and native
+Pricing lifecycle are implemented by [138](./preflight/138-native-shipping-option-creation.md)
+within the private bounded profile described above. Further Shipping
+Option/provider workflows, populated upgrades and public/hosted activation remain separate;
 chunked Product file import and Product export remain deferred.
 
 The [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)

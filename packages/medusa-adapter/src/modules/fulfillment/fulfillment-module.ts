@@ -1,6 +1,7 @@
 import { Fulfillment, FulfillmentAddress, FulfillmentItem, FulfillmentLabel, FulfillmentProvider, FulfillmentSet, GeoZone, ServiceZone,
   ShippingOption, ShippingOptionRule, ShippingOptionType, ShippingProfile } from "@medusajs/fulfillment/models";
 import { FulfillmentModuleService, FulfillmentProviderService } from "@medusajs/fulfillment/services";
+import { ManualFulfillmentService } from "@medusajs/fulfillment-manual/services";
 import { Modules } from "@medusajs/framework/utils/portable";
 import type { DAL } from "@medusajs/framework/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -23,13 +24,16 @@ export function defineFulfillmentPersistenceModule<
 >(configuration: {
   readonly name: string;
   readonly profile: string;
+  /** A trusted construction profile containing the genuine local provider. */
+  readonly providers?: "manual";
   readonly bind: (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => Binding;
   readonly service: (native: FulfillmentModuleService) => Service;
 }) {
   return defineCommerceModule({ name: configuration.name, models: fulfillmentModels,
     profile: { name: configuration.profile, capabilities: [], bind: configuration.bind },
     extensions: { fulfillmentProviderService: { mode: "replace", create: ({ binding, persistence }) => {
-      const container = { fulfillmentProviderRepository: binding.denied, modulePersistenceAdapter: persistence };
+      const container = { fulfillmentProviderRepository: binding.repository(FulfillmentProvider), modulePersistenceAdapter: persistence,
+        ...(configuration.providers === "manual" ? { fp_manual_manual: new ManualFulfillmentService() } : {}) };
       return new FulfillmentProviderService(container);
     } } },
     service: ({ binding, dependencies, context }) => {

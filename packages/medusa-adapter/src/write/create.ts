@@ -7,6 +7,7 @@ import { commerceDecoder } from "../value/decoder";
 import type { CreatedGraph, CreationNode, CreationProfile, GraphCatalog, GraphRows } from "./graph-model";
 
 const decodeGraphArray = commerceDecoder(Schema.Array(Schema.Json), "invalidInput");
+const decodeOwnedToOne = commerceDecoder(Schema.Union([Schema.String, Schema.JsonObject, Schema.Null]), "invalidInput");
 
 /** Traverse the module's declared steps in order. Each root owns its reference
  * snapshots; duplicate identities and the row budget cover the entire graph. */
@@ -28,10 +29,20 @@ export const captureGraph = Effect.fn("MedusaGraph.capture")(function* (
     const token = node.entity.table.name + ":" + key;
     if (ids.has(token)) return yield* Effect.fail(commerceError("invalidInput"));
     ids.add(token);
-    const row: JsonObject = { ...Object.fromEntries(Object.entries(supplied).filter(([name]) => !node.omitRelations.includes(name))), ...extra, [node.entity.keyColumn]: key };
+    const row: Record<string, Json> = { ...Object.fromEntries(Object.entries(supplied).filter(([name]) => !node.omitRelations.includes(name))), ...extra, [node.entity.keyColumn]: key };
+    // Native create resolves owned to-one values before inserting the owner.
+    // The already normalized relation value takes precedence over its FK.
+    for (const step of node.steps) if (step.kind === "ownedToOne" && supplied[step.name] !== undefined) {
+      const target = yield* Effect.fromResult(decodeOwnedToOne(supplied[step.name]));
+      if (target === null) row[step.foreignKey] = null;
+      else if (typeof target === "string")
+        row[step.foreignKey] = (yield* Effect.fromResult(profile.catalog.decodeReference(step.node.entity, target))).key;
+      else row[step.foreignKey] = yield* add(step.node, target, {}, scope);
+    }
     rows.get(node.entity.table.name)?.push(row);
     scope.set(token, supplied);
     for (const step of node.steps) {
+      if (step.kind === "ownedToOne") continue;
       if (step.kind === "children") {
         const members = yield* Effect.fromResult(decodeGraphArray(supplied[step.name] ?? []));
         for (const member of members) yield* add(step.node, member, { [step.foreignKey]: key }, scope);

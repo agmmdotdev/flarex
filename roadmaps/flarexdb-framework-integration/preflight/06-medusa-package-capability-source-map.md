@@ -166,7 +166,9 @@ authorized by representing those values.
 ## Capability Map
 
 `supported` below means source-admitted for the named future private profile,
-not implemented Flarex support.
+not implemented Flarex support. This general source-audit table retains its
+original admission scope. Later named implementation profiles are recorded
+separately below and do not establish arbitrary framework capability.
 
 | Capability | Disposition | Reuse classification | Boundary |
 | --- | --- | --- | --- |
@@ -188,6 +190,38 @@ not implemented Flarex support.
 | Locks | Deferred | selection `seamAdapted`; provider mechanics `adapterTranslated`; in-memory production use `discarded` | Exact distributed lock contract and loss/recovery proof require their own gate |
 | Idempotency | Deferred; universal store rejected | domain/workflow contracts retained; durable storage `adapterTranslated` | Workflow, payment, and notification identities remain separate owner contracts |
 | Events | Deferred until typed commit-owner admission | aggregation/order selectively `unchanged`; storage/delivery `adapterTranslated`; global in-memory transport `discarded` | Commerce event intents must commit with row receipts and the common Flarex outbox wake |
+
+### Connected Shipping Option profile
+
+Status: [138](./138-native-shipping-option-creation.md) is implemented as private
+bounded support. The exact active promotion manifest remains the package/file
+authority. This named profile does not change the general Query, provider,
+workflow-hosting or populated-upgrade admission in the source audit above.
+
+| Native source authority | Selected implementation and boundary |
+| --- | --- |
+| `core/core-flows/src/fulfillment/workflows/create-shipping-options.ts` and its genuine Fulfillment, Pricing, Link and event steps | Zero to four Options, four Rules and two prices per Option, at most 24 normalized PriceRules; currency/Region prices, numeric rules, inline Types without supplied identities and declared type_id references. Manual provider validation keeps native calculated-price refusal. |
+| `modules/link-modules/src/definitions/{fulfillment-set-location,fulfillment-provider-location,shipping-option-price-set}.ts` and generated native Link services | Full native schemas and Joiner routing metadata; selected actual participant reads and callbacks. Creation exposes only required Link list/create/dismiss methods. Both existing installed deletion compositions include the new Links and real Pricing lifecycle. |
+| `core/orchestration/src/joiner/remote-joiner.ts`, `database/drizzle/src/repository.ts`, `database/drizzle/src/medusa.ts` | Source-authenticated pure alias merge/selection, scalar filter coercion and relation initializers. Callable entryPoint and native service-name ABIs traverse checked local and Link reads, retaining native hydration keys; ordinary graph masking and strict value capture remain distinct. |
+| Genuine retained creation callbacks and `common/steps/emit-event.ts` | Pending cancellation removes this root's external creation publication while retaining internal module evidence and resource charges. Link dismissal and physical Option/PriceSet deletion retain native compensation residue, including inline Types and Link history; whole-root failure rolls back all staged work. |
+| Native Stock Location and Fulfillment Set deletion roots with installed Link routing | The existing 48-row Fulfillment forest remains admitted. Pricing history admits eight PriceSets, sixteen Prices and 48 PriceRules. New Link families retain eight history rows/eight endpoint IDs; LocationFulfillmentSet deletion retains eight history rows/four Sets. Genuine Set forward/inverse reachability is preserved, including restoration of Pricing history without inventing a forward cascade. |
+
+Seven selected creation participants supply Fulfillment, Pricing, read-only
+Region and Stock Location, and the three Links. Region reads admit all eight
+distinct price Regions in the four-Option envelope. Availability is bounded to eight
+Locations and Providers. Creation selects 512 calls, 128 events and 2 MiB of
+command bytes; the two expanded installed deletion compositions select 512
+calls, 256 events, 2 MiB and the existing 30-second logical request allowance.
+Only authenticated Shipping Pricing selects existing
+mixed publication in those deletion compositions; other participants and shared
+defaults retain their existing admission. These selections establish the named
+private bounded capability; broader compatibility and activation remain gated.
+
+Provider external effects, arbitrary Shipping Option mutations, generalized
+Query parity, external saga safety, populated schema upgrades and public/hosted
+activation remain unadmitted by this profile. The machine companion's named
+connected-profile entry records the same scope separately from the initial
+source-audit dispositions.
 
 ## Exact Source Consequences
 

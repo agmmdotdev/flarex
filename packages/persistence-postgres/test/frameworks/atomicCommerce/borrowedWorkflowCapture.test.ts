@@ -1,6 +1,9 @@
-import { Cause, Effect, Exit, Result } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { beforeEach, expect, it, vi } from "vitest";
 import { CommitSeqSchema, ScopeIdSchema } from "flarex-protocol/storage-authority";
+import { CatalogTableIdSchema } from "flarex-protocol/catalog";
+import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
+import { TransactionAttemptFenceSchema, TransactionSessionIdV1Schema } from "flarex-protocol/transaction-session";
 import type {
   SessionJournalAttempt,
 } from "../../../src/execution/journal/api";
@@ -9,11 +12,12 @@ import type {
 } from "../../../src/frameworks/commerceTransaction/borrowedWorkflowAttempt";
 
 const construction = vi.hoisted(() => ({ admissions: [] as unknown[], state: undefined as unknown,
-  admissionEntries: 0, storageReads: 0, workingConstructions: 0 }));
+  states: new Map<unknown, unknown>(), admissionEntries: 0, storageReads: 0, workingConstructions: 0 }));
 
 // Only admitted source construction is stubbed. The borrowed factory, bounded
 // lifetime, capture operation, finite root issuer/gate, and workflow decoder run
-// unchanged; these tests never execute source commands or storage operations.
+// unchanged. Event-only source commands below also execute their real routing
+// and event capture; their unused store and empty mutation activity stay inert.
 vi.mock("../../../src/storage/documents/logicalDocuments/participantAdmission", async importOriginal => {
   const original = await importOriginal<typeof import("../../../src/storage/documents/logicalDocuments/participantAdmission")>();
   return { ...original, withLogicalParticipantAdmissionBundleEffect: (
@@ -25,9 +29,9 @@ vi.mock("../../../src/storage/documents/logicalDocuments/participantAdmission", 
 vi.mock("../../../src/storage/documents/logicalDocuments/relationalAdmission", async importOriginal => {
   const original = await importOriginal<typeof import("../../../src/storage/documents/logicalDocuments/relationalAdmission")>();
   return { ...original, withLogicalRelationalAttemptAdmissionEffect: (
-    _admission: unknown, _attempt: unknown, _method: unknown,
+    admission: unknown, _attempt: unknown, _method: unknown,
     _prepare: unknown, work: (state: unknown) => Effect.Effect<unknown, unknown>,
-  ) => { construction.admissionEntries++; return work(construction.state); } };
+  ) => { construction.admissionEntries++; return work(construction.states.get(admission) ?? construction.state); } };
 });
 vi.mock("../../../src/frameworks/atomicCommerce/participants", async importOriginal => {
   const original = await importOriginal<typeof import("../../../src/frameworks/atomicCommerce/participants")>();
@@ -37,7 +41,12 @@ vi.mock("../../../src/storage/documents/logicalDocuments/workingSet", async impo
   const original = await importOriginal<typeof import("../../../src/storage/documents/logicalDocuments/workingSet")>();
   return { ...original,
     combineLogicalWriteMechanics: () => Effect.succeed({ tables: [], unique: [], indexes: [], searchDefinitions: [], tableName: () => undefined }),
-    makeLogicalDocumentWorkingSet: () => { construction.workingConstructions++; return Effect.succeed(Object.freeze({})); },
+    makeLogicalDocumentWorkingSet: () => { construction.workingConstructions++;
+      const empty = Object.freeze({ attempts: [], lifecycle: [], observedRows: [], relationalReads: [], setNull: [], referenceReplacements: [] });
+      return Effect.succeed(Object.freeze({ close: () => Effect.succeed(Object.freeze({})),
+        readTransactionTime: () => Effect.die(new Error("Unexpected event-only transaction clock read")),
+        relationalTable: () => Effect.succeed(Object.freeze({})), activityCursor: () => Object.freeze({}),
+        activityContribution: Effect.succeed(empty), readActivityContribution: () => Effect.succeed(empty) })); },
   };
 });
 
@@ -49,12 +58,14 @@ import { commerceError } from "../../../src/frameworks/commerceTransaction/model
 import { defineCommerceCommand } from "../../../src/frameworks/commerceTransaction/commands";
 import { defineAtomicCommerceParticipant } from "../../../src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../../src/frameworks/atomicCommerce/events";
+import { issueLogicalParticipantAttemptAdmission } from "../../../src/storage/documents/logicalDocuments/participantAdmission";
 import {
   makeLogicalDocumentRootEvaluator,
 } from "../../../src/storage/documents/logicalDocuments/rootEvaluator";
 import { captureWorkflowValue } from "../../../../medusa-adapter/src/workflow/value";
 
 beforeEach(() => { construction.admissions = []; construction.state = undefined;
+  construction.states.clear();
   construction.admissionEntries = 0; construction.storageReads = 0; construction.workingConstructions = 0; });
 
 const fixture = (calls = 20, commandBytes = defaultCommerceResources.commandBytes) => {
@@ -68,7 +79,9 @@ const fixture = (calls = 20, commandBytes = defaultCommerceResources.commandByte
   const admission = Object.freeze({});
   const command = defineCommerceCommand("captureSource", "read", () => Effect.die(new Error("Unexpected source invocation")));
   construction.admissions = [admission];
-  construction.state = { root: { ...pins, executionProfile: "finiteRoot", sessionId: "capture-session" },
+  const root = { ...pins, attemptFence: TransactionAttemptFenceSchema.make(1n), executionProfile: "finiteRoot" as const, sessionId: TransactionSessionIdV1Schema.make("91000000-0000-4000-8000-000000000002"),
+    principalDigest: "a".repeat(64), schemaVersionId: CatalogSchemaVersionIdSchema.make("capture-schema") };
+  construction.state = { root,
     preparedSource: prepared, writeMechanics: Object.freeze({}) };
   const event = defineCommerceEventContract({ name: "capture.event", revision: "a".repeat(64), internal: true,
     decode: () => Effect.fail(commerceError("unadmittedEvent")) });
@@ -89,7 +102,7 @@ const fixture = (calls = 20, commandBytes = defaultCommerceResources.commandByte
     ownKeys: target => { inspect(); return Reflect.ownKeys(target); },
     getOwnPropertyDescriptor: (target, key) => { inspect(); return Reflect.getOwnPropertyDescriptor(target, key); },
   });
-  return { input, evaluator, inspect, getter, foreign };
+  return { input, evaluator, inspect, getter, foreign, root };
 };
 
 it.each(["aggregate-only", "conjunction"] as const)("refuses borrowed %s validation before source admission or working construction", async shape => {
@@ -199,5 +212,98 @@ it("keeps byte exhaustion sticky before inspecting another foreign workflow inpu
     expect(sealed.cause.reasons.find(reason => Cause.isFailReason(reason) && reason.error.reason === "limitExceeded") !== undefined).toBe(true);
     expect(inspect).not.toHaveBeenCalled();
     expect(getter).not.toHaveBeenCalled();
+  } finally { await Effect.runPromise(borrowed.abort); evaluator.close(); }
+});
+
+it("retains borrowed external event sources by original capture ordinal after cancellation", async () => {
+  const { input, evaluator } = fixture();
+  const cancel = defineCommerceEventContract({ name: "borrowed.pending", revision: "a".repeat(64), internal: false, pendingCancellation: true,
+    decode: value => value === null ? Effect.succeed(null) : Effect.fail(commerceError("unadmittedEvent")) });
+  const sibling = defineCommerceEventContract({ name: "borrowed.other", revision: "a".repeat(64), internal: false,
+    decode: value => value === null ? Effect.succeed(null) : Effect.fail(commerceError("unadmittedEvent")) });
+  let history = 0;
+  const borrowed = await Effect.runPromise(makeBorrowedWorkflowAttempt({ ...input,
+    events: { ...input.events, contracts: [cancel, sibling], validate: events => Effect.sync(() => { history = events.length; }) } }));
+  try {
+    await Effect.runPromise(borrowed.context.emit(cancel, null));
+    await Effect.runPromise(borrowed.context.emit(sibling, null));
+    const before = borrowed.currentUsage();
+    await Effect.runPromise(borrowed.context.clearPendingEvents(cancel));
+    expect(borrowed.currentUsage().workBytes).toBe(before.workBytes);
+    await Effect.runPromise(borrowed.context.emit(cancel, null));
+    const closed = await Effect.runPromise(borrowed.close);
+    expect(history).toBe(3);
+    expect(closed.eventIntents.map(value => [value.sourceKey, value.intent.contract])).toEqual([[null, "borrowed.other"], [null, "borrowed.pending"]]);
+    expect(await Effect.runPromise(Effect.result(borrowed.context.clearPendingEvents(cancel))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+    expect(construction.storageReads).toBe(0);
+  } finally { await Effect.runPromise(borrowed.abort); evaluator.close(); }
+});
+
+it("retains distinct admitted source facts when cancellation removes an earlier external ordinal", async () => {
+  const { input, evaluator, root } = fixture(64), original = input.members[0];
+  if (original === undefined) throw new Error("Missing construction fixture member");
+  const cancel = defineCommerceEventContract({ name: "borrowed.pending", revision: "a".repeat(64), internal: false, pendingCancellation: true,
+    decode: value => value === null ? Effect.succeed(null) : Effect.fail(commerceError("unadmittedEvent")) });
+  const factDecoder = Schema.decodeUnknownEffect(Schema.Struct({ id: Schema.String }), { onExcessProperty: "error" });
+  const fact = defineCommerceEventContract({ name: "borrowed.module", revision: "a".repeat(64), internal: true,
+    decode: value => factDecoder(value).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause))) });
+  const sources = ["source.first", "source.second"].map((sourceKey, index) => {
+    const participant = defineAtomicCommerceParticipant("capture-" + index);
+    const command = defineCommerceCommand("captureSourceFact" + index, "write", Effect.fn(function* (ctx) {
+      yield* ctx.captureLocalEvent({ id: sourceKey }); return null;
+    }));
+    const tableId = CatalogTableIdSchema.make(index + 1);
+    // The production issuer authenticates exact attempt/method membership.
+    // Source construction and unused physical binding ports remain isolated;
+    // this event-only proof performs no storage reads, writes or settlement.
+    const admission = issueLogicalParticipantAttemptAdmission({ preparedSource: original.prepared, attempt: input.attempt, root,
+      methods: new Set(["captureSourceFact" + index]), tableIds: new Set([tableId]), indexes: [], unique: [], sourceKey,
+      sourceSha256: "a".repeat(64), readTransaction: () => Effect.die(new Error("Unexpected event-only source storage")),
+      verifyBinding: () => Effect.void,
+      // SAFETY: this inert head is never inspected by the isolated source
+      // construction port or the real method-membership registry lookup.
+      head: Object.freeze({}) as Parameters<typeof issueLogicalParticipantAttemptAdmission>[0]["head"] });
+    construction.states.set(admission, { root, preparedSource: original.prepared, sourceKey,
+      tables: [{ localName: "unused" }], writeMechanics: Object.freeze({}) });
+    return { participant, command, admission, member: { ...original, participant, commands: new Set([command]),
+      events: { contracts: [fact], select: () => Effect.succeed(fact) } } };
+  });
+  construction.admissions = sources.map(source => source.admission);
+  const borrowed = await Effect.runPromise(makeBorrowedWorkflowAttempt({ ...input, admissions: sources.map(source => source.admission),
+    members: sources.map(source => source.member), events: { ...input.events, contracts: [cancel, fact] } }));
+  try {
+    await Effect.runPromise(borrowed.context.emit(cancel, null));
+    for (const source of sources) {
+      await Effect.runPromise(borrowed.context.call(source.participant, source.command, null));
+      if (source === sources[0]) await Effect.runPromise(borrowed.context.clearPendingEvents(cancel));
+    }
+    await Effect.runPromise(borrowed.context.emit(cancel, null));
+    const closed = await Effect.runPromise(borrowed.close);
+    expect(closed.eventIntents.map(value => [value.sourceKey, value.intent.contract, value.intent.message])).toEqual([
+      ["source.first", "borrowed.module", { id: "source.first" }],
+      ["source.second", "borrowed.module", { id: "source.second" }],
+      [null, "borrowed.pending", null],
+    ]);
+    expect(construction.storageReads).toBe(0);
+  } finally { await Effect.runPromise(borrowed.abort); evaluator.close(); }
+});
+
+it("latches a caught borrowed pending cancellation refusal in the original lifetime", async () => {
+  const { input, evaluator } = fixture();
+  const borrowed = await Effect.runPromise(makeBorrowedWorkflowAttempt(input));
+  const token = input.events.contracts[0];
+  if (token === undefined) throw new Error("Missing internal event witness");
+  try {
+    const refused = await Effect.runPromise(Effect.exit(borrowed.context.clearPendingEvents(token)));
+    if (Exit.isSuccess(refused)) throw new Error("Expected immediate pending cancellation refusal");
+    const original = refused.cause.reasons.find(Cause.isFailReason)?.error;
+    expect(original).toMatchObject({ reason: "unadmittedEvent" });
+    expect(await Effect.runPromise(Effect.result(borrowed.context.capture(null))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "rollbackOnly" } });
+    const sealed = await Effect.runPromise(Effect.exit(borrowed.close));
+    if (Exit.isSuccess(sealed)) throw new Error("Expected poisoned borrowed root closure");
+    expect(sealed.cause.reasons.some(reason => Cause.isFailReason(reason) && reason.error.reason === "rollbackOnly")).toBe(true);
+    expect(sealed.cause.reasons.some(reason => Cause.isFailReason(reason) && reason.error === original)).toBe(true);
   } finally { await Effect.runPromise(borrowed.abort); evaluator.close(); }
 });

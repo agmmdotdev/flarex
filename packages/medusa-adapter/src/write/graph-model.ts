@@ -66,6 +66,7 @@ export interface CreationNode {
   readonly steps: readonly CreationStep[];
 }
 export type CreationStep =
+  | { readonly kind: "ownedToOne"; readonly name: string; readonly foreignKey: string; readonly node: CreationNode }
   | { readonly kind: "children"; readonly name: string; readonly foreignKey: string; readonly node: CreationNode }
   | {
       readonly kind: "references"; readonly name: string; readonly target: GraphEntity;

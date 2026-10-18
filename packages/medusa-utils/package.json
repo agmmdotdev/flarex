@@ -527,6 +527,16 @@
       "types": "./dist/common/get-duplicates.d.ts",
       "source": "./src/common/get-duplicates.ts",
       "default": "./dist/common/get-duplicates.js"
+    },
+    "./fulfillment/provider": {
+      "types": "./dist/fulfillment/provider.d.ts",
+      "source": "./src/fulfillment/provider.ts",
+      "default": "./dist/fulfillment/provider.js"
+    },
+    "./link/links": {
+      "types": "./dist/link/links.d.ts",
+      "source": "./src/link/links.ts",
+      "default": "./dist/link/links.js"
     }
   },
   "license": "MIT",

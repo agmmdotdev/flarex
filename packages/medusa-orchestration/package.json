@@ -43,6 +43,11 @@
       "types": "./dist/runtime.d.ts",
       "source": "./src/runtime.ts",
       "default": "./dist/runtime.js"
+    },
+    "./joiner-field-alias": {
+      "types": "./dist/joiner-field-alias.d.ts",
+      "source": "./src/joiner-field-alias.ts",
+      "default": "./dist/joiner-field-alias.js"
     }
   },
   "dependencies": {

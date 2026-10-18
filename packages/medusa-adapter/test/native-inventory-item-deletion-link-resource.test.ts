@@ -1,4 +1,5 @@
 import { makeFulfillmentSetDeletionCommands } from "../src/modules/fulfillment/fulfillment-set-delete-service";
+import { makeLocalPricingCommands } from "../src/modules/pricing/service";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { commerceCommandIdentity } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -87,7 +88,8 @@ describe("native Inventory Item deletion Link resource", () => {
     expect(prepareInventoryItemDeletionLinkResource({ inventory: { ...links.nativeServices.inventory } }))
       .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
     const previous = await Effect.runPromise(prepareLocalVariantLinks("product-deletions"));
-    const location = await Effect.runPromise(prepareStockLocationDeletionLinks((await Effect.runPromise(makeFulfillmentSetDeletionCommands())).workflow));
+    const location = await Effect.runPromise(prepareStockLocationDeletionLinks((await Effect.runPromise(makeFulfillmentSetDeletionCommands())).workflow,
+      (await Effect.runPromise(makeLocalPricingCommands("shipping-options"))).workflow));
     for (const inventory of [previous.nativeServices.inventory, previous.nativeServices.pricing, location.nativeServices.location])
       expect(prepareInventoryItemDeletionLinkResource({ inventory }))
         .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });

@@ -1,6 +1,6 @@
 import { Effect, Result, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
-import { LocationFulfillmentSet } from "@medusajs/link-modules";
+import { LocationFulfillmentSet, LocationFulfillmentProvider, ShippingOptionPriceSet } from "@medusajs/link-modules";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureLocationFulfillmentSetLinkMetadata } from "./location-fulfillment-set-schema";
 import { prepareLinkService } from "./service";
@@ -9,6 +9,20 @@ import { linkLogicalEventPolicy } from "./events";
 import { defineComposedWorkflowResource } from "../workflow/composed-resource";
 import { defineWorkflowModule } from "../workflow/module";
 import { commerceDecoder } from "../value/decoder";
+import { nativeLinkGraphPaths } from "../local-graph/links";
+import { prepareShippingOptionLinkService, captureShippingOptionLinkService } from "./shipping-option-link-service";
+
+export const captureLocationFulfillmentSetLinkReadService = (service: unknown) => captureShippingOptionLinkService(service, LocationFulfillmentSet);
+
+/** Separately selected native Query capability. The existing creation profile
+ * retains its graph-less registration and replay identity. */
+export const prepareLocationFulfillmentSetLinkRead = Effect.fn("LocationFulfillmentSetLink.prepareRead")(function* () {
+  const metadata = yield* captureLocationFulfillmentSetLinkMetadata();
+  const remotePaths = yield* Effect.fromResult(nativeLinkGraphPaths(metadata.joiner, [{ root: "ServiceZone",
+    path: "fulfillment_set.locations", maximumSources: 4, maximumLinks: 8, maximumTargets: 8, maximumPerSource: 8,
+  }], "FulfillmentSet", [LocationFulfillmentSet, LocationFulfillmentProvider, ShippingOptionPriceSet]));
+  return yield* prepareShippingOptionLinkService(metadata, { name: "location_fulfillment_set_query_links", prefix: "shippingOptionLocationFulfillmentSetLink", remotePaths });
+});
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const Pair = Schema.Struct({ stock_location: Schema.Struct({ stock_location_id: Id }),

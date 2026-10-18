@@ -27,6 +27,8 @@ import { prepareScalarRepository } from "../../repository/scalar";
 import { preparePricingMutations } from "./mutation-repository";
 import { softDeletePricingPriceSets } from "./lifecycle";
 import { preparePricingPreferenceRepository } from "./preference-repository";
+import { ShippingNormalizedSet, ShippingNormalizedPrice, ShippingNormalizedRule } from "./shipping-input";
+import { changeShippingPriceSets } from "./shipping-lifecycle";
 
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
 const Rule = Schema.Struct({ id: Schema.optionalKey(PricingId), attribute: Schema.String, value: Schema.String,
@@ -52,6 +54,9 @@ const List = Schema.Struct({ id: Schema.optionalKey(PricingId), title: Schema.St
 });
 const SetInput = Schema.Struct({ id: Schema.optionalKey(PricingId), prices: Schema.Array(Price).check(Schema.isMaxLength(2)) });
 const decodeSet = commerceDecoder(SetInput, "unsupportedProfile");
+const decodeShippingSet = commerceDecoder(ShippingNormalizedSet, "unsupportedProfile");
+const decodeShippingPrice = commerceDecoder(ShippingNormalizedPrice, "unsupportedProfile");
+const decodeShippingRule = commerceDecoder(ShippingNormalizedRule, "unsupportedProfile");
 const decodePrice = commerceDecoder(Price, "unsupportedProfile");
 const decodeRule = commerceDecoder(Rule, "unsupportedProfile");
 const decodeList = commerceDecoder(List, "unsupportedProfile");
@@ -99,7 +104,7 @@ const projectionPolicy: ProjectionPolicy = { ...scalarProjection, allowedPaths: 
 
 /** Pricing owns the finite nested creation policy; shared graph/read owners
  * retain traversal, scoped persistence and native mutation dispatch. */
-export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], mutable = false, lifecycle = false, preferences = false) {
+export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], mutable = false, lifecycle = false, preferences = false, shipping = false) {
   if (preferences) return preparePricingPreferenceRepository(metadata);
   return Result.gen(function* () {
     const entities: GraphEntity[] = [];
@@ -140,13 +145,14 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
     const catalog: GraphCatalog = { entities: [set, price, rule], tables: [set.table, price.table, rule.table],
       writablePivots: [], queryRelations: relations,
       decodeRow: (entity, input) => Result.gen(function* () {
-        const supplied = entity === set ? yield* decodeSet(input) : entity === price ? yield* decodePrice(input) : yield* decodeRule(input);
+        const supplied = entity === set ? yield* (shipping ? decodeShippingSet : decodeSet)(input)
+          : entity === price ? yield* (shipping ? decodeShippingPrice : decodePrice)(input) : yield* (shipping ? decodeShippingRule : decodeRule)(input);
         return { supplied, key: supplied.id };
       }),
       decodeReference: () => Result.fail(commerceError("unsupportedProfile")), decodeAssociation: () => Result.fail(commerceError("unsupportedProfile")),
     };
     const creation: CreationProfile = { catalog, root: { entity: set, omitRelations: ["prices"], steps: [
-      { kind: "children", name: "prices", foreignKey: priceForeignKey, node: { entity: price, omitRelations: ["price_rules"], steps: [
+      { kind: "children", name: "prices", foreignKey: priceForeignKey, node: { entity: price, omitRelations: shipping ? ["price_rules", "rules"] : ["price_rules"], steps: [
         { kind: "children", name: "price_rules", foreignKey: ruleForeignKey, node: { entity: rule, omitRelations: [], steps: [] } },
       ] } },
     ] }, rowLimitDetail: (maximum, attempted, tables) => ({ maximum, attempted, tables }) };
@@ -217,7 +223,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       const mutationEvents: CommerceModuleEvents = { createEventSubscriber: events.createSubscriber, registerEventSubscriber: events.registerSubscriber,
         dispatchMutationEvent: (event, args, shared, subscriber) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
           if ((!events.isSubscribed(shared) && (subscriber === undefined || !events.ownsSubscriber(subscriber))) ||
-            !(mutable ? ["afterDelete", "afterUpdate"] : ["afterDelete"]).includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+            !(mutable || shipping ? ["afterDelete", "afterUpdate"] : ["afterDelete"]).includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
           yield* events.dispatch(event, args, shared, subscriber);
         }))),
       };
@@ -257,6 +263,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       ) {
         const graph = yield* captureGraph(profile, input, ctx.resources);
         const rows = new Map(graph.rows);
+        if (shipping && (rows.get(rule.table.name)?.length ?? 0) > 24) return yield* ctx.refuse(commerceError("limitExceeded"));
         const values: JsonObject[] = [];
         for (const inputRow of rows.get(price.table.name) ?? []) {
           const row = { ...inputRow };
@@ -295,15 +302,30 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
           return [value.rows, value.count] satisfies [JsonObject[], number];
         }))),
         create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, creation, input, shared))),
-        update: refuse, delete: refuse, upsert: refuse, upsertWithReplace: refuse, restore: refuse,
-        softDelete: lifecycle ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-          const result = yield* softDeletePricingPriceSets(ctx, metadata, input);
+        update: refuse, upsert: refuse, upsertWithReplace: refuse,
+        delete: shipping ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+          const result = yield* changeShippingPriceSets(ctx, metadata, input, "delete");
+          const ids: string[] = [];
+          for (const row of result.roots) {
+            if (typeof row.id !== "string") return yield* ctx.refuse(commerceError("storedCorruption"));
+            ids.push(row.id);
+          }
+          return ids;
+        }))) : refuse,
+        restore: shipping ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+          const result = yield* changeShippingPriceSets(ctx, metadata, input, "restore");
+          if (shared === undefined) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+          yield* events.cascades(result.cascades, shared, row => ({ entity: row, originalEntity: { deleted_at: row.updated_at } }));
+          return [result.roots, result.cascades] satisfies [object[], Record<string, unknown[]>];
+        }))) : refuse,
+        softDelete: lifecycle || shipping ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+          const result = shipping ? yield* changeShippingPriceSets(ctx, metadata, input, "softDelete") : yield* softDeletePricingPriceSets(ctx, metadata, input);
           if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
           yield* events.cascades(result.cascades, shared, row => ({ entity: row, originalEntity: { deleted_at: null } }));
           return [result.roots, result.cascades] satisfies [object[], Record<string, unknown[]>];
         }))) : refuse,
       };
-      const denied: DAL.RepositoryService = { ...repository, serialize: refuse, find: refuse, findAndCount: refuse, create: refuse, softDelete: refuse };
+      const denied: DAL.RepositoryService = { ...repository, serialize: refuse, find: refuse, findAndCount: refuse, create: refuse, softDelete: refuse, restore: refuse, delete: refuse };
       const listRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
         create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
       };

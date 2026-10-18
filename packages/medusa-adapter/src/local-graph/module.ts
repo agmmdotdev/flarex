@@ -29,20 +29,24 @@ export function moduleAliases(config: ModuleJoinerConfig): Result.Result<GraphMo
   });
 }
 
-export function relationPaths(catalog: ReadCatalog, root: string, paths: readonly string[]) {
+export function relationPaths(catalog: ReadCatalog, root: string, paths: readonly string[], options?: { readonly nativeFields: true }) {
   return Result.gen(function* () {
     const output: GraphRelationPath[] = [];
     for (const path of paths) {
       let table = root;
       let many = false;
+      let sourceFields: readonly string[] = [];
       for (const name of path.split(".")) {
         const relation = yield* catalog.relation(table, name).pipe(Option.match({
           onNone: () => Result.fail(commerceError("unsupportedProfile")), onSome: Result.succeed,
         }));
         table = relation.targetTable;
         many = relation.join.type !== "belongsTo";
+        sourceFields = relation.join.type === "belongsTo" ? relation.join.foreignKeys : relation.sourcePrimaryKeys;
       }
-      output.push({ path, table: yield* catalog.table(table), many });
+      output.push({ path, table: yield* catalog.table(table), many,
+        ...(options?.nativeFields === true ? { sourceFields: Object.freeze([...sourceFields]) } : {}),
+      });
     }
     return output;
   });

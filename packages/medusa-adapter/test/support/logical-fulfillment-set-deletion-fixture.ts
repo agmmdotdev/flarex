@@ -8,7 +8,7 @@ import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { prepareWorkflowResources } from "../../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../../src/workflow/events";
-import { fulfillmentSetDeletionResources } from "../../src/workflow/policy";
+import { fulfillmentSetDeletionResources, fulfillmentSetDeletionCommandMs } from "../../src/workflow/policy";
 import { makeFulfillmentSetDeletionCommands } from "../../src/modules/fulfillment/fulfillment-set-delete-service";
 import { FulfillmentSetDeletionIds } from "../../src/modules/fulfillment/fulfillment-set-delete-input";
 import { prepareFulfillmentSetDeletionLinkResource } from "../../src/links/fulfillment-set-deletion";
@@ -21,6 +21,10 @@ import { prepareLinkWorkflowService } from "../../src/links/workflow-service";
 import { prepareFulfillmentSetDeletionWorkflow, FulfillmentSetDeletionInput } from "../../src/workflows/fulfillment/delete-fulfillment-sets";
 import { prepareLogicalServiceZoneCreation, serviceZoneDeletionGraph, serviceZoneSeedTime } from "./logical-service-zone-creation-fixture";
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
+import { shippingDeletionClosure } from "./shipping-deletion-closure";
+import { makeLocalPricingCommands } from "../../src/modules/pricing/service";
+import { prepareLocationFulfillmentProviderLink } from "../../src/links/location-fulfillment-provider-service";
+import { prepareShippingOptionPriceSetLink } from "../../src/links/shipping-option-price-set-service";
 
 type Seed = Readonly<{ table: string; row: JsonObject }>;
 type RetainedInputs = Readonly<{ set: unknown; link: unknown }>;
@@ -31,6 +35,7 @@ export function fulfillmentSetDeletionGraph(prefix: string, options: Readonly<{
   sets?: number; zones?: number; geos?: number; options?: number; rules?: number;
   links?: number; historicalLinks?: number;
   history?: Readonly<{ sets?: number; zones?: number; geos?: number; options?: number; rules?: number }>;
+  shipping?: Readonly<{ historical?: boolean }>;
 }> = {}) {
   const count = options.sets ?? 1, zoneCount = options.zones ?? count;
   if (!Number.isInteger(count) || count < 1 || !Number.isInteger(zoneCount) || zoneCount < 0 ||
@@ -65,8 +70,10 @@ export function fulfillmentSetDeletionGraph(prefix: string, options: Readonly<{
     id: `${prefix}-locfs-${index}`, stock_location_id: `${prefix}-location-${index}`, fulfillment_set_id: ids[index % ids.length]!,
     created_at: serviceZoneSeedTime, updated_at: serviceZoneSeedTime, deleted_at: index < (options.historicalLinks ?? 0) ? serviceZoneSeedTime : null,
   } }));
+  const shipping = options.shipping === undefined ? undefined : shippingDeletionClosure(prefix, descendants.optionIds,
+    [...new Set(links.flatMap(entry => typeof entry.row.stock_location_id === "string" ? [entry.row.stock_location_id] : []))], options.shipping.historical);
   return { ids, zoneIds: descendants.ids, geoIds: descendants.geoIds, optionIds: descendants.optionIds, ruleIds: descendants.ruleIds,
-    allIds: [...ids, ...descendants.allIds], rows, links };
+    allIds: [...ids, ...descendants.allIds], rows: [...rows, ...shipping?.providerRows ?? []], links, shipping };
 }
 
 const native = Result.getOrThrow(deleteFulfillmentSetsWorkflow.prepare());
@@ -85,10 +92,14 @@ export async function prepareLogicalFulfillmentSetDeletion(driver: "pglite" | "p
   graphs: readonly ReturnType<typeof fulfillmentSetDeletionGraph>[], shared?: Readonly<{ resource: LogicalCurrencyFixture["resource"];
     fixtureIdentity: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }> }>) {
   const base = await prepareLogicalServiceZoneCreation(driver, close, graphs, shared,
-    { includeStockLocation: true, includeLocationFulfillmentSetLink: true, includeSalesChannel: true, includeSalesChannelLocationLink: true });
+    { includeStockLocation: true, includeLocationFulfillmentSetLink: true, includeSalesChannel: true, includeSalesChannelLocationLink: true,
+      includePricing: true, includeLocationFulfillmentProviderLink: true, includeShippingOptionPriceSetLink: true });
   const fulfillment = await Effect.runPromise(makeFulfillmentSetDeletionCommands());
   const locationLinks = await Effect.runPromise(prepareLocationFulfillmentSetDeletionLinks("fulfillment-set-deletions", "fulfillmentSetLocationLink"));
-  const link = Result.getOrThrow(prepareFulfillmentSetDeletionLinkResource({ location: locationLinks.nativeService, fulfillment: fulfillment.workflow }));
+  const providerLinks = await Effect.runPromise(prepareLocationFulfillmentProviderLink()), priceSetLinks = await Effect.runPromise(prepareShippingOptionPriceSetLink());
+  const pricing = await Effect.runPromise(makeLocalPricingCommands("shipping-options"));
+  const link = Result.getOrThrow(prepareFulfillmentSetDeletionLinkResource({ location: locationLinks.nativeService, fulfillment: fulfillment.workflow,
+    provider: providerLinks.nativeService, priceSet: priceSetLinks.nativeService, pricing: pricing.workflow }));
   const initialize = async (key: string, definition: { readonly schema: NonNullable<typeof base.fixture.locationFulfillmentSetLinkDefinition>["schema"]; readonly provenance: unknown },
     commands: LogicalCommerceHostInput<unknown>["commands"], rows: readonly Seed[]) => {
     // Single-table initialization accepts native row bodies; the existing
@@ -111,6 +122,12 @@ export async function prepareLogicalFulfillmentSetDeletion(driver: "pglite" | "p
   if (definition === undefined) throw new Error("Missing installed Location Fulfillment Set source");
   const linkRows = graphs.flatMap(graph => graph.links);
   const locationStorage = await initialize("medusa.link.locationFulfillmentSet", definition, locationLinks.commands, linkRows);
+  const providerDefinition = base.fixture.locationFulfillmentProviderLinkDefinition, priceSetDefinition = base.fixture.shippingOptionPriceSetLinkDefinition,
+    pricingDefinition = base.fixture.pricingDefinition;
+  if (providerDefinition === undefined || priceSetDefinition === undefined || pricingDefinition === undefined) throw new Error("Missing installed Shipping sources");
+  const providerStorage = await initialize("medusa.link.locationFulfillmentProvider", providerDefinition, providerLinks.commands, graphs.flatMap(graph => graph.shipping?.providerLinks ?? []));
+  const priceSetStorage = await initialize("medusa.link.shippingOptionPriceSet", priceSetDefinition, priceSetLinks.commands, graphs.flatMap(graph => graph.shipping?.priceSetLinks ?? []));
+  const pricingStorage = await initialize("medusa.pricing", pricingDefinition, pricing.commands, graphs.flatMap(graph => graph.shipping?.pricingRows ?? []));
   const stock = await Effect.runPromise(makeStockLocationCommands()), stockDefinition = base.fixture.stockLocationDefinition,
     salesDefinition = base.fixture.salesChannelLocationLinkDefinition, channelDefinition = base.fixture.salesChannelDefinition;
   if (stockDefinition === undefined || salesDefinition === undefined || channelDefinition === undefined) throw new Error("Missing untouched Stock/Sales Channel Link sources");
@@ -138,18 +155,27 @@ export async function prepareLogicalFulfillmentSetDeletion(driver: "pglite" | "p
   await initialize("medusa.link.salesChannelLocation", salesDefinition, [sales.create, sales.list], salesRows);
   const installed = { module: fulfillment.workflow, logicalStorage: base.installed.logicalStorage, logicalResources: fulfillmentSetDeletionResources };
   const installedLinks = { module: locationLinks.workflow, logicalStorage: locationStorage, logicalResources: fulfillmentSetDeletionResources };
-  const options: Parameters<typeof prepareFulfillmentSetDeletionWorkflow>[0] = { execution: base.execution, modules: { fulfillment: installed, locationLinks: installedLinks }, link,
+  const installedProvider = { module: providerLinks.workflow, logicalStorage: providerStorage, logicalResources: fulfillmentSetDeletionResources };
+  const installedPriceSet = { module: priceSetLinks.workflow, logicalStorage: priceSetStorage, logicalResources: fulfillmentSetDeletionResources };
+  const installedPricing = { module: pricing.workflow, logicalStorage: pricingStorage, logicalResources: fulfillmentSetDeletionResources, logicalPublication: "mixed" as const };
+  const modules = { fulfillment: installed, locationLinks: installedLinks, providerLinks: installedProvider, priceSetLinks: installedPriceSet, pricing: installedPricing };
+  const options: Parameters<typeof prepareFulfillmentSetDeletionWorkflow>[0] = { execution: base.execution, modules, link,
     revision: createHash("sha256").update("native-fulfillment-set-delete-134").digest("hex"),
     subscribers: [{ id: "native-fulfillment-set-delete", revision: "d".repeat(64) }] };
   const resources = Result.getOrThrow(prepareWorkflowResources({ fulfillment: { module: fulfillment.workflow,
     methods: ["softDeleteFulfillmentSets", "restoreFulfillmentSets"], graph: false },
-    locationLinks: { module: locationLinks.workflow, methods: ["create", "list", "softDelete", "restore"], graph: false, expose: false } }, true, { link }));
+    locationLinks: { module: locationLinks.workflow, methods: ["create", "list", "softDelete", "restore"], graph: false, expose: false },
+    providerLinks: { module: providerLinks.workflow, methods: ["softDelete", "restore"], graph: false, expose: false },
+    priceSetLinks: { module: priceSetLinks.workflow, methods: ["softDelete", "restore"], graph: false, expose: false },
+    pricing: { module: pricing.workflow, methods: ["softDeletePriceSets", "restorePriceSets"], graph: false, expose: false },
+  }, true, { link }));
   const prepare = async (revision = options.revision) => {
     const host = await Effect.runPromise(prepareFulfillmentSetDeletionWorkflow({ ...options, revision }));
     close(() => Effect.runPromise(host.close)); return host;
   };
   const hostOptions = { execution: options.execution, modules: options.modules, revision: options.revision, subscribers: options.subscribers,
-    requestCallLimit: fulfillmentSetDeletionResources.calls, requestEventLimit: fulfillmentSetDeletionResources.eventMessages };
+    requestCallLimit: fulfillmentSetDeletionResources.calls, requestEventLimit: fulfillmentSetDeletionResources.eventMessages,
+    requestByteLimit: fulfillmentSetDeletionResources.commandBytes, requestCommandMs: fulfillmentSetDeletionCommandMs };
   const prepareLifecycle = async () => {
     const Input = Schema.Struct({ ids: FulfillmentSetDeletionIds, restore: Schema.Boolean });
     const invoke = createStep("probe-native-fulfillment-set-lifecycle", resources.callback(async (value: typeof Input.Type, context) =>
@@ -163,7 +189,7 @@ export async function prepareLogicalFulfillmentSetDeletion(driver: "pglite" | "p
    * literal root executes. Native compensation reverses its serial Set→Link
    * graph. Atomic failure itself still rolls back through the outer owner. */
   const prepareRoundtrip = async (actualRetained: () => RetainedInputs,
-    limits: Readonly<{ calls: number; eventMessages: number }> = fulfillmentSetDeletionResources, lateFailure = false, revision = options.revision) => {
+    limits: Readonly<{ calls: number; eventMessages: number; commandBytes?: number }> = fulfillmentSetDeletionResources, lateFailure = false, revision = options.revision) => {
     const inverse = createStep("probe-native-fulfillment-set-retained-inverses", resources.callback(async (_value: null, context) => {
       const actual = actualRetained();
       await restoreLinks(actual.link, context); await restoreSet(actual.set, context);
@@ -175,8 +201,9 @@ export async function prepareLogicalFulfillmentSetDeletion(driver: "pglite" | "p
     });
     const selectedResources = { ...fulfillmentSetDeletionResources, ...limits };
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({ ...hostOptions, revision,
-      modules: { fulfillment: { ...installed, logicalResources: selectedResources }, locationLinks: { ...installedLinks, logicalResources: selectedResources } },
-      requestCallLimit: selectedResources.calls, requestEventLimit: selectedResources.eventMessages, workflow: {
+      modules: Object.fromEntries(Object.entries(modules).map(([name, module]) => [name, { ...module, logicalResources: selectedResources }])),
+      requestCallLimit: selectedResources.calls, requestEventLimit: selectedResources.eventMessages,
+      requestByteLimit: selectedResources.commandBytes, workflow: {
         name: "probeNativeFulfillmentSetRootRoundtrip", resources, prepared: Result.getOrThrow(flow.prepare()),
         input: FulfillmentSetDeletionInput, output: Schema.Null, events: internalModuleWorkflowEvents,
       } }));
@@ -191,6 +218,6 @@ export async function prepareLogicalFulfillmentSetDeletion(driver: "pglite" | "p
       prepared: Result.getOrThrow(flow.prepare()), input: Schema.Null, output: Schema.Null, events: internalModuleWorkflowEvents } }));
     close(() => Effect.runPromise(host.close)); return host;
   };
-  return { ...base, fulfillment, installed, installedLinks, locationLinks, link, linkRows, protectedRows: [...protectedRows, ...channelRows, ...salesRows], options, resources, hostOptions, prepare, prepareLifecycle, prepareRoundtrip, prepareAbsentInverse,
+  return { ...base, fulfillment, installed, installedLinks, locationLinks, providerLinks, priceSetLinks, pricing, link, linkRows, protectedRows: [...protectedRows, ...channelRows, ...salesRows], options, resources, hostOptions, prepare, prepareLifecycle, prepareRoundtrip, prepareAbsentInverse,
     prepareZoneCreation: base.prepare, input: FulfillmentSetDeletionInput };
 }

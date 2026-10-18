@@ -205,6 +205,37 @@ export function fillEmptyToManyRelations(
   }
 }
 
+/** Native nullable to-one initialization on detached creation results. */
+export function fillNullToOneRelations(
+  rows: Record<string, unknown>[],
+  descriptors: ReadonlyMap<string, {
+    readonly relationship: Pick<DatabaseRelationship, "type" | "nullable">
+    readonly ownerForeignKeys: readonly string[]
+  }>
+): void {
+  for (const row of rows) {
+    for (const [relationName, descriptor] of descriptors) {
+      if (
+        relationName in row ||
+        (descriptor.relationship.type !== "belongsTo" &&
+          descriptor.relationship.type !== "hasOneWithFK") ||
+        !descriptor.relationship.nullable ||
+        !descriptor.ownerForeignKeys.length
+      ) {
+        continue
+      }
+
+      if (
+        descriptor.ownerForeignKeys.every(
+          (foreignKey) => row[foreignKey] === null
+        )
+      ) {
+        row[relationName] = null
+      }
+    }
+  }
+}
+
 /** Metadata-only native descriptor seam; SQL tables/managers are not required
  * to resolve relation paths to real scalar projection fields. */
 export interface ScalarFieldRelationDescriptor {

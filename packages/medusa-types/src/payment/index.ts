@@ -1,0 +1,1 @@
+export { PaymentProviderDTO } from "./common";

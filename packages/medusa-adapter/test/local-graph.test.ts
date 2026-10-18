@@ -17,6 +17,7 @@ const context = (result: Json = [[], 0], calls: Json[] = []): AtomicCommerceCont
   checkpoint: Effect.void,
   capture: () => Effect.fail(commerceError("unsupportedProfile")),
   emit: () => Effect.fail(commerceError("unadmittedEvent")),
+  clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
   call: (_participant, _command, args) => { calls.push(args); return Effect.succeed(result); },
   refuse: Effect.fail,
 });

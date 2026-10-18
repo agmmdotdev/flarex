@@ -46,6 +46,8 @@ interface EventContract {
   readonly name: string;
   readonly revision: string;
   readonly internal: boolean;
+  /** Explicit authority to cancel prior pending external intents in one root. */
+  readonly pendingCancellation?: true;
   readonly decode: (value: unknown) => Effect.Effect<Json, CommerceTransactionError>;
 }
 const contracts = new WeakMap<object, EventContract>();
@@ -134,14 +136,16 @@ export const prepareAtomicCommerceEvents = Effect.fn("AtomicEvents.prepare")(fun
   const allowed = new Map<CommerceEventContract, EventContract>();
   const names = new Set<string>();
   for (const { token, definition } of definitions) {
-    if (definition === undefined || typeof definition.internal !== "boolean" || typeof definition.decode !== "function" || names.has(definition.name)) return yield* Effect.fail(commerceError("invalidAuthority"));
+    if (definition === undefined || typeof definition.internal !== "boolean" || typeof definition.decode !== "function" || names.has(definition.name) ||
+      definition.pendingCancellation !== undefined && (definition.pendingCancellation !== true || definition.internal))
+      return yield* Effect.fail(commerceError("invalidAuthority"));
     yield* decodeName(definition.name).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
     yield* decodeRevision(definition.revision).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
     allowed.set(token, definition);
     names.add(definition.name);
   }
-  const identity = { producerRevision, contracts: [...allowed.entries()].map(([token, { name, revision, internal }]) =>
-    ({ name, revision, internal, ...(derivedIdContracts.has(token)
+  const identity = { producerRevision, contracts: [...allowed.entries()].map(([token, { name, revision, internal, pendingCancellation }]) =>
+    ({ name, revision, internal, ...(pendingCancellation === undefined ? {} : { pendingCancellation }), ...(derivedIdContracts.has(token)
       ? { derivedIdMetadata: derivedIdContracts.get(token) ?? null } : {}) })), subscribers,
     ...(input.derivedIdValidation === undefined ? {} : { derivedIdValidation: input.derivedIdValidation }) } satisfies Json;
   yield* chargeHostPreparation({ identity, producerRevision, subscribers,
@@ -157,6 +161,17 @@ export function admitParticipantEvents(selection: ParticipantEventSelection | un
 ): Result.Result<readonly { readonly name: string; readonly revision: string }[], CommerceTransactionError> {
   return admitSelectedEvents(selection, policy, true).pipe(Result.map(identities => Object.freeze(
     identities.map(({ name, revision }) => Object.freeze({ name, revision })))));
+}
+
+/** A name alone grants no cancellation authority. The admitted external token
+ * must explicitly include cancellation in its pinned policy identity. */
+export function admitCommercePendingEventCancellation(
+  policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>> | undefined,
+  token: CommerceEventContract,
+): Result.Result<void, CommerceTransactionError> {
+  const definition = policy?.allowed.get(token);
+  return definition?.pendingCancellation === true && !definition.internal
+    ? Result.succeed(undefined) : Result.fail(commerceError("unadmittedEvent"));
 }
 
 function admitSelectedEvents(selection: ParticipantEventSelection | undefined,
@@ -262,7 +277,7 @@ interface PreparedDerivedIdEvent {
 }
 const closures = new WeakMap<object, { requireAdmission: Effect.Effect<void, CommerceTransactionError>;
   lifetime: BoundedRequestLifetime<CommerceTransactionError>; events: CommittedEvent[];
-  maximum: number; derived: PreparedDerivedIdEvent | undefined; derivedApplied: boolean }>();
+  ordinals: number[]; capturedCount: number; capturedBytes: number; maximum: number; derived: PreparedDerivedIdEvent | undefined; derivedApplied: boolean }>();
 
 /** One request owns this buffer; it cannot publish, clear another root, or deliver. */
 export function makeAtomicEventCapture(
@@ -270,6 +285,10 @@ export function makeAtomicEventCapture(
   policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>>, maximum: number,
 ) {
   const events: CommittedEvent[] = [];
+  const cancelled = new Set<CommittedEvent>();
+  // The canonical family includes both array brackets and one comma between
+  // envelopes. Publication filtering cannot refund this capture admission.
+  let capturedBytes = 2;
   let sealed = false;
   const retain = Effect.fnUntraced(function* (token: CommerceEventContract, input: Json, prechargedBytes = 0) {
     const definition = policy.allowed.get(token);
@@ -287,6 +306,9 @@ export function makeAtomicEventCapture(
     // The decoder establishes the shape; the captured value owns immutable data.
     const owned = captured.value;
     if (!isEnvelope(owned)) return yield* Effect.fail(commerceError("unadmittedEvent"));
+    const nextBytes = capturedBytes + captured.bytes + (events.length === 0 ? 0 : 1);
+    if (nextBytes > commitEventLimits.totalBytes) return yield* Effect.fail(commerceError("limitExceeded"));
+    capturedBytes = nextBytes;
     events.push(owned);
     return owned.message;
   }, work => observeExecution("AtomicEvents.retain", work, "caller"));
@@ -304,6 +326,14 @@ export function makeAtomicEventCapture(
     if (!selection.contracts.includes(token) || policy.allowed.get(token)?.internal !== true) return yield* Effect.fail(commerceError("unadmittedEvent"));
     return yield* retain(token, copied.value);
   }, work => observeExecution("AtomicEvents.captureSelected", work, "caller"));
+  const clearPending = Effect.fn("AtomicEvents.clearPending")(function* (token: CommerceEventContract) {
+    if (sealed) return yield* Effect.fail(commerceError("unadmittedEvent"));
+    yield* Effect.fromResult(admitCommercePendingEventCancellation(policy, token));
+    const definition = policy.allowed.get(token);
+    if (definition === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
+    for (const envelope of events) if (!envelope.internal && envelope.group === group && envelope.contract === definition.name &&
+      envelope.contractRevision === definition.revision) cancelled.add(envelope);
+  });
   const close = Effect.fnUntraced(function* (
     calls: readonly AtomicCommerceCallObservation[], derived?: CommerceDerivedIdEvent,
   ) {
@@ -325,14 +355,15 @@ export function makeAtomicEventCapture(
     sealed = true;
     // SAFETY: the single-use registry authenticates admission and lifetime.
     const token = Object.freeze({}) as CommerceEventClosure;
-    closures.set(token, { requireAdmission, lifetime, events: [...events], maximum,
+    closures.set(token, { requireAdmission, lifetime, events: events.filter(event => !cancelled.has(event)),
+      ordinals: events.flatMap((event, ordinal) => cancelled.has(event) ? [] : [ordinal]), capturedCount: events.length, capturedBytes, maximum,
       derived: prepared, derivedApplied: false });
     return token;
   }, work => observeExecution("AtomicEvents.close", work, "caller"));
   // Only the request-local queued operation owner supplies an already captured,
   // charged message. The envelope adds its remaining bytes exactly once.
   const capturePrecharged = (token: CommerceEventContract, input: Json, bytes: number) => retain(token, input, bytes);
-  return { capture, captureSelected, capturePrecharged, close };
+  return { capture, captureSelected, capturePrecharged, clearPending, close };
 }
 /** Only trusted settlement supplies identities selected from committed rows.
  * Static metadata was checked before the publication lock; this path performs
@@ -345,7 +376,7 @@ export const appendDerivedCommerceIdEvents = Effect.fnUntraced(function* (
     state.derived === undefined || state.derivedApplied || new Set(ids).size !== ids.length)
     return yield* Effect.fail(commerceError("invalidAuthority"));
   yield* state.requireAdmission;
-  if (state.events.length + ids.length > Math.min(state.maximum, commitEventLimits.messages))
+  if (state.capturedCount + ids.length > Math.min(state.maximum, commitEventLimits.messages))
     return yield* Effect.fail(commerceError("limitExceeded"));
   const { derived } = state;
   for (const id of ids) {
@@ -358,7 +389,12 @@ export const appendDerivedCommerceIdEvents = Effect.fnUntraced(function* (
       Math.min(commitEventLimits.bytes, lifetime.remainingBytes()), commerceError));
     yield* Effect.fromResult(lifetime.charge(captured.bytes));
     if (!isEnvelope(captured.value)) return yield* Effect.fail(commerceError("unadmittedEvent"));
+    const nextBytes = state.capturedBytes + captured.bytes + (state.capturedCount === 0 ? 0 : 1);
+    if (nextBytes > commitEventLimits.totalBytes) return yield* Effect.fail(commerceError("limitExceeded"));
+    state.capturedBytes = nextBytes;
     state.events.push(captured.value);
+    state.ordinals.push(state.capturedCount);
+    state.capturedCount++;
   }
   state.derivedApplied = true;
 }, work => observeExecution("AtomicEvents.appendDerivedIds", work, "caller"));
@@ -371,6 +407,7 @@ export const consumeCommerceEvents = Effect.fnUntraced(function* (
   closures.delete(closure);
   if (state.derived !== undefined && !state.derivedApplied) return yield* Effect.fail(commerceError("invalidAuthority"));
   const values = Object.freeze([...state.events]);
-  return { values, sha256: values.length === 0 ? null : yield* commitEventsDigest(values).pipe(Effect.mapError(cause =>
+  return { values, ordinals: Object.freeze([...state.ordinals]), capturedCount: state.capturedCount,
+    sha256: values.length === 0 ? null : yield* commitEventsDigest(values).pipe(Effect.mapError(cause =>
     commerceError(cause instanceof CommitEventError && cause.reason === "invalidInput" ? "limitExceeded" : "resourceFailure", cause))) };
 }, work => observeExecution("AtomicEvents.consume", work, "caller"));

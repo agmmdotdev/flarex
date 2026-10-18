@@ -34,7 +34,8 @@ function fixture(call: (value: unknown) => Effect.Effect<string, CommerceTransac
   const refuse = vi.fn((error: CommerceTransactionError) => Effect.fail(error));
   const context: AtomicCommerceContext = { eventGroupId: "parallel-lifetime", checkpoint: Effect.void,
     capture: (value, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decode)(value))),
-    call: (_participant, _command, value) => call(value), emit: () => Effect.fail(commerceError("unadmittedEvent")), refuse,
+    call: (_participant, _command, value) => call(value), emit: () => Effect.fail(commerceError("unadmittedEvent")),
+    clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")), refuse,
   };
   return { resources, refuse, run: (flow: PreparedWorkflow, input: unknown = null) =>
     runNativeMedusaWorkflow(flow, context, input,

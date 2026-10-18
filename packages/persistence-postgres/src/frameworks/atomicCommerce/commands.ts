@@ -26,6 +26,9 @@ export interface AtomicCommerceContext {
   /** Normalize foreign data only after this root's lifetime and budget gate. */
   readonly capture: (value: unknown, normalize?: (value: unknown) => Result.Result<Json, CommerceTransactionError>) => Effect.Effect<Json, CommerceTransactionError>;
   readonly emit: (contract: CommerceEventContract, message: unknown) => Effect.Effect<void, CommerceTransactionError>;
+  /** Cancel only prior pending external intents of this admitted contract in
+   * the current root. Captured history and resource charges are retained. */
+  readonly clearPendingEvents: (contract: CommerceEventContract) => Effect.Effect<void, CommerceTransactionError>;
   readonly call: (participant: AtomicCommerceParticipant, command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
   readonly refuse: (error: CommerceTransactionError) => Effect.Effect<never, CommerceTransactionError>;
 }

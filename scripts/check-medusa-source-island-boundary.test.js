@@ -1,7 +1,9 @@
 // @ts-check
 import { describe, expect, it } from "vitest";
-import { posix } from "node:path";
-import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
+import { join, posix } from "node:path";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { analyzeMedusaSourceIslandBoundary, discoverRootToolSources } from "./check-medusa-source-island-boundary.mjs";
 
 const emptyInput = {
   rootManifests: [],
@@ -32,6 +34,32 @@ const nativeControlPromotion = {
 };
 
 describe("Medusa source-island boundary checker", () => {
+  it("excludes only the exact Shipping source verifier pair while adjacent tooling remains denied", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "flarex-medusa-shipping-boundary-"));
+    const verifierPaths = ["scripts/check-medusa-shipping-option-source.mjs", "scripts/check-medusa-shipping-option-source.test.js"];
+    const adjacentPaths = ["scripts/check-medusa-shipping-option-source-adjacent.mjs",
+      "scripts/nested/check-medusa-shipping-option-source.mjs", "tools/check-medusa-shipping-option-source.test.js"];
+    const text = 'await import("../third_party/medusa/upstream/package.json");';
+    try {
+      mkdirSync(join(repoRoot, "integration"));
+      for (const relativePath of [...verifierPaths, ...adjacentPaths]) {
+        const file = join(repoRoot, relativePath);
+        mkdirSync(join(repoRoot, posix.dirname(relativePath)), { recursive: true });
+        writeFileSync(file, text);
+      }
+      const discovered = discoverRootToolSources(repoRoot);
+      expect(discovered.map(file => file.relativePath).sort()).toEqual([...adjacentPaths].sort());
+      expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, rootToolSources: discovered }).errors.sort()).toEqual(
+        adjacentPaths.map(relativePath => relativePath + ": root tooling must not enter the Medusa source island.").sort());
+      // These are discovery exclusions for source verification, not a general
+      // path-name exception in the analyzer or an allowance for runtime imports.
+      for (const relativePath of verifierPaths)
+        expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, rootToolSources: [{ relativePath, text }] }).errors).toEqual([
+          relativePath + ": root tooling must not enter the Medusa source island.",
+        ]);
+    } finally { rmSync(repoRoot, { recursive: true, force: true }); }
+  });
+
   it("confines historical capture imports to the actual query and erased metadata owners", () => {
     const fixture = "packages/executor/test/performance/support/historicalCaptureFixture.ts";
     const edges = [

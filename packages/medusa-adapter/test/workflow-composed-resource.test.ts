@@ -47,7 +47,7 @@ describe("finite composed resources over authentic source methods", () => {
     const call = vi.fn<AtomicCommerceContext["call"]>((_participant, _command, input) => Effect.succeed(input));
     const ctx: AtomicCommerceContext = { eventGroupId: "neutral-empty", checkpoint: Effect.void,
       capture: (input, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decodeJson)(input))),
-      call, refuse: error => Effect.fail(error), emit: () => Effect.fail(commerceError("unadmittedEvent")),
+      call, refuse: error => Effect.fail(error), emit: () => Effect.fail(commerceError("unadmittedEvent")), clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     };
     const owner = await Effect.runPromise(makeCommercePromiseOwner());
     try {
@@ -81,7 +81,7 @@ describe("finite composed resources over authentic source methods", () => {
     const ctx: AtomicCommerceContext = { eventGroupId: "neutral-pair", checkpoint: Effect.void,
       capture: (input, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decodeJson)(input))),
       call: (participant, command, input) => Effect.sync(() => { calls.push({ participant, command, input }); return input; }),
-      emit: () => Effect.fail(commerceError("unadmittedEvent")), refuse,
+      emit: () => Effect.fail(commerceError("unadmittedEvent")), clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")), refuse,
     };
     const owner = await Effect.runPromise(makeCommercePromiseOwner());
     try {
@@ -151,7 +151,7 @@ describe("finite composed resources over authentic source methods", () => {
     const refuse = vi.fn<AtomicCommerceContext["refuse"]>(error => Effect.fail(error));
     const ctx: AtomicCommerceContext = { eventGroupId: mode, checkpoint: Effect.void,
       capture: (input, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decodeJson)(input))),
-      call, refuse, emit: () => Effect.fail(commerceError("unadmittedEvent")),
+      call, refuse, emit: () => Effect.fail(commerceError("unadmittedEvent")), clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     };
     const owner = await Effect.runPromise(makeCommercePromiseOwner());
     try {

@@ -7,13 +7,14 @@ import type { WorkflowCallResults } from "./host";
 /** Correlate a native workflow's ordered ID messages with its genuine calls.
  * Each framework root selects its own event family and expected identities. */
 export function orderedWorkflowIdEvents(name: string,
-  expectedIds: (calls: WorkflowCallResults) => Effect.Effect<readonly string[], CommerceTransactionError>) {
+  expectedIds: (calls: WorkflowCallResults) => Effect.Effect<readonly string[], CommerceTransactionError>,
+  options: { readonly pendingCancellation?: true } = {}) {
   const decode = commerceDecoder(Schema.Struct({ name: Schema.Literal(name),
     data: Schema.Struct({ id: Schema.String.check(Schema.isLengthBetween(1, 256)) }),
     metadata: Schema.Struct({ eventGroupId: Schema.String }),
   }), "unadmittedEvent");
   return {
-    contracts: [{ name, decode }],
+    contracts: [{ name, decode, ...(options.pendingCancellation === undefined ? {} : { pendingCancellation: options.pendingCancellation }) }],
     validate: Effect.fn("Workflow.validateOrderedIdEvents")(function* (
       events: Parameters<AtomicCommerceEvents["validate"]>[0], calls: WorkflowCallResults,
     ) {

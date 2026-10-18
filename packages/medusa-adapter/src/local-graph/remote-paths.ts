@@ -1,7 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import { groupHasManyRows, groupManyToManyRows, tupleKey } from "@medusajs/drizzle/relation-query";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, isJsonObject, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../value/decoder";
 import { checkedCommerceValue } from "../value/checked";
 import type { ProjectionNode } from "../query/projection";
@@ -42,7 +42,12 @@ export function prepareGraphRemotePaths(participants: readonly GraphParticipant[
     }
     for (const [root, paths] of byRoot) for (const path of paths.values()) {
       const dot = path.path.lastIndexOf(".");
-      const parent = dot === -1 ? root : paths.get(path.path.slice(0, dot))?.targetModel;
+      const prefix = path.path.slice(0, dot);
+      const local = dot === -1 ? undefined : (yield* one(root)).read.paths.find(relation => relation.path === prefix);
+      const parent = dot === -1 ? root : paths.get(prefix)?.targetModel ??
+        (local !== undefined && local.table.name === path.source.read.table.name && path.source.participant === (yield* one(root)).participant
+          && local.table.primaryKeys.length === 1 && local.table.primaryKeys[0] === path.sourceKey
+          && local.table.columns.every(column => path.source.read.table.columns.includes(column)) ? path.sourceModel : undefined);
       if (parent !== path.sourceModel) return yield* Result.fail(commerceError("unsupportedProfile"));
     }
     return byRoot;
@@ -80,7 +85,38 @@ export const populateGraphRemotePaths = Effect.fn("LocalGraph.populateRemotePath
     const result = parents.map(row => ({ ...row }));
     for (const child of projection.children) {
       const name = prefix + child.name, path = paths.get(name);
-      if (path === undefined) continue; // Module-local relations stay service-owned.
+      if (path === undefined) {
+        // Service-owned local hydration can prefix a stored Link. Collect the
+        // complete cohort before recursion so per-edge limits cannot be reset
+        // for each local parent or silently omit a sibling's endpoints.
+        const local: JsonObject[] = [];
+        const lengths: number[] = [];
+        for (const parent of parents) {
+          const value = parent[child.name];
+          if (child.many) {
+            if (!Array.isArray(value) || !value.every(isJsonObject)) return yield* context.refuse(commerceError("storedCorruption"));
+            lengths.push(value.length); local.push(...value);
+          } else if (value === null || value === undefined && child.optional === true) lengths.push(0);
+          else {
+            if (value === undefined || !isJsonObject(value)) return yield* context.refuse(commerceError("storedCorruption"));
+            lengths.push(1); local.push(value);
+          }
+        }
+        const attached = yield* visit(local, child.node, name + ".");
+        let offset = 0;
+        for (let index = 0; index < result.length; index++) {
+          const parent = result[index], length = lengths[index];
+          if (parent === undefined || length === undefined) return yield* context.refuse(commerceError("storedCorruption"));
+          if (child.many) parent[child.name] = attached.slice(offset, offset + length);
+          else if (length === 1) {
+            const value = attached[offset];
+            if (value === undefined) return yield* context.refuse(commerceError("storedCorruption"));
+            parent[child.name] = value;
+          }
+          offset += length;
+        }
+        continue;
+      }
       if (parents.length > path.maximumSources) return yield* context.refuse(commerceError("unsupportedProfile"));
       const sourceIds = yield* checkedCommerceValue(context, () => keys(parents, path.sourceKey));
       if (sourceIds.length === 0) {

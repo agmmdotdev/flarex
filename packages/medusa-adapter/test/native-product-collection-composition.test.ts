@@ -24,6 +24,7 @@ function nativePort(services: Readonly<Record<string, object>>) {
   } };
   const decode = commerceDecoder(Schema.Json, "invalidInput");
   const context: AtomicCommerceContext = { eventGroupId: "native-collection-composition", checkpoint: Effect.void,
+    clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     capture: (value, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decode)(value))),
     call: () => Effect.fail(commerceError("unsupportedProfile")), emit: () => Effect.fail(commerceError("unadmittedEvent")),
     refuse: error => Effect.fail(error),

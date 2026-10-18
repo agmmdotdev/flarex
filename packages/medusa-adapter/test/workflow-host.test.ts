@@ -10,7 +10,7 @@ import { defineWorkflowMethod, defineWorkflowModule, workflowModuleDefinition, w
 import { prepareWorkflowResources, workflowResourceSelections } from "../src/workflow/resources";
 import { bindWorkflowResources } from "../src/workflow/binding";
 import { checkedCommerceValue } from "../src/value/checked";
-import { prepareAtomicWorkflowHost, prepareWorkflowComposition, captureInstalledWorkflowModules, type InstalledWorkflowModule } from "../src/workflow/host";
+import { prepareAtomicWorkflowHost, prepareWorkflowComposition, captureInstalledWorkflowModules, type InstalledWorkflowModule, type AtomicWorkflowExecution } from "../src/workflow/host";
 import { runNativeMedusaWorkflow } from "../src/workflow/runtime";
 import type { CommercePromiseOwner } from "../src/module/promise-owner";
 import { captureWorkflowValue } from "../src/workflow/value";
@@ -33,7 +33,7 @@ const decodeJson = commerceDecoder(Schema.Json, "invalidInput");
 const context = (): AtomicCommerceContext => ({ eventGroupId: "unit", checkpoint: Effect.void,
   capture: (input, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decodeJson)(input))),
   call: (_participant, _command, args) => Effect.succeed(args),
-  emit: () => Effect.fail(commerceError("unadmittedEvent")), refuse: error => Effect.fail(error),
+  emit: () => Effect.fail(commerceError("unadmittedEvent")), clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")), refuse: error => Effect.fail(error),
 });
 
 function logicalComposition(logical: WorkflowLogicalPolicy) {
@@ -51,6 +51,30 @@ function logicalComposition(logical: WorkflowLogicalPolicy) {
 }
 
 describe("workflow registration and scoped resource composition", () => {
+  it("forwards an explicit trusted command duration through host preparation and binds only its presence to identity", async () => {
+    const { options } = logicalComposition({ commands: [command],
+      capture: value => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void });
+    const refusal = commerceError("invalidAuthority");
+    const prepare = vi.fn<AtomicWorkflowExecution["prepare"]>(() => Effect.fail(refusal));
+    const { identityAndAccessPolicy, ...hostOptions } = options;
+    const execution = { identityAndAccessPolicy, prepare };
+    for (const selection of [{}, { requestCommandMs: 30_000 }]) {
+      const outcome = await Effect.runPromise(Effect.result(prepareAtomicWorkflowHost({ ...hostOptions, execution, ...selection })));
+      expect(outcome).toEqual(Result.fail(refusal));
+    }
+    expect(prepare).toHaveBeenCalledTimes(2);
+    const omitted = prepare.mock.calls[0]?.[0], selected = prepare.mock.calls[1]?.[0];
+    expect(omitted).not.toHaveProperty("requestCommandMs");
+    expect(omitted?.identityAndAccessPolicy).not.toHaveProperty("workflow.requestCommandMs");
+    expect(selected?.requestCommandMs).toBe(30_000);
+    expect(selected?.identityAndAccessPolicy).toHaveProperty("workflow.requestCommandMs", 30_000);
+    expect(selected?.identityAndAccessPolicy).not.toEqual(omitted?.identityAndAccessPolicy);
+    const ownUndefined = Object.defineProperty({ ...options }, "requestCommandMs", { value: undefined, enumerable: true });
+    const unchanged = await Effect.runPromise(prepareWorkflowComposition(ownUndefined));
+    expect(unchanged.composition).not.toHaveProperty("requestCommandMs");
+    expect(unchanged.composition.identityAndAccessPolicy).toEqual(omitted?.identityAndAccessPolicy);
+  });
+
   it("keeps borrowed-operation scheduling explicit in composition and workflow identity", async () => {
     const { options } = logicalComposition({ commands: [command],
       capture: value => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void });

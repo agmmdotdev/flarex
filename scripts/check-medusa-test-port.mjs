@@ -323,16 +323,16 @@ export function verifyPricingCreateTests(source, target) {
     throw new Error("Changed selected native Pricing test bodies or seed");
 }
 
-/** Pricing retains its original creation/update profiles and a separately named
- * Store preference profile. Selection must not grant either branch the other's
- * methods, graph or receipt policy.
+/** Pricing retains its original Product/Store profiles and separately named
+ * Shipping creation/lifecycle profile. Selection cannot grant another branch
+ * Shipping restoration/physical deletion, methods, graph or receipt policy.
  * @param {string} source @param {string} target @param {string} repositorySource */
 export function verifyPricingWorkflowSelection(source, target, repositorySource) {
   const contract = ts.createSourceFile("native.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
   const declaration = contract.statements.find(node => ts.isInterfaceDeclaration(node) && node.name.text === "IPricingModuleService");
   if (declaration === undefined || !ts.isInterfaceDeclaration(declaration)) throw new Error("Missing native Pricing interface");
   const methods = new Set(declaration.members.filter(ts.isMethodSignature).map(member => member.name.getText(contract)));
-  if (["createPriceSets", "createPriceLists", "createPricePreferences", "listPricePreferences", "upsertPricePreferences", "deletePricePreferences"]
+  if (["createPriceSets", "createPriceLists", "createPricePreferences", "listPricePreferences", "upsertPricePreferences", "deletePricePreferences", "deletePriceSets"]
     .some(method => !methods.has(method))) throw new Error("Missing native Pricing admitted methods");
   const adapter = ts.createSourceFile("adapter.ts", target, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
   /** @type {ts.CallExpression[]} */
@@ -344,6 +344,8 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
   /** @type {ts.VariableDeclaration[]} */
   const preferences = [];
   /** @type {ts.VariableDeclaration[]} */
+  const shippings = [];
+  /** @type {ts.VariableDeclaration[]} */
   const admitted = [];
   /** @type {ts.VariableDeclaration[]} */
   const graphs = [];
@@ -353,6 +355,8 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
   const repositories = [];
   /** @type {ts.ParameterDeclaration[]} */
   const parameters = [];
+  /** @type {ts.CallExpression[]} */
+  const shippingCaptures = [];
   /** @param {ts.Node} node */
   const visit = node => {
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "defineWorkflowModule") selections.push(node);
@@ -361,9 +365,13 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "mutable") admissions.push(node);
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "lifecycle") lifecycles.push(node);
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "preferences") preferences.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "shipping") shippings.push(node);
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "admitted") admitted.push(node);
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "graph") graphs.push(node);
     if (ts.isParameter(node) && ts.isIdentifier(node.name) && node.name.text === "admission") parameters.push(node);
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === "shippingLifecycleServices"
+      && node.expression.name.text === "set") shippingCaptures.push(node);
     ts.forEachChild(node, visit);
   };
   visit(adapter);
@@ -395,9 +403,14 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
     && ts.isObjectLiteralExpression(ordinaryConditional.whenFalse) && ordinaryConditional.whenFalse.properties.length === 0
     ? ordinaryConditional.whenTrue : undefined;
   const properties = ordinarySelection !== undefined && ts.isObjectLiteralExpression(ordinarySelection) ? [...ordinarySelection.properties] : [];
+  const shippingSpread = properties.pop();
   const lifecycleSpread = properties.pop();
   const spread = properties.pop();
+  const ordinaryOnlySpread = properties.pop();
   const selectedMethods = properties.map(property => ts.isShorthandPropertyAssignment(property) ? property.name.text : null);
+  const expectedOrdinary = 'const methods = { ...(!shipping ? { createPriceLists, createPricePreferences } : {}) };';
+  const ordinaryOnlyMethods = ordinaryOnlySpread !== undefined && ts.isSpreadAssignment(ordinaryOnlySpread)
+    && nativeWorkflowProgram('const methods = { ' + ordinaryOnlySpread.getText(adapter) + ' };', "Invalid Pricing selection") === nativeWorkflowProgram(expectedOrdinary, "Invalid Pricing selection");
   const expression = spread !== undefined && ts.isSpreadAssignment(spread) ? spread.expression : undefined;
   const conditional = expression !== undefined && ts.isParenthesizedExpression(expression) ? expression.expression : expression;
   const updateMethods = conditional !== undefined && ts.isConditionalExpression(conditional) &&
@@ -407,9 +420,12 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
   const lifecycleExpression = lifecycleSpread !== undefined && ts.isSpreadAssignment(lifecycleSpread) ? lifecycleSpread.expression : undefined;
   const lifecycleConditional = lifecycleExpression !== undefined && ts.isParenthesizedExpression(lifecycleExpression) ? lifecycleExpression.expression : lifecycleExpression;
   const lifecycleMethods = lifecycleConditional !== undefined && ts.isConditionalExpression(lifecycleConditional) &&
-    ts.isIdentifier(lifecycleConditional.condition) && lifecycleConditional.condition.text === "lifecycle" &&
+    lifecycleConditional.condition.getText(adapter).replace(/\s/g, "") === "lifecycle||shipping" &&
     ts.isObjectLiteralExpression(lifecycleConditional.whenTrue) && ts.isObjectLiteralExpression(lifecycleConditional.whenFalse) && lifecycleConditional.whenFalse.properties.length === 0
     ? lifecycleConditional.whenTrue.properties.map(property => ts.isShorthandPropertyAssignment(property) ? property.name.text : null) : [];
+  const shippingMethods = shippingSpread !== undefined && ts.isSpreadAssignment(shippingSpread)
+    && nativeWorkflowProgram('const methods = { ' + shippingSpread.getText(adapter) + ' };', "Invalid Pricing selection") === nativeWorkflowProgram(
+      'const methods = { ...(shipping ? { restorePriceSets, deletePriceSets } : {}) };', "Invalid Pricing selection");
   const policies = input.properties.filter(ts.isPropertyAssignment).filter(property => property.name.getText(adapter) === "logical");
   const policy = policies[0]?.initializer;
   const policyProperties = policy !== undefined && ts.isObjectLiteralExpression(policy) ? [...policy.properties] : [];
@@ -422,32 +438,60 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
   const profile = profiles[0]?.initializer;
   const profileNames = profile !== undefined && ts.isObjectLiteralExpression(profile)
     ? profile.properties.filter(ts.isPropertyAssignment).filter(property => property.name.getText(adapter) === "name") : [];
+  const services = moduleInput !== undefined && ts.isObjectLiteralExpression(moduleInput)
+    ? moduleInput.properties.filter(ts.isPropertyAssignment).filter(property => property.name.getText(adapter) === "service") : [];
+  const service = services[0]?.initializer;
+  const expectedService = `const service = ({ binding, dependencies, context }) => {
+    const container = { ...dependencies, [Modules.EVENT_BUS]: binding.eventBus };
+    const native = new PricingModuleService(container, { scope: "internal" });
+    return { service: {
+      createPriceSets: preferences ? binding.refuse : native.createPriceSets.bind(native),
+      createPriceLists: preferences || shipping ? binding.refuse : native.createPriceLists.bind(native),
+      createPricePreferences: preferences || shipping ? binding.refuse : native.createPricePreferences.bind(native),
+      listPriceSets: preferences ? binding.refuse : native.listPriceSets.bind(native),
+      retrievePriceSet: preferences ? binding.refuse : native.retrievePriceSet.bind(native),
+      listAndCountPriceSets: preferences ? binding.refuse : native.listAndCountPriceSets.bind(native),
+      calculatePrices: preferences || shipping ? binding.refuse : native.calculatePrices.bind(native),
+      upsertPriceSets: mutable ? native.upsertPriceSets.bind(native) : binding.refuse,
+      updatePriceSets: mutable ? native.updatePriceSets.bind(native) : binding.refuse,
+      softDeletePriceSets: lifecycle || shipping ? native.softDeletePriceSets.bind(native) : binding.refuse,
+      restorePriceSets: shipping ? native.restorePriceSets.bind(native) : binding.refuse,
+      deletePriceSets: shipping ? native.deletePriceSets.bind(native) : binding.refuse,
+      listPricePreferences: preferences ? native.listPricePreferences.bind(native) : binding.refuse,
+      upsertPricePreferences: preferences ? native.upsertPricePreferences.bind(native) : binding.refuse,
+      deletePricePreferences: preferences ? native.deletePricePreferences.bind(native) : binding.refuse
+    }, context };
+  };`;
+  const shippingCapture = shippingCaptures[0]?.parent.parent;
   if (admissions.length !== 1 || admissions[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="variant-updates"||admission==="product-updates"' ||
     lifecycles.length !== 1 || lifecycles[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="product-updates"' ||
     preferences.length !== 1 || preferences[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="store-preferences"' ||
+    shippings.length !== 1 || shippings[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="shipping-options"' ||
+    shippingCaptures.length !== 1 || shippingCapture === undefined || !ts.isIfStatement(shippingCapture) ||
+    nativeWorkflowProgram(shippingCapture.getText(adapter), "Invalid Pricing selection") !== nativeWorkflowProgram(
+      'if (shipping) shippingLifecycleServices.set(workflow, { routing: nativePricingRouting, softDelete: softDeletePriceSets, restore: restorePriceSets });', "Invalid Pricing selection") ||
     parameters.length !== 1 || parameters[0]?.initializer?.getText(adapter) !== '"create"' ||
-    parameters[0]?.type?.getText(adapter).replace(/\s/g, "") !== '"create"|"variant-updates"|"product-updates"|"store-preferences"' ||
-    selections.length !== 1 || selected.length !== 1 || methodBranches.length !== 2 || selectedMethods.length !== 3 ||
-    selectedMethods.includes(null) || new Set(selectedMethods).size !== 3 ||
-    !selectedMethods.includes("createPriceSets") || !selectedMethods.includes("createPriceLists") ||
-    !selectedMethods.includes("createPricePreferences") || updateMethods.length !== 3 || new Set(updateMethods).size !== 3 ||
+    parameters[0]?.type?.getText(adapter).replace(/\s/g, "") !== '"create"|"variant-updates"|"product-updates"|"store-preferences"|"shipping-options"' ||
+    selections.length !== 1 || selected.length !== 1 || methodBranches.length !== 2 || selectedMethods.length !== 1 ||
+    selectedMethods[0] !== "createPriceSets" || !ordinaryOnlyMethods || !shippingMethods || updateMethods.length !== 3 || new Set(updateMethods).size !== 3 ||
     !updateMethods.includes("upsertPriceSets") || !updateMethods.includes("updatePriceSets") || !updateMethods.includes("listPriceSets") ||
     lifecycleMethods.length !== 1 || lifecycleMethods[0] !== "softDeletePriceSets" ||
     preferenceMethods.length !== 3 || new Set(preferenceMethods).size !== 3 || preferenceMethods.includes(null) ||
     !preferenceMethods.includes("listPricePreferences") || !preferenceMethods.includes("upsertPricePreferences") || !preferenceMethods.includes("deletePricePreferences") ||
-    modules.length !== 1 || repositories.length !== 1 || repositories[0]?.arguments.map(argument => argument.getText(adapter)).join(",") !== "metadata.frame,mutable,lifecycle,preferences" ||
+    modules.length !== 1 || repositories.length !== 1 || repositories[0]?.arguments.map(argument => argument.getText(adapter)).join(",") !== "metadata.frame,mutable,lifecycle,preferences,shipping" ||
+    services.length !== 1 || service === undefined || nativeWorkflowProgram('const service = ' + service.getText(adapter), "Invalid Pricing selection") !== nativeWorkflowProgram(expectedService, "Invalid Pricing selection") ||
     moduleInput === undefined || !ts.isObjectLiteralExpression(moduleInput) || moduleInput.properties.some(property => !ts.isPropertyAssignment(property) || !ts.isIdentifier(property.name)) ||
     profiles.length !== 1 || profile === undefined || !ts.isObjectLiteralExpression(profile) ||
     profile.properties.some(property => (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) || !ts.isIdentifier(property.name)) ||
     profileNames.length !== 1 || profileNames[0]?.initializer.getText(adapter).replace(/\s/g, "") !==
-      'preferences?"pricing-store-preferences":lifecycle?"pricing-product-updates":mutable?"pricing-variant-updates":"pricing-base-prices"' ||
+      'shipping?"pricing-shipping-options":preferences?"pricing-store-preferences":lifecycle?"pricing-product-updates":mutable?"pricing-variant-updates":"pricing-base-prices"' ||
     admitted.length !== 1 || admitted[0]?.initializer?.getText(adapter).replace(/\s/g, "") !==
-      'preferences?[preferenceList,preferenceUpsert,preferenceDelete]:[create,createList,createPreference,list,count,retrieve,calculate,...(mutable?[upsert,update]:[]),...(lifecycle?[softDeletePriceSetsCommand]:[])]' ||
+      'shipping?[create,list,count,retrieve,softDeletePriceSetsCommand,restorePriceSetsCommand,deletePriceSetsCommand]:preferences?[preferenceList,preferenceUpsert,preferenceDelete]:[create,createList,createPreference,list,count,retrieve,calculate,...(mutable?[upsert,update]:[]),...(lifecycle?[softDeletePriceSetsCommand]:[])]' ||
     graphs.length !== 1 || graph === undefined || !ts.isConditionalExpression(graph) ||
     graph.condition.getText(adapter) !== "preferences" || graph.whenTrue.getText(adapter).replace(/\s/g, "") !== '{aliases:[],reads:[]}' ||
     policies.length !== 1 || policyProperties.length !== 2 || policySpread === undefined || !ts.isSpreadAssignment(policySpread) ||
     policySpread.expression.getText(adapter).replace(/\s/g, "") !==
-      '(preferences?pricingStorePreferencePolicy(preferenceContracts):lifecycle?pricingLogicalProductUpdateEventPolicy():mutable?pricingLogicalMutationEventPolicy():pricingLogicalCreateEventPolicy())' ||
+      '(shipping?pricingShippingOptionPolicy(shippingOutput):preferences?pricingStorePreferencePolicy(preferenceContracts):lifecycle?pricingLogicalProductUpdateEventPolicy():mutable?pricingLogicalMutationEventPolicy():pricingLogicalCreateEventPolicy())' ||
     commands === undefined || !ts.isPropertyAssignment(commands) || commands.name.getText(adapter) !== "commands" || commands.initializer.getText(adapter) !== "admitted")
     throw new Error("Unadmitted native Pricing workflow selection");
 
@@ -825,6 +869,74 @@ export function verifyNativeToManyInitialization(nativeRepository, relationOwner
   const syntaxFailure = "Invalid native zero-to-many initialization syntax";
   if (nativeWorkflowProgram(select(nativeRepository), syntaxFailure) !== nativeWorkflowProgram(select(relationOwner), syntaxFailure))
     throw new Error("Changed native zero-to-many initialization extraction");
+}
+
+/** Select a complete native function, refusing ambiguous extraction anchors.
+ * @param {string} source @param {string} name @param {string} failure */
+function nativeHelperDeclaration(source, name, failure) {
+  const file = ts.createSourceFile("native-helper.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const declarations = file.statements.filter(node => ts.isFunctionDeclaration(node) && node.name?.text === name);
+  const declaration = declarations[0];
+  if (declarations.length !== 1 || declaration === undefined || !ts.isFunctionDeclaration(declaration) || declaration.body === undefined)
+    throw new Error(failure);
+  return declaration.getText(file).replace(/^export\s+/, "");
+}
+
+/** The whole SQL-free scalar helper is native; only its export is added.
+ * Comparing the complete target also refuses extra runtime imports or effects.
+ * @param {string} nativeRepository @param {string} filterOwner */
+export function verifyNativeFilterValue(nativeRepository, filterOwner) {
+  const failure = "Changed native scalar filter-value extraction";
+  const expected = "export " + nativeHelperDeclaration(nativeRepository, "coerceFilterValue", failure);
+  if (nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(filterOwner, failure)) throw new Error(failure);
+}
+
+/** Authenticate the complete nullable to-one initializer after descriptor type
+ * erasure. Other relation helpers retain their separate source proofs.
+ * @param {string} nativeRepository @param {string} relationOwner */
+export function verifyNativeNullToOneInitialization(nativeRepository, relationOwner) {
+  const failure = "Changed native nullable to-one initialization extraction";
+  const native = nativeHelperDeclaration(nativeRepository, "fillNullToOneRelations", failure);
+  const portable = nativeHelperDeclaration(relationOwner, "fillNullToOneRelations", failure);
+  if (nativeWorkflowProgram(native, failure) !== nativeWorkflowProgram(portable, failure)) throw new Error(failure);
+}
+
+/** Native singleton/multiple-alias rules, including duplicate failure order.
+ * mergeFieldAlias moves out of its class without changing its body. The exact
+ * parseAlias array block takes its already-resolved parent entity as an argument;
+ * its checked metadata lookup is the only removed native statement. The entire
+ * extracted module must match, including the direct isString import relocation.
+ * @param {string} nativeJoiner @param {string} aliasOwner */
+export function verifyNativeJoinerFieldAlias(nativeJoiner, aliasOwner) {
+  const failure = "Changed native Joiner field-alias extraction";
+  const file = ts.createSourceFile("remote-joiner.ts", nativeJoiner, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const classes = file.statements.filter(node => ts.isClassDeclaration(node) && node.name?.text === "RemoteJoiner");
+  const owner = classes[0];
+  if (classes.length !== 1 || owner === undefined || !ts.isClassDeclaration(owner)) throw new Error(failure);
+  /** @param {string} name */
+  const method = name => {
+    const declarations = owner.members.filter(node => ts.isMethodDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name);
+    const declaration = declarations[0];
+    if (declarations.length !== 1 || declaration === undefined || !ts.isMethodDeclaration(declaration) || declaration.body === undefined)
+      throw new Error(failure);
+    return declaration;
+  };
+  const merge = method("mergeFieldAlias");
+  const parse = method("parseAlias");
+  if (merge.body === undefined || parse.body === undefined) throw new Error(failure);
+  const selections = parse.body.statements.filter(statement => ts.isIfStatement(statement)
+    && nativeWorkflowProgram(statement.expression.getText(file), failure) === nativeWorkflowProgram("Array.isArray(alias)", failure));
+  const selection = selections[0];
+  if (selections.length !== 1 || selection === undefined || !ts.isIfStatement(selection)
+    || selection.elseStatement !== undefined || !ts.isBlock(selection.thenStatement)) throw new Error(failure);
+  const entityLookup = selection.thenStatement.statements[0];
+  if (entityLookup === undefined || nativeWorkflowProgram(entityLookup.getText(file), failure) !== nativeWorkflowProgram(
+    'const currentPathEntity = parsedExpands.get([BASE_PATH, ...currentPath].join("."))?.entity', failure)) throw new Error(failure);
+  const nativeSelection = `if (${selection.expression.getText(file)}) {\n${selection.thenStatement.statements.slice(1).map(statement => statement.getText(file)).join("\n")}\n}`;
+  const expected = 'import { isString } from "@medusajs/utils/common/is-string"\n'
+    + `export function mergeFieldAlias(${merge.parameters.map(parameter => parameter.getText(file)).join(", ")}) ${merge.body.getText(file)}\n`
+    + `export function selectFieldAlias(value, currentPathEntity, currentPath) { let alias = value; ${nativeSelection}\nreturn alias; }`;
+  if (nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(aliasOwner, failure)) throw new Error(failure);
 }
 
 /** Preserve the complete native Type update root and its projected upsert

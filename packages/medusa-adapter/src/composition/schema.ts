@@ -17,6 +17,9 @@ import { compileProductLinksDefinition } from "../links/product-definition";
 import { compileShippingProfileDefinition, compileShippingProfileDeletionDefinition, compileServiceZoneCreationDefinition } from "../modules/fulfillment/shipping-profile-schema";
 import { compileSalesChannelLocationLinkDefinition } from "../links/sales-channel-location-schema";
 import { compileLocationFulfillmentSetLinkDefinition } from "../links/location-fulfillment-set-schema";
+import { compileLocationFulfillmentProviderLinkDefinition } from "../links/location-fulfillment-provider-schema";
+import { compileShippingOptionPriceSetLinkDefinition } from "../links/shipping-option-price-set-schema";
+import { compileRegionDefinition } from "../modules/region/schema";
 import type {
   ApplicationAnalysisAuthority,
   ApplicationAnalysisRepository,
@@ -32,7 +35,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
-const MedusaModule = Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "store", "productSalesChannelLink", "shippingProfile", "shippingProfileDeletion", "serviceZoneCreation", "productShippingProfileLink", "inventory", "stockLocation", "variantLinks", "salesChannelLocationLink", "locationFulfillmentSetLink"]);
+const MedusaModule = Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "store", "productSalesChannelLink", "shippingProfile", "shippingProfileDeletion", "serviceZoneCreation", "productShippingProfileLink", "inventory", "stockLocation", "variantLinks", "salesChannelLocationLink", "locationFulfillmentSetLink", "locationFulfillmentProviderLink", "shippingOptionPriceSetLink", "region"]);
 const decodeModules = Schema.decodeUnknownResult(Schema.Array(MedusaModule));
 const Request = Schema.Struct({
   applicationCandidateId: Schema.NonEmptyString,
@@ -85,6 +88,12 @@ export function makeSchemaComposer(configuration: {
       return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
     }
     if (modules.includes("locationFulfillmentSetLink") && (!modules.includes("stockLocation") || !modules.includes("serviceZoneCreation"))) {
+      return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
+    }
+    if (modules.includes("locationFulfillmentProviderLink") && (!modules.includes("stockLocation") || !modules.includes("serviceZoneCreation"))) {
+      return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
+    }
+    if (modules.includes("shippingOptionPriceSetLink") && (!modules.includes("pricing") || !modules.includes("serviceZoneCreation"))) {
       return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
     }
     if (modules.includes("variantLinks") && (!modules.includes("product") || !modules.includes("pricing") || !modules.includes("inventory") || modules.includes("variantPricingLink"))) {
@@ -207,6 +216,9 @@ export function makeSchemaComposer(configuration: {
       ["variantLinks", "medusa.variantLinks", compileVariantLinksDefinition],
       ["salesChannelLocationLink", "medusa.link.salesChannelLocation", compileSalesChannelLocationLinkDefinition],
       ["locationFulfillmentSetLink", "medusa.link.locationFulfillmentSet", compileLocationFulfillmentSetLinkDefinition],
+      ["locationFulfillmentProviderLink", "medusa.link.locationFulfillmentProvider", compileLocationFulfillmentProviderLinkDefinition],
+      ["shippingOptionPriceSetLink", "medusa.link.shippingOptionPriceSet", compileShippingOptionPriceSetLinkDefinition],
+      ["region", "medusa.region", compileRegionDefinition],
     ] as const) {
       if (!modules.includes(selected)) continue;
       const definition = yield* compile();

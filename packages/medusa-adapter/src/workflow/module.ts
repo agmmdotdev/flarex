@@ -9,6 +9,7 @@ import { defineAtomicCommerceParticipant } from "@flarex/persistence-postgres/in
 import { captureCommerceInput } from "../value/input";
 import { commerceDecoder } from "../value/decoder";
 import { captureWorkflowArray, captureWorkflowRecord, isWorkflowResourceName } from "./configuration";
+import { captureWorkflowInput } from "./value";
 
 declare const methodType: unique symbol;
 export interface WorkflowMethod<Args extends readonly unknown[] = readonly unknown[], Output = unknown> {
@@ -40,7 +41,7 @@ export function defineWorkflowMethod<Args extends readonly unknown[], Output>(in
     // the erased method token. Native inference follows those same decoders.
     const token = Object.freeze({}) as WorkflowMethod<Args, Output>;
     methods.set(token, Object.freeze({ command: definition.command, output: definition.output, moduleEvents: Object.freeze([...moduleEvents].sort()),
-      input: (args: unknown) => captureCommerceInput(args).pipe(Result.flatMap(definition.arguments), Result.map(definition.encode), Result.flatMap(captureCommerceInput)),
+      input: (args: unknown) => captureWorkflowInput(args).pipe(Result.flatMap(definition.arguments), Result.map(definition.encode), Result.flatMap(captureCommerceInput)),
     }));
     return token;
   });
@@ -78,7 +79,7 @@ const modules = new WeakMap<object, ModuleDefinition>();
 const Table = Schema.Struct({ name: Schema.String, columns: Schema.Array(Schema.String), primaryKeys: Schema.Array(Schema.String),
   foreignKeys: Schema.Array(Schema.String), companions: Schema.Record(Schema.String, Schema.String) });
 const decodeGraphMetadata = commerceDecoder(Schema.Struct({ table: Table,
-  paths: Schema.Array(Schema.Struct({ path: Schema.String, table: Table, many: Schema.Boolean, optional: Schema.optionalKey(Schema.Boolean) })),
+  paths: Schema.Array(Schema.Struct({ path: Schema.String, table: Table, many: Schema.Boolean, optional: Schema.optionalKey(Schema.Boolean), sourceFields: Schema.optionalKey(Schema.Array(Schema.String)) })),
   orderable: Schema.Array(Schema.String), uniqueOrder: Schema.Array(Schema.String),
 }), "unsupportedProfile");
 const decodeAliases = commerceDecoder(Schema.Array(Schema.Struct({ name: Schema.String, model: Schema.String })), "unsupportedProfile");
@@ -97,7 +98,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
     const selected = yield* captureWorkflowRecord(definition.methods);
     const source = yield* captureWorkflowRecord(definition.source);
     if (typeof source.name !== "string" || typeof source.profile !== "string") return yield* Result.fail(commerceError("unsupportedProfile"));
-    if (!isWorkflowResourceName(definition.name) || ["query", "event_bus"].includes(definition.name)) return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (!isWorkflowResourceName(definition.name) || ["query", "remoteQuery", "event_bus"].includes(definition.name)) return yield* Result.fail(commerceError("unsupportedProfile"));
     for (const [name, method] of Object.entries(selected)) {
       if (!isWorkflowResourceName(name) || !methods.has(method)) return yield* Result.fail(commerceError("unsupportedProfile"));
     }
@@ -149,7 +150,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
     if (graph.aliases.length !== 0 || graph.reads.length !== 0) {
       yield* prepareLocalGraph([{ participant: defineAtomicCommerceParticipant(definition.name),
         module: { aliases: graph.aliases, reads: graph.reads } }]);
-    } else if (graph.remotePaths !== undefined && graph.remotePaths.length !== 0) {
+    } else if (graph.remotePaths !== undefined && graph.remotePaths.length !== 0 || graph.services !== undefined && graph.services.length !== 0) {
       return yield* Result.fail(commerceError("unsupportedProfile"));
     }
     const token = Object.freeze({ name: definition.name, methods: selected });
@@ -165,6 +166,7 @@ function captureGraphDefinition(input: GraphModuleDefinition) {
     // The graph owner validates columns and paths. Snapshot configuration here
     // before exposing it across host preparations, preserving command identity.
     const aliases = yield* captureCommerceInput(definition.aliases).pipe(Result.flatMap(decodeAliases));
+    const services = definition.services === undefined ? undefined : yield* captureCommerceInput(definition.services).pipe(Result.flatMap(decodeAliases));
     const reads = [];
     for (const source of yield* captureWorkflowArray(definition.reads)) {
       const read = yield* captureWorkflowRecord(source);
@@ -176,6 +178,7 @@ function captureGraphDefinition(input: GraphModuleDefinition) {
     }
     const remotePaths = definition.remotePaths === undefined ? undefined : yield* captureCommerceInput(definition.remotePaths).pipe(Result.flatMap(decodeGraphRemotePaths));
     return Object.freeze({ aliases, reads: Object.freeze(reads),
+      ...(services === undefined ? {} : { services }),
       ...(remotePaths === undefined ? {} : { remotePaths: Object.freeze(remotePaths.map(path => Object.freeze(path))) }),
     });
   });

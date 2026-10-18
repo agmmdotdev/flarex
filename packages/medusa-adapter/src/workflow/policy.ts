@@ -28,8 +28,11 @@ export const productShippingProfileResources = Object.freeze({ ...defaultCommerc
 export const shippingProfileCreationResources = Object.freeze({ ...defaultCommerceResources });
 /** One native Location–Fulfillment Set creation and its retained inverse. */
 export const locationFulfillmentSetCreationResources = Object.freeze({ ...defaultCommerceResources });
+/** Complete native Shipping Option creation and its retained callbacks. */
+export const shippingOptionCreationResources = Object.freeze({ ...defaultCommerceResources, calls: 512, eventMessages: 128, commandBytes: 2_097_152 });
 /** Complete installed Location/Link/Fulfillment deletion graph and retained inverse. */
-export const stockLocationDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 256, eventMessages: 128 });
+export const stockLocationDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 512, eventMessages: 256, commandBytes: 2_097_152 });
+export const stockLocationDeletionCommandMs = 30_000;
 /** Native Rule batch and retained callbacks share one scoped allowance. */
 export const shippingOptionRuleBatchResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 export const productVariantPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
@@ -62,7 +65,8 @@ export const serviceZoneDeletionResources = Object.freeze({ ...defaultCommerceRe
 export const serviceZoneUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Complete Fulfillment Set lifecycle, installed Location Link routing and genuine
  * retained inverse share their measured, scoped admission allowance. */
-export const fulfillmentSetDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 512, eventMessages: 256 });
+export const fulfillmentSetDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 512, eventMessages: 256, commandBytes: 2_097_152 });
+export const fulfillmentSetDeletionCommandMs = 30_000;
 /** One parent launch graph owns Pricing, Link, Product Tag and pending graph reads. */
 export const productLaunchResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
 /** The finite launch workflow shares one bounded logical lifetime across both native children. */

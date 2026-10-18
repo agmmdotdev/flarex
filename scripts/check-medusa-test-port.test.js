@@ -1,6 +1,7 @@
 // @ts-check
 import { describe, expect, it } from "vitest";
-import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyCsvNormalizerTests } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyCsvNormalizerTests,
+  verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
 import { readFileSync } from "node:fs";
 
 const source = `import { runner } from "./runner";
@@ -8,6 +9,73 @@ describe("suite", () => {
   beforeEach(async () => { await runner.create({ title: "fixture" }); });
   it("case", async () => { const rows = await runner.list(); expect(rows[0].id).toEqual("id"); });
 });`;
+
+describe("native pure Query helper extraction proofs", () => {
+  it("authenticates the whole native scalar-filter function and refuses changed runtime behavior", () => {
+    const native = readFileSync(new URL("../third_party/medusa/upstream/packages/database/drizzle/src/repository.ts", import.meta.url), "utf8");
+    const target = readFileSync(new URL("../packages/medusa-drizzle/src/filter-value.ts", import.meta.url), "utf8");
+    expect(() => verifyNativeFilterValue(native, target)).not.toThrow();
+    const mutations = [
+      target.replace('return ""', 'return null'),
+      target.replace('field.endsWith("_date")', 'field.endsWith("_time")'),
+      target.replace('return new Date(value)', 'return value'),
+      target.replace('value === undefined', 'value == undefined'),
+      target.replace('export function', 'function'),
+      target + '\nglobalThis.changedNativeQuery = true;',
+      'import "changed-native-filter";\n' + target,
+      target + '\nexport function coerceFilterValue() { return ""; }',
+    ];
+    for (const mutated of mutations) {
+      expect(mutated).not.toBe(target);
+      expect(() => verifyNativeFilterValue(native, mutated)).toThrow("Changed native scalar filter-value extraction");
+    }
+    expect(() => verifyNativeFilterValue(native + '\nfunction coerceFilterValue() {}', target)).toThrow();
+  });
+
+  it("authenticates native alias merge, singleton selection and entity-specific failure order", () => {
+    const native = readFileSync(new URL("../third_party/medusa/upstream/packages/core/orchestration/src/joiner/remote-joiner.ts", import.meta.url), "utf8");
+    const target = readFileSync(new URL("../packages/medusa-orchestration/src/joiner-field-alias.ts", import.meta.url), "utf8");
+    expect(() => verifyNativeJoinerFieldAlias(native, target)).not.toThrow();
+    const mutations = [
+      target.replace('a.entity == currentPathEntity', 'a.entity === currentPathEntity'),
+      target.replace('f.entity === extend.entity', 'f.entity !== extend.entity'),
+      target.replace('alias = alias.find', 'alias = alias.filter'),
+      target.replace('let alias: JoinerFieldAlias | JoinerFieldAlias[] | undefined = value',
+        'let alias: JoinerFieldAlias | JoinerFieldAlias[] | undefined = Array.isArray(value) ? value : [value]'),
+      target.replace('return alias', 'return value'),
+      target.replace('Cannot resolve alias path', 'Cannot resolve different path'),
+      target.replace('common/is-string', 'common/is-object'),
+      target.replace('isString }', 'isString as nativeIsString }'),
+      target + '\nglobalThis.changedNativeAlias = true;',
+    ];
+    for (const mutated of mutations) {
+      expect(mutated).not.toBe(target);
+      expect(() => verifyNativeJoinerFieldAlias(native, mutated)).toThrow("Changed native Joiner field-alias extraction");
+    }
+    // Change the selected block itself: earlier native methods also contain path lookups.
+    const selectedBlock = native.replace('const currentPathEntity = parsedExpands.get(', 'const wrongPathEntity = parsedExpands.get(');
+    expect(selectedBlock).not.toBe(native);
+    expect(() => verifyNativeJoinerFieldAlias(selectedBlock, target)).toThrow();
+  });
+
+  it("authenticates the complete native null-to-one body after descriptor type erasure", () => {
+    const native = readFileSync(new URL("../third_party/medusa/upstream/packages/database/drizzle/src/medusa.ts", import.meta.url), "utf8");
+    const target = readFileSync(new URL("../packages/medusa-drizzle/src/relation-query.ts", import.meta.url), "utf8");
+    expect(() => verifyNativeNullToOneInitialization(native, target)).not.toThrow();
+    const mutations = [
+      target.replace('row[foreignKey] === null', 'row[foreignKey] == null'),
+      target.replace('descriptor.ownerForeignKeys.every(', 'descriptor.ownerForeignKeys.some('),
+      target.replace('!descriptor.relationship.nullable', 'descriptor.relationship.nullable'),
+      target.replace('row[relationName] = null', 'row[relationName] = undefined'),
+      target.replace('descriptor.relationship.type !== "hasOneWithFK"', 'descriptor.relationship.type !== "hasOne"'),
+      target + '\nexport function fillNullToOneRelations() {}',
+    ];
+    for (const mutated of mutations) {
+      expect(mutated).not.toBe(target);
+      expect(() => verifyNativeNullToOneInitialization(native, mutated)).toThrow("Changed native nullable to-one initialization extraction");
+    }
+  });
+});
 
 describe("maintained Medusa test ports", () => {
   it("preserves the complete native CSV suite, snapshots and exact fixtures", () => {
@@ -77,7 +145,7 @@ describe("maintained Medusa test ports", () => {
     const selected = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/service.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const repository = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/repository.ts", import.meta.url), "utf8");
     expect(() => verifyPricingWorkflowSelection(original, selected, repository)).not.toThrow();
-    const methods = 'methods: { ...(preferences ? { listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),\n        ...(!preferences ? { createPriceSets, createPriceLists, createPricePreferences, ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle ? { softDeletePriceSets } : {}) } : {}) }';
+    const methods = 'methods: { ...(preferences ? { listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),\n        ...(!preferences ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}), ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {}) }';
     expect(selected).toContain(methods);
     expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: {}'), repository)).toThrow();
     expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceSets, createPriceLists, createPricePreferences, calculatePrices }'), repository)).toThrow();
@@ -92,15 +160,28 @@ describe("maintained Medusa test ports", () => {
     for (const changed of [
       selected.replace('const mutable = admission === "variant-updates" || admission === "product-updates"', 'const mutable = true'),
       selected.replace('lifecycle = admission === "product-updates"', 'lifecycle = true'),
-      selected.replace('...(lifecycle ? { softDeletePriceSets } : {})', '...(mutable ? { softDeletePriceSets } : {})'),
-      selected.replace('...(lifecycle ? { softDeletePriceSets } : {})', '...(lifecycle ? { softDeletePriceSets, calculatePrices } : {})'),
-      selected.replace('...(lifecycle ? { softDeletePriceSets } : {})', '...(lifecycle ? { softDeletePriceSets } : { softDeletePriceSets })'),
+      selected.replace('...(lifecycle || shipping ? { softDeletePriceSets } : {})', '...(mutable ? { softDeletePriceSets } : {})'),
+      selected.replace('...(lifecycle || shipping ? { softDeletePriceSets } : {})', '...(lifecycle || shipping ? { softDeletePriceSets, calculatePrices } : {})'),
+      selected.replace('...(lifecycle || shipping ? { softDeletePriceSets } : {})', '...(lifecycle || shipping ? { softDeletePriceSets } : { softDeletePriceSets })'),
       selected.replace('= "create")', '= "variant-updates")'),
       selected.replace('...(mutable ? { upsertPriceSets', '...(true ? { upsertPriceSets'),
       selected.replace('upsertPriceSets, updatePriceSets, listPriceSets } : {}', 'upsertPriceSets, updatePriceSets, listPriceSets, calculatePrices } : {}'),
       selected.replace('upsertPriceSets, updatePriceSets, listPriceSets } : {}', 'get upsertPriceSets() { return calculatePrices; }, updatePriceSets, listPriceSets } : {}'),
       selected.replace('upsertPriceSets, updatePriceSets, listPriceSets } : {}', 'upsertPriceSets, updatePriceSets, ["listPriceSets"]: listPriceSets } : {}'),
       selected.replace('upsertPriceSets, updatePriceSets, listPriceSets } : {}', 'upsertPriceSets, updatePriceSets, listPriceSets } : { calculatePrices }'),
+      selected.replace('const shipping = admission === "shipping-options"', 'const shipping = admission !== "store-preferences"'),
+      selected.replace('...(shipping ? { restorePriceSets, deletePriceSets } : {})', '...(lifecycle || shipping ? { restorePriceSets, deletePriceSets } : {})'),
+      selected.replace('...(shipping ? { restorePriceSets, deletePriceSets } : {})', '...(shipping ? { restorePriceSets, deletePriceSets, calculatePrices } : {})'),
+      selected.replace('...(!shipping ? { createPriceLists, createPricePreferences } : {})', '...{ createPriceLists, createPricePreferences }'),
+      selected.replace('shipping ? [create, list, count, retrieve, softDeletePriceSetsCommand, restorePriceSetsCommand, deletePriceSetsCommand]',
+        'shipping ? [create, list, count, retrieve, calculate, softDeletePriceSetsCommand, restorePriceSetsCommand, deletePriceSetsCommand]'),
+      selected.replace('...(lifecycle ? [softDeletePriceSetsCommand] : [])', '...(lifecycle ? [softDeletePriceSetsCommand, restorePriceSetsCommand] : [])'),
+      selected.replace('restorePriceSets: shipping ? native.restorePriceSets.bind(native) : binding.refuse',
+        'restorePriceSets: lifecycle || shipping ? native.restorePriceSets.bind(native) : binding.refuse'),
+      selected.replace('deletePriceSets: shipping ? native.deletePriceSets.bind(native) : binding.refuse',
+        'deletePriceSets: mutable || shipping ? native.deletePriceSets.bind(native) : binding.refuse'),
+      selected.replace('if (shipping) shippingLifecycleServices.set', 'if (lifecycle || shipping) shippingLifecycleServices.set'),
+      selected.replace('shipping ? pricingShippingOptionPolicy(shippingOutput)', 'shipping ? pricingLogicalProductUpdateEventPolicy()'),
     ]) {
       expect(changed).not.toBe(selected);
       expect(() => verifyPricingWorkflowSelection(original, changed, repository)).toThrow();
