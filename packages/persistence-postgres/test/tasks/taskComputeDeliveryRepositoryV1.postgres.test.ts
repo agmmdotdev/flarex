@@ -57,9 +57,10 @@ import type {
   RunLocatedReadCommittedTransactionV1,
 } from "../../src/database/locatedTransactionIdentity";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
+import { useFileScopedPersistence } from "../support/fileScopedPersistenceFixture";
 import {
+  createFileScopedPostgresFixture,
   postgresUrl,
-  withTemporaryPostgresSchema,
 } from "../support/postgresHelpers";
 import {
   ACCEPTED_ATTEMPT_UUID,
@@ -119,7 +120,71 @@ describe("DTE06-C2 PostgreSQL acceptance environment", () => {
   });
 });
 
-describePostgres("real PostgreSQL DTE06-C2 compute delivery repository", () => {
+describePostgres("real PostgreSQL DTE06-C2 compute delivery repository", { concurrent: false }, () => {
+  const withDeliveryDatabase = useFileScopedPersistence(async () => {
+    const owner = await createFileScopedPostgresFixture();
+    return {
+      persistence: owner,
+      async reset(): Promise<void> {
+        await owner.persistence.query(`
+          drop trigger if exists fx_test_dte06_c2_lifecycle_barrier
+            on fx_system_durable_task_run_v1;
+          drop function if exists fx_test_dte06_c2_lifecycle_barrier();
+          drop trigger if exists fx_test_dte06_c2_acceptance_barrier
+            on fx_system_durable_task_compute_dispatch_v1;
+          drop function if exists fx_test_dte06_c2_acceptance_barrier();
+          drop trigger if exists fx_test_dte06_c2_long_dispatch_statement
+            on fx_system_durable_task_compute_dispatch_v1;
+          drop function if exists fx_test_dte06_c2_long_dispatch_statement();
+        `);
+        await owner.reset();
+      },
+      dispose: () => owner.dispose(),
+    };
+  }, postgresUrl !== null);
+
+  async function withDeliveryFixture(
+    policy: TaskRepairPostgresDeadlinePolicyV1,
+    maximumPoolSize: number,
+    operation: (
+      fixture: DeliveryFixture,
+      connectionOptions: ConnectionOptions,
+    ) => Promise<void>,
+  ): Promise<void> {
+    await withDeliveryDatabase(async (owner) => {
+      const connectionString = owner.persistence.pool.options.connectionString;
+      if (typeof connectionString !== "string") {
+        throw new Error("Delivery fixture PostgreSQL connection string is missing");
+      }
+      const poolConfig = success(applyTaskRepairPostgresDeadlinePolicyV1({
+        ...owner.persistence.pool.options,
+        max: maximumPoolSize,
+      }, policy));
+      const persistence = await createPostgresPersistence({
+        migrationsSchema: owner.migrationsSchema,
+        migrationsTable: owner.migrationsTable,
+        poolConfig,
+      });
+      const failures: unknown[] = [];
+      try {
+        const fixture = await makeFixture(persistence);
+        await operation(fixture, Object.freeze({
+          connectionString,
+          options: owner.persistence.pool.options.options,
+        }));
+      } catch (cause: unknown) {
+        failures.push(cause);
+      } finally {
+        try { await persistence.close(); }
+        catch (cause: unknown) { failures.push(cause); }
+      }
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) {
+        throw new AggregateError(failures, "Delivery fixture and pool cleanup failed");
+      }
+    });
+  }
+
   it("uses an ordinary role and admits one concurrent claimant and one expired takeover", async () => {
     await withDeliveryFixture(concurrencyPolicy, 4, async (fixture) => {
       const role = await fixture.persistence.query<{
@@ -193,8 +258,9 @@ describePostgres("real PostgreSQL DTE06-C2 compute delivery repository", () => {
           fixture.persistence,
           connectionOptions,
           LIFECYCLE_BARRIER_LOCK,
-          async (blockerPid, release) => {
+          async (blockerPid, release, pending) => {
             const completion = settle(completeFixtureAttempt(fixture));
+            pending.push(completion);
             await waitForBlockedTransactions(
               fixture.persistence,
               blockerPid,
@@ -204,6 +270,7 @@ describePostgres("real PostgreSQL DTE06-C2 compute delivery repository", () => {
               fixture.deliveryLocated,
               CLAIM_OWNER_A,
             ).acquireDispatch(dispatchRequest(fixture))));
+            pending.push(acquisition);
             await waitForBlockedTransactions(
               fixture.persistence,
               blockerPid,
@@ -251,13 +318,14 @@ describePostgres("real PostgreSQL DTE06-C2 compute delivery repository", () => {
           fixture.persistence,
           connectionOptions,
           ACCEPTANCE_BARRIER_LOCK,
-          async (blockerPid, release) => {
+          async (blockerPid, release, pending) => {
             const acceptance = settle(runEffect(
               dispatchRepository.recordDispatchAcceptance(
                 acquired.handle,
                 dispatchAcceptance(acquired.prepared.dispatchRequest.identity),
               ),
             ));
+            pending.push(acceptance);
             await waitForBlockedTransactions(
               fixture.persistence,
               blockerPid,
@@ -270,6 +338,7 @@ describePostgres("real PostgreSQL DTE06-C2 compute delivery repository", () => {
               runId: fixture.runId,
               requestedEffectSequence: cancellationSequence,
             })));
+            pending.push(cancellation);
             await waitForBlockedTransactions(
               fixture.persistence,
               blockerPid,
@@ -586,49 +655,6 @@ interface ConnectionOptions {
   readonly options: string | undefined;
 }
 
-async function withDeliveryFixture(
-  policy: TaskRepairPostgresDeadlinePolicyV1,
-  maximumPoolSize: number,
-  operation: (
-    fixture: DeliveryFixture,
-    connectionOptions: ConnectionOptions,
-  ) => Promise<void>,
-): Promise<void> {
-  await withTemporaryPostgresSchema(async (databaseOptions) => {
-    const migrationPersistence = await createPostgresPersistence({
-      migrationsSchema: databaseOptions.migrationsSchema,
-      poolConfig: {
-        ...databaseOptions.poolConfig,
-        connectionString: databaseOptions.connectionString,
-        max: 1,
-      },
-    });
-    try {
-      await migrationPersistence.migrate();
-    } finally {
-      await migrationPersistence.close();
-    }
-    const poolConfig = success(applyTaskRepairPostgresDeadlinePolicyV1({
-      ...databaseOptions.poolConfig,
-      connectionString: databaseOptions.connectionString,
-      max: maximumPoolSize,
-    }, policy));
-    const persistence = await createPostgresPersistence({
-      migrationsSchema: databaseOptions.migrationsSchema,
-      poolConfig,
-    });
-    try {
-      const fixture = await makeFixture(persistence);
-      await operation(fixture, Object.freeze({
-        connectionString: databaseOptions.connectionString,
-        options: databaseOptions.poolConfig.options,
-      }));
-    } finally {
-      await persistence.close();
-    }
-  });
-}
-
 async function makeFixture(persistence: PostgresFlarexPersistence) {
   const parent = await seedTaskSystemParentV1(persistence);
   const seeded = await seedTaskSystemRunAttemptStoreV1(persistence, { parent });
@@ -923,14 +949,15 @@ async function withAdvisoryBlocker(
   operation: (
     blockerPid: number,
     release: () => Promise<void>,
+    pending: Promise<Result.Result<unknown, unknown>>[],
   ) => Promise<void>,
 ): Promise<void> {
   const blocker = new Client(connectionOptions);
-  await blocker.connect();
-  let primaryFailure: unknown;
-  let released = false;
+  const pending: Promise<Result.Result<unknown, unknown>>[] = [];
+  const failures: unknown[] = [];
+  let lockHeld = false;
   const release = async () => {
-    if (released) return;
+    if (!lockHeld) return;
     const result = await blocker.query<{ unlocked: boolean }>(
       "select pg_advisory_unlock($1::bigint) as unlocked",
       [lock],
@@ -938,23 +965,32 @@ async function withAdvisoryBlocker(
     if (result.rows[0]?.unlocked !== true) {
       throw new Error(`PostgreSQL advisory lock ${lock} was not held`);
     }
-    released = true;
+    lockHeld = false;
   };
   try {
+    await blocker.connect();
     await blocker.query("select pg_advisory_lock($1::bigint)", [lock]);
+    lockHeld = true;
     const blockerPid = await clientBackendPid(blocker);
-    await operation(blockerPid, release);
-  } catch (cause) {
-    primaryFailure = cause;
-    throw cause;
+    await operation(blockerPid, release, pending);
+  } catch (cause: unknown) {
+    failures.push(cause);
   } finally {
-    const unlockFailure = released
-      ? undefined
-      : await release().then(() => undefined, (cause: unknown) => cause);
-    await blocker.end();
-    if (primaryFailure === undefined && unlockFailure !== undefined) {
-      throw unlockFailure;
+    try { await release(); }
+    catch (cause: unknown) { failures.push(cause); }
+    try { await blocker.end(); }
+    catch (cause: unknown) { failures.push(cause); }
+    // The blocker must release even when a barrier wait fails. Drain every
+    // launched transaction before its runtime pool and borrowed schema end.
+    for (const result of await Promise.all(pending)) {
+      if (Result.isFailure(result) && !failures.includes(result.failure)) {
+        failures.push(result.failure);
+      }
     }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, "Delivery barrier and cleanup failed");
   }
 }
 

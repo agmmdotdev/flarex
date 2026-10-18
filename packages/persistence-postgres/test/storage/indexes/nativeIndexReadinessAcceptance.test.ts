@@ -10,17 +10,17 @@ import { AppIndexPhysicalSpecSha256HexV1Schema } from "flarex-protocol/index-def
 import { describe, expect, it } from "vitest";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
 import { fxSystemApplicationActiveHeads } from "../../../src/application/applicationActivationSchema";
-import { createPGlitePersistence } from "../../../src/database/pglite";
+import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
 import { fxSystemIndexBuildStates, fxSystemScopeClocks } from "../../../src/database/schema";
 import { lockScopeClockForUpdateInTransactionEffect, lockScopeClockForSnapshotReadInTransactionEffect, lockScopeClockForOrdinaryWriteInTransactionEffect } from "../../../src/scope/scopeClock";
 import { captureRequiredIndexReadinessInTransactionEffect, readRequiredIndexBuildProgressInTransactionEffect,
   readIndexCoverageContextInTransactionEffect } from "../../../src/storage/indexes/indexBuildStates";
 import { prepareRequiredIndexBuildReadinessAcceptance, prepareRequiredIndexBuildProgressCapture } from "../../../src/storage/indexes/nativeIndexBuildAcceptance";
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
-import { postgresUrl, withTemporaryPostgresPersistence } from "../../support/postgresHelpers";
+import { postgresUrl, useFileScopedPostgresPersistence } from "../../support/postgresHelpers";
 import { runEffect } from "../../support/effectTestRuntime";
-import { newTestPGlite } from "../../support/pgliteSearchExtensions";
-import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
+import { createFileScopedPGliteFixture } from "../../support/pgliteTestFixture";
+import { useFileScopedPersistence, type WithFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
 
 const drivers = postgresUrl === null ? ["pglite" as const] : ["pglite" as const, "postgres" as const];
 
@@ -143,17 +143,6 @@ async function inspect(database: FlarexMetadataDatabase) {
   await database.delete(fxSystemIndexBuildStates).where(where(first.indexDefinitionId));
   expect((await execute()).availability).toMatchObject({ reason: "missing", indexDefinitionId: first.indexDefinitionId });
 }
-
-describe.each(drivers)("compact native writer readiness on %s", driver => {
-  it("retains full source coverage, phase ordering, exact refusal and writer lifetime", async () => {
-    if (driver === "postgres") return withTemporaryPostgresPersistence(persistence => inspect(persistence.drizzle));
-    const client = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
-    try {
-      const persistence = await createPGlitePersistence({ db: client });
-      await inspect(persistence.drizzle);
-    } finally { await client.close(); }
-  }, 180_000);
-});
 
 async function inspectProgress(database: FlarexMetadataDatabase, driver: "pglite" | "postgres", pool?: PostgresFlarexPersistence["pool"]) {
   const scopeId = ScopeIdSchema.make("scope_33000000-0000-0000-0000-000000000001");
@@ -402,13 +391,27 @@ async function inspectProgress(database: FlarexMetadataDatabase, driver: "pglite
   })));
 }
 
-describe.each(drivers)("compact native full-progress readiness on %s", driver => {
-  it("preserves separate clock cuts, complete availability and eager defect versus ordered typed refusal", async () => {
-    if (driver === "postgres") return withTemporaryPostgresPersistence(persistence => inspectProgress(persistence.drizzle, driver, persistence.pool));
-    const client = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
-    try {
-      const persistence = await createPGlitePersistence({ db: client });
-      await inspectProgress(persistence.drizzle, driver);
-    } finally { await client.close(); }
-  }, 180_000);
+describe.each(drivers)("compact native index readiness on %s", { concurrent: false }, driver => {
+  const withPersistence: WithFileScopedPersistence<PGliteFlarexPersistence | PostgresFlarexPersistence> = driver === "postgres"
+    ? useFileScopedPostgresPersistence()
+    : useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () =>
+      db.transaction(async transaction => {
+        await transaction.exec(`
+          delete from fx_system_index_build_state;
+          delete from fx_system_scope_execution_authority;
+          delete from fx_system_scope_clock;
+        `);
+      })));
+
+  it("retains full source coverage, phase ordering, exact refusal and writer lifetime", () => withPersistence(async persistence => {
+    expect(await persistence.drizzle.select({ id: fxSystemIndexBuildStates.indexDefinitionId })
+      .from(fxSystemIndexBuildStates).limit(1)).toEqual([]);
+    await inspect(persistence.drizzle);
+  }), 180_000);
+
+  it("preserves separate clock cuts, complete availability and eager defect versus ordered typed refusal", () => withPersistence(async persistence => {
+    expect(await persistence.drizzle.select({ id: fxSystemIndexBuildStates.indexDefinitionId })
+      .from(fxSystemIndexBuildStates).limit(1)).toEqual([]);
+    await inspectProgress(persistence.drizzle, driver, "pool" in persistence ? persistence.pool : undefined);
+  }), 180_000);
 });
