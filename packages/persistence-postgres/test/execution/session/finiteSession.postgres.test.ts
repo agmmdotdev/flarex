@@ -243,6 +243,64 @@ function registerFiniteKernelScenarios(profile: "direct" | "installed",
     }, 120_000);
 }
 
+async function createInstalledFiniteMigrationOwners() {
+  const targetOwner = await createFileScopedPostgresFixture();
+  let controlOwner: Awaited<ReturnType<typeof createFileScopedPostgresFixture>>;
+  try {
+    controlOwner = await createFileScopedPostgresFixture();
+  } catch (cause) {
+    try { await targetOwner.dispose(); }
+    catch (cleanupCause) {
+      throw new AggregateError([cause, cleanupCause], "Installed finite owner creation and cleanup failed");
+    }
+    throw cause;
+  }
+  return {
+    persistence: { targetOwner, controlOwner },
+    async reset() {
+      await targetOwner.reset();
+      await controlOwner.reset();
+    },
+    async dispose() {
+      const failures: unknown[] = [];
+      for (const owner of [controlOwner, targetOwner]) {
+        try { await owner.dispose(); }
+        catch (cause) { failures.push(cause); }
+      }
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) throw new AggregateError(failures, "Installed finite owner cleanup failed");
+    },
+  };
+}
+
+function registerInstalledCorruptionScenario(fault: "clockTimestamp" | "metadataSequence",
+  withFiniteKernelFixture: typeof withInstalledFiniteKernelFixture) {
+  it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
+    `preserves installed ${fault} corruption before claim waits and stale generation refusal`, async () => {
+    await withFiniteKernelFixture(`corrupt_${fault}`, false, async (persistence, fixture, owner) => {
+      if (fault === "clockTimestamp") {
+        await owner.persistence.query(`update fx_system_scope_clock set updated_at = 'infinity' where scope_id = $1`, [fixture.context.scopeId]);
+      } else {
+        // Privileged stored-corruption fault: retain the exact decoder proof
+        // even when a constraint has been deliberately removed after startup.
+        await owner.persistence.query(`alter table fx_system_scope_clock
+            drop constraint fx_system_scope_clock_last_metadata_sequence_non_negative_check`);
+        await owner.persistence.query(`update fx_system_scope_clock set last_metadata_sequence = -1 where scope_id = $1`, [fixture.context.scopeId]);
+      }
+      await expectInstalledRefusalBeforeClaimRelease(fixture, owner.persistence, {
+        _tag: "FiniteStorageCaptureError", reason: "storedCorruption",
+      });
+      let callbacks = 0;
+      const failure = await runFailure(captureFiniteStorageEffect(fixture.target, { ...fixture.input,
+        preliminaryAuthority: { ...fixture.input.preliminaryAuthority, storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1") } }, { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { callbacks++; }))));
+      expect(failure).toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "storedCorruption" });
+      expect(callbacks).toBe(0);
+      expect((await persistence.query(`select count(*)::int as leases from fx_system_snapshot_lease
+          where session_id = $1`, [fixture.activated.anchor.sessionId])).rows).toEqual([{ leases: 0 }]);
+    });
+  }, 180_000);
+}
+
 describePostgres("finite running authority barrier", { concurrent: false }, () => {
 
   describe("direct", { concurrent: false }, () => {
@@ -298,11 +356,6 @@ describePostgres("finite running authority barrier", { concurrent: false }, () =
       withFinitePersistence(async persistence =>
         work(persistence, await finiteBarrierFixture(persistence, label, expireSoon))));
   });
-
-  describe("installed", { concurrent: false }, () => {
-    registerFiniteKernelScenarios("installed", withInstalledFiniteKernelFixture);
-  });
-
 
   it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
     "validates qualified finite admission before compact locks and preserves isolation, Cause and maintenance drain", async () => {
@@ -397,184 +450,166 @@ describePostgres("finite running authority barrier", { concurrent: false }, () =
     });
   }, 180_000);
 
+  describe("installed", { concurrent: false }, () => {
+    const withOwners = useFileScopedPersistence(createInstalledFiniteMigrationOwners,
+      postgresUrl !== null && Boolean(process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL));
+    const withReusableInstalledFiniteKernelFixture: typeof withInstalledFiniteKernelFixture = (label, expireSoon, work) =>
+      withOwners(owners => withInstalledFiniteKernelFixture(label, expireSoon, work, owners));
 
+    registerFiniteKernelScenarios("installed", withReusableInstalledFiniteKernelFixture);
+    registerInstalledCorruptionScenario("clockTimestamp", withReusableInstalledFiniteKernelFixture);
 
-  it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
-    "requires the original installed acceptance issuer, selection and protection before COMMIT", async () => {
-    await withInstalledFiniteKernelFixture("accepting_issuer", false, async (persistence, fixture, owner, _controlOwner, installation) => {
-      const original = Result.getOrThrow(prepareInstalledAttemptScopeAuthority(installation,
-        persistence.drizzle, fixture.context.physicalLocator));
-      const foreign = Result.getOrThrow(prepareInstalledAttemptScopeAuthority(installation,
-        persistence.drizzle, fixture.context.physicalLocator));
-      const selection = { deploymentId: fixture.context.deploymentId, scopeId: fixture.context.scopeId };
-      const runner = createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle, { kind: "coLocated", installation },
-        { owner: original, selection, protection: "attempt" });
-      const before = await persistence.drizzle.select().from(fxSystemTransactionSessions)
-        .where(eq(fxSystemTransactionSessions.sessionId, fixture.activated.anchor.sessionId));
-      for (const accept of [undefined, foreign, original]) {
-        await expect(runner(async tx => {
-          if (accept !== undefined) await runEffect(accept.lock(tx, selection, accept === original ? "share" : "attempt"));
-          await tx.update(fxSystemTransactionSessions).set({ updatedAt: sql`clock_timestamp()` })
-            .where(eq(fxSystemTransactionSessions.sessionId, fixture.activated.anchor.sessionId));
-        })).rejects.toMatchObject({ name: "LocatedReadCommittedTransactionFailureV1", issue: { kind: "callbackRolledBack" } });
-        expect(await persistence.drizzle.select().from(fxSystemTransactionSessions)
-          .where(eq(fxSystemTransactionSessions.sessionId, fixture.activated.anchor.sessionId))).toEqual(before);
-      }
-      const wrongSelection = createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle, { kind: "coLocated", installation },
-        { owner: original, selection: { ...selection, deploymentId: `${selection.deploymentId}_wrong` }, protection: "attempt" });
-      await expect(wrongSelection(async tx => {
-        await runEffect(original.lock(tx, selection, "attempt"));
-      })).rejects.toMatchObject({ name: "LocatedReadCommittedTransactionFailureV1", issue: { kind: "callbackRolledBack" } });
-      let wrongDatabaseCallbacks = 0;
-      const wrongDatabase = createDefaultLocatedReadCommittedTransactionRunnerV1(owner.persistence.drizzle, { kind: "coLocated", installation },
-        { owner: original, selection, protection: "attempt" });
-      await expect(wrongDatabase(async () => { wrongDatabaseCallbacks++; })).rejects.toMatchObject({
-        name: "LocatedReadCommittedTransactionFailureV1", issue: { kind: "infrastructureFailure", phase: "beginOrConfigure" },
-      });
-      expect(wrongDatabaseCallbacks).toBe(0);
-      let acceptedTransaction: AppRowTransaction | undefined;
-      let businessCallbacks = 0;
-      await runner(async tx => {
-        await runEffect(original.lock(tx, selection, "attempt"));
-        Result.getOrThrowWith(original.requireAcceptedTransaction(tx, selection, "attempt"), cause => cause);
-        acceptedTransaction = tx;
-        businessCallbacks++;
-      });
-      expect(businessCallbacks).toBe(1);
-      if (acceptedTransaction === undefined) throw new Error("Missing genuine accepted transaction");
-      expect(original.requireAcceptedTransaction(acceptedTransaction, selection, "attempt"))
-        .toMatchObject({ _tag: "Failure", failure: { _tag: "InstallationLifecycleError", reason: "invalidCapability" } });
-    });
-  }, 180_000);
-
-
-  it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
-    "takes liveness time after waiting for the compact anchor", async () => {
-    await withInstalledFiniteKernelFixture("anchor_projection_wait", true, async (persistence, fixture, owner) => {
-      const holder = await owner.persistence.pool.connect();
-      let reading: Promise<unknown> | undefined;
-      let callbacks = 0;
-      try {
-        await holder.query("begin");
-        const pid = (await holder.query<{ pid: number }>("select pg_backend_pid() as pid")).rows[0]?.pid;
-        if (pid === undefined) throw new Error("Missing compact anchor holder PID");
-        await holder.query("select session_id from fx_system_tx_session where session_id=$1 for update",
-          [fixture.activated.anchor.sessionId]);
-        reading = runFailure(captureFiniteStorageEffect(fixture.target, fixture.input, { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { callbacks++; }))));
-        await waitForAuthorityWaiter(persistence, pid, false);
-        await waitForFiniteLeaseExpiry(owner.persistence, fixture.activated.anchor.sessionId);
-        await holder.query("commit");
-        expect(await reading).toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "expired" });
-        expect(callbacks).toBe(0);
-      } finally { await rollbackAndReleasePostgresClient(holder); await reading?.catch(() => undefined); }
-    });
-  }, 180_000);
-
-
-  it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
-    "rejects changed control placement in the installed finite initial renewal transaction", async () => {
-    await withInstalledFiniteKernelFixture("renew_placement", false, async (persistence, fixture, _owner, controlOwner) => {
-      if (!isLocatedLivenessTarget(fixture.target)) throw new Error("Missing genuine renewal target");
-      const before = (await persistence.drizzle.select({ lease: fxSystemTransactionSessions.finiteLeaseExpiresAt,
-        claim: fxSystemTransactionSessions.finiteClaimExpiresAt }).from(fxSystemTransactionSessions)
-        .where(eq(fxSystemTransactionSessions.sessionId, fixture.activated.anchor.sessionId)))[0];
-      if (before === undefined) throw new Error("Missing original live attempt");
-      // A genuine control writer changes the placement after retained routing
-      // capture. Target acceptance must refuse before changing either deadline.
-      await controlOwner.persistence.drizzle.update(fxControlScopes).set({ physicalLocator: {
-        ...fixture.context.physicalLocator, schemaName: controlOwner.schemaName,
-      } }).where(eq(fxControlScopes.scopeId, fixture.context.scopeId));
-      expect(await runFailure(fixture.target[RENEW_POINT_MUTATION_EXECUTION_CLAIM_EFFECT_V1]({
-        selector: fixture.input.selector, executionClaim: fixture.input.executionClaim,
-        preliminaryAuthority: fixture.input.preliminaryAuthority, installedFinite: true,
-        claimDurationMilliseconds: 60_000, leaseRenewalDurationMilliseconds: 120_000,
-        maximumLiveSnapshotRetentionMilliseconds: 3_600_000,
-      }))).toMatchObject({ _tag: "PointMutationExecutionClaimLivenessPersistenceV1Error", operation: "transaction" });
-      expect((await persistence.drizzle.select({ lease: fxSystemTransactionSessions.finiteLeaseExpiresAt,
-        claim: fxSystemTransactionSessions.finiteClaimExpiresAt }).from(fxSystemTransactionSessions)
-        .where(eq(fxSystemTransactionSessions.sessionId, fixture.activated.anchor.sessionId)))[0]).toEqual(before);
-    });
-  }, 120_000);
-
-
-  for (const fault of ["clockTimestamp", "metadataSequence"] as const) {
     it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
-      `preserves installed ${fault} corruption before claim waits and stale generation refusal`, async () => {
-      await withInstalledFiniteKernelFixture(`corrupt_${fault}`, false, async (persistence, fixture, owner) => {
-        if (fault === "clockTimestamp") {
-          await owner.persistence.query(`update fx_system_scope_clock set updated_at = 'infinity' where scope_id = $1`, [fixture.context.scopeId]);
-        } else {
-          // Privileged stored-corruption fault: retain the exact decoder proof
-          // even when a constraint has been deliberately removed after startup.
-          await owner.persistence.query(`alter table fx_system_scope_clock
-            drop constraint fx_system_scope_clock_last_metadata_sequence_non_negative_check`);
-          await owner.persistence.query(`update fx_system_scope_clock set last_metadata_sequence = -1 where scope_id = $1`, [fixture.context.scopeId]);
+      "requires the original installed acceptance issuer, selection and protection before COMMIT", async () => {
+      await withReusableInstalledFiniteKernelFixture("accepting_issuer", false, async (persistence, fixture, owner, _controlOwner, installation) => {
+        const original = Result.getOrThrow(prepareInstalledAttemptScopeAuthority(installation,
+          persistence.drizzle, fixture.context.physicalLocator));
+        const foreign = Result.getOrThrow(prepareInstalledAttemptScopeAuthority(installation,
+          persistence.drizzle, fixture.context.physicalLocator));
+        const selection = { deploymentId: fixture.context.deploymentId, scopeId: fixture.context.scopeId };
+        const runner = createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle, { kind: "coLocated", installation },
+          { owner: original, selection, protection: "attempt" });
+        const before = await persistence.drizzle.select().from(fxSystemTransactionSessions)
+          .where(eq(fxSystemTransactionSessions.sessionId, fixture.activated.anchor.sessionId));
+        for (const accept of [undefined, foreign, original]) {
+          await expect(runner(async tx => {
+            if (accept !== undefined) await runEffect(accept.lock(tx, selection, accept === original ? "share" : "attempt"));
+            await tx.update(fxSystemTransactionSessions).set({ updatedAt: sql`clock_timestamp()` })
+              .where(eq(fxSystemTransactionSessions.sessionId, fixture.activated.anchor.sessionId));
+          })).rejects.toMatchObject({ name: "LocatedReadCommittedTransactionFailureV1", issue: { kind: "callbackRolledBack" } });
+          expect(await persistence.drizzle.select().from(fxSystemTransactionSessions)
+            .where(eq(fxSystemTransactionSessions.sessionId, fixture.activated.anchor.sessionId))).toEqual(before);
         }
-        await expectInstalledRefusalBeforeClaimRelease(fixture, owner.persistence, {
-          _tag: "FiniteStorageCaptureError", reason: "storedCorruption",
+        const wrongSelection = createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle, { kind: "coLocated", installation },
+          { owner: original, selection: { ...selection, deploymentId: `${selection.deploymentId}_wrong` }, protection: "attempt" });
+        await expect(wrongSelection(async tx => {
+          await runEffect(original.lock(tx, selection, "attempt"));
+        })).rejects.toMatchObject({ name: "LocatedReadCommittedTransactionFailureV1", issue: { kind: "callbackRolledBack" } });
+        let wrongDatabaseCallbacks = 0;
+        const wrongDatabase = createDefaultLocatedReadCommittedTransactionRunnerV1(owner.persistence.drizzle, { kind: "coLocated", installation },
+          { owner: original, selection, protection: "attempt" });
+        await expect(wrongDatabase(async () => { wrongDatabaseCallbacks++; })).rejects.toMatchObject({
+          name: "LocatedReadCommittedTransactionFailureV1", issue: { kind: "infrastructureFailure", phase: "beginOrConfigure" },
         });
-        let callbacks = 0;
-        const failure = await runFailure(captureFiniteStorageEffect(fixture.target, { ...fixture.input,
-          preliminaryAuthority: { ...fixture.input.preliminaryAuthority, storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1") } }, { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { callbacks++; }))));
-        expect(failure).toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "storedCorruption" });
-        expect(callbacks).toBe(0);
-        expect((await persistence.query(`select count(*)::int as leases from fx_system_snapshot_lease
-          where session_id = $1`, [fixture.activated.anchor.sessionId])).rows).toEqual([{ leases: 0 }]);
+        expect(wrongDatabaseCallbacks).toBe(0);
+        let acceptedTransaction: AppRowTransaction | undefined;
+        let businessCallbacks = 0;
+        await runner(async tx => {
+          await runEffect(original.lock(tx, selection, "attempt"));
+          Result.getOrThrowWith(original.requireAcceptedTransaction(tx, selection, "attempt"), cause => cause);
+          acceptedTransaction = tx;
+          businessCallbacks++;
+        });
+        expect(businessCallbacks).toBe(1);
+        if (acceptedTransaction === undefined) throw new Error("Missing genuine accepted transaction");
+        expect(original.requireAcceptedTransaction(acceptedTransaction, selection, "attempt"))
+          .toMatchObject({ _tag: "Failure", failure: { _tag: "InstallationLifecycleError", reason: "invalidCapability" } });
       });
     }, 180_000);
-  }
 
 
-  it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
-    "refuses installed locator drift before compact execution-claim waits", async () => {
-    await withInstalledFiniteKernelFixture("locator_wait", false, async (_persistence, fixture, owner, controlOwner) => {
-      await controlOwner.persistence.drizzle.update(fxControlScopes).set({ physicalLocator: {
-        ...fixture.context.physicalLocator, databaseKey: `${fixture.context.physicalLocator.databaseKey}_drift`,
-      } }).where(eq(fxControlScopes.scopeId, fixture.context.scopeId));
-      await expectInstalledRefusalBeforeClaimRelease(fixture, owner.persistence, {
-        _tag: "FiniteStorageCaptureError", reason: "invalidAuthority",
+    it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
+      "takes liveness time after waiting for the compact anchor", async () => {
+      await withReusableInstalledFiniteKernelFixture("anchor_projection_wait", true, async (persistence, fixture, owner) => {
+        const holder = await owner.persistence.pool.connect();
+        let reading: Promise<unknown> | undefined;
+        let callbacks = 0;
+        try {
+          await holder.query("begin");
+          const pid = (await holder.query<{ pid: number }>("select pg_backend_pid() as pid")).rows[0]?.pid;
+          if (pid === undefined) throw new Error("Missing compact anchor holder PID");
+          await holder.query("select session_id from fx_system_tx_session where session_id=$1 for update",
+            [fixture.activated.anchor.sessionId]);
+          reading = runFailure(captureFiniteStorageEffect(fixture.target, fixture.input, { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { callbacks++; }))));
+          await waitForAuthorityWaiter(persistence, pid, false);
+          await waitForFiniteLeaseExpiry(owner.persistence, fixture.activated.anchor.sessionId);
+          await holder.query("commit");
+          expect(await reading).toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "expired" });
+          expect(callbacks).toBe(0);
+        } finally { await rollbackAndReleasePostgresClient(holder); await reading?.catch(() => undefined); }
       });
-    });
-  }, 180_000);
+    }, 180_000);
 
 
-  it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
-    "observes the actual sequencer after a retained-floor authority wait in installed finite admission", async () => {
-    await withInstalledFiniteKernelFixture("floor_wait", true, async (persistence, fixture, owner) => {
-      const entered = deferred<number>(), release = deferred<void>();
-      // Controlled valid transition fixture under the real UPDATE clock owner.
-      // The separate publication test exercises retention-policy calculation.
-      const writing = owner.persistence.drizzle.transaction(async tx => {
-        const clock = await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, fixture.context.scopeId));
-        expect(clock.lastCommitSeq).toBe(0n);
-        entered.resolve(await transactionBackendPid(tx));
-        await release.promise;
-        await tx.insert(fxSystemCommits).values({ scopeUuid: Result.getOrThrow(projectScopeIdUuidV1Result(fixture.context.scopeId)).scopeUuid,
-          epochUuid: Result.getOrThrow(projectScopeEpochUuidV1Result(fixture.activated.anchor.snapshotToken.epoch)).epochUuid,
-          commitSeq: CommitSeqSchema.make(1n), changeCount: 0, committedAt: sql`clock_timestamp() - interval '30 seconds'` });
-        await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
-          .where(eq(fxSystemScopeClocks.scopeId, fixture.context.scopeId));
-        await tx.update(fxSystemScopeExecutionAuthorities).set({ oldestAvailableCommitSeq: CommitSeqSchema.make(1n) })
-          .where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.context.scopeId));
+    it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
+      "rejects changed control placement in the installed finite initial renewal transaction", async () => {
+      await withReusableInstalledFiniteKernelFixture("renew_placement", false, async (persistence, fixture, _owner, controlOwner) => {
+        if (!isLocatedLivenessTarget(fixture.target)) throw new Error("Missing genuine renewal target");
+        const before = (await persistence.drizzle.select({ lease: fxSystemTransactionSessions.finiteLeaseExpiresAt,
+          claim: fxSystemTransactionSessions.finiteClaimExpiresAt }).from(fxSystemTransactionSessions)
+          .where(eq(fxSystemTransactionSessions.sessionId, fixture.activated.anchor.sessionId)))[0];
+        if (before === undefined) throw new Error("Missing original live attempt");
+        // A genuine control writer changes the placement after retained routing
+        // capture. Target acceptance must refuse before changing either deadline.
+        await controlOwner.persistence.drizzle.update(fxControlScopes).set({ physicalLocator: {
+          ...fixture.context.physicalLocator, schemaName: controlOwner.schemaName,
+        } }).where(eq(fxControlScopes.scopeId, fixture.context.scopeId));
+        expect(await runFailure(fixture.target[RENEW_POINT_MUTATION_EXECUTION_CLAIM_EFFECT_V1]({
+          selector: fixture.input.selector, executionClaim: fixture.input.executionClaim,
+          preliminaryAuthority: fixture.input.preliminaryAuthority, installedFinite: true,
+          claimDurationMilliseconds: 60_000, leaseRenewalDurationMilliseconds: 120_000,
+          maximumLiveSnapshotRetentionMilliseconds: 3_600_000,
+        }))).toMatchObject({ _tag: "PointMutationExecutionClaimLivenessPersistenceV1Error", operation: "transaction" });
+        expect((await persistence.drizzle.select({ lease: fxSystemTransactionSessions.finiteLeaseExpiresAt,
+          claim: fxSystemTransactionSessions.finiteClaimExpiresAt }).from(fxSystemTransactionSessions)
+          .where(eq(fxSystemTransactionSessions.sessionId, fixture.activated.anchor.sessionId)))[0]).toEqual(before);
       });
-      void writing.catch(() => undefined);
-      let reading: Promise<unknown> | undefined;
-      let callbacks = 0;
-      try {
-        const writerPid = await waitForTransactionEntryOrFailure(entered.promise, writing, "installed authority transition");
-        reading = runFailure(captureFiniteStorageEffect(fixture.target, fixture.input, { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { callbacks++; }))));
-        // Observe as the actual reader login: the ordinary owner cannot see
-        // another restricted role's pg_stat_activity wait-event fields.
-        await waitForAuthorityWaiter(persistence, writerPid, false);
-        await waitForFiniteLeaseExpiry(owner.persistence, fixture.activated.anchor.sessionId);
-        release.resolve(undefined);
-        await writing;
-        expect(await reading).toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "expired" });
-        expect(callbacks).toBe(0);
-        expect((await persistence.query(`select c.last_commit_seq::text as sequence, a.oldest_available_commit_seq::text as floor
+    }, 120_000);
+
+
+    it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
+      "refuses installed locator drift before compact execution-claim waits", async () => {
+      await withReusableInstalledFiniteKernelFixture("locator_wait", false, async (_persistence, fixture, owner, controlOwner) => {
+        await controlOwner.persistence.drizzle.update(fxControlScopes).set({ physicalLocator: {
+          ...fixture.context.physicalLocator, databaseKey: `${fixture.context.physicalLocator.databaseKey}_drift`,
+        } }).where(eq(fxControlScopes.scopeId, fixture.context.scopeId));
+        await expectInstalledRefusalBeforeClaimRelease(fixture, owner.persistence, {
+          _tag: "FiniteStorageCaptureError", reason: "invalidAuthority",
+        });
+      });
+    }, 180_000);
+
+
+    it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
+      "observes the actual sequencer after a retained-floor authority wait in installed finite admission", async () => {
+      await withReusableInstalledFiniteKernelFixture("floor_wait", true, async (persistence, fixture, owner) => {
+        const entered = deferred<number>(), release = deferred<void>();
+        // Controlled valid transition fixture under the real UPDATE clock owner.
+        // The separate publication test exercises retention-policy calculation.
+        const writing = owner.persistence.drizzle.transaction(async tx => {
+          const clock = await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, fixture.context.scopeId));
+          expect(clock.lastCommitSeq).toBe(0n);
+          entered.resolve(await transactionBackendPid(tx));
+          await release.promise;
+          await tx.insert(fxSystemCommits).values({ scopeUuid: Result.getOrThrow(projectScopeIdUuidV1Result(fixture.context.scopeId)).scopeUuid,
+            epochUuid: Result.getOrThrow(projectScopeEpochUuidV1Result(fixture.activated.anchor.snapshotToken.epoch)).epochUuid,
+            commitSeq: CommitSeqSchema.make(1n), changeCount: 0, committedAt: sql`clock_timestamp() - interval '30 seconds'` });
+          await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
+            .where(eq(fxSystemScopeClocks.scopeId, fixture.context.scopeId));
+          await tx.update(fxSystemScopeExecutionAuthorities).set({ oldestAvailableCommitSeq: CommitSeqSchema.make(1n) })
+            .where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.context.scopeId));
+        });
+        void writing.catch(() => undefined);
+        let reading: Promise<unknown> | undefined;
+        let callbacks = 0;
+        try {
+          const writerPid = await waitForTransactionEntryOrFailure(entered.promise, writing, "installed authority transition");
+          reading = runFailure(captureFiniteStorageEffect(fixture.target, fixture.input, { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { callbacks++; }))));
+          // Observe as the actual reader login: the ordinary owner cannot see
+          // another restricted role's pg_stat_activity wait-event fields.
+          await waitForAuthorityWaiter(persistence, writerPid, false);
+          await waitForFiniteLeaseExpiry(owner.persistence, fixture.activated.anchor.sessionId);
+          release.resolve(undefined);
+          await writing;
+          expect(await reading).toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "expired" });
+          expect(callbacks).toBe(0);
+          expect((await persistence.query(`select c.last_commit_seq::text as sequence, a.oldest_available_commit_seq::text as floor
           from fx_system_scope_clock c join fx_system_scope_execution_authority a using(scope_id)
           where c.scope_id = $1`, [fixture.context.scopeId])).rows).toEqual([{ sequence: "1", floor: "1" }]);
-      } finally { release.resolve(undefined); await writing.catch(() => undefined); await reading?.catch(() => undefined); }
-    });
-  }, 180_000);
+        } finally { release.resolve(undefined); await writing.catch(() => undefined); await reading?.catch(() => undefined); }
+      });
+    }, 180_000);
+  });
+
+  registerInstalledCorruptionScenario("metadataSequence", withInstalledFiniteKernelFixture);
 });

@@ -90,13 +90,19 @@ export async function withInstalledFiniteKernelFixture(label: string, expireSoon
   work: (persistence: PostgresFlarexPersistence, fixture: Awaited<ReturnType<typeof finiteBarrierFixture>>,
     owner: Awaited<ReturnType<typeof createFileScopedPostgresFixture>>,
     controlOwner: Awaited<ReturnType<typeof createFileScopedPostgresFixture>>,
-    installation: Awaited<ReturnType<typeof createCoLocatedReadInstallationFixture>>["installation"]) => Promise<void>) {
+    installation: Awaited<ReturnType<typeof createCoLocatedReadInstallationFixture>>["installation"]) => Promise<void>,
+  existingOwners?: Readonly<{
+    targetOwner: Awaited<ReturnType<typeof createFileScopedPostgresFixture>>;
+    controlOwner: Awaited<ReturnType<typeof createFileScopedPostgresFixture>>;
+  }>) {
   const disposals: Array<() => Promise<void>> = [];
+  const failures: unknown[] = [];
+  let operationFailed = false;
   try {
-    const targetOwner = await createFileScopedPostgresFixture();
-    disposals.unshift(targetOwner.dispose);
-    const controlOwner = await createFileScopedPostgresFixture();
-    disposals.unshift(controlOwner.dispose);
+    const targetOwner = existingOwners?.targetOwner ?? await createFileScopedPostgresFixture();
+    if (existingOwners === undefined) disposals.unshift(targetOwner.dispose);
+    const controlOwner = existingOwners?.controlOwner ?? await createFileScopedPostgresFixture();
+    if (existingOwners === undefined) disposals.unshift(controlOwner.dispose);
     const fixture = await finiteBarrierFixture(targetOwner.persistence, label, false,
       { ...sharedLocator(`installed-finite-${label}`), schemaName: targetOwner.schemaName });
     // Placement is owned by the actual control installation; the existing
@@ -122,14 +128,18 @@ export async function withInstalledFiniteKernelFixture(label: string, expireSoon
       set finite_claim_expires_at=least(finite_claim_expires_at, statement_timestamp()+interval '2 seconds'),
       finite_lease_expires_at=statement_timestamp()+interval '2 seconds' where session_id=$1`, [fixture.activated.anchor.sessionId]);
     await work(targetRuntime.persistence, { ...fixture, target }, targetOwner, controlOwner, pair.installation);
+  } catch (cause) {
+    operationFailed = true;
+    failures.push(cause);
   } finally {
-    const failures: unknown[] = [];
     for (const dispose of disposals) {
-      const settled = await Promise.allSettled([dispose()]);
-      for (const result of settled) if (result.status === "rejected") failures.push(result.reason);
+      try { await dispose(); }
+      catch (cause) { failures.push(cause); }
     }
-    if (failures.length > 0) throw new AggregateError(failures, "Installed finite fixture cleanup failed");
   }
+  if (operationFailed && failures.length === 1) throw failures[0];
+  if (failures.length > 0) throw new AggregateError(failures, operationFailed
+    ? "Installed finite fixture operation and cleanup failed" : "Installed finite fixture cleanup failed");
 }
 
 export async function finiteBarrierFixture(persistence: PostgresFlarexPersistence, label: string, expireSoon = true,
