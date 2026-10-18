@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { Effect, Tracer } from "effect";
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   prepareApplicationBindingSelection,
 } from "../../src/application/activation/repositoryIdentity";
@@ -31,7 +31,7 @@ import { cmsHostFixture } from "../frameworks/cmsTransaction/cmsHostFixture";
 import { relationReadinessFixture } from "./relations/applicationRelationReadinessFixture";
 import { policyManifestFixture } from "./ownership/applicationWritePolicyFixture";
 import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
-import { createFileScopedPostgresFixture, postgresUrl } from "../support/postgresHelpers";
+import { postgresUrl, useFileScopedPostgresPersistence } from "../support/postgresHelpers";
 import { runEffect } from "../support/effectTestRuntime";
 
 /** Preflight 67 refusal witness: removing a repeated preparation read requires
@@ -211,16 +211,18 @@ it("restores empty and nonempty catalog sets with corruption refusal in PGlite",
   await exerciseRelationCatalog(await createMigratedPGlitePersistence());
 }, 120_000);
 
-it.skipIf(postgresUrl === null)("restores empty and nonempty catalog sets with corruption refusal in PostgreSQL", async () => {
-  const resource = await createFileScopedPostgresFixture();
-  try { await exerciseRelationCatalog(resource.persistence); } finally { await resource.dispose(); }
-}, 120_000);
-
 it.each([false, true])("rejects changed preparation catalog inputs at acceptance in PGlite (unique=%s)", async unique => {
   await exercise(await createMigratedPGlitePersistence(), unique);
 }, 240_000);
 
-it.skipIf(postgresUrl === null).each([false, true])("rejects changed preparation catalog inputs at acceptance in PostgreSQL (unique=%s)", async unique => {
-  const resource = await createFileScopedPostgresFixture();
-  try { await exercise(resource.persistence, unique); } finally { await resource.dispose(); }
-}, 240_000);
+describe("PostgreSQL", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPostgresPersistence();
+
+  it.skipIf(postgresUrl === null)("restores empty and nonempty catalog sets with corruption refusal in PostgreSQL", async () => {
+    await withPersistence(exerciseRelationCatalog);
+  }, 120_000);
+
+  it.skipIf(postgresUrl === null).each([false, true])("rejects changed preparation catalog inputs at acceptance in PostgreSQL (unique=%s)", async unique => {
+    await withPersistence(persistence => exercise(persistence, unique));
+  }, 240_000);
+});
