@@ -1,6 +1,7 @@
 import { createTestPGlite } from "../support/pgliteSearchExtensions";
 import {
   createMigratedPGlitePersistence,
+  createFileScopedPGliteFixture,
   migratedPGliteDataDir,
   useFileScopedPGliteCommitSchemaPersistence,
 } from "../support/pgliteTestFixture";
@@ -45,6 +46,7 @@ import {
   OUTCOME_SCOPE_A,
 } from "./committedPointOutcomeTestSupport";
 import { runEffect } from "../support/effectTestRuntime";
+import { useFileScopedPersistence } from "../support/fileScopedPersistenceFixture";
 
 const withPersistence = useFileScopedPGliteCommitSchemaPersistence();
 
@@ -417,81 +419,86 @@ describe("O07-A committed point outcome resolver", { concurrent: false }, () => 
     expect(verificationCount).toBe(0);
   });
 
-  it("rejects malformed result evidence and semantic-size drift after canonical verification", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    await insertOutcomeScope(persistence);
-    await insertOutcomeHeader(persistence);
-    await insertCanonicalAvailableOutcome(persistence, {
-      requestKey: "bad-digest",
-    });
-    await insertCanonicalAvailableOutcome(persistence, {
-      requestKey: "bad-semantic",
-    });
-    await insertCanonicalAvailableOutcome(persistence, {
-      requestKey: "invalid-codec",
-    });
-    await insertCanonicalAvailableOutcome(persistence, {
-      requestKey: "invalid-digest-length",
-    });
-    await insertCanonicalAvailableOutcome(persistence, {
-      requestKey: "malformed-bytes",
-    });
-    await persistence.query(
-      `alter table fx_system_idempotency drop constraint fx_system_idempotency_result_evidence_check`,
-    );
-    await persistence.query(
-      `update fx_system_idempotency set result_sha256 = decode(repeat('aa', 32), 'hex') where request_key = 'bad-digest'`,
-    );
-    await persistence.query(
-      `update fx_system_idempotency set result_semantic_bytes = result_semantic_bytes + 1 where request_key = 'bad-semantic'`,
-    );
-    await persistence.query(
-      `update fx_system_idempotency set result_value_codec_version = 2 where request_key = 'invalid-codec'`,
-    );
-    await persistence.query(
-      `update fx_system_idempotency set result_sha256 = decode(repeat('aa', 31), 'hex') where request_key = 'invalid-digest-length'`,
-    );
-    await persistence.query(
-      `update fx_system_idempotency set result_bytes = convert_to('not-json', 'UTF8') where request_key = 'malformed-bytes'`,
-    );
-    let verificationCount = 0;
-    const resolver = createCommittedPointOutcomeResolverV1(
-      persistence.drizzle,
-      { beforeResultVerification: () => { verificationCount += 1; } },
-    );
-    await expectCorruption(
-      resolve(resolver, "invalid-codec"),
-      "availableResultEvidenceInvalid",
-    );
-    await expectCorruption(
-      resolve(resolver, "invalid-digest-length"),
-      "availableResultEvidenceInvalid",
-    );
-    expect(verificationCount).toBe(0);
-    await expectCorruption(
-      resolve(resolver, "bad-digest"),
-      "resultCanonicalEvidenceInvalid",
-    );
-    await expectCorruption(
-      resolve(resolver, "malformed-bytes"),
-      "resultCanonicalEvidenceInvalid",
-    );
-    await expectCorruption(
-      resolve(resolver, "bad-semantic"),
-      "resultSemanticSizeMismatch",
-    );
-    expect(verificationCount).toBe(3);
-  });
+  describe("result evidence corruption", { concurrent: false }, () => {
+    const withCorruptEvidence = useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => {
+      await db.exec("alter table fx_system_idempotency drop constraint fx_system_idempotency_result_evidence_check");
+      return () => db.transaction(async transaction => {
+        await transaction.exec(`
+          delete from fx_system_idempotency;
+          delete from fx_system_commit;
+          delete from fx_system_scope_execution_authority;
+          delete from fx_system_scope_clock;
+        `);
+      });
+    }));
 
-  it("withholds oversized canonical evidence before verification", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    await insertOutcomeScope(persistence);
-    await insertOutcomeHeader(persistence);
-    await persistence.query(
-      `alter table fx_system_idempotency drop constraint fx_system_idempotency_result_evidence_check`,
-    );
-    await persistence.query(
-      `
+    it("rejects malformed result evidence and semantic-size drift after canonical verification", () => withCorruptEvidence(async persistence => {
+      await insertOutcomeScope(persistence);
+      await insertOutcomeHeader(persistence);
+      await insertCanonicalAvailableOutcome(persistence, {
+        requestKey: "bad-digest",
+      });
+      await insertCanonicalAvailableOutcome(persistence, {
+        requestKey: "bad-semantic",
+      });
+      await insertCanonicalAvailableOutcome(persistence, {
+        requestKey: "invalid-codec",
+      });
+      await insertCanonicalAvailableOutcome(persistence, {
+        requestKey: "invalid-digest-length",
+      });
+      await insertCanonicalAvailableOutcome(persistence, {
+        requestKey: "malformed-bytes",
+      });
+      await persistence.query(
+        `update fx_system_idempotency set result_sha256 = decode(repeat('aa', 32), 'hex') where request_key = 'bad-digest'`,
+      );
+      await persistence.query(
+        `update fx_system_idempotency set result_semantic_bytes = result_semantic_bytes + 1 where request_key = 'bad-semantic'`,
+      );
+      await persistence.query(
+        `update fx_system_idempotency set result_value_codec_version = 2 where request_key = 'invalid-codec'`,
+      );
+      await persistence.query(
+        `update fx_system_idempotency set result_sha256 = decode(repeat('aa', 31), 'hex') where request_key = 'invalid-digest-length'`,
+      );
+      await persistence.query(
+        `update fx_system_idempotency set result_bytes = convert_to('not-json', 'UTF8') where request_key = 'malformed-bytes'`,
+      );
+      let verificationCount = 0;
+      const resolver = createCommittedPointOutcomeResolverV1(
+        persistence.drizzle,
+        { beforeResultVerification: () => { verificationCount += 1; } },
+      );
+      await expectCorruption(
+        resolve(resolver, "invalid-codec"),
+        "availableResultEvidenceInvalid",
+      );
+      await expectCorruption(
+        resolve(resolver, "invalid-digest-length"),
+        "availableResultEvidenceInvalid",
+      );
+      expect(verificationCount).toBe(0);
+      await expectCorruption(
+        resolve(resolver, "bad-digest"),
+        "resultCanonicalEvidenceInvalid",
+      );
+      await expectCorruption(
+        resolve(resolver, "malformed-bytes"),
+        "resultCanonicalEvidenceInvalid",
+      );
+      await expectCorruption(
+        resolve(resolver, "bad-semantic"),
+        "resultSemanticSizeMismatch",
+      );
+      expect(verificationCount).toBe(3);
+    }));
+
+    it("withholds oversized canonical evidence before verification", () => withCorruptEvidence(async persistence => {
+      await insertOutcomeScope(persistence);
+      await insertOutcomeHeader(persistence);
+      await persistence.query(
+        `
         insert into fx_system_idempotency
           (scope_uuid, request_key, identity_access_policy_sha256,
            function_path, request_sha256, epoch_uuid, commit_seq,
@@ -503,23 +510,24 @@ describe("O07-A committed point outcome resolver", { concurrent: false }, () => 
           convert_to(repeat('x', $3), 'UTF8'),
           decode(repeat('55', 32), 'hex'))
       `,
-      [
-        OUTCOME_SCOPE_A,
-        OUTCOME_EPOCH_A,
-        MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 + 1,
-      ],
-    );
-    let verificationStarted = false;
-    const resolver = createCommittedPointOutcomeResolverV1(
-      persistence.drizzle,
-      { beforeResultVerification: () => { verificationStarted = true; } },
-    );
-    await expectCorruption(
-      resolve(resolver, "oversized"),
-      "availableResultEvidenceInvalid",
-    );
-    expect(verificationStarted).toBe(false);
-  }, 180_000);
+        [
+          OUTCOME_SCOPE_A,
+          OUTCOME_EPOCH_A,
+          MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 + 1,
+        ],
+      );
+      let verificationStarted = false;
+      const resolver = createCommittedPointOutcomeResolverV1(
+        persistence.drizzle,
+        { beforeResultVerification: () => { verificationStarted = true; } },
+      );
+      await expectCorruption(
+        resolve(resolver, "oversized"),
+        "availableResultEvidenceInvalid",
+      );
+      expect(verificationStarted).toBe(false);
+    }), 180_000);
+  });
 
   it("maps a foreign SQL rejection once while preserving post-SQL defects", async () => {
     const raw = await createTestPGlite({ loadDataDir: await migratedPGliteDataDir() });

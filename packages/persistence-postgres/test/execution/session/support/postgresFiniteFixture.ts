@@ -36,6 +36,7 @@ import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixtu
 import { getCoLocatedReadInstallationReferencesResult } from "../../../../src/installation/installationLifecycle";
 import { prepareProtectedMetadata } from "../../../../src/execution/preparation/preparedMetadataEpoch";
 import { runEffect, runEffectFailure as runFailure } from "../../../support/effectTestRuntime";
+import { closePreparedHostTestRuntime, openPreparedHostTestRuntime } from "../../preparation/preparedHostRuntimeTestSupport";
 import { pointMutationSessionActivationFixture } from "./activationEvidence";
 import { provisionContext, createExecutionClaimAcquisition, selectorFromAnchor, expireFiniteExecutionClaim, sharedLocator, uuidFactory } from "./postgresFixture";
 
@@ -86,32 +87,31 @@ export async function holdNamedFiniteCapture(persistence: PostgresFlarexPersiste
   }
 }
 
-export async function withInstalledFiniteKernelFixture(label: string, expireSoon: boolean,
-  work: (persistence: PostgresFlarexPersistence, fixture: Awaited<ReturnType<typeof finiteBarrierFixture>>,
+type InstalledFiniteKernelWork = (persistence: PostgresFlarexPersistence, fixture: Awaited<ReturnType<typeof finiteBarrierFixture>>,
     owner: Awaited<ReturnType<typeof createFileScopedPostgresFixture>>,
     controlOwner: Awaited<ReturnType<typeof createFileScopedPostgresFixture>>,
-    installation: Awaited<ReturnType<typeof createCoLocatedReadInstallationFixture>>["installation"]) => Promise<void>,
-  existingOwners?: Readonly<{
-    targetOwner: Awaited<ReturnType<typeof createFileScopedPostgresFixture>>;
-    controlOwner: Awaited<ReturnType<typeof createFileScopedPostgresFixture>>;
-  }>) {
+    installation: Awaited<ReturnType<typeof createCoLocatedReadInstallationFixture>>["installation"]) => Promise<void>;
+
+/** Retain verified installation identities only for row-only finite cases.
+ * Schema/installation mutation cases use the isolated wrapper below instead. */
+export async function createInstalledFiniteKernelFixture() {
   const disposals: Array<() => Promise<void>> = [];
-  const failures: unknown[] = [];
-  let operationFailed = false;
+  let disposed = false;
+  const cleanup = async () => {
+    if (disposed) return [];
+    disposed = true;
+    const failures: unknown[] = [];
+    for (const dispose of disposals) {
+      try { await dispose(); }
+      catch (cause) { failures.push(cause); }
+    }
+    return failures;
+  };
   try {
-    const targetOwner = existingOwners?.targetOwner ?? await createFileScopedPostgresFixture();
-    if (existingOwners === undefined) disposals.unshift(targetOwner.dispose);
-    const controlOwner = existingOwners?.controlOwner ?? await createFileScopedPostgresFixture();
-    if (existingOwners === undefined) disposals.unshift(controlOwner.dispose);
-    const fixture = await finiteBarrierFixture(targetOwner.persistence, label, false,
-      { ...sharedLocator(`installed-finite-${label}`), schemaName: targetOwner.schemaName });
-    // Placement is owned by the actual control installation; the existing
-    // target owner created the genuine single session anchor and reservation.
-    const deployment = await targetOwner.persistence.getDeploymentMetadata(fixture.context.deploymentId);
-    if (deployment === null) throw new Error("Missing actual finite fixture deployment");
-    await controlOwner.persistence.insertDeploymentMetadata(deployment);
-    await controlOwner.persistence.insertScopeMetadata({ deploymentId: fixture.context.deploymentId,
-      scopeId: fixture.context.scopeId, physicalLocator: fixture.context.physicalLocator });
+    const targetOwner = await createFileScopedPostgresFixture();
+    disposals.unshift(targetOwner.dispose);
+    const controlOwner = await createFileScopedPostgresFixture();
+    disposals.unshift(controlOwner.dispose);
     const targetRuntime = await createProtectedFileScopedPostgresFixture("managed", targetOwner, "finiteCapture");
     disposals.unshift(targetRuntime.dispose);
     const controlRuntime = await createProtectedFileScopedPostgresFixture("managed", controlOwner);
@@ -120,21 +120,78 @@ export async function withInstalledFiniteKernelFixture(label: string, expireSoon
       control: controlRuntime, controlOwner });
     const refs = Result.getOrThrow(getCoLocatedReadInstallationReferencesResult(pair.installation, targetRuntime.persistence.drizzle));
     const controlProtection = await runEffect(prepareProtectedMetadata(targetRuntime.persistence.drizzle, refs.controlInstallation));
-    const target = createPostgresLocatedPointMutationSessionActivationTargetV1(targetRuntime.persistence,
-      fixture.context.physicalLocator, { managedInstallation: { installation: pair.installation, controlProtection } });
-    if (!isLocatedExactRunningAttemptKernelV1(target) || !(CAPTURE_FINITE_STORAGE in target))
-      throw new Error("Expected installed full and compact attempt facets");
-    if (expireSoon) await targetOwner.persistence.query(`update fx_system_tx_session
-      set finite_claim_expires_at=least(finite_claim_expires_at, statement_timestamp()+interval '2 seconds'),
-      finite_lease_expires_at=statement_timestamp()+interval '2 seconds' where session_id=$1`, [fixture.activated.anchor.sessionId]);
-    await work(targetRuntime.persistence, { ...fixture, target }, targetOwner, controlOwner, pair.installation);
+    const members = [targetOwner.persistence, controlOwner.persistence, targetRuntime.persistence, controlRuntime.persistence];
+    return {
+      async persistence(label: string, expireSoon: boolean, work: InstalledFiniteKernelWork) {
+        if (disposed) throw new Error("Installed finite fixture is closed");
+        const fixture = await finiteBarrierFixture(targetOwner.persistence, label, false,
+          { ...sharedLocator(`installed-finite-${label}`), schemaName: targetOwner.schemaName });
+        // Every borrow gets a fresh actual anchor, placement and target issuer.
+        // None of these mutable rows invalidates protected metadata evidence.
+        const deployment = await targetOwner.persistence.getDeploymentMetadata(fixture.context.deploymentId);
+        if (deployment === null) throw new Error("Missing actual finite fixture deployment");
+        await controlOwner.persistence.insertDeploymentMetadata(deployment);
+        await controlOwner.persistence.insertScopeMetadata({ deploymentId: fixture.context.deploymentId,
+          scopeId: fixture.context.scopeId, physicalLocator: fixture.context.physicalLocator });
+        const target = createPostgresLocatedPointMutationSessionActivationTargetV1(targetRuntime.persistence,
+          fixture.context.physicalLocator, { managedInstallation: { installation: pair.installation, controlProtection } });
+        if (!isLocatedExactRunningAttemptKernelV1(target) || !(CAPTURE_FINITE_STORAGE in target))
+          throw new Error("Expected installed full and compact attempt facets");
+        if (expireSoon) await targetOwner.persistence.query(`update fx_system_tx_session
+          set finite_claim_expires_at=least(finite_claim_expires_at, statement_timestamp()+interval '2 seconds'),
+          finite_lease_expires_at=statement_timestamp()+interval '2 seconds' where session_id=$1`, [fixture.activated.anchor.sessionId]);
+        await work(targetRuntime.persistence, { ...fixture, target }, targetOwner, controlOwner, pair.installation);
+      },
+      async reset() {
+        if (disposed) throw new Error("Installed finite fixture is closed");
+        for (const { pool } of members) {
+          if (pool.waitingCount !== 0 || pool.idleCount !== pool.totalCount)
+            throw new Error("Installed finite fixture left a checked-out or waiting pool client");
+        }
+        // Close per-test host state without revoking the retained installation
+        // or changing either protected epoch. Constraints stay enabled.
+        for (const persistence of members) await closePreparedHostTestRuntime(persistence.drizzle);
+        await targetOwner.persistence.drizzle.transaction(async tx => {
+          await tx.execute(sql`delete from fx_system_tx_session`);
+          await tx.execute(sql`delete from fx_system_commit`);
+          await tx.execute(sql`delete from fx_system_scope_execution_authority`);
+          await tx.execute(sql`delete from fx_system_scope_clock`);
+          await tx.execute(sql`delete from fx_control_scope`);
+          await tx.execute(sql`delete from deployments`);
+        });
+        await controlOwner.persistence.drizzle.transaction(async tx => {
+          await tx.execute(sql`delete from fx_control_scope`);
+          await tx.execute(sql`delete from deployments`);
+        });
+        for (const persistence of members) await openPreparedHostTestRuntime(persistence.drizzle);
+      },
+      async dispose() {
+        const failures = await cleanup();
+        if (failures.length > 0) throw new AggregateError(failures, "Installed finite fixture cleanup failed");
+      },
+    };
+  } catch (cause) {
+    const failures = await cleanup();
+    if (failures.length > 0) throw new AggregateError([cause, ...failures], "Installed finite fixture creation and cleanup failed");
+    throw cause;
+  }
+}
+
+/** Isolated owner for installation maintenance, DDL faults and other consumers. */
+export async function withInstalledFiniteKernelFixture(label: string, expireSoon: boolean, work: InstalledFiniteKernelWork) {
+  const fixture = await createInstalledFiniteKernelFixture();
+  const failures: unknown[] = [];
+  let operationFailed = false;
+  try {
+    await fixture.persistence(label, expireSoon, work);
   } catch (cause) {
     operationFailed = true;
     failures.push(cause);
   } finally {
-    for (const dispose of disposals) {
-      try { await dispose(); }
-      catch (cause) { failures.push(cause); }
+    try { await fixture.dispose(); }
+    catch (cause) {
+      if (cause instanceof AggregateError) failures.push(...cause.errors);
+      else failures.push(cause);
     }
   }
   if (operationFailed && failures.length === 1) throw failures[0];

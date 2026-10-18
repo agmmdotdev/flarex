@@ -59,6 +59,7 @@ import { transactionBackendPid, waitForTransactionEntryOrFailure, deferred } fro
 import {
   holdNamedFiniteCapture,
   withInstalledFiniteKernelFixture,
+  createInstalledFiniteKernelFixture,
   finiteBarrierFixture,
   expectInstalledRefusalBeforeClaimRelease,
   captureExpiredFiniteFixtureRecovery,
@@ -243,36 +244,6 @@ function registerFiniteKernelScenarios(profile: "direct" | "installed",
     }, 120_000);
 }
 
-async function createInstalledFiniteMigrationOwners() {
-  const targetOwner = await createFileScopedPostgresFixture();
-  let controlOwner: Awaited<ReturnType<typeof createFileScopedPostgresFixture>>;
-  try {
-    controlOwner = await createFileScopedPostgresFixture();
-  } catch (cause) {
-    try { await targetOwner.dispose(); }
-    catch (cleanupCause) {
-      throw new AggregateError([cause, cleanupCause], "Installed finite owner creation and cleanup failed");
-    }
-    throw cause;
-  }
-  return {
-    persistence: { targetOwner, controlOwner },
-    async reset() {
-      await targetOwner.reset();
-      await controlOwner.reset();
-    },
-    async dispose() {
-      const failures: unknown[] = [];
-      for (const owner of [controlOwner, targetOwner]) {
-        try { await owner.dispose(); }
-        catch (cause) { failures.push(cause); }
-      }
-      if (failures.length === 1) throw failures[0];
-      if (failures.length > 1) throw new AggregateError(failures, "Installed finite owner cleanup failed");
-    },
-  };
-}
-
 function registerInstalledCorruptionScenario(fault: "clockTimestamp" | "metadataSequence",
   withFiniteKernelFixture: typeof withInstalledFiniteKernelFixture) {
   it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
@@ -451,17 +422,49 @@ describePostgres("finite running authority barrier", { concurrent: false }, () =
   }, 180_000);
 
   describe("installed", { concurrent: false }, () => {
-    const withOwners = useFileScopedPersistence(createInstalledFiniteMigrationOwners,
+    const withInstalledFixture = useFileScopedPersistence(createInstalledFiniteKernelFixture,
       postgresUrl !== null && Boolean(process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL));
     const withReusableInstalledFiniteKernelFixture: typeof withInstalledFiniteKernelFixture = (label, expireSoon, work) =>
-      withOwners(owners => withInstalledFiniteKernelFixture(label, expireSoon, work, owners));
+      withInstalledFixture(fixture => fixture(label, expireSoon, work));
 
     registerFiniteKernelScenarios("installed", withReusableInstalledFiniteKernelFixture);
     registerInstalledCorruptionScenario("clockTimestamp", withReusableInstalledFiniteKernelFixture);
 
     it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
       "requires the original installed acceptance issuer, selection and protection before COMMIT", async () => {
+      const previous: Array<Readonly<{
+        persistence: PostgresFlarexPersistence;
+        fixture: Awaited<ReturnType<typeof finiteBarrierFixture>>;
+        installation: Parameters<Parameters<typeof withInstalledFiniteKernelFixture>[2]>[4];
+        login: string | undefined;
+      }>> = [];
+      await withReusableInstalledFiniteKernelFixture("accepting_issuer_prior", false, async (persistence, fixture, _owner, _controlOwner, installation) => {
+        const captured = await runEffect(captureFiniteStorageEffect(fixture.target, fixture.input, { kind: "transactionTime" }));
+        expect(Number.isFinite(new Date(captured.timestamp).getTime())).toBe(true);
+        previous.push({ persistence, fixture, installation, login: persistence.pool.options.user });
+      });
+      const prior = previous[0];
+      if (prior === undefined) throw new Error("Missing prior genuine installed finite capture");
       await withReusableInstalledFiniteKernelFixture("accepting_issuer", false, async (persistence, fixture, owner, _controlOwner, installation) => {
+        // Mutable IDs restart on the same authenticated pools and verified
+        // installation. The prior placement and its target cannot authorize
+        // the new deployment even though scope/session scalars collide.
+        expect(persistence).toBe(prior.persistence);
+        expect(persistence.pool).toBe(prior.persistence.pool);
+        expect(persistence.pool.options.user).toBe(prior.login);
+        expect(installation).toBe(prior.installation);
+        expect(fixture.context.scopeId).toBe(prior.fixture.context.scopeId);
+        expect(fixture.activated.anchor.sessionId).toBe(prior.fixture.activated.anchor.sessionId);
+        expect(fixture.target).not.toBe(prior.fixture.target);
+        let priorCallbacks = 0;
+        for (const target of [prior.fixture.target, fixture.target]) {
+          expect(await runFailure(captureFiniteStorageEffect(target, prior.fixture.input,
+            { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { priorCallbacks++; })))))
+            .toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "invalidAuthority" });
+        }
+        expect(priorCallbacks).toBe(0);
+        const currentCapture = await runEffect(captureFiniteStorageEffect(fixture.target, fixture.input, { kind: "transactionTime" }));
+        expect(Number.isFinite(new Date(currentCapture.timestamp).getTime())).toBe(true);
         const original = Result.getOrThrow(prepareInstalledAttemptScopeAuthority(installation,
           persistence.drizzle, fixture.context.physicalLocator));
         const foreign = Result.getOrThrow(prepareInstalledAttemptScopeAuthority(installation,
