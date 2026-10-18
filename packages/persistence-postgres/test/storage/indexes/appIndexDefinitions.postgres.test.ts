@@ -41,9 +41,9 @@ import {
 import {
   acquirePostgresDeploymentLock,
   postgresUrl,
+  rollbackAndReleasePostgresClient,
   waitForBlockedPostgresDeploymentLocks,
   useFileScopedPostgresPersistence,
-  withTemporaryPostgresPersistence,
   type HeldPostgresDeploymentLock,
 } from "../../support/postgresHelpers";
 
@@ -74,7 +74,7 @@ const ensureSchemaVersionArtifactInTransaction = (
   ...args: Parameters<typeof ensureSchemaVersionArtifactInTransactionEffect>
 ) => runEffect(ensureSchemaVersionArtifactInTransactionEffect(...args));
 
-describePostgres("real Postgres immutable app index definitions", () => {
+describePostgres("real Postgres immutable app index definitions", { concurrent: false }, () => {
   it("converges concurrent exact definition and binding replay", async () => {
     await withPersistence(async (persistence) => {
       const deploymentId = "deployment_definition_pg_replay";
@@ -249,7 +249,7 @@ describePostgres("real Postgres immutable app index definitions", () => {
   }, 30_000);
 
   it("rejects a TOAST-compressed oversized spec by logical JSON text size", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const deploymentId = "deployment_definition_pg_logical_size";
       const registered = await registerAppSchemaVersion(
         persistence,
@@ -269,8 +269,9 @@ describePostgres("real Postgres immutable app index definitions", () => {
       });
       const client = await persistence.pool.connect();
       try {
+        await client.query("begin");
         await client.query(
-          "create temporary table compressed_index_spec (payload jsonb)",
+          "create temporary table compressed_index_spec (payload jsonb) on commit drop",
         );
         await client.query(
           "alter table compressed_index_spec alter column payload set storage extended",
@@ -327,7 +328,7 @@ describePostgres("real Postgres immutable app index definitions", () => {
           ),
         ).rejects.toThrow();
       } finally {
-        client.release();
+        await rollbackAndReleasePostgresClient(client);
       }
     });
   }, 30_000);
@@ -455,8 +456,8 @@ async function releaseAfterBlocked(
   expectedBlocked: number,
   operations: ReadonlyArray<Promise<unknown>>,
 ): Promise<void> {
+  const settled = Promise.allSettled(operations);
   let released = false;
-  let setupError: unknown;
   try {
     await waitForBlockedPostgresDeploymentLocks(
       persistence,
@@ -465,17 +466,16 @@ async function releaseAfterBlocked(
     );
     await lock.client.query("commit");
     released = true;
-  } catch (error) {
-    setupError = error;
   } finally {
-    if (!released) {
-      await lock.client.query("rollback").catch(() => undefined);
+    try {
+      if (released) {
+        lock.client.release();
+      } else {
+        await rollbackAndReleasePostgresClient(lock.client);
+      }
+    } finally {
+      await settled;
     }
-    lock.client.release();
-  }
-  if (setupError !== undefined) {
-    await Promise.allSettled(operations);
-    throw setupError;
   }
 }
 

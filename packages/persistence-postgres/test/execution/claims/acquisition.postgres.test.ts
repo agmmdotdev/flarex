@@ -18,7 +18,6 @@ import {
   postgresUrl,
   rollbackAndReleasePostgresClient,
   useFileScopedPostgresPersistence,
-  withTemporaryPostgresPersistence,
 } from "../../support/postgresHelpers";
 import { runEffect, runEffectFailure as runFailure } from "../../support/effectTestRuntime";
 import { activatePointMutationSession } from "../session/support/attemptFixture";
@@ -44,7 +43,7 @@ import {
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
-describePostgres("real Postgres O03-B session authority", () => {
+describePostgres("real Postgres O03-B session authority", { concurrent: false }, () => {
   const withPostgresPersistence = useFileScopedPostgresPersistence();
 
 
@@ -126,7 +125,7 @@ describePostgres("real Postgres O03-B session authority", () => {
         .toEqual({ status: "busy", anchor: created.anchor });
 
       const selector = selectorFromAnchor(created.anchor);
-      const results = await Promise.all([
+      const acquisitions = [
         runEffect(createExecutionClaimAcquisition(
           persistence,
           "42000000-0000-4000-8000-000000009001",
@@ -135,7 +134,10 @@ describePostgres("real Postgres O03-B session authority", () => {
           persistence,
           "42000000-0000-4000-8000-000000009002",
         ).acquireEffect(selector)),
-      ]);
+      ] as const;
+      const results = await Promise.all(acquisitions).finally(() =>
+        Promise.allSettled(acquisitions)
+      );
       const acquired = results.find((result) => result.kind === "acquired");
       const busy = results.find((result) => result.kind === "busy");
       if (acquired?.kind !== "acquired" || busy?.kind !== "busy") {
@@ -379,7 +381,7 @@ describePostgres("real Postgres O03-B session authority", () => {
 
 
   it("lets an independent scope take over while another scope clock is locked", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const contextA = await provisionContext(
         persistence,
@@ -411,33 +413,55 @@ describePostgres("real Postgres O03-B session authority", () => {
       if (createdA.status !== "created" || createdB.status !== "created") {
         throw new Error("Expected two newly created claim scenarios.");
       }
-      await Promise.all([
+      const expirations = [
         expireExecutionClaim(persistence, createdA.anchor.sessionId),
         expireExecutionClaim(persistence, createdB.anchor.sessionId),
-      ]);
+      ] as const;
+      await Promise.all(expirations).finally(() =>
+        Promise.allSettled(expirations)
+      );
 
       const held = await holdScopeClock(persistence, contextA.scopeId);
       const pendingA = runEffect(createExecutionClaimAcquisition(
         persistence,
         "42000000-0000-4000-8000-000000009011",
       ).acquireEffect(selectorFromAnchor(createdA.anchor)));
+      const pending: Promise<unknown>[] = [pendingA];
+      const deadlineController = new AbortController();
       try {
-        await waitForBlockedScopeClock(persistence, held);
-        await expect(Promise.race([
-          runEffect(createExecutionClaimAcquisition(
-            persistence,
-            "42000000-0000-4000-8000-000000009012",
-          ).acquireEffect(selectorFromAnchor(createdB.anchor))),
-          delay(5_000).then(() => {
-            throw new Error("Independent-scope claim acquisition timed out.");
+        const lockWait = waitForBlockedScopeClock(persistence, held);
+        pending.push(lockWait);
+        await Promise.race([
+          lockWait,
+          pendingA.then(() => {
+            throw new Error("Claim acquisition completed before the scope-clock lock wait.");
           }),
+        ]);
+        const pendingB = runEffect(createExecutionClaimAcquisition(
+          persistence,
+          "42000000-0000-4000-8000-000000009012",
+        ).acquireEffect(selectorFromAnchor(createdB.anchor)));
+        const deadline = delay(5_000, undefined, {
+          signal: deadlineController.signal,
+        }).then(() => {
+          throw new Error("Independent-scope claim acquisition timed out.");
+        });
+        pending.push(pendingB, deadline);
+        await expect(Promise.race([
+          pendingB,
+          deadline,
         ])).resolves.toMatchObject({
           kind: "acquired",
           mode: "execute",
           observation: { claimFence: 2n },
         });
       } finally {
-        await rollbackAndReleasePostgresClient(held.client);
+        deadlineController.abort();
+        try {
+          await rollbackAndReleasePostgresClient(held.client);
+        } finally {
+          await Promise.allSettled(pending);
+        }
       }
       await expect(pendingA).resolves.toMatchObject({
         kind: "acquired",

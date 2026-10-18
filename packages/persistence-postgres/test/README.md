@@ -101,6 +101,9 @@ suites retain file-scoped reset/rebuild/disposal; finite barrier cases retain
 their original temporary installed/direct resources and ordinary/provisioning
 role gates. Parameterized profiles, native blockers and cleanup order stay with
 the tests that exercise them. Discovery lanes list the concrete suite roots.
+Native claim acquisition shares its file fixture across ordinary cases,
+including independent-scope progress. Its cancellable deadline and started
+operations drain before reset; installed finite corruption keeps its own fixture.
 
 ## Application Lifecycle Tests
 
@@ -257,6 +260,9 @@ Scope, catalog and index fixtures use the migrated image. Schema-artifact and
 index-definition database cases each share a file-owned backend with distinct
 deployment identities and serial execution. Their pure token/driver-fault cases
 need no database; the artifact table-drop witness keeps its own backend.
+Native immutable index-definition cases share their existing file fixture and
+drain contending writes before reset. The TOAST witness owns a temporary table
+inside its checked-out client's transaction and rolls it back before release.
 Application schema authority, publication and unique-definition suites also
 share one serial image-backed database per file. Deployments remain distinct,
 aggregate catalog observations select their deployment, and the manifest
