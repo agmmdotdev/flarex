@@ -1,4 +1,4 @@
-import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir, useFileScopedPGliteScopeAuthorityPersistence } from "../support/pgliteTestFixture";
 import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
 import { fxSystemScopeExecutionAuthorities } from "../../src/database/schema";
 import { eq } from "drizzle-orm";
@@ -75,11 +75,11 @@ type OrdinaryDrizzleCanRunBootstrapTransaction =
     ? true
     : false;
 
-describe("shared scope authority bootstrap", () => {
+describe("shared scope authority bootstrap", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPGliteScopeAuthorityPersistence();
   beforeAll(async () => { await migratedPGliteDataDir(); });
 
-  it("blocks deployment-only repair when one deployment contains multiple scopes", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("blocks deployment-only repair when one deployment contains multiple scopes", async () => withPersistence(async persistence => {
     const deploymentId = "deployment_multiple_scopes";
     await persistence.insertDeploymentMetadata({ deploymentId, projectId: "project_multiple_scopes" });
     for (const id of ["scope_multi_a", "scope_multi_b"]) {
@@ -95,7 +95,7 @@ describe("shared scope authority bootstrap", () => {
       status: "blocked",
       counts: { deployments: 1n, multipleScopeDeployments: 1n, missingClocks: 2n },
     });
-  });
+  }));
 
   it("keeps bootstrap repair authority out of per-call and root persistence APIs", () => {
     expectTypeOf<ForbiddenBatchAuthorityField>().toEqualTypeOf<never>();
@@ -103,8 +103,7 @@ describe("shared scope authority bootstrap", () => {
     expectTypeOf<OrdinaryDrizzleCanRunBootstrapTransaction>().toEqualTypeOf<false>();
   });
 
-  it("captures and verifies an empty frontier without writes", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("captures and verifies an empty frontier without writes", async () => withPersistence(async persistence => {
     const bootstrapper = createPGliteSharedScopeAuthorityBootstrapper(
       persistence,
       { physicalLocator: sharedLocator },
@@ -132,10 +131,9 @@ describe("shared scope authority bootstrap", () => {
         orphanClocks: 0n,
       },
     });
-  });
+  }));
 
-  it("rejects limits that cannot produce a bounded advancing page", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects limits that cannot produce a bounded advancing page", async () => withPersistence(async persistence => {
     const bootstrapper = createPGliteSharedScopeAuthorityBootstrapper(
       persistence,
       { physicalLocator: sharedLocator },
@@ -149,10 +147,9 @@ describe("shared scope authority bootstrap", () => {
         InvalidSharedScopeAuthorityBootstrapBatchLimitError,
       );
     }
-  });
+  }));
 
-  it("rejects contradictory frontier cursors and permits terminal equality", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects contradictory frontier cursors and permits terminal equality", async () => withPersistence(async persistence => {
     const bootstrapper = createPGliteSharedScopeAuthorityBootstrapper(
       persistence,
       { physicalLocator: sharedLocator },
@@ -194,10 +191,9 @@ describe("shared scope authority bootstrap", () => {
       frontier: boundedFrontier,
       items: [],
     });
-  });
+  }));
 
-  it("faithfully pages deployment IDs that the existing schema permits to be blank", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("faithfully pages deployment IDs that the existing schema permits to be blank", async () => withPersistence(async persistence => {
     await insertDeployments(persistence, "", "deployment_after_blank");
     const bootstrapper = createPGliteSharedScopeAuthorityBootstrapper(
       persistence,
@@ -234,10 +230,9 @@ describe("shared scope authority bootstrap", () => {
         { deployment: { deploymentId: "deployment_after_blank" } },
       ],
     });
-  });
+  }));
 
-  it("uses a lexical frontier and advances only after a whole page succeeds", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("uses a lexical frontier and advances only after a whole page succeeds", async () => withPersistence(async persistence => {
     await insertDeployments(persistence, "deployment_c", "deployment_a", "deployment_b");
     const bootstrapper = createPGliteSharedScopeAuthorityBootstrapper(
       persistence,
@@ -295,10 +290,9 @@ describe("shared scope authority bootstrap", () => {
     await expect(
       persistence.getScopeMetadataByDeploymentId("deployment_z"),
     ).resolves.toBeNull();
-  });
+  }));
 
-  it("replays a lost-response page without consuming IDs or replacing authority", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("replays a lost-response page without consuming IDs or replacing authority", async () => withPersistence(async persistence => {
     await insertDeployments(persistence, "deployment_replay_a", "deployment_replay_b");
     const firstBootstrapper = createPGliteSharedScopeAuthorityBootstrapper(
       persistence,
@@ -344,10 +338,9 @@ describe("shared scope authority bootstrap", () => {
         clockUpdatedAt: item.clock.updatedAt,
       })),
     ).toEqual(authority);
-  });
+  }));
 
-  it("repairs only an inventoried missing clock and preserves the winning epoch", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("repairs only an inventoried missing clock and preserves the winning epoch", async () => withPersistence(async persistence => {
     const scopeId = ScopeIdSchema.make(`scope_${uuids.scopeA}`);
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_repair_clock",
@@ -396,10 +389,9 @@ describe("shared scope authority bootstrap", () => {
     const replayed = await replay.runBatch({ frontier, limit: 1 });
     expect(replayed.items[0]).toMatchObject({ status: "already_provisioned" });
     expect(replayed.items[0]?.clock).toEqual(clock);
-  });
+  }));
 
-  it("accepts an already advanced valid clock without resetting it", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("accepts an already advanced valid clock without resetting it", async () => withPersistence(async persistence => {
     const provisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {
@@ -447,7 +439,7 @@ describe("shared scope authority bootstrap", () => {
       status: "complete_through_frontier",
       counts: { completePairs: 1n },
     });
-  });
+  }));
 
   it("projects typed stored-clock corruption at the bootstrap transaction owner", async () => {
     const persistence = await createMigratedPGlitePersistence();
@@ -489,8 +481,7 @@ describe("shared scope authority bootstrap", () => {
     ).rejects.toBeInstanceOf(ScopeClockCorruptionError);
   });
 
-  it("leaves completed items committed but returns no cursor when a later item fails", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("leaves completed items committed but returns no cursor when a later item fails", async () => withPersistence(async persistence => {
     await insertDeployments(persistence, "deployment_page_a", "deployment_page_b");
     const failing = createPGliteSharedScopeAuthorityBootstrapper(persistence, {
       physicalLocator: sharedLocator,
@@ -525,10 +516,9 @@ describe("shared scope authority bootstrap", () => {
         { status: "created_scope_and_clock" },
       ],
     });
-  });
+  }));
 
-  it("does not recreate a deployment that disappeared after inventory", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("does not recreate a deployment that disappeared after inventory", async () => withPersistence(async persistence => {
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_disappeared",
       projectId: "project_disappeared",
@@ -558,10 +548,9 @@ describe("shared scope authority bootstrap", () => {
     await expect(
       persistence.getDeploymentMetadata(expected.deploymentId),
     ).resolves.toBeNull();
-  });
+  }));
 
-  it("rejects a deployment whose persisted creation identity changed", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects a deployment whose persisted creation identity changed", async () => withPersistence(async persistence => {
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_replaced",
       projectId: "project_replaced",
@@ -602,10 +591,9 @@ describe("shared scope authority bootstrap", () => {
     await expect(
       persistence.getScopeMetadataByDeploymentId(expected.deploymentId),
     ).resolves.toBeNull();
-  });
+  }));
 
-  it("rejects a project identity change without creating authority", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects a project identity change without creating authority", async () => withPersistence(async persistence => {
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_project_changed",
       projectId: "project_original",
@@ -635,10 +623,9 @@ describe("shared scope authority bootstrap", () => {
     await expect(
       persistence.getScopeMetadataByDeploymentId(expected.deploymentId),
     ).resolves.toBeNull();
-  });
+  }));
 
-  it("stops on a locator conflict without adding or repairing a clock", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("stops on a locator conflict without adding or repairing a clock", async () => withPersistence(async persistence => {
     const scopeId = ScopeIdSchema.make(`scope_${uuids.scopeA}`);
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_locator_conflict",
@@ -671,10 +658,9 @@ describe("shared scope authority bootstrap", () => {
       status: "blocked",
       counts: { locatorConflicts: 1n },
     });
-  });
+  }));
 
-  it("reports missing and orphan authority independently even when totals cancel", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("reports missing and orphan authority independently even when totals cancel", async () => withPersistence(async persistence => {
     await insertDeployments(persistence, "deployment_missing_clock_parity");
     await persistence.insertScopeMetadata({
       scopeId: ScopeIdSchema.make(`scope_${uuids.scopeB}`),
@@ -705,10 +691,9 @@ describe("shared scope authority bootstrap", () => {
         orphanClocks: 1n,
       },
     });
-  });
+  }));
 
-  it("detects a deployment inserted behind an advanced cursor and repairs it on a replay", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("detects a deployment inserted behind an advanced cursor and repairs it on a replay", async () => withPersistence(async persistence => {
     await insertDeployments(persistence, "deployment_frontier_b", "deployment_frontier_d");
     const bootstrapper = createPGliteSharedScopeAuthorityBootstrapper(
       persistence,
@@ -751,7 +736,7 @@ describe("shared scope authority bootstrap", () => {
       status: "complete_through_frontier",
       counts: { deployments: 3n, completePairs: 3n },
     });
-  });
+  }));
 });
 
 async function insertDeployments(

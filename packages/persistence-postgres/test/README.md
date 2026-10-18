@@ -262,6 +262,12 @@ Its transaction deletes provisioning receipts, control scopes, then deployments,
 without cascading into other families or changing migration seeds. Unexpected
 dependants require a rebuild. Protocol-constraint corruption keeps a separate
 database; system authority/clock provisioning uses its own fixture contract.
+Shared-scope provisioning and bootstrap cases use
+`useFileScopedPGliteScopeAuthorityPersistence`. It composes the existing
+authority/clock and control-row deletion operations in one transaction, preserving
+deferred pairing and restrictive foreign keys. Generation-constraint corruption
+keeps independent databases. Application storage and catalog families stay
+outside this fixture's reset policy.
 Native receipt reservation and ready-CAS cases keep independent file fixtures,
 so migration setup precedes their existing deadlines and the readiness trigger
 cannot affect another witness.

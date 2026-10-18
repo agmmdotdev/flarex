@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ScopeEpochSchema, ScopeIdSchema } from "flarex-protocol/storage-authority";
-import type { PGliteFlarexPersistence } from "../../src/database/pglite";
+import { createPGliteSharedScopeAuthorityProvisioner, type PGliteFlarexPersistence } from "../../src/database/pglite";
 import { preparedHostTestRuntime } from "../execution/preparation/preparedHostRuntimeTestSupport";
 import { registerFileScopedPersistenceTests } from "./fileScopedPersistenceScenario";
 import { useFileScopedPGliteRuntimePersistence, useFileScopedPGliteCommitSchemaPersistence,
-  useFileScopedPGliteRedeliverySchedulerPersistence, useFileScopedPGliteControlScopePersistence } from "./pgliteTestFixture";
+  useFileScopedPGliteRedeliverySchedulerPersistence, useFileScopedPGliteScopeAuthorityPersistence } from "./pgliteTestFixture";
 import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
 import { insertPendingWake, insertWakeHeader, insertWakeScope, WAKE_SCOPE_A, WAKE_EPOCH_A } from "../commit/commitWakeOutboxTestSupport";
 import { reserveScopeAuthorityProvisioningReceiptInTransaction } from "../../src/scope/scopeAuthorityProvisioningReceipt";
@@ -109,10 +109,10 @@ describe("file-scoped PGlite redelivery scheduler fixture", () => {
   });
 });
 
-describe("file-scoped PGlite control scope fixture", () => {
-  const withPersistence = useFileScopedPGliteControlScopePersistence();
+describe("file-scoped PGlite scope authority fixture", () => {
+  const withPersistence = useFileScopedPGliteScopeAuthorityPersistence();
 
-  it("clears receipt, scope and deployment rows, preserves seeds and refuses unexpected dependants", async () => {
+  it("clears authority and control rows, preserves seeds and refuses unexpected dependants", async () => {
     const deploymentId = "fixture_control_scope";
     const scopeId = ScopeIdSchema.make("scope_fixture_control_scope");
     const physicalLocator = { kind: "schema_per_scope", databaseKey: "fixture", schemaName: "fixture_control" } as const;
@@ -125,6 +125,9 @@ describe("file-scoped PGlite control scope fixture", () => {
       await persistence.drizzle.transaction(tx => reserveScopeAuthorityProvisioningReceiptInTransaction(tx, {
         scopeId, physicalLocator, candidateInitialEpoch: ScopeEpochSchema.make("epoch_fixture_control_scope"),
       }));
+      await createPGliteSharedScopeAuthorityProvisioner(persistence, {
+        physicalLocator: { kind: "shared_database", databaseKey: "fixture", schemaName: "public" },
+      }).ensure({ deploymentId: "fixture_shared_scope", projectId: "fixture_shared_scope" });
     });
 
     await expect(withPersistence(async persistence => {
@@ -133,8 +136,11 @@ describe("file-scoped PGlite control scope fixture", () => {
         select 'receipt' as kind, count(*)::int as count from fx_control_scope_provisioning
         union all select 'scope', count(*)::int from fx_control_scope
         union all select 'deployment', count(*)::int from deployments
+        union all select 'authority', count(*)::int from fx_system_scope_execution_authority
+        union all select 'clock', count(*)::int from fx_system_scope_clock
         order by kind
       `)).rows).toEqual([
+        { kind: "authority", count: 0 }, { kind: "clock", count: 0 },
         { kind: "deployment", count: 0 }, { kind: "receipt", count: 0 }, { kind: "scope", count: 0 },
       ]);
       await persistence.insertDeploymentMetadata({ deploymentId, projectId: deploymentId });

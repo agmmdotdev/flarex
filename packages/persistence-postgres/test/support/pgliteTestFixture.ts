@@ -72,6 +72,12 @@ export function useFileScopedPGliteControlScopePersistence() {
   return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () => resetControlScopeRows(db)));
 }
 
+/** Shared scope authority and control metadata only. Application rows, catalog
+ * and persistent DDL require independent fixtures; foreign keys stay enabled. */
+export function useFileScopedPGliteScopeAuthorityPersistence() {
+  return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () => resetScopeAuthorityRows(db)));
+}
+
 /** Current feed/wake schema cases only. Additional publication families and
  * persistent DDL keep independent databases; unexpected dependants fail closed. */
 export function useFileScopedPGliteCommitSchemaPersistence() {
@@ -120,14 +126,23 @@ async function resetStorageRows(db: PGlite): Promise<void> {
 }
 
 async function resetControlScopeRows(db: PGlite): Promise<void> {
+  await db.transaction(resetControlScopeRowsInTransaction);
+}
+
+async function resetScopeAuthorityRows(db: PGlite): Promise<void> {
   await db.transaction(async transaction => {
-    // Preserve every foreign key and leave other deployment dependants intact.
-    await transaction.exec(`
-      delete from fx_control_scope_provisioning;
-      delete from fx_control_scope;
-      delete from deployments;
-    `);
+    await resetScopeClockRowsInTransaction(transaction);
+    await resetControlScopeRowsInTransaction(transaction);
   });
+}
+
+async function resetControlScopeRowsInTransaction(transaction: Transaction): Promise<void> {
+  // Preserve every foreign key and leave other deployment dependants intact.
+  await transaction.exec(`
+    delete from fx_control_scope_provisioning;
+    delete from fx_control_scope;
+    delete from deployments;
+  `);
 }
 
 async function resetCommitSchemaRows(db: PGlite): Promise<void> {
@@ -143,13 +158,19 @@ async function resetCommitSchemaRows(db: PGlite): Promise<void> {
 }
 
 async function resetStorageRowsInTransaction(transaction: Transaction): Promise<void> {
-  // DELETE preserves constraints from other table families. The deferred
-  // authority/clock pair must disappear in the same committed transaction.
+  // DELETE preserves constraints from other table families.
   await transaction.exec(`
     delete from fx_app_edge_current;
     delete from fx_app_edge_adjacency_version;
     delete from fx_app_row_current;
     delete from fx_app_row_rev;
+  `);
+  await resetScopeClockRowsInTransaction(transaction);
+}
+
+async function resetScopeClockRowsInTransaction(transaction: Transaction): Promise<void> {
+  // The deferred authority/clock pair must disappear in the same transaction.
+  await transaction.exec(`
     delete from fx_system_scope_execution_authority;
     delete from fx_system_scope_clock;
   `);

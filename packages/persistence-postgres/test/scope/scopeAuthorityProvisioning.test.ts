@@ -1,4 +1,4 @@
-import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
+import { createMigratedPGlitePersistence, useFileScopedPGliteScopeAuthorityPersistence } from "../support/pgliteTestFixture";
 import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
 import { fxSystemScopeExecutionAuthorities } from "../../src/database/schema";
 import { eq } from "drizzle-orm";
@@ -63,7 +63,8 @@ type ForbiddenRootProvisioningMethod = Extract<
   | "provisionScopeAuthority"
 >;
 
-describe("shared scope authority provisioning", () => {
+describe("shared scope authority provisioning", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPGliteScopeAuthorityPersistence();
   it("keeps generated authority and mutation facts outside per-call input", () => {
     expectTypeOf<ForbiddenEnsureInputField>().toEqualTypeOf<never>();
     expectTypeOf<ForbiddenRootProvisioningMethod>().toEqualTypeOf<never>();
@@ -95,8 +96,7 @@ describe("shared scope authority provisioning", () => {
     })).toThrow(defect);
   });
 
-  it("creates a deployment, locator, and explicit legacy clock atomically", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("creates a deployment, locator, and explicit legacy clock atomically", async () => withPersistence(async persistence => {
     const provisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {
@@ -142,10 +142,9 @@ describe("shared scope authority provisioning", () => {
       scopes: "1",
       clocks: "1",
     });
-  });
+  }));
 
-  it("adds both authority rows to an existing deployment", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("adds both authority rows to an existing deployment", async () => withPersistence(async persistence => {
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_existing",
       projectId: "project_existing",
@@ -169,10 +168,9 @@ describe("shared scope authority provisioning", () => {
       scope: { scopeId: `scope_${uuids.scopeA}` },
       clock: { epoch: `epoch_${uuids.epochA}` },
     });
-  });
+  }));
 
-  it("fails closed when an existing locator is missing its clock", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("fails closed when an existing locator is missing its clock", async () => withPersistence(async persistence => {
     const scopeId = ScopeIdSchema.make(`scope_${uuids.scopeA}`);
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_missing_clock",
@@ -206,10 +204,9 @@ describe("shared scope authority provisioning", () => {
       },
     });
     await expect(persistence.getScopeClock(scopeId)).resolves.toBeNull();
-  });
+  }));
 
-  it("returns existing authority without consuming IDs or resetting an advanced clock", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("returns existing authority without consuming IDs or resetting an advanced clock", async () => withPersistence(async persistence => {
     const firstProvisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {
@@ -255,7 +252,7 @@ describe("shared scope authority provisioning", () => {
         updatedAt: advancedAt,
       },
     });
-  });
+  }));
 
   it("projects typed stored-clock corruption only at the transaction owner", async () => {
     const persistence = await createMigratedPGlitePersistence();
@@ -294,8 +291,7 @@ describe("shared scope authority provisioning", () => {
     );
   });
 
-  it("rejects project and immutable locator conflicts without changing authority", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects project and immutable locator conflicts without changing authority", async () => withPersistence(async persistence => {
     const provisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {
@@ -340,10 +336,9 @@ describe("shared scope authority provisioning", () => {
     await expect(
       persistence.getScopeClock(created.scope.scopeId),
     ).resolves.toEqual(created.clock);
-  });
+  }));
 
-  it("skips scope and orphan-clock collisions before publishing a locator", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("skips scope and orphan-clock collisions before publishing a locator", async () => withPersistence(async persistence => {
     const collisionScopeId = ScopeIdSchema.make(`scope_${uuids.collision}`);
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_collision_owner",
@@ -385,10 +380,9 @@ describe("shared scope authority provisioning", () => {
 
     expect(result.scope.scopeId).toBe(`scope_${uuids.scopeA}`);
     expect(result.clock.epoch).toBe(`epoch_${uuids.epochA}`);
-  });
+  }));
 
-  it("rolls back deployment and locator when generated epoch validation fails", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rolls back deployment and locator when generated epoch validation fails", async () => withPersistence(async persistence => {
     const provisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {
@@ -411,10 +405,9 @@ describe("shared scope authority provisioning", () => {
       scopes: "0",
       clocks: "0",
     });
-  });
+  }));
 
-  it("fails after bounded scope-ID collisions and rolls back a fresh deployment", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("fails after bounded scope-ID collisions and rolls back a fresh deployment", async () => withPersistence(async persistence => {
     const collisionScopeId = ScopeIdSchema.make(`scope_${uuids.collision}`);
     await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_exhaustion_owner",
@@ -442,10 +435,9 @@ describe("shared scope authority provisioning", () => {
     await expect(
       persistence.getDeploymentMetadata("deployment_exhausted"),
     ).resolves.toBeNull();
-  });
+  }));
 
-  it("generates production-format scope and epoch IDs by default", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("generates production-format scope and epoch IDs by default", async () => withPersistence(async persistence => {
     const provisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       { physicalLocator: sharedLocator },
@@ -462,10 +454,9 @@ describe("shared scope authority provisioning", () => {
     expect(result.clock.epoch).toMatch(
       /^epoch_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
-  });
+  }));
 
-  it("captures the trusted locator when the provisioner is constructed", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("captures the trusted locator when the provisioner is constructed", async () => withPersistence(async persistence => {
     const configuredLocator = {
       kind: "shared_database",
       databaseKey: "primary",
@@ -486,10 +477,9 @@ describe("shared scope authority provisioning", () => {
     });
 
     expect(result.scope.physicalLocator).toEqual(sharedLocator);
-  });
+  }));
 
-  it("rejects invalid locators and unsupported topologies before writes", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects invalid locators and unsupported topologies before writes", async () => withPersistence(async persistence => {
     expect(() =>
       createPGliteSharedScopeAuthorityProvisioner(persistence, {
         physicalLocator: { ...sharedLocator, databaseKey: "\t" },
@@ -512,10 +502,9 @@ describe("shared scope authority provisioning", () => {
       scopes: "0",
       clocks: "0",
     });
-  });
+  }));
 
-  it("reports invalid generated scope IDs as typed errors", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("reports invalid generated scope IDs as typed errors", async () => withPersistence(async persistence => {
     const provisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {
@@ -530,7 +519,7 @@ describe("shared scope authority provisioning", () => {
         projectId: "project_bad_scope_id",
       }),
     ).rejects.toBeInstanceOf(InvalidGeneratedScopeAuthorityIdError);
-  });
+  }));
 });
 
 function uuidSequence(...values: readonly string[]): () => string {
