@@ -380,7 +380,12 @@ the scope-provisioning project-lock trigger and existing-deployment convergence
 in separate single-case fixtures. Other row-only scope-provisioning cases
 share one migrated schema. Keep
 separate fixtures for migrations,
-persistent DDL, session settings, or migration-seeded singleton dependencies.
+persistent DDL or session settings. Row-only redelivery and retained-history
+scheduler suites use `useFileScopedPostgresSchedulerPersistence`, which wraps
+the same owner and restores both exact migration singleton rows after reset.
+Capture retains timestamps and future columns; the fixture does not recreate
+scheduler defaults. Concurrent acquisitions drain before reset, and failed
+callbacks or resets retain the shared lifecycle's full rebuild behavior.
 Native bootstrap cases share the existing file fixture. Their temporary insert
 gates release advisory locks, drain pending work and remove their exact triggers
 and functions before returning the borrow; removal failure requires a rebuild.

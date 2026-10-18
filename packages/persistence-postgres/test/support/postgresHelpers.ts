@@ -293,6 +293,43 @@ export function useFileScopedPostgresPersistence(): WithFileScopedPostgresPersis
   return useFileScopedPersistence(createFileScopedPostgresFixture, postgresUrl !== null);
 }
 
+/** Row-only scheduler cases retain the exact migrated singleton rows, rather
+ * than reconstructing scheduler policy, timestamps or defaults during reset. */
+export function useFileScopedPostgresSchedulerPersistence(): WithFileScopedPostgresPersistence {
+  return useFileScopedPersistence(async () => {
+    const fixture = await createFileScopedPostgresFixture();
+    try {
+      const seeds: { tableName: string; seed: string }[] = [];
+      for (const tableName of ["fx_system_point_mutation_redelivery_scheduler", "fx_system_retained_history_scheduler"]) {
+        const result = await fixture.persistence.query<{ seed: string }>(
+          `select row_to_json(seed)::text as seed from ${quoteIdentifier(tableName)} seed`,
+        );
+        const seed = result.rows[0]?.seed;
+        if (result.rows.length !== 1 || seed === undefined) throw new Error(`Expected one migrated ${tableName} seed`);
+        seeds.push({ tableName, seed });
+      }
+      return {
+        ...fixture,
+        async reset() {
+          await fixture.reset();
+          await fixture.persistence.drizzle.transaction(async transaction => {
+            for (const { tableName, seed } of seeds) {
+              await transaction.execute(sql`insert into ${sql.identifier(tableName)}
+                select (json_populate_record(null::${sql.identifier(tableName)}, ${seed}::json)).*`);
+            }
+          });
+        },
+      };
+    } catch (error: unknown) {
+      try { await fixture.dispose(); }
+      catch (cleanupError: unknown) {
+        throw new AggregateError([error, cleanupError], "Scheduler fixture capture and cleanup failed");
+      }
+      throw error;
+    }
+  }, postgresUrl !== null);
+}
+
 export async function withTemporaryPostgresSchema(
   fn: (options: TemporaryPostgresSchemaOptions) => Promise<void>,
 ): Promise<void> {

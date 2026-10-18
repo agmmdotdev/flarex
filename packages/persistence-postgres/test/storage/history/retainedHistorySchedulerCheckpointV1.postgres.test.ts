@@ -28,10 +28,11 @@ import {
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresSchedulerPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresSchedulerPersistence();
 const OWNER_ONE = "95000000-0000-4000-8000-000000000001";
 const OWNER_TWO = "95000000-0000-4000-8000-000000000002";
 
@@ -41,15 +42,18 @@ const locator = Object.freeze({
   schemaName: "public",
 }) satisfies SharedDatabaseScopePhysicalLocator;
 
-describePostgres("real PostgreSQL O11-F1 retained-history checkpoint", () => {
+describePostgres("real PostgreSQL O11-F1 retained-history checkpoint", { concurrent: false }, () => {
   it("serializes acquisition and cold-reloads exactly one durable continuation", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const left = repository(persistence, OWNER_ONE);
       const right = repository(persistence, OWNER_TWO);
-      const [one, two] = await Promise.all([
+      const acquisitions = [
         runEffect(left.acquireEffect()),
         runEffect(right.acquireEffect()),
-      ]);
+      ] as const;
+      const [one, two] = await Promise.all(acquisitions).finally(async () => {
+        await Promise.allSettled(acquisitions);
+      });
       expect([one.kind, two.kind].sort()).toEqual(["acquired", "busy"]);
       const winner = one.kind === "acquired"
         ? one
@@ -82,7 +86,7 @@ describePostgres("real PostgreSQL O11-F1 retained-history checkpoint", () => {
   }, 60_000);
 
   it("rolls back a failed checkpoint and permits its exact retry", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       let reject = false;
       const statementCause = new Error("injected Postgres statement failure");
       const withFailure = createRetainedHistorySchedulerCheckpointV1(
@@ -111,7 +115,7 @@ describePostgres("real PostgreSQL O11-F1 retained-history checkpoint", () => {
   }, 60_000);
 
   it("cold-recovers only after an uncertain committed claim expires", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const uncertain = createRetainedHistorySchedulerCheckpointV1(
         committedThenUncertainTarget(locatedTarget(persistence)),
         { claimDurationMilliseconds: 60_000, randomUuid: () => OWNER_ONE },

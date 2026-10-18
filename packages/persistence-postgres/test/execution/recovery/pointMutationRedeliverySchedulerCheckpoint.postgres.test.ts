@@ -30,11 +30,12 @@ import {
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
+  useFileScopedPostgresSchedulerPersistence,
   withPostgresSequentialScansDisabled,
-  withTemporaryPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPersistence = useFileScopedPostgresSchedulerPersistence();
 const OWNER_ONE = "77000000-0000-4000-8000-000000000001";
 const OWNER_TWO = "77000000-0000-4000-8000-000000000002";
 
@@ -44,15 +45,18 @@ const locator = Object.freeze({
   schemaName: "public",
 }) satisfies SharedDatabaseScopePhysicalLocator;
 
-describePostgres("real Postgres O08-B2b2b2b1b2b2b0 scheduler checkpoint", () => {
+describePostgres("real Postgres O08-B2b2b2b1b2b2b0 scheduler checkpoint", { concurrent: false }, () => {
   it("serializes concurrent acquisition and preserves one durable restart truth", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const left = repository(persistence, OWNER_ONE);
       const right = repository(persistence, OWNER_TWO);
-      const [one, two] = await Promise.all([
+      const acquisitions = [
         runEffect(left.acquireEffect()),
         runEffect(right.acquireEffect()),
-      ]);
+      ] as const;
+      const [one, two] = await Promise.all(acquisitions).finally(async () => {
+        await Promise.allSettled(acquisitions);
+      });
       expect([one.kind, two.kind].sort()).toEqual(["acquired", "busy"]);
       const winner = one.kind === "acquired"
         ? one
@@ -89,7 +93,7 @@ describePostgres("real Postgres O08-B2b2b2b1b2b2b0 scheduler checkpoint", () => 
   }, 60_000);
 
   it("rolls back a rejected statement and permits only one exact retry", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       let reject = false;
       const statementCause = new Error("injected Postgres statement failure");
       const repositoryWithFailure =
@@ -129,7 +133,7 @@ describePostgres("real Postgres O08-B2b2b2b1b2b2b0 scheduler checkpoint", () => 
   }, 60_000);
 
   it("mints no handle after an uncertain committed acquisition and recovers only after durable expiry", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const uncertain = createPointMutationRedeliverySchedulerCheckpointV1(
         committedThenUncertainTarget(locatedTarget(persistence)),
         { claimDurationMilliseconds: 60_000, randomUuid: () => OWNER_ONE },
@@ -163,7 +167,7 @@ describePostgres("real Postgres O08-B2b2b2b1b2b2b0 scheduler checkpoint", () => 
   }, 60_000);
 
   it("rejects stale checkpoints and uses the singleton primary-key plan", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPersistence(async (persistence) => {
       const scheduler = repository(persistence, OWNER_ONE);
       const acquired = await acquire(scheduler);
       await persistence.drizzle.execute(sql`
