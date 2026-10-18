@@ -257,6 +257,14 @@ Unexpected dependants still fail reset and require a rebuild; migration seeds
 remain intact. Historical feed and wake cutovers keep independent databases.
 The migration suite owns fresh-install replay; feed inventory and floor-default
 assertions remain with the feed schema suite.
+Control-only scope receipt and metadata cases use `useFileScopedPGliteControlScopePersistence`.
+Its transaction deletes provisioning receipts, control scopes, then deployments,
+without cascading into other families or changing migration seeds. Unexpected
+dependants require a rebuild. Protocol-constraint corruption keeps a separate
+database; system authority/clock provisioning uses its own fixture contract.
+Native receipt reservation and ready-CAS cases keep independent file fixtures,
+so migration setup precedes their existing deadlines and the readiness trigger
+cannot affect another witness.
 Publication preparation, table-only artifact compatibility and table/app-schema
 binding cases share one serial file-owned migrated backend, with distinct deployments
 and deployment-local allocation frontiers. The table-wide RETURNING-corruption

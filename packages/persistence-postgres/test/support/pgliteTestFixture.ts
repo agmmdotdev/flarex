@@ -65,6 +65,13 @@ export function useFileScopedPGliteStoragePersistence() {
   return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () => resetStorageRows(db)));
 }
 
+/** Control scope metadata and provisioning receipts only. System authority,
+ * catalog and persistent DDL require independent fixtures; unexpected foreign-key
+ * dependants fail closed. */
+export function useFileScopedPGliteControlScopePersistence() {
+  return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () => resetControlScopeRows(db)));
+}
+
 /** Current feed/wake schema cases only. Additional publication families and
  * persistent DDL keep independent databases; unexpected dependants fail closed. */
 export function useFileScopedPGliteCommitSchemaPersistence() {
@@ -110,6 +117,17 @@ async function resetRuntimeRows(db: PGlite): Promise<void> {
 
 async function resetStorageRows(db: PGlite): Promise<void> {
   await db.transaction(resetStorageRowsInTransaction);
+}
+
+async function resetControlScopeRows(db: PGlite): Promise<void> {
+  await db.transaction(async transaction => {
+    // Preserve every foreign key and leave other deployment dependants intact.
+    await transaction.exec(`
+      delete from fx_control_scope_provisioning;
+      delete from fx_control_scope;
+      delete from deployments;
+    `);
+  });
 }
 
 async function resetCommitSchemaRows(db: PGlite): Promise<void> {

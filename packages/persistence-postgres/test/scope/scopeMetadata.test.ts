@@ -1,6 +1,7 @@
 import {
   createMigratedPGlitePersistence,
   migratedPGliteDataDir,
+  useFileScopedPGliteControlScopePersistence,
 } from "../support/pgliteTestFixture";
 import {
   ScopeIdSchema,
@@ -39,7 +40,8 @@ const physicalLocators = [
 
 beforeAll(() => migratedPGliteDataDir(), 120_000);
 
-describe("scope metadata", () => {
+describe("scope metadata", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPGliteControlScopePersistence();
   it("keeps scope identity branded and the active schema pointer read-only", () => {
     expectTypeOf<InsertScopeMetadataInput["scopeId"]>()
       .toEqualTypeOf<ScopeId>();
@@ -49,8 +51,7 @@ describe("scope metadata", () => {
     >().toEqualTypeOf<never>();
   });
 
-  it("rejects page limits that cannot produce an advancing cursor", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects page limits that cannot produce an advancing cursor", async () => withPersistence(async persistence => {
 
     for (const limit of [
       0,
@@ -71,10 +72,9 @@ describe("scope metadata", () => {
         persistence.listScopeMetadata({ limit }),
       ).rejects.toBeInstanceOf(InvalidScopeMetadataListLimitError);
     }
-  });
+  }));
 
-  it("round-trips every physical topology and lists scopes stably", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("round-trips every physical topology and lists scopes stably", async () => withPersistence(async persistence => {
 
     const inputs = [
       {
@@ -140,10 +140,9 @@ describe("scope metadata", () => {
       nextCursor: null,
       hasMore: false,
     });
-  });
+  }));
 
-  it("rejects whitespace-only input before it can claim a deployment", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rejects whitespace-only input before it can claim a deployment", async () => withPersistence(async persistence => {
     const deploymentId = "deployment_whitespace_input";
     await persistence.insertDeploymentMetadata({
       deploymentId,
@@ -208,10 +207,9 @@ describe("scope metadata", () => {
       scopeId: "scope_whitespace_corrected",
       deploymentId,
     });
-  });
+  }));
 
-  it("enforces scope ownership and locator constraints", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("enforces scope ownership and locator constraints", async () => withPersistence(async persistence => {
     for (const deploymentId of ["deployment_owner_a", "deployment_owner_b"]) {
       await persistence.insertDeploymentMetadata({
         deploymentId,
@@ -374,7 +372,7 @@ describe("scope metadata", () => {
     await expect(
       persistence.getScopeMetadataByDeploymentId("deployment_owner_b"),
     ).resolves.toBeNull();
-  });
+  }));
 
   it("rejects malformed persisted locator JSON when decoding rows", async () => {
     const persistence = await createMigratedPGlitePersistence();

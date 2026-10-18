@@ -22,10 +22,14 @@ import type {
 import type { SplitScopePhysicalLocator } from "../../src/scope/scopeMetadataTypes";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
 } from "../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withReservationPersistence = useFileScopedPostgresPersistence();
+// The ready-CAS witness installs a persistent trigger. Keep its store separate;
+// both migrations belong to fixture setup rather than the five-second cases.
+const withReadyPersistence = useFileScopedPostgresPersistence();
 
 const schemaLocator = {
   kind: "schema_per_scope",
@@ -37,9 +41,9 @@ const epochA = ScopeEpochSchema.make("epoch_receipt_pg_a");
 const epochB = ScopeEpochSchema.make("epoch_receipt_pg_b");
 const epochC = ScopeEpochSchema.make("epoch_receipt_pg_c");
 
-describePostgres("real Postgres split scope provisioning receipts", () => {
+describePostgres("real Postgres split scope provisioning receipts", { concurrent: false }, () => {
   it("converges concurrent reservations on one persisted epoch winner", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withReservationPersistence(async (persistence) => {
       const scopeId = await insertSplitScope(
         persistence,
         "concurrent_reserve",
@@ -83,7 +87,7 @@ describePostgres("real Postgres split scope provisioning receipts", () => {
   });
 
   it("serializes exact ready CAS and scope placement mutation", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withReadyPersistence(async (persistence) => {
       const scopeId = await insertSplitScope(persistence, "ready_lock");
       const reserved = await reserveReceipt(persistence, scopeId, epochA);
       const expected = receiptIdentity(reserved.receipt);

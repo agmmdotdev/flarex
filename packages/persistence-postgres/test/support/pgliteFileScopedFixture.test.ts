@@ -4,9 +4,10 @@ import type { PGliteFlarexPersistence } from "../../src/database/pglite";
 import { preparedHostTestRuntime } from "../execution/preparation/preparedHostRuntimeTestSupport";
 import { registerFileScopedPersistenceTests } from "./fileScopedPersistenceScenario";
 import { useFileScopedPGliteRuntimePersistence, useFileScopedPGliteCommitSchemaPersistence,
-  useFileScopedPGliteRedeliverySchedulerPersistence } from "./pgliteTestFixture";
+  useFileScopedPGliteRedeliverySchedulerPersistence, useFileScopedPGliteControlScopePersistence } from "./pgliteTestFixture";
 import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
 import { insertPendingWake, insertWakeHeader, insertWakeScope, WAKE_SCOPE_A, WAKE_EPOCH_A } from "../commit/commitWakeOutboxTestSupport";
+import { reserveScopeAuthorityProvisioningReceiptInTransaction } from "../../src/scope/scopeAuthorityProvisioningReceipt";
 
 describe("file-scoped PGlite runtime fixture", () => {
   const withPersistence = useFileScopedPGliteRuntimePersistence();
@@ -104,6 +105,50 @@ describe("file-scoped PGlite redelivery scheduler fixture", () => {
     });
     await withPersistence(async persistence => {
       expect(await seededRows(persistence)).toEqual(baseline);
+    });
+  });
+});
+
+describe("file-scoped PGlite control scope fixture", () => {
+  const withPersistence = useFileScopedPGliteControlScopePersistence();
+
+  it("clears receipt, scope and deployment rows, preserves seeds and refuses unexpected dependants", async () => {
+    const deploymentId = "fixture_control_scope";
+    const scopeId = ScopeIdSchema.make("scope_fixture_control_scope");
+    const physicalLocator = { kind: "schema_per_scope", databaseKey: "fixture", schemaName: "fixture_control" } as const;
+    let baseline: Awaited<ReturnType<typeof seededRows>> = [];
+    await withPersistence(async persistence => {
+      baseline = await seededRows(persistence);
+      expect(baseline).toHaveLength(5);
+      await persistence.insertDeploymentMetadata({ deploymentId, projectId: deploymentId });
+      await persistence.insertScopeMetadata({ scopeId, deploymentId, physicalLocator });
+      await persistence.drizzle.transaction(tx => reserveScopeAuthorityProvisioningReceiptInTransaction(tx, {
+        scopeId, physicalLocator, candidateInitialEpoch: ScopeEpochSchema.make("epoch_fixture_control_scope"),
+      }));
+    });
+
+    await expect(withPersistence(async persistence => {
+      expect(await seededRows(persistence)).toEqual(baseline);
+      expect((await persistence.query(`
+        select 'receipt' as kind, count(*)::int as count from fx_control_scope_provisioning
+        union all select 'scope', count(*)::int from fx_control_scope
+        union all select 'deployment', count(*)::int from deployments
+        order by kind
+      `)).rows).toEqual([
+        { kind: "deployment", count: 0 }, { kind: "receipt", count: 0 }, { kind: "scope", count: 0 },
+      ]);
+      await persistence.insertDeploymentMetadata({ deploymentId, projectId: deploymentId });
+      await persistence.query("delete from fx_system_retained_history_scheduler");
+      await persistence.query(`create table fixture_control_scope_reset_ref (
+        deployment_id text references deployments (deployment_id))`);
+      await persistence.query("insert into fixture_control_scope_reset_ref values ($1)", [deploymentId]);
+    })).rejects.toMatchObject({ code: "23503" });
+
+    await withPersistence(async persistence => {
+      expect(await seededRows(persistence)).toEqual(baseline);
+      expect((await persistence.query("select to_regclass('fixture_control_scope_reset_ref') as relation")).rows)
+        .toEqual([{ relation: null }]);
+      expect(await persistence.getDeploymentMetadata(deploymentId)).toBeNull();
     });
   });
 });
