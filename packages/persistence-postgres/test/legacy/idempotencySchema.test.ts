@@ -1,4 +1,4 @@
-import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../support/pgliteTestFixture";
+import { migratedPGliteDataDir, useFileScopedPGliteCommitSchemaPersistence } from "../support/pgliteTestFixture";
 import { copyDrizzleMigrations } from "../../src/testing/systemTestMigrationFiles";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -6,7 +6,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
-import { afterAll, beforeAll, describe, expect, it, onTestFinished } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import * as persistencePackage from "../../src";
 import { createPGlitePersistence } from "../../src/database/pglite";
@@ -220,135 +220,137 @@ describe("S09-A committed-success idempotency schema", () => {
     }
   });
 
-  it("enforces key, match, token, timestamp, and result-state boundaries", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    await insertS09Scope(persistence, S09_SCOPE_A, S09_EPOCH_B, "3");
-    await insertS09Scope(
-      persistence,
-      S09_SCOPE_B,
-      S09_EPOCH_C,
-      POSTGRES_SIGNED_BIGINT_MAX,
-    );
-    await insertS09Header(persistence, S09_SCOPE_A, S09_EPOCH_A, "1");
+  describe("current outcome constraints", { concurrent: false }, () => {
+    const withPersistence = useFileScopedPGliteCommitSchemaPersistence();
 
-    const exactMultibyteKey = "é".repeat(512);
-    await insertAvailableOutcome(persistence, {
-      scopeUuid: S09_SCOPE_A,
-      requestKey: exactMultibyteKey,
-      epochUuid: S09_EPOCH_A,
-      commitSeq: "1",
-    });
-    await insertAvailableOutcome(persistence, {
-      scopeUuid: S09_SCOPE_B,
-      requestKey: exactMultibyteKey,
-      epochUuid: S09_EPOCH_C,
-      commitSeq: POSTGRES_SIGNED_BIGINT_MAX,
-    });
-    await insertExpiredOutcome(persistence, {
-      scopeUuid: S09_SCOPE_A,
-      requestKey: "expired-request",
-      epochUuid: S09_EPOCH_A,
-      commitSeq: "1",
-    });
-    await insertAvailableOutcome(persistence, {
-      scopeUuid: S09_SCOPE_A,
-      requestKey: "zero-semantic-result",
-      epochUuid: S09_EPOCH_A,
-      commitSeq: "1",
-      resultSemanticBytes: 0,
-    });
-
-    await expect(
-      insertAvailableOutcome(persistence, {
-        scopeUuid: S09_SCOPE_A,
-        requestKey: `${exactMultibyteKey}x`,
-        epochUuid: S09_EPOCH_A,
-        commitSeq: "1",
-      }),
-    ).rejects.toThrow(/fx_system_idempotency_request_key_check/);
-    await expect(
-      insertAvailableOutcome(persistence, {
-        scopeUuid: S09_SCOPE_A,
-        requestKey: " \t\n ",
-        epochUuid: S09_EPOCH_A,
-        commitSeq: "1",
-      }),
-    ).rejects.toThrow(/fx_system_idempotency_request_key_check/);
-
-    for (const invalid of invalidStateStatements()) {
-      await expect(persistence.query(invalid.statement)).rejects.toThrow(
-        invalid.expected,
+    it("enforces key, match, token, timestamp, and result-state boundaries", () => withPersistence(async persistence => {
+      await insertS09Scope(persistence, S09_SCOPE_A, S09_EPOCH_B, "3");
+      await insertS09Scope(
+        persistence,
+        S09_SCOPE_B,
+        S09_EPOCH_C,
+        POSTGRES_SIGNED_BIGINT_MAX,
       );
-    }
+      await insertS09Header(persistence, S09_SCOPE_A, S09_EPOCH_A, "1");
 
-    await expect(
-      persistence.query(
-        `delete from fx_system_scope_clock where scope_uuid = $1::uuid`,
-        [S09_SCOPE_B],
-      ),
-    ).rejects.toThrow(/fx_system_idempotency_scope_clock_fk/);
-    await expect(
-      persistence.query(
-        `delete from fx_system_commit where scope_uuid = $1::uuid and commit_seq = 1`,
-        [S09_SCOPE_A],
-      ),
-    ).resolves.toBeDefined();
-    const outcomes = await persistence.query<{ count: string }>(`
-      select count(*)::text as count from fx_system_idempotency
-    `);
-    expect(outcomes.rows).toEqual([{ count: "4" }]);
+      const exactMultibyteKey = "é".repeat(512);
+      await insertAvailableOutcome(persistence, {
+        scopeUuid: S09_SCOPE_A,
+        requestKey: exactMultibyteKey,
+        epochUuid: S09_EPOCH_A,
+        commitSeq: "1",
+      });
+      await insertAvailableOutcome(persistence, {
+        scopeUuid: S09_SCOPE_B,
+        requestKey: exactMultibyteKey,
+        epochUuid: S09_EPOCH_C,
+        commitSeq: POSTGRES_SIGNED_BIGINT_MAX,
+      });
+      await insertExpiredOutcome(persistence, {
+        scopeUuid: S09_SCOPE_A,
+        requestKey: "expired-request",
+        epochUuid: S09_EPOCH_A,
+        commitSeq: "1",
+      });
+      await insertAvailableOutcome(persistence, {
+        scopeUuid: S09_SCOPE_A,
+        requestKey: "zero-semantic-result",
+        epochUuid: S09_EPOCH_A,
+        commitSeq: "1",
+        resultSemanticBytes: 0,
+      });
+
+      await expect(
+        insertAvailableOutcome(persistence, {
+          scopeUuid: S09_SCOPE_A,
+          requestKey: `${exactMultibyteKey}x`,
+          epochUuid: S09_EPOCH_A,
+          commitSeq: "1",
+        }),
+      ).rejects.toThrow(/fx_system_idempotency_request_key_check/);
+      await expect(
+        insertAvailableOutcome(persistence, {
+          scopeUuid: S09_SCOPE_A,
+          requestKey: " \t\n ",
+          epochUuid: S09_EPOCH_A,
+          commitSeq: "1",
+        }),
+      ).rejects.toThrow(/fx_system_idempotency_request_key_check/);
+
+      for (const invalid of invalidStateStatements()) {
+        await expect(persistence.query(invalid.statement)).rejects.toThrow(
+          invalid.expected,
+        );
+      }
+
+      await expect(
+        persistence.query(
+          `delete from fx_system_scope_clock where scope_uuid = $1::uuid`,
+          [S09_SCOPE_B],
+        ),
+      ).rejects.toThrow(/fx_system_idempotency_scope_clock_fk/);
+      await expect(
+        persistence.query(
+          `delete from fx_system_commit where scope_uuid = $1::uuid and commit_seq = 1`,
+          [S09_SCOPE_A],
+        ),
+      ).resolves.toBeDefined();
+      const outcomes = await persistence.query<{ count: string }>(`
+        select count(*)::text as count from fx_system_idempotency
+      `);
+      expect(outcomes.rows).toEqual([{ count: "4" }]);
+    }));
+
+    it("accepts exact result limits and rejects semantic or canonical +1", () => withPersistence(async persistence => {
+      await insertS09Scope(persistence, S09_SCOPE_A, S09_EPOCH_A, "1");
+
+      await insertAvailableOutcome(persistence, {
+        scopeUuid: S09_SCOPE_A,
+        requestKey: "exact-large-result",
+        epochUuid: S09_EPOCH_A,
+        commitSeq: "1",
+        resultSemanticBytes: MAX_RESULT_SEMANTIC_BYTES,
+        resultByteLength: MAX_RESULT_CANONICAL_BYTES,
+      });
+      const exact = await persistence.query<{
+        canonical_bytes: string;
+        semantic_bytes: number;
+      }>(`
+        select
+          octet_length(result_bytes)::text as canonical_bytes,
+          result_semantic_bytes as semantic_bytes
+        from fx_system_idempotency
+        where scope_uuid = '${S09_SCOPE_A}'::uuid
+          and request_key = 'exact-large-result'
+      `);
+      expect(exact.rows).toEqual([
+        {
+          canonical_bytes: String(MAX_RESULT_CANONICAL_BYTES),
+          semantic_bytes: MAX_RESULT_SEMANTIC_BYTES,
+        },
+      ]);
+      await persistence.query(`delete from fx_system_idempotency`);
+
+      await expect(
+        insertAvailableOutcome(persistence, {
+          scopeUuid: S09_SCOPE_A,
+          requestKey: "semantic-plus-one",
+          epochUuid: S09_EPOCH_A,
+          commitSeq: "1",
+          resultSemanticBytes: MAX_RESULT_SEMANTIC_BYTES + 1,
+        }),
+      ).rejects.toThrow(/fx_system_idempotency_result_evidence_check/);
+      await expect(
+        insertAvailableOutcome(persistence, {
+          scopeUuid: S09_SCOPE_A,
+          requestKey: "canonical-plus-one",
+          epochUuid: S09_EPOCH_A,
+          commitSeq: "1",
+          resultByteLength: MAX_RESULT_CANONICAL_BYTES + 1,
+        }),
+      ).rejects.toThrow(/fx_system_idempotency_result_evidence_check/);
+    }), 180_000);
   });
-
-  it("accepts exact result limits and rejects semantic or canonical +1", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    await insertS09Scope(persistence, S09_SCOPE_A, S09_EPOCH_A, "1");
-
-    await insertAvailableOutcome(persistence, {
-      scopeUuid: S09_SCOPE_A,
-      requestKey: "exact-large-result",
-      epochUuid: S09_EPOCH_A,
-      commitSeq: "1",
-      resultSemanticBytes: MAX_RESULT_SEMANTIC_BYTES,
-      resultByteLength: MAX_RESULT_CANONICAL_BYTES,
-    });
-    const exact = await persistence.query<{
-      canonical_bytes: string;
-      semantic_bytes: number;
-    }>(`
-      select
-        octet_length(result_bytes)::text as canonical_bytes,
-        result_semantic_bytes as semantic_bytes
-      from fx_system_idempotency
-      where scope_uuid = '${S09_SCOPE_A}'::uuid
-        and request_key = 'exact-large-result'
-    `);
-    expect(exact.rows).toEqual([
-      {
-        canonical_bytes: String(MAX_RESULT_CANONICAL_BYTES),
-        semantic_bytes: MAX_RESULT_SEMANTIC_BYTES,
-      },
-    ]);
-    await persistence.query(`delete from fx_system_idempotency`);
-
-    await expect(
-      insertAvailableOutcome(persistence, {
-        scopeUuid: S09_SCOPE_A,
-        requestKey: "semantic-plus-one",
-        epochUuid: S09_EPOCH_A,
-        commitSeq: "1",
-        resultSemanticBytes: MAX_RESULT_SEMANTIC_BYTES + 1,
-      }),
-    ).rejects.toThrow(/fx_system_idempotency_result_evidence_check/);
-    await expect(
-      insertAvailableOutcome(persistence, {
-        scopeUuid: S09_SCOPE_A,
-        requestKey: "canonical-plus-one",
-        epochUuid: S09_EPOCH_A,
-        commitSeq: "1",
-        resultByteLength: MAX_RESULT_CANONICAL_BYTES + 1,
-      }),
-    ).rejects.toThrow(/fx_system_idempotency_result_evidence_check/);
-  }, 180_000);
 });
 
 interface InvalidStateStatement {

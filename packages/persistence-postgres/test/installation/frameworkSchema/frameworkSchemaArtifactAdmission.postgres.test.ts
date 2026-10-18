@@ -60,7 +60,6 @@ import {
   useFileScopedPostgresPersistence,
   rollbackAndReleasePostgresClient,
   waitForBlockedPostgresDeploymentLockWaiters,
-  withTemporaryPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
@@ -868,45 +867,45 @@ describePostgres(
     }, 180_000);
 
     it("expires a queued native pool acquisition and destroys the late backend", async () => {
-      await expectPostgresArtifactAcquisitionDeadline();
+      await withPersistence(expectPostgresArtifactAcquisitionDeadline);
     }, 180_000);
 
     it("lets native lock_timeout abort the deployment-row waiter", async () => {
-      await expectPostgresArtifactLockTimeout();
+      await withPersistence(expectPostgresArtifactLockTimeout);
     }, 180_000);
 
     it("lets native statement_timeout abort dependency-edge insertion", async () => {
-      await expectPostgresArtifactStatementTimeout();
+      await withPersistence(expectPostgresArtifactStatementTimeout);
     }, 180_000);
 
     it("destroys and drains active native SQL when the host deadline expires", async () => {
-      await expectPostgresArtifactActiveStatementDeadline();
+      await withPersistence(expectPostgresArtifactActiveStatementDeadline);
     }, 180_000);
 
     it("stops after one native recovery when its work deadline expires", async () => {
-      await expectPostgresArtifactRecoveryDeadline();
+      await withPersistence(expectPostgresArtifactRecoveryDeadline);
     }, 180_000);
 
     it("expires detached optimistic reconstruction without discarding its released backend", async () => {
-      await expectPostgresArtifactOptimisticReconstructionDeadline();
+      await withPersistence(expectPostgresArtifactOptimisticReconstructionDeadline);
     }, 180_000);
 
     it("discards the post-resolution read backend when reconstruction expires", async () => {
-      await expectPostgresArtifactPostResolutionReconstructionDeadline();
+      await withPersistence(expectPostgresArtifactPostResolutionReconstructionDeadline);
     }, 180_000);
 
     for (const scenario of COMMIT_SETTLEMENT_RECOVERY_SCENARIOS) {
       it(`recovers on a distinct backend ${scenario.label}`, async () => {
-        await expectPostgresCommitSettlementRecovery(scenario);
+        await withPersistence(persistence => expectPostgresCommitSettlementRecovery(persistence, scenario));
       }, 180_000);
     }
 
     it("drains blocked callback SQL and rolls back before re-emitting interruption", async () => {
-      await expectPostgresCallbackInterruption();
+      await withPersistence(expectPostgresCallbackInterruption);
     }, 180_000);
 
     it("drains blocked COMMIT and recovers before re-emitting interruption", async () => {
-      await expectPostgresCommitInterruptionRecovery();
+      await withPersistence(expectPostgresCommitInterruptionRecovery);
     }, 180_000);
 
     it("does not serialize an independent deployment behind a held lock", async () => {
@@ -1198,824 +1197,820 @@ async function runSupportedCrossOwnerLockOrder(input: Readonly<{
   });
 }
 
-async function expectPostgresArtifactAcquisitionDeadline(): Promise<void> {
-  await withTemporaryPostgresPersistence(async persistence => {
-    await expectPostgres18OrdinaryRole(persistence);
-    await insertDeployment(persistence);
-    const artifact = await captureArtifact({
-      lineageId: "catalog-acquisition-deadline",
-    });
-    const prepared = prepareAdmissionOrThrow(artifact);
-    const pool = await makeDedicatedPostgresControlPool(persistence, 1);
-    const holder = await pool.connect();
-    const holderPid = await readPostgresBackendPid(holder);
-    const observedPool = observePostgresControlPool(persistence, pool);
-    let holderReleased = false;
-    try {
-      const repository = makePostgresArtifactRepository(persistence, {
-        controlPool: observedPool.controlPool,
-        timeoutPolicy: {
-          readTimeoutMilliseconds: 30_000,
-          attemptTimeoutMilliseconds: 30_000,
-          recoveryTimeoutMilliseconds: 30_000,
-          lockTimeoutMilliseconds: 30_000,
-        },
-      });
-      const exit = await expireEffectAfterGate(
-        admitFrameworkSchemaArtifactEffect(repository, prepared),
-        () => waitForPostgresPoolWaiter(pool),
-        30_000,
-      );
-      const failure = expectSingleFrameworkArtifactFailure(exit);
-      expect(failure).toMatchObject({
-        operation: "admit",
-        reason: "resourceFailure",
-        retryable: false,
-        identity: artifact.identity,
-        stage: "readArtifact",
-      });
-      expectControlSessionDeadlineCause(
-        failure,
-        "acquire",
-        "initial",
-        "acquire",
-      );
-      expect(await countArtifactRows(persistence, artifact)).toBe(0);
-
-      holder.release();
-      holderReleased = true;
-      await waitForDiscardedPostgresBackend(
-        persistence,
-        observedPool,
-        holderPid,
-      );
-      expect(observedPool.removedBackendPids()).toEqual([holderPid]);
-    } finally {
-      if (!holderReleased) holder.release(true);
-      observedPool.close();
-      await pool.end();
-    }
-
-    const stableRepository = makePostgresArtifactRepository(persistence);
-    expect(await admitArtifact(stableRepository, artifact)).toEqual({
-      status: "created",
-      artifact,
-    });
-    expect(await admitArtifact(stableRepository, artifact)).toEqual({
-      status: "existing",
-      artifact,
-    });
-    expect(await countArtifactRows(persistence, artifact)).toBe(1);
+async function expectPostgresArtifactAcquisitionDeadline(persistence: PostgresFlarexPersistence): Promise<void> {
+  await expectPostgres18OrdinaryRole(persistence);
+  await insertDeployment(persistence);
+  const artifact = await captureArtifact({
+    lineageId: "catalog-acquisition-deadline",
   });
-}
-
-async function expectPostgresArtifactLockTimeout(): Promise<void> {
-  await withTemporaryPostgresPersistence(async persistence => {
-    await expectPostgres18OrdinaryRole(persistence);
-    await insertDeployment(persistence);
-    const artifact = await captureArtifact({
-      lineageId: "catalog-native-lock-timeout",
+  const prepared = prepareAdmissionOrThrow(artifact);
+  const pool = await makeDedicatedPostgresControlPool(persistence, 1);
+  const holder = await pool.connect();
+  const holderPid = await readPostgresBackendPid(holder);
+  const observedPool = observePostgresControlPool(persistence, pool);
+  let holderReleased = false;
+  try {
+    const repository = makePostgresArtifactRepository(persistence, {
+      controlPool: observedPool.controlPool,
+      timeoutPolicy: {
+        readTimeoutMilliseconds: 30_000,
+        attemptTimeoutMilliseconds: 30_000,
+        recoveryTimeoutMilliseconds: 30_000,
+        lockTimeoutMilliseconds: 30_000,
+      },
     });
-    const prepared = prepareAdmissionOrThrow(artifact);
-    const lock = await acquirePostgresDeploymentLock(
-      persistence,
-      artifact.identity.deploymentId,
+    const exit = await expireEffectAfterGate(
+      admitFrameworkSchemaArtifactEffect(repository, prepared),
+      () => waitForPostgresPoolWaiter(pool),
+      30_000,
     );
-    const observedPool = observePostgresControlPool(persistence);
-    const lifecycleEvents: string[] = [];
-    let lockReleased = false;
-    try {
-      const repository = makePostgresArtifactRepository(persistence, {
-        controlPool: observedPool.controlPool,
-        controlSessionOptions: {
-          lifecycleFault: ({ phase, edge }) => {
-            lifecycleEvents.push(`${phase}:${edge}`);
-          },
-        },
-        timeoutPolicy: {
-          readTimeoutMilliseconds: 5_000,
-          attemptTimeoutMilliseconds: 5_000,
-          recoveryTimeoutMilliseconds: 5_000,
-          lockTimeoutMilliseconds: 2_000,
-        },
-      });
-      const observed = await runEffectUnderFrozenClockAfterGate(
-        admitFrameworkSchemaArtifactEffect(repository, prepared),
-        async () => {
-          const waiters = await waitForBlockedPostgresDeploymentLockWaiters(
-            persistence,
-            lock,
-            1,
-          );
-          const waiter = waiters[0];
-          if (waiter === undefined) {
-            throw new Error("Expected a native deployment-lock waiter.");
-          }
-          return waiter;
-        },
-      );
-      expect(observed.observation.blockerPids).toContain(lock.blockerPid);
-      const failure = expectSingleFrameworkArtifactFailure(observed.exit);
-      expectPostgresSqlStateFailure(
-        failure,
-        artifact,
-        "lockDeployment",
-        "55P03",
-      );
-      expect(lifecycleEvents).toContain("rollback:before");
-      expect(lifecycleEvents).toContain("rollback:after");
-      expect(lifecycleEvents.slice(-2)).toEqual([
-        "release:before",
-        "release:after",
-      ]);
-      expect(lifecycleEvents.some(event => event.startsWith("quarantine:")))
-        .toBe(false);
-      expect(observedPool.removedBackendPids()).toEqual([]);
-      expect(await countArtifactRows(persistence, artifact)).toBe(0);
-      expect(await countDependencyRows(persistence, artifact)).toBe(0);
-    } finally {
-      await rollbackAndReleasePostgresClient(lock.client);
-      lockReleased = true;
-      observedPool.close();
-    }
-    expect(lockReleased).toBe(true);
-
-    const stableRepository = makePostgresArtifactRepository(persistence);
-    expect(await admitArtifact(stableRepository, artifact)).toEqual({
-      status: "created",
-      artifact,
+    const failure = expectSingleFrameworkArtifactFailure(exit);
+    expect(failure).toMatchObject({
+      operation: "admit",
+      reason: "resourceFailure",
+      retryable: false,
+      identity: artifact.identity,
+      stage: "readArtifact",
     });
-    expect(await countArtifactRows(persistence, artifact)).toBe(1);
+    expectControlSessionDeadlineCause(
+      failure,
+      "acquire",
+      "initial",
+      "acquire",
+    );
+    expect(await countArtifactRows(persistence, artifact)).toBe(0);
+
+    holder.release();
+    holderReleased = true;
+    await waitForDiscardedPostgresBackend(
+      persistence,
+      observedPool,
+      holderPid,
+    );
+    expect(observedPool.removedBackendPids()).toEqual([holderPid]);
+  } finally {
+    if (!holderReleased) holder.release(true);
+    observedPool.close();
+    await pool.end();
+  }
+
+  const stableRepository = makePostgresArtifactRepository(persistence);
+  expect(await admitArtifact(stableRepository, artifact)).toEqual({
+    status: "created",
+    artifact,
   });
+  expect(await admitArtifact(stableRepository, artifact)).toEqual({
+    status: "existing",
+    artifact,
+  });
+  expect(await countArtifactRows(persistence, artifact)).toBe(1);
 }
 
-async function expectPostgresArtifactStatementTimeout(): Promise<void> {
-  await withTemporaryPostgresPersistence(async persistence => {
-    await expectPostgres18OrdinaryRole(persistence);
-    await insertDeployment(persistence);
-    const stableRepository = makePostgresArtifactRepository(persistence);
-    const dependency = await captureArtifact({
-      lineageId: "catalog-native-statement-timeout-dependency",
-    });
-    expect(await admitArtifact(stableRepository, dependency)).toEqual({
-      status: "created",
-      artifact: dependency,
-    });
-    const parent = await captureArtifact({
-      lineageId: "catalog-native-statement-timeout-parent",
-      dependencies: [dependency.identity],
-    });
-    const preparedParent = prepareAdmissionOrThrow(parent);
-    const observedPool = observePostgresControlPool(persistence);
-    const lifecycleEvents: string[] = [];
-    await installPostgresArtifactStatementTimeoutBarrier(persistence, parent);
-    try {
-      const repository = makePostgresArtifactRepository(persistence, {
-        controlPool: observedPool.controlPool,
-        controlSessionOptions: {
-          lifecycleFault: ({ phase, edge }) => {
-            lifecycleEvents.push(`${phase}:${edge}`);
-          },
+async function expectPostgresArtifactLockTimeout(persistence: PostgresFlarexPersistence): Promise<void> {
+  await expectPostgres18OrdinaryRole(persistence);
+  await insertDeployment(persistence);
+  const artifact = await captureArtifact({
+    lineageId: "catalog-native-lock-timeout",
+  });
+  const prepared = prepareAdmissionOrThrow(artifact);
+  const lock = await acquirePostgresDeploymentLock(
+    persistence,
+    artifact.identity.deploymentId,
+  );
+  const observedPool = observePostgresControlPool(persistence);
+  const lifecycleEvents: string[] = [];
+  let lockReleased = false;
+  try {
+    const repository = makePostgresArtifactRepository(persistence, {
+      controlPool: observedPool.controlPool,
+      controlSessionOptions: {
+        lifecycleFault: ({ phase, edge }) => {
+          lifecycleEvents.push(`${phase}:${edge}`);
         },
-        timeoutPolicy: {
-          readTimeoutMilliseconds: 5_000,
-          attemptTimeoutMilliseconds: 5_000,
-          recoveryTimeoutMilliseconds: 5_000,
-          lockTimeoutMilliseconds: 5_000,
-        },
-      });
-      const observed = await runEffectUnderFrozenClockAfterGate(
-        admitFrameworkSchemaArtifactEffect(repository, preparedParent),
-        () => waitForPostgresSleepingStatement(
+      },
+      timeoutPolicy: {
+        readTimeoutMilliseconds: 5_000,
+        attemptTimeoutMilliseconds: 5_000,
+        recoveryTimeoutMilliseconds: 5_000,
+        lockTimeoutMilliseconds: 2_000,
+      },
+    });
+    const observed = await runEffectUnderFrozenClockAfterGate(
+      admitFrameworkSchemaArtifactEffect(repository, prepared),
+      async () => {
+        const waiters = await waitForBlockedPostgresDeploymentLockWaiters(
           persistence,
-          DEPENDENCY_TABLE,
-        ),
-      );
-      expect(observed.observation.query.toLowerCase()).toContain(
-        DEPENDENCY_TABLE,
-      );
-      const failure = expectSingleFrameworkArtifactFailure(observed.exit);
-      expectPostgresSqlStateFailure(
-        failure,
-        parent,
-        "insertDependencies",
-        "57014",
-      );
-      expect(lifecycleEvents).toContain("rollback:before");
-      expect(lifecycleEvents).toContain("rollback:after");
-      expect(lifecycleEvents.slice(-2)).toEqual([
-        "release:before",
-        "release:after",
-      ]);
-      expect(lifecycleEvents.some(event => event.startsWith("quarantine:")))
-        .toBe(false);
-      expect(observedPool.removedBackendPids()).toEqual([]);
-      expect(await countArtifactRows(persistence, dependency)).toBe(1);
-      expect(await countArtifactRows(persistence, parent)).toBe(0);
-      expect(await countAllDependencyRows(persistence)).toBe(0);
-    } finally {
-      observedPool.close();
-      await dropPostgresArtifactStatementTimeoutBarrier(persistence);
-    }
+          lock,
+          1,
+        );
+        const waiter = waiters[0];
+        if (waiter === undefined) {
+          throw new Error("Expected a native deployment-lock waiter.");
+        }
+        return waiter;
+      },
+    );
+    expect(observed.observation.blockerPids).toContain(lock.blockerPid);
+    const failure = expectSingleFrameworkArtifactFailure(observed.exit);
+    expectPostgresSqlStateFailure(
+      failure,
+      artifact,
+      "lockDeployment",
+      "55P03",
+    );
+    expect(lifecycleEvents).toContain("rollback:before");
+    expect(lifecycleEvents).toContain("rollback:after");
+    expect(lifecycleEvents.slice(-2)).toEqual([
+      "release:before",
+      "release:after",
+    ]);
+    expect(lifecycleEvents.some(event => event.startsWith("quarantine:")))
+      .toBe(false);
+    expect(observedPool.removedBackendPids()).toEqual([]);
+    expect(await countArtifactRows(persistence, artifact)).toBe(0);
+    expect(await countDependencyRows(persistence, artifact)).toBe(0);
+  } finally {
+    await rollbackAndReleasePostgresClient(lock.client);
+    lockReleased = true;
+    observedPool.close();
+  }
+  expect(lockReleased).toBe(true);
 
-    expect(await admitArtifact(stableRepository, parent)).toEqual({
-      status: "created",
-      artifact: parent,
-    });
-    expect(await admitArtifact(stableRepository, parent)).toEqual({
-      status: "existing",
-      artifact: parent,
-    });
-    expect(await countArtifactRows(persistence, parent)).toBe(1);
-    expect(await countDependencyRows(persistence, parent)).toBe(1);
+  const stableRepository = makePostgresArtifactRepository(persistence);
+  expect(await admitArtifact(stableRepository, artifact)).toEqual({
+    status: "created",
+    artifact,
   });
+  expect(await countArtifactRows(persistence, artifact)).toBe(1);
 }
 
-async function expectPostgresArtifactActiveStatementDeadline(): Promise<void> {
-  await withTemporaryPostgresPersistence(async persistence => {
-    await expectPostgres18OrdinaryRole(persistence);
-    await insertDeployment(persistence);
-    const artifact = await captureArtifact({
-      lineageId: "catalog-active-statement-deadline",
+async function expectPostgresArtifactStatementTimeout(persistence: PostgresFlarexPersistence): Promise<void> {
+  await expectPostgres18OrdinaryRole(persistence);
+  await insertDeployment(persistence);
+  const stableRepository = makePostgresArtifactRepository(persistence);
+  const dependency = await captureArtifact({
+    lineageId: "catalog-native-statement-timeout-dependency",
+  });
+  expect(await admitArtifact(stableRepository, dependency)).toEqual({
+    status: "created",
+    artifact: dependency,
+  });
+  const parent = await captureArtifact({
+    lineageId: "catalog-native-statement-timeout-parent",
+    dependencies: [dependency.identity],
+  });
+  const preparedParent = prepareAdmissionOrThrow(parent);
+  const observedPool = observePostgresControlPool(persistence);
+  const lifecycleEvents: string[] = [];
+  try {
+    await installPostgresArtifactStatementTimeoutBarrier(persistence, parent);
+    const repository = makePostgresArtifactRepository(persistence, {
+      controlPool: observedPool.controlPool,
+      controlSessionOptions: {
+        lifecycleFault: ({ phase, edge }) => {
+          lifecycleEvents.push(`${phase}:${edge}`);
+        },
+      },
+      timeoutPolicy: {
+        readTimeoutMilliseconds: 5_000,
+        attemptTimeoutMilliseconds: 5_000,
+        recoveryTimeoutMilliseconds: 5_000,
+        lockTimeoutMilliseconds: 5_000,
+      },
     });
-    const prepared = prepareAdmissionOrThrow(artifact);
-    const controlPool = await makeDedicatedPostgresControlPool(persistence, 1);
-    const observedPool = observePostgresControlPool(persistence, controlPool);
-    const lifecycleEvents: string[] = [];
-    const transactionBackendPids: number[] = [];
-    try {
-      await withPostgresArtifactAdvisoryBlocker(
+    const observed = await runEffectUnderFrozenClockAfterGate(
+      admitFrameworkSchemaArtifactEffect(repository, preparedParent),
+      () => waitForPostgresSleepingStatement(
         persistence,
-        async (blockerPid) => {
-          await installPostgresArtifactActiveStatementBarrier(
-            persistence,
-            blockerPid,
-            artifact,
-          );
-          const repository = makePostgresArtifactRepository(persistence, {
-            controlPool: observedPool.controlPool,
-            controlSessionOptions: {
-              lifecycleFault: ({ phase, edge, client }) => {
-                lifecycleEvents.push(`${phase}:${edge}`);
-                if (phase === "begin" && edge === "before") {
-                  transactionBackendPids.push(
-                    observedPool.backendPidFor(client),
-                  );
-                }
-              },
+        DEPENDENCY_TABLE,
+      ),
+    );
+    expect(observed.observation.query.toLowerCase()).toContain(
+      DEPENDENCY_TABLE,
+    );
+    const failure = expectSingleFrameworkArtifactFailure(observed.exit);
+    expectPostgresSqlStateFailure(
+      failure,
+      parent,
+      "insertDependencies",
+      "57014",
+    );
+    expect(lifecycleEvents).toContain("rollback:before");
+    expect(lifecycleEvents).toContain("rollback:after");
+    expect(lifecycleEvents.slice(-2)).toEqual([
+      "release:before",
+      "release:after",
+    ]);
+    expect(lifecycleEvents.some(event => event.startsWith("quarantine:")))
+      .toBe(false);
+    expect(observedPool.removedBackendPids()).toEqual([]);
+    expect(await countArtifactRows(persistence, dependency)).toBe(1);
+    expect(await countArtifactRows(persistence, parent)).toBe(0);
+    expect(await countAllDependencyRows(persistence)).toBe(0);
+  } finally {
+    observedPool.close();
+    await dropPostgresArtifactStatementTimeoutBarrier(persistence);
+  }
+
+  expect(await admitArtifact(stableRepository, parent)).toEqual({
+    status: "created",
+    artifact: parent,
+  });
+  expect(await admitArtifact(stableRepository, parent)).toEqual({
+    status: "existing",
+    artifact: parent,
+  });
+  expect(await countArtifactRows(persistence, parent)).toBe(1);
+  expect(await countDependencyRows(persistence, parent)).toBe(1);
+}
+
+async function expectPostgresArtifactActiveStatementDeadline(persistence: PostgresFlarexPersistence): Promise<void> {
+  await expectPostgres18OrdinaryRole(persistence);
+  await insertDeployment(persistence);
+  const artifact = await captureArtifact({
+    lineageId: "catalog-active-statement-deadline",
+  });
+  const prepared = prepareAdmissionOrThrow(artifact);
+  const controlPool = await makeDedicatedPostgresControlPool(persistence, 1);
+  const observedPool = observePostgresControlPool(persistence, controlPool);
+  const lifecycleEvents: string[] = [];
+  const transactionBackendPids: number[] = [];
+  try {
+    await withPostgresArtifactAdvisoryBlocker(
+      persistence,
+      async (blockerPid) => {
+        await installPostgresArtifactActiveStatementBarrier(
+          persistence,
+          blockerPid,
+          artifact,
+        );
+        const repository = makePostgresArtifactRepository(persistence, {
+          controlPool: observedPool.controlPool,
+          controlSessionOptions: {
+            lifecycleFault: ({ phase, edge, client }) => {
+              lifecycleEvents.push(`${phase}:${edge}`);
+              if (phase === "begin" && edge === "before") {
+                transactionBackendPids.push(
+                  observedPool.backendPidFor(client),
+                );
+              }
             },
-            timeoutPolicy: {
-              readTimeoutMilliseconds: 30_000,
-              attemptTimeoutMilliseconds: 30_000,
-              recoveryTimeoutMilliseconds: 30_000,
-              lockTimeoutMilliseconds: 30_000,
+          },
+          timeoutPolicy: {
+            readTimeoutMilliseconds: 30_000,
+            attemptTimeoutMilliseconds: 30_000,
+            recoveryTimeoutMilliseconds: 30_000,
+            lockTimeoutMilliseconds: 30_000,
+          },
+        });
+        const observed = await expireEffectAfterGateWithObservation(
+          admitFrameworkSchemaArtifactEffect(repository, prepared),
+          () => waitForPostgresBackendBlockedBy(persistence, blockerPid),
+          30_000,
+        );
+        expect(observed.observation.query.toLowerCase()).toContain(
+          ARTIFACT_TABLE,
+        );
+        expect(observed.observation.waiterPid).toBe(
+          transactionBackendPids[0],
+        );
+        const failure = expectSingleFrameworkArtifactFailure(observed.exit);
+        expect(failure).toMatchObject({
+          operation: "admit",
+          reason: "resourceFailure",
+          retryable: false,
+          identity: artifact.identity,
+          stage: "insertArtifact",
+        });
+        expectControlSessionDeadlineCause(
+          failure,
+          "callback",
+          "initial",
+          "callback",
+        );
+        const backendPid = transactionBackendPids[0];
+        if (backendPid === undefined) {
+          throw new Error("Expected an active-statement backend PID.");
+        }
+        const immediateActivity = await persistence.query<{
+          state: string;
+        }>(`
+          select state from pg_stat_activity where pid = $1
+        `, [backendPid]);
+        expect({
+          removedBackendPids: observedPool.removedBackendPids(),
+          activity: immediateActivity.rows,
+          lifecycleEvents,
+        }).toEqual({
+          removedBackendPids: [backendPid],
+          activity: [],
+          lifecycleEvents: expect.any(Array),
+        });
+        await waitForDiscardedPostgresBackend(
+          persistence,
+          observedPool,
+          backendPid,
+        );
+        expect(observedPool.removedBackendPids()).toEqual([backendPid]);
+        expect(lifecycleEvents).toContain("quarantine:before");
+        expect(lifecycleEvents).toContain("quarantine:after");
+        expect(await countArtifactRows(persistence, artifact)).toBe(0);
+      },
+    );
+  } finally {
+    observedPool.close();
+    const poolFailure = await captureTestFailure(controlPool.end());
+    const barrierFailure = await captureTestFailure(
+      dropPostgresArtifactActiveStatementBarrier(persistence),
+    );
+    if (poolFailure !== undefined && barrierFailure !== undefined) {
+      throw new AggregateError(
+        [poolFailure.cause, barrierFailure.cause],
+        "Active statement pool and barrier cleanup failed",
+      );
+    }
+    if (poolFailure !== undefined) throw poolFailure.cause;
+    if (barrierFailure !== undefined) throw barrierFailure.cause;
+  }
+
+  const stableRepository = makePostgresArtifactRepository(persistence);
+  expect(await admitArtifact(stableRepository, artifact)).toEqual({
+    status: "created",
+    artifact,
+  });
+  expect(await countArtifactRows(persistence, artifact)).toBe(1);
+}
+
+async function expectPostgresArtifactRecoveryDeadline(persistence: PostgresFlarexPersistence): Promise<void> {
+  await expectPostgres18OrdinaryRole(persistence);
+  await insertDeployment(persistence);
+  const stableRepository = makePostgresArtifactRepository(persistence);
+  const artifact = await captureArtifact({
+    lineageId: "catalog-recovery-work-deadline",
+  });
+  const prepared = prepareAdmissionOrThrow(artifact);
+  const observedPool = observePostgresControlPool(persistence);
+  const lifecycleEvents: string[] = [];
+  const transactionClients: PoolClient[] = [];
+  const transactionBackendPids: number[] = [];
+  const initialSettlementCause = new Error(
+    "Injected pre-COMMIT recovery deadline fault.",
+  );
+  let initialClient: PoolClient | undefined;
+  let faulted = false;
+  try {
+    await withPostgresArtifactAdvisoryBlocker(
+      persistence,
+      async (blockerPid) => {
+        await installPostgresArtifactRecoveryDeadlineBarrier(
+          persistence,
+          blockerPid,
+          artifact,
+        );
+        const repository = makePostgresArtifactRepository(persistence, {
+          controlPool: observedPool.controlPool,
+          controlSessionOptions: {
+            lifecycleFault: ({ phase, edge, client }) => {
+              lifecycleEvents.push(`${phase}:${edge}`);
+              if (phase === "begin" && edge === "before") {
+                initialClient ??= client;
+                transactionClients.push(client);
+                transactionBackendPids.push(
+                  observedPool.backendPidFor(client),
+                );
+              }
+              if (
+                !faulted &&
+                client === initialClient &&
+                phase === "commit" &&
+                edge === "before"
+              ) {
+                faulted = true;
+                throw initialSettlementCause;
+              }
             },
-          });
-          const observed = await expireEffectAfterGateWithObservation(
-            admitFrameworkSchemaArtifactEffect(repository, prepared),
-            () => waitForPostgresBackendBlockedBy(persistence, blockerPid),
-            30_000,
-          );
-          expect(observed.observation.query.toLowerCase()).toContain(
-            ARTIFACT_TABLE,
-          );
-          expect(observed.observation.waiterPid).toBe(
-            transactionBackendPids[0],
-          );
-          const failure = expectSingleFrameworkArtifactFailure(observed.exit);
-          expect(failure).toMatchObject({
-            operation: "admit",
-            reason: "resourceFailure",
-            retryable: false,
-            identity: artifact.identity,
-            stage: "insertArtifact",
-          });
-          expectControlSessionDeadlineCause(
-            failure,
-            "callback",
-            "initial",
-            "callback",
-          );
-          const backendPid = transactionBackendPids[0];
-          if (backendPid === undefined) {
-            throw new Error("Expected an active-statement backend PID.");
-          }
-          const immediateActivity = await persistence.query<{
-            state: string;
-          }>(`
-            select state from pg_stat_activity where pid = $1
-          `, [backendPid]);
-          expect({
-            removedBackendPids: observedPool.removedBackendPids(),
-            activity: immediateActivity.rows,
-            lifecycleEvents,
-          }).toEqual({
-            removedBackendPids: [backendPid],
-            activity: [],
-            lifecycleEvents: expect.any(Array),
-          });
+          },
+          timeoutPolicy: {
+            readTimeoutMilliseconds: 60_000,
+            attemptTimeoutMilliseconds: 60_000,
+            recoveryTimeoutMilliseconds: 30_000,
+            lockTimeoutMilliseconds: 30_000,
+          },
+        });
+        const observed = await expireEffectAfterGateWithObservation(
+          admitFrameworkSchemaArtifactEffect(repository, prepared),
+          () => waitForPostgresBackendBlockedBy(persistence, blockerPid),
+          30_000,
+        );
+        expect(faulted).toBe(true);
+        expect(transactionClients).toHaveLength(2);
+        expect(new Set(transactionClients).size).toBe(2);
+        expect(transactionBackendPids).toHaveLength(2);
+        expect(new Set(transactionBackendPids).size).toBe(2);
+        expect(observed.observation.waiterPid).toBe(
+          transactionBackendPids[1],
+        );
+        expect(observed.observation.query.toLowerCase()).toContain(
+          ARTIFACT_TABLE,
+        );
+
+        const failure = expectSingleFrameworkArtifactFailure(observed.exit);
+        expect(failure).toMatchObject({
+          operation: "admit",
+          reason: "decisionUncertain",
+          retryable: false,
+          identity: artifact.identity,
+          stage: "recover",
+        });
+        expect(Object.hasOwn(failure, "cause")).toBe(false);
+        const preservedInitialCause = failure.initialSettlementCause;
+        expect(Cause.isCause(preservedInitialCause)).toBe(true);
+        if (!Cause.isCause(preservedInitialCause)) {
+          throw new Error("Expected an initial settlement Cause.");
+        }
+        const initialIssues = preservedInitialCause.reasons.filter(
+          Cause.isFailReason,
+        ).map(reason => reason.error).filter(
+          (issue): issue is
+            CatalogControlSessionResourceIssue =>
+            issue instanceof
+              CatalogControlSessionResourceIssue,
+        );
+        expect(initialIssues).toHaveLength(1);
+        expect(initialIssues[0]?.phase).toBe("commit");
+        expect(initialIssues[0]?.cause).toBe(initialSettlementCause);
+        const resolutionCause = failure.resolutionCause;
+        expect(Cause.isCause(resolutionCause)).toBe(true);
+        if (!Cause.isCause(resolutionCause)) {
+          throw new Error("Expected a recovery resolution Cause.");
+        }
+        const recoveryIssues = resolutionCause.reasons.filter(
+          Cause.isFailReason,
+        ).map(reason => reason.error).filter(
+          (issue): issue is
+            CatalogControlSessionResourceIssue =>
+            issue instanceof
+              CatalogControlSessionResourceIssue,
+        );
+        expect(recoveryIssues).toHaveLength(1);
+        const recoveryIssue = recoveryIssues[0];
+        if (recoveryIssue === undefined) {
+          throw new Error("Expected one recovery resource issue.");
+        }
+        expect(recoveryIssue.phase).toBe("callback");
+        expect(recoveryIssue.cause).toBeInstanceOf(
+          CatalogControlSessionDeadlineIssue,
+        );
+        expect(recoveryIssue.cause).toMatchObject({
+          deadlineKind: "recovery",
+          phase: "callback",
+        });
+        expect(lifecycleEvents.filter(event => event === "begin:before"))
+          .toHaveLength(2);
+        expect(lifecycleEvents.filter(event =>
+          event === "quarantine:before"
+        )).toHaveLength(2);
+        expect(lifecycleEvents.filter(event =>
+          event === "quarantine:after"
+        )).toHaveLength(2);
+        const immediateActivity = await persistence.query<{
+          pid: number;
+          state: string;
+          waitEventType: string | null;
+          waitEvent: string | null;
+        }>(`
+          select pid::int as pid,
+                 state,
+                 wait_event_type as "waitEventType",
+                 wait_event as "waitEvent"
+          from pg_stat_activity
+          where pid = any($1::int[])
+          order by pid
+        `, [transactionBackendPids]);
+        expect({
+          transactionBackendPids,
+          removedBackendPids: observedPool.removedBackendPids(),
+          activity: immediateActivity.rows,
+        }).toEqual({
+          transactionBackendPids,
+          removedBackendPids: transactionBackendPids,
+          activity: [],
+        });
+        for (const backendPid of transactionBackendPids) {
           await waitForDiscardedPostgresBackend(
             persistence,
             observedPool,
             backendPid,
           );
-          expect(observedPool.removedBackendPids()).toEqual([backendPid]);
-          expect(lifecycleEvents).toContain("quarantine:before");
-          expect(lifecycleEvents).toContain("quarantine:after");
-          expect(await countArtifactRows(persistence, artifact)).toBe(0);
-        },
-      );
-    } finally {
-      observedPool.close();
-      await controlPool.end();
-      await dropPostgresArtifactActiveStatementBarrier(persistence);
-    }
+        }
+        expect([...observedPool.removedBackendPids()].sort((left, right) =>
+          left - right
+        )).toEqual([...transactionBackendPids].sort((left, right) =>
+          left - right
+        ));
+        expect(await countArtifactRows(persistence, artifact)).toBe(0);
+        expect(await countDependencyRows(persistence, artifact)).toBe(0);
+      },
+    );
+  } finally {
+    observedPool.close();
+    await dropPostgresArtifactRecoveryDeadlineBarrier(persistence);
+  }
 
-    const stableRepository = makePostgresArtifactRepository(persistence);
-    expect(await admitArtifact(stableRepository, artifact)).toEqual({
-      status: "created",
-      artifact,
-    });
-    expect(await countArtifactRows(persistence, artifact)).toBe(1);
+  expect(await admitArtifact(stableRepository, artifact)).toEqual({
+    status: "created",
+    artifact,
   });
+  expect(await admitArtifact(stableRepository, artifact)).toEqual({
+    status: "existing",
+    artifact,
+  });
+  expect(await countArtifactRows(persistence, artifact)).toBe(1);
 }
 
-async function expectPostgresArtifactRecoveryDeadline(): Promise<void> {
-  await withTemporaryPostgresPersistence(async persistence => {
-    await expectPostgres18OrdinaryRole(persistence);
-    await insertDeployment(persistence);
-    const stableRepository = makePostgresArtifactRepository(persistence);
-    const artifact = await captureArtifact({
-      lineageId: "catalog-recovery-work-deadline",
+async function expectPostgresArtifactOptimisticReconstructionDeadline(persistence: PostgresFlarexPersistence):
+  Promise<void>
+{
+  await expectPostgres18OrdinaryRole(persistence);
+  await insertDeployment(persistence);
+  const stableRepository = makePostgresArtifactRepository(persistence);
+  const artifact = await captureArtifact({
+    lineageId: "catalog-optimistic-reconstruction-deadline",
+  });
+  expect(await admitArtifact(stableRepository, artifact)).toEqual({
+    status: "created",
+    artifact,
+  });
+  const prepared = prepareAdmissionOrThrow(artifact);
+  const inspector = await persistence.pool.connect();
+  const observedPool = observePostgresControlPool(persistence);
+  const lifecycleEvents: string[] = [];
+  const readBackendPids: number[] = [];
+  const hashStarted = makePromiseGate();
+  let digestCalls = 0;
+  vi.stubGlobal("crypto", cryptoHangingAtDigest(() => {
+    digestCalls += 1;
+    hashStarted.open();
+  }));
+  try {
+    const repository = makePostgresArtifactRepository(persistence, {
+      controlPool: observedPool.controlPool,
+      controlSessionOptions: {
+        lifecycleFault: ({ phase, edge, client }) => {
+          lifecycleEvents.push(`${phase}:${edge}`);
+          if (phase === "configureReadBudget" && edge === "before") {
+            readBackendPids.push(observedPool.backendPidFor(client));
+          }
+        },
+      },
+      timeoutPolicy: {
+        readTimeoutMilliseconds: 30_000,
+        attemptTimeoutMilliseconds: 30_000,
+        recoveryTimeoutMilliseconds: 30_000,
+        lockTimeoutMilliseconds: 30_000,
+      },
     });
-    const prepared = prepareAdmissionOrThrow(artifact);
-    const observedPool = observePostgresControlPool(persistence);
-    const lifecycleEvents: string[] = [];
-    const transactionClients: PoolClient[] = [];
-    const transactionBackendPids: number[] = [];
-    const initialSettlementCause = new Error(
-      "Injected pre-COMMIT recovery deadline fault.",
+    const observed = await expireEffectAfterGateWithObservation(
+      admitFrameworkSchemaArtifactEffect(repository, prepared),
+      async () => {
+        await hashStarted.promise;
+        expect(lifecycleEvents.slice(-2)).toEqual([
+          "release:before",
+          "release:after",
+        ]);
+        const backendPid = readBackendPids[0];
+        if (backendPid === undefined) {
+          throw new Error("Expected an optimistic read backend PID.");
+        }
+        await waitForPostgresBackendState(inspector, backendPid, "idle");
+        return backendPid;
+      },
+      30_000,
     );
-    let initialClient: PoolClient | undefined;
-    let faulted = false;
-    try {
-      await withPostgresArtifactAdvisoryBlocker(
-        persistence,
-        async (blockerPid) => {
-          await installPostgresArtifactRecoveryDeadlineBarrier(
-            persistence,
-            blockerPid,
-            artifact,
-          );
-          const repository = makePostgresArtifactRepository(persistence, {
-            controlPool: observedPool.controlPool,
-            controlSessionOptions: {
-              lifecycleFault: ({ phase, edge, client }) => {
-                lifecycleEvents.push(`${phase}:${edge}`);
-                if (phase === "begin" && edge === "before") {
-                  initialClient ??= client;
-                  transactionClients.push(client);
-                  transactionBackendPids.push(
-                    observedPool.backendPidFor(client),
-                  );
-                }
-                if (
-                  !faulted &&
-                  client === initialClient &&
-                  phase === "commit" &&
-                  edge === "before"
-                ) {
-                  faulted = true;
-                  throw initialSettlementCause;
-                }
-              },
-            },
-            timeoutPolicy: {
-              readTimeoutMilliseconds: 60_000,
-              attemptTimeoutMilliseconds: 60_000,
-              recoveryTimeoutMilliseconds: 30_000,
-              lockTimeoutMilliseconds: 30_000,
-            },
-          });
-          const observed = await expireEffectAfterGateWithObservation(
-            admitFrameworkSchemaArtifactEffect(repository, prepared),
-            () => waitForPostgresBackendBlockedBy(persistence, blockerPid),
-            30_000,
-          );
-          expect(faulted).toBe(true);
-          expect(transactionClients).toHaveLength(2);
-          expect(new Set(transactionClients).size).toBe(2);
-          expect(transactionBackendPids).toHaveLength(2);
-          expect(new Set(transactionBackendPids).size).toBe(2);
-          expect(observed.observation.waiterPid).toBe(
-            transactionBackendPids[1],
-          );
-          expect(observed.observation.query.toLowerCase()).toContain(
-            ARTIFACT_TABLE,
-          );
+    const failure = expectSingleFrameworkArtifactFailure(observed.exit);
+    expect(failure).toMatchObject({
+      operation: "admit",
+      reason: "resourceFailure",
+      retryable: false,
+      identity: artifact.identity,
+      stage: "reconstructArtifact",
+    });
+    expect(failure.cause).toBeInstanceOf(
+      CatalogControlSessionDeadlineIssue,
+    );
+    expect(failure.cause).toMatchObject({
+      deadlineKind: "initial",
+      phase: "read",
+    });
+    expect(digestCalls).toBe(1);
+    expect(readBackendPids).toHaveLength(2);
+    expect(new Set(readBackendPids).size).toBe(1);
+    expect(observedPool.removedBackendPids()).toEqual([]);
+    await waitForPostgresBackendState(
+      inspector,
+      observed.observation,
+      "idle",
+    );
+    expect(await countArtifactRows(persistence, artifact)).toBe(1);
+    expect(await countDependencyRows(persistence, artifact)).toBe(0);
+  } finally {
+    vi.unstubAllGlobals();
+    observedPool.close();
+    inspector.release();
+  }
 
-          const failure = expectSingleFrameworkArtifactFailure(observed.exit);
-          expect(failure).toMatchObject({
-            operation: "admit",
-            reason: "decisionUncertain",
-            retryable: false,
-            identity: artifact.identity,
-            stage: "recover",
-          });
-          expect(Object.hasOwn(failure, "cause")).toBe(false);
-          const preservedInitialCause = failure.initialSettlementCause;
-          expect(Cause.isCause(preservedInitialCause)).toBe(true);
-          if (!Cause.isCause(preservedInitialCause)) {
-            throw new Error("Expected an initial settlement Cause.");
+  expect(await admitArtifact(stableRepository, artifact)).toEqual({
+    status: "existing",
+    artifact,
+  });
+  expect(await countArtifactRows(persistence, artifact)).toBe(1);
+}
+
+async function expectPostgresArtifactPostResolutionReconstructionDeadline(persistence: PostgresFlarexPersistence):
+  Promise<void>
+{
+  await expectPostgres18OrdinaryRole(persistence);
+  await insertDeployment(persistence);
+  const stableRepository = makePostgresArtifactRepository(persistence);
+  const winner = await captureArtifact({
+    lineageId: "catalog-post-resolution-reconstruction-deadline",
+    payload: { modules: ["winner"] },
+  });
+  const winnerEvidence = requireCapturedEvidence(winner);
+  vi.stubGlobal(
+    "crypto",
+    cryptoReturning(winnerEvidence.artifactSha256Bytes),
+  );
+  const loser = await captureArtifact({
+    lineageId: "catalog-post-resolution-reconstruction-deadline",
+    payload: { modules: ["loser"] },
+  });
+  vi.unstubAllGlobals();
+  expect(loser.identity).toEqual(winner.identity);
+  expect(loser.canonicalJson).not.toBe(winner.canonicalJson);
+  const preparedWinner = prepareAdmissionOrThrow(winner);
+  const preparedLoser = prepareAdmissionOrThrow(loser);
+  const inspector = await persistence.pool.connect();
+  const observedPool = observePostgresControlPool(persistence);
+  const lifecycleEvents: string[] = [];
+  const readBackendPids: number[] = [];
+  const transactionBackendPids: number[] = [];
+  const hashStarted = makePromiseGate();
+  let digestCalls = 0;
+  let winnerAdmission:
+    ReturnType<typeof admitPreparedArtifact> | undefined;
+  let loserExit:
+    Promise<Exit.Exit<unknown, FrameworkSchemaArtifactError>> | undefined;
+  vi.stubGlobal("crypto", cryptoHangingAtDigest(() => {
+    digestCalls += 1;
+    hashStarted.open();
+  }));
+  try {
+    const loserRepository = makePostgresArtifactRepository(persistence, {
+      controlPool: observedPool.controlPool,
+      controlSessionOptions: {
+        lifecycleFault: ({ phase, edge, client }) => {
+          lifecycleEvents.push(`${phase}:${edge}`);
+          if (phase === "configureReadBudget" && edge === "before") {
+            readBackendPids.push(observedPool.backendPidFor(client));
           }
-          const initialIssues = preservedInitialCause.reasons.filter(
-            Cause.isFailReason,
-          ).map(reason => reason.error).filter(
-            (issue): issue is
-              CatalogControlSessionResourceIssue =>
-              issue instanceof
-                CatalogControlSessionResourceIssue,
-          );
-          expect(initialIssues).toHaveLength(1);
-          expect(initialIssues[0]?.phase).toBe("commit");
-          expect(initialIssues[0]?.cause).toBe(initialSettlementCause);
-          const resolutionCause = failure.resolutionCause;
-          expect(Cause.isCause(resolutionCause)).toBe(true);
-          if (!Cause.isCause(resolutionCause)) {
-            throw new Error("Expected a recovery resolution Cause.");
-          }
-          const recoveryIssues = resolutionCause.reasons.filter(
-            Cause.isFailReason,
-          ).map(reason => reason.error).filter(
-            (issue): issue is
-              CatalogControlSessionResourceIssue =>
-              issue instanceof
-                CatalogControlSessionResourceIssue,
-          );
-          expect(recoveryIssues).toHaveLength(1);
-          const recoveryIssue = recoveryIssues[0];
-          if (recoveryIssue === undefined) {
-            throw new Error("Expected one recovery resource issue.");
-          }
-          expect(recoveryIssue.phase).toBe("callback");
-          expect(recoveryIssue.cause).toBeInstanceOf(
-            CatalogControlSessionDeadlineIssue,
-          );
-          expect(recoveryIssue.cause).toMatchObject({
-            deadlineKind: "recovery",
-            phase: "callback",
-          });
-          expect(lifecycleEvents.filter(event => event === "begin:before"))
-            .toHaveLength(2);
-          expect(lifecycleEvents.filter(event =>
-            event === "quarantine:before"
-          )).toHaveLength(2);
-          expect(lifecycleEvents.filter(event =>
-            event === "quarantine:after"
-          )).toHaveLength(2);
-          const immediateActivity = await persistence.query<{
-            pid: number;
-            state: string;
-            waitEventType: string | null;
-            waitEvent: string | null;
-          }>(`
-            select pid::int as pid,
-                   state,
-                   wait_event_type as "waitEventType",
-                   wait_event as "waitEvent"
-            from pg_stat_activity
-            where pid = any($1::int[])
-            order by pid
-          `, [transactionBackendPids]);
-          expect({
-            transactionBackendPids,
-            removedBackendPids: observedPool.removedBackendPids(),
-            activity: immediateActivity.rows,
-          }).toEqual({
-            transactionBackendPids,
-            removedBackendPids: transactionBackendPids,
-            activity: [],
-          });
-          for (const backendPid of transactionBackendPids) {
-            await waitForDiscardedPostgresBackend(
-              persistence,
-              observedPool,
-              backendPid,
+          if (phase === "begin" && edge === "before") {
+            transactionBackendPids.push(
+              observedPool.backendPidFor(client),
             );
           }
-          expect([...observedPool.removedBackendPids()].sort((left, right) =>
-            left - right
-          )).toEqual([...transactionBackendPids].sort((left, right) =>
-            left - right
-          ));
-          expect(await countArtifactRows(persistence, artifact)).toBe(0);
-          expect(await countDependencyRows(persistence, artifact)).toBe(0);
         },
-      );
-    } finally {
-      observedPool.close();
-      await dropPostgresArtifactRecoveryDeadlineBarrier(persistence);
-    }
-
-    expect(await admitArtifact(stableRepository, artifact)).toEqual({
-      status: "created",
-      artifact,
+      },
+      timeoutPolicy: {
+        readTimeoutMilliseconds: 30_000,
+        attemptTimeoutMilliseconds: 30_000,
+        recoveryTimeoutMilliseconds: 30_000,
+        lockTimeoutMilliseconds: 30_000,
+      },
     });
-    expect(await admitArtifact(stableRepository, artifact)).toEqual({
-      status: "existing",
-      artifact,
-    });
-    expect(await countArtifactRows(persistence, artifact)).toBe(1);
-  });
-}
-
-async function expectPostgresArtifactOptimisticReconstructionDeadline():
-  Promise<void>
-{
-  await withTemporaryPostgresPersistence(async persistence => {
-    await expectPostgres18OrdinaryRole(persistence);
-    await insertDeployment(persistence);
-    const stableRepository = makePostgresArtifactRepository(persistence);
-    const artifact = await captureArtifact({
-      lineageId: "catalog-optimistic-reconstruction-deadline",
-    });
-    expect(await admitArtifact(stableRepository, artifact)).toEqual({
-      status: "created",
-      artifact,
-    });
-    const prepared = prepareAdmissionOrThrow(artifact);
-    const inspector = await persistence.pool.connect();
-    const observedPool = observePostgresControlPool(persistence);
-    const lifecycleEvents: string[] = [];
-    const readBackendPids: number[] = [];
-    const hashStarted = makePromiseGate();
-    let digestCalls = 0;
-    vi.stubGlobal("crypto", cryptoHangingAtDigest(() => {
-      digestCalls += 1;
-      hashStarted.open();
-    }));
-    try {
-      const repository = makePostgresArtifactRepository(persistence, {
-        controlPool: observedPool.controlPool,
-        controlSessionOptions: {
-          lifecycleFault: ({ phase, edge, client }) => {
-            lifecycleEvents.push(`${phase}:${edge}`);
-            if (phase === "configureReadBudget" && edge === "before") {
-              readBackendPids.push(observedPool.backendPidFor(client));
-            }
-          },
-        },
-        timeoutPolicy: {
-          readTimeoutMilliseconds: 30_000,
-          attemptTimeoutMilliseconds: 30_000,
-          recoveryTimeoutMilliseconds: 30_000,
-          lockTimeoutMilliseconds: 30_000,
-        },
-      });
-      const observed = await expireEffectAfterGateWithObservation(
-        admitFrameworkSchemaArtifactEffect(repository, prepared),
-        async () => {
-          await hashStarted.promise;
-          expect(lifecycleEvents.slice(-2)).toEqual([
-            "release:before",
-            "release:after",
-          ]);
-          const backendPid = readBackendPids[0];
-          if (backendPid === undefined) {
-            throw new Error("Expected an optimistic read backend PID.");
-          }
-          await waitForPostgresBackendState(inspector, backendPid, "idle");
-          return backendPid;
-        },
-        30_000,
-      );
-      const failure = expectSingleFrameworkArtifactFailure(observed.exit);
-      expect(failure).toMatchObject({
-        operation: "admit",
-        reason: "resourceFailure",
-        retryable: false,
-        identity: artifact.identity,
-        stage: "reconstructArtifact",
-      });
-      expect(failure.cause).toBeInstanceOf(
-        CatalogControlSessionDeadlineIssue,
-      );
-      expect(failure.cause).toMatchObject({
-        deadlineKind: "initial",
-        phase: "read",
-      });
-      expect(digestCalls).toBe(1);
-      expect(readBackendPids).toHaveLength(2);
-      expect(new Set(readBackendPids).size).toBe(1);
-      expect(observedPool.removedBackendPids()).toEqual([]);
-      await waitForPostgresBackendState(
-        inspector,
-        observed.observation,
-        "idle",
-      );
-      expect(await countArtifactRows(persistence, artifact)).toBe(1);
-      expect(await countDependencyRows(persistence, artifact)).toBe(0);
-    } finally {
-      vi.unstubAllGlobals();
-      observedPool.close();
-      inspector.release();
-    }
-
-    expect(await admitArtifact(stableRepository, artifact)).toEqual({
-      status: "existing",
-      artifact,
-    });
-    expect(await countArtifactRows(persistence, artifact)).toBe(1);
-  });
-}
-
-async function expectPostgresArtifactPostResolutionReconstructionDeadline():
-  Promise<void>
-{
-  await withTemporaryPostgresPersistence(async persistence => {
-    await expectPostgres18OrdinaryRole(persistence);
-    await insertDeployment(persistence);
-    const stableRepository = makePostgresArtifactRepository(persistence);
-    const winner = await captureArtifact({
-      lineageId: "catalog-post-resolution-reconstruction-deadline",
-      payload: { modules: ["winner"] },
-    });
-    const winnerEvidence = requireCapturedEvidence(winner);
-    vi.stubGlobal(
-      "crypto",
-      cryptoReturning(winnerEvidence.artifactSha256Bytes),
-    );
-    const loser = await captureArtifact({
-      lineageId: "catalog-post-resolution-reconstruction-deadline",
-      payload: { modules: ["loser"] },
-    });
-    vi.unstubAllGlobals();
-    expect(loser.identity).toEqual(winner.identity);
-    expect(loser.canonicalJson).not.toBe(winner.canonicalJson);
-    const preparedWinner = prepareAdmissionOrThrow(winner);
-    const preparedLoser = prepareAdmissionOrThrow(loser);
-    const inspector = await persistence.pool.connect();
-    const observedPool = observePostgresControlPool(persistence);
-    const lifecycleEvents: string[] = [];
-    const readBackendPids: number[] = [];
-    const transactionBackendPids: number[] = [];
-    const hashStarted = makePromiseGate();
-    let digestCalls = 0;
-    let winnerAdmission:
-      ReturnType<typeof admitPreparedArtifact> | undefined;
-    let loserExit:
-      Promise<Exit.Exit<unknown, FrameworkSchemaArtifactError>> | undefined;
-    vi.stubGlobal("crypto", cryptoHangingAtDigest(() => {
-      digestCalls += 1;
-      hashStarted.open();
-    }));
-    try {
-      const loserRepository = makePostgresArtifactRepository(persistence, {
-        controlPool: observedPool.controlPool,
-        controlSessionOptions: {
-          lifecycleFault: ({ phase, edge, client }) => {
-            lifecycleEvents.push(`${phase}:${edge}`);
-            if (phase === "configureReadBudget" && edge === "before") {
-              readBackendPids.push(observedPool.backendPidFor(client));
-            }
-            if (phase === "begin" && edge === "before") {
-              transactionBackendPids.push(
-                observedPool.backendPidFor(client),
+    await runWithBlockedDeploymentLock(
+      persistence,
+      winner.identity.deploymentId,
+      1,
+      track => {
+        winnerAdmission = track(admitPreparedArtifact(
+          stableRepository,
+          preparedWinner,
+        ));
+      },
+      async (lock, firstWaiters, track) => {
+        loserExit = track(expireEffectAfterGateWithObservation(
+          admitFrameworkSchemaArtifactEffect(
+            loserRepository,
+            preparedLoser,
+          ),
+          async () => {
+            await hashStarted.promise;
+            const backendPid = readBackendPids.at(-1);
+            if (backendPid === undefined) {
+              throw new Error(
+                "Expected a post-resolution read backend PID.",
               );
             }
+            await waitForPostgresBackendState(inspector, backendPid, "idle in transaction");
+            return backendPid;
           },
-        },
-        timeoutPolicy: {
-          readTimeoutMilliseconds: 30_000,
-          attemptTimeoutMilliseconds: 30_000,
-          recoveryTimeoutMilliseconds: 30_000,
-          lockTimeoutMilliseconds: 30_000,
-        },
-      });
-      await runWithBlockedDeploymentLock(
-        persistence,
-        winner.identity.deploymentId,
-        1,
-        track => {
-          winnerAdmission = track(admitPreparedArtifact(
-            stableRepository,
-            preparedWinner,
-          ));
-        },
-        async (lock, firstWaiters, track) => {
-          loserExit = track(expireEffectAfterGateWithObservation(
-            admitFrameworkSchemaArtifactEffect(
-              loserRepository,
-              preparedLoser,
-            ),
-            async () => {
-              await hashStarted.promise;
-              const backendPid = readBackendPids.at(-1);
-              if (backendPid === undefined) {
-                throw new Error(
-                  "Expected a post-resolution read backend PID.",
-                );
-              }
-              await waitForPostgresBackendState(inspector, backendPid, "idle in transaction");
-              return backendPid;
-            },
-            30_000,
-          ).then(observed => observed.exit));
-          const allWaiters =
-            await waitForBlockedPostgresDeploymentLockWaiters(
-              persistence,
-              lock,
-              2,
-            );
-          expectOrderedDeploymentLockQueue(
+          30_000,
+        ).then(observed => observed.exit));
+        const allWaiters =
+          await waitForBlockedPostgresDeploymentLockWaiters(
+            persistence,
             lock,
-            firstWaiters,
-            allWaiters,
+            2,
           );
-        },
-      );
-      if (winnerAdmission === undefined || loserExit === undefined) {
-        throw new Error("Expected both collision admissions to start.");
-      }
-      expect(await winnerAdmission).toEqual({
-        status: "created",
-        artifact: winner,
-      });
-      const exit = await loserExit;
-      const failure = expectSingleFrameworkArtifactFailure(exit);
-      expect(failure).toMatchObject({
-        operation: "admit",
-        reason: "resourceFailure",
-        retryable: false,
-        identity: loser.identity,
-        stage: "reconstructArtifact",
-      });
-      expectControlSessionDeadlineCause(
-        failure,
-        "read",
-        "initial",
-        "read",
-      );
-      expect(digestCalls).toBe(1);
-      expect(readBackendPids).toHaveLength(4);
-      expect(readBackendPids[0]).toBe(readBackendPids[1]);
-      expect(readBackendPids[2]).toBe(readBackendPids[3]);
-      expect(transactionBackendPids).toHaveLength(1);
-      expect(lifecycleEvents.filter(event => event === "begin:before"))
-        .toHaveLength(1);
-      expect(lifecycleEvents.filter(event => event === "commit:before"))
-        .toHaveLength(1);
-      expect(lifecycleEvents.filter(event => event === "quarantine:before"))
-        .toHaveLength(1);
-      expect(lifecycleEvents.filter(event => event === "quarantine:after"))
-        .toHaveLength(1);
-      const postResolutionBackendPid = readBackendPids[2];
-      if (postResolutionBackendPid === undefined) {
-        throw new Error("Expected the post-resolution backend PID.");
-      }
-      await waitForDiscardedPostgresBackend(
-        persistence,
-        observedPool,
-        postResolutionBackendPid,
-      );
-      expect(observedPool.removedBackendPids()).toEqual([
-        postResolutionBackendPid,
-      ]);
-      expect(await countArtifactRows(persistence, winner)).toBe(1);
-      expect(await countDependencyRows(persistence, winner)).toBe(0);
-      const stored = await readStoredArtifactCanonicalBytes(
-        persistence,
-        winner,
-      );
-      expect(stored).toBe(encodeBytesToLowercaseHex(
-        winnerEvidence.canonicalBytes,
-      ));
-    } finally {
-      vi.unstubAllGlobals();
-      observedPool.close();
-      inspector.release();
-    }
-
-    const loserOutcome = await admitPreparedArtifactResult(
-      stableRepository,
-      preparedLoser,
+        expectOrderedDeploymentLockQueue(
+          lock,
+          firstWaiters,
+          allWaiters,
+        );
+      },
     );
-    expect(Result.isFailure(loserOutcome)).toBe(true);
-    if (Result.isSuccess(loserOutcome)) {
-      throw new Error("Expected the post-resolution loser to collide.");
+    if (winnerAdmission === undefined || loserExit === undefined) {
+      throw new Error("Expected both collision admissions to start.");
     }
-    expect(loserOutcome.failure).toMatchObject({
+    expect(await winnerAdmission).toEqual({
+      status: "created",
+      artifact: winner,
+    });
+    const exit = await loserExit;
+    const failure = expectSingleFrameworkArtifactFailure(exit);
+    expect(failure).toMatchObject({
       operation: "admit",
-      reason: "digestCollision",
+      reason: "resourceFailure",
       retryable: false,
       identity: loser.identity,
+      stage: "reconstructArtifact",
     });
-    expect(await admitPreparedArtifact(
-      stableRepository,
-      preparedWinner,
-    )).toEqual({ status: "existing", artifact: winner });
+    expectControlSessionDeadlineCause(
+      failure,
+      "read",
+      "initial",
+      "read",
+    );
+    expect(digestCalls).toBe(1);
+    expect(readBackendPids).toHaveLength(4);
+    expect(readBackendPids[0]).toBe(readBackendPids[1]);
+    expect(readBackendPids[2]).toBe(readBackendPids[3]);
+    expect(transactionBackendPids).toHaveLength(1);
+    expect(lifecycleEvents.filter(event => event === "begin:before"))
+      .toHaveLength(1);
+    expect(lifecycleEvents.filter(event => event === "commit:before"))
+      .toHaveLength(1);
+    expect(lifecycleEvents.filter(event => event === "quarantine:before"))
+      .toHaveLength(1);
+    expect(lifecycleEvents.filter(event => event === "quarantine:after"))
+      .toHaveLength(1);
+    const postResolutionBackendPid = readBackendPids[2];
+    if (postResolutionBackendPid === undefined) {
+      throw new Error("Expected the post-resolution backend PID.");
+    }
+    await waitForDiscardedPostgresBackend(
+      persistence,
+      observedPool,
+      postResolutionBackendPid,
+    );
+    expect(observedPool.removedBackendPids()).toEqual([
+      postResolutionBackendPid,
+    ]);
     expect(await countArtifactRows(persistence, winner)).toBe(1);
+    expect(await countDependencyRows(persistence, winner)).toBe(0);
+    const stored = await readStoredArtifactCanonicalBytes(
+      persistence,
+      winner,
+    );
+    expect(stored).toBe(encodeBytesToLowercaseHex(
+      winnerEvidence.canonicalBytes,
+    ));
+  } finally {
+    vi.unstubAllGlobals();
+    observedPool.close();
+    inspector.release();
+  }
+
+  const loserOutcome = await admitPreparedArtifactResult(
+    stableRepository,
+    preparedLoser,
+  );
+  expect(Result.isFailure(loserOutcome)).toBe(true);
+  if (Result.isSuccess(loserOutcome)) {
+    throw new Error("Expected the post-resolution loser to collide.");
+  }
+  expect(loserOutcome.failure).toMatchObject({
+    operation: "admit",
+    reason: "digestCollision",
+    retryable: false,
+    identity: loser.identity,
   });
+  expect(await admitPreparedArtifact(
+    stableRepository,
+    preparedWinner,
+  )).toEqual({ status: "existing", artifact: winner });
+  expect(await countArtifactRows(persistence, winner)).toBe(1);
 }
 
 async function runEffectUnderFrozenClockAfterGate<Value, Failure, Observation>(
@@ -2450,231 +2445,33 @@ type CommitSettlementRecoveryScenario =
   typeof COMMIT_SETTLEMENT_RECOVERY_SCENARIOS[number];
 
 async function expectPostgresCommitSettlementRecovery(
+  persistence: PostgresFlarexPersistence,
   scenario: CommitSettlementRecoveryScenario,
 ): Promise<void> {
-  await withTemporaryPostgresPersistence(async persistence => {
-    await expectPostgres18OrdinaryRole(persistence);
-    await insertDeployment(persistence);
-    const stableRepository = makePostgresArtifactRepository(persistence);
-    const dependency = await captureArtifact({
-      lineageId: `catalog-settlement-${scenario.faultEdge}-dependency`,
-    });
-    expect((await admitArtifact(stableRepository, dependency)).status)
-      .toBe("created");
-    const parent = await captureArtifact({
-      lineageId: `catalog-settlement-${scenario.faultEdge}-parent`,
-      dependencies: [dependency.identity],
-    });
-    const observedPool = observePostgresControlPool(persistence);
-    const transactionClients: PoolClient[] = [];
-    const transactionBackendPids: number[] = [];
-    let faulted = false;
-    try {
-      const faultedRepository = makePostgresArtifactRepository(
-        persistence,
-        {
-          controlPool: observedPool.controlPool,
-          controlSessionOptions: {
-            lifecycleFault: ({ phase, edge, client }) => {
-              if (phase === "begin" && edge === "before") {
-                transactionClients.push(client);
-                transactionBackendPids.push(
-                  observedPool.backendPidFor(client),
-                );
-              }
-              if (
-                !faulted &&
-                phase === "commit" &&
-                edge === scenario.faultEdge
-              ) {
-                faulted = true;
-                throw new Error(
-                  `Injected ${scenario.faultEdge}-COMMIT settlement fault.`,
-                );
-              }
-            },
-          },
-        },
-      );
-
-      expect(await admitArtifact(faultedRepository, parent)).toEqual({
-        status: scenario.expectedStatus,
-        artifact: parent,
-      });
-      expect(faulted).toBe(true);
-      expect(transactionClients).toHaveLength(2);
-      expect(new Set(transactionClients).size).toBe(2);
-      expect(transactionBackendPids).toHaveLength(2);
-      expect(new Set(transactionBackendPids).size).toBe(2);
-      const initialBackendPid = transactionBackendPids[0];
-      if (initialBackendPid === undefined) {
-        throw new Error("Expected an initial PostgreSQL backend PID.");
-      }
-      await waitForDiscardedPostgresBackend(
-        persistence,
-        observedPool,
-        initialBackendPid,
-      );
-      expect(observedPool.removedBackendPids()).toEqual([
-        initialBackendPid,
-      ]);
-      expect(await countArtifactRows(persistence, dependency)).toBe(1);
-      expect(await countArtifactRows(persistence, parent)).toBe(1);
-      expect(await countDependencyRows(persistence, parent)).toBe(1);
-      expect(await countAllDependencyRows(persistence)).toBe(1);
-
-      expect(await admitArtifact(stableRepository, parent)).toEqual({
-        status: "existing",
-        artifact: parent,
-      });
-      expect(await countArtifactRows(persistence, parent)).toBe(1);
-      expect(await countDependencyRows(persistence, parent)).toBe(1);
-      expect(await countAllDependencyRows(persistence)).toBe(1);
-    } finally {
-      observedPool.close();
-    }
+  await expectPostgres18OrdinaryRole(persistence);
+  await insertDeployment(persistence);
+  const stableRepository = makePostgresArtifactRepository(persistence);
+  const dependency = await captureArtifact({
+    lineageId: `catalog-settlement-${scenario.faultEdge}-dependency`,
   });
-}
-
-async function expectPostgresCallbackInterruption(): Promise<void> {
-  await withTemporaryPostgresPersistence(async persistence => {
-    await expectPostgres18OrdinaryRole(persistence);
-    await insertDeployment(persistence);
-    const stableRepository = makePostgresArtifactRepository(persistence);
-    const dependency = await captureArtifact({
-      lineageId: "catalog-callback-interruption-dependency",
-    });
-    expect((await admitArtifact(stableRepository, dependency)).status)
-      .toBe("created");
-    const parent = await captureArtifact({
-      lineageId: "catalog-callback-interruption-parent",
-      dependencies: [dependency.identity],
-    });
-    const preparedParent = prepareAdmissionOrThrow(parent);
-    const observedPool = observePostgresControlPool(persistence);
-    const transactionClients: PoolClient[] = [];
-    const transactionBackendPids: number[] = [];
-    const lifecycleEvents: string[] = [];
-    const interruptedRepository = makePostgresArtifactRepository(
+  expect((await admitArtifact(stableRepository, dependency)).status)
+    .toBe("created");
+  const parent = await captureArtifact({
+    lineageId: `catalog-settlement-${scenario.faultEdge}-parent`,
+    dependencies: [dependency.identity],
+  });
+  const observedPool = observePostgresControlPool(persistence);
+  const transactionClients: PoolClient[] = [];
+  const transactionBackendPids: number[] = [];
+  let faulted = false;
+  try {
+    const faultedRepository = makePostgresArtifactRepository(
       persistence,
       {
         controlPool: observedPool.controlPool,
         controlSessionOptions: {
           lifecycleFault: ({ phase, edge, client }) => {
-            lifecycleEvents.push(`${phase}:${edge}`);
             if (phase === "begin" && edge === "before") {
-              transactionClients.push(client);
-              transactionBackendPids.push(
-                observedPool.backendPidFor(client),
-              );
-            }
-          },
-        },
-      },
-    );
-
-    try {
-      await withPostgresArtifactAdvisoryBlocker(
-        persistence,
-        async (blockerPid, releaseBlocker) => {
-          await installPostgresCallbackInterruptionBarrier(
-            persistence,
-            blockerPid,
-          );
-          const interrupted = await interruptAdmissionWhileBlocked({
-            effect: admitFrameworkSchemaArtifactEffect(
-              interruptedRepository,
-              preparedParent,
-            ),
-            waitForBlocked: () => waitForPostgresBackendBlockedBy(
-              persistence,
-              blockerPid,
-            ),
-            releaseBlocker,
-            expectedQuery: query => query.toLowerCase().includes(
-              DEPENDENCY_TABLE,
-            ),
-            expectedQueryDescription: "dependency-edge insert",
-          });
-          expect(interrupted.blockedBefore.waiterPid).toBe(
-            transactionBackendPids[0],
-          );
-          expect(interrupted.blockedAfter.waiterPid).toBe(
-            transactionBackendPids[0],
-          );
-          expectSingleInterruptExit(interrupted.exit);
-        },
-      );
-
-      expect(transactionClients).toHaveLength(1);
-      expect(transactionBackendPids).toHaveLength(1);
-      expect(lifecycleEvents.filter(event => event === "begin:before"))
-        .toHaveLength(1);
-      expect(lifecycleEvents.some(event => event.startsWith("commit:")))
-        .toBe(false);
-      expect(lifecycleEvents.some(event => event.startsWith("quarantine:")))
-        .toBe(false);
-      expect(lifecycleEvents.slice(-4)).toEqual([
-        "rollback:before",
-        "rollback:after",
-        "release:before",
-        "release:after",
-      ]);
-      expect(observedPool.removedBackendPids()).toEqual([]);
-      expect(await countArtifactRows(persistence, dependency)).toBe(1);
-      expect(await countArtifactRows(persistence, parent)).toBe(0);
-      expect(await countDependencyRows(persistence, parent)).toBe(0);
-      expect(await countAllDependencyRows(persistence)).toBe(0);
-
-      expect(await admitArtifact(stableRepository, parent)).toEqual({
-        status: "created",
-        artifact: parent,
-      });
-      expect(await countArtifactRows(persistence, dependency)).toBe(1);
-      expect(await countArtifactRows(persistence, parent)).toBe(1);
-      expect(await countDependencyRows(persistence, parent)).toBe(1);
-      expect(await countAllDependencyRows(persistence)).toBe(1);
-      expect(await admitArtifact(stableRepository, parent)).toEqual({
-        status: "existing",
-        artifact: parent,
-      });
-    } finally {
-      observedPool.close();
-      await dropPostgresCallbackInterruptionBarrier(persistence);
-    }
-  });
-}
-
-async function expectPostgresCommitInterruptionRecovery(): Promise<void> {
-  await withTemporaryPostgresPersistence(async persistence => {
-    await expectPostgres18OrdinaryRole(persistence);
-    await insertDeployment(persistence);
-    const stableRepository = makePostgresArtifactRepository(persistence);
-    const dependency = await captureArtifact({
-      lineageId: "catalog-commit-interruption-dependency",
-    });
-    expect((await admitArtifact(stableRepository, dependency)).status)
-      .toBe("created");
-    const parent = await captureArtifact({
-      lineageId: "catalog-commit-interruption-parent",
-      dependencies: [dependency.identity],
-    });
-    const preparedParent = prepareAdmissionOrThrow(parent);
-    const observedPool = observePostgresControlPool(persistence);
-    const transactionClients: PoolClient[] = [];
-    const transactionBackendPids: number[] = [];
-    const lifecycleEvents: string[] = [];
-    let initialClient: PoolClient | undefined;
-    let faulted = false;
-    const interruptedRepository = makePostgresArtifactRepository(
-      persistence,
-      {
-        controlPool: observedPool.controlPool,
-        controlSessionOptions: {
-          lifecycleFault: ({ phase, edge, client }) => {
-            lifecycleEvents.push(`${phase}:${edge}`);
-            if (phase === "begin" && edge === "before") {
-              initialClient ??= client;
               transactionClients.push(client);
               transactionBackendPids.push(
                 observedPool.backendPidFor(client),
@@ -2682,13 +2479,12 @@ async function expectPostgresCommitInterruptionRecovery(): Promise<void> {
             }
             if (
               !faulted &&
-              client === initialClient &&
               phase === "commit" &&
-              edge === "after"
+              edge === scenario.faultEdge
             ) {
               faulted = true;
               throw new Error(
-                "Injected post-COMMIT acknowledgement fault during interruption.",
+                `Injected ${scenario.faultEdge}-COMMIT settlement fault.`,
               );
             }
           },
@@ -2696,86 +2492,280 @@ async function expectPostgresCommitInterruptionRecovery(): Promise<void> {
       },
     );
 
-    try {
-      await withPostgresArtifactAdvisoryBlocker(
-        persistence,
-        async (blockerPid, releaseBlocker) => {
-          await installPostgresCommitInterruptionBarrier(
+    expect(await admitArtifact(faultedRepository, parent)).toEqual({
+      status: scenario.expectedStatus,
+      artifact: parent,
+    });
+    expect(faulted).toBe(true);
+    expect(transactionClients).toHaveLength(2);
+    expect(new Set(transactionClients).size).toBe(2);
+    expect(transactionBackendPids).toHaveLength(2);
+    expect(new Set(transactionBackendPids).size).toBe(2);
+    const initialBackendPid = transactionBackendPids[0];
+    if (initialBackendPid === undefined) {
+      throw new Error("Expected an initial PostgreSQL backend PID.");
+    }
+    await waitForDiscardedPostgresBackend(
+      persistence,
+      observedPool,
+      initialBackendPid,
+    );
+    expect(observedPool.removedBackendPids()).toEqual([
+      initialBackendPid,
+    ]);
+    expect(await countArtifactRows(persistence, dependency)).toBe(1);
+    expect(await countArtifactRows(persistence, parent)).toBe(1);
+    expect(await countDependencyRows(persistence, parent)).toBe(1);
+    expect(await countAllDependencyRows(persistence)).toBe(1);
+
+    expect(await admitArtifact(stableRepository, parent)).toEqual({
+      status: "existing",
+      artifact: parent,
+    });
+    expect(await countArtifactRows(persistence, parent)).toBe(1);
+    expect(await countDependencyRows(persistence, parent)).toBe(1);
+    expect(await countAllDependencyRows(persistence)).toBe(1);
+  } finally {
+    observedPool.close();
+  }
+}
+
+async function expectPostgresCallbackInterruption(persistence: PostgresFlarexPersistence): Promise<void> {
+  await expectPostgres18OrdinaryRole(persistence);
+  await insertDeployment(persistence);
+  const stableRepository = makePostgresArtifactRepository(persistence);
+  const dependency = await captureArtifact({
+    lineageId: "catalog-callback-interruption-dependency",
+  });
+  expect((await admitArtifact(stableRepository, dependency)).status)
+    .toBe("created");
+  const parent = await captureArtifact({
+    lineageId: "catalog-callback-interruption-parent",
+    dependencies: [dependency.identity],
+  });
+  const preparedParent = prepareAdmissionOrThrow(parent);
+  const observedPool = observePostgresControlPool(persistence);
+  const transactionClients: PoolClient[] = [];
+  const transactionBackendPids: number[] = [];
+  const lifecycleEvents: string[] = [];
+  const interruptedRepository = makePostgresArtifactRepository(
+    persistence,
+    {
+      controlPool: observedPool.controlPool,
+      controlSessionOptions: {
+        lifecycleFault: ({ phase, edge, client }) => {
+          lifecycleEvents.push(`${phase}:${edge}`);
+          if (phase === "begin" && edge === "before") {
+            transactionClients.push(client);
+            transactionBackendPids.push(
+              observedPool.backendPidFor(client),
+            );
+          }
+        },
+      },
+    },
+  );
+
+  try {
+    await withPostgresArtifactAdvisoryBlocker(
+      persistence,
+      async (blockerPid, releaseBlocker) => {
+        await installPostgresCallbackInterruptionBarrier(
+          persistence,
+          blockerPid,
+        );
+        const interrupted = await interruptAdmissionWhileBlocked({
+          effect: admitFrameworkSchemaArtifactEffect(
+            interruptedRepository,
+            preparedParent,
+          ),
+          waitForBlocked: () => waitForPostgresBackendBlockedBy(
             persistence,
             blockerPid,
-            parent.identity.lineageId,
-          );
-          const interrupted = await interruptAdmissionWhileBlocked({
-            effect: admitFrameworkSchemaArtifactEffect(
-              interruptedRepository,
-              preparedParent,
-            ),
-            waitForBlocked: () => waitForPostgresBackendBlockedBy(
-              persistence,
-              blockerPid,
-            ),
-            releaseBlocker,
-            expectedQuery: query => query.trim().toLowerCase() === "commit",
-            expectedQueryDescription: "native COMMIT",
-          });
-          expect(interrupted.blockedBefore.waiterPid).toBe(
-            transactionBackendPids[0],
-          );
-          expect(interrupted.blockedAfter.waiterPid).toBe(
-            transactionBackendPids[0],
-          );
-          expectSingleInterruptExit(interrupted.exit);
-        },
-      );
+          ),
+          releaseBlocker,
+          expectedQuery: query => query.toLowerCase().includes(
+            DEPENDENCY_TABLE,
+          ),
+          expectedQueryDescription: "dependency-edge insert",
+        });
+        expect(interrupted.blockedBefore.waiterPid).toBe(
+          transactionBackendPids[0],
+        );
+        expect(interrupted.blockedAfter.waiterPid).toBe(
+          transactionBackendPids[0],
+        );
+        expectSingleInterruptExit(interrupted.exit);
+      },
+    );
 
-      expect(faulted).toBe(true);
-      expect(transactionClients).toHaveLength(2);
-      expect(new Set(transactionClients).size).toBe(2);
-      expect(transactionBackendPids).toHaveLength(2);
-      expect(new Set(transactionBackendPids).size).toBe(2);
-      expect(lifecycleEvents.filter(event => event === "begin:before"))
-        .toHaveLength(2);
-      expect(lifecycleEvents.filter(event => event === "commit:before"))
-        .toHaveLength(2);
-      expect(lifecycleEvents.filter(event => event === "commit:after"))
-        .toHaveLength(2);
-      expect(lifecycleEvents.filter(event => event === "quarantine:before"))
-        .toHaveLength(1);
-      expect(lifecycleEvents.filter(event => event === "quarantine:after"))
-        .toHaveLength(1);
-      expect(lifecycleEvents.slice(-2)).toEqual([
-        "release:before",
-        "release:after",
-      ]);
-      const initialBackendPid = transactionBackendPids[0];
-      if (initialBackendPid === undefined) {
-        throw new Error("Expected an interrupted PostgreSQL COMMIT backend PID.");
-      }
-      await waitForDiscardedPostgresBackend(
-        persistence,
-        observedPool,
-        initialBackendPid,
-      );
-      expect(observedPool.removedBackendPids()).toEqual([
-        initialBackendPid,
-      ]);
-      expect(await countArtifactRows(persistence, dependency)).toBe(1);
-      expect(await countArtifactRows(persistence, parent)).toBe(1);
-      expect(await countDependencyRows(persistence, parent)).toBe(1);
-      expect(await countAllDependencyRows(persistence)).toBe(1);
+    expect(transactionClients).toHaveLength(1);
+    expect(transactionBackendPids).toHaveLength(1);
+    expect(lifecycleEvents.filter(event => event === "begin:before"))
+      .toHaveLength(1);
+    expect(lifecycleEvents.some(event => event.startsWith("commit:")))
+      .toBe(false);
+    expect(lifecycleEvents.some(event => event.startsWith("quarantine:")))
+      .toBe(false);
+    expect(lifecycleEvents.slice(-4)).toEqual([
+      "rollback:before",
+      "rollback:after",
+      "release:before",
+      "release:after",
+    ]);
+    expect(observedPool.removedBackendPids()).toEqual([]);
+    expect(await countArtifactRows(persistence, dependency)).toBe(1);
+    expect(await countArtifactRows(persistence, parent)).toBe(0);
+    expect(await countDependencyRows(persistence, parent)).toBe(0);
+    expect(await countAllDependencyRows(persistence)).toBe(0);
 
-      expect(await admitArtifact(stableRepository, parent)).toEqual({
-        status: "existing",
-        artifact: parent,
-      });
-      expect(await countArtifactRows(persistence, parent)).toBe(1);
-      expect(await countDependencyRows(persistence, parent)).toBe(1);
-      expect(await countAllDependencyRows(persistence)).toBe(1);
-    } finally {
-      observedPool.close();
-      await dropPostgresCommitInterruptionBarrier(persistence);
-    }
+    expect(await admitArtifact(stableRepository, parent)).toEqual({
+      status: "created",
+      artifact: parent,
+    });
+    expect(await countArtifactRows(persistence, dependency)).toBe(1);
+    expect(await countArtifactRows(persistence, parent)).toBe(1);
+    expect(await countDependencyRows(persistence, parent)).toBe(1);
+    expect(await countAllDependencyRows(persistence)).toBe(1);
+    expect(await admitArtifact(stableRepository, parent)).toEqual({
+      status: "existing",
+      artifact: parent,
+    });
+  } finally {
+    observedPool.close();
+    await dropPostgresCallbackInterruptionBarrier(persistence);
+  }
+}
+
+async function expectPostgresCommitInterruptionRecovery(persistence: PostgresFlarexPersistence): Promise<void> {
+  await expectPostgres18OrdinaryRole(persistence);
+  await insertDeployment(persistence);
+  const stableRepository = makePostgresArtifactRepository(persistence);
+  const dependency = await captureArtifact({
+    lineageId: "catalog-commit-interruption-dependency",
   });
+  expect((await admitArtifact(stableRepository, dependency)).status)
+    .toBe("created");
+  const parent = await captureArtifact({
+    lineageId: "catalog-commit-interruption-parent",
+    dependencies: [dependency.identity],
+  });
+  const preparedParent = prepareAdmissionOrThrow(parent);
+  const observedPool = observePostgresControlPool(persistence);
+  const transactionClients: PoolClient[] = [];
+  const transactionBackendPids: number[] = [];
+  const lifecycleEvents: string[] = [];
+  let initialClient: PoolClient | undefined;
+  let faulted = false;
+  const interruptedRepository = makePostgresArtifactRepository(
+    persistence,
+    {
+      controlPool: observedPool.controlPool,
+      controlSessionOptions: {
+        lifecycleFault: ({ phase, edge, client }) => {
+          lifecycleEvents.push(`${phase}:${edge}`);
+          if (phase === "begin" && edge === "before") {
+            initialClient ??= client;
+            transactionClients.push(client);
+            transactionBackendPids.push(
+              observedPool.backendPidFor(client),
+            );
+          }
+          if (
+            !faulted &&
+            client === initialClient &&
+            phase === "commit" &&
+            edge === "after"
+          ) {
+            faulted = true;
+            throw new Error(
+              "Injected post-COMMIT acknowledgement fault during interruption.",
+            );
+          }
+        },
+      },
+    },
+  );
+
+  try {
+    await withPostgresArtifactAdvisoryBlocker(
+      persistence,
+      async (blockerPid, releaseBlocker) => {
+        await installPostgresCommitInterruptionBarrier(
+          persistence,
+          blockerPid,
+          parent.identity.lineageId,
+        );
+        const interrupted = await interruptAdmissionWhileBlocked({
+          effect: admitFrameworkSchemaArtifactEffect(
+            interruptedRepository,
+            preparedParent,
+          ),
+          waitForBlocked: () => waitForPostgresBackendBlockedBy(
+            persistence,
+            blockerPid,
+          ),
+          releaseBlocker,
+          expectedQuery: query => query.trim().toLowerCase() === "commit",
+          expectedQueryDescription: "native COMMIT",
+        });
+        expect(interrupted.blockedBefore.waiterPid).toBe(
+          transactionBackendPids[0],
+        );
+        expect(interrupted.blockedAfter.waiterPid).toBe(
+          transactionBackendPids[0],
+        );
+        expectSingleInterruptExit(interrupted.exit);
+      },
+    );
+
+    expect(faulted).toBe(true);
+    expect(transactionClients).toHaveLength(2);
+    expect(new Set(transactionClients).size).toBe(2);
+    expect(transactionBackendPids).toHaveLength(2);
+    expect(new Set(transactionBackendPids).size).toBe(2);
+    expect(lifecycleEvents.filter(event => event === "begin:before"))
+      .toHaveLength(2);
+    expect(lifecycleEvents.filter(event => event === "commit:before"))
+      .toHaveLength(2);
+    expect(lifecycleEvents.filter(event => event === "commit:after"))
+      .toHaveLength(2);
+    expect(lifecycleEvents.filter(event => event === "quarantine:before"))
+      .toHaveLength(1);
+    expect(lifecycleEvents.filter(event => event === "quarantine:after"))
+      .toHaveLength(1);
+    expect(lifecycleEvents.slice(-2)).toEqual([
+      "release:before",
+      "release:after",
+    ]);
+    const initialBackendPid = transactionBackendPids[0];
+    if (initialBackendPid === undefined) {
+      throw new Error("Expected an interrupted PostgreSQL COMMIT backend PID.");
+    }
+    await waitForDiscardedPostgresBackend(
+      persistence,
+      observedPool,
+      initialBackendPid,
+    );
+    expect(observedPool.removedBackendPids()).toEqual([
+      initialBackendPid,
+    ]);
+    expect(await countArtifactRows(persistence, dependency)).toBe(1);
+    expect(await countArtifactRows(persistence, parent)).toBe(1);
+    expect(await countDependencyRows(persistence, parent)).toBe(1);
+    expect(await countAllDependencyRows(persistence)).toBe(1);
+
+    expect(await admitArtifact(stableRepository, parent)).toEqual({
+      status: "existing",
+      artifact: parent,
+    });
+    expect(await countArtifactRows(persistence, parent)).toBe(1);
+    expect(await countDependencyRows(persistence, parent)).toBe(1);
+    expect(await countAllDependencyRows(persistence)).toBe(1);
+  } finally {
+    observedPool.close();
+    await dropPostgresCommitInterruptionBarrier(persistence);
+  }
 }
 
 interface BlockedPostgresBackend {
