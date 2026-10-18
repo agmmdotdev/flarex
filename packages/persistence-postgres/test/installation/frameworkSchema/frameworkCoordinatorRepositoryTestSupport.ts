@@ -109,6 +109,24 @@ export function resetFrameworkCoordinatorGraphRows(database: FlarexMetadataDatab
   ]);
 }
 
+/** Physical coordinator objects in the fixed fixture schema only. */
+export async function resetFrameworkCoordinatorPhysicalStructure(
+  database: FlarexMetadataDatabase,
+): Promise<void> {
+  const schemaName = FRAMEWORK_VALUE_LOCATOR.schemaName;
+  await database.transaction(async transaction => {
+    const tables = await transaction.select({ tableName: sql<string>`tablename` })
+      .from(sql`pg_catalog.pg_tables`)
+      .where(sql`schemaname = ${schemaName}`);
+    // Drop the owned tables together so their internal foreign keys are included.
+    // RESTRICT preserves outside dependants; any other schema object fails closed.
+    await transaction.execute(sql`DROP TABLE ${sql.join(tables.map(table =>
+      sql`${sql.identifier(schemaName)}.${sql.identifier(table.tableName)}`
+    ), sql`, `)}`);
+    await transaction.execute(sql`DROP SCHEMA ${sql.identifier(schemaName)}`);
+  });
+}
+
 function useFileScopedCoordinatorRows(reset: (database: FlarexMetadataDatabase) => Promise<void>) {
   return useFileScopedPersistence(async () => {
     const { createFileScopedPGliteFixture } = await import("../../support/pgliteTestFixture");

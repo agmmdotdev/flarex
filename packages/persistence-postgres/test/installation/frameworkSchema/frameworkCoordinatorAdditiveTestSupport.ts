@@ -6,12 +6,28 @@ import { runFreshFrameworkMigrationCoordinatorEffect,
 import type { FrameworkMigrationBaseInstallation } from "../../../src/installation/migrationCoordination/model";
 import { makePGliteFrameworkMigrationTargetEffect } from "./frameworkMigrationPGliteTarget";
 import { runEffect } from "../../support/effectTestRuntime";
-import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from "./frameworkSchemaArtifactAdmissionTestSupport";
+import { makePGliteFrameworkSchemaArtifactAdmissionFixture, resetFrameworkSchemaArtifactAdmissionRows } from "./frameworkSchemaArtifactAdmissionTestSupport";
 import { FRAMEWORK_VALUE_LOCATOR, additiveSystemArtifacts } from "./frameworkMigrationValueFixtures";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
+import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
+import {
+  resetFrameworkCoordinatorGraphRows,
+  resetFrameworkCoordinatorPhysicalStructure,
+} from "./frameworkCoordinatorRepositoryTestSupport";
 
-export async function createAdditiveFixture(extraBaseTables = 0) {
-  const persistence = await createMigratedPGlitePersistence();
+/** Rebuild every additive base on a cleared graph, physical schema and artifacts. */
+export function useFileScopedFrameworkCoordinatorAdditivePersistence() {
+  return useFileScopedPersistence(async () => {
+    const { createFileScopedPGliteFixture } = await import("../../support/pgliteTestFixture");
+    return createFileScopedPGliteFixture(async () => async persistence => {
+      await resetFrameworkCoordinatorGraphRows(persistence.drizzle);
+      await resetFrameworkCoordinatorPhysicalStructure(persistence.drizzle);
+      await resetFrameworkSchemaArtifactAdmissionRows(persistence.drizzle);
+    });
+  });
+}
+
+export async function createAdditiveFixture(persistence: PGliteFlarexPersistence, extraBaseTables = 0) {
   await persistence.query("insert into deployments (deployment_id, project_id) values ('deployment-a', 'project-a')");
   await persistence.query('create schema "flarex_shared"');
   await persistence.query('create table "flarex_shared"."fx_system_scope_clock" (scope_uuid uuid not null, constraint "fx_system_scope_clock_scope_uuid_unique" unique (scope_uuid))');

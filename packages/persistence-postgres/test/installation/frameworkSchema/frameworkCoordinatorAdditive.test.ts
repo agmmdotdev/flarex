@@ -11,23 +11,24 @@ import { executeNextFrameworkMigrationStepEffect, runAdditiveFrameworkMigrationC
 import { captureRelationalSchemaArtifact } from "../../../src/storage/relationalSchema/artifact";
 import { syntheticSchemaInput } from "./frameworkMigrationValueFixtures";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
-import { createAdditiveFixture } from "./frameworkCoordinatorAdditiveTestSupport";
+import { createAdditiveFixture, useFileScopedFrameworkCoordinatorAdditivePersistence } from "./frameworkCoordinatorAdditiveTestSupport";
 import { changeBaseAvailability } from "./frameworkCoordinatorAdditiveAvailabilityTestSupport";
 import { captureAdditiveRelationalMigrationPlan } from "../../../src/installation/migrationCoordination/additivePlan";
 import { captureRelationalPhysicalLayout } from "../../../src/storage/relationalSchema/physical/canonical";
 import { issueRelationalStructuralRunnerTokenEffect, executeRelationalStructuralStepEffect } from "../../../src/installation/migrationCoordination/relationalStructuralRunner";
 import { runFrameworkMigrationTargetTransactionEffect } from "../../../src/installation/migrationCoordination/targetSession";
 
-describe("private additive framework migration coordinator", () => {
-  it("installs through the bounded installer and resumes durable state", async () => {
-    const fixture = await createAdditiveFixture();
+describe("private additive framework migration coordinator", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorAdditivePersistence();
+  it("installs through the bounded installer and resumes durable state", () => withPersistence(async persistence => {
+    const fixture = await createAdditiveFixture(persistence);
     await assertAdditiveInstaller(fixture.input);
     await assertReadyProbePlanIdentity(fixture.input, { collision: fixture.base.readiness.installation.collision,
       plan: fixture.base.readiness.installation.plan });
-  }, 180_000);
+  }), 180_000);
 
-  it("refuses an exact added table without its own receipt", async () => {
-    const fixture = await createAdditiveFixture();
+  it("refuses an exact added table without its own receipt", () => withPersistence(async persistence => {
+    const fixture = await createAdditiveFixture(persistence);
     const basePlan = fixture.base.readiness.installation.plan.plan;
     const physicalLayout = await runEffect(captureRelationalPhysicalLayout({ artifact: fixture.candidate.artifact,
       physicalLocator: basePlan.frame.physicalLocator, targetNamespace: basePlan.targetNamespace }));
@@ -49,10 +50,10 @@ describe("private additive framework migration coordinator", () => {
     expect(await runEffectFailure(executeNextFrameworkMigrationStepEffect(pending.claim))).toMatchObject({ reason: "unreceiptedStructure" });
     expect((await fixture.persistence.query("select * from fx_system_framework_migration_step_receipt")).rows).toHaveLength(4);
     expect((await fixture.persistence.query("select * from fx_system_framework_schema_installation")).rows).toHaveLength(1);
-  }, 180_000);
+  }), 180_000);
 
-  it("withholds successor readiness when added structure drifts before final validation", async () => {
-    const fixture = await createAdditiveFixture();
+  it("withholds successor readiness when added structure drifts before final validation", () => withPersistence(async persistence => {
+    const fixture = await createAdditiveFixture(persistence);
     const pending = await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect({ ...fixture.input, maximumStepsPerRun: 5 }));
     if (pending.kind !== "pending") throw new Error("Expected unvalidated successor");
     const table = (await fixture.persistence.query<{ name: string }>("select relname as name from pg_class where relnamespace='flarex_shared'::regnamespace and relkind='r' and relname like 'fxrt_%' order by oid desc limit 1")).rows[0];
@@ -60,9 +61,9 @@ describe("private additive framework migration coordinator", () => {
     await fixture.persistence.query(`alter table "flarex_shared"."${table.name}" add column drift text`);
     expect(await runEffect(executeNextFrameworkMigrationStepEffect(pending.claim))).toMatchObject({ kind: "not_ready", reason: "structureMismatch" });
     expect((await fixture.persistence.query("select * from fx_system_framework_schema_installation")).rows).toHaveLength(1);
-  }, 180_000);
-  it("refuses all non-ready base statuses before admission and resumes when ready", async () => {
-    const fixture = await createAdditiveFixture();
+  }), 180_000);
+  it("refuses all non-ready base statuses before admission and resumes when ready", () => withPersistence(async persistence => {
+    const fixture = await createAdditiveFixture(persistence);
     for (const status of ["withdrawn", "quarantined", "superseded"] as const) {
       await fixture.persistence.drizzle.transaction(tx => runEffect(changeBaseAvailability(tx, fixture.base.readiness.installation, status)));
       expect(await runEffectFailure(runAdditiveFrameworkMigrationCoordinatorEffect(fixture.input))).toMatchObject({ reason: "planConflict" });
@@ -70,10 +71,10 @@ describe("private additive framework migration coordinator", () => {
       await fixture.persistence.drizzle.transaction(tx => runEffect(changeBaseAvailability(tx, fixture.base.readiness.installation, "ready")));
     }
     expect(await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect(fixture.input))).toMatchObject({ kind: "ready" });
-  }, 240_000);
+  }), 240_000);
 
-  it("rechecks base availability between committed steps and at finalization", async () => {
-    const fixture = await createAdditiveFixture();
+  it("rechecks base availability between committed steps and at finalization", () => withPersistence(async persistence => {
+    const fixture = await createAdditiveFixture(persistence);
     const pending = await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect({ ...fixture.input, maximumStepsPerRun: 2 }));
     if (pending.kind !== "pending") throw new Error("Expected prefix");
     const change = (status: "ready" | "withdrawn") => fixture.persistence.drizzle.transaction(tx => runEffect(changeBaseAvailability(tx, fixture.base.readiness.installation, status)));
@@ -87,10 +88,10 @@ describe("private additive framework migration coordinator", () => {
     expect((await fixture.persistence.query("select * from fx_system_framework_schema_installation")).rows).toHaveLength(1);
     await change("ready");
     expect(await runEffect(finalizeFrameworkMigrationClaimEffect(pending.claim))).toMatchObject({ kind: "ready" });
-  }, 240_000);
+  }), 240_000);
 
-  it("rejects wrong base coordinates and digests without publishing candidate metadata", async () => {
-    const fixture = await createAdditiveFixture();
+  it("rejects wrong base coordinates and digests without publishing candidate metadata", () => withPersistence(async persistence => {
+    const fixture = await createAdditiveFixture(persistence);
     const base = fixture.input.baseInstallation;
     const references = [
       { ...base, readinessSha256: "00".repeat(32) },
@@ -105,10 +106,10 @@ describe("private additive framework migration coordinator", () => {
       await runEffectFailure(runAdditiveFrameworkMigrationCoordinatorEffect({ ...fixture.input, baseInstallation }));
     }
     expect((await fixture.persistence.query("select * from fx_system_framework_migration_plan")).rows).toHaveLength(1);
-  }, 180_000);
+  }), 180_000);
 
-  it("refuses changed or deleted retained definitions, zero additions and indexes on retained tables", async () => {
-    const fixture = await createAdditiveFixture();
+  it("refuses changed or deleted retained definitions, zero additions and indexes on retained tables", () => withPersistence(async persistence => {
+    const fixture = await createAdditiveFixture(persistence);
     const schema = syntheticSchemaInput();
     const parent = schema.tables.find(t => t.tableId === "parent");
     if (parent === undefined) throw new Error("Missing parent");
@@ -127,9 +128,9 @@ describe("private additive framework migration coordinator", () => {
         .toMatchObject({ reason: "invalidInput" });
     }
     expect((await fixture.persistence.query("select * from fx_system_framework_migration_plan")).rows).toHaveLength(1);
-  }, 180_000);
-  it("preserves an installed base, adds a related table and exactly replays the successor", async () => {
-    const fixture = await createAdditiveFixture();
+  }), 180_000);
+  it("preserves an installed base, adds a related table and exactly replays the successor", () => withPersistence(async persistence => {
+    const fixture = await createAdditiveFixture(persistence);
     const parent = fixture.base.readiness.installation.plan.plan.frame.physicalLayout.tables[0];
     if (parent === undefined) throw new Error("Missing parent");
     const id = parent.columns.find(c => c.identity.columnId === "id")?.name;
@@ -162,10 +163,10 @@ describe("private additive framework migration coordinator", () => {
       .toMatchObject({ kind: "ready", replayed: true });
     expect((await fixture.persistence.query("select * from fx_system_framework_migration_plan_base")).rows).toHaveLength(1);
     expect((await fixture.persistence.query("select * from fx_system_framework_schema_installation")).rows).toHaveLength(2);
-  }, 180_000);
+  }), 180_000);
 
-  it("resumes every committed boundary using a reconstructed request", async () => {
-    const fixture = await createAdditiveFixture();
+  it("resumes every committed boundary using a reconstructed request", () => withPersistence(async persistence => {
+    const fixture = await createAdditiveFixture(persistence);
     let result = await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect({ ...fixture.input, maximumStepsPerRun: 0 }));
     for (let completed = 1; completed <= 6; completed++) {
       if (result.kind !== "pending") throw new Error("Expected pending successor");
@@ -174,22 +175,22 @@ describe("private additive framework migration coordinator", () => {
       result = await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect({ ...fixture.input, maximumStepsPerRun: 0 }));
     }
     expect(result).toMatchObject({ kind: "ready" });
-  }, 180_000);
+  }), 180_000);
 
-  it("refuses missing normalized base evidence on cold replay", async () => {
-    const fixture = await createAdditiveFixture();
+  it("refuses missing normalized base evidence on cold replay", () => withPersistence(async persistence => {
+    const fixture = await createAdditiveFixture(persistence);
     expect(await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect(fixture.input))).toMatchObject({ kind: "ready" });
     await administrativelyRepairFrameworkMetadata(fixture.persistence.drizzle, ["fx_system_framework_migration_plan_base"], async repairTransaction => repairTransaction.execute(sql.raw("delete from fx_system_framework_migration_plan_base")));
     expect(await runEffectFailure(runAdditiveFrameworkMigrationCoordinatorEffect(fixture.input)))
       .toMatchObject({ reason: "storedCorruption" });
-  }, 180_000);
+  }), 180_000);
 
-  it("refuses retained catalog drift without admitting a successor", async () => {
-    const fixture = await createAdditiveFixture();
+  it("refuses retained catalog drift without admitting a successor", () => withPersistence(async persistence => {
+    const fixture = await createAdditiveFixture(persistence);
     const table = fixture.base.readiness.installation.plan.plan.frame.physicalLayout.tables[0];
     if (table === undefined) throw new Error("Missing base table");
     await fixture.persistence.query(`alter table "flarex_shared"."${table.name}" add column drift text`);
     await runEffectFailure(runAdditiveFrameworkMigrationCoordinatorEffect(fixture.input));
     expect((await fixture.persistence.query("select * from fx_system_framework_migration_plan")).rows).toHaveLength(1);
-  }, 180_000);
+  }), 180_000);
 });

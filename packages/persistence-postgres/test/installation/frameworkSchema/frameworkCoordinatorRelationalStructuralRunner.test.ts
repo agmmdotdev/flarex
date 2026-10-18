@@ -48,6 +48,7 @@ import type {
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   createSuccessfulTerminalPlanValues,
+  resetFrameworkCoordinatorPhysicalStructure,
   storeSuccessfulTerminalGraphInTransaction,
   useFileScopedFrameworkCoordinatorPersistence,
 } from "./frameworkCoordinatorRepositoryTestSupport";
@@ -84,7 +85,8 @@ const TRANSACTION_REQUEST = Object.freeze({
 describe("private relational structural runner", () => {
   describe("physical structure", { concurrent: false }, () => {
     const withPersistence = useFileScopedPersistence(() =>
-      createFileScopedPGliteFixture(async () => resetPhysicalStructure));
+      createFileScopedPGliteFixture(async () => persistence =>
+        resetFrameworkCoordinatorPhysicalStructure(persistence.drizzle)));
 
     it("keeps its token source-private, frozen, and process-authenticated", () => withPersistence(async persistence => {
       expectTypeOf<PublicStructuralRunnerExport>().toEqualTypeOf<never>();
@@ -832,23 +834,6 @@ describe("private relational structural runner", () => {
     }
   }, TEST_TIMEOUT);
 });
-
-async function resetPhysicalStructure(
-  persistence: Awaited<ReturnType<typeof createMigratedPGlitePersistence>>,
-): Promise<void> {
-  const schemaName = FRAMEWORK_VALUE_LOCATOR.schemaName;
-  await persistence.drizzle.transaction(async transaction => {
-    const tables = await transaction.select({ tableName: sql<string>`tablename` })
-      .from(sql`pg_catalog.pg_tables`)
-      .where(sql`schemaname = ${schemaName}`);
-    // Drop the owned tables together so their internal foreign keys are included.
-    // RESTRICT preserves outside dependants; any other schema object fails closed.
-    await transaction.execute(sql`DROP TABLE ${sql.join(tables.map(table =>
-      sql`${sql.identifier(schemaName)}.${sql.identifier(table.tableName)}`
-    ), sql`, `)}`);
-    await transaction.execute(sql`DROP SCHEMA ${sql.identifier(schemaName)}`);
-  });
-}
 
 async function createSyntheticRunnerFixture(
   persistence: Awaited<ReturnType<typeof createMigratedPGlitePersistence>>,

@@ -10,7 +10,7 @@ import { restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect, makeF
 import { runAdditiveFrameworkMigrationCoordinatorEffect } from "../../../src/installation/migrationCoordination/freshCoordinator";
 import { fxSystemFrameworkMigrationAttemptStarts } from "../../../src/installation/migrationCoordination/schema";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
-import { createAdditiveFixture } from "./frameworkCoordinatorAdditiveTestSupport";
+import { createAdditiveFixture, useFileScopedFrameworkCoordinatorAdditivePersistence } from "./frameworkCoordinatorAdditiveTestSupport";
 import { createSuccessfulTerminalPlanValues, storeSuccessfulTerminalGraphInTransaction, useFileScopedFrameworkCoordinatorGraphPersistence } from "./frameworkCoordinatorRepositoryTestSupport";
 import { withAdministrativeFrameworkMetadataRepair } from "./frameworkMetadataRepairTestSupport";
 
@@ -88,33 +88,37 @@ describe("event receipt graph restoration", () => {
     }), 90_000);
   });
 
-  it.each([false, true])("isolates producer state on A/B/A plan traversal with shared graph=%s", async shared => {
-    const fixture = await createAdditiveFixture();
-    const successor = await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect(fixture.input));
-    if (successor.kind !== "ready") throw new Error("Expected additive readiness");
-    const base = storedValues.restoredFrameworkMigrationAttemptTerminalStepReceipts(fixture.base.readiness.installation.terminal);
-    const added = storedValues.restoredFrameworkMigrationAttemptTerminalStepReceipts(successor.readiness.installation.terminal);
-    if (base === undefined || added === undefined || base.length < 2) throw new Error("Missing plan receipts");
-    expect(fixture.base.readiness.installation.plan.storageId).not.toBe(successor.readiness.installation.plan.storageId);
-    const requested = [...base.slice(0, 1), ...added, ...base.slice(1)];
-    const attempts = vi.spyOn(storedValues, "restoreStoredFrameworkMigrationAttemptStart");
-    try {
-      const restored = await fixture.persistence.drizzle.transaction(transaction => runEffect(readSubjectsWithFullMemo(
-        transaction, fixture.base.readiness.installation.collision, requested.map(receipt => receipt.receipt.sha256), shared)));
-      expect(restored.size).toBe(requested.length);
-      for (const receipt of requested) {
-        const actual = restored.get(receipt.receipt.sha256);
-        expect(actual?.receipt.canonicalJson).toBe(receipt.receipt.canonicalJson);
-        expect(actual?.attempt.attempt.canonicalJson).toBe(receipt.attempt.attempt.canonicalJson);
-        expect(actual?.attempt.plan.storageId).toBe(receipt.attempt.plan.storageId);
-      }
-      // The independent reader releases A; the explicit graph retains separate
-      // A/B contexts. Additive admission also authenticates base history.
-      const producerRestorations = attempts.mock.calls.filter(([input]) => input.row.attemptStorageId ===
-        successor.readiness.installation.terminal.attempt.storageId);
-      expect(producerRestorations).toHaveLength(1);
-    } finally { attempts.mockRestore(); }
-  }, 180_000);
+  describe("additive fixture", { concurrent: false }, () => {
+    const withPersistence = useFileScopedFrameworkCoordinatorAdditivePersistence();
+
+    it.each([false, true])("isolates producer state on A/B/A plan traversal with shared graph=%s", shared => withPersistence(async persistence => {
+      const fixture = await createAdditiveFixture(persistence);
+      const successor = await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect(fixture.input));
+      if (successor.kind !== "ready") throw new Error("Expected additive readiness");
+      const base = storedValues.restoredFrameworkMigrationAttemptTerminalStepReceipts(fixture.base.readiness.installation.terminal);
+      const added = storedValues.restoredFrameworkMigrationAttemptTerminalStepReceipts(successor.readiness.installation.terminal);
+      if (base === undefined || added === undefined || base.length < 2) throw new Error("Missing plan receipts");
+      expect(fixture.base.readiness.installation.plan.storageId).not.toBe(successor.readiness.installation.plan.storageId);
+      const requested = [...base.slice(0, 1), ...added, ...base.slice(1)];
+      const attempts = vi.spyOn(storedValues, "restoreStoredFrameworkMigrationAttemptStart");
+      try {
+        const restored = await fixture.persistence.drizzle.transaction(transaction => runEffect(readSubjectsWithFullMemo(
+          transaction, fixture.base.readiness.installation.collision, requested.map(receipt => receipt.receipt.sha256), shared)));
+        expect(restored.size).toBe(requested.length);
+        for (const receipt of requested) {
+          const actual = restored.get(receipt.receipt.sha256);
+          expect(actual?.receipt.canonicalJson).toBe(receipt.receipt.canonicalJson);
+          expect(actual?.attempt.attempt.canonicalJson).toBe(receipt.attempt.attempt.canonicalJson);
+          expect(actual?.attempt.plan.storageId).toBe(receipt.attempt.plan.storageId);
+        }
+        // The independent reader releases A; the explicit graph retains separate
+        // A/B contexts. Additive admission also authenticates base history.
+        const producerRestorations = attempts.mock.calls.filter(([input]) => input.row.attemptStorageId ===
+          successor.readiness.installation.terminal.attempt.storageId);
+        expect(producerRestorations).toHaveLength(1);
+      } finally { attempts.mockRestore(); }
+    }), 180_000);
+  });
 });
 
 const readSubjectsWithFullMemo = Effect.fn("EventReceiptGraphTest.readSubjectsWithFullMemo")(
