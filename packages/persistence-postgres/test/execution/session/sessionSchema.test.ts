@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_TRANSACTION_REQUEST_KEY_UTF8_BYTES_V1 } from "flarex-protocol/transaction-session";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import { useFileScopedPGliteTransactionSessionPersistence } from "../../support/pgliteTestFixture";
 import {
   POSTGRES_SIGNED_BIGINT_MAX_TEXT,
   SESSION_TEST_EPOCH_UUID,
@@ -14,9 +14,9 @@ import {
   transactionSessionIdAt,
 } from "./support/sessionStorage";
 
-describe("S07 transaction-session authority schema", () => {
-  it("stores maximum exact authorities and an epoch-independent snapshot pin", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+describe("S07 transaction-session authority schema", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPGliteTransactionSessionPersistence();
+  it("stores maximum exact authorities and an epoch-independent snapshot pin", () => withPersistence(async persistence => {
     await insertSessionTestScope(persistence);
     const sessionId = transactionSessionIdAt(10);
 
@@ -38,6 +38,13 @@ describe("S07 transaction-session authority schema", () => {
         snapshotCommitSeq: POSTGRES_SIGNED_BIGINT_MAX_TEXT,
       }),
     );
+
+    const clock = await persistence.query<{ epoch_uuid: string }>(`
+      select epoch_uuid::text
+      from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id)
+      where scope_uuid = '${SESSION_TEST_SCOPE_UUID}'::uuid
+    `);
+    expect(clock.rows).toEqual([{ epoch_uuid: SESSION_TEST_EPOCH_UUID }]);
 
     await persistence.query(
       `update fx_system_scope_execution_authority as authority set epoch = $2
@@ -68,10 +75,9 @@ describe("S07 transaction-session authority schema", () => {
         snapshot_epoch_uuid: SESSION_TEST_HISTORICAL_EPOCH_UUID,
       },
     ]);
-  });
+  }));
 
-  it("fails closed on malformed request authority and bigint overflow", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("fails closed on malformed request authority and bigint overflow", () => withPersistence(async persistence => {
     await insertSessionTestScope(persistence);
     const overflow = "9223372036854775808";
     const invalidFixtures = [
@@ -151,10 +157,9 @@ describe("S07 transaction-session authority schema", () => {
       `select count(*)::text as count from fx_system_tx_session`,
     );
     expect(count.rows).toEqual([{ count: "0" }]);
-  });
+  }));
 
-  it("preserves legacy authority and admits exactly one complete Application authority branch", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("preserves legacy authority and admits exactly one complete Application authority branch", () => withPersistence(async persistence => {
     await insertSessionTestScope(persistence);
     const sessionId = transactionSessionIdAt(41);
     await insertTransactionSessionFixture(
@@ -244,10 +249,9 @@ describe("S07 transaction-session authority schema", () => {
       authority_byte_length: 1,
       authority_sha_length: 32,
     }]);
-  });
+  }));
 
-  it("constrains leases to the exact current attempt and explicit removal", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("constrains leases to the exact current attempt and explicit removal", () => withPersistence(async persistence => {
     await insertSessionTestScope(persistence);
     const sessionId = transactionSessionIdAt(40);
     await insertTransactionSessionFixture(
@@ -292,10 +296,9 @@ describe("S07 transaction-session authority schema", () => {
         [SESSION_TEST_SCOPE_UUID, sessionId],
       ),
     ).rejects.toThrow();
-  });
+  }));
 
-  it("proves caller-owned atomic creation and fenced replacement rollback", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("proves caller-owned atomic creation and fenced replacement rollback", () => withPersistence(async persistence => {
     await insertSessionTestScope(persistence);
     const rolledBackSessionId = transactionSessionIdAt(50);
 
@@ -389,28 +392,5 @@ describe("S07 transaction-session authority schema", () => {
         snapshot_commit_seq: "7",
       },
     ]);
-  });
-
-  it("keeps snapshot epochs independent from the mutable current clock", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    await insertSessionTestScope(persistence);
-    const sessionId = transactionSessionIdAt(60);
-    await insertTransactionSessionFixture(
-      persistence,
-      transactionSessionFixture(sessionId),
-    );
-    await insertSnapshotLeaseFixture(
-      persistence,
-      snapshotLeaseFixture(sessionId, {
-        snapshotEpochUuid: SESSION_TEST_HISTORICAL_EPOCH_UUID,
-      }),
-    );
-
-    const clock = await persistence.query<{ epoch_uuid: string }>(`
-      select epoch_uuid::text
-      from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id)
-      where scope_uuid = '${SESSION_TEST_SCOPE_UUID}'::uuid
-    `);
-    expect(clock.rows).toEqual([{ epoch_uuid: SESSION_TEST_EPOCH_UUID }]);
-  });
+  }));
 });

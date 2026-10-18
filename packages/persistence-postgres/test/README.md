@@ -256,6 +256,11 @@ transaction deletes outcomes, wake and feed children, headers, then the existing
 storage rows and paired scope authority/clock state.
 Unexpected dependants still fail reset and require a rebuild; migration seeds
 remain intact. Historical feed and wake cutovers keep independent databases.
+Transaction-session schema cases use `useFileScopedPGliteTransactionSessionPersistence`.
+Its transaction deletes snapshot leases before sessions, then reuses the paired
+scope authority/clock reset. Other dependants refuse the entire reset and require
+a rebuild; constraints and migration seeds stay intact. Historical-epoch snapshot
+insertion and later current-epoch changes are checked in the same regression.
 The migration suite owns fresh-install replay; feed inventory and floor-default
 assertions remain with the feed schema suite.
 Committed-outcome constraint-corruption cases and the deliberately closed backend
@@ -297,6 +302,9 @@ non-healing assertions finish; colliding-ID,
 private cross-store authority and persistent constraint-drop witnesses retain
 independent databases. The same reset policy is exercised under an ordinary
 PostgreSQL schema owner.
+Current metadata-protection cases reuse this graph fixture after their guard and
+rollback assertions finish. Receipt cutovers, sequence changes and the historical
+guard migration keep independent databases.
 Publication preparation, table-only artifact compatibility and table/app-schema
 binding cases share one serial file-owned migrated backend, with distinct deployments
 and deployment-local allocation frontiers. The table-wide RETURNING-corruption

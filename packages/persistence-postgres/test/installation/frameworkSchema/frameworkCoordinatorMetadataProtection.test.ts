@@ -15,6 +15,7 @@ import {
 } from "../../../src/installation/migrationCoordination/schema";
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 import {
+  useFileScopedFrameworkCoordinatorGraphPersistence,
   createSuccessfulTerminalPlanValues,
   storeSuccessfulTerminalGraphInTransaction,
 } from "./frameworkCoordinatorRepositoryTestSupport";
@@ -165,64 +166,15 @@ describe("framework installation metadata protection", () => {
     ).toEqual([{ project_id: "project" }]);
   }, 180_000);
 
-  it("creates complete graphs atomically and rejects historical mutation and late children", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const values = await createSuccessfulTerminalPlanValues();
-    const graph = await persistence.drizzle.transaction((transaction) =>
-      storeSuccessfulTerminalGraphInTransaction(transaction, values),
-    );
-    const rows = await persistence.drizzle
-      .select()
-      .from(fxSystemFrameworkMigrationPlanSteps)
-      .where(
-        eq(
-          fxSystemFrameworkMigrationPlanSteps.planStorageId,
-          graph.plan.storageId,
-        ),
-      );
-    expect(rows.length).toBeGreaterThan(1);
-    const step = rows[0];
-    if (step === undefined) throw new Error("Missing plan step");
-    await expect(
-      persistence.drizzle
-        .update(fxSystemFrameworkMigrationPlans)
-        .set({ createdTransactionId: 1n })
-        .where(
-          eq(
-            fxSystemFrameworkMigrationPlans.planStorageId,
-            graph.plan.storageId,
-          ),
-        ),
-    ).rejects.toMatchObject({ cause: { code: "55000" } });
-    await expect(
-      persistence.query(
-        "delete from fx_system_framework_migration_plan_step_dependency",
-      ),
-    ).rejects.toMatchObject({ code: "55000" });
-    await expect(
-      persistence.query(
-        "truncate fx_system_framework_migration_plan_step cascade",
-      ),
-    ).rejects.toMatchObject({ code: "55000" });
+  describe("current metadata guards", { concurrent: false }, () => {
+    const withPersistence = useFileScopedFrameworkCoordinatorGraphPersistence();
 
-    // An exact existing child replay inserts nothing and does not reopen its parent.
-    await persistence.drizzle
-      .insert(fxSystemFrameworkMigrationPlanSteps)
-      .values(step)
-      .onConflictDoNothing();
-    const extra = {
-      ...step,
-      stepOrdinal: rows.length,
-      stepId: `step_${"7".repeat(32)}`,
-      stepSha256: new Uint8Array(32).fill(7),
-    };
-    await expect(
-      persistence.drizzle
-        .insert(fxSystemFrameworkMigrationPlanSteps)
-        .values(extra),
-    ).rejects.toMatchObject({ cause: { code: "55000" } });
-    expect(
-      await persistence.drizzle
+    it("creates complete graphs atomically and rejects historical mutation and late children", () => withPersistence(async persistence => {
+      const values = await createSuccessfulTerminalPlanValues();
+      const graph = await persistence.drizzle.transaction((transaction) =>
+        storeSuccessfulTerminalGraphInTransaction(transaction, values),
+      );
+      const rows = await persistence.drizzle
         .select()
         .from(fxSystemFrameworkMigrationPlanSteps)
         .where(
@@ -230,88 +182,138 @@ describe("framework installation metadata protection", () => {
             fxSystemFrameworkMigrationPlanSteps.planStorageId,
             graph.plan.storageId,
           ),
-        ),
-    ).toEqual(rows);
-  }, 180_000);
-
-  it("preserves SQL failure provenance and restores guards through owner rollback", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const values = await createSuccessfulTerminalPlanValues();
-    await persistence.drizzle.transaction((transaction) =>
-      storeSuccessfulTerminalGraphInTransaction(transaction, values),
-    );
-    await expect(
-      administrativelyRepairFrameworkMetadata(
-        persistence.drizzle,
-        ["fx_system_framework_migration_plan"],
-        async (transaction) => transaction.execute(sql`select 1 / 0`),
-      ),
-    ).rejects.toMatchObject({
-      name: "AggregateError",
-      errors: [{ cause: { code: "22012" } }, { cause: { code: "25P02" } }],
-    });
-    await expect(
-      persistence.query(
-        "update fx_system_framework_migration_plan set created_transaction_id=1",
-      ),
-    ).rejects.toMatchObject({ code: "55000" });
-  }, 180_000);
-
-  it("overrides forged creation stamps and confines administrative corruption to an explicit transaction", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const values = await createSuccessfulTerminalPlanValues();
-    const graph = await persistence.drizzle.transaction((transaction) =>
-      storeSuccessfulTerminalGraphInTransaction(transaction, values),
-    );
-    const [original] = await persistence.drizzle
-      .select()
-      .from(fxSystemFrameworkMigrationPlans);
-    if (original === undefined) throw new Error("Missing plan");
-    const { planStorageId: _planStorageId, ...copy } = original;
-    await persistence.drizzle.transaction(async (transaction) => {
-      const [inserted] = await transaction
-        .insert(fxSystemFrameworkMigrationPlans)
-        .values({
-          ...copy,
-          createdTransactionId: 1n,
-          migrationPlanSha256: new Uint8Array(32).fill(9),
-        })
-        .returning();
-      const clock = await transaction.execute<{ transaction_id: string }>(
-        sql`select txid_current()::text as transaction_id`,
-      );
-      expect(inserted?.createdTransactionId.toString()).toBe(
-        clock.rows[0]?.transaction_id,
-      );
-      expect(inserted?.createdTransactionId).not.toBe(1n);
-    });
-    await persistence.drizzle.transaction((transaction) =>
-      withAdministrativeFrameworkMetadataRepair(
-        transaction,
-        ["fx_system_framework_migration_plan"],
-        () =>
-          transaction
-            .update(fxSystemFrameworkMigrationPlans)
-            .set({ createdTransactionId: 1n })
-            .where(
-              eq(
-                fxSystemFrameworkMigrationPlans.planStorageId,
-                graph.plan.storageId,
-              ),
-            )
-            .execute(),
-      ),
-    );
-    await expect(
-      persistence.drizzle
-        .update(fxSystemFrameworkMigrationPlans)
-        .set({ createdTransactionId: 2n })
-        .where(
-          eq(
-            fxSystemFrameworkMigrationPlans.planStorageId,
-            graph.plan.storageId,
+        );
+      expect(rows.length).toBeGreaterThan(1);
+      const step = rows[0];
+      if (step === undefined) throw new Error("Missing plan step");
+      await expect(
+        persistence.drizzle
+          .update(fxSystemFrameworkMigrationPlans)
+          .set({ createdTransactionId: 1n })
+          .where(
+            eq(
+              fxSystemFrameworkMigrationPlans.planStorageId,
+              graph.plan.storageId,
+            ),
           ),
+      ).rejects.toMatchObject({ cause: { code: "55000" } });
+      await expect(
+        persistence.query(
+          "delete from fx_system_framework_migration_plan_step_dependency",
         ),
-    ).rejects.toMatchObject({ cause: { code: "55000" } });
-  }, 180_000);
+      ).rejects.toMatchObject({ code: "55000" });
+      await expect(
+        persistence.query(
+          "truncate fx_system_framework_migration_plan_step cascade",
+        ),
+      ).rejects.toMatchObject({ code: "55000" });
+
+      // An exact existing child replay inserts nothing and does not reopen its parent.
+      await persistence.drizzle
+        .insert(fxSystemFrameworkMigrationPlanSteps)
+        .values(step)
+        .onConflictDoNothing();
+      const extra = {
+        ...step,
+        stepOrdinal: rows.length,
+        stepId: `step_${"7".repeat(32)}`,
+        stepSha256: new Uint8Array(32).fill(7),
+      };
+      await expect(
+        persistence.drizzle
+          .insert(fxSystemFrameworkMigrationPlanSteps)
+          .values(extra),
+      ).rejects.toMatchObject({ cause: { code: "55000" } });
+      expect(
+        await persistence.drizzle
+          .select()
+          .from(fxSystemFrameworkMigrationPlanSteps)
+          .where(
+            eq(
+              fxSystemFrameworkMigrationPlanSteps.planStorageId,
+              graph.plan.storageId,
+            ),
+          ),
+      ).toEqual(rows);
+    }), 180_000);
+
+    it("preserves SQL failure provenance and restores guards through owner rollback", () => withPersistence(async persistence => {
+      const values = await createSuccessfulTerminalPlanValues();
+      await persistence.drizzle.transaction((transaction) =>
+        storeSuccessfulTerminalGraphInTransaction(transaction, values),
+      );
+      await expect(
+        administrativelyRepairFrameworkMetadata(
+          persistence.drizzle,
+          ["fx_system_framework_migration_plan"],
+          async (transaction) => transaction.execute(sql`select 1 / 0`),
+        ),
+      ).rejects.toMatchObject({
+        name: "AggregateError",
+        errors: [{ cause: { code: "22012" } }, { cause: { code: "25P02" } }],
+      });
+      await expect(
+        persistence.query(
+          "update fx_system_framework_migration_plan set created_transaction_id=1",
+        ),
+      ).rejects.toMatchObject({ code: "55000" });
+    }), 180_000);
+
+    it("overrides forged creation stamps and confines administrative corruption to an explicit transaction", () => withPersistence(async persistence => {
+      const values = await createSuccessfulTerminalPlanValues();
+      const graph = await persistence.drizzle.transaction((transaction) =>
+        storeSuccessfulTerminalGraphInTransaction(transaction, values),
+      );
+      const [original] = await persistence.drizzle
+        .select()
+        .from(fxSystemFrameworkMigrationPlans);
+      if (original === undefined) throw new Error("Missing plan");
+      const { planStorageId: _planStorageId, ...copy } = original;
+      await persistence.drizzle.transaction(async (transaction) => {
+        const [inserted] = await transaction
+          .insert(fxSystemFrameworkMigrationPlans)
+          .values({
+            ...copy,
+            createdTransactionId: 1n,
+            migrationPlanSha256: new Uint8Array(32).fill(9),
+          })
+          .returning();
+        const clock = await transaction.execute<{ transaction_id: string }>(
+          sql`select txid_current()::text as transaction_id`,
+        );
+        expect(inserted?.createdTransactionId.toString()).toBe(
+          clock.rows[0]?.transaction_id,
+        );
+        expect(inserted?.createdTransactionId).not.toBe(1n);
+      });
+      await persistence.drizzle.transaction((transaction) =>
+        withAdministrativeFrameworkMetadataRepair(
+          transaction,
+          ["fx_system_framework_migration_plan"],
+          () =>
+            transaction
+              .update(fxSystemFrameworkMigrationPlans)
+              .set({ createdTransactionId: 1n })
+              .where(
+                eq(
+                  fxSystemFrameworkMigrationPlans.planStorageId,
+                  graph.plan.storageId,
+                ),
+              )
+              .execute(),
+        ),
+      );
+      await expect(
+        persistence.drizzle
+          .update(fxSystemFrameworkMigrationPlans)
+          .set({ createdTransactionId: 2n })
+          .where(
+            eq(
+              fxSystemFrameworkMigrationPlans.planStorageId,
+              graph.plan.storageId,
+            ),
+          ),
+      ).rejects.toMatchObject({ cause: { code: "55000" } });
+    }), 180_000);
+  });
 });

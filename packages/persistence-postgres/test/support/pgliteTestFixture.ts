@@ -84,6 +84,12 @@ export function useFileScopedPGliteCommitSchemaPersistence() {
   return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () => resetCommitSchemaRows(db)));
 }
 
+/** Session and snapshot-lease schema rows only. Journal, claim and other scope
+ * dependants fail closed; persistent DDL requires independent databases. */
+export function useFileScopedPGliteTransactionSessionPersistence() {
+  return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () => resetTransactionSessionRows(db)));
+}
+
 /** Single-database scheduler cases only. Multi-database and persistent schema
  * corruption witnesses keep independent fixtures. */
 export function useFileScopedPGliteRedeliverySchedulerPersistence() {
@@ -139,6 +145,16 @@ async function resetRuntimeRows(db: PGlite): Promise<void> {
 
 async function resetStorageRows(db: PGlite): Promise<void> {
   await db.transaction(resetStorageRowsInTransaction);
+}
+
+async function resetTransactionSessionRows(db: PGlite): Promise<void> {
+  await db.transaction(async transaction => {
+    await transaction.exec(`
+      delete from fx_system_snapshot_lease;
+      delete from fx_system_tx_session;
+    `);
+    await resetScopeClockRowsInTransaction(transaction);
+  });
 }
 
 async function resetControlScopeRows(db: PGlite): Promise<void> {

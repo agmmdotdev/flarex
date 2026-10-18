@@ -6,10 +6,13 @@ import { preparedHostTestRuntime } from "../execution/preparation/preparedHostRu
 import { registerFileScopedPersistenceTests } from "./fileScopedPersistenceScenario";
 import { useFileScopedPGliteRuntimePersistence, useFileScopedPGliteCommitSchemaPersistence,
   useFileScopedPGliteRedeliverySchedulerPersistence, useFileScopedPGliteScopeAuthorityPersistence,
-  useFileScopedPGliteTaskRepairSchedulerPersistence, useFileScopedPGliteRetainedHistorySchedulerPersistence } from "./pgliteTestFixture";
+  useFileScopedPGliteTaskRepairSchedulerPersistence, useFileScopedPGliteRetainedHistorySchedulerPersistence,
+  useFileScopedPGliteTransactionSessionPersistence } from "./pgliteTestFixture";
 import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";
 import { insertPendingWake, insertWakeHeader, insertWakeScope, WAKE_SCOPE_A, WAKE_EPOCH_A } from "../commit/commitWakeOutboxTestSupport";
 import { insertCanonicalAvailableOutcome, insertCanonicalExpiredOutcome, insertOutcomeHeader, insertOutcomeScope } from "../commit/committedPointOutcomeTestSupport";
+import { insertSessionTestScope, insertSnapshotLeaseFixture, insertTransactionSessionFixture,
+  snapshotLeaseFixture, transactionSessionFixture, transactionSessionIdAt, SESSION_TEST_SCOPE_UUID } from "../execution/session/support/sessionStorage";
 import { reserveScopeAuthorityProvisioningReceiptInTransaction } from "../../src/scope/scopeAuthorityProvisioningReceipt";
 import { createSuccessfulTerminalPlanValues, storeBaseBackedCoordinatorGraphInTransaction,
   useFileScopedFrameworkCoordinatorPersistence, useFileScopedFrameworkCoordinatorGraphPersistence } from "../installation/frameworkSchema/frameworkCoordinatorRepositoryTestSupport";
@@ -125,6 +128,56 @@ describe("file-scoped PGlite storage and commit schema fixture", () => {
       expect(await persistence.getScopeClock(scope.scopeId)).toBeNull();
       expect(await counts(persistence)).toEqual(emptyCounts);
       expect((await persistence.query("select to_regclass('fixture_storage_reset_ref') as relation")).rows)
+        .toEqual([{ relation: null }]);
+    });
+  });
+});
+
+describe("file-scoped PGlite transaction session fixture", { concurrent: false }, () => {
+  const withPersistence = useFileScopedPGliteTransactionSessionPersistence();
+
+  it("clears leases before sessions and rolls back all rows when scope reset is refused", async () => {
+    const seed = async (persistence: PGliteFlarexPersistence) => {
+      await insertSessionTestScope(persistence);
+      const sessionId = transactionSessionIdAt(901);
+      await insertTransactionSessionFixture(persistence, transactionSessionFixture(sessionId));
+      await insertSnapshotLeaseFixture(persistence, snapshotLeaseFixture(sessionId));
+    };
+    const counts = async (persistence: PGliteFlarexPersistence) => (await persistence.query(`
+      select 'authority' as kind, count(*)::int as count from fx_system_scope_execution_authority
+      union all select 'clock', count(*)::int from fx_system_scope_clock
+      union all select 'lease', count(*)::int from fx_system_snapshot_lease
+      union all select 'session', count(*)::int from fx_system_tx_session
+      order by kind
+    `)).rows;
+    const emptyCounts = ["authority", "clock", "lease", "session"].map(kind => ({ kind, count: 0 }));
+    const populatedCounts = emptyCounts.map(row => ({ ...row, count: 1 }));
+    let baseline: Awaited<ReturnType<typeof seededRows>> = [];
+    let previous: PGliteFlarexPersistence | undefined;
+    await withPersistence(async persistence => {
+      baseline = await seededRows(persistence);
+      expect(baseline).toHaveLength(5);
+      await seed(persistence);
+      expect(await counts(persistence)).toEqual(populatedCounts);
+    });
+
+    await expect(withPersistence(async persistence => {
+      expect(await counts(persistence)).toEqual(emptyCounts);
+      expect(await seededRows(persistence)).toEqual(baseline);
+      await seed(persistence);
+      previous = persistence;
+      await persistence.query("delete from fx_system_retained_history_scheduler");
+      await persistence.query(`create table fixture_session_reset_ref (
+        scope_id text references fx_system_scope_clock (scope_id))`);
+      await persistence.query("insert into fixture_session_reset_ref values ($1)", [`scope_${SESSION_TEST_SCOPE_UUID}`]);
+    })).rejects.toMatchObject({ code: "23503" });
+    if (previous === undefined) throw new Error("Missing failed session fixture");
+    expect(await counts(previous)).toEqual(populatedCounts);
+
+    await withPersistence(async persistence => {
+      expect(await counts(persistence)).toEqual(emptyCounts);
+      expect(await seededRows(persistence)).toEqual(baseline);
+      expect((await persistence.query("select to_regclass('fixture_session_reset_ref') as relation")).rows)
         .toEqual([{ relation: null }]);
     });
   });
