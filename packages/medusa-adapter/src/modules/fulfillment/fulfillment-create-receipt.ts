@@ -37,7 +37,8 @@ export function fulfillmentCreationPolicy(prepared: Prepared) {
     if (call.commandName === "fulfillmentRetrieveForWorkflow" || call.commandName === "fulfillmentUpdateForShipment" || call.commandName === "fulfillmentListForDelivery")
       return yield* shipment.validateLogicalCall(call, activity);
     const mismatch = (phase: string, cause?: unknown) => commerceError("receiptMismatch", { phase, cause });
-    const creating = call.commandName === "fulfillmentCreateForWorkflow";
+    const returning = call.commandName === "fulfillmentCreateReturnForWorkflow",
+      creating = call.commandName === "fulfillmentCreateForWorkflow" || returning;
     if (!creating && call.commandName !== "fulfillmentCancelForWorkflow" || call.mode !== "write" || activity.lifecycle.length ||
       activity.setNull.length || activity.referenceReplacements.length) return yield* Effect.fail(mismatch("command"));
     const versions = new Map<string, JsonObject[]>(), inserted = new Map<string, JsonObject[]>(), orderedEvents: Array<{ object: string; action: "created" | "updated"; id: string }> = [];
@@ -133,6 +134,17 @@ export function fulfillmentCreationPolicy(prepared: Prepared) {
           for (const [field, value] of Object.entries({ ...contracts.defaults.get(entity.table.name), ...normalized, fulfillment_id: rootId }))
             if (row[field] === undefined || !jsonEqual(row[field], value)) return yield* Effect.fail(mismatch("child-request", { field }));
         }
+      }
+      if (returning) {
+        const optionId = rootBefore.shipping_option_id, options = [...referenceRows.get(contracts.option.table.name)?.values() ?? []], option = options[0];
+        // The actual internal retrieve executes after creation and before the
+        // provider's ordinary root update. A successful return requires this
+        // exact active Option; failure remains with native retrieve and rollback.
+        if (typeof optionId !== "string" || options.length !== 1 || option?.id !== optionId || option.deleted_at !== null)
+          return yield* Effect.fail(mismatch("return-option"));
+        const plan = yield* Effect.fromResult(prepared.returnQuery.query(buildQuery({ id: optionId }, { select: ["id", "name", "data", "metadata"] })));
+        reads.push({ table: contracts.option.table.name, query: commerceRelationReadQuery(defaultCommerceResources, plan.query.predicate), total: 1, returned: 1 });
+        remember(contracts.option.table.name, option);
       }
       const assigned = selectedManualDataAssignment(rootBefore), changed = !jsonEqual(rootBefore.data ?? null, assigned);
       if (patchCount !== (changed ? 1 : 0)) return yield* Effect.fail(mismatch("provider-dirty-state"));

@@ -1,6 +1,6 @@
 // @ts-check
 import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
-import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
+import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyReturnFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 import { deliverySourcePairs, verifyFulfillmentDeliveryCallbacks, verifyNativeSkipStepResponseType } from "./check-medusa-delivery-source.mjs";
 import { verifyPricingNormalizationExtraction } from "./check-medusa-pricing-normalization.mjs";
 import { createHash } from "node:crypto";
@@ -514,6 +514,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyShippingOptionUpdateCallbacks(root);
   verifyShippingOptionDeleteCallbacks(root);
   verifyFulfillmentCreationCallbacks(root);
+  verifyReturnFulfillmentCreationCallbacks(root);
   verifyFulfillmentCancellationCallbacks(root);
   verifyFulfillmentShipmentCallbacks(root);
   verifyFulfillmentDeliveryCallbacks(root);
@@ -565,6 +566,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
         "workflows/update-shipping-options.ts", "steps/set-shipping-options-prices.ts",
         "workflows/delete-shipping-options.ts", "steps/delete-shipping-options.ts",
         "workflows/create-fulfillment.ts", "steps/create-fulfillment.ts",
+        "workflows/create-return-fulfillment.ts", "steps/create-return-fulfillment.ts",
         "workflows/cancel-fulfillment.ts", "steps/cancel-fulfillment.ts",
         "workflows/create-shipment.ts", "workflows/update-fulfillment.ts", "steps/validate-shipment.ts", "steps/update-fulfillment.ts"]
         .includes(file.target.slice("packages/medusa-core-flows/src/fulfillment/".length)) &&

@@ -2,7 +2,7 @@ import type { PreparedCommerceModule } from "../../module/definition";
 import type { FulfillmentModuleService } from "@medusajs/fulfillment/services";
 import type { Context } from "@medusajs/framework/types";
 import { Effect, Result, Schema } from "effect";
-import { Fulfillment } from "@medusajs/fulfillment/models";
+import { Fulfillment, ShippingOption } from "@medusajs/fulfillment/models";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceCommandPreparation, commerceServiceCommands } from "../../module/commands";
@@ -15,6 +15,7 @@ import { FulfillmentCreate, FulfillmentCreationId, decodeFulfillmentCreate, deco
 import { prepareFulfillmentCreationRepository } from "./fulfillment-create-repository";
 import { fulfillmentCreationPolicy } from "./fulfillment-create-receipt";
 import { bindFulfillmentShipmentNativeService, prepareFulfillmentShipmentCommands } from "./fulfillment-shipment-service";
+import { bindFulfillmentReturnNativeService, prepareFulfillmentReturnCommands } from "./fulfillment-return-service";
 
 const createArguments = commerceDecoder(Schema.Tuple([FulfillmentCreate]), "invalidInput");
 const cancelArguments = commerceDecoder(Schema.Tuple([FulfillmentCreationId]), "invalidInput");
@@ -29,16 +30,17 @@ export const makeLocalFulfillmentCreationCommands = Effect.fn("FulfillmentAdapte
       bind: (ctx, owner) => {
         const bound = prepared.bind(ctx, owner), eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
           capture: message => bound.bridge.current().captureLocalEvent(message), check: work => bound.bridge.checked(ctx, work), refuse: bound.refuse });
-        return { baseRepository: bound.repository, repository: (model: FulfillmentPersistenceModel) => model === Fulfillment ? bound.repository : bound.denied,
+        return { baseRepository: bound.repository, repository: (model: FulfillmentPersistenceModel) => model === Fulfillment ? bound.repository
+          : model === ShippingOption ? bound.optionRepository : bound.denied,
           events: bound.mutationEvents, eventBus, denied: bound.denied };
-      }, service: native => ({ ...bindFulfillmentCreationNativeService(native), ...bindFulfillmentShipmentNativeService(native) }),
+      }, service: native => ({ ...bindFulfillmentCreationNativeService(native), ...bindFulfillmentShipmentNativeService(native), ...bindFulfillmentReturnNativeService(native) }),
     }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
     const base = yield* prepareFulfillmentCreationCommands(module, prepared), shipment = yield* prepareFulfillmentShipmentCommands(module, prepared),
-      commands = [...base.commands, ...shipment.commands], policy = base.logicalEventPolicy();
+      returns = yield* prepareFulfillmentReturnCommands(module, prepared), commands = [...base.commands, ...shipment.commands, ...returns.commands], policy = base.logicalEventPolicy();
     const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description,
-      methods: { ...base.workflow.methods, ...shipment.methods }, graph: shipment.graph,
+      methods: { ...base.workflow.methods, ...shipment.methods, ...returns.methods }, graph: shipment.graph,
       logical: { ...policy, commands, allowStorageInsertionOrder: true, reconstitution: "preserveTimestamps" } });
-    return { ...base, ...shipment, workflow, commands };
+    return { ...base, ...shipment, createReturn: returns.createReturn, workflow, commands };
   }));
 });
 

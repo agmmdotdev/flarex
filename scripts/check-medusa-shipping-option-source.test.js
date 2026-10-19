@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
+import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyReturnFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 import { deliverySourcePairs, verifyFulfillmentDeliveryCallbacks, verifyNativeSkipStepResponseType } from "./check-medusa-delivery-source.mjs";
 
 const root = process.cwd();
@@ -157,6 +157,47 @@ describe("standalone native Fulfillment cancellation packet", () => {
     for (const file of [cancelling, step])
       expect(() => verifyFulfillmentCancellationCallbacks(root, { [file]: { target: target(file) + "\nthrow new Error('extra');\n" } })).toThrow();
     expect(() => verifyFulfillmentCancellationCallbacks(root, { unknown: { target: "" } })).toThrow("unknown packet file");
+  });
+});
+
+describe("complete native return Fulfillment creation and retained cancellation", () => {
+  const creating = "workflows/create-return-fulfillment.ts", step = "steps/create-return-fulfillment.ts";
+  it("admits only finite imports, erased selected Location types and compensation metadata", () => {
+    expect(() => verifyReturnFulfillmentCreationCallbacks(root)).not.toThrow();
+    expect(() => verifyReturnFulfillmentCreationCallbacks(root, { [step]: { target: target(step)
+      .replace("const fulfillment =", "const fulfillment: FulfillmentDTO =") + "\n// erased declaration\n" } })).not.toThrow();
+  });
+  it.each([
+    ["Location query root", creating, 'entry_point: "stock_location"', 'entry_point: "shipping_option"'],
+    ["Location selector", creating, "id: input.location_id", "id: input.provider_id"],
+    ["Location projection", creating, '"address.country_code",', '"address.first_name",'],
+    ["singleton Location", creating, "list: false", "list: true"],
+    ["missing Location refusal", creating, "throw_if_key_not_found: true", "throw_if_key_not_found: false"],
+    ["native query identity", creating, 'name: "get-location"', 'name: "get-option"'],
+    ["queried Location precedence", creating, "        ...input,\n        location,", "        location,\n        ...input,"],
+    ["actual step input", creating, "createReturnFulfillmentStep(stepInput)", "createReturnFulfillmentStep(input)"],
+    ["original workflow result", creating, "new WorkflowResponse(result)", "new WorkflowResponse(input)"],
+    ["direct selected step import", creating, 'from "../steps/create-return-fulfillment"', 'from "../steps"'],
+    ["native return method", step, "service.createReturnFulfillment(data)", "service.createFulfillment(data)"],
+    ["awaited return creation", step, "await service.createReturnFulfillment(data)", "void service.createReturnFulfillment(data)"],
+    ["retained created identity", step, "new StepResponse(fulfillment, fulfillment.id)", "new StepResponse(fulfillment, data.provider_id)"],
+    ["empty inverse branch", step, "if (!id)", "if (false)"],
+    ["original cancellation inverse", step, "await service.cancelFulfillment(id)", "await service.deleteFulfillments(id)"],
+    ["retained inverse identity", step, "await service.cancelFulfillment(id)", 'await service.cancelFulfillment("other")'],
+    ["transaction-covered inverse", step, 'compensation: "transactionCovered"', 'compensation: "none"'],
+  ])("rejects changed %s", (_name, file, before, after) => {
+    const current = target(file); expect(current).toContain(before);
+    expect(() => verifyReturnFulfillmentCreationCallbacks(root, { [file]: { target: current.replace(before, after) } }))
+      .toThrow("Changed native return Fulfillment creation callback behavior");
+  });
+  it.each([creating, step])("rejects additional executable behavior in %s", file => {
+    expect(() => verifyReturnFulfillmentCreationCallbacks(root, { [file]: { target: target(file) + '\nthrow new Error("extra");' } })).toThrow();
+  });
+  it("requires the exact native adaptation anchors and selected source packet", () => {
+    const source = readFileSync(path.join(root, "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment", creating), "utf8");
+    expect(source).toContain('from "../steps"');
+    expect(() => verifyReturnFulfillmentCreationCallbacks(root, { [creating]: { source: source.replace('from "../steps"', 'from "../other"') } })).toThrow("native adaptation anchor");
+    expect(() => verifyReturnFulfillmentCreationCallbacks(root, { "steps/unrelated.ts": { target: "" } })).toThrow("unknown packet file");
   });
 });
 

@@ -132,6 +132,7 @@
     "./fulfillment/update-shipping-options": "./src/fulfillment/workflows/update-shipping-options.ts",
     "./fulfillment/delete-shipping-options": "./src/fulfillment/workflows/delete-shipping-options.ts",
     "./fulfillment/create-fulfillment": "./src/fulfillment/workflows/create-fulfillment.ts",
+    "./fulfillment/create-return-fulfillment": "./src/fulfillment/workflows/create-return-fulfillment.ts",
     "./fulfillment/cancel-fulfillment": "./src/fulfillment/workflows/cancel-fulfillment.ts",
     "./fulfillment/create-shipment": "./src/fulfillment/workflows/create-shipment.ts",
     "./fulfillment/update-fulfillment": "./src/fulfillment/workflows/update-fulfillment.ts",

@@ -22,6 +22,7 @@ import { compileFulfillmentCreationContracts, captureFulfillmentBusinessDates, d
 import type { captureFulfillmentCreationMetadata } from "./shipping-profile-schema";
 import { captureFulfillmentItemQuantity, selectedManualDataAssignment } from "./fulfillment-create-value-profile";
 import { prepareFulfillmentShipmentRepository } from "./fulfillment-shipment-repository";
+import { prepareFulfillmentReturnQuery } from "./fulfillment-return-query";
 
 type Metadata = Effect.Success<ReturnType<typeof captureFulfillmentCreationMetadata>>["frame"];
 const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.JsonObject }))
@@ -35,7 +36,8 @@ const decodeAddress = commerceDecoder(FulfillmentCreationAddress, "invalidInput"
  * Fulfillment create/cancel. The provider and exception paths remain native. */
 export function prepareFulfillmentCreationRepository(metadata: Metadata) {
   return Result.gen(function* () {
-    const contracts = yield* compileFulfillmentCreationContracts(metadata), shipment = yield* prepareFulfillmentShipmentRepository(contracts);
+    const contracts = yield* compileFulfillmentCreationContracts(metadata), shipment = yield* prepareFulfillmentShipmentRepository(contracts),
+      returnQuery = yield* prepareFulfillmentReturnQuery(contracts);
     const scalar = yield* prepareScalarRepository(contracts.fulfillment.table, "Fulfillment", scalarIdWhere, shipment.values.serialize);
     const entity = (value: typeof contracts.fulfillment) => ({ table: value.table, model: value.model, keyColumn: "id", prefix: value.table.columns.find(column => column.name === "id")?.options?.prefix });
     const address = entity(contracts.address), fulfillment = entity(contracts.fulfillment), label = entity(contracts.label), item = entity(contracts.item);
@@ -135,8 +137,12 @@ export function prepareFulfillmentCreationRepository(metadata: Metadata) {
         update: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, update(ctx, input, shared))),
         delete: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, remove(ctx, captured))),
       };
-      return { ...bound, repository, denied };
+      const optionRepository: DAL.RepositoryService = { ...denied,
+        find: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, returnQuery.find(ctx, captured))
+          .pipe(Effect.map(rows => structuredClone(rows)))),
+      };
+      return { ...bound, repository, optionRepository, denied };
     };
-    return { bind, contracts, catalog, creation, query: scalar.query, shipment };
+    return { bind, contracts, catalog, creation, query: scalar.query, shipment, returnQuery };
   });
 }

@@ -75,6 +75,16 @@ export function verifyFulfillmentCreationCallbacks(root, overrides = {}) {
   ], "Changed native Fulfillment creation callback behavior", overrides);
 }
 
+/** Return creation retains the selected native Location query, return service
+ * call, retained ID and ordinary cancellation inverse without extra guards.
+ * @param {string} root @param {Record<string, {source?: string, target?: string}>} overrides */
+export function verifyReturnFulfillmentCreationCallbacks(root, overrides = {}) {
+  return verifyShippingCallbacks(root, [
+    ["workflows/create-return-fulfillment.ts", undefined],
+    ["steps/create-return-fulfillment.ts", "createReturnFulfillmentStepId"],
+  ], "Changed native return Fulfillment creation callback behavior", overrides);
+}
+
 /** Standalone cancellation retains the void StepResponse and declared ID, with
  * no business compensator. The existing private SDK needs only its explicit
  * void WorkflowResponse composer edge, plus exact import relocations.
@@ -112,7 +122,7 @@ function verifyShippingCallbacks(root, files, failure, overrides) {
       : file === "steps/set-shipping-options-prices.ts" ? adaptRuleCompensation(source, "pricing", failure) : source;
     if (file !== "../common/steps/emit-event.ts") {
       expected = replaceChecked(expected, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"', 1, failure);
-      if (!["workflows/create-fulfillment.ts", "workflows/cancel-fulfillment.ts", "workflows/create-shipment.ts", "workflows/update-fulfillment.ts"].includes(file)) expected = replaceChecked(expected, 'from "@medusajs/framework/utils"', file === "steps/delete-shipping-options.ts"
+      if (!["workflows/create-fulfillment.ts", "workflows/create-return-fulfillment.ts", "workflows/cancel-fulfillment.ts", "workflows/create-shipment.ts", "workflows/update-fulfillment.ts"].includes(file)) expected = replaceChecked(expected, 'from "@medusajs/framework/utils"', file === "steps/delete-shipping-options.ts"
         ? 'from "@medusajs/utils/modules-sdk/definition"' : 'from "@medusajs/framework/utils/portable"', 1, failure);
     } else expected = replaceChecked(expected, "      options: input.options,",
       "      ...(input.options === undefined ? {} : { options: input.options }),", 1, failure);
@@ -123,6 +133,10 @@ function verifyShippingCallbacks(root, files, failure, overrides) {
     }
     if (file === "workflows/create-fulfillment.ts") {
       expected = replaceChecked(expected, 'from "../steps"', 'from "../steps/create-fulfillment"', 1, failure);
+      expected = replaceChecked(expected, 'from "../../common"', 'from "../../common/steps/use-remote-query"', 1, failure);
+    }
+    if (file === "workflows/create-return-fulfillment.ts") {
+      expected = replaceChecked(expected, 'from "../steps"', 'from "../steps/create-return-fulfillment"', 1, failure);
       expected = replaceChecked(expected, 'from "../../common"', 'from "../../common/steps/use-remote-query"', 1, failure);
     }
     if (file === "workflows/cancel-fulfillment.ts") {

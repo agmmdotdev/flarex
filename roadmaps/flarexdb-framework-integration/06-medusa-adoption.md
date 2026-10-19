@@ -599,6 +599,26 @@ exclusion, resource fencing, general coordination, Order delivery, populated
 upgrades and public/hosted activation remain separate. Product chunked file import
 and Product export remain deferred.
 
+The [native Return Fulfillment creation](./preflight/146-native-return-fulfillment-creation.md)
+root implements one local Manual creation with up to four Items and four Labels,
+using the same twelve-table source, singleton Stock Location Query and creation
+admission owner as ordinary Fulfillment creation. Its selected native method
+retrieves the active Shipping Option's `id`, `name`, `data` and `metadata` after
+insertion. That internal capability is read-only and bound to the created root;
+it adds no graph alias, Option mutation, schema or separate module constructor.
+The mixed Option/Fulfillment constructor retains its existing methods.
+
+Native Manual data merging, persistent input Labels, detached initial DTO and
+ordinary retained cancellation remain preserved. The native independent-
+transaction witness retains the residual graphs from failed post-create Option
+retrieval. No native cleanup correction is selected; a failed Flarex atomic root
+publishes no staged graph or event through its existing settlement owner.
+Return creation reuses 128 calls, 64 events, 1 MiB and the thirty-second command
+deadline. The finite callback's transaction-covered classification does not
+admit delayed compensation or a durable Return scheduler. Order/Return modules,
+external providers, populated upgrades and public/hosted activation remain
+separate gates.
+
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
 The genuine creation step remains unchanged and returns complete native rows,
