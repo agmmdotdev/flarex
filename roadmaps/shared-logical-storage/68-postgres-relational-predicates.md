@@ -3,7 +3,7 @@
 ## Status and scope
 
 Status: implemented for bounded private relational reads. Native Price
-Preference update is a separate pending consumer
+Preference updates consume this contract
 under [preflight 150](../flarexdb-framework-integration/preflight/150-native-price-preference-update.md).
 
 This contract adds closed PostgreSQL text predicates to bounded relational
@@ -110,6 +110,18 @@ finite captures retain their implicit-statement contract.
 
 ## Bounds and failure
 
+Complete-set reads can explicitly request `includeIdentities: true`. The shared
+selection owner then records existing `orderedIdentities` evidence from the
+actual matched rows in returned order, before caller projection. This applies
+to pure and PostgreSQL predicates and preserves the normal dependency
+observations, which may include candidates rejected by the predicate. A receipt
+must use the selected identities to establish membership rather than treating
+every dependency observation as a returned row or re-evaluating PostgreSQL in
+JavaScript. Empty selections retain an explicit empty identity set. Existing
+storage-insertion identity evidence and unrequested read profiles are unchanged.
+Paged reads refuse the flag because their lookahead does not establish the
+complete-set observation contract; ordinary page behavior remains separate.
+
 Predicate complexity retains the existing shared limits. Candidate counts and
 input/output bytes remain charged to the actual request lifetime. The batch
 issuer and finite capture additionally enforce the existing 1 MiB bounded
@@ -135,6 +147,11 @@ admission and limits; shared storage does not grant this syntax implicitly.
 
 Native semantic evidence uses UTF-8 PostgreSQL with C collation/ctype. Fulltext
 uses explicit SIMPLE regardless of the database default text-search dictionary.
+The compatibility PGlite database uses C collation with C.UTF-8 ctype; its
+native ILIKE folds accented case where the ordinary C-ctype PostgreSQL baseline
+does not. The same closed SQL preserves each engine's locale behavior. Passing
+both lanes does not establish identical Unicode case matching across these
+two locale configurations.
 Other locale/collation variants, hosted activation, arbitrary-query support,
 unbounded regex/fulltext work and capacity are not established by this slice.
 

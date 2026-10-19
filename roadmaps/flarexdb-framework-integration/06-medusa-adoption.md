@@ -668,12 +668,16 @@ witnessed nullable runtime inputs and refuses managed caller fields. Normal
 other Pricing methods, providers, durable scheduling and public/hosted
 activation remain separate gates.
 
-The next connected Pricing slice is [native Price Preference update](./preflight/150-native-price-preference-update.md).
-Its native preflight is complete; the required [PostgreSQL predicate owner](../shared-logical-storage/68-postgres-relational-predicates.md)
-is implemented for bounded private relational reads. The complete native selector
-contract, sparse retained
-preimages, dirty-row events and inverse upsert remain required before the
-workflow is admitted. An ID-only update profile does not complete this slice.
+The [native Price Preference update](./preflight/150-native-price-preference-update.md)
+root is implemented for bounded private execution. Its explicit profile uses the
+[PostgreSQL predicate owner](../shared-logical-storage/68-postgres-relational-predicates.md),
+core-produced selected identities, sparse retained preimages, dirty-row events
+and the original inverse upsert. Store and creation retain their own grammars;
+the preference write owner preserves native equal-value no-ops across them.
+
+The following connected Pricing slice is native Price Preference deletion.
+Its pending preflight must include native soft deletion, restore compensation
+and required Link deletion/restoration calls, including empty-input behavior.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

@@ -103,10 +103,10 @@ const projectionPolicy: ProjectionPolicy = { ...scalarProjection, allowedPaths: 
 
 /** Pricing owns the finite nested creation policy; shared graph/read owners
  * retain traversal, scoped persistence and native mutation dispatch. */
-export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], mutable = false, lifecycle = false, preferences = false, shipping = false, shippingUpdates = false) {
+export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], mutable = false, lifecycle = false, preferences = false, shipping = false, shippingUpdates = false, preferenceUpdates = false) {
   return Result.gen(function* () {
     if (preferences) {
-      const prepared = yield* preparePricingPreferenceRepository(metadata);
+      const prepared = yield* preparePricingPreferenceRepository(metadata, preferenceUpdates);
       return { ...prepared, query: undefined, mutationQuery: undefined };
     }
     const entities: GraphEntity[] = [];

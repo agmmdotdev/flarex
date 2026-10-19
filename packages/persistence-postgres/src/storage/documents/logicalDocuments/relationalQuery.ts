@@ -23,6 +23,7 @@ const StorageInsertionOrderSchema = Schema.Struct({ kind: Schema.Literal("storag
 export type StorageInsertionOrder = typeof StorageInsertionOrderSchema.Type;
 const Envelope = Schema.Struct({
   fields: Schema.optionalKey(Schema.Array(Schema.String)), predicate: Schema.optionalKey(Schema.Unknown),
+  includeIdentities: Schema.optionalKey(Schema.Literal(true)),
   skip: Schema.optionalKey(Window), take: Schema.optionalKey(Window),
   order: Schema.Union([Schema.Struct({ column: Schema.String, direction: Schema.Literals(["asc", "desc"]) }), StorageInsertionOrderSchema]),
 });
@@ -439,6 +440,7 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         return { order };
       });
       return Object.freeze({ key, identityColumns: identity, selections, search: json !== null ? null : search, json, storageInsertion,
+        includeIdentities: query.includeIdentities === true,
         requiresIndexedNullAnchor: selections === null && planned.unindexedText && search === null && json === null,
         requiredNulls: Object.freeze([...filter.requiredNulls]),
         // Native text access unions its validated patterns; JSON access uses

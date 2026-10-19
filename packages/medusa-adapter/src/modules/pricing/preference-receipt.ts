@@ -1,16 +1,21 @@
 import { Effect, Result, Schema } from "effect";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
+import { hasChangedFields } from "@medusajs/drizzle/mutation-plan";
 import { jsonEqual } from "flarex-protocol/json";
-import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, defaultCommerceResources, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { moduleEventDecoder } from "../../module/events";
 import { projectNativeRow, orderNativeIdRows } from "../../repository/result";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
-import { compilePricePreferenceContracts, decodeStorePreferenceFilters, decodePricePreferenceIds } from "./preference-input";
+import { commerceRelationReadQuery } from "../../query/relations";
+import { commerceDecoder } from "../../value/decoder";
+import { compilePricePreferenceContracts, decodeStorePreferenceFilters, decodePricePreferenceIds,
+  decodePricePreferenceUpdateList, decodePricePreferenceUpdate, decodePricePreferenceUpdateUpserts } from "./preference-input";
 import { decodePricePreferenceCreate } from "./input";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compilePricePreferenceContracts>>;
 type Row = Result.Result.Success<ReturnType<Contracts["decodeRow"]>>;
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const decodeSelectedIdentities = commerceDecoder(Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(4)), "receiptMismatch");
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.PRICING), object: Schema.Literal("price_preference"),
     action: Schema.Literals(["created", "updated", "deleted"]) }),
@@ -31,12 +36,12 @@ export function pricingPreferencePolicy(contracts: Contracts) {
     const mismatch = () => commerceError("receiptMismatch");
     if (activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length)
       return yield* Effect.fail(mismatch());
-    const initial = new Map<string, Row>();
+    const initial = new Map<string, Row>(), observations: Row[] = [];
     const decodeRow = (row: JsonObject) => Effect.fromResult(contracts.decodeRow(projectNativeRow(row)))
       .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
     for (const observation of activity.observedRows) {
       if (observation.table !== "price_preference") return yield* Effect.fail(mismatch());
-      const row = yield* decodeRow(observation.row); initial.set(row.id, row);
+      const row = yield* decodeRow(observation.row); initial.set(row.id, row); observations.push(row);
     }
     const seen = new Set<string>();
     for (const [ordinal, mutation] of activity.mutations.entries()) {
@@ -53,9 +58,102 @@ export function pricingPreferencePolicy(contracts: Contracts) {
         seen.add(before.id); initial.set(before.id, before);
       }
     }
-    if (initial.size > 4) return yield* Effect.fail(mismatch());
+    const updateProfile = ["pricingPreferenceUpdateList", "pricingPreferenceUpdate", "pricingPreferenceUpdateUpsert"].includes(call.commandName);
+    if (!updateProfile && initial.size > 4) return yield* Effect.fail(mismatch());
+    if (observations.some(row => !jsonEqual(initial.get(row.id) ?? null, row) &&
+      !activity.mutations.some(mutation => mutation.before !== null && jsonEqual(projectNativeRow(mutation.before), row) ||
+        mutation.after !== null && jsonEqual(projectNativeRow(mutation.after), row)))) return yield* Effect.fail(mismatch());
     const expectedEvents: Array<Readonly<{ id: string; action: "created" | "updated" | "deleted" }>> = [];
+    // Dependency observations may contain a complete candidate superset.
+    // Only core's actual returned identities establish query membership;
+    // PostgreSQL retains regex, collation and fulltext evaluation authority.
+    const selectedRead = (selector: Parameters<Contracts["updatePredicate"]>[0], index: number) => Result.gen(function* () {
+      const actual = activity.relationalReads[index];
+      const identities = yield* decodeSelectedIdentities(actual?.orderedIdentities);
+      if (new Set(identities.map(identity => identity.id)).size !== identities.length) return yield* Result.fail(mismatch());
+      const rows: Row[] = [];
+      for (const identity of identities) {
+        const row = initial.get(identity.id);
+        if (row === undefined || row.deleted_at !== null || !observations.some(observed => observed.id === identity.id))
+          return yield* Result.fail(mismatch());
+        rows.push(row);
+      }
+      if (!jsonEqual(identities, orderNativeIdRows(rows, {}).map(row => ({ id: row.id })))) return yield* Result.fail(mismatch());
+      const predicate = yield* contracts.updatePredicate(selector);
+      const expected = { table: "price_preference",
+        query: commerceRelationReadQuery(defaultCommerceResources, predicate, "id", { includeIdentities: true }),
+        total: rows.length, returned: rows.length, orderedIdentities: identities };
+      if (!jsonEqual(actual ?? null, expected)) return yield* Result.fail(mismatch());
+      return rows;
+    }).pipe(Result.mapError(cause => commerceError("receiptMismatch", cause)));
     switch (call.commandName) {
+      case "pricingPreferenceUpdateList": {
+        if (call.mode !== "read" || activity.mutations.length || call.events.length || activity.relationalReads.length !== 1)
+          return yield* Effect.fail(mismatch());
+        const input = yield* Effect.fromResult(decodePricePreferenceUpdateList(call.input))
+          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        const selectedRows = yield* Effect.fromResult(selectedRead(input.filters, 0));
+        const selected = input.config.select === undefined ? contracts.table.columns.map(column => column.name)
+          : [...new Set(["id", ...input.config.select.filter(field => contracts.table.columns.some(column => column.name === field))])];
+        const expected: JsonObject[] = [];
+        for (const row of selectedRows) {
+          const projected: Record<string, Json> = {};
+          for (const field of selected) {
+            const value = row[field];
+            if (value === undefined) return yield* Effect.fail(mismatch());
+            projected[field] = value;
+          }
+          expected.push(projected);
+        }
+        const output = yield* Effect.fromResult(contracts.decodeUpdateListOutput(call.result))
+          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        if (!jsonEqual(expected, output)) return yield* Effect.fail(mismatch());
+        return;
+      }
+      case "pricingPreferenceUpdate":
+      case "pricingPreferenceUpdateUpsert": {
+        if (call.mode !== "write") return yield* Effect.fail(mismatch());
+        let expectedReads = 0;
+        const updates = new Map<string, JsonObject>();
+        let selected: Row[];
+        if (call.commandName === "pricingPreferenceUpdate") {
+          const input = yield* Effect.fromResult(decodePricePreferenceUpdate(call.input))
+            .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+          selected = yield* Effect.fromResult(selectedRead(input.selector, expectedReads++));
+          for (const row of selected) updates.set(row.id, input.update);
+          if (selected.length) {
+            const reselected = yield* Effect.fromResult(selectedRead({ $or: selected.map(row => ({ id: row.id })) }, expectedReads++));
+            if (!jsonEqual(reselected, selected)) return yield* Effect.fail(mismatch());
+          }
+        } else {
+          const input = yield* Effect.fromResult(decodePricePreferenceUpdateUpserts(call.input))
+            .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+          for (const row of input) updates.set(row.id, row);
+          const where = { $or: input.map(row => ({ id: row.id })) };
+          selected = input.length ? yield* Effect.fromResult(selectedRead(where, expectedReads++)) : [];
+          if (updates.size !== selected.length || selected.some(row => !updates.has(row.id)) || !input.length && observations.length)
+            return yield* Effect.fail(mismatch());
+        }
+        if (activity.relationalReads.length !== expectedReads) return yield* Effect.fail(mismatch());
+        const expected: Row[] = [];
+        let ordinal = 0;
+        for (const before of selected) {
+          const supplied = updates.get(before.id);
+          if (supplied === undefined) return yield* Effect.fail(mismatch());
+          if (!hasChangedFields(before, supplied)) { expected.push(before); continue; }
+          const mutation = activity.mutations[ordinal++];
+          if (mutation?.operation !== "patch" || mutation.before === null || mutation.after === null ||
+            !jsonEqual(projectNativeRow(mutation.before), before)) return yield* Effect.fail(mismatch());
+          const after = yield* decodeRow(mutation.after);
+          if (typeof after.updated_at !== "string" || !jsonEqual(after, { ...before, ...supplied, updated_at: after.updated_at }))
+            return yield* Effect.fail(mismatch());
+          expected.push(after); expectedEvents.push({ id: after.id, action: "updated" });
+        }
+        const output = yield* Effect.fromResult(contracts.decodeOutput(call.result))
+          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        if (ordinal !== activity.mutations.length || !jsonEqual(expected, output)) return yield* Effect.fail(mismatch());
+        break;
+      }
       case "pricingCreatePreference": {
         if (call.mode !== "write" || initial.size !== 0) return yield* Effect.fail(mismatch());
         const input = yield* Effect.fromResult(decodePricePreferenceCreate(call.input))
@@ -111,7 +209,7 @@ export function pricingPreferencePolicy(contracts: Contracts) {
           if (supplied === undefined) return yield* Effect.fail(mismatch());
           if ("created_at" in supplied && (supplied.created_at !== before.created_at || supplied.deleted_at !== before.deleted_at))
             return yield* Effect.fail(mismatch());
-          if (Object.keys(supplied).length === 1) { expected.push(before); continue; }
+          if (!hasChangedFields(before, supplied)) { expected.push(before); continue; }
           const mutation = activity.mutations[ordinal++];
           if (mutation?.operation !== "patch" || mutation.before === null || mutation.after === null ||
             !jsonEqual(projectNativeRow(mutation.before), before)) return yield* Effect.fail(mismatch());

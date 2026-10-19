@@ -16,6 +16,10 @@ export type CommerceRelation = ToManyRelation | {
 export type CommerceRelations = ReadonlyMap<string, ReadonlyMap<string, CommerceRelation>>;
 export type CommerceRelationLookup = Pick<ReadonlyMap<string, Pick<ReadonlyMap<string, CommerceRelation>, "get">>, "get">;
 export type CommerceRelationOrder = string | StorageInsertionOrder;
+export interface CommerceRelationReadOptions {
+  /** Request source-owned identities of the actual selected rows. */
+  readonly includeIdentities?: true;
+}
 
 /** Module-owned finite admission sees actual selections before presentation.
  * The callback receives rows only; it cannot acquire persistence authority. */
@@ -25,8 +29,9 @@ export type CommerceRelationReadContext = Pick<CommerceCommandContext, "manager"
 
 /** One complete-set query shape for execution and authenticated read receipts. */
 export function commerceRelationReadQuery(resources: Pick<CommerceCommandContext["resources"], "queryRows">,
-  predicate: Json, order: CommerceRelationOrder = "id"): JsonObject {
-  return { take: resources.queryRows, order: typeof order === "string" ? { column: order, direction: "asc" } : { ...order }, predicate };
+  predicate: Json, order: CommerceRelationOrder = "id", options: CommerceRelationReadOptions = {}): JsonObject {
+  return { take: resources.queryRows, order: typeof order === "string" ? { column: order, direction: "asc" } : { ...order }, predicate,
+    ...(options.includeIdentities === true ? { includeIdentities: true } : {}) };
 }
 
 /** The native population owner prepares its indexed selection independently of
@@ -60,10 +65,10 @@ export function prepareCommerceRelationPopulation(columns: readonly string[], pa
  * would silently omit Medusa relationships, so a page alone is insufficient.
  */
 export const readCommerceRelationRows = Effect.fn("MedusaAdapter.readRelationRows")(function* (
-  ctx: CommerceRelationReadContext, table: string, predicate: Json, order: CommerceRelationOrder = "id",
+  ctx: CommerceRelationReadContext, table: string, predicate: Json, order: CommerceRelationOrder = "id", options: CommerceRelationReadOptions = {},
 ) {
   const store = yield* ctx.table(table);
-  const query = commerceRelationReadQuery(ctx.resources, predicate, order);
+  const query = commerceRelationReadQuery(ctx.resources, predicate, order, options);
   const rows = yield* store.find(ctx.manager, query);
   if (rows.length > ctx.resources.queryRows) return yield* Effect.fail(commerceError("storedCorruption"));
   if (ctx.admitSelection !== undefined) yield* Effect.fromResult(ctx.admitSelection(table, rows));

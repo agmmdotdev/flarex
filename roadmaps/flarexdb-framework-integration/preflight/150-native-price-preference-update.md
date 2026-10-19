@@ -2,10 +2,9 @@
 
 ## Status and complete closure
 
-Status: native preflight complete; the required neutral PostgreSQL predicate
-extension is implemented for bounded private relational reads. Full native
-workflow integration remains pending. Product chunked file import and Product export
-remain deferred.
+Status: implemented for bounded private execution. The complete native update
+root uses the shared PostgreSQL predicate owner and selected-identity evidence.
+Product chunked file import and Product export remain deferred.
 
 Authority is Medusa 2.13.4 at
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, recorded in
@@ -40,8 +39,10 @@ remote effect, new model/table or independent preference module.
 The immutable packet is
 `%TEMP%/flarex-150-native-price-preference-update-witness`. Its original
 81-case baseline, separate 70-case text-semantics extension and separate
-68-case Boolean/error extension characterize 219 native cases. The frozen
-v1/v2/v3 runners and their source inventories, reports and read-only audits
+68-case Boolean/error extension characterize 219 native cases. A separate
+63-case empty-fragment extension preserves those original definitions and
+characterizes nested empty objects, logical groups and comparison maps.
+The frozen v1/v2/v3/v4 runners and their source inventories, reports and read-only audits
 remain separate. They execute the original SDK workflow and step, genuine
 Pricing/internal services, default MikroORM, ordinary-role PostgreSQL and actual
 LocalEventBus lifecycle. No native business correction is indicated.
@@ -51,6 +52,12 @@ fulltext explicitly executes SIMPLE `to_tsvector` with `plainto_tsquery`;
 the database default English dictionary does not change that SQL. Native regex
 uses PostgreSQL POSIX/ARE rather than JavaScript RegExp.
 
+The compatibility PGlite database has C collation and C.UTF-8 ctype. Native ILIKE
+there folds accented case that remains distinct under the ordinary C-ctype
+PostgreSQL baseline. The workflow delegates to each engine's actual SQL
+semantics; compatibility validation does not claim identical Unicode case
+matching across these locale configurations.
+
 The accepted connected selector contract includes bounded scalar/array
 `id`, `attribute` and `value`, their conjunction, top-level recursive AND/OR,
 empty selectors and native successful operator families: scalar equality,
@@ -58,6 +65,14 @@ inequality, membership, negative membership, text ranges, LIKE, ILIKE, POSIX
 regex, SIMPLE fulltext and existence checks. Preserve raw case, empty strings,
 Unicode/combining characters, native escaping and NULL behavior. An ID-only
 facade would omit connected native functionality and is not the destination.
+
+Native MikroORM/Knex omits structurally empty selector fragments before SQL
+generation, including empty objects, logical groups and comparison maps inside
+AND/OR. An empty branch beside an ID selector therefore does not widen its
+selection; an all-empty group contributes no restriction. The named adapter
+policy preserves that omission after validating every source branch. Actual
+SQL predicates such as empty IN and NOT IN retain their false/true semantics
+and PostgreSQL's resulting regex error suppression.
 
 The pinned native backend rejects field-level `$not`, scalar-property AND/OR,
 array-valued `$eq` and the characterized array-containment/overlap operators on
@@ -93,11 +108,12 @@ delivery, cold workflow recovery or scale.
 
 ## Shared owner mismatch and disposition
 
-The existing relational compiler supports scalar membership, null checks,
-text inequality, selected greater-than and ASCII-only LIKE. It cannot represent
-the complete successful native PostgreSQL selector grammar. The existing
-preference repository additionally assumes complete Store lookup rows and
-Store-specific upserts, and patches any supplied mutable field even when equal.
+The complete successful native selector grammar requires PostgreSQL predicates
+beyond scalar membership, null checks, text inequality, selected greater-than
+and ASCII-only LIKE. Sparse update preimages and inverse upserts also require
+an explicit admission distinct from complete Store lookup rows and Store-specific
+upserts. Equal scalar assignments must remain native no-ops at the preference
+write owner, including Store calls through that same owner.
 
 The required correction belongs to shared relational query execution and the
 existing Pricing preference owner. Preserve this expected/actual mismatch;
@@ -137,37 +153,49 @@ callback runs inside this transaction. It adds no generic finite read fallback,
 independent transaction, database function, migration, query-specific verdict
 cache or new SQL capability.
 
-## Connected implementation plan and gates
+## Connected implementation and gates
 
-Extend the existing Pricing preference constructor with one explicit update
-admission. Preserve the creation contract and Store-specific filtering/upsert
-grammars. Reuse complete DML row contracts, shared scalar reads/projection,
-keyed updates, the existing bridge/subscriber and one outer settlement.
+The existing Pricing preference constructor has one explicit
+`price-preference-updates` admission. It preserves the creation contract and
+Store-specific filtering/upsert grammars and ordering. It reuses complete DML
+row contracts, shared scalar reads/projection, keyed updates, the existing
+bridge/subscriber and one outer settlement. Update results and preimages use
+ascending IDs. The shared compiler retains its existing 64 normalized nodes,
+depth eight and 256 operands; generated conjunctions and the active-row filter
+count toward these bounds. An earlier raw-selector traversal guard of 128 nodes
+does not admit 128 normalized nodes. Text values remain at most 256 characters. Runtime membership
+arrays containing NULL remain outside the declared public selector contract;
+the separately labeled native probes do not admit them implicitly.
 
-Add metadata-derived sparse-preimage decoding with required identity, selected
-field projection and complete row validation before projection. Compare actual
-scalar values before shared writes so empty/equal assignments remain native
-no-ops. Keep the original public TypeScript interfaces and native service
-algorithms; any narrower callable typing seam belongs at the actual foreign
-boundary. Do not add another preference factory or participant.
+Metadata-derived sparse-preimage decoding requires identity and validates
+complete rows before selected-field projection. The shared writer compares
+actual scalar values so empty/equal assignments remain native no-ops. The
+original public TypeScript interfaces and native service algorithms remain
+the boundary; the existing preference factory supplies the constrained view
+without another participant.
 
-Promote the original workflow and step through the established portable-fork
-seams with exact source provenance. A narrow facade selects only native list,
+The original workflow and step use the established portable-fork seams with
+exact source provenance. A narrow facade selects only native list,
 update and inverse-upsert resources, graph access off, up to four matched rows,
 and the existing call/event, byte and deadline limits. Native callbacks remain
 actual retained callbacks; whole-root failure rollback is a separate proof.
 
-Authenticate exact selectors and executed read plans, partial preimages,
-complete results, mutation membership/order, no-op rows and actual native events
-through the existing preference receipt owner. Preserve protected preference
-rows and every unrelated Pricing table.
+The existing preference receipt owner authenticates exact selectors and
+executed read plans, partial preimages, complete results, mutation
+membership/order, no-op rows and actual native events. Protected preference
+rows and every unrelated Pricing table remain outside the admitted writes.
 
-Before implementation is described as admitted, complete the neutral prerequisite
-on both database lanes, then prove the full connected native workflow on PGlite
-and ordinary-role PostgreSQL. Cover every accepted selector family, NULL/Unicode/
+These reads request shared selected-identity evidence. Hydrated candidate rows
+remain dependency observations even when PostgreSQL excludes them; they are not
+the selected set. The receipt binds the exact query and core-produced
+`orderedIdentities` to complete observed rows, sparse projections and dirty
+mutations. Neither candidate counts nor JavaScript text evaluation can replace
+that selection proof.
+
+The admitted profile preserves accepted selector families, NULL/Unicode/
 escaping/Boolean error behavior, sparse inverses, uniqueness failures, late-parent
-cancellation, rollback, replay, caught refusal, concurrency and affected Store,
-Pricing, Product and other predicate consumers. Complete affected types/builds,
-source/provenance/portability guards, lint, both required read-only reviews and
-temporary-resource cleanup. Production/hosted activation and destructive durable
-data changes retain separate gates.
+cancellation, rollback, replay, caught refusal and existing concurrency ownership.
+PGlite and ordinary-role PostgreSQL remain distinct validation lanes; the locale
+boundary above applies to their text behavior. Production/hosted activation,
+durable external event delivery, cold workflow recovery, scale and destructive
+durable-data changes retain separate gates.

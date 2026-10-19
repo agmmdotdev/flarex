@@ -67,7 +67,7 @@ export const logicalRelationalReadEvidenceScenario = Effect.fn("LogicalReadEvide
     const program = store.prepareRead(query.query);
     return { rows: [...yield* program.find(ctx.manager)], count: yield* program.count(ctx.manager) };
   }));
-  const overlayQuery = { fields: ["entry_key"], order: { column: "entry_key", direction: "asc" }, predicate: { kind: "and", children: [
+  const overlayQuery = { includeIdentities: true, fields: ["entry_key"], order: { column: "entry_key", direction: "asc" }, predicate: { kind: "and", children: [
     { kind: "in", column: "folio_key", values: ["predicate-owner"] },
     { kind: "postgresText", column: "text", operator: "like", value: "%βeta%" },
   ] } };
@@ -76,7 +76,7 @@ export const logicalRelationalReadEvidenceScenario = Effect.fn("LogicalReadEvide
     const before = yield* program.find(ctx.manager);
     yield* store.write(ctx.manager, "update", [{ entry_key: "predicate-a", text: "the βeta" }, { entry_key: "predicate-b", text: "left membership" }]);
     const after = yield* program.find(ctx.manager), count = yield* program.count(ctx.manager);
-    const page = yield* store.findPage(ctx.manager, { ...overlayQuery, predicate: { kind: "and", children: [
+    const page = yield* store.findPage(ctx.manager, { fields: overlayQuery.fields, order: overlayQuery.order, predicate: { kind: "and", children: [
       { kind: "isNull", column: "deleted_at" }, { kind: "postgresText", column: "text", operator: "like", value: "%βeta%" },
     ] } });
     return { before: [...before], after: [...after], count, page: { rows: [...page.rows], hasMore: page.hasMore } };
@@ -93,8 +93,12 @@ export const logicalRelationalReadEvidenceScenario = Effect.fn("LogicalReadEvide
   yield* Effect.acquireUseRelease(makeCommerceHost({ ...hostInput, logicalStorage, commands: [read] }),
     host => host.initialize([]), host => host.close);
   const receipts: string[] = [];
+  const identityReceipts: Array<Parameters<LogicalCommerceCallValidation>[1]> = [];
   const validateLogicalCall: LogicalCommerceCallValidation = (call, activity) => Effect.sync(() => {
     expect(call.events).toEqual([]);
+    if ((call.commandName === "neutralPostgresPredicateSelection" && isJsonObject(call.input) &&
+      call.input.query !== undefined && isJsonObject(call.input.query) && call.input.query.includeIdentities === true) || call.commandName === "neutralPostgresPredicateOverlay")
+      identityReceipts.push(activity);
     if (call.commandName !== "neutralReadEvidenceSelection") return;
     const selected = Result.getOrThrow(mode(call.input)), query = queryFor(selected);
     const total = selected === "empty" ? 0 : 2, returned = selected === "zeroWindow" ? 0 : total;
@@ -134,6 +138,35 @@ export const logicalRelationalReadEvidenceScenario = Effect.fn("LogicalReadEvide
     const selected = (predicate: Json): JsonObject => ({ fields: ["entry_key"], order: { column: "entry_key", direction: "asc" },
       predicate: { kind: "and", children: [{ kind: "in", column: "folio_key", values: ["predicate-owner"] }, predicate] } });
     const select = (query: JsonObject) => host.run(host.newRequestKey(), predicateRoot, { operation: "find", query });
+    // Call-local observations deliberately include access candidates. Selected
+    // identities authenticate actual membership independently of those rows,
+    // projection and pagination, for both pure and PostgreSQL residuals.
+    for (const predicate of [
+      { kind: "textNotEqual", column: "text", value: "Ångström fox" }, pg("fulltext", "fox"),
+    ] satisfies JsonObject[]) {
+      const query = { ...selected(predicate), fields: ["text"], includeIdentities: true, skip: 1, take: 1 };
+      const value = yield* select(query);
+      expect(value).toEqual({ rows: [{ text: "fox jumped" }], count: 3 });
+      const activity = identityReceipts.at(-1);
+      expect(activity?.relationalReads).toEqual([0, 1].map(() => ({ table: "entry", query, total: 3, returned: 1,
+        orderedIdentities: [{ entry_key: "predicate-c" }] })));
+      expect(activity?.observedRows.some(row => row.table === "entry" && row.row.entry_key === "predicate-b")).toBe(true);
+    }
+    for (const query of [
+      { ...selected(pg("fulltext", "fox")), fields: ["text"], includeIdentities: true, take: 0 },
+      { ...selected(pg("fulltext", "absent-proof-word")), fields: ["text"], includeIdentities: true },
+    ]) {
+      const value = yield* select(query);
+      const total = "take" in query && query.take === 0 ? 3 : 0;
+      expect(value).toEqual({ rows: [], count: total });
+      expect(identityReceipts.at(-1)?.relationalReads).toEqual([0, 1].map(() => ({ table: "entry", query,
+        total, returned: 0, orderedIdentities: [] })));
+    }
+    expect(yield* Effect.result(select({ ...selected(pg("fulltext", "fox")), includeIdentities: false })))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+    expect(yield* Effect.result(host.run(host.newRequestKey(), predicateRoot, { operation: "page", query: {
+      ...selected(pg("fulltext", "fox")), includeIdentities: true,
+    } }))).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
     for (const [predicate, keys] of [
       [pg("like", "%Ångström%"), ["predicate-a"]],
       [pg("ilike", "%FOX%"), ["predicate-a", "predicate-c", "predicate-d"]],
@@ -196,6 +229,9 @@ export const logicalRelationalReadEvidenceScenario = Effect.fn("LogicalReadEvide
       .toEqual({ rows: ["predicate-a", "predicate-b", "predicate-c", "predicate-d"].map(entry_key => ({ entry_key })), count: 4 });
     expect(yield* host.run(host.newRequestKey(), overlayRoot, null)).toEqual({ before: [{ entry_key: "predicate-b" }],
       after: [{ entry_key: "predicate-a" }], count: 1, page: { rows: [{ entry_key: "predicate-a" }], hasMore: false } });
+    expect(identityReceipts.at(-1)?.relationalReads.map(read => read.orderedIdentities)).toEqual([
+      [{ entry_key: "predicate-b" }], [{ entry_key: "predicate-a" }], [{ entry_key: "predicate-a" }],
+    ]);
     expect(yield* select(selected(pg("fulltext", "the")))).toEqual({ rows: [{ entry_key: "predicate-a" }], count: 1 });
     const beforeRefusal = yield* select(selected(pg("like", "%fox%")));
     expect((yield* Effect.result(host.run(host.newRequestKey(), caughtRoot, null)))._tag).toBe("Failure");

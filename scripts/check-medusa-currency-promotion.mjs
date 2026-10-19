@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
+import { verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
 import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyReturnFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 import { deliverySourcePairs, verifyFulfillmentDeliveryCallbacks, verifyNativeSkipStepResponseType } from "./check-medusa-delivery-source.mjs";
 import { verifyPricingNormalizationExtraction } from "./check-medusa-pricing-normalization.mjs";
@@ -273,6 +273,11 @@ function inventory(root, relative) {
 export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync(path.join(root, manifestPath), "utf8"))) {
   assertPromotion(supplied);
   verifyNativeJsonAssignment(root);
+  verifyPricePreferenceUpdateCallbacks(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/pricing/workflows/update-price-preferences.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/pricing/workflows/update-price-preferences.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/pricing/steps/update-price-preferences.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/pricing/steps/update-price-preferences.ts"), "utf8"));
   verifyPricePreferenceCreateCallbacks(
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/pricing/workflows/create-price-preferences.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/pricing/workflows/create-price-preferences.ts"), "utf8"),
@@ -661,6 +666,10 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     ].includes(file.target))) {
       throw new Error("Workflow fork adaptation outside its approved source closure");
     }
+    if (["packages/medusa-core-flows/src/pricing/workflows/update-price-preferences.ts",
+      "packages/medusa-core-flows/src/pricing/steps/update-price-preferences.ts"].includes(file.target)
+      && (file.classification !== "workflowFork" || file.source !== sourcePrefix + "packages/core/core-flows/src/" + file.target.slice("packages/medusa-core-flows/src/".length)))
+      throw new Error("PricePreference update outside its exact pinned source pair");
     if (["packages/medusa-core-flows/src/pricing/workflows/create-price-preferences.ts",
       "packages/medusa-core-flows/src/pricing/steps/create-price-preferences.ts"].includes(file.target)
       && (file.classification !== "workflowFork" || file.source !== sourcePrefix + "packages/core/core-flows/src/" + file.target.slice("packages/medusa-core-flows/src/".length)))

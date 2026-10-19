@@ -144,6 +144,8 @@ export interface LogicalRelationalReadObservation {
   readonly query: Json;
   readonly total: number;
   readonly returned: number;
+  /** Exact returned identities before projection, requested explicitly or by
+   * storage-insertion ordering. Candidate/dependency rows remain separate. */
   readonly orderedIdentities?: readonly JsonObject[];
 }
 export interface LogicalDocumentChanges {
@@ -1928,7 +1930,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       const docs: JsonObject[] = [];
       const orderedIdentities: JsonObject[] = [];
       for (const row of complete ? matched : matched.slice(query.offset, query.offset + query.limit)) {
-        if (query.storageInsertion) {
+        if (query.storageInsertion || query.includeIdentities) {
           const identity: Record<string, string> = {};
           for (const key of query.identityColumns) {
             const value = row.document[key];
@@ -1946,7 +1948,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         docs.push(yield* projectedOutput(projected));
       }
       return Object.freeze({ docs: Object.freeze(docs), total: matched.length,
-        ...(query.storageInsertion ? { orderedIdentities: Object.freeze(orderedIdentities) } : {}) });
+        ...(query.storageInsertion || query.includeIdentities ? { orderedIdentities: Object.freeze(orderedIdentities) } : {}) });
     }));
     relationalReads.push(Object.freeze({ tableId: table.tableId, tableName: table.logicalName,
       query: captured.value, total: result.total, returned: result.docs.length,
@@ -1963,7 +1965,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(preparation?.retained?.captured.value ?? input, lifetime.remainingBytes(), error));
     yield* charge(captured.bytes);
     const query = yield* compileRelationalRead(table, captured.value, preparation, captured);
-    if (query.storageInsertion || query.search !== null || query.direction !== "asc" || query.selections !== null && query.selections.length > 1)
+    // Page frontiers prove a returned prefix and successor, not the complete
+    // count/selection recorded by a relational selection receipt.
+    if (query.includeIdentities || query.storageInsertion || query.search !== null || query.direction !== "asc" || query.selections !== null && query.selections.length > 1)
       return yield* Effect.fail(error("invalidInput"));
     if (query.offset >= callIdentityLimit) return yield* Effect.fail(error("limitExceeded"));
     if (query.selections?.length === 0) {
