@@ -14,7 +14,7 @@ import {
   revokeTrustedWorkflowExecutionSubject, inspectTrustedWorkflowInterpreterSubject, type TrustedWorkflowInterpreterSubject,
 } from "@flarex/persistence-postgres/internal/trusted-workflow-execution-subject";
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { jsonEqual, type Json } from "flarex-protocol/json";
 import { commerceDecoder } from "../value/decoder";
 
@@ -29,6 +29,7 @@ export function isDurableNativeBoundaryFailure(value: unknown): boolean {
   return typeof value === "object" && value !== null && boundaryFailures.has(value);
 }
 export const nativeCheckpointCodec = "medusa.native-checkpoint.json.v1";
+export const nativeCompoundCheckpointCodec = "medusa.native-checkpoint.compound.json.v1";
 const utf8 = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const Counter = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
@@ -59,6 +60,22 @@ const Wire = Schema.Struct({
   errors: Schema.Array(Schema.Struct({ action: Schema.String, handlerType: Schema.Literals(["invoke", "compensate"]), error: Schema.Json })),
 });
 const decodeWire = commerceDecoder(Wire, "storedCorruption");
+const CompoundWire = Schema.Struct({ parent: Wire, child: Schema.NullOr(Wire) });
+const decodeCompoundWire = commerceDecoder(CompoundWire, "storedCorruption");
+// The native synchronous child response retains a JSON projection of its real
+// WorkflowResult. Read only the native identity/checkpoint portion; the native
+// result DTO and transient class fields are not a second execution authority.
+const RetainedChild = Schema.Struct({
+  __type: Schema.Literal("Symbol(WorkflowWorkflowData)"),
+  output: Schema.Struct({
+    __type: Schema.Literal("Symbol(WorkflowStepResponse)"),
+    compensateInput: Schema.Struct({ transaction: Schema.Struct({
+      flow: Wire.fields.flow, context: Wire.fields.context, errors: Wire.fields.errors,
+      modelId: Schema.String, transactionId: Schema.String, runId: Schema.String, payload: Schema.Json,
+    }) }),
+  }),
+});
+const decodeRetainedChild = Schema.decodeUnknownResult(RetainedChild);
 const graphBytes = (value: unknown) => JSON.stringify(value, (key, entry: unknown) => key === "uuid" ? undefined : entry);
 
 interface DurableNativeCheckpointIdentity {
@@ -67,6 +84,15 @@ interface DurableNativeCheckpointIdentity {
   readonly expectedInput: Json;
   /** A fixed parent profile may pin its native event-policy identity. */
   readonly expectedEventGroupId?: string;
+  readonly expectedParentStepIdempotencyKey?: string;
+}
+export interface DurableNativeCheckpointedChild {
+  readonly workflowId: string;
+  readonly transactionId: string;
+  readonly parentStepId: string;
+  /** A trusted profile validates the original child payload, including its
+   * relationship to the fixed parent input. This grants no service authority. */
+  readonly validateInput: (input: Json) => Result.Result<void, CommerceTransactionError>;
 }
 const nativeFailure = (reason: "unsupportedProfile" | "storedCorruption") => commerceError(reason);
 
@@ -77,9 +103,13 @@ function validateCheckpoint(raw: unknown, input: DurableNativeCheckpointIdentity
   if (input.expectedEventGroupId !== undefined) {
     const metadata = wire.flow.metadata;
     if (metadata?.eventGroupId !== input.expectedEventGroupId ||
-      (metadata.preventReleaseEvents !== undefined && metadata.preventReleaseEvents !== false) ||
-      metadata.parentStepIdempotencyKey !== undefined ||
-      (metadata.cancelingFromParentStep !== undefined && metadata.cancelingFromParentStep !== false))
+      (input.expectedParentStepIdempotencyKey === undefined
+        ? ((metadata.preventReleaseEvents !== undefined && metadata.preventReleaseEvents !== false) ||
+          metadata.parentStepIdempotencyKey !== undefined ||
+          (metadata.cancelingFromParentStep !== undefined && metadata.cancelingFromParentStep !== false))
+        : (metadata.parentStepIdempotencyKey !== input.expectedParentStepIdempotencyKey ||
+          metadata.preventReleaseEvents !== true ||
+          (metadata.cancelingFromParentStep !== undefined && typeof metadata.cancelingFromParentStep !== "boolean"))))
       throw nativeFailure("storedCorruption");
   }
   const definition = WorkflowManager.getWorkflow(input.workflowId);
@@ -100,12 +130,77 @@ export const decodeDurableNativeCheckpoint = (bytes: Uint8Array, input: DurableN
     return decodeNativeWorkflowCheckpointJson(decoder.decode(bytes), raw => validateCheckpoint(raw, input));
   }, catch: cause => commerceError("storedCorruption", cause),
 });
+export interface CompoundCheckpointIdentity extends DurableNativeCheckpointIdentity {
+  readonly expectedEventGroupId: string;
+  readonly checkpointedChild: DurableNativeCheckpointedChild;
+}
+const decodeStoredOptions = Schema.decodeUnknownResult(Schema.Struct({ store: Schema.Literal(true), storeExecution: Schema.Literal(true) }));
+function validateStoredOptions(checkpoint: typeof Wire.Type) {
+  // Other native options remain with the native flow owner; this profile pins
+  // only the two retention flags and synchronous topology.
+  Result.getOrThrow(decodeStoredOptions(checkpoint.flow.options));
+  if (checkpoint.flow.hasAsyncSteps) throw nativeFailure("storedCorruption");
+}
+function childIdentity(input: CompoundCheckpointIdentity, payload: Json): DurableNativeCheckpointIdentity {
+  Result.getOrThrow(input.checkpointedChild.validateInput(payload));
+  return { workflowId: input.checkpointedChild.workflowId, transactionId: input.checkpointedChild.transactionId,
+    expectedInput: payload, expectedEventGroupId: input.expectedEventGroupId,
+    expectedParentStepIdempotencyKey: `${input.workflowId}:${input.transactionId}:${input.checkpointedChild.parentStepId}:invoke` };
+}
+function decodeCompoundCheckpoint(bytes: Uint8Array, input: CompoundCheckpointIdentity) {
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_TRUSTED_WORKFLOW_CHECKPOINT_BYTES) throw nativeFailure("storedCorruption");
+  const wire = Result.getOrThrow(decodeCompoundWire(JSON.parse(decoder.decode(bytes))));
+  validateStoredOptions(wire.parent);
+  const parent = decodeNativeWorkflowCheckpointJson(JSON.stringify(wire.parent), raw => validateCheckpoint(raw, input));
+  const parentStep = Object.values(parent.flow.steps).find(step => step.definition?.action === input.checkpointedChild.parentStepId);
+  if (parentStep === undefined) throw nativeFailure("storedCorruption");
+  const child = wire.child === null ? undefined : (() => {
+    validateStoredOptions(wire.child);
+    if (wire.child.context.payload === undefined || wire.child.flow.runId !== wire.parent.flow.runId ||
+      parentStep.invoke.state === TransactionStepState.DORMANT || parentStep.invoke.state === TransactionStepState.NOT_STARTED)
+      throw nativeFailure("storedCorruption");
+    const identity = childIdentity(input, wire.child.context.payload);
+    return decodeNativeWorkflowCheckpointJson(JSON.stringify(wire.child), raw => validateCheckpoint(raw, identity));
+  })();
+  const retained = wire.parent.context.invoke[input.checkpointedChild.parentStepId];
+  if (retained !== undefined) {
+    const reference = Result.getOrThrow(decodeRetainedChild(retained)).output.compensateInput.transaction;
+    const childPayload = wire.child?.context.payload;
+    if (child === undefined || reference.modelId !== input.checkpointedChild.workflowId ||
+      reference.transactionId !== input.checkpointedChild.transactionId || reference.runId !== parent.flow.runId ||
+      childPayload === undefined || reference.context.payload === undefined ||
+      !jsonEqual(reference.payload, childPayload) || !jsonEqual(reference.context.payload, childPayload))
+      throw nativeFailure("storedCorruption");
+    validateCheckpoint({ flow: reference.flow, context: reference.context, errors: reference.errors },
+      childIdentity(input, reference.payload));
+  }
+  return { parent, child };
+}
+export const decodeDurableNativeCompoundCheckpoint = Effect.fn("NativeWorkflow.decodeCompoundCheckpoint")((bytes: Uint8Array, input: CompoundCheckpointIdentity) => Effect.try({
+  try: () => decodeCompoundCheckpoint(bytes, input), catch: cause => commerceError("storedCorruption", cause),
+}));
 export interface NativeWaitProposal {
   readonly waitId: string;
   readonly nativeStartedAtMs: number;
   readonly timeoutMs: number;
   readonly deadlineAtMs: number;
 }
+type DurableNativeStorageTopology = {
+  readonly uncheckpointedChild: Readonly<{ workflowId: string; transactionId: string }>;
+  readonly checkpointedChild?: never;
+  /** Only the selected async child admits the existing immediate retry. */
+  readonly recoveryStepId?: string;
+  readonly waitStepId: string;
+  readonly timeoutMs: number;
+} | {
+  /** Exactly one genuine synchronous child is retained with its native parent. */
+  readonly checkpointedChild: DurableNativeCheckpointedChild;
+  readonly expectedEventGroupId: string;
+  readonly uncheckpointedChild?: never;
+  readonly recoveryStepId?: never;
+  readonly waitStepId?: never;
+  readonly timeoutMs?: never;
+};
 
 /** One native parent checkpoint borrows the existing Task owner. There is no
  * SQL loan, timer or capability retained across the durable confirmation wait. */
@@ -116,36 +211,43 @@ export const makeDurableNativeStorage = Effect.fn("NativeWorkflow.makeStorage")(
   readonly clock: NativeWorkflowRuntime["clock"];
   readonly workflowId: string;
   readonly transactionId: string;
-  readonly uncheckpointedChild: Readonly<{ workflowId: string; transactionId: string }>;
-  /** The selected native async child alone admits an immediate, explicitly
-   * driven retry. No timer or arbitrary native retry graph is supported. */
-  readonly recoveryStepId?: string;
-  readonly waitStepId: string;
-  readonly timeoutMs: number;
   readonly expectedInput: Json;
   readonly expectedEventGroupId?: string;
   readonly requiredCheckpoint?: TrustedWorkflowCheckpointDescriptor;
-}) {
+} & DurableNativeStorageTopology) {
   const pins = yield* Effect.fromResult(inspectTrustedWorkflowInterpreterSubject(input.subject));
   if (pins.runId !== input.transactionId) return yield* commerceError("invalidAuthority");
   const gate = yield* Semaphore.make(1);
   const parentKey = `dtrx:${input.workflowId}:${input.transactionId}`;
-  const childKey = `dtrx:${input.uncheckpointedChild.workflowId}:${input.uncheckpointedChild.transactionId}`;
+  const selectedChild = input.checkpointedChild;
+  const inlineChild = input.uncheckpointedChild;
+  const childIdentityPins = selectedChild ?? inlineChild;
+  if (childIdentityPins === undefined) return yield* nativeFailure("unsupportedProfile");
+  const childKey = `dtrx:${childIdentityPins.workflowId}:${childIdentityPins.transactionId}`;
+  const codec = selectedChild === undefined ? nativeCheckpointCodec : nativeCompoundCheckpointCodec;
+  const compoundIdentity: CompoundCheckpointIdentity | undefined = input.checkpointedChild === undefined ? undefined : {
+    workflowId: input.workflowId, transactionId: input.transactionId, expectedInput: input.expectedInput,
+    expectedEventGroupId: input.expectedEventGroupId, checkpointedChild: input.checkpointedChild,
+  };
+  if (selectedChild !== undefined && (selectedChild.parentStepId !== `${selectedChild.workflowId}-as-step` ||
+    selectedChild.transactionId !== `${selectedChild.parentStepId}-${input.transactionId}`))
+    return yield* nativeFailure("unsupportedProfile");
   const maximumNativeAttempt = Math.min(pins.attemptNumber, pins.definition.boundPolicy.runAttempt.retry.maxAttempts);
   const sameChildId = (id: string) => {
-    if (id === input.uncheckpointedChild.transactionId) return true;
-    if (input.recoveryStepId === undefined) return false;
+    if (id === childIdentityPins.transactionId) return true;
+    if (inlineChild === undefined || input.recoveryStepId === undefined) return false;
     for (let attempt = 2; attempt <= maximumNativeAttempt; attempt++)
-      if (id === `${input.uncheckpointedChild.transactionId}-attempt-${attempt}`) return true;
+      if (id === `${inlineChild.transactionId}-attempt-${attempt}`) return true;
     return false;
   };
   const sameChildKey = (key: string) => key === childKey ||
-    (key.startsWith(`dtrx:${input.uncheckpointedChild.workflowId}:`) &&
-      sameChildId(key.slice(`dtrx:${input.uncheckpointedChild.workflowId}:`.length)));
+    (key.startsWith(`dtrx:${childIdentityPins.workflowId}:`) &&
+      sameChildId(key.slice(`dtrx:${childIdentityPins.workflowId}:`.length)));
   let sticky: Cause.Cause<unknown> | undefined;
   let revision = 0n;
   let loaded = false;
   let current: TransactionCheckpoint | undefined;
+  let currentChild: TransactionCheckpoint | undefined;
   let prepared: PreparedTrustedWorkflowCheckpoint | undefined;
   let wait: NativeWaitProposal | undefined;
   let retryRequested = false;
@@ -174,7 +276,10 @@ export const makeDurableNativeStorage = Effect.fn("NativeWorkflow.makeStorage")(
     }
   };
   const decode = (bytes: Uint8Array) => decodeDurableNativeCheckpoint(bytes, input);
+  const decodeCompound = (bytes: Uint8Array) => compoundIdentity === undefined
+    ? Effect.fail(nativeFailure("unsupportedProfile")) : decodeDurableNativeCompoundCheckpoint(bytes, compoundIdentity);
   const rememberWait = (checkpoint: TransactionCheckpoint) => {
+    if (input.timeoutMs === undefined) return;
     for (const step of Object.values(checkpoint.flow.steps)) {
       if (step.definition?.action !== input.waitStepId || step.invoke.state !== TransactionStepState.INVOKING ||
         step.invoke.status !== TransactionStepStatus.WAITING || step.startedAt === undefined) continue;
@@ -185,7 +290,7 @@ export const makeDurableNativeStorage = Effect.fn("NativeWorkflow.makeStorage")(
     }
   };
 
-  const encode = (checkpoint: TransactionCheckpoint) => Effect.try({
+  const encode = (checkpoint: unknown) => Effect.try({
     try: () => {
       // Genuine JSON encoding invokes native StepResponse.toJSON and preserves
       // native undefined/Error/Date behavior before the opaque core byte API.
@@ -201,16 +306,21 @@ export const makeDurableNativeStorage = Effect.fn("NativeWorkflow.makeStorage")(
       if (input.requiredCheckpoint !== undefined) return yield* nativeFailure("storedCorruption");
     } else {
       const value = result.value;
-      if (value.codec !== nativeCheckpointCodec || (input.requiredCheckpoint !== undefined &&
+      if (value.codec !== codec || (input.requiredCheckpoint !== undefined &&
         (value.revision < input.requiredCheckpoint.revision || (value.revision === input.requiredCheckpoint.revision &&
           (value.byteLength !== input.requiredCheckpoint.byteLength || !bytesEqualFullScan(value.sha256, input.requiredCheckpoint.sha256))))))
         return yield* nativeFailure("storedCorruption");
-      current = yield* decode(value.bytes);
+      if (compoundIdentity === undefined) current = yield* decode(value.bytes);
+      else {
+        const compound = yield* decodeCompound(value.bytes);
+        current = compound.parent;
+        currentChild = compound.child;
+      }
       revision = value.revision;
       rememberWait(current);
       // A fresh process cannot retain the old opaque prepared handle. Prepare
       // the authenticated unchanged bytes for the continuation owner's CAS.
-      prepared = yield* input.checkpointStore.prepare({ expectedRevision: revision - 1n, codec: nativeCheckpointCodec, bytes: value.bytes });
+      prepared = yield* input.checkpointStore.prepare({ expectedRevision: revision - 1n, codec, bytes: value.bytes });
     }
     loaded = true;
     return current;
@@ -218,33 +328,54 @@ export const makeDurableNativeStorage = Effect.fn("NativeWorkflow.makeStorage")(
   const sameParent = (transaction: DistributedTransactionType) => transaction.modelId === input.workflowId && transaction.transactionId === input.transactionId;
   const storage: IDistributedTransactionStorage = {
     get: key => boundary(serial(Effect.gen(function* () {
-      if (sameChildKey(key)) return undefined;
-      if (key !== parentKey) return yield* nativeFailure("unsupportedProfile");
+      const child = sameChildKey(key);
+      if (child && compoundIdentity === undefined) return undefined;
+      if (!child && key !== parentKey) return yield* nativeFailure("unsupportedProfile");
       // Each hydration gets its own genuine checkpoint; native buildSteps
       // mutates it while restoring methods.
-      const value = yield* load();
-      return value === undefined ? undefined : yield* encode(value).pipe(Effect.flatMap(decode));
+      yield* load();
+      const value = child ? currentChild : current;
+      if (value === undefined) return undefined;
+      if (compoundIdentity === undefined) return yield* encode(value).pipe(Effect.flatMap(decode));
+      if (current === undefined) return yield* nativeFailure("storedCorruption");
+      const snapshot = yield* encode({ parent: current, child: currentChild ?? null }).pipe(Effect.flatMap(decodeCompound));
+      return child ? snapshot.child : snapshot.parent;
     }))),
     save: async (key, checkpoint, _ttl, options) => {
       const outcome = await boundary(serial(Effect.gen(function* () {
-      if (key !== parentKey) return yield* nativeFailure("unsupportedProfile");
+      const child = key === childKey && compoundIdentity !== undefined;
+      if (!child && key !== parentKey) return yield* nativeFailure("unsupportedProfile");
       yield* load();
-      const stored = current === undefined ? undefined : yield* encode(current).pipe(Effect.flatMap(decode));
+      // Native merge mutates checkpoints. Detach both branches before borrowing
+      // either one, keeping one shared Task revision and serialization gate.
+      const detached = current === undefined ? undefined : compoundIdentity === undefined
+        ? { parent: yield* encode(current).pipe(Effect.flatMap(decode)), child: undefined }
+        : yield* encode({ parent: current, child: currentChild ?? null }).pipe(Effect.flatMap(decodeCompound));
+      const stored = child ? detached?.child : detached?.parent;
       const merged = Result.try({ try: () => mergeNativeWorkflowCheckpointForSave(checkpoint, stored, options), catch: cause => cause });
       if (Result.isFailure(merged)) {
         if (merged.failure instanceof Error && TransactionOrchestrator.isExpectedError(merged.failure))
           return { kind: "nativeControl" as const, error: merged.failure };
         return yield* Effect.die(merged.failure);
       }
-      const bytes = yield* encode(checkpoint);
-      const snapshot = yield* decode(bytes);
-      const next = yield* input.checkpointStore.prepare({ expectedRevision: revision, codec: nativeCheckpointCodec, bytes });
+      if (child && current === undefined) return yield* nativeFailure("storedCorruption");
+      const bytes = yield* encode(compoundIdentity === undefined ? checkpoint : {
+        parent: child ? current : checkpoint, child: child ? checkpoint : currentChild ?? null,
+      });
+      const snapshot = compoundIdentity === undefined ? { parent: yield* decode(bytes), child: undefined }
+        : yield* decodeCompound(bytes);
+      const next = yield* input.checkpointStore.prepare({ expectedRevision: revision, codec, bytes });
       const saved = yield* input.checkpointStore.save(input.subject, next);
       revision = saved.checkpoint.revision;
-      current = snapshot;
-      rememberWait(snapshot);
+      current = snapshot.parent;
+      currentChild = snapshot.child;
+      rememberWait(snapshot.parent);
       prepared = next;
-      return { kind: "saved" as const, checkpoint: yield* decode(bytes) };
+      const returned = compoundIdentity === undefined ? { parent: yield* decode(bytes), child: undefined }
+        : yield* decodeCompound(bytes);
+      const savedCheckpoint = child ? returned.child : returned.parent;
+      if (savedCheckpoint === undefined) return yield* nativeFailure("storedCorruption");
+      return { kind: "saved" as const, checkpoint: savedCheckpoint };
       })));
       // Native expected control is not a failed core operation. Let the
       // genuine orchestrator handle it after the Effect boundary succeeded.
@@ -252,7 +383,7 @@ export const makeDurableNativeStorage = Effect.fn("NativeWorkflow.makeStorage")(
       return outcome.checkpoint;
     },
     scheduleStepTimeout: (transaction, step, _timestamp, interval) => boundary(Effect.try({ try: () => {
-      if (!sameParent(transaction) || step.definition.action !== input.waitStepId || interval * 1000 !== input.timeoutMs ||
+      if (input.timeoutMs === undefined || !sameParent(transaction) || step.definition.action !== input.waitStepId || interval * 1000 !== input.timeoutMs ||
         step.startedAt === undefined || !Number.isSafeInteger(step.startedAt)) throw nativeFailure("unsupportedProfile");
       const proposal = Object.freeze({ waitId: input.waitStepId, nativeStartedAtMs: step.startedAt,
         timeoutMs: input.timeoutMs, deadlineAtMs: step.startedAt + input.timeoutMs });
@@ -261,7 +392,7 @@ export const makeDurableNativeStorage = Effect.fn("NativeWorkflow.makeStorage")(
     }, catch: cause => commerceError("unsupportedProfile", cause) })),
     clearStepTimeout: transaction => boundary(sameParent(transaction) ? Effect.void : Effect.fail(nativeFailure("unsupportedProfile"))),
     clearTransactionTimeout: transaction => boundary(sameParent(transaction) ||
-      (transaction.modelId === input.uncheckpointedChild.workflowId && sameChildId(transaction.transactionId))
+      (transaction.modelId === childIdentityPins.workflowId && sameChildId(transaction.transactionId))
       ? Effect.void : Effect.fail(nativeFailure("unsupportedProfile"))),
     scheduleRetry: (transaction, step, _timestamp, interval) => boundary(serial(Effect.gen(function* () {
       const latest = yield* load();

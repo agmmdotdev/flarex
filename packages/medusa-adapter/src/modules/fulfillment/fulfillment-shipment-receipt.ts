@@ -10,7 +10,7 @@ import { orderNativeIdRows, projectNativeRow } from "../../repository/result";
 import { assembleCommerceRelations, commerceRelationReadQuery, prepareCommerceRelationPopulation } from "../../query/relations";
 import { FulfillmentCreationId } from "./fulfillment-create-input";
 import { commerceDecoder } from "../../value/decoder";
-import { decodeFulfillmentShipmentCommand, decodeFulfillmentShipmentRead } from "./fulfillment-shipment-input";
+import { decodeFulfillmentShipmentCommand, decodeFulfillmentShipmentRead, decodeFulfillmentDeliveryList } from "./fulfillment-shipment-input";
 import type { prepareFulfillmentCreationRepository } from "./fulfillment-create-repository";
 
 type Prepared = Result.Result.Success<ReturnType<typeof prepareFulfillmentCreationRepository>>;
@@ -89,10 +89,10 @@ export function fulfillmentShipmentPolicy(prepared: Prepared) {
       } else reads.push({ table, query: commerceRelationReadQuery(defaultCommerceResources, predicate), total: rows.length, returned: rows.length });
       return rows;
     });
-    const select = (id: string, filters: JsonObject, config: JsonObject = {}) => Result.gen(function* () {
+    const select = (id: string, filters: JsonObject, config: JsonObject = {}, required = true) => Result.gen(function* () {
       const plan = yield* shipment.reads.query(buildQuery(filters, config));
       const roots = yield* readRows(contracts.fulfillment.table.name, plan.query.predicate, group(contracts.fulfillment.table.name).filter(row => row.id === id), true);
-      if (roots.length !== 1) return yield* Result.fail(mismatch("selected-root"));
+      if (roots.length > 1 || required && roots.length !== 1) return yield* Result.fail(mismatch("selected-root"));
       const rows = new Map<string, readonly JsonObject[]>([[contracts.fulfillment.table.name, roots]]);
       for (const path of plan.paths) {
         const relation = contracts.queryRelations.get(contracts.fulfillment.table.name)?.get(path);
@@ -108,7 +108,13 @@ export function fulfillmentShipmentPolicy(prepared: Prepared) {
       const assembled = assembleCommerceRelations(contracts.fulfillment.table.name, rows, plan.paths, contracts.queryRelations);
       return { plan, rows: yield* plan.project(assembled) };
     });
-    if (call.commandName === "fulfillmentRetrieveForWorkflow") {
+    if (call.commandName === "fulfillmentListForDelivery") {
+      if (call.mode !== "read" || activity.mutations.length || call.events.length) return yield* Effect.fail(mismatch("list-mode"));
+      const input = yield* Effect.fromResult(decodeFulfillmentDeliveryList(call.input)), id = input.filters.id[0];
+      if (id === undefined) return yield* Effect.fail(mismatch("list-id"));
+      const selected = yield* Effect.fromResult(select(id, input.filters, input.config, false));
+      if (!jsonEqual(call.result, yield* shipment.values.serialize([...selected.rows]))) return yield* Effect.fail(mismatch("list-result"));
+    } else if (call.commandName === "fulfillmentRetrieveForWorkflow") {
       if (call.mode !== "read" || activity.mutations.length || call.events.length) return yield* Effect.fail(mismatch("read-mode"));
       const input = yield* Effect.fromResult(decodeFulfillmentShipmentRead(call.input)), selected = yield* Effect.fromResult(select(input.id, { id: input.id }, input.config)),
         row = selected.rows[0];
@@ -137,7 +143,7 @@ export function fulfillmentShipmentPolicy(prepared: Prepared) {
       yield* Effect.fromResult(load(contracts.fulfillment.table.name, "id", [id]));
       const pending = new Set(activity.mutations.map(mutation => mutation.ordinal));
       const changes: Array<{ table: string; id: string; operation: "insert" | "patch" | "delete"; expected: JsonObject; preserveTimestamps: boolean }> = [];
-      const labels = input.update.labels, oldLabels = labels == null ? [] : yield* Effect.fromResult(load(contracts.label.table.name, "fulfillment_id", [id])), retained = new Set<string>(), labelOrder: string[] = [];
+      const labels = "labels" in input.update ? input.update.labels : undefined, oldLabels = labels == null ? [] : yield* Effect.fromResult(load(contracts.label.table.name, "fulfillment_id", [id])), retained = new Set<string>(), labelOrder: string[] = [];
       const mutable = Object.fromEntries(Object.entries(input.update).filter(([name, value]) => name !== "labels" && hasChangedFields(before, { [name]: value }, [])));
       const created: string[] = [], updated: string[] = [], deleted: string[] = [];
       for (const request of labels ?? []) {

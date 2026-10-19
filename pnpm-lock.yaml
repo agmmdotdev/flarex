@@ -873,6 +873,9 @@ importers:
       '@medusajs/currency':
         specifier: workspace:*
         version: link:../medusa-currency
+      '@medusajs/deps':
+        specifier: workspace:*
+        version: link:../medusa-deps
       '@medusajs/drizzle':
         specifier: workspace:*
         version: link:../medusa-drizzle
@@ -888,6 +891,9 @@ importers:
       '@medusajs/link-modules':
         specifier: workspace:*
         version: link:../medusa-link-modules
+      '@medusajs/locking':
+        specifier: workspace:*
+        version: link:../medusa-locking
       '@medusajs/modules-sdk':
         specifier: workspace:*
         version: link:../medusa-modules-sdk
@@ -934,9 +940,6 @@ importers:
       '@flarex/application-schema-definition':
         specifier: workspace:*
         version: link:../application-schema-definition
-      '@medusajs/deps':
-        specifier: workspace:*
-        version: link:../medusa-deps
       '@medusajs/framework':
         specifier: workspace:*
         version: link:../medusa-framework
@@ -1092,6 +1095,18 @@ importers:
       '@medusajs/utils':
         specifier: workspace:*
         version: link:../medusa-utils
+
+  packages/medusa-locking:
+    dependencies:
+      '@medusajs/deps':
+        specifier: workspace:*
+        version: link:../medusa-deps
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
 
   packages/medusa-modules-sdk:
     dependencies:

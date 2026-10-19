@@ -34,7 +34,7 @@ export function fulfillmentCreationPolicy(prepared: Prepared) {
     return { ...event, metadata: { ...event.metadata }, data: { ...event.data } };
   });
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("FulfillmentCreation.validateCall")(function* (call, activity) {
-    if (call.commandName === "fulfillmentRetrieveForWorkflow" || call.commandName === "fulfillmentUpdateForShipment")
+    if (call.commandName === "fulfillmentRetrieveForWorkflow" || call.commandName === "fulfillmentUpdateForShipment" || call.commandName === "fulfillmentListForDelivery")
       return yield* shipment.validateLogicalCall(call, activity);
     const mismatch = (phase: string, cause?: unknown) => commerceError("receiptMismatch", { phase, cause });
     const creating = call.commandName === "fulfillmentCreateForWorkflow";

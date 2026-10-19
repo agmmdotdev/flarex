@@ -8,7 +8,7 @@ import { defineGraphReadCommand } from "../src/local-graph/commands";
 import { nativeLinkGraphPaths, nativeLinkGraphServices } from "../src/local-graph/links";
 import type { GraphModuleDefinition, GraphParticipant, GraphRemotePath } from "../src/local-graph/model";
 import type { ReadTable } from "../src/query/catalog";
-import { decodeGraphCount, prepareLocalGraph } from "../src/local-graph/query";
+import { decodeGraphCount, decodeGraphList, prepareLocalGraph } from "../src/local-graph/query";
 import { makeCommercePromiseOwner } from "../src/module/promise-owner";
 import { captureCommerceInput } from "../src/value/input";
 import { commerceDecoder } from "../src/value/decoder";
@@ -93,8 +93,37 @@ const singletonParticipants = (): GraphParticipant[] => [{ participant: defineAt
 } }];
 const singletonInput = { entryPoint: "stock_location", fields: ["id", "name", "address.id", "address.city"], variables: { id: "sloc" } };
 const singletonOptions = { throwIfKeyNotFound: true, throwIfRelationNotFound: undefined };
+const deliveryParticipants = (): GraphParticipant[] => [{ participant: defineAtomicCommerceParticipant("neutral-delivery"), module: {
+  aliases: [{ name: "fulfillment", model: "Fulfillment" }], reads: [{
+    ...read("Fulfillment", containerRead, table("fulfillment", ["id", "delivered_at", "canceled_at"])), result: "list", decode: decodeGraphList,
+  }],
+} }];
+const deliveryInput = { entryPoint: "fulfillment", fields: ["id", "delivered_at", "canceled_at"], variables: { id: "ful145" } };
 
 describe("bounded native callable Query boundaries", () => {
+  it("uses the authentic count-free Fulfillment singleton ABI and preserves native missing-ID errors", async () => {
+    const row = { id: "ful145", delivered_at: null, canceled_at: null };
+    await withQuery([[row]], async (query, calls) => {
+      expect(await query(deliveryInput, singletonOptions)).toEqual([row]);
+      expect(calls).toEqual([{ command: containerRead, args: { filters: { id: ["ful145"] },
+        config: { select: ["id", "delivered_at", "canceled_at"], relations: [], order: { id: "ASC" } } } }]);
+      await expect(query.graph({ entity: "fulfillment", fields: ["id"], pagination: { take: 1 } })).rejects.toMatchObject({ reason: "unsupportedProfile" });
+      expect(calls).toHaveLength(1);
+    }, deliveryParticipants());
+    await withQuery([[]], async query => {
+      await expect(query(deliveryInput, singletonOptions)).rejects.toMatchObject({ reason: "adapterFailure",
+        cause: { type: "not_found", message: "Fulfillment id not found: ful145" } });
+    }, deliveryParticipants());
+    for (const value of [[[], 0], [{ id: "ful145" }, { id: "other" }], [{ id: "ful145", delivered_at: null }]] satisfies Json[])
+      await withQuery([value], async query => {
+        await expect(query(deliveryInput, singletonOptions)).rejects.toMatchObject({ reason: "storedCorruption" });
+      }, deliveryParticipants());
+    await withQuery([], async (query, calls) => {
+      for (const value of [{ ...deliveryInput, variables: { id: ["ful145"] } }, { ...deliveryInput, variables: { id: "ful145", take: 1 } }])
+        await expect(query(value, singletonOptions)).rejects.toMatchObject({ reason: "unsupportedProfile" });
+      expect(calls).toHaveLength(0);
+    }, deliveryParticipants());
+  });
   it("projects exact native singleton fields without leaking the Address hydration key", async () => {
     await withQuery([[[{ id: "sloc", name: "Warehouse", address_id: "addr", address: { id: "addr", city: "Yangon" } }], 1]], async (query, calls) => {
       expect(await query(singletonInput, singletonOptions)).toStrictEqual([{ id: "sloc", name: "Warehouse", address: { id: "addr", city: "Yangon" } }]);

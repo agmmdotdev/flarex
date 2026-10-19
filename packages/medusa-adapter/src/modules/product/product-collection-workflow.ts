@@ -16,7 +16,7 @@ export function productCollectionWorkflowModule(source: CommerceModuleDescriptio
 }, graph: GraphModuleDefinition, events: { readonly created: string; readonly updated: string; readonly deleted: string; readonly productUpdated: string }, logical: WorkflowLogicalPolicy) {
   return Result.gen(function* () {
     const read = graph.reads.find(candidate => candidate.model === "ProductCollection");
-    if (read === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (read === undefined || read.result === "list") return yield* Result.fail(commerceError("unsupportedProfile"));
     const output = commerceDecoder(ProductCollectionOutput, "unsupportedProfile");
     const preimages = commerceDecoder(ProductCollectionPreimages, "unsupportedProfile");
     const createArguments = commerceDecoder(Schema.Tuple([ProductCollectionCreateInput]), "invalidInput");

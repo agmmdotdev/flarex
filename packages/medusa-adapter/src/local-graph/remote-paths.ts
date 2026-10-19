@@ -27,6 +27,7 @@ export function prepareGraphLinkEndpoints(participants: readonly GraphParticipan
       for (const definition of definitions) {
         const sources = models.get(definition.root), targets = models.get(definition.targetModel), source = sources?.[0], target = targets?.[0];
         if (sources?.length !== 1 || source === undefined || source.participant !== participant.participant || targets?.length !== 1 || target === undefined ||
+          source.read.result === "list" || target.read.result === "list" ||
           !source.read.table.columns.includes(definition.sourceKey) || target.read.table.primaryKeys.length !== 1 || target.read.table.primaryKeys[0] !== definition.targetKey ||
           source.read.paths.some(path => path.path === definition.path)) return yield* Result.fail(commerceError("unsupportedProfile"));
         const paths = roots.get(definition.root) ?? new Map<string, ResolvedGraphLinkEndpoint>();
@@ -56,7 +57,7 @@ export function prepareGraphRemotePaths(participants: readonly GraphParticipant[
       const selected = yield* captureCommerceInput(participant.module.remotePaths ?? []).pipe(Result.flatMap(decodeGraphRemotePaths));
       for (const path of selected) {
         const root = yield* one(path.root), source = yield* one(path.sourceModel), link = yield* one(path.linkModel), target = yield* one(path.targetModel);
-        if (link.participant !== participant.participant ||
+        if ([root, source, link, target].some(entry => entry.read.result === "list") || link.participant !== participant.participant ||
           source.read.table.primaryKeys.length !== 1 || source.read.table.primaryKeys[0] !== path.sourceKey ||
           target.read.table.primaryKeys.length !== 1 || target.read.table.primaryKeys[0] !== path.targetKey ||
           !link.read.table.columns.includes(path.sourceColumn) || !link.read.table.columns.includes(path.targetColumn))
@@ -98,12 +99,12 @@ export const populateGraphRemotePaths = Effect.fn("LocalGraph.populateRemotePath
   const complete = Effect.fn("LocalGraph.readCompleteRemote")(function* (
     selected: GraphReadSelection, filters: JsonObject, fields: readonly string[], maximum: number, relations: readonly string[] = [],
   ) {
-    const column = selected.read.orderable[0];
-    if (column === undefined) return yield* context.refuse(commerceError("unsupportedProfile"));
+    const read = selected.read, column = read.orderable[0];
+    if (column === undefined || read.result === "list") return yield* context.refuse(commerceError("unsupportedProfile"));
     const value = yield* context.call(selected.participant, selected.read.command, {
       filters, config: { select: fields, relations, order: { [column]: "ASC" }, skip: 0, take: maximum },
     });
-    return yield* checkedCommerceValue(context, () => selected.read.decode(value).pipe(Result.flatMap(([found, count]) =>
+    return yield* checkedCommerceValue(context, () => read.decode(value).pipe(Result.flatMap(([found, count]) =>
       count > maximum ? Result.fail(commerceError("unsupportedProfile")) : found.length !== count
         ? Result.fail(commerceError("storedCorruption")) : Result.succeed(found))));
   });

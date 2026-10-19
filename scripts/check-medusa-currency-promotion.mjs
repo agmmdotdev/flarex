@@ -1,6 +1,7 @@
 // @ts-check
 import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
 import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
+import { deliverySourcePairs, verifyFulfillmentDeliveryCallbacks, verifyNativeSkipStepResponseType } from "./check-medusa-delivery-source.mjs";
 import { verifyPricingNormalizationExtraction } from "./check-medusa-pricing-normalization.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
@@ -199,6 +200,7 @@ const owners = new Map([
   ["packages/medusa-store", "@medusajs/store"],
   ["packages/medusa-fulfillment", "@medusajs/fulfillment"],
   ["packages/medusa-fulfillment-manual", "@medusajs/fulfillment-manual"],
+  ["packages/medusa-locking", "@medusajs/locking"],
   ["packages/medusa-region", "@medusajs/region"],
   ["packages/medusa-pricing", "@medusajs/pricing"],
   ["packages/medusa-inventory", "@medusajs/inventory"],
@@ -514,6 +516,10 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyFulfillmentCreationCallbacks(root);
   verifyFulfillmentCancellationCallbacks(root);
   verifyFulfillmentShipmentCallbacks(root);
+  verifyFulfillmentDeliveryCallbacks(root);
+  verifyNativeSkipStepResponseType(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/workflows-sdk/src/utils/composer/create-step.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-workflows-sdk/src/durable/utils/composer/create-step.ts"), "utf8"));
   verifyNativeFilterValue(
     readFileSync(path.join(root, sourcePrefix + "packages/database/drizzle/src/repository.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-drizzle/src/filter-value.ts"), "utf8"));
@@ -541,6 +547,11 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     ["packages/medusa-utils/src/link/links.ts", "packages/core/utils/src/link/links.ts"],
   ]);
   for (const file of promotion.files) {
+    const deliveryPair = deliverySourcePairs.find(([target]) => target === file.target);
+    if (deliveryPair !== undefined && (file.source !== sourcePrefix + deliveryPair[1] || file.classification !== deliveryPair[2]))
+      throw new Error("Native Delivery dependency outside its exact pinned source pair");
+    if (file.classification === "lockingServiceFork" && file.target !== "packages/medusa-locking/src/services/locking-module.ts")
+      throw new Error("Locking service adaptation outside its selected native service");
     const shippingNativeSource = shippingNativeSources.get(file.target);
     if (shippingNativeSource !== undefined && (file.source !== sourcePrefix + shippingNativeSource ||
       !["unchanged", "importRelocation"].includes(file.classification)))
@@ -615,7 +626,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       ["packages/medusa-pricing/src/normalization.ts", "packages/modules/pricing/src/services/pricing-module.ts"],
     ]) if (file.target === target && (file.classification !== "selectedExportFacade" || file.source !== sourcePrefix + source))
       throw new Error("Shipping Option extraction outside its exact pinned source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "storeTypeFork", "storeCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "storeTypeFork", "storeCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {

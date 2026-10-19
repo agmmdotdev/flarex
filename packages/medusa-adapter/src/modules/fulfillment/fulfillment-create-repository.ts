@@ -107,7 +107,7 @@ export function prepareFulfillmentCreationRepository(metadata: Metadata) {
           return yield* ctx.refuse(commerceError("invalidInput"));
         const entity = yield* Effect.fromResult(captureCommerceInput(descriptors.entity.value)), update = yield* Effect.fromResult(captureFulfillmentBusinessDates(descriptors.update.value));
         const pairs = yield* Effect.fromResult(decodePairs([{ entity, update }]));
-        if (Object.hasOwn(pairs[0]!.update, "shipped_at")) return yield* shipment.update(ctx, pairs[0]!, events, shared);
+        if (Object.hasOwn(pairs[0]!.update, "shipped_at") || Object.hasOwn(pairs[0]!.update, "delivered_at")) return yield* shipment.update(ctx, pairs[0]!, events, shared);
         const patches = yield* Effect.fromResult(updatePlan(pairs));
         const before = yield* Effect.fromResult(contracts.decodeOutput(pairs[0]!.entity));
         const supplied = patches[0]!, patch = "data" in supplied ? { ...supplied, data: selectedManualDataAssignment(before) } : supplied;

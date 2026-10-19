@@ -17,7 +17,7 @@ export function productDeletionWorkflowModule(source: CommerceModuleDescription,
 }, graph: GraphModuleDefinition, events: { readonly product: readonly string[]; readonly variant: string }, logical: WorkflowLogicalPolicy) {
   return Result.gen(function* () {
     const products = graph.reads.find(read => read.model === "Product"), variants = graph.reads.find(read => read.model === "ProductVariant");
-    if (!products || !variants) return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (!products || !variants || products.result === "list" || variants.result === "list") return yield* Result.fail(commerceError("unsupportedProfile"));
     const preimages = commerceDecoder(ProductUpdatePreimages, "unsupportedProfile");
     const readArguments = commerceDecoder(Schema.Tuple([Schema.Struct({ id: ProductDeletionIds }), NativePreimageConfig]), "invalidInput");
     const deleteArguments = commerceDecoder(Schema.Tuple([ProductDeletionIds]), "invalidInput");

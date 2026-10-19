@@ -160,6 +160,21 @@ describe("workflow registration and scoped resource composition", () => {
         .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
   });
 
+  it("binds an explicit control selection to the exact prepared command and workflow identity", async () => {
+    const logical = { commands: [command], capture: (value: unknown) => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void };
+    const { options } = logicalComposition(logical);
+    const ordinary = await Effect.runPromise(prepareWorkflowComposition(options));
+    const control = await Effect.runPromise(prepareWorkflowComposition({ ...options, allowTaskControl: true }));
+    expect(ordinary.composition).not.toHaveProperty("taskControlCommands");
+    expect(control.composition.taskControlCommands).toEqual([control.command]);
+    expect(control.composition.taskControlCommands?.[0]).toBe(control.command);
+    expect(control.composition.identityAndAccessPolicy).not.toEqual(ordinary.composition.identityAndAccessPolicy);
+    for (const allowTaskControl of [false, "true", 1, {}])
+      // @ts-expect-error Deliberately exercise runtime control selection refusal.
+      expect(await Effect.runPromise(Effect.result(prepareWorkflowComposition({ ...options, allowTaskControl }))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
+
   it("refuses graph selection for a method-only module alone or beside a genuine graph", () => {
     const graphless = Result.getOrThrow(defineWorkflowModule({ name: "method_only", source,
       methods: { echo: method }, graph: { aliases: [], reads: [] } }));

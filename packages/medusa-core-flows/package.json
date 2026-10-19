@@ -134,7 +134,17 @@
     "./fulfillment/create-fulfillment": "./src/fulfillment/workflows/create-fulfillment.ts",
     "./fulfillment/cancel-fulfillment": "./src/fulfillment/workflows/cancel-fulfillment.ts",
     "./fulfillment/create-shipment": "./src/fulfillment/workflows/create-shipment.ts",
-    "./fulfillment/update-fulfillment": "./src/fulfillment/workflows/update-fulfillment.ts"
+    "./fulfillment/update-fulfillment": "./src/fulfillment/workflows/update-fulfillment.ts",
+    "./durable/fulfillment/mark-fulfillment-as-delivered": {
+      "types": "./dist/durable/fulfillment/workflows/mark-fulfillment-as-delivered.d.ts",
+      "source": "./src/durable/fulfillment/workflows/mark-fulfillment-as-delivered.ts",
+      "default": "./dist/durable/fulfillment/workflows/mark-fulfillment-as-delivered.js"
+    },
+    "./durable/fulfillment/update-fulfillment": {
+      "types": "./dist/durable/fulfillment/workflows/update-fulfillment.d.ts",
+      "source": "./src/durable/fulfillment/workflows/update-fulfillment.ts",
+      "default": "./dist/durable/fulfillment/workflows/update-fulfillment.js"
+    }
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

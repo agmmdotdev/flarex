@@ -1,0 +1,21 @@
+{
+  "name": "@medusajs/locking",
+  "version": "2.13.4",
+  "private": true,
+  "license": "MIT",
+  "exports": {
+    "./services": { "types": "./dist/services/index.d.ts", "source": "./src/services/index.ts", "default": "./dist/services/index.js" },
+    "./providers/in-memory": { "types": "./dist/providers/in-memory.d.ts", "source": "./src/providers/in-memory.ts", "default": "./dist/providers/in-memory.js" },
+    "./loaders/static-providers": { "types": "./dist/loaders/static-providers.d.ts", "source": "./src/loaders/static-providers.ts", "default": "./dist/loaders/static-providers.js" },
+    "./types": { "types": "./dist/types/index.d.ts", "source": "./src/types/index.ts", "default": "./dist/types/index.js" }
+  },
+  "dependencies": {
+    "@medusajs/deps": "workspace:*",
+    "@medusajs/framework": "workspace:*",
+    "@medusajs/types": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

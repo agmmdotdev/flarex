@@ -16,7 +16,12 @@ export const FulfillmentShipmentUpdate = Schema.Struct({ shipped_at: Schema.Null
   marked_shipped_by: Schema.optionalKey(Schema.NullOr(Schema.String)),
   labels: Schema.optionalKey(Schema.NullOr(Schema.Array(FulfillmentShipmentLabel).pipe(Schema.mutable).check(Schema.isMaxLength(4)))) });
 export const FulfillmentShipmentRead = Schema.Struct({ id: FulfillmentCreationId, config: Schema.optionalKey(NativePreimageConfig) });
-const decodeUpdate = commerceDecoder(FulfillmentShipmentUpdate, "invalidInput");
+export const FulfillmentDeliveryUpdate = Schema.Struct({ delivered_at: Schema.NullOr(Schema.String) });
+export const FulfillmentDeliveryList = Schema.Struct({ filters: Schema.Struct({ id: Schema.Array(FulfillmentCreationId).check(Schema.isLengthBetween(1, 1)) }),
+  config: Schema.Struct({ select: Schema.Array(Schema.Literals(["id", "delivered_at", "canceled_at"])).check(Schema.isLengthBetween(1, 3)),
+    relations: Schema.Array(Schema.Never).check(Schema.isMaxLength(0)), order: Schema.Struct({ id: Schema.Literal("ASC") }) }) });
+export const decodeFulfillmentDeliveryList = commerceDecoder(FulfillmentDeliveryList, "unsupportedProfile");
+const decodeUpdate = commerceDecoder(Schema.Union([FulfillmentShipmentUpdate, FulfillmentDeliveryUpdate]), "invalidInput");
 const decodeUpdateInput = commerceDecoder(Schema.Struct({ id: FulfillmentCreationId, update: Schema.Unknown }), "invalidInput");
 export const decodeFulfillmentShipmentRead = commerceDecoder(FulfillmentShipmentRead, "invalidInput");
 export const decodeFulfillmentShipmentUpdate = (input: unknown) => captureFulfillmentBusinessDates(input).pipe(Result.flatMap(decodeUpdate));

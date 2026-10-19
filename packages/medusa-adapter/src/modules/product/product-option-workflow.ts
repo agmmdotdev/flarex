@@ -21,7 +21,7 @@ export function productOptionWorkflowModule(source: CommerceModuleDescription, c
 }, logical: WorkflowLogicalPolicy) {
   return Result.gen(function* () {
     const read = graph.reads.find(candidate => candidate.model === "ProductOption");
-    if (read === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (read === undefined || read.result === "list") return yield* Result.fail(commerceError("unsupportedProfile"));
     const createArguments = commerceDecoder(Schema.Tuple([ProductOptionCreateInput]), "invalidInput");
     const listArguments = commerceDecoder(Schema.Tuple([ProductOptionSelector, NativePreimageConfig]), "invalidInput");
     const updateArguments = commerceDecoder(Schema.Tuple([ProductOptionSelector, ProductOptionUpdateData]), "invalidInput");

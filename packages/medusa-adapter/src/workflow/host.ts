@@ -15,7 +15,7 @@ import { bindWorkflowResources, type BoundWorkflowEvent, type WorkflowEventDefin
 import { checkedCommerceValue } from "../value/checked";
 import { requireAtomicCommerceScopeExclusion } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceDecoder } from "../value/decoder";
-import type { TrustedWorkflowExecutionSubject } from "@flarex/persistence-postgres/internal/trusted-workflow-execution-subject";
+import type { TrustedWorkflowExecutionSubject, TrustedWorkflowControlSubject } from "@flarex/persistence-postgres/internal/trusted-workflow-execution-subject";
 import type { PreparedCommitEventEligibility } from "@flarex/persistence-postgres/internal/commit-event-eligibility";
 
 const decodeOperationScheduling = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("queued")));
@@ -104,6 +104,8 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
   readonly borrowedOperationScheduling?: "queued";
   /** Trusted native graphs can require the existing writer lock without a provider. */
   readonly executionIsolation?: "scopeExclusive";
+  /** Trusted selection of this exact command for native cancellation work. */
+  readonly allowTaskControl?: true;
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   const operationScheduling = yield* decodeOperationScheduling(options.operationScheduling)
@@ -112,6 +114,8 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const executionIsolation = yield* decodeExecutionIsolation(options.executionIsolation)
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  if (options.allowTaskControl !== undefined && options.allowTaskControl !== true)
+    return yield* commerceError("unsupportedProfile");
   if (borrowedOperationScheduling !== undefined && operationScheduling !== "queued")
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const policy = yield* Effect.fromResult(captureWorkflowPolicy(options.identityAndAccessPolicy));
@@ -284,8 +288,10 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
     ...(borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling }),
     ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
     ...(options.requestCommandMs === undefined ? {} : { requestCommandMs: options.requestCommandMs }),
+    ...(options.allowTaskControl === undefined ? {} : { allowTaskControl: true }),
   } }));
   const composition = { participants, commands: [command], identityAndAccessPolicy: identity,
+    ...(options.allowTaskControl === true ? { taskControlCommands: [command] } : {}),
     ...(operationScheduling === undefined ? {} : { operationScheduling }),
     ...(borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling }),
     ...(scopeExclusive ? { executionIsolation: "scopeExclusive" as const } : {}),
@@ -313,6 +319,7 @@ interface WorkflowHostInput<Resources, Input extends Json, Output extends Json, 
   readonly operationScheduling?: "queued";
   readonly borrowedOperationScheduling?: "queued";
   readonly executionIsolation?: "scopeExclusive";
+  readonly allowTaskControl?: true;
 }
 const prepareBoundWorkflowHost = Effect.fn("Workflow.prepareBoundHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json, Host extends AtomicCommerceHost>(input: WorkflowHostInput<Resources, Input, Output, EncodedInput, Host>) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
@@ -328,6 +335,7 @@ const prepareBoundWorkflowHost = Effect.fn("Workflow.prepareBoundHost")(function
     ...(options.operationScheduling === undefined ? {} : { operationScheduling: options.operationScheduling }),
     ...(options.borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling: options.borrowedOperationScheduling }),
     ...(options.executionIsolation === undefined ? {} : { executionIsolation: options.executionIsolation }),
+    ...(options.allowTaskControl === undefined ? {} : { allowTaskControl: options.allowTaskControl }),
   });
   const host = yield* execution.prepare(prepared.composition);
   return { host, prepared };
@@ -351,6 +359,11 @@ export const prepareTaskAtomicWorkflowHost = Effect.fn("Workflow.prepareTaskHost
     runTaskChild: Effect.fn("Workflow.runTaskChild")((subject: TrustedWorkflowExecutionSubject, occurrence: bigint,
       value: EncodedInput, eligibility?: PreparedCommitEventEligibility) => Effect.fromResult(captureCommerceInput(value)).pipe(
         Effect.flatMap(args => host.runTaskChild(subject, occurrence, prepared.command, args, eligibility)),
+        Effect.flatMap(result => Effect.fromResult(prepared.decodeStoredOutput(result))),
+      )),
+    runControlChild: Effect.fn("Workflow.runControlChild")((subject: TrustedWorkflowControlSubject, occurrence: bigint,
+      value: EncodedInput, eligibility?: PreparedCommitEventEligibility) => Effect.fromResult(captureCommerceInput(value)).pipe(
+        Effect.flatMap(args => host.runControlChild(subject, occurrence, prepared.command, args, eligibility)),
         Effect.flatMap(result => Effect.fromResult(prepared.decodeStoredOutput(result))),
       )),
   });

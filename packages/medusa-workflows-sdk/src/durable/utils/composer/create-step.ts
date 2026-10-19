@@ -1,6 +1,7 @@
 import {
   TransactionStepsDefinition,
 } from "@medusajs/orchestration/transaction"
+import type { SkipStepResponse } from "@medusajs/orchestration/transaction/errors"
 import {
   WorkflowManager,
   WorkflowStepHandler,
@@ -46,11 +47,12 @@ export type InvokeFn<TInput, TOutput, TCompensateInput> = (
   context: StepExecutionContext
 ) =>
   | void
+  | SkipStepResponse
   | StepResponse<
       TOutput,
       TCompensateInput extends undefined ? TOutput : TCompensateInput
     >
-  | Promise<void | StepResponse<
+  | Promise<void | SkipStepResponse | StepResponse<
       TOutput,
       TCompensateInput extends undefined ? TOutput : TCompensateInput
     >>

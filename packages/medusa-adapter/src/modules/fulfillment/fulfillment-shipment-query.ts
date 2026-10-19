@@ -16,6 +16,7 @@ type Contracts = Result.Result.Success<ReturnType<typeof compileFulfillmentCreat
 const envelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const optionsDecoder = commerceDecoder(Schema.Struct({ fields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(32))),
   populate: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(5))),
+  orderBy: Schema.optionalKey(Schema.Struct({ id: Schema.Literal("ASC") })),
   filters: Schema.optionalKey(Schema.Struct({ softDeletable: Schema.Struct({ withDeleted: Schema.Literal(false) }) })) }), "unsupportedProfile");
 const leaf: ProjectionPolicy = { keys: "retain", storageKeys: "last", joinKeys: "storage", selectableRelations: [], nested: new Map() };
 

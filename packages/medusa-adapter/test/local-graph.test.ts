@@ -5,7 +5,7 @@ import { commerceError, type Json } from "@flarex/persistence-postgres/internal/
 import { makeLocalProductCommands } from "../src/modules/product/service";
 import { currencyGraph } from "../src/modules/currency/service";
 import { defineGraphReadCommand } from "../src/local-graph/commands";
-import { prepareLocalGraph, decodeGraphCount } from "../src/local-graph/query";
+import { prepareLocalGraph, decodeGraphCount, decodeGraphList } from "../src/local-graph/query";
 import { scalarGraphDefinition } from "../src/local-graph/module";
 import type { GraphModuleDefinition, PreparedLocalGraph } from "../src/local-graph/model";
 import { runEffect, runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
@@ -148,6 +148,34 @@ describe("graph registration and metadata ownership", () => {
     table: { name: "item", columns: ["key", "name"], primaryKeys: ["key"], foreignKeys: [], companions: {} },
     paths: [], orderable: ["key"], uniqueOrder: ["key"], multipleOrder: false, decode: decodeGraphCount,
   }] });
+
+  it("keeps native list results count-free and refuses counted APIs before dispatch", async () => {
+    const source = definition(), read = source.reads[0];
+    if (read === undefined) throw new Error("Missing fixture read");
+    const selected: GraphModuleDefinition = { ...source, services: [{ name: "ItemService", model: "Item" }],
+      reads: [{ ...read, result: "list", decode: decodeGraphList }] };
+    const graph = Result.getOrThrow(prepareLocalGraph([{ participant, module: selected }]));
+    expect(prepareLocalGraph([{ participant, module: { ...selected, linkEndpoints: [{ root: "Item", path: "related", sourceKey: "key",
+      targetModel: "Item", targetKey: "key", maximumSources: 1, maximumTargets: 1 }] } }]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    const calls: Json[] = [], bound = graph.bind(context([{ key: "i", name: "visible", hidden: true }], calls));
+    expect(await runEffect(bound.list({ entity: "item", fields: ["key", "name"], filters: { key: ["i"] } })))
+      .toEqual([{ key: "i", name: "visible" }]);
+    expect(calls).toEqual([{ filters: { key: ["i"] }, config: { select: ["key", "name"], relations: [], order: { key: "ASC" } } }]);
+    for (const effect of [bound.graph(query("item", ["key"])), bound.native(query("item", ["key"])),
+      bound.service({ service: "ItemService", fields: ["key"], pagination: { take: 1 } })])
+      expect(await runEffectFailure(effect)).toMatchObject({ reason: "unsupportedProfile" });
+    expect(calls).toHaveLength(1);
+    expect(await runEffectFailure(prepared.bind(context()).list({ entity: "currency", fields: ["code"], filters: {} })))
+      .toMatchObject({ reason: "unsupportedProfile" });
+    for (const value of [null, [[], 0], [{}], Array.from({ length: 257 }, () => ({ key: "x" }))])
+      expect(await runEffectFailure(graph.bind(context(value)).list({ entity: "item", fields: ["key"], filters: {} })))
+        .toMatchObject({ reason: "storedCorruption" });
+    for (const input of [{ entity: "item", fields: ["key"], filters: {}, pagination: { take: 1 } },
+      { entity: "item", fields: ["key"], filters: { key: { $in: ["i"] } } }, { entity: "item", fields: ["missing"], filters: {} }])
+      expect(await runEffectFailure(bound.list(input))).toMatchObject({ reason: "unsupportedProfile" });
+    expect(calls).toHaveLength(1);
+  });
 
   it("admits OR grammar only for an explicitly captured read and preserves selectors for its command owner", async () => {
     const source = definition(), read = source.reads[0];

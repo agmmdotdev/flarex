@@ -549,8 +549,8 @@ rollback remains an outer settlement obligation. The existing metadata-derived
 DAL and receipt preserve historical Provider/Address owning ID references,
 Shipping Option visibility masking, and native read-versus-assignment nullable
 FK presentation. No extra query, transaction, schema or source lineage is added.
-Public/hosted activation, populated upgrades, external providers and delivery
-remain separate.
+Public/hosted activation, populated upgrades and external providers remain
+separate.
 
 The [native Fulfillment shipment](./preflight/144-native-fulfillment-shipment.md)
 root admits one existing ID, zero to four complete new Labels and an optional
@@ -563,7 +563,41 @@ timestamps. Empty replacement and active-only membership are explicit shared
 graph policies. Existing reconstitution consumers retain timestamp advancement.
 The named shipment allowance uses 128 calls with the normal 64-event, 1 MiB and
 ten-second limits. No extra Query, lock, provider call or schema is introduced.
-Public/hosted activation, populated upgrades and delivery remain separate gates.
+Public/hosted activation and populated upgrades remain separate gates.
+
+The [native Fulfillment delivery](./preflight/145-native-fulfillment-delivery.md)
+profile implements one existing Fulfillment with up to four Items and four
+Labels through the genuine durable parent and stored synchronous update child.
+Both run outside SQL. Three short authenticated commerce calls perform native
+count-free singleton Query, preimage retrieval and update; confirmed settlement
+precedes native release. The local factory retains the same twelve-table source.
+Its explicit list-result capability never supplies a synthetic count; consumers
+requiring counts refuse list-only reads. The combined Option/Fulfillment factory
+is outside this singleton profile.
+
+The existing Task owner supplies input commitments, grants, heartbeat, subject
+replacement/revocation, cancellation and completion. Its CAS compound checkpoint
+codec stores the native parent and one child under the existing 1 MiB cap.
+Genuine current control invokes the retained native null-assignment inverse;
+only that exact command admits Task control. Each commerce child reuses the
+shipment 128-call allowance with normal 64-event, 1 MiB and ten-second limits.
+Native guard ordering, full DTOs and original compensation remain preserved.
+
+The real native Locking module and static in-memory provider execute through
+the existing callback journal, with the explicitly approved transaction-derived
+owner on acquire, release and retained compensation. The host binding owns their
+lifecycle and close. Ordinary database work requires a same-host, same-subject
+acquisition observation with conservative monotonic age below ten seconds;
+callback receipts confer no live claim. Lock waits hold no SQL loan.
+
+Cold terminal recovery can finish event policy without repeating business writes
+or acquisition. A fresh ordinary subject refuses in-flight work based on an old
+acquisition receipt. Forward events remain held until successful terminal policy;
+cancellation clears held inverse events and preserves already published forward
+events. In-flight reacquisition, full host/provider restart, distributed
+exclusion, resource fencing, general coordination, Order delivery, populated
+upgrades and public/hosted activation remain separate. Product chunked file import
+and Product export remain deferred.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

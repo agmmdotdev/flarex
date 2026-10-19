@@ -17,7 +17,7 @@ export function productUpdateWorkflowModule(source: CommerceModuleDescription,
   return Result.gen(function* () {
     const read = graph.reads.find(read => read.model === "Product");
     const variants = graph.reads.find(read => read.model === "ProductVariant");
-    if (read === undefined || variants === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (read === undefined || variants === undefined || read.result === "list" || variants.result === "list") return yield* Result.fail(commerceError("unsupportedProfile"));
     const nestedVariants = Schema.optionalKey(Schema.Array(variantUpdateData(variants.table.columns, { id: Schema.optionalKey(ProductLifecycleIds.value) })).check(Schema.isMaxLength(4)));
     const data = productUpdateData(read.table.columns, { variants: nestedVariants });
     const entry = productUpdateData(read.table.columns, { id: ProductLifecycleIds.value, variants: nestedVariants });

@@ -3,8 +3,77 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
+import { deliverySourcePairs, verifyFulfillmentDeliveryCallbacks, verifyNativeSkipStepResponseType } from "./check-medusa-delivery-source.mjs";
 
 const root = process.cwd();
+describe("native Delivery and selected Locking closure", () => {
+  const delivery = "packages/medusa-core-flows/src/durable/fulfillment/workflows/mark-fulfillment-as-delivered.ts";
+  const update = "packages/medusa-core-flows/src/durable/fulfillment/workflows/update-fulfillment.ts";
+  const step = "packages/medusa-core-flows/src/durable/fulfillment/steps/update-fulfillment.ts";
+  const acquire = "packages/medusa-core-flows/src/durable/locking/steps/acquire-lock.ts";
+  const release = "packages/medusa-core-flows/src/durable/locking/steps/release-lock.ts";
+  const provider = "packages/medusa-locking/src/providers/in-memory.ts";
+  const module = "packages/medusa-locking/src/services/locking-module.ts";
+  const query = "packages/medusa-core-flows/src/durable/common/steps/use-remote-query.ts";
+  /** @param {string} file */
+  const text = file => readFileSync(path.join(root, file), "utf8");
+  it("admits the exact owner correction, original callbacks and selected retention options", () => {
+    expect(deliverySourcePairs).toHaveLength(13);
+    expect(() => verifyFulfillmentDeliveryCallbacks(root)).not.toThrow();
+    expect(() => verifyFulfillmentDeliveryCallbacks(root, { [step]: { target: text(step)
+      .replace("const updated =", "const updated: unknown =") + "\n// erased declaration only\n" } })).not.toThrow();
+  });
+  it.each([
+    ["native transaction context", delivery, "context.context?.transactionId", "context.transactionId"],
+    ["nonempty native owner", delivery, 'transactionId.length === 0', 'transactionId.length < 0'],
+    ["actual owner identity", delivery, '`fulfillment-delivery:${transactionId}`', '`fulfillment-delivery:constant`'],
+    ["acquire owner", delivery, "      ownerId,\n      timeout: 2,", "      timeout: 2,"],
+    ["release owner", delivery, "      ownerId,\n    })\n    return", "    })\n    return"],
+    ["native timeout", delivery, "timeout: 2,", "timeout: 0,"],
+    ["native TTL", delivery, "ttl: 10,", "ttl: 20,"],
+    ["canceled guard", delivery, "if (fulfillment.canceled_at)", "if (false)"],
+    ["delivered guard", delivery, "if (fulfillment.delivered_at)", "if (false)"],
+    ["singleton Query", delivery, "list: false", "list: true"],
+    ["native generated stamp", delivery, "delivered_at: new Date()", "delivered_at: null"],
+    ["parent retention", delivery, "storeExecution: true", "storeExecution: false"],
+    ["child retention", update, "store: true", "store: false"],
+    ["actual preimage", step, "new StepResponse(updated, fulfillment)", "new StepResponse(updated, input)"],
+    ["retained inverse", step, "await service.updateFulfillment(id, data)", "await service.updateFulfillment(id, {})"],
+    ["native query flags", query, "throwIfKeyNotFound: !!data.throw_if_key_not_found", "throwIfKeyNotFound: false"],
+    ["retry interval", acquire, "data.retryInterval ?? 0.3", "data.retryInterval ?? 0.1"],
+    ["retry timer", acquire, "globalThis.setTimeout(resolve, retryInterval * 1000)", "resolve()"],
+    ["real acquisition", acquire, "await locking.acquire(data.key,", "void locking.acquire(data.key,"],
+    ["actual child skip", acquire, "const isSubWorkflow = !!parentStepIdempotencyKey", "const isSubWorkflow = true"],
+    ["retained compensation owner", acquire, "ownerId: data.ownerId,", 'ownerId: "other",'],
+    ["actual release", release, "await locking.release(keys,", "await locking.release([],"],
+    ["newer-owner protection", provider, "isDefined(ownerId) && lock.ownerId !== ownerId", "false"],
+    ["native expiry", provider, "lock.expiration <= now", "false"],
+    ["native module delegation", module, "await provider.acquire(keys, args, sharedContext)", "void provider.acquire(keys, args, sharedContext)"],
+    ["unused ORM class field", module, "  protected defaultProviderId: string", "  protected manager: unknown\n  protected defaultProviderId: string"],
+  ])("rejects changed %s", (_label, file, before, after) => {
+    const original = text(file); expect(original).toContain(before);
+    expect(() => verifyFulfillmentDeliveryCallbacks(root, { [file]: { target: original.replace(before, after) } }))
+      .toThrow("Changed native Fulfillment delivery closure behavior");
+  });
+  it("rejects extra runtime, missing native adaptation anchors and unknown files", () => {
+    for (const [file, source] of deliverySourcePairs) {
+      expect(() => verifyFulfillmentDeliveryCallbacks(root, { [file]: { target: text(file) + "\nthrow new Error('extra');\n" } })).toThrow();
+      if (file === delivery) {
+        const original = readFileSync(path.join(root, "third_party/medusa/upstream", source), "utf8");
+        expect(() => verifyFulfillmentDeliveryCallbacks(root, { [file]: { source: original.replace('from "../../locking"', 'from "other-locking"') } }))
+          .toThrow("native adaptation anchor");
+      }
+    }
+    expect(() => verifyFulfillmentDeliveryCallbacks(root, { unknown: { target: "" } })).toThrow("unknown packet file");
+  });
+  it("pins the native skip return union without widening it to arbitrary values", () => {
+    const source = readFileSync(path.join(root, "third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/create-step.ts"), "utf8");
+    const target = text("packages/medusa-workflows-sdk/src/durable/utils/composer/create-step.ts");
+    expect(() => verifyNativeSkipStepResponseType(source, target)).not.toThrow();
+    expect(() => verifyNativeSkipStepResponseType(source, target.replace("  | SkipStepResponse\n", ""))).toThrow();
+    expect(() => verifyNativeSkipStepResponseType(source, target.replace("Promise<void | SkipStepResponse", "Promise<unknown | SkipStepResponse"))).toThrow();
+  });
+});
 /** @param {string} file */
 const target = file => readFileSync(path.join(root, "packages/medusa-core-flows/src/fulfillment", file), "utf8").replaceAll("\r\n", "\n");
 const workflow = "workflows/create-shipping-options.ts";

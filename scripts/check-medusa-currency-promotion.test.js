@@ -668,7 +668,8 @@ describe("native Inventory Item creation callback provenance", () => {
 
 describe("exact Currency promotion", () => {
   it("authenticates source, transformed inputs, package exports, and available build outputs", () => {
-    expect(promotion.packages).toHaveLength(24);
+    expect(promotion.packages).toHaveLength(25);
+    expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-locking")).toBe(true);
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-store")).toBe(true);
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-orchestration")).toBe(true);
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-inventory")).toBe(true);

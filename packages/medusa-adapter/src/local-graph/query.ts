@@ -18,6 +18,9 @@ const queryFields = {
 };
 const decodeInput = commerceDecoder(Schema.Struct({ entity: Schema.String.check(Schema.isLengthBetween(1, 256)), ...queryFields }), "unsupportedProfile");
 const decodeServiceInput = commerceDecoder(Schema.Struct({ service: Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPattern(/^[A-Za-z][A-Za-z0-9_]*$/)), ...queryFields }), "unsupportedProfile");
+const decodeListInput = commerceDecoder(Schema.Struct({ entity: Schema.String.check(Schema.isLengthBetween(1, 256)),
+  fields: queryFields.fields, filters: Schema.JsonObject }), "unsupportedProfile");
+export const decodeGraphList = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(commerceLimits.catalogRows)), "storedCorruption");
 export const decodeGraphCount = commerceDecoder(Schema.Tuple([
   Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(commerceLimits.catalogRows)),
   Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: commerceLimits.catalogRows })),
@@ -48,7 +51,7 @@ function planQuery(input: unknown, entries: ReadonlyMap<string, GraphReadSelecti
     const captured = yield* capturePrivateJsonData(input, commerceLimits.commandBytes, commerceError);
     const args = yield* service ? decodeServiceInput(captured.value).pipe(Result.map(value => ({ ...value, entity: value.service }))) : decodeInput(captured.value);
     const entry = entries.get(args.entity);
-    if (entry === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (entry === undefined || entry.read.result === "list") return yield* Result.fail(commerceError("unsupportedProfile"));
     if (!nativeFilters(args.filters ?? {}, entry.read.allowOrFilters === true)) return yield* Result.fail(commerceError("unsupportedProfile"));
     return { entry, args, fields: yield* planGraphFields(entry.read, args.fields, native), order: yield* graphOrder(entry.read, args.pagination.order) };
   });
@@ -72,6 +75,7 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
       const models = new Map<string, GraphReadDefinition>();
       for (const input of module.reads) {
         if (!input.model.trim() || models.has(input.model) || !isGraphReadCommand(input.command)
+          || input.result !== undefined && input.result !== "count" && input.result !== "list"
           || input.allowOrFilters !== undefined && input.allowOrFilters !== true
           || input.selectedFieldsOnly !== undefined && input.selectedFieldsOnly !== true
           || input.table.primaryKeys.length === 0 || input.table.primaryKeys.length > 16
@@ -103,7 +107,7 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
           || (table.primaryKeys.length === 1 && !input.uniqueOrder.includes(identity))
           || input.orderable.some(field => !table.columns.includes(field)) || input.uniqueOrder.some(field => !input.orderable.includes(field))) return yield* Result.fail(commerceError("unsupportedProfile"));
         const read = Object.freeze({ ...input, table, paths: Object.freeze(paths),
-          orderable: Object.freeze([...input.orderable]), uniqueOrder: Object.freeze([...input.uniqueOrder]), decode: input.decode });
+          orderable: Object.freeze([...input.orderable]), uniqueOrder: Object.freeze([...input.uniqueOrder]) });
         models.set(read.model, read);
         const existing = allModels.get(read.model) ?? [];
         existing.push({ participant, read }); allModels.set(read.model, existing);
@@ -145,6 +149,8 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
       // participant call already owns its full failure Cause and must propagate.
       const execute = Effect.fn("LocalGraph.query")(function* (input: unknown, service: boolean, native: boolean) {
         const { entry, args, fields, order } = yield* checkedCommerceValue(context, () => planQuery(input, service ? services : entries, service, native));
+        const read = entry.read;
+        if (read.result === "list") return yield* context.refuse(commerceError("unsupportedProfile"));
         const skip = args.pagination.skip ?? 0, take = args.pagination.take;
         const remote = remotePaths.get(entry.read.model);
         const endpoints = linkEndpoints.get(entry.read.model);
@@ -157,14 +163,28 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         const value = yield* context.call(entry.participant, entry.read.command, {
           filters: args.filters ?? {}, config: { select, relations, order, skip, take },
         });
-        const [rows, count] = yield* checkedCommerceValue(context, () => entry.read.decode(value));
+        const [rows, count] = yield* checkedCommerceValue(context, () => read.decode(value));
         if (rows.length > take || rows.length !== Math.min(take, Math.max(0, count - skip)))
           return yield* context.refuse(commerceError("storedCorruption"));
         const populated = selectedRemote.length === 0 ? rows
           : yield* populateGraphRemotePaths(context, rows, fields.node, remote ?? new Map(), endpoints);
         return yield* checkedCommerceValue(context, () => graphResult(populated, count, fields, skip, take));
       });
-      return Object.freeze({ graph: (input: unknown) => execute(input, false, false), service: (input: unknown) => execute(input, true, true), native: (input: unknown) => execute(input, false, true) });
+      const list = Effect.fn("LocalGraph.list")(function* (input: unknown) {
+        const { args, entry, fields, order } = yield* checkedCommerceValue(context, () => Result.gen(function* () {
+          const captured = yield* capturePrivateJsonData(input, commerceLimits.commandBytes, commerceError), args = yield* decodeListInput(captured.value), entry = entries.get(args.entity);
+          if (entry === undefined || entry.read.result !== "list" || remotePaths.has(entry.read.model) || linkEndpoints.has(entry.read.model) ||
+            !nativeFilters(args.filters, entry.read.allowOrFilters === true)) return yield* Result.fail(commerceError("unsupportedProfile"));
+          return { args, entry, fields: yield* planGraphFields(entry.read, args.fields, false), order: yield* graphOrder(entry.read, undefined) };
+        }));
+        const read = entry.read;
+        if (read.result !== "list") return yield* context.refuse(commerceError("unsupportedProfile"));
+        const value = yield* context.call(entry.participant, entry.read.command, { filters: args.filters,
+          config: { select: fields.select, relations: fields.relations, order } });
+        const rows = yield* checkedCommerceValue(context, () => read.decode(value));
+        return yield* checkedCommerceValue(context, () => fields.project(rows));
+      });
+      return Object.freeze({ graph: (input: unknown) => execute(input, false, false), service: (input: unknown) => execute(input, true, true), native: (input: unknown) => execute(input, false, true), list });
     } } satisfies PreparedLocalGraph);
   });
 }

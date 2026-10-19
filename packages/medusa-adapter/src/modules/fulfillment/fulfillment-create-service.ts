@@ -36,7 +36,7 @@ export const makeLocalFulfillmentCreationCommands = Effect.fn("FulfillmentAdapte
     const base = yield* prepareFulfillmentCreationCommands(module, prepared), shipment = yield* prepareFulfillmentShipmentCommands(module, prepared),
       commands = [...base.commands, ...shipment.commands], policy = base.logicalEventPolicy();
     const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description,
-      methods: { ...base.workflow.methods, ...shipment.methods }, graph: { aliases: [], reads: [] },
+      methods: { ...base.workflow.methods, ...shipment.methods }, graph: shipment.graph,
       logical: { ...policy, commands, allowStorageInsertionOrder: true, reconstitution: "preserveTimestamps" } });
     return { ...base, ...shipment, workflow, commands };
   }));

@@ -25,6 +25,7 @@
     "src/**/*.ts",
     "test/**/*.ts",
     "vitest.config.ts",
+    "vitest.fulfillment-delivery.config.ts",
     "vitest.postgres.config.ts",
     "vitest.sales-channel.config.ts",
     "vitest.sales-channel-upstream.config.ts",

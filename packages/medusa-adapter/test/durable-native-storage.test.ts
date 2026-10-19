@@ -1,13 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Cause, Effect, Exit, Result } from "effect";
+import { Cause, Effect, Exit, Option, Result, Schema } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { makeTaskExecutionPrincipalReferenceV1, makeTaskInputReferenceV1, prepareTrustedWorkflowTaskBinding } from "@flarex/durable-task/internal/run-creation-v1";
 import { decideTrustedWorkflowStartAttempt, decideTrustedWorkflowHeartbeatAttempt, decodeTaskRetryJitterV1,
   decodeTaskHeartbeatSequenceV1, MAX_TRUSTED_WORKFLOW_CHECKPOINT_BYTES } from "@flarex/durable-task/internal/run-attempt-v1";
 import { canonicalizeFlarexValueV1Effect } from "flarex-protocol/value";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
-import { createStep, createWorkflow, WorkflowResponse } from "@medusajs/workflows-sdk/durable";
+import { createStep, createWorkflow, StepResponse, WorkflowResponse, transform } from "@medusajs/workflows-sdk/durable";
+import { execution } from "@medusajs/workflows-sdk/testing/native-runtime";
 import { TransactionCheckpoint, SkipStepAlreadyFinishedError } from "@medusajs/orchestration/transaction";
 import type { FlarexMetadataDatabase } from "../../persistence-postgres/src/application/deployments";
 import { createPGlitePersistence, createPGliteDeadlineOwnedTaskRunAttemptTarget } from "../../persistence-postgres/src/database/pglite";
@@ -21,7 +22,8 @@ import { insertCurrentScopeClockFixture } from "../../persistence-postgres/test/
 import { newTestPGlite } from "../../persistence-postgres/test/support/pgliteSearchExtensions";
 import { createFileScopedPostgresFixture } from "../../persistence-postgres/test/support/postgresHelpers";
 import { locatedTaskAuthorityV1, readyTaskRunAggregateV1, TASK_LOCATOR } from "../../persistence-postgres/test/tasks/taskSystemRunAttemptStoreTestSupport";
-import { makeDurableNativeStorage, isDurableNativeBoundaryFailure, nativeCheckpointCodec } from "../src/workflow/durable-native-storage";
+import { makeDurableNativeStorage, isDurableNativeBoundaryFailure, nativeCheckpointCodec, nativeCompoundCheckpointCodec } from "../src/workflow/durable-native-storage";
+import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 const cleanup: Array<() => Promise<void>> = [];
@@ -34,6 +36,24 @@ const workflowId = "native-checkpoint-protocol-proof";
 const waitId = "native-checkpoint-protocol-wait";
 const wait = createStep({ name: waitId, async: true, timeout: 60 }, async () => {});
 const workflow = createWorkflow(workflowId, (input: { id: string }) => { wait(); return new WorkflowResponse(input); });
+const compoundWorkflowId = "native-stored-child-parent-proof";
+const compoundChildId = "native-stored-child-proof";
+const compoundChildStepId = `${compoundChildId}-as-step`;
+interface NeutralChildService { read(): Promise<string>; write(value: string): Promise<void> }
+const childInputSchema = Schema.Struct({ id: Schema.String, value: Schema.String });
+const decodeChildInput = Schema.decodeUnknownResult(childInputSchema, { onExcessProperty: "error" });
+const change = createStep("native-stored-child-change", async (input: { id: string; value: string }, { container }) => {
+  const service = container.resolve<NeutralChildService>("neutralChild");
+  const previous = await service.read();
+  await service.write(input.value);
+  return new StepResponse(input, previous);
+}, async (previous, { container }) => {
+  if (previous !== undefined) await container.resolve<NeutralChildService>("neutralChild").write(previous);
+});
+const storedChild = createWorkflow({ name: compoundChildId, store: true, storeExecution: true },
+  (input: { id: string; value: string }) => new WorkflowResponse(change(input)));
+const storedParent = createWorkflow({ name: compoundWorkflowId, store: true, storeExecution: true }, (input: { id: string }) =>
+  new WorkflowResponse(storedChild.runAsStep({ input: transform(input, value => ({ id: value.id, value: "after" })) })));
 
 beforeAll(async () => {
   if (driver === "postgres") {
@@ -89,7 +109,139 @@ async function scenario() {
   return { subject, checkpointStore, base, bridge, runNative };
 }
 
+async function compoundScenario() {
+  const s = await scenario();
+  const values: string[] = [];
+  let value = "before";
+  const { container } = execution();
+  container.values.set("neutralChild", {
+    async read() { return value; },
+    async write(next: string) { value = next; values.push(next); },
+  } satisfies NeutralChildService);
+  const childTransactionId = `${compoundChildStepId}-${s.base.transactionId}`;
+  const base = { subject: s.subject, checkpointStore: s.checkpointStore, runEffect: Effect.runPromise,
+    workflowId: compoundWorkflowId, transactionId: s.base.transactionId, expectedInput: s.base.expectedInput,
+    expectedEventGroupId: s.base.transactionId, clock: s.base.clock,
+    checkpointedChild: { workflowId: compoundChildId, transactionId: childTransactionId, parentStepId: compoundChildStepId,
+      validateInput: (input: unknown) => decodeChildInput(input).pipe(
+        Result.mapError(cause => commerceError("storedCorruption", cause)),
+        Result.flatMap(child => child.id === s.base.expectedInput.id && child.value === "after"
+          ? Result.succeed(undefined) : Result.fail(commerceError("storedCorruption")))),
+    } };
+  const bridge = await Effect.runPromise(makeDurableNativeStorage(base));
+  const run = () => storedParent(container).run({ input: base.expectedInput, runtime: bridge.runtime,
+    context: { transactionId: base.transactionId, eventGroupId: base.expectedEventGroupId } });
+  const cold = () => Effect.runPromise(makeDurableNativeStorage(base));
+  return { ...s, base, bridge, container, values, value: () => value, run, cold, childTransactionId };
+}
+
+const decodeJsonObject = Schema.decodeUnknownResult(Schema.JsonObject);
+const jsonObject = (value: unknown) => Result.getOrThrow(decodeJsonObject(value));
+
 describe(`native checkpoint bridge - ${driver}`, { concurrent: false }, () => {
+  it("retains a genuine synchronous child and runs its original preimage inverse after cold hydration", async () => {
+    const s = await compoundScenario();
+    const forward = await s.run();
+    await Effect.runPromise(s.bridge.drain); await Effect.runPromise(s.bridge.assertHealthy);
+    expect(forward.transaction.getState()).toBe("done");
+    expect(s.value()).toBe("after");
+    const saved = await Effect.runPromise(s.checkpointStore.load(s.subject));
+    if (Option.isNone(saved)) throw new Error("Missing actual compound Task checkpoint");
+    expect(saved.value.codec).toBe(nativeCompoundCheckpointCodec);
+    const packet = jsonObject(JSON.parse(new TextDecoder().decode(saved.value.bytes)));
+    const child = jsonObject(packet.child), parent = jsonObject(packet.parent);
+    expect(jsonObject(child.flow)).toMatchObject({ modelId: compoundChildId, transactionId: s.childTransactionId, state: "done" });
+    expect(jsonObject(child.flow).runId).toBe(jsonObject(parent.flow).runId);
+    expect(jsonObject(jsonObject(child.flow).metadata)).toMatchObject({
+      eventGroupId: s.base.expectedEventGroupId, preventReleaseEvents: true,
+      parentStepIdempotencyKey: `${compoundWorkflowId}:${s.base.transactionId}:${compoundChildStepId}:invoke`,
+    });
+    const cold = await s.cold();
+    const childCheckpoint = await cold.runtime.storage.get(`dtrx:${compoundChildId}:${s.childTransactionId}`);
+    expect(childCheckpoint).toBeInstanceOf(TransactionCheckpoint);
+    const canceled = await storedParent(s.container).cancel({ runtime: cold.runtime, transactionId: s.base.transactionId,
+      context: { eventGroupId: s.base.expectedEventGroupId } });
+    await Effect.runPromise(cold.drain); await Effect.runPromise(cold.assertHealthy);
+    expect(canceled.transaction.getState()).toBe("reverted");
+    expect(s.values).toEqual(["after", "before"]);
+    expect((await cold.runtime.storage.get(`dtrx:${compoundChildId}:${s.childTransactionId}`))?.flow.state).toBe("reverted");
+    expect(await Effect.runPromise(cold.waitProposal)).toBeUndefined();
+    await Effect.runPromise(s.bridge.close); await Effect.runPromise(cold.close);
+  }, 480_000);
+
+  it.each(["missing-child", "foreign-model", "foreign-run", "payload", "parent-key", "event-group", "topology", "retained-id"] as const)(
+    "refuses compound checkpoint corruption before another business callback: %s", async violation => {
+      const s = await compoundScenario(); await s.run(); await Effect.runPromise(s.bridge.drain);
+      const saved = await Effect.runPromise(s.checkpointStore.load(s.subject));
+      if (Option.isNone(saved)) throw new Error("Missing actual compound checkpoint");
+      let packet = jsonObject(JSON.parse(new TextDecoder().decode(saved.value.bytes)));
+      const child = jsonObject(packet.child), flow = jsonObject(child.flow), metadata = jsonObject(flow.metadata);
+      switch (violation) {
+        case "missing-child": packet = { ...packet, child: null }; break;
+        case "foreign-model": packet = { ...packet, child: { ...child, flow: { ...flow, modelId: "foreign-child" } } }; break;
+        case "foreign-run": packet = { ...packet, child: { ...child, flow: { ...flow, runId: "foreign-run" } } }; break;
+        case "payload": packet = { ...packet, child: { ...child, context: { ...jsonObject(child.context), payload: { id: "foreign", value: "after" } } } }; break;
+        case "parent-key": packet = { ...packet, child: { ...child, flow: { ...flow, metadata: { ...metadata, parentStepIdempotencyKey: "foreign" } } } }; break;
+        case "event-group": packet = { ...packet, child: { ...child, flow: { ...flow, metadata: { ...metadata, eventGroupId: "foreign" } } } }; break;
+        case "topology": packet = { ...packet, child: { ...child, flow: { ...flow, definition: { foreign: true } } } }; break;
+        case "retained-id": {
+          const parent = jsonObject(packet.parent), context = jsonObject(parent.context), invoke = jsonObject(context.invoke);
+          const step = jsonObject(invoke[compoundChildStepId]), output = jsonObject(step.output), compensation = jsonObject(output.compensateInput);
+          const transaction = jsonObject(compensation.transaction);
+          packet = { ...packet, parent: { ...parent, context: { ...context, invoke: { ...invoke, [compoundChildStepId]: { ...step,
+            output: { ...output, compensateInput: { ...compensation, transaction: { ...transaction, transactionId: "foreign" } } },
+          } } } } };
+          break;
+        }
+      }
+      const prepared = await Effect.runPromise(s.checkpointStore.prepare({ expectedRevision: saved.value.revision,
+        codec: nativeCompoundCheckpointCodec, bytes: new TextEncoder().encode(JSON.stringify(packet)) }));
+      await Effect.runPromise(s.checkpointStore.save(s.subject, prepared));
+      const cold = await s.cold();
+      await expect(cold.runtime.storage.get(`dtrx:${compoundWorkflowId}:${s.base.transactionId}`))
+        .rejects.toSatisfy(isDurableNativeBoundaryFailure);
+      expect(await Effect.runPromise(Effect.result(cold.assertHealthy))).toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+      expect(s.values).toEqual(["after"]);
+      expect(inspectTrustedWorkflowInterpreterSubject(s.subject)._tag).toBe("Failure");
+    }, 480_000);
+
+  it("refuses another child namespace and preserves the first compound failure", async () => {
+    const s = await compoundScenario(); await s.run(); await Effect.runPromise(s.bridge.drain);
+    await expect(s.bridge.runtime.storage.get(`dtrx:${compoundChildId}:${s.childTransactionId}-attempt-2`))
+      .rejects.toSatisfy(isDurableNativeBoundaryFailure);
+    expect(await Effect.runPromise(Effect.result(s.bridge.assertHealthy))).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    const first = await Effect.runPromiseExit(s.bridge.assertHealthy);
+    await expect(s.bridge.runtime.storage.get(`dtrx:${compoundChildId}:${s.childTransactionId}`))
+      .rejects.toSatisfy(isDurableNativeBoundaryFailure);
+    expect(await Effect.runPromiseExit(s.bridge.assertHealthy)).toEqual(first);
+    expect(s.values).toEqual(["after"]);
+  }, 480_000);
+
+  it("serializes parent and child saves through one authenticated Task revision", async () => {
+    const s = await compoundScenario(); await s.run(); await Effect.runPromise(s.bridge.drain);
+    const parentKey = `dtrx:${compoundWorkflowId}:${s.base.transactionId}`;
+    const childKey = `dtrx:${compoundChildId}:${s.childTransactionId}`;
+    const parent = await s.bridge.runtime.storage.get(parentKey), child = await s.bridge.runtime.storage.get(childKey);
+    if (parent === undefined || child === undefined) throw new Error("Missing actual native parent or child");
+    const before = await Effect.runPromise(s.checkpointStore.load(s.subject));
+    if (Option.isNone(before)) throw new Error("Missing actual Task revision");
+    let active = 0, maximum = 0;
+    const save = s.checkpointStore.save;
+    const checkpointStore = { ...s.checkpointStore, save: (...args: Parameters<typeof save>) => Effect.gen(function* () {
+      active++; maximum = Math.max(maximum, active);
+      return yield* save(...args).pipe(Effect.ensuring(Effect.sync(() => { active--; })));
+    }) };
+    const cold = await Effect.runPromise(makeDurableNativeStorage({ ...s.base, checkpointStore }));
+    await Promise.all([cold.runtime.storage.save(parentKey, parent), cold.runtime.storage.save(childKey, child)]);
+    await Effect.runPromise(cold.assertHealthy);
+    const after = await Effect.runPromise(s.checkpointStore.load(s.subject));
+    if (Option.isNone(after)) throw new Error("Missing saved compound revision");
+    expect(maximum).toBe(1);
+    expect(after.value.revision).toBe(before.value.revision + 2n);
+    expect(after.value.codec).toBe(nativeCompoundCheckpointCodec);
+    expect(s.values).toEqual(["after"]);
+  }, 480_000);
+
   it.each(["confirmation-step", "future-child-attempt"] as const)("refuses recovery outside the fixed child and authentic Task budget: %s", async violation => {
     const s = await scenario();
     const executed = await s.runNative();

@@ -18,8 +18,10 @@
     "@flarex/utils": "workspace:*",
     "@medusajs/core-flows": "workspace:*",
     "@medusajs/currency": "workspace:*",
+    "@medusajs/deps": "workspace:*",
     "@medusajs/drizzle": "workspace:*",
     "@medusajs/fulfillment": "workspace:*",
+    "@medusajs/locking": "workspace:*",
     "@medusajs/link-modules": "workspace:*",
     "@medusajs/modules-sdk": "workspace:*",
     "@medusajs/orchestration": "workspace:*",
@@ -40,7 +42,6 @@
   },
   "devDependencies": {
     "@flarex/application-schema-definition": "workspace:*",
-    "@medusajs/deps": "workspace:*",
     "@medusajs/framework": "workspace:*",
     "@medusajs/test-utils": "workspace:*",
     "@medusajs/types": "workspace:*",

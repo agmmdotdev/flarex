@@ -16,7 +16,7 @@ export interface GraphRelationPath {
   readonly sourceFields?: readonly string[];
 }
 
-export interface GraphReadDefinition {
+interface GraphReadMetadata {
   readonly model: string;
   readonly command: GraphReadCommand;
   readonly table: ReadTable;
@@ -31,8 +31,16 @@ export interface GraphReadDefinition {
   /** Fetch and authenticate numeric companions, then return exactly the native
    * requested fields. Existing profiles retain companion projection. */
   readonly selectedFieldsOnly?: true;
-  readonly decode: (value: Json) => Result.Result<readonly [readonly JsonObject[], number], CommerceTransactionError>;
 }
+/** Counted graph pages and native list selections are different capabilities.
+ * A list result never supplies metadata for a counted page or Link traversal. */
+export type GraphReadDefinition = GraphReadMetadata & ({
+  readonly result?: "count";
+  readonly decode: (value: Json) => Result.Result<readonly [readonly JsonObject[], number], CommerceTransactionError>;
+} | {
+  readonly result: "list";
+  readonly decode: (value: Json) => Result.Result<readonly JsonObject[], CommerceTransactionError>;
+});
 
 export interface GraphModuleDefinition {
   readonly aliases: readonly { readonly name: string; readonly model: string }[];
@@ -54,6 +62,8 @@ export interface LocalGraphQuery {
   readonly service: (input: unknown) => Effect.Effect<LocalGraphResult, CommerceTransactionError>;
   /** Callable RemoteQuery retains the native join fields used by its plan. */
   readonly native: (input: unknown) => Effect.Effect<LocalGraphResult, CommerceTransactionError>;
+  /** Count-free selected native list ABI; pagination and remote joins refuse. */
+  readonly list: (input: unknown) => Effect.Effect<readonly JsonObject[], CommerceTransactionError>;
 }
 export interface PreparedLocalGraph {
   readonly entities: readonly string[];

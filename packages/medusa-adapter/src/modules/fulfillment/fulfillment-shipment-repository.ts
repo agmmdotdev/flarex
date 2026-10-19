@@ -8,12 +8,13 @@ import { projectNativeRow } from "../../repository/result";
 import { replaceGraphRows } from "../../write/replace";
 import type { GraphCatalog, ReplacementProfile } from "../../write/graph-model";
 import type { commerceMutationEvents } from "../../repository/mutation-events";
-import { compileFulfillmentShipmentContracts, FulfillmentShipmentLabel, FulfillmentShipmentUpdate, decodeFulfillmentShipmentUpdate } from "./fulfillment-shipment-input";
+import { compileFulfillmentShipmentContracts, FulfillmentShipmentLabel, FulfillmentShipmentUpdate, FulfillmentDeliveryUpdate, decodeFulfillmentShipmentUpdate } from "./fulfillment-shipment-input";
 import { FulfillmentCreationId, type compileFulfillmentCreationContracts } from "./fulfillment-create-input";
 import { prepareFulfillmentShipmentQuery } from "./fulfillment-shipment-query";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compileFulfillmentCreationContracts>>;
 const rootInput = commerceDecoder(Schema.Struct({ id: FulfillmentCreationId, shipped_at: Schema.optionalKey(FulfillmentShipmentUpdate.fields.shipped_at),
+  delivered_at: Schema.optionalKey(FulfillmentDeliveryUpdate.fields.delivered_at),
   marked_shipped_by: FulfillmentShipmentUpdate.fields.marked_shipped_by, labels: FulfillmentShipmentUpdate.fields.labels }), "invalidInput");
 const childInput = commerceDecoder(FulfillmentShipmentLabel, "invalidInput");
 
@@ -43,11 +44,12 @@ export function prepareFulfillmentShipmentRepository(contracts: Contracts) {
       const before = yield* Effect.fromResult(contracts.decodeOutput(pair.entity)), { id, ...raw } = pair.update;
       if (typeof id !== "string" || id !== before.id) return yield* ctx.refuse(commerceError("invalidInput"));
       const request = yield* Effect.fromResult(decodeFulfillmentShipmentUpdate(raw));
+      const labels = "labels" in request ? request.labels : undefined;
       // Native ORM dirty tracking omits equal scalar assignments. Labels have
       // their own shared child dirty tracking and native event contribution.
       const scalar = Object.fromEntries(Object.entries(request).filter(([name, value]) => name !== "labels" && hasChangedFields(before, { [name]: value }, [])));
-      const input = { id, ...scalar, ...(request.labels == null ? {} : { labels: request.labels }) };
-      const replaced = yield* replaceGraphRows(ctx, profile, fulfillment, [input], { relations: request.labels == null ? [] : ["labels"] });
+      const input = { id, ...scalar, ...(labels == null ? {} : { labels }) };
+      const replaced = yield* replaceGraphRows(ctx, profile, fulfillment, [input], { relations: labels == null ? [] : ["labels"] });
       const root = replaced.entities[0];
       if (root === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));
       for (const [action, event] of [["created", "afterCreate"], ["updated", "afterUpdate"], ["deleted", "afterDelete"]] as const) {
@@ -55,11 +57,11 @@ export function prepareFulfillmentShipmentRepository(contracts: Contracts) {
         yield* events.rows(event, "FulfillmentLabel", (replaced.performedActions[action].FulfillmentLabel ?? []).map(projectNativeRow), shared);
       }
       const result = contracts.initializeRead(root, before, "assigned");
-      if (request.labels != null && Array.isArray(result.labels)) {
+      if (labels != null && Array.isArray(result.labels)) {
         const created = [...replaced.performedActions.created.FulfillmentLabel ?? []];
         const rows = new Map(result.labels.filter((row): row is JsonObject => row !== null && typeof row === "object" && !Array.isArray(row)).map(row => [row.id, row]));
         const ordered: JsonObject[] = [];
-        for (const labelRequest of request.labels) {
+        for (const labelRequest of labels) {
           const id = labelRequest.id ?? created.shift()?.id, row = rows.get(id);
           if (row === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));
           ordered.push(row);
