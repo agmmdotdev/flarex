@@ -10,7 +10,9 @@ const admitted = new Set(promotion.files.map((file) => path.resolve(root, file.t
 const inputs = new Set();
 for (const entry of [
   "packages/medusa-core-flows/src/fulfillment/workflows/create-fulfillment.ts",
+  "packages/medusa-core-flows/src/fulfillment/workflows/cancel-fulfillment.ts",
   "packages/medusa-adapter/src/workflows/fulfillment/create-fulfillment.ts",
+  "packages/medusa-adapter/src/workflows/fulfillment/cancel-fulfillment.ts",
   "packages/medusa-adapter/src/modules/fulfillment/fulfillment-create-service.ts",
   "packages/medusa-core-flows/src/fulfillment/workflows/delete-shipping-options.ts",
   "packages/medusa-adapter/src/workflows/fulfillment/delete-shipping-options.ts",

@@ -98,6 +98,10 @@ real update with its returned data/labels. Preserve these observed distinctions:
   `shipping_option` as null. The stored FK still references that historical row:
   cancellation updates only its date and managed update timestamp. Preserve
   this read visibility without changing the persisted relationship.
+  The [standalone cancellation preflight](./143-native-fulfillment-cancellation.md)
+  further distinguishes native owning relations: historical Provider and
+  Address retain their ID references/FKs through `hasOneWithFK` initialization.
+  The Shipping Option observation does not establish masking for those kinds.
 - Native module events are internal. The maximum populated-data case emits
   Address-created, root-created, four Label-created and four Item-created
   messages in that observed model grouping. Nullable-data conversion adds a

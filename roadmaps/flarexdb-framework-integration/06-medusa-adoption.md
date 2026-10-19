@@ -514,7 +514,7 @@ delivery Address, up to four Items and four Labels. Genuine singleton Location
 Query, provider creation, exception cleanup and retained native cancellation
 borrow one outer settlement. Signed/fractional quantities, original creation
 DTOs, provider-updated storage, optional-field omissions and native cancellation
-guards remain distinct. Historical reference visibility masks read DTOs without
+guards remain distinct. Historical Shipping Option visibility masks read DTOs without
 rewriting stored FKs. The named profile uses 128 calls, the existing 64-event
 and 1 MiB limits, and a 30-second command lifetime.
 
@@ -539,6 +539,18 @@ recreation without reattaching sources. Existing eight-table selections and
 terminal Product/ShippingProfile set-null contracts remain unchanged.
 Independently durable execution, populated source upgrades and public/hosted
 activation remain separate gates.
+
+The [native standalone Fulfillment cancellation](./preflight/143-native-fulfillment-cancellation.md)
+root admits one ID using only the existing authenticated cancellation method,
+normal resource limits and the fresh twelve-table source. Genuine eligibility,
+provider lookup, idempotence, module events and void workflow output remain
+native; its retained step ID supplies no business inverse. Private late-failure
+rollback remains an outer settlement obligation. The existing metadata-derived
+DAL and receipt preserve historical Provider/Address owning ID references,
+Shipping Option visibility masking, and native read-versus-assignment nullable
+FK presentation. No extra query, transaction, schema or source lineage is added.
+Public/hosted activation, populated upgrades, external providers, shipment and
+delivery remain separate.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

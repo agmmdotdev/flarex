@@ -55,16 +55,22 @@ export function compileFulfillmentCreationContracts(metadata: Metadata) {
     const [address, fulfillment, label, item, provider, option] = entities;
     if (!address || !fulfillment || !label || !item || !provider || !option ||
       fulfillment.table.cascades.delete.join(",") !== "delivery_address,items,labels") return yield* Result.fail(commerceError("unsupportedProfile"));
-    const one = (name: string, target: typeof address, foreignKey: string): Result.Result<CommerceRelation, ReturnType<typeof commerceError>> => {
+    const one = (name: string, target: typeof address, foreignKey: string, expectedKind: "hasOneWithFK" | "belongsTo") => Result.gen(function* () {
       const relation = fulfillment.table.relationships.find(value => value.name === name);
-      return relation !== undefined && ["hasOneWithFK", "belongsTo"].includes(relation.type) &&
-        fulfillment.table.foreignKeys.some(key => key.columns.length === 1 && key.columns[0] === foreignKey && key.referencedTable === target.table.name && key.referencedColumns[0] === "id")
-        ? Result.succeed({ name, targetTable: target.table.name, targetPrimaryKeys: ["id"], sourcePrimaryKeys: ["id"], join: { type: "belongsTo", foreignKeys: [foreignKey] } })
-        : Result.fail(commerceError("unsupportedProfile"));
-    };
+      if (relation === undefined || (relation.type !== "hasOneWithFK" && relation.type !== "belongsTo") || relation.type !== expectedKind ||
+        !fulfillment.table.foreignKeys.some(key => key.columns.length === 1 && key.columns[0] === foreignKey && key.referencedTable === target.table.name && key.referencedColumns[0] === "id"))
+        return yield* Result.fail(commerceError("unsupportedProfile"));
+      const path: CommerceRelation = { name, targetTable: target.table.name, targetPrimaryKeys: ["id"], sourcePrimaryKeys: ["id"], join: { type: "belongsTo", foreignKeys: [foreignKey] } };
+      return { path, nativeKind: relation.type };
+    });
     const relations = new Map<string, CommerceRelation>();
-    for (const [name, target, foreignKey] of [["delivery_address", address, "delivery_address_id"], ["provider", provider, "provider_id"], ["shipping_option", option, "shipping_option_id"]] as const)
-      relations.set(name, yield* one(name, target, foreignKey));
+    const referenceFields: Array<{ name: string; column: string; entity: typeof provider; nativeKind: "hasOneWithFK" | "belongsTo" }> = [];
+    for (const [name, target, column, expectedKind] of [["provider", provider, "provider_id", "hasOneWithFK"],
+      ["shipping_option", option, "shipping_option_id", "belongsTo"], ["delivery_address", address, "delivery_address_id", "hasOneWithFK"]] as const) {
+      const reference = yield* one(name, target, column, expectedKind);
+      relations.set(name, reference.path);
+      referenceFields.push({ name, column, entity: target, nativeKind: reference.nativeKind });
+    }
     for (const [name, target] of [["items", item], ["labels", label]] as const) {
       const relation = describeToManyRelation(fulfillment.table, name, metadata.tables);
       if (relation?.join.type !== "hasMany" || relation.targetTable !== target.table.name || relation.join.foreignKeys[0] !== "fulfillment_id")
@@ -72,9 +78,6 @@ export function compileFulfillmentCreationContracts(metadata: Metadata) {
       relations.set(name, relation);
     }
     const queryRelations: CommerceRelations = new Map([[fulfillment.table.name, relations]]);
-    const referenceFields = [{ name: "provider", column: "provider_id", entity: provider },
-      { name: "shipping_option", column: "shipping_option_id", entity: option },
-      { name: "delivery_address", column: "delivery_address_id", entity: address }] as const;
     const defaults = new Map<string, JsonObject>();
     for (const entity of entities) defaults.set(entity.table.name, Object.fromEntries(entity.table.columns.flatMap(column =>
       ["id", "created_at", "updated_at", "deleted_at"].includes(column.name) ? [] :
@@ -82,7 +85,11 @@ export function compileFulfillmentCreationContracts(metadata: Metadata) {
     const decodeOutput = (input: unknown) => Result.gen(function* () {
       const value = yield* decodeObject(input);
       const { delivery_address, provider: providerValue, shipping_option, items, labels, ...scalar } = value;
-      const root = yield* fulfillment.decodeRow({ shipping_option_id: null, delivery_address_id: null, ...scalar });
+      // Native retrieval omits a null hasOneWithFK scalar, while its relation
+      // is explicitly null. Admit that exact Provider DTO form only; a missing
+      // required FK with an ID relation (or absent relation) stays corruption.
+      const root = yield* fulfillment.decodeRow({ shipping_option_id: null, delivery_address_id: null,
+        ...(providerValue === null && !Object.hasOwn(scalar, "provider_id") ? { provider_id: null } : {}), ...scalar });
       if (root.deleted_at !== null) return yield* Result.fail(commerceError("storedCorruption"));
       for (const [name, supplied, key] of [["provider", providerValue, "provider_id"], ["shipping_option", shipping_option, "shipping_option_id"]] as const) {
         if (supplied === undefined && name === "shipping_option") continue;
@@ -120,13 +127,19 @@ export function compileFulfillmentCreationContracts(metadata: Metadata) {
       if (input.delivery_address == null) { delete result.delivery_address; delete result.delivery_address_id; }
       return result;
     };
-    // Native MikroORM scalar reads auto-join owning references with the target
-    // soft-delete filter. A hidden target masks the DTO FK, never the stored FK.
-    const initializeRead = (root: JsonObject, populated: JsonObject): JsonObject => {
+    // Native active population hides belongsTo targets. Its hasOneWithFK
+    // onInit hook instead reconstitutes an ID relation from the raw owning FK,
+    // including historical Provider/Address targets. Null owning scalar keys
+    // are omitted on retrieval; native assign/update results retain written
+    // null keys. Neither presentation path rewrites the stored relationship.
+    const initializeRead = (root: JsonObject, populated: JsonObject, mode: "retrieved" | "assigned" = "retrieved"): JsonObject => {
       const result = { ...root };
       for (const field of referenceFields) {
-        const target = populated[field.name] ?? null, id = isJsonObject(target) && typeof target.id === "string" ? target.id : null;
-        result[field.column] = id; result[field.name] = id === null ? null : { id };
+        const target = populated[field.name] ?? null, owning = field.nativeKind === "hasOneWithFK",
+          id = owning ? root[field.column] ?? null : isJsonObject(target) && typeof target.id === "string" ? target.id : null;
+        if (owning && id === null && mode === "retrieved") delete result[field.column];
+        else result[field.column] = id;
+        result[field.name] = id === null ? null : { id };
       }
       return result;
     };

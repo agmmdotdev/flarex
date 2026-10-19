@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "bedc01146617ea9477b13a80d64f1e60c0103a1d91fb04e0aff5363661996a22"
+      "targetSha256": "b3b80db15cde41cd46f14d81516d86ad9555d0a9a042822722497c56ac86ea57"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -10749,17 +10749,17 @@
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/fulfillment-create-input.ts",
       "classification": "authored",
-      "targetSha256": "97a1949c7bb5f197e9377f3ad919b5d2dffea19f57625a90a3601e3c632ee327"
+      "targetSha256": "dc16cd868db37f45bc84be42f125bea52a1390af37ffdc3089a760ff2a19ab5b"
     },
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/fulfillment-create-receipt.ts",
       "classification": "authored",
-      "targetSha256": "95a587720658e2d1098919b0d5e24db5b3eed1b7815a178ec7935b0f84a7f98c"
+      "targetSha256": "ea19c526013410d87e5a1fe7a1828d4fd794d4ed61f7eba5c2b0ec7c500a45ec"
     },
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/fulfillment-create-repository.ts",
       "classification": "authored",
-      "targetSha256": "878ce37bc14dc858019eae98a5db4b73fd1f01dd03baec9d4816b821226b0d24"
+      "targetSha256": "2a5bbf637e61662bea34f0e1807dea4e9943cba65f7ab6063c09312ba8b68a41"
     },
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/fulfillment-create-service.ts",
@@ -10794,12 +10794,12 @@
     {
       "target": "packages/medusa-adapter/test/fulfillment-create-input.test.ts",
       "classification": "authored",
-      "targetSha256": "0d3df104e71affb6cac52872d60e0a37ea70ba62b3aa454e3438a0884303859d"
+      "targetSha256": "90a8b84957b657621d4b87c73b9f28f6e25f0ec61ff74187e57b627eb6c279e2"
     },
     {
       "target": "packages/medusa-adapter/test/fulfillment-create-receipt.test.ts",
       "classification": "authored",
-      "targetSha256": "ee4b53a2df14d6b137238ccda09a3491b78094a4c80e25d97eb665cb83dd1618"
+      "targetSha256": "e41baf8cb5d3ad063f46a2fac4852381a119c64695fdfa8affabd70ec879c10e"
     },
     {
       "target": "packages/medusa-adapter/test/logical-fulfillment-create-workflow.test.ts",
@@ -10859,6 +10859,40 @@
       "target": "packages/medusa-adapter/test/support/logical-shipping-option-reference-detachment-fixture.ts",
       "classification": "authored",
       "targetSha256": "71e8557e612f662f31299952ceb4871d192bdccee0885069a00dd52d8287abde"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/fulfillment/cancel-fulfillment.ts",
+      "classification": "authored",
+      "targetSha256": "0d17ca1451bfbb12f143aee1abf44212090e9cabe5631a279ba43f8e175dad66"
+    },
+    {
+      "target": "packages/medusa-adapter/test/fulfillment-cancel-contracts.test.ts",
+      "classification": "authored",
+      "targetSha256": "6b8bd2479f3d255c1312e7e1340c150704b6728c961e31ec2433a219fb477412"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-fulfillment-cancel-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "b0730458bbe14679f396ba05139e0818680bdf16c517126c934f15097a3a916a"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-fulfillment-cancel-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "145fb1228f12757b8df51c08a83f7f8b8e4e33c6a9754b2bc483aebda1e2f2a0"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/fulfillment/steps/cancel-fulfillment.ts",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment/steps/cancel-fulfillment.ts",
+      "classification": "workflowFork",
+      "sourceSha256": "8d70aa69001101f64b1d9f999f158b75a93e3618912bca9fc130257cb7d6c9b1",
+      "targetSha256": "5362e5e3f7e88af10cbee896fb5be365531ee5688eb9ad82760645b3ccf4f131"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/fulfillment/workflows/cancel-fulfillment.ts",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment/workflows/cancel-fulfillment.ts",
+      "classification": "workflowFork",
+      "sourceSha256": "45786c29ac48d20628aa1a256f36c340bb3eb64cdc3da4e6d4163196aa3d5d7b",
+      "targetSha256": "1813be8c7e10e5620f9aad573fc9a7f5056794e0971903baa4d9ebd331263c5b"
     }
   ],
   "dependencies": {
@@ -11383,7 +11417,8 @@
         "./fulfillment/create-shipping-options",
         "./fulfillment/update-shipping-options",
         "./fulfillment/delete-shipping-options",
-        "./fulfillment/create-fulfillment"
+        "./fulfillment/create-fulfillment",
+        "./fulfillment/cancel-fulfillment"
       ]
     },
     {

@@ -32,10 +32,10 @@ const row = (data: Json = null): JsonObject => ({ ...prepared.contracts.defaults
 const provider = (): JsonObject => ({ ...prepared.contracts.defaults.get("fulfillment_provider"), id: "manual_manual", is_enabled: true,
   created_at: before, updated_at: before, deleted_at: null });
 const observed = (...roots: JsonObject[]) => [{ table: "fulfillment_provider", row: provider() }, ...roots.map(row => ({ table: "fulfillment", row }))];
-const reads = (filters: JsonObject, root = row()) => [rootRead(filters), ...prepared.contracts.referenceFields.flatMap(field => {
+const reads = (filters: JsonObject, root = row(), active: Readonly<Record<string, number>> = { provider: 1 }) => [rootRead(filters), ...prepared.contracts.referenceFields.flatMap(field => {
   const selection = Result.getOrThrow(prepareCommerceRelationPopulation(["id"], [root], [field.column], true, false));
   return Option.isNone(selection) ? [] : [{ table: field.entity.table.name,
-    query: commerceRelationReadQuery(defaultCommerceResources, selection.value.predicate), total: field.name === "provider" ? 1 : 0, returned: field.name === "provider" ? 1 : 0 }];
+    query: commerceRelationReadQuery(defaultCommerceResources, selection.value.predicate), total: active[field.name] ?? 0, returned: active[field.name] ?? 0 }];
 })];
 
 beforeAll(async () => {
@@ -101,8 +101,13 @@ describe("causal native Fulfillment creation receipts", () => {
     expect(Result.isFailure(await validate({ ...receipt, input: "outside" }, activity))).toBe(true);
     expect(Result.isFailure(await validate(receipt, { ...activity, mutations: [{ ...activity.mutations[0]!, after: { ...final, data: { forged: true } } }] }))).toBe(true);
     const noop: Activity = { ...empty(), observedRows: observed(final), relationalReads: reads({ id: "f" }) };
-    expect(Result.isSuccess(await validate(call("fulfillmentCancelForWorkflow", "f", result, [], noop), noop))).toBe(true);
-    expect(Result.isFailure(await validate(call("fulfillmentCancelForWorkflow", "f", result, [event("updated")], noop), noop))).toBe(true);
+    const retrieved = await Effect.runPromise(prepared.contracts.serialize(prepared.contracts.initializeRead(final,
+      { provider: provider(), delivery_address: null, shipping_option: null })));
+    expect(retrieved).not.toHaveProperty("delivery_address_id"); expect(result).toHaveProperty("delivery_address_id", null);
+    expect(Result.isSuccess(await validate(call("fulfillmentCancelForWorkflow", "f", retrieved, [], noop), noop))).toBe(true);
+    expect(Result.isFailure(await validate(call("fulfillmentCancelForWorkflow", "f", retrieved, [event("updated")], noop), noop))).toBe(true);
+    expect(Result.isFailure(await validate(call("fulfillmentCancelForWorkflow", "f", result, [], noop), noop))).toBe(true);
+    expect(Result.isFailure(await validate({ ...receipt, result: retrieved }, activity))).toBe(true);
   });
 
   it("authenticates filtered historical Option visibility without accepting a stored-FK rewrite", async () => {
@@ -113,7 +118,7 @@ describe("causal native Fulfillment creation receipts", () => {
     const activity: Activity = { ...empty(), mutations: [{ ordinal: 0, table: "fulfillment", operation: "patch", before: first, after: final }],
       observedRows: [...observed(first, final), { table: "shipping_option", row: historical }], relationalReads: [...reads({ id: "f" }, first), ...reads({ $or: [{ id: "f" }] }, first)] };
     const result = await Effect.runPromise(prepared.contracts.serialize(prepared.contracts.initializeRead(final,
-      { provider: provider(), shipping_option: null, delivery_address: null })));
+      { provider: provider(), shipping_option: null, delivery_address: null }, "assigned")));
     if (Array.isArray(result)) throw new Error("Expected one native Fulfillment");
     const receipt = call("fulfillmentCancelForWorkflow", "f", result, [event("updated")], activity);
     expect(Result.isSuccess(await validate(receipt, activity))).toBe(true);
@@ -123,5 +128,27 @@ describe("causal native Fulfillment creation receipts", () => {
     expect(Result.isFailure(await validate(receipt, { ...activity, relationalReads: activity.relationalReads.filter(read => read.table !== "shipping_option") }))).toBe(true);
     expect(Result.isFailure(await validate(receipt, { ...activity, observedRows: [...observed(first, final),
       { table: "shipping_option", row: { ...historical, id: "outside-fk-selection" } }] }))).toBe(true);
+  });
+
+  it("authenticates historical Provider and Address ID reconstitution without mutating either stored FK", async () => {
+    const first = { ...row({ kept: true }), delivery_address_id: "historical-address" }, final = { ...first, canceled_at: after, updated_at: after },
+      historicalProvider = { ...provider(), deleted_at: after },
+      historicalAddress = { ...prepared.contracts.defaults.get("fulfillment_address"), id: "historical-address",
+        created_at: before, updated_at: after, deleted_at: after };
+    const activity: Activity = { ...empty(), mutations: [{ ordinal: 0, table: "fulfillment", operation: "patch", before: first, after: final }],
+      observedRows: [{ table: "fulfillment", row: final }, { table: "fulfillment_provider", row: historicalProvider },
+        { table: "fulfillment_address", row: historicalAddress }],
+      relationalReads: [...reads({ id: "f" }, first, {}), ...reads({ $or: [{ id: "f" }] }, first, {})] };
+    const result = await Effect.runPromise(prepared.contracts.serialize(prepared.contracts.initializeRead(final,
+      { provider: null, delivery_address: null, shipping_option: null }, "assigned")));
+    if (Array.isArray(result)) throw new Error("Expected one native Fulfillment");
+    const receipt = call("fulfillmentCancelForWorkflow", "f", result, [event("updated")], activity);
+    expect(Result.isSuccess(await validate(receipt, activity))).toBe(true);
+    expect(result).toMatchObject({ provider_id: "manual_manual", provider: { id: "manual_manual" },
+      delivery_address_id: "historical-address", delivery_address: { id: "historical-address" } });
+    const forgeries: readonly JsonObject[] = [{ provider_id: null, provider: null }, { delivery_address_id: null, delivery_address: null }];
+    for (const forged of forgeries)
+      expect(Result.isFailure(await validate({ ...receipt, result: { ...result, ...forged } }, activity))).toBe(true);
+    expect(Result.isFailure(await validate(receipt, { ...activity, mutations: [{ ...activity.mutations[0]!, after: { ...final, provider_id: null } }] }))).toBe(true);
   });
 });

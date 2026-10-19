@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
+import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 
 const root = process.cwd();
 /** @param {string} file */
@@ -14,6 +14,35 @@ const upsert = "steps/upsert-shipping-options.ts";
 const providers = "steps/validate-fulfillment-providers.ts";
 const validation = "steps/validate-shipping-option-prices.ts";
 const emit = "../common/steps/emit-event.ts";
+
+describe("standalone native Fulfillment cancellation packet", () => {
+  const cancelling = "workflows/cancel-fulfillment.ts", step = "steps/cancel-fulfillment.ts";
+  it("admits only direct native imports and the explicit void composer response", () => {
+    expect(() => verifyFulfillmentCancellationCallbacks(root)).not.toThrow();
+    expect(() => verifyFulfillmentCancellationCallbacks(root, { [step]: { target: target(step) + "\n// no runtime change\n" } })).not.toThrow();
+  });
+  it.each([
+    ["service invocation", step, "await service.cancelFulfillment(id)", "await service.deleteFulfillment(id)"],
+    ["awaited provider/module completion", step, "await service.cancelFulfillment(id)", "void service.cancelFulfillment(id)"],
+    ["retained native ID", step, "new StepResponse(void 0, id)", "new StepResponse(void 0, 'other')"],
+    ["void native step result", step, "new StepResponse(void 0, id)", "new StepResponse(id, id)"],
+    ["original requested selector", cancelling, "cancelFulfillmentStep(input.id)", "cancelFulfillmentStep('other')"],
+    ["void root result", cancelling, "new WorkflowResponse(void 0)", "new WorkflowResponse(input.id)"],
+    ["finite direct step import", cancelling, 'from "../steps/cancel-fulfillment"', 'from "../steps"'],
+  ])("rejects changed %s", (_name, file, before, after) => {
+    const original = target(file), changed = original.replace(before, after);
+    expect(changed).not.toBe(original);
+    expect(() => verifyFulfillmentCancellationCallbacks(root, { [file]: { target: changed } }))
+      .toThrow("Changed native Fulfillment cancellation callback behavior");
+  });
+  it("rejects an invented business inverse and runtime outside the selected callbacks", () => {
+    expect(() => verifyFulfillmentCancellationCallbacks(root, { [step]: { target: target(step)
+      .replace("  }\n)", "  }, async () => { return null }\n)") } })).toThrow("Changed native Fulfillment cancellation callback behavior");
+    for (const file of [cancelling, step])
+      expect(() => verifyFulfillmentCancellationCallbacks(root, { [file]: { target: target(file) + "\nthrow new Error('extra');\n" } })).toThrow();
+    expect(() => verifyFulfillmentCancellationCallbacks(root, { unknown: { target: "" } })).toThrow("unknown packet file");
+  });
+});
 
 describe("complete native Fulfillment creation and retained cancellation", () => {
   const creating = "workflows/create-fulfillment.ts", step = "steps/create-fulfillment.ts";

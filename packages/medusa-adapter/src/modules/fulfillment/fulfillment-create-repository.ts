@@ -110,7 +110,7 @@ export function prepareFulfillmentCreationRepository(metadata: Metadata) {
         yield* events.rows("afterUpdate", "Fulfillment", written.map(projectNativeRow), shared);
         // Native assign returns the selected entity and its filtered reference
         // view; no extra lookup or stored-FK rewrite occurs after the patch.
-        return written.map(row => contracts.initializeRead(projectNativeRow(row), before));
+        return written.map(row => contracts.initializeRead(projectNativeRow(row), before, "assigned"));
       });
       const remove = Effect.fn("FulfillmentCreation.cleanup")(function* (ctx: CommerceCommandContext, input: unknown) {
         const selection = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources).pipe(Result.flatMap(decodeDelete)));

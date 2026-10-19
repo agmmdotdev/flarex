@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { captureFulfillmentCreationMetadata, captureServiceZoneCreationMetadata, compileFulfillmentCreationDefinition } from "../src/modules/fulfillment/shipping-profile-schema";
-import { captureFulfillmentBusinessDates, decodeFulfillmentCreate, decodeFulfillmentNativeUpdate } from "../src/modules/fulfillment/fulfillment-create-input";
+import { captureFulfillmentBusinessDates, compileFulfillmentCreationContracts, decodeFulfillmentCreate, decodeFulfillmentNativeUpdate } from "../src/modules/fulfillment/fulfillment-create-input";
 import { captureFulfillmentItemQuantity, selectedManualDataAssignment } from "../src/modules/fulfillment/fulfillment-create-value-profile";
 
 const input = { location_id: "location", provider_id: "manual_manual", items: [], delivery_address: {} };
@@ -67,5 +67,47 @@ describe("selected native Fulfillment creation values", () => {
     let invoked = false;
     const getter = Object.defineProperty({}, "canceled_at", { enumerable: true, get: () => { invoked = true; return date; } });
     expect(Result.isFailure(captureFulfillmentBusinessDates(getter))).toBe(true); expect(invoked).toBe(false);
+  });
+});
+
+describe("native Fulfillment to-one representation", () => {
+  const contracts = async () => Result.getOrThrow(compileFulfillmentCreationContracts((await Effect.runPromise(captureFulfillmentCreationMetadata())).frame));
+  const stamp = "2026-10-18T00:00:00.000Z";
+  it("retains hasOneWithFK IDs across hidden targets while filtering the belongsTo Option", async () => {
+    const prepared = await contracts(), row = { ...prepared.defaults.get("fulfillment"), id: "f", location_id: "location",
+      provider_id: "manual_manual", delivery_address_id: "address", shipping_option_id: "option",
+      created_at: stamp, updated_at: stamp, deleted_at: null };
+    expect(prepared.referenceFields.map(field => [field.name, field.nativeKind])).toEqual([
+      ["provider", "hasOneWithFK"], ["shipping_option", "belongsTo"], ["delivery_address", "hasOneWithFK"],
+    ]);
+    const value = prepared.initializeRead(row, { provider: null, shipping_option: null, delivery_address: null });
+    expect(await Effect.runPromise(prepared.serialize(value))).toMatchObject({ provider_id: "manual_manual", provider: { id: "manual_manual" },
+      delivery_address_id: "address", delivery_address: { id: "address" }, shipping_option_id: null, shipping_option: null });
+    expect(row).toMatchObject({ provider_id: "manual_manual", delivery_address_id: "address", shipping_option_id: "option" });
+  });
+
+  it("distinguishes retrieved null owning-key omissions from assigned raw-null results without weakening DTO checks", async () => {
+    const prepared = await contracts(), row = { ...prepared.defaults.get("fulfillment"), id: "f", location_id: "location",
+      provider_id: null, delivery_address_id: null, shipping_option_id: null, created_at: stamp, updated_at: stamp, deleted_at: null },
+      populated = { provider: null, delivery_address: null, shipping_option: null },
+      retrieved = prepared.initializeRead(row, populated), assigned = prepared.initializeRead(row, populated, "assigned");
+    expect(retrieved).not.toHaveProperty("provider_id"); expect(retrieved).not.toHaveProperty("delivery_address_id");
+    expect(retrieved).toMatchObject({ provider: null, delivery_address: null, shipping_option_id: null, shipping_option: null });
+    expect(assigned).toMatchObject({ provider_id: null, delivery_address_id: null, provider: null, delivery_address: null });
+    expect(Result.getOrThrow(prepared.decodeOutput(retrieved))).toEqual(retrieved);
+    expect(Result.getOrThrow(prepared.decodeOutput(assigned))).toEqual(assigned);
+    const { provider: _provider, ...missingProviderRelation } = retrieved;
+    for (const forged of [missingProviderRelation, { ...retrieved, provider: { id: "manual_manual" } },
+      { ...retrieved, provider_id: "manual_manual" }, { ...retrieved, delivery_address: { id: "address" } },
+      { ...assigned, delivery_address_id: "address" }, { ...assigned, injected: true }])
+      expect(Result.isFailure(prepared.decodeOutput(forged))).toBe(true);
+    expect(row).toHaveProperty("provider_id", null); expect(row).toHaveProperty("delivery_address_id", null);
+  });
+
+  it("refuses changing native relationship kinds inside the selected complete definition", async () => {
+    const metadata = (await Effect.runPromise(captureFulfillmentCreationMetadata())).frame;
+    for (const [name, type] of [["provider", "belongsTo"], ["shipping_option", "hasOneWithFK"]] as const)
+      expect(Result.isFailure(compileFulfillmentCreationContracts({ ...metadata, tables: metadata.tables.map(table => table.name !== "fulfillment" ? table
+        : { ...table, relationships: table.relationships.map(relation => relation.name === name ? { ...relation, type } : relation) }) }))).toBe(true);
   });
 });

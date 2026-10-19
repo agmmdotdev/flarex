@@ -144,7 +144,7 @@ export function fulfillmentCreationPolicy(prepared: Prepared) {
         (rootAfter[field] === undefined || !jsonEqual(rootAfter[field], value))) return yield* Effect.fail(mismatch("cancel-update", { field }));
       const selected = yield* Effect.fromResult(read({ id }));
       if (changed) yield* Effect.fromResult(read({ $or: [{ id }] }));
-      expected = contracts.initializeRead(rootAfter, selected);
+      expected = contracts.initializeRead(rootAfter, selected, changed ? "assigned" : "retrieved");
     }
     for (const observation of activity.observedRows) if (!versions.get(observation.table + ":" + String(observation.row.id))?.some(value => jsonEqual(value, projectNativeRow(observation.row))))
       return yield* Effect.fail(mismatch("observation"));

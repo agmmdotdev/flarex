@@ -131,7 +131,8 @@
     "./fulfillment/create-shipping-options": "./src/fulfillment/workflows/create-shipping-options.ts",
     "./fulfillment/update-shipping-options": "./src/fulfillment/workflows/update-shipping-options.ts",
     "./fulfillment/delete-shipping-options": "./src/fulfillment/workflows/delete-shipping-options.ts",
-    "./fulfillment/create-fulfillment": "./src/fulfillment/workflows/create-fulfillment.ts"
+    "./fulfillment/create-fulfillment": "./src/fulfillment/workflows/create-fulfillment.ts",
+    "./fulfillment/cancel-fulfillment": "./src/fulfillment/workflows/cancel-fulfillment.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",
