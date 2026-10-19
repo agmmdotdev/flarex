@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, Result } from "effect";
 import { createHook, createStep, createWorkflow, isPreparedWorkflow, StepResponse, transform, when, WorkflowResponse, type WorkflowData } from "../src/index";
 import { executeWorkflow, type WorkflowExecutionPort } from "../src/runtime";
@@ -18,6 +18,74 @@ const port: WorkflowExecutionPort<Error> = {
 };
 
 describe("prepared workflow resolution", () => {
+  it("resolves authentic bare staged-step returns through the existing response path", async () => {
+    const captures: unknown[] = [], order: string[] = [];
+    const deleted = createStep("native-bare-void", (ids: readonly string[]) => {
+      order.push("pricing"); return new StepResponse(undefined, [...ids]);
+    });
+    const linked = createStep("native-bare-after-returned", () => { order.push("link"); return new StepResponse(null); });
+    const flow = createWorkflow("native-bare-staged-return", (input: WorkflowData<readonly string[]>) => {
+      const result = deleted(input);
+      linked(undefined);
+      return result;
+    });
+    expectTypeOf<NonNullable<typeof flow[" input"]>>().toEqualTypeOf<readonly string[]>();
+    expectTypeOf<ReturnType<typeof flow.runAsStep>>().toEqualTypeOf<ReturnType<typeof deleted>>();
+    const prepared = Result.getOrThrow(flow.prepare());
+    expect(prepared.nodes.map(node => node.name)).toEqual(["native-bare-void", "native-bare-after-returned"]);
+    expect(await runEffect(executeWorkflow(prepared, ["a", "a", ""], { ...port,
+      capture: value => Effect.sync(() => { const captured = structuredClone(value); captures.push(captured); return captured; }),
+    }))).toBeUndefined();
+    expect(order).toEqual(["pricing", "link"]);
+    expect(captures).toContainEqual({ output: undefined, compensation: ["a", "a", ""] });
+    const parent = createWorkflow("native-bare-staged-child", () => new WorkflowResponse(flow.runAsStep({ input: ["child"] })));
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(parent.prepare()), undefined, port))).toBeUndefined();
+  });
+
+  it("preserves nonvoid bare-step inference and the existing wrapped hook contract", async () => {
+    const step = createStep("native-bare-object", (value: number) => new StepResponse({ value }));
+    const bare = createWorkflow("native-bare-object-result", (input: WorkflowData<number>) => step(input));
+    expectTypeOf<ReturnType<typeof bare.runAsStep>>().toEqualTypeOf<ReturnType<typeof step>>();
+    expectTypeOf<Parameters<typeof bare.runAsStep>[0]["input"]>().toEqualTypeOf<number | WorkflowData<number>>();
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(bare.prepare()), 7, port))).toEqual({ value: 7 });
+    const wrapped = createWorkflow("native-wrapped-hook-unchanged", (input: WorkflowData<number>) => {
+      const hook = createHook<"native-bare-hook", number, number>("native-bare-hook", input);
+      return new WorkflowResponse(step(input), { hooks: [hook] });
+    });
+    expectTypeOf<Parameters<typeof wrapped.prepare>[0]>().toEqualTypeOf<{
+      readonly "native-bare-hook"?: (input: number, context: typeof port.context) => number | StepResponse<number> | Promise<number | StepResponse<number>>;
+    } | undefined>();
+    const hook = vi.fn((input: number) => input + 1);
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(wrapped.prepare({ "native-bare-hook": hook })), 9, port))).toEqual({ value: 9 });
+    expect(hook).toHaveBeenCalledWith(9, port.context);
+  });
+
+  it("refuses foreign, unknown, non-step and counterfeit bare returns without reading getters", () => {
+    const step = createStep("native-return-owner-step", () => new StepResponse(null));
+    let foreign: unknown;
+    createWorkflow("native-return-owner", () => new WorkflowResponse(foreign = step(undefined)));
+    expect(() => Reflect.apply(createWorkflow, undefined, ["native-foreign-bare-return", () => foreign])).toThrow("Return this composer's staged step");
+    expect(() => Reflect.apply(createWorkflow, undefined, ["native-input-bare-return", (input: WorkflowData<number>) => input])).toThrow("Return this composer's staged step");
+    expect(() => Reflect.apply(createWorkflow, undefined, ["native-transform-bare-return", () => transform({}, () => null)])).toThrow("Return this composer's staged step");
+    expect(() => Reflect.apply(createWorkflow, undefined, ["native-property-bare-return", () => {
+      const output = createStep("native-object-property-return", () => ({ id: "a" }))(undefined);
+      return output.id;
+    }])).toThrow("Return this composer's staged step");
+    expect(() => Reflect.apply(createWorkflow, undefined, ["native-unknown-bare-return", (input: WorkflowData<number>) => {
+      const reference = referenceOf(input);
+      if (reference === undefined) throw new Error("Missing authenticated input");
+      return proxify({ kind: "step", owner: reference.owner, step: Object.freeze({}) });
+    }])).toThrow("Return this composer's staged step");
+    const getter = vi.fn(() => null), counterfeit = {};
+    Object.defineProperty(counterfeit, "__type", { enumerable: true, get: getter });
+    for (const value of [undefined, null, 1, {}, counterfeit, { __type: "Symbol(WorkflowStep)", __step__: "native-return-owner-step" }])
+      expect(() => Reflect.apply(createWorkflow, undefined, ["native-counterfeit-bare-return", () => value])).toThrow("Return this composer's staged step");
+    expect(getter).not.toHaveBeenCalled();
+    expect(() => Reflect.apply(createWorkflow, undefined, ["native-async-bare-return", () => Promise.resolve(null)])).toThrow("Composer callbacks must be synchronous");
+    const valid = createWorkflow("native-after-invalid-return", () => new WorkflowResponse(step(undefined)));
+    expect(Result.isSuccess(valid.prepare())).toBe(true);
+  });
+
   it("snapshots bare native transform Dates as ISO strings before the next callback", async () => {
     const date = new Date("2026-10-19T01:00:00.000Z"), seen: unknown[] = [];
     const receive = createStep("native-transform-date-receiver", (input: unknown) => {

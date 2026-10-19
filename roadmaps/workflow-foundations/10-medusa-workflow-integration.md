@@ -74,6 +74,16 @@ retains the pinned add-action/find-last-step mechanics. Named conditions guard
 that finite order; parallel graph movement and persisted-transaction loading
 are not part of this profile.
 
+A composer returns `WorkflowResponse` or an authentic full staged step owned by
+its current definition. Direct returns must identify an actual regular step or
+child-workflow node; input, transform, property, hook-only, foreign and forged
+references remain refused. The SDK normalizes admitted direct returns through
+the existing response capture and result resolver, preserving undefined/null
+distinction, graph identity, available-node checks and synchronous construction.
+Exposed hooks continue to require the existing explicit response options. This
+supports the original native Price Preference deletion composer without
+rewriting its business callback or adding another execution path.
+
 Each definition owns authentic deferred references and an immutable captured
 graph. Literal capture rejects cycles, accessors, custom prototypes, sparse
 arrays and excessive depth/node counts without invoking getters. The prepared

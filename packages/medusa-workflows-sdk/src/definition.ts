@@ -190,6 +190,12 @@ export interface WorkflowDefinition<Input, Output, Hooks extends readonly unknow
 }
 export function createWorkflow<Input, Output, const Hooks extends readonly unknown[]>(name: string,
   build: (input: Input) => WorkflowResponse<Output, Hooks>,
+): WorkflowDefinition<Resolved<Input>, Output, Hooks>;
+export function createWorkflow<Input, const Output extends StepOutput<unknown>>(name: string,
+  build: (input: Input) => Output,
+): WorkflowDefinition<Resolved<Input>, Output, readonly []>;
+export function createWorkflow<Input, Output, const Hooks extends readonly unknown[]>(name: string,
+  build: (input: Input) => WorkflowResponse<Output, Hooks> | Output,
 ): WorkflowDefinition<Resolved<Input>, Output, Hooks> {
   if (typeof name !== "string") throw definitionError("unsupportedProfile", "Workflow configuration is not admitted in this atomic profile");
   options(name);
@@ -200,9 +206,20 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
     current = context;
     // SAFETY: the composer receives an authenticated staged input facade. Infer
     // its annotation directly so branded Boolean/union inputs retain all members.
-    response = build(proxify({ kind: "input", owner: context.owner }) as Input);
-    assertSynchronous(response);
-    if (!(response instanceof WorkflowResponse)) throw definitionError("invalidDefinition", "The composer must synchronously return WorkflowResponse");
+    const built = build(proxify({ kind: "input", owner: context.owner }) as Input);
+    assertSynchronous(built);
+    if (built instanceof WorkflowResponse) response = built;
+    else {
+      const reference = referenceOf(built);
+      if (reference?.kind !== "step" || reference.owner !== context.owner ||
+        !context.nodes.some(node => node.id === reference.step &&
+          (node.kind === "workflow" || node.kind === "step" && !node.hook)))
+        throw definitionError("invalidReference", "Return this composer's staged step or WorkflowResponse");
+      // The pinned native exporter resolves a returned staged step directly.
+      // Normalize only this authentic current graph member through the existing
+      // response capture, availability checks, result identity and resolver.
+      response = new WorkflowResponse<Output, Hooks>(built);
+    }
   } finally { current = previous; }
   if (context.pending.size !== 0) throw definitionError("invalidDefinition", "Every condition requires then");
   let nodeCount = 0;

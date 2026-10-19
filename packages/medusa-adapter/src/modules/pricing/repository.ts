@@ -25,7 +25,7 @@ import { calculateLogicalPrices } from "./calculation";
 import { readCommerceRelationRows, assembleCommerceRelations } from "../../query/relations";
 import { preparePricingMutations } from "./mutation-repository";
 import { softDeletePricingPriceSets } from "./lifecycle";
-import { preparePricingPreferenceRepository } from "./preference-repository";
+import { preparePricingPreferenceRepository, type PricingPreferenceRepositoryMode } from "./preference-repository";
 import { ShippingNormalizedSet, ShippingNormalizedPrice, ShippingNormalizedRule } from "./shipping-input";
 import { changeShippingPriceSets } from "./shipping-lifecycle";
 
@@ -103,10 +103,10 @@ const projectionPolicy: ProjectionPolicy = { ...scalarProjection, allowedPaths: 
 
 /** Pricing owns the finite nested creation policy; shared graph/read owners
  * retain traversal, scoped persistence and native mutation dispatch. */
-export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], mutable = false, lifecycle = false, preferences = false, shipping = false, shippingUpdates = false, preferenceUpdates = false) {
+export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], mutable = false, lifecycle = false, preferences = false, shipping = false, shippingUpdates = false, preferenceMode: PricingPreferenceRepositoryMode = "store") {
   return Result.gen(function* () {
     if (preferences) {
-      const prepared = yield* preparePricingPreferenceRepository(metadata, preferenceUpdates);
+      const prepared = yield* preparePricingPreferenceRepository(metadata, preferenceMode);
       return { ...prepared, query: undefined, mutationQuery: undefined };
     }
     const entities: GraphEntity[] = [];

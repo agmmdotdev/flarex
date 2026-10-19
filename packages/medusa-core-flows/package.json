@@ -148,7 +148,9 @@
       "source": "./src/durable/fulfillment/workflows/update-fulfillment.ts",
       "default": "./dist/durable/fulfillment/workflows/update-fulfillment.js"
     },
-    "./pricing/update-price-preferences": "./src/pricing/workflows/update-price-preferences.ts"
+    "./pricing/update-price-preferences": "./src/pricing/workflows/update-price-preferences.ts",
+    "./pricing/delete-price-preferences": "./src/pricing/workflows/delete-price-preferences.ts",
+    "./pricing/delete-price-preferences-step": "./src/pricing/steps/delete-price-preferences.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

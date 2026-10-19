@@ -675,9 +675,12 @@ core-produced selected identities, sparse retained preimages, dirty-row events
 and the original inverse upsert. Store and creation retain their own grammars;
 the preference write owner preserves native equal-value no-ops across them.
 
-The following connected Pricing slice is native Price Preference deletion.
-Its pending preflight must include native soft deletion, restore compensation
-and required Link deletion/restoration calls, including empty-input behavior.
+The [native Price Preference deletion](./preflight/151-native-price-preference-deletion.md)
+root is implemented for bounded private execution. It includes
+native soft deletion, raw-ID restore compensation and required empty-family Link
+deletion/restoration calls, including empty inputs. The original compensation
+can restore previously deleted requested rows; that native behavior remains
+explicit rather than being silently corrected in the adapter.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

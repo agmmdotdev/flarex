@@ -6,6 +6,7 @@ import type { capturePricingMetadata } from "./schema";
 import { PricePreferencesInput, PricingId } from "./input";
 import { NativePreimageConfig } from "../../workflow/preimage";
 import { compileWhere, valuePredicate, type Predicate, type WherePolicy } from "../../query/predicate";
+import { jsonEqual } from "flarex-protocol/json";
 
 const Text = Schema.String.check(Schema.isLengthBetween(1, 256));
 export const StorePreferencePair = Schema.Struct({ attribute: Text, value: Text });
@@ -17,6 +18,19 @@ const Previous = Schema.Struct({ id: PricingId, attribute: Text, value: Schema.N
   created_at: Schema.String, updated_at: Schema.String, deleted_at: Schema.NullOr(Schema.String) });
 export const StorePreferenceUpserts = Schema.Array(Schema.Union([Create, Update, Previous])).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 export const PricePreferenceIds = Schema.Array(PricingId).pipe(Schema.mutable).check(Schema.isMaxLength(4));
+// Deletion selectors retain native raw strings, including an empty ID that
+// matches no stored row. Stored identities and other profiles remain strict.
+export const PricePreferenceDeletionIds = Schema.Array(Schema.String.check(Schema.isMaxLength(256)))
+  .pipe(Schema.mutable).check(Schema.isMaxLength(4));
+export const decodePricePreferenceDeletionIds = commerceDecoder(PricePreferenceDeletionIds, "invalidInput");
+export const decodePricePreferenceDeletionArguments = commerceDecoder(Schema.Tuple([PricePreferenceDeletionIds]), "invalidInput");
+export const decodePricePreferenceDeletionOutput = commerceDecoder(Schema.Struct({
+  price_preference_id: Schema.optionalKey(PricePreferenceIds),
+}), "storedCorruption");
+const decodeLifecycleTuple = commerceDecoder(Schema.Tuple([
+  Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(4)),
+  Schema.Struct({ PricePreference: Schema.optionalKey(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(4))) }),
+]), "storedCorruption");
 export const decodeStorePreferenceFilters = commerceDecoder(StorePreferenceFilters, "invalidInput");
 export const decodePricePreferenceIds = commerceDecoder(PricePreferenceIds, "invalidInput");
 export const decodePricePreferenceCreates = commerceDecoder(PricePreferencesInput, "unsupportedProfile");
@@ -129,6 +143,14 @@ export function compilePricePreferenceContracts(metadata: Effect.Success<ReturnT
       }
       return output;
     });
+    const decodeLifecycleResult = (input: unknown) => Result.gen(function* () {
+      const tuple = yield* decodeLifecycleTuple(input);
+      if (!jsonEqual(tuple[0], tuple[1].PricePreference ?? [])) return yield* Result.fail(commerceError("storedCorruption"));
+      const rows = yield* decodeOutput(tuple[0]);
+      const cascades: Record<string, object[]> = {};
+      if (tuple[1].PricePreference !== undefined) cascades.PricePreference = rows.map(row => ({ ...row }));
+      return [rows.map(row => ({ ...row })), cascades] satisfies [object[], Record<string, unknown[]>];
+    });
     const updatePredicate = (input: unknown) => compileWhere(input, pricePreferenceUpdateWhere).pipe(Result.map(predicate =>
       ({ kind: "and", children: [predicate, { kind: "isNull", column: "deleted_at" }] } satisfies Predicate)));
     // Workflow hosts require a Schema; preserve the one complete DML verdict
@@ -144,6 +166,7 @@ export function compilePricePreferenceContracts(metadata: Effect.Success<ReturnT
       }
       return rows;
     });
-    return { table, decodeRow, decodeOutput, Output, decodeUpsert, decodeUpdateListOutput, updatePredicate };
+    return { table, decodeRow, decodeOutput, Output, decodeUpsert, decodeUpdateListOutput, updatePredicate,
+      decodeLifecycleResult, decodeDeletionOutput: decodePricePreferenceDeletionOutput };
   });
 }

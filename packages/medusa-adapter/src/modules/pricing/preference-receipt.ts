@@ -6,10 +6,12 @@ import { commerceError, defaultCommerceResources, type Json, type JsonObject } f
 import { moduleEventDecoder } from "../../module/events";
 import { projectNativeRow, orderNativeIdRows } from "../../repository/result";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
+import { scalarLifecycleReceipt } from "../../repository/scalar-lifecycle-receipt";
 import { commerceRelationReadQuery } from "../../query/relations";
 import { commerceDecoder } from "../../value/decoder";
 import { compilePricePreferenceContracts, decodeStorePreferenceFilters, decodePricePreferenceIds,
-  decodePricePreferenceUpdateList, decodePricePreferenceUpdate, decodePricePreferenceUpdateUpserts } from "./preference-input";
+  decodePricePreferenceUpdateList, decodePricePreferenceUpdate, decodePricePreferenceUpdateUpserts,
+  decodePricePreferenceDeletionIds, decodePricePreferenceDeletionOutput } from "./preference-input";
 import { decodePricePreferenceCreate } from "./input";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compilePricePreferenceContracts>>;
@@ -32,8 +34,41 @@ export function pricingPreferencePolicy(contracts: Contracts) {
       return yield* Effect.fail(commerceError("unadmittedEvent"));
     return message;
   });
+  const validateLifecycle = scalarLifecycleReceipt({ table: "price_preference",
+    softDeleteCommand: "pricingPreferenceSoftDeleteForWorkflow", restoreCommand: "pricingPreferenceRestoreForWorkflow", maximumRoots: 4,
+    decodeIds: decodePricePreferenceDeletionIds, decodeRow: contracts.decodeRow,
+    decodeResult: value => decodePricePreferenceDeletionOutput(value).pipe(Result.map(result => ({
+      empty: Object.keys(result).length === 0, ids: result.price_preference_id ?? [],
+    }))) });
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("PricingPreferences.validateCall")(function* (call, activity) {
     const mismatch = () => commerceError("receiptMismatch");
+    if (call.commandName === "pricingPreferenceSoftDeleteForWorkflow" || call.commandName === "pricingPreferenceRestoreForWorkflow") {
+      const { operation, ids: ordered } = yield* validateLifecycle(call, activity);
+      const ids = yield* Effect.fromResult(decodePricePreferenceDeletionIds(call.input))
+        .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+      const historical = new Set(activity.observedRows.map(observation => observation.row.id));
+      const reads = ids.length === 0 ? [] : [{ table: contracts.table.name,
+        query: commerceRelationReadQuery(defaultCommerceResources, { kind: "in", column: "id", values: ids }),
+        total: historical.size, returned: historical.size }];
+      if (!jsonEqual(activity.relationalReads, reads) || ordered.some(id => !historical.has(id)) ||
+        !jsonEqual(ordered, orderNativeIdRows(ordered.map(id => ({ id })), {}).map(row => row.id)))
+        return yield* Effect.fail(mismatch());
+      // The pinned native restore service does not register a mutation event
+      // subscriber. Its changed rows and active no-op results emit no messages.
+      if (operation === "restore") {
+        if (call.events.length) return yield* Effect.fail(mismatch());
+        return;
+      }
+      let emitted = 0;
+      for (const event of call.events) {
+        const message = yield* capture(event);
+        if (message.metadata.action !== "deleted") return yield* Effect.fail(mismatch());
+        for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id])
+          if (id !== ordered[emitted++]) return yield* Effect.fail(mismatch());
+      }
+      if (emitted !== ordered.length) return yield* Effect.fail(mismatch());
+      return;
+    }
     if (activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length)
       return yield* Effect.fail(mismatch());
     const initial = new Map<string, Row>(), observations: Row[] = [];
