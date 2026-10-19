@@ -1,6 +1,60 @@
 // @ts-check
 import ts from "@typescript/typescript6";
 
+/** Native148 Product/Channel membership: only the existing finite SDK input/
+ * void wrappers, leaf imports, optional-link types and transaction-covered
+ * compensation metadata differ. All native callbacks and empty guards remain.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeAssociation @param {string} association
+ * @param {string} nativeDetachment @param {string} detachment */
+export function verifySalesChannelProductLinkCallbacks(nativeWorkflow, workflow, nativeAssociation, association, nativeDetachment, detachment) {
+  const failure = "Changed native SalesChannel Product membership callback behavior";
+  /** @param {string} text @param {string} before @param {string} after @param {number} count */
+  const replace = (text, before, after, count = 1) => {
+    if (text.split(before).length !== count + 1) throw new Error(failure + ": missing native adaptation anchor");
+    return text.replaceAll(before, after);
+  };
+  /** @param {string} text @param {string} id */
+  const step = (text, id) => {
+    text = replace(text.replaceAll("\r\n", "\n"),
+      'import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"',
+      'import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"\nimport type { Link } from "@medusajs/modules-sdk/link"\nimport { Modules } from "@medusajs/utils/modules-sdk/definition"');
+    text = replace(text, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+    text = replace(text, "  links: {", "  links?: {");
+    text = replace(text, "  }[]\n}", "  }[] | undefined\n}");
+    text = replace(text, "  " + id + ",", '  { name: ' + id + ', compensation: "transactionCovered" },');
+    return replace(text, "container.resolve(ContainerRegistrationKeys.LINK)",
+      'container.resolve<Pick<Link, "create" | "dismiss">>(ContainerRegistrationKeys.LINK)', 2);
+  };
+  let expectedWorkflow = replace(nativeWorkflow.replaceAll("\r\n", "\n"), 'from "@medusajs/framework/types"', 'from "@medusajs/types"');
+  expectedWorkflow = replace(expectedWorkflow, 'import { WorkflowData, createWorkflow } from "@medusajs/framework/workflows-sdk"',
+    'import { type WorkflowData, createWorkflow, WorkflowResponse, transform } from "@medusajs/workflows-sdk"');
+  expectedWorkflow = replace(expectedWorkflow, 'import { transform } from "@medusajs/framework/workflows-sdk"\n', "");
+  expectedWorkflow = replace(expectedWorkflow, 'from "../steps"', 'from "../steps/detach-products-from-sales-channels"');
+  expectedWorkflow = replace(expectedWorkflow, "  ): WorkflowData<void> => {", "  ) => {");
+  for (const field of ["add", "remove"]) expectedWorkflow = replace(expectedWorkflow,
+    "return data.input." + field + "?.map((productId) => ({", "return { links: data.input." + field + "?.map((productId) => ({");
+  expectedWorkflow = replace(expectedWorkflow, "        product_id: productId,\n      }))", "        product_id: productId,\n      })) }", 2);
+  expectedWorkflow = replace(expectedWorkflow, "associateProductsWithSalesChannelsStep({ links: toAdd })", "associateProductsWithSalesChannelsStep(toAdd)");
+  expectedWorkflow = replace(expectedWorkflow, "detachProductsFromSalesChannelsStep({ links: toRemove })", "detachProductsFromSalesChannelsStep(toRemove)\n    return new WorkflowResponse(void 0)");
+  /** @type {Array<[string,string,string]>} */
+  const pairs = [[expectedWorkflow, workflow, "LinkProductsToSalesChannelWorkflowInput"],
+    [step(nativeAssociation, "associateProductsWithSalesChannelsStepId"), association, "AssociateProductsWithSalesChannelsStepInput"],
+    [step(nativeDetachment, "detachProductsFromSalesChannelsStepId"), detachment, "DetachProductsFromSalesChannelsStepInput"]];
+  const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+  /** @param {string} text @param {string} name */
+  const contract = (text, name) => {
+    const file = ts.createSourceFile("membership.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const declarations = file.statements.filter(node => (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) && node.name.text === name);
+    const selected = declarations[0];
+    if (declarations.length !== 1 || selected === undefined) throw new Error(failure);
+    return printer.printNode(ts.EmitHint.Unspecified, selected, file);
+  };
+  for (const [expected, target, name] of pairs) {
+    if (nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(target, failure) || contract(expected, name) !== contract(target, name)) throw new Error(failure);
+  }
+}
+
 const vitestBindings = new Set(["afterAll", "afterEach", "beforeAll", "beforeEach", "describe", "expect", "it", "test", "vi"]);
 const currencyImports = new Map([["../index", "@medusajs/currency/index"], ["../static-manifest", "@medusajs/currency/static-manifest"], ["../models", "@medusajs/currency/models"]]);
 

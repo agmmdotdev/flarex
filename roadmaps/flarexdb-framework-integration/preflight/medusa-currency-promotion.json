@@ -67,7 +67,7 @@
     {
       "target": "packages/medusa-adapter/test/product-sales-channel-steps.test.ts",
       "classification": "authored",
-      "targetSha256": "26d3d3b2a5fdd7e9fa67dcf0751aa92d7343de0a291869b43a31d0dca19c62c9"
+      "targetSha256": "82452a72b2cf048e74fdd479c85042700c25e3aed5c964246c1799c081dedd13"
     },
     {
       "target": "packages/medusa-adapter/vitest.product-public-categories.config.ts",
@@ -89,7 +89,7 @@
     {
       "target": "packages/medusa-core-flows/src/sales-channel/steps/associate-products-with-channels.ts",
       "classification": "workflowFork",
-      "targetSha256": "286d71e12769abc552ebc146890784785695cafd940ee92633ca1be4ace1c497",
+      "targetSha256": "0774e38510cb218f6fbb3fedb72cfdf942c831acdd4ddb2b0f2eb80046291b4d",
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/sales-channel/steps/associate-products-with-channels.ts",
       "sourceSha256": "179d9600ffb5bee317c5ba8e46020ed945306d039a7f7a202f72aef026fa4dfc"
     },
@@ -206,7 +206,7 @@
     {
       "target": "packages/medusa-adapter/src/links/product-sales-channel-service.ts",
       "classification": "authored",
-      "targetSha256": "dfcff93666bc7a50d16dc672a53dea73d26a01e3656904036ab0fe5adae66125"
+      "targetSha256": "cba066995b0004b9a537298a49ba70a0b37edbfdc11a409ad58add1e42dc021b"
     },
     {
       "target": "packages/medusa-adapter/test/native-link-cardinality.test.ts",
@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "cb53778eb088346d90e433ced8465072ffa2d9ed3072bf3b5a6296a2b6bc9f82"
+      "targetSha256": "34b6c0a82281363c1480ed611e42bfecd09adaa119e2cc7ec7513b39e37ee2a1"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -11247,6 +11247,35 @@
       "target": "packages/medusa-adapter/test/logical-owned-reference-repetition.test.ts",
       "classification": "authored",
       "targetSha256": "9fc77a8cc3ad4612e706854f6af1600636dde781bca1b6493075a74d2e216b92"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/product/sales-channel-membership.ts",
+      "classification": "authored",
+      "targetSha256": "ab0585833d9d360ebb676ff9e97c586da68cbed187a9fc0203a9ce8a2633edd3"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-product-sales-channel-membership-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "313f82a7135b076ab14f9e63ac55f4e17ed0ff57eea3ef8b51c5721951efa0ea"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-product-sales-channel-membership-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "28fc8d920e616458d580978d1fb141d8c3977a0195b18cb5709887544344579b"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/sales-channel/steps/detach-products-from-sales-channels.ts",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/sales-channel/steps/detach-products-from-sales-channels.ts",
+      "classification": "workflowFork",
+      "sourceSha256": "598ba0143279179f414197b6b81711af38c2dc6036d828260f5fbf6a721257d4",
+      "targetSha256": "07f627f452a94a1551e947e9a5376bd4668dcf1d84cc5c248096f1207a8ff9bb"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/sales-channel/workflows/link-products-to-sales-channel.ts",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/sales-channel/workflows/link-products-to-sales-channel.ts",
+      "classification": "workflowFork",
+      "sourceSha256": "5d875cb65c71b2382f02651624c6ee0b6fb6ea9633259f2651c32efe9a34302c",
+      "targetSha256": "42ccedf01adbbac02e4b58ff541643d01fc646911f7ada0b26015a5f7c5c55f2"
     }
   ],
   "dependencies": {
@@ -11679,6 +11708,7 @@
         "./sales-channel/delete-sales-channels-step",
         "./sales-channel/delete-sales-channels",
         "./sales-channel/associate-products-with-channels-step",
+        "./sales-channel/link-products",
         "./product/create-product-tags",
         "./product/update-product-tags",
         "./product/delete-product-tags",

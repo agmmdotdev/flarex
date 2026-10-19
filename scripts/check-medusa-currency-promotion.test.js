@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
+import { verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
@@ -8,6 +8,78 @@ import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-
 const root = process.cwd();
 const promotion = verifyCurrencyPromotion(root);
 const source = "packages/medusa-currency/src/models/currency.ts";
+
+describe("native SalesChannel Product membership callback provenance", () => {
+  const paths = [
+    "sales-channel/workflows/link-products-to-sales-channel.ts",
+    "sales-channel/steps/associate-products-with-channels.ts",
+    "sales-channel/steps/detach-products-from-sales-channels.ts",
+  ];
+  const originals = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8"));
+  const targets = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8"));
+  const verify = (workflow = targets[0], association = targets[1], detachment = targets[2]) =>
+    verifySalesChannelProductLinkCallbacks(originals[0], workflow, originals[1], association, originals[2], detachment);
+  it("admits only finite input/void seams, native raw definitions and distinct empty inverses", () => {
+    expect(() => verify()).not.toThrow();
+    expect(() => verify(targets[0], targets[1].replace("const createdLinks =", "const createdLinks: unknown ="))).not.toThrow();
+  });
+  /** @type {Array<[number,string,string,string]>} */
+  const mutations = [
+    [0, "root identity", '"link-products-to-sales-channel"', '"other-membership"'],
+    [0, "add channel", "sales_channel_id: data.input.id", 'sales_channel_id: "other"'],
+    [0, "raw add duplicates", "data.input.add?.map", "data.input.add?.filter(Boolean).map"],
+    [0, "raw remove delegation", "data.input.remove?.map", "data.input.add?.map"],
+    [0, "add omission", "links: data.input.add?.map", "links: (data.input.add ?? []).map"],
+    [0, "remove Product identity", "product_id: productId,", 'product_id: "other",'],
+    [0, "native association invocation", "associateProductsWithSalesChannelsStep(toAdd)", "associateProductsWithSalesChannelsStep(toRemove)"],
+    [0, "native step order", "associateProductsWithSalesChannelsStep(toAdd)\n    detachProductsFromSalesChannelsStep(toRemove)", "detachProductsFromSalesChannelsStep(toRemove)\n    associateProductsWithSalesChannelsStep(toAdd)"],
+    [0, "void result", "new WorkflowResponse(void 0)", "new WorkflowResponse([])"],
+    [0, "leaf import", 'from "../steps/detach-products-from-sales-channels"', 'from "../steps"'],
+    [1, "association empty output", "new StepResponse([], [])", "new StepResponse([], undefined)"],
+    [1, "association invocation guard", "if (!input.links?.length)", "if (!input.links)"],
+    [1, "association required empty inverse", "if (!links)", "if (!links?.length)"],
+    [1, "association Link capability", "ContainerRegistrationKeys.LINK", "ContainerRegistrationKeys.QUERY"],
+    [1, "association raw Product", "product_id: link.product_id", 'product_id: "other"'],
+    [1, "association create arguments", "remoteLink.create(links)", "remoteLink.create([])"],
+    [1, "association awaited create", "await remoteLink.create(links)", "remoteLink.create(links)"],
+    [1, "association raw retained definitions", "new StepResponse(createdLinks, links)", "new StepResponse(createdLinks, createdLinks)"],
+    [1, "association inverse", "remoteLink.dismiss(links)", "remoteLink.create(links)"],
+    [1, "association settlement metadata", 'compensation: "transactionCovered"', 'compensation: "noCompensation"'],
+    [1, "association omitted links contract", "links?: {", "links: {"],
+    [2, "detachment empty output", "new StepResponse(void 0, [])", "new StepResponse([], [])"],
+    [2, "detachment invocation guard", "if (!input.links?.length)", "if (!input.links)"],
+    [2, "detachment skipped empty inverse", "if (!links?.length)", "if (!links)"],
+    [2, "detachment raw channel", "sales_channel_id: link.sales_channel_id", 'sales_channel_id: "other"'],
+    [2, "detachment dismiss arguments", "remoteLink.dismiss(links)", "remoteLink.dismiss([])"],
+    [2, "detachment awaited dismiss", "await remoteLink.dismiss(links)", "remoteLink.dismiss(links)"],
+    [2, "detachment raw retained definitions", "new StepResponse(void 0, links)", "new StepResponse(void 0, [])"],
+    [2, "detachment inverse", "remoteLink.create(links)", "remoteLink.dismiss(links)"],
+    [2, "detachment settlement metadata", 'compensation: "transactionCovered"', 'compensation: "noCompensation"'],
+    [2, "detachment omitted links contract", "links?: {", "links: {"],
+    [2, "Product key contract", "product_id: string", "product_id: unknown"],
+  ];
+  it.each(mutations)("rejects changed member %i %s", (index, _name, before, after) => {
+    expect(targets[index]).toContain(before);
+    const changed = targets.map((text, slot) => slot === index ? text.replace(before, after) : text);
+    expect(() => verify(changed[0], changed[1], changed[2])).toThrow("Changed native SalesChannel Product membership callback behavior");
+  });
+  it("rejects extra runtime in every module and missing original adaptation anchors", () => {
+    for (let index = 0; index < targets.length; index++) {
+      const changed = targets.map((text, slot) => slot === index ? text + '\nthrow new Error("extra");\n' : text);
+      expect(() => verify(changed[0], changed[1], changed[2])).toThrow();
+    }
+    expect(() => verifySalesChannelProductLinkCallbacks(originals[0].replace("data.input.add?.map", "data.input.add.map"), targets[0], originals[1], targets[1], originals[2], targets[2]))
+      .toThrow("missing native adaptation anchor");
+  });
+  it.each(paths.flatMap(file => [
+    { file, field: "classification", mutation: { classification: "authored", source: undefined } },
+    { file, field: "source", mutation: { source: "third_party/medusa/upstream/packages/core/core-flows/src/common/steps/create-remote-links.ts" } },
+  ]))("pins the exact $field for $file", ({ file, mutation }) => {
+    const target = "packages/medusa-core-flows/src/" + file;
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(entry => entry.target === target ? { ...entry, ...mutation } : entry) }))
+      .toThrow("SalesChannel Product membership outside its exact pinned source pair");
+  });
+});
 
 describe("native Link cascade return-map correction provenance", () => {
   const native = readFileSync("third_party/medusa/upstream/packages/core/modules-sdk/src/link.ts", "utf8");

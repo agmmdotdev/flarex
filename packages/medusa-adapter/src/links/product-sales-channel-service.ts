@@ -45,8 +45,8 @@ const decodeRead = commerceDecoder(Schema.Struct({
 export const prepareProductSalesChannelLink = Effect.fn("ProductSalesChannelLink.prepare")(function* () {
   const metadata = yield* captureProductSalesChannelLinkMetadata();
   const { use: useNative, prepared, joiner, serviceName, entityName } = yield* prepareLinkService(metadata);
-  // This named module facade exposes borrowed reads; write access stays with
-  // explicit internal construction, not a workflow resource.
+  // This named service facade exposes borrowed reads. Native workflow writes
+  // are selected separately through the authenticated module below.
   const use = (ctx: CommerceCommandContext, work: (bound: Omit<BoundLink, "service"> & {
     readonly service: Pick<BoundLink["service"], "list" | "listAndCount">;
   }) => Promise<unknown>) => useNative(ctx, bound => work({ ...bound,
@@ -70,8 +70,10 @@ export const prepareProductSalesChannelLink = Effect.fn("ProductSalesChannelLink
     ["product_id", "sales_channel_id"]);
   const workflowCreate = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeCreateArguments,
     encode: ([links]) => links, output: decodeCreatedLinks, moduleEvents: [entityName + ".attached"] }));
+  const workflowDismiss = yield* Effect.fromResult(defineWorkflowMethod({ command: dismiss, arguments: decodeCreateArguments,
+    encode: ([links]) => links, output: decodeCreatedLinks, moduleEvents: [entityName + ".detached"] }));
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: serviceName, profile: "medusa.product-sales-channel.link" },
-    methods: { create: workflowCreate }, graph, logical: { ...logicalEventPolicy(), commands: [create, dismiss, remove, restore, list, count, links] } }));
+    methods: { create: workflowCreate, dismiss: workflowDismiss }, graph, logical: { ...logicalEventPolicy(), commands: [create, dismiss, remove, restore, list, count, links] } }));
   return { create, dismiss, delete: remove, restore, list, count, links, graph, workflow, withService: use, logicalEventPolicy,
     commands: [create, dismiss, remove, restore, list, count, links] };
 });

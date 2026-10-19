@@ -20,6 +20,7 @@
     "./sales-channel/delete-sales-channels-step": "./src/sales-channel/steps/delete-sales-channels.ts",
     "./sales-channel/delete-sales-channels": "./src/sales-channel/workflows/delete-sales-channels.ts",
     "./sales-channel/associate-products-with-channels-step": "./src/sales-channel/steps/associate-products-with-channels.ts",
+    "./sales-channel/link-products": "./src/sales-channel/workflows/link-products-to-sales-channel.ts",
     "./product/create-product-tags": "./src/product/workflows/create-product-tags.ts",
     "./product/update-product-tags": "./src/product/workflows/update-product-tags.ts",
     "./product/delete-product-tags": "./src/product/workflows/delete-product-tags.ts",

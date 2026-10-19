@@ -10,7 +10,7 @@ export interface AssociateProductsWithSalesChannelsStepInput {
   /**
    * The links to create between products and sales channels.
    */
-  links: {
+  links?: {
     /**
      * The ID of the sales channel.
      */
@@ -19,7 +19,7 @@ export interface AssociateProductsWithSalesChannelsStepInput {
      * The ID of the product.
      */
     product_id: string
-  }[]
+  }[] | undefined
 }
 
 export const associateProductsWithSalesChannelsStepId =

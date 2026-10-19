@@ -34,11 +34,14 @@ const nativeControlPromotion = {
 };
 
 describe("Medusa source-island boundary checker", () => {
-  it("excludes only the exact Shipping source verifier pair while adjacent tooling remains denied", () => {
-    const repoRoot = mkdtempSync(join(tmpdir(), "flarex-medusa-shipping-boundary-"));
-    const verifierPaths = ["scripts/check-medusa-shipping-option-source.mjs", "scripts/check-medusa-shipping-option-source.test.js"];
-    const adjacentPaths = ["scripts/check-medusa-shipping-option-source-adjacent.mjs",
-      "scripts/nested/check-medusa-shipping-option-source.mjs", "tools/check-medusa-shipping-option-source.test.js"];
+  it("excludes only the exact native source proof tools while adjacent tooling remains denied", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "flarex-medusa-proof-boundary-"));
+    const verifierPaths = ["scripts/check-medusa-shipping-option-source.mjs", "scripts/check-medusa-shipping-option-source.test.js",
+      "scripts/check-medusa-delivery-source.mjs", "scripts/check-medusa-json-assignment-source.mjs", "scripts/medusa-json-assignment.test.js"];
+    const adjacentPaths = verifierPaths.flatMap(relativePath => [
+      relativePath.replace(/\.(mjs|js)$/, "-adjacent.$1"),
+      "scripts/nested/" + posix.basename(relativePath), "tools/" + posix.basename(relativePath),
+    ]);
     const text = 'await import("../third_party/medusa/upstream/package.json");';
     try {
       mkdirSync(join(repoRoot, "integration"));

@@ -639,6 +639,20 @@ root update events while preserving stored reference identities. Shipment and
 Delivery retain their own bounded contracts; no endpoint mutation, provider,
 Query, delayed compensation or hosted activation follows from this root.
 
+The [native Product–Sales Channel membership](./preflight/148-native-product-sales-channel-membership.md)
+root manages existing endpoint identities with up to four raw additions and
+four raw removals. It reuses the selected Link constructor and only its
+create/dismiss methods; endpoint reads/mutations and graph access are absent.
+Native order, duplicate refusals, tombstones, replacement IDs, batched events
+and asymmetric empty inverses remain preserved. Retained definitions can
+create an originally absent pair or dismiss an existing attachment; this is
+native compensation, not snapshot restoration. Failed finite roots retain
+atomic rollback and publication through the existing owner. Default concurrent
+callbacks retain OCC rather than selecting scope exclusion; normal call,
+event, byte and deadline limits remain unchanged. The earlier authored
+endpoint-creation workflow remains a distinct consumer. Durable scheduling,
+delayed compensation and public/hosted activation remain separate gates.
+
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
 The genuine creation step remains unchanged and returns complete native rows,

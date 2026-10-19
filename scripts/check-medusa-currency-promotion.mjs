@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
+import { verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
 import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyReturnFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 import { deliverySourcePairs, verifyFulfillmentDeliveryCallbacks, verifyNativeSkipStepResponseType } from "./check-medusa-delivery-source.mjs";
 import { verifyPricingNormalizationExtraction } from "./check-medusa-pricing-normalization.mjs";
@@ -273,6 +273,13 @@ function inventory(root, relative) {
 export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync(path.join(root, manifestPath), "utf8"))) {
   assertPromotion(supplied);
   verifyNativeJsonAssignment(root);
+  verifySalesChannelProductLinkCallbacks(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/sales-channel/workflows/link-products-to-sales-channel.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/sales-channel/workflows/link-products-to-sales-channel.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/sales-channel/steps/associate-products-with-channels.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/sales-channel/steps/associate-products-with-channels.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/sales-channel/steps/detach-products-from-sales-channels.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/sales-channel/steps/detach-products-from-sales-channels.ts"), "utf8"));
   const promotion = supplied;
   const sums = readFileSync(path.join(root, "third_party/medusa/SOURCE_SHA256SUMS"));
   if (sha256(sums) !== "d20d4f16843cd4844b2f1c4807a5787488e0f08bc068bba9641926984f183017") {
@@ -649,6 +656,11 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     ].includes(file.target))) {
       throw new Error("Workflow fork adaptation outside its approved source closure");
     }
+    if (["packages/medusa-core-flows/src/sales-channel/workflows/link-products-to-sales-channel.ts",
+      "packages/medusa-core-flows/src/sales-channel/steps/associate-products-with-channels.ts",
+      "packages/medusa-core-flows/src/sales-channel/steps/detach-products-from-sales-channels.ts"].includes(file.target)
+      && (file.classification !== "workflowFork" || file.source !== sourcePrefix + "packages/core/core-flows/src/" + file.target.slice("packages/medusa-core-flows/src/".length)))
+      throw new Error("SalesChannel Product membership outside its exact pinned source pair");
     if (file.target === "packages/medusa-modules-sdk/src/link.ts"
       && (file.classification !== "linkFork" || file.source !== sourcePrefix + "packages/core/modules-sdk/src/link.ts"))
       throw new Error("Link cascade adaptation outside its exact pinned source pair");
