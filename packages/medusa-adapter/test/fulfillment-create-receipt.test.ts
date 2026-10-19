@@ -152,3 +152,111 @@ describe("causal native Fulfillment creation receipts", () => {
     expect(Result.isFailure(await validate(receipt, { ...activity, mutations: [{ ...activity.mutations[0]!, after: { ...final, provider_id: null } }] }))).toBe(true);
   });
 });
+
+describe("causal native shipment receipts", () => {
+  const selectionReads = (filters: JsonObject, config: JsonObject, root: JsonObject, children: ReadonlyMap<string, readonly JsonObject[]> = new Map()) => {
+    const plan = Result.getOrThrow(prepared.shipment.reads.query(buildQuery(filters, config)));
+    return [{ table: "fulfillment", query: commerceRelationReadQuery(defaultCommerceResources, plan.query.predicate), total: 1, returned: 1 },
+      ...plan.paths.flatMap(path => {
+        const relation = prepared.contracts.queryRelations.get("fulfillment")?.get(path);
+        if (!relation || relation.join.type === "manyToMany") throw new Error("Expected admitted native relation");
+        const toOne = relation.join.type === "belongsTo", selected = Result.getOrThrow(prepareCommerceRelationPopulation(
+          toOne ? relation.targetPrimaryKeys : relation.join.foreignKeys, [root], toOne ? relation.join.foreignKeys : relation.sourcePrimaryKeys, true, false));
+        if (Option.isNone(selected)) return [];
+        const rows = relation.targetTable === "fulfillment_provider" ? [provider()] : children.get(relation.targetTable) ?? [];
+        const active = rows.filter(row => row.deleted_at === null), count = active.length, order = prepared.shipment.reads.ordering.get(relation.targetTable);
+        const orderedIdentities = active.map(row => {
+          const id = row.id;
+          if (typeof id !== "string") throw new Error("Expected a checked fixture row identity");
+          return { id };
+        });
+        return [{ table: relation.targetTable, query: commerceRelationReadQuery(defaultCommerceResources, selected.value.predicate, order), total: count, returned: count,
+          ...(order !== undefined && typeof order !== "string" ? { orderedIdentities } : {}) }];
+      })];
+  };
+  const rawRead = (table: string, column: string, values: readonly string[], count: number, identities: readonly string[] = []) => {
+    const order = prepared.shipment.reads.ordering.get(table);
+    return { table, query: commerceRelationReadQuery(defaultCommerceResources, { kind: "in", column, values }, order), total: count, returned: count,
+      ...(order !== undefined && typeof order !== "string" ? { orderedIdentities: identities.map(id => ({ id })) } : {}) };
+  };
+  const labelEvent = (id: string, action: "created" | "updated" | "deleted"): Json => ({ name: buildModuleResourceEventName({ prefix: Modules.FULFILLMENT, objectName: "fulfillment_label", action }),
+    metadata: { source: Modules.FULFILLMENT, object: "fulfillment_label", action }, data: { id } });
+
+  it("authenticates the exact selected historical Option scalar and its separate retained identity", async () => {
+    const first = { ...row({}), shipping_option_id: "historical-option" }, config = { select: ["shipped_at", "canceled_at", "shipping_option_id"] },
+      option: JsonObject = { ...prepared.contracts.defaults.get("shipping_option"), id: "historical-option", name: "Historical", price_type: "flat",
+        service_zone_id: "zone", shipping_option_type_id: "type", created_at: before, updated_at: after, deleted_at: after };
+    const result = { id: "f", shipped_at: null, canceled_at: null, shipping_option_id: null, shipping_option: { id: "historical-option" } },
+      activity: Activity = { ...empty(), observedRows: [{ table: "fulfillment", row: first }, { table: "shipping_option", row: option }],
+        relationalReads: selectionReads({ id: "f" }, config, first, new Map([["shipping_option", [option]]])) },
+      receipt: Call = { ...call("fulfillmentRetrieveForWorkflow", { id: "f", config }, result, [], activity), mode: "read" };
+    expect(Result.isSuccess(await validate(receipt, activity))).toBe(true);
+    expect(Result.isFailure(await validate({ ...receipt, result: { ...result, shipping_option: null } }, activity))).toBe(true);
+    expect(Result.isFailure(await validate({ ...receipt, input: { id: "f", config: { select: ["shipped_at"] } } }, activity))).toBe(true);
+    expect(Result.isFailure(await validate(receipt, { ...activity, relationalReads: [...activity.relationalReads, rootRead({ id: "f" })] }))).toBe(true);
+  });
+
+  it("binds shipment scalar updates to the request, native hydration and exact read coverage", async () => {
+    const first = row({ kept: true }), final = { ...first, shipped_at: after, updated_at: after },
+      activity: Activity = { ...empty(), mutations: [{ ordinal: 0, table: "fulfillment", operation: "patch", before: first, after: final }], observedRows: observed(final),
+        relationalReads: [...selectionReads({ id: "f" }, { relations: ["items", "labels"] }, first), ...reads({ $or: [{ id: "f" }] }, first),
+          rawRead("fulfillment", "id", ["f"], 1), rawRead("fulfillment_label", "fulfillment_id", ["f"], 0), rawRead("fulfillment_item", "fulfillment_id", ["f"], 0),
+          rawRead("fulfillment_label", "fulfillment_id", ["f"], 0)] },
+      result = await Effect.runPromise(prepared.contracts.serialize({ ...prepared.contracts.initialize(final), items: [], labels: [] })),
+      input = { id: "f", update: { shipped_at: after, labels: [] } }, receipt = call("fulfillmentUpdateForShipment", input, result, [event("updated")], activity);
+    expect(Result.isSuccess(await validate(receipt, activity))).toBe(true);
+    expect(Result.isFailure(await validate({ ...receipt, input: { ...input, update: { ...input.update, marked_shipped_by: "forged" } } }, activity))).toBe(true);
+    expect(Result.isFailure(await validate({ ...receipt, input: { ...input, update: { shipped_at: after, labels: [{ tracking_number: "n", tracking_url: "u", label_url: "l" }] } } }, activity))).toBe(true);
+    expect(Result.isFailure(await validate(receipt, { ...activity, relationalReads: activity.relationalReads.slice(1) }))).toBe(true);
+    expect(Result.isFailure(await validate(receipt, { ...activity, observedRows: [...activity.observedRows, { table: "fulfillment", row: { ...final, updated_at: before } }] }))).toBe(true);
+  });
+
+  it("correlates fresh replacement Label IDs and timestamps while rejecting unrelated child effects", async () => {
+    const first = row({}), final = { ...first, shipped_at: after, updated_at: after }, request = { tracking_number: "new", tracking_url: "url", label_url: "label" },
+      oldLabel = { id: "old", fulfillment_id: "f", tracking_number: "old", tracking_url: "old-url", label_url: "old-label", created_at: before, updated_at: before, deleted_at: null },
+      newLabel = { ...request, id: "new", fulfillment_id: "f", created_at: after, updated_at: after, deleted_at: null },
+      activity: Activity = { ...empty(), mutations: [{ ordinal: 0, table: "fulfillment_label", operation: "delete", before: oldLabel, after: null },
+        { ordinal: 1, table: "fulfillment_label", operation: "insert", before: null, after: newLabel },
+        { ordinal: 2, table: "fulfillment", operation: "patch", before: first, after: final }],
+        observedRows: [...observed(final), { table: "fulfillment_label", row: newLabel }],
+        relationalReads: [...selectionReads({ id: "f" }, { relations: ["items", "labels"] }, first, new Map([["fulfillment_label", [oldLabel]]])),
+          ...reads({ $or: [{ id: "f" }] }, first), rawRead("fulfillment", "id", ["f"], 1), rawRead("fulfillment_label", "fulfillment_id", ["f"], 1, ["old"]),
+          rawRead("fulfillment_label", "id", ["new"], 0), rawRead("fulfillment_item", "fulfillment_id", ["f"], 0), rawRead("fulfillment_label", "fulfillment_id", ["f"], 1, ["new"])] },
+      result = await Effect.runPromise(prepared.contracts.serialize({ ...prepared.contracts.initialize(final), items: [], labels: [newLabel] })),
+      receipt = call("fulfillmentUpdateForShipment", { id: "f", update: { shipped_at: after, labels: [request] } }, result,
+        [labelEvent("new", "created"), event("updated"), labelEvent("old", "deleted")], activity);
+    expect(Result.isSuccess(await validate(receipt, activity))).toBe(true);
+    expect(Result.isFailure(await validate({ ...receipt, events: [event("updated"), labelEvent("new", "created"), labelEvent("old", "deleted")] }, activity))).toBe(true);
+    expect(Result.isFailure(await validate(receipt, { ...activity, mutations: activity.mutations.map(change => change.ordinal === 1
+      ? { ...change, after: { ...newLabel, fulfillment_id: "outside" } } : change) }))).toBe(true);
+    expect(Result.isFailure(await validate(receipt, { ...activity, mutations: activity.mutations.map(change => change.ordinal === 1
+      ? { ...change, after: { ...newLabel, created_at: before } } : change) }))).toBe(true);
+  });
+
+  it("authenticates complete retained Label DTOs with both original timestamps instead of fresh insertion stamps", async () => {
+    const first = { ...row({}), shipped_at: after }, final = { ...first, shipped_at: null, updated_at: after },
+      labelUpdated = "2026-10-18T01:30:00.000Z",
+      retainedLabel = { id: "restored", fulfillment_id: "f", tracking_number: "original", tracking_url: "original-url", label_url: "original-label",
+        created_at: before, updated_at: labelUpdated, deleted_at: null },
+      activity: Activity = { ...empty(), mutations: [{ ordinal: 0, table: "fulfillment_label", operation: "insert", before: null, after: retainedLabel },
+        { ordinal: 1, table: "fulfillment", operation: "patch", before: first, after: final }],
+        observedRows: [...observed(final), { table: "fulfillment_label", row: retainedLabel }],
+        relationalReads: [...selectionReads({ id: "f" }, { relations: ["items", "labels"] }, first), ...reads({ $or: [{ id: "f" }] }, first),
+          rawRead("fulfillment", "id", ["f"], 1), rawRead("fulfillment_label", "fulfillment_id", ["f"], 0),
+          rawRead("fulfillment_label", "id", ["restored"], 0), rawRead("fulfillment_item", "fulfillment_id", ["f"], 0),
+          rawRead("fulfillment_label", "fulfillment_id", ["f"], 1, ["restored"])] },
+      input = { id: "f", update: { shipped_at: null, labels: [retainedLabel] } },
+      result = await Effect.runPromise(prepared.contracts.serialize({ ...prepared.contracts.initialize(final), items: [], labels: [retainedLabel] })),
+      receipt = call("fulfillmentUpdateForShipment", input, result, [labelEvent("restored", "created"), event("updated")], activity);
+    expect(retainedLabel.created_at).not.toBe(retainedLabel.updated_at);
+    expect(Result.isSuccess(await validate(receipt, activity))).toBe(true);
+    for (const name of ["created_at", "updated_at", "deleted_at"] as const) {
+      const partial = Object.fromEntries(Object.entries(retainedLabel).filter(([field]) => field !== name));
+      expect(Result.isFailure(await validate({ ...receipt, input: { ...input, update: { ...input.update, labels: [partial] } } }, activity))).toBe(true);
+    }
+    const forgeries: readonly JsonObject[] = [{ fulfillment_id: "outside" }, { tracking_number: "altered" }, { created_at: after }, { updated_at: after }, { deleted_at: after }];
+    for (const forged of forgeries)
+      expect(Result.isFailure(await validate({ ...receipt, input: { ...input, update: { ...input.update, labels: [{ ...retainedLabel, ...forged }] } } }, activity))).toBe(true);
+    expect(Result.isFailure(await validate(receipt, { ...activity, mutations: [{ ...activity.mutations[0]!, after: { ...retainedLabel, updated_at: after } }, activity.mutations[1]!] }))).toBe(true);
+  });
+});

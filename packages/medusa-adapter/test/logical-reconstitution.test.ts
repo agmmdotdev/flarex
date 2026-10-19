@@ -61,15 +61,15 @@ const sourceInput = { sourceKey: "medusa.folio-fixture", writeProfile: "medusa.f
   evidence: { kind: "synthetic", sourceId: "folio-fixture" } };
 const proofs = { reconstitution: logicalReconstitutionScenario, readEvidence: logicalRelationalReadEvidenceScenario,
   preservingUpsert: logicalPreservingDeletionUpsertScenario, activeRestore: logicalActiveRestoreUpdateScenario };
-type Proof = keyof typeof proofs | "insertionClock" | "insertionSources" | "insertionLifecycle" | "insertionMetadata" | "insertionRace";
+type Proof = keyof typeof proofs | "preserveTimestamps" | "insertionClock" | "insertionSources" | "insertionLifecycle" | "insertionMetadata" | "insertionRace";
 describe("neutral committed-row reconstitution, relational selection and lifecycle-preserving upsert", () => {
-  it.each<Proof>(["reconstitution", "readEvidence", "preservingUpsert", "activeRestore", "insertionClock", "insertionSources", "insertionLifecycle", "insertionMetadata"])("runs the neutral proof (%s) on PGlite", async proof => {
+  it.each<Proof>(["reconstitution", "preserveTimestamps", "readEvidence", "preservingUpsert", "activeRestore", "insertionClock", "insertionSources", "insertionLifecycle", "insertionMetadata"])("runs the neutral proof (%s) on PGlite", async proof => {
     const control = await createMigratedPGlitePersistence();
     const target = await createMigratedPGlitePersistence();
     const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence(options, { control, target });
     await Effect.runPromise(witness(fixture, makePGliteFrameworkSchemaArtifactAdmissionFixture(control).controlSessionStarter, undefined, proof));
   });
-  it.skipIf(postgresUrl === null).each<Proof>(["reconstitution", "readEvidence", "preservingUpsert", "activeRestore", "insertionClock", "insertionSources", "insertionLifecycle", "insertionMetadata", "insertionRace"])("runs the neutral proof (%s) with an ordinary PostgreSQL role", async proof => {
+  it.skipIf(postgresUrl === null).each<Proof>(["reconstitution", "preserveTimestamps", "readEvidence", "preservingUpsert", "activeRestore", "insertionClock", "insertionSources", "insertionLifecycle", "insertionMetadata", "insertionRace"])("runs the neutral proof (%s) with an ordinary PostgreSQL role", async proof => {
     await withTemporaryPostgresPersistencePair(async (control, target) => {
       const roles = await target.query<{ rolsuper: boolean; rolcreatedb: boolean; rolcreaterole: boolean }>(
         "select rolsuper, rolcreatedb, rolcreaterole from pg_roles where rolname = current_user");
@@ -122,6 +122,7 @@ const witness = Effect.fn("Reconstitution.witness")(function* <Persistence exten
       else if (proof === "insertionLifecycle" || proof === "insertionMetadata" || proof === "insertionRace")
         yield* logicalInsertionOrderScenario(fixture, bindingTarget, schemaVersionId, sourceInput, dataSession,
           proof === "insertionLifecycle" ? "lifecycle" : proof === "insertionMetadata" ? "metadata" : "race");
+      else if (proof === "preserveTimestamps") yield* logicalReconstitutionScenario(fixture, bindingTarget, schemaVersionId, sourceInput, dataSession, "preserveTimestamps");
       else yield* proofs[proof](fixture, bindingTarget, schemaVersionId, sourceInput, dataSession);
     }),
   });

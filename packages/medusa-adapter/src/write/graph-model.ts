@@ -45,6 +45,12 @@ export interface ReplacementProfile {
   readonly catalog: GraphCatalog;
   /** Native update and upsertWithReplace differ on root writes and empty collections. */
   readonly operation: "upsertWithReplace" | "update";
+  /** Opt into replacing explicit empty collections during update. Omission
+   * always leaves a collection unchanged; the default ignores update empties. */
+  readonly emptyCollections?: "replace";
+  /** Restrict owned has-many replacement omissions to active rows. The default
+   * includes historical members; association and pivot membership are separate. */
+  readonly replacementMembers?: "active";
   readonly ordering: ReadonlyMap<string, CommerceRelationOrder>;
   /** Complete deleted-child DTOs still need the accepting core's exact
    * same-root deletion proof; this policy never grants timestamp authority. */

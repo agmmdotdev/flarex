@@ -4,3 +4,5 @@ export * from "./create-shipping-options";
 export * from "./update-shipping-options";
 export * from "./delete-shipping-options";
 export * from "./create-fulfillment";
+export * from "./create-shipment";
+export * from "./update-fulfillment";

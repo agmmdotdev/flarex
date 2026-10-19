@@ -2058,7 +2058,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
   const relationalChange = (context: BoundedRequestContext,
     id: PresentedTransactionId, tableName: string, operation: "insert" | "upsert" | "update" | "upsertPreservingDeletion" | "delete" | "softDelete" | "restore" | "reconstitute", input: unknown) => observeExecution("LogicalDocuments.relationalChange", Effect.suspend(() => runOperation(context, id, "write", Effect.gen(function* () {
       yield* Effect.fromResult(decodeRelationalChange(operation).pipe(Result.mapError(cause => error("invalidInput", cause))));
-      if (operation === "reconstitute" && state.allowReconstitution !== true)
+      if (operation === "reconstitute" && state.reconstitution === undefined)
         return yield* Effect.fail(error("invalidAuthority"));
       if (operation === "upsertPreservingDeletion" && state.allowPreservingDeletionUpsert !== true)
         return yield* Effect.fail(error("invalidAuthority"));
@@ -2183,9 +2183,11 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
             // The existing upsert contract reactivates without advancing time.
             // The explicitly admitted preserving-deletion merge instead keeps
             // omitted deletion fields and advances time, even for an ID alone.
-            // Ordinary updates and lifecycle transitions also advance it.
+            // Exact deleted-row reconstitution may retain both proven stamps;
+            // ordinary updates and lifecycle transitions still advance time.
             const fields = yield* Effect.fromResult(policy.normalize(supplied, previous,
-              yield* transactionTime, operation === "upsert" ? "preserve" : "advance"));
+              yield* transactionTime, operation === "upsert" ||
+                operation === "reconstitute" && state.reconstitution === "preserveTimestamps" ? "preserve" : "advance"));
             const afterWrite = (written: JsonObject) => Effect.gen(function* () {
               const { _id: _internalId, _creationTime: _internalTime, ...native } = written;
               const capturedNative = yield* Effect.fromResult(useCapturedPrivateJsonData(native, Number.MAX_SAFE_INTEGER, error));
@@ -2620,9 +2622,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         write: (context, mode, inputRows) => relationalChange(context, id, tableName, mode, inputRows),
         delete: (context, keys) => relationalChange(context, id, tableName, "delete", keys),
         lifecycle: (context, operation, keys) => relationalChange(context, id, tableName, operation, keys),
-        ...(state.allowReconstitution === true ? {
+        ...(state.reconstitution === undefined ? {} : {
           reconstitute: (context: BoundedRequestContext, inputRows: unknown) => relationalChange(context, id, tableName, "reconstitute", inputRows),
-        } : {}),
+        }),
       } satisfies LogicalRelationalStore<Failure>);
     }))));
   return Object.freeze({ documents,

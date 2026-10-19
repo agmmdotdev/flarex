@@ -40,6 +40,9 @@ import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/appUni
 
 /** Trusted terminal reference maintenance; native profiles choose timestamp semantics. */
 export const LogicalSetNullPolicy = Schema.Struct({ managedUpdate: Schema.Literals(["advance", "preserve"]) });
+/** Exact same-root deleted-row reuse selects its managed update-time behavior. */
+export const LogicalReconstitutionPolicy = Schema.Literals(["advanceUpdatedAt", "preserveTimestamps"]);
+export type LogicalReconstitutionPolicy = typeof LogicalReconstitutionPolicy.Type;
 export type LogicalSetNullPolicy = typeof LogicalSetNullPolicy.Type;
 
 export type LogicalDocumentFailureReason = "invalidInput" | "invalidAuthority" | "closed" | "limitExceeded"
@@ -179,7 +182,7 @@ export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
   readonly snapshotCommitSeq?: CommitSeq;
   readonly tables: readonly LogicalDocumentTable[];
   readonly relationalCapabilities?: readonly RelationalPersistenceCapability[];
-  readonly allowReconstitution?: true;
+  readonly reconstitution?: LogicalReconstitutionPolicy;
   readonly allowPreservingDeletionUpsert?: true;
   readonly allowActiveRestoreUpdate?: true;
   readonly allowStorageInsertionOrder?: true;

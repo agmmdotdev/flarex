@@ -55,6 +55,16 @@ export function prepareTransformResolution(value: unknown): Result.Result<Workfl
         input: reference.kind === "property" || reference.kind === "transform" ? yield* compile(reference.input, depth + 1) : undefined } satisfies WorkflowResolution;
       const array = Array.isArray(value);
       const prototype = Object.getPrototypeOf(value);
+      if (prototype === Date.prototype) {
+        // Native resolve-value serializes transform results before downstream
+        // invocation. Admit only a bare intrinsic Date; custom serialization,
+        // subclasses and ordinary/final JSON remain outside this boundary.
+        if (Reflect.ownKeys(value).length !== 0)
+          return yield* Result.fail(definitionError("invalidReference", "Transform Dates require intrinsic data"));
+        const snapshot = yield* Result.try({ try: () => Date.prototype.toISOString.call(value),
+          catch: () => definitionError("invalidReference", "Transform Dates require a valid intrinsic Date") });
+        return { kind: "constant", value: snapshot } satisfies WorkflowResolution;
+      }
       if (array ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null)
         return yield* Result.fail(definitionError("invalidReference", "Transform results require plain data records"));
       const keys = Reflect.ownKeys(value);

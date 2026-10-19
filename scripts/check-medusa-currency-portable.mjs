@@ -11,6 +11,9 @@ const inputs = new Set();
 for (const entry of [
   "packages/medusa-core-flows/src/fulfillment/workflows/create-fulfillment.ts",
   "packages/medusa-core-flows/src/fulfillment/workflows/cancel-fulfillment.ts",
+  "packages/medusa-core-flows/src/fulfillment/workflows/create-shipment.ts",
+  "packages/medusa-core-flows/src/fulfillment/workflows/update-fulfillment.ts",
+  "packages/medusa-adapter/src/workflows/fulfillment/create-shipment.ts",
   "packages/medusa-adapter/src/workflows/fulfillment/create-fulfillment.ts",
   "packages/medusa-adapter/src/workflows/fulfillment/cancel-fulfillment.ts",
   "packages/medusa-adapter/src/modules/fulfillment/fulfillment-create-service.ts",

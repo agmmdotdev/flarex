@@ -549,8 +549,21 @@ rollback remains an outer settlement obligation. The existing metadata-derived
 DAL and receipt preserve historical Provider/Address owning ID references,
 Shipping Option visibility masking, and native read-versus-assignment nullable
 FK presentation. No extra query, transaction, schema or source lineage is added.
-Public/hosted activation, populated upgrades, external providers, shipment and
-delivery remain separate.
+Public/hosted activation, populated upgrades, external providers and delivery
+remain separate.
+
+The [native Fulfillment shipment](./preflight/144-native-fulfillment-shipment.md)
+root admits one existing ID, zero to four complete new Labels and an optional
+shipment marker. Genuine shipment guards, nested update, native collection order
+and retained step compensation use the existing local Fulfillment constructor
+and twelve-table source. The selected root borrows only retrieve/update methods.
+Full managed Label preimages restore both timestamps through the authenticated
+same-root reconstitution policy; projected preimages retain native fresh-insert
+timestamps. Empty replacement and active-only membership are explicit shared
+graph policies. Existing reconstitution consumers retain timestamp advancement.
+The named shipment allowance uses 128 calls with the normal 64-event, 1 MiB and
+ten-second limits. No extra Query, lock, provider call or schema is introduced.
+Public/hosted activation, populated upgrades and delivery remain separate gates.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

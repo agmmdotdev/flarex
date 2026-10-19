@@ -142,7 +142,7 @@ export const makeLocalShippingOptionUpdateCommands = Effect.fn("ShippingOptionAd
     const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description,
       methods: { upsertShippingOptions, validateShippingOptionsForPriceCalculation, listShippingOptions, listServiceZones, listFulfillmentSets, listFulfillmentProviders,
         createShippingOptionRules, listShippingOptionRules, deleteShippingOptionRules }, graph: { aliases, reads },
-      logical: { ...policy, commands: admitted, allowReconstitution: true } });
+      logical: { ...policy, commands: admitted, reconstitution: "advanceUpdatedAt" } });
     return { upsert, validate, optionList, zoneList, setList, providerList, optionCount, zoneCount, setCount, providerCount,
       ruleCreate, ruleList, ruleRemove, commands: admitted, workflow, withService: module.use, contracts: prepared.contracts, logicalEventPolicy: () => policy };
   }));

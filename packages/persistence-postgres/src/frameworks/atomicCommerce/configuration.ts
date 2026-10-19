@@ -213,7 +213,7 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
       commandCount: member.commands.length, derivedIdEvent: member.derivedIdEvent ?? null,
       ...(member.detachDeletedReferences === true ? { detachDeletedReferences: true } : {}),
       ...(member.setNullPolicy === undefined ? {} : { setNullPolicy: member.setNullPolicy }),
-      ...(member.allowReconstitution === true ? { allowReconstitution: true } : {}),
+      ...(member.reconstitution === undefined ? {} : { reconstitution: member.reconstitution }),
       ...(member.allowPreservingDeletionUpsert === true ? { allowPreservingDeletionUpsert: true } : {}),
       ...(member.allowActiveRestoreUpdate === true ? { allowActiveRestoreUpdate: true } : {}),
       ...(member.allowStorageInsertionOrder === true ? { allowStorageInsertionOrder: true } : {}),
@@ -296,8 +296,9 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
       setNullPolicy: members.flatMap(member => member.setNullPolicy === undefined ? [] :
         [{ participant: member.name, ...member.setNullPolicy }]),
     } : {}),
-    ...(members.some(member => member.allowReconstitution === true) ? {
-      reconstitution: members.filter(member => member.allowReconstitution === true).map(member => member.name),
+    ...(members.some(member => member.reconstitution !== undefined) ? {
+      reconstitution: members.flatMap(member => member.reconstitution === undefined ? [] :
+        [{ participant: member.name, policy: member.reconstitution }]),
     } : {}),
     ...(members.some(member => member.allowPreservingDeletionUpsert === true) ? {
       preservingDeletionUpsert: members.filter(member => member.allowPreservingDeletionUpsert === true).map(member => member.name),

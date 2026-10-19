@@ -6,6 +6,7 @@ import type { ApplicationNativeMutationFixture, ApplicationNativeMutationPersist
 import type { FrameworkSchemaTarget } from "../../../src/installation/frameworkSchema/target";
 import type { RelationalSession } from "../../../src/database/relationalTransaction/session";
 import type { LogicalCommerceSelectionInput } from "../../../src/frameworks/commerceTransaction/logicalSelection";
+import type { LogicalReconstitutionPolicy } from "../../../src/storage/documents/logicalDocuments/model";
 import { defineCommerceCommand, makeCommerceHost } from "../../../src/frameworks/commerceTransaction/host";
 import { commerceError } from "../../../src/frameworks/commerceTransaction/model";
 import { makeAtomicCommerceHost } from "../../../src/frameworks/atomicCommerce/host";
@@ -29,6 +30,7 @@ const decodeMode = Schema.decodeUnknownResult(Schema.Literals([
 export const logicalReconstitutionScenario = Effect.fn("LogicalReconstitution.scenario")(function* <Persistence extends ApplicationNativeMutationPersistence>(
   fixture: ApplicationNativeMutationFixture<Persistence>, target: FrameworkSchemaTarget,
   schemaVersionId: CatalogSchemaVersionId, source: unknown, session: RelationalSession,
+  reconstitution: LogicalReconstitutionPolicy = "advanceUpdatedAt",
 ) {
   const dataset = yield* capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: [] },
     1_048_576, { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) });
@@ -89,8 +91,10 @@ export const logicalReconstitutionScenario = Effect.fn("LogicalReconstitution.sc
       : mode === "owner" ? { ...previous, folio_key: "other" }
       : mode === "business" ? { ...previous, text: "changed" } : previous;
     const restored = yield* reconstitute(ctx.manager, [changed]);
-    expect(restored).toEqual([{ ...previous, updated_at: yield* ctx.transactionTime }]);
-    expect(restored[0]?.updated_at).not.toBe(oldTime);
+    if (reconstitution === "advanceUpdatedAt") {
+      expect(restored).toEqual([{ ...previous, updated_at: yield* ctx.transactionTime }]);
+      expect(restored[0]?.updated_at).not.toBe(oldTime);
+    }
     if (mode === "duplicate") yield* reconstitute(ctx.manager, [previous]);
     if (mode === "rollback") return yield* ctx.refuse(commerceError("invalidInput"));
     if (mode === "cancellation") return yield* Effect.interrupt;
@@ -141,7 +145,7 @@ export const logicalReconstitutionScenario = Effect.fn("LogicalReconstitution.sc
   });
   yield* Effect.acquireUseRelease(makeAtomicCommerceHost({ ...hostInput, executionIsolation: "scopeExclusive",
     commands: [seedRoot, readRoot, deleteRoot, inverseRoot],
-    participants: [{ participant, logicalStorage, commands: [seed, list, remove, inverse], allowReconstitution: true, validateLogical: validate }],
+    participants: [{ participant, logicalStorage, commands: [seed, list, remove, inverse], reconstitution, validateLogical: validate }],
   }), host => Effect.gen(function* () {
     const seeded = yield* host.run(host.newRequestKey(), seedRoot, null);
     if (!Array.isArray(seeded) || !isJsonObject(seeded[0])) return yield* Effect.die(new Error("Missing committed native seed"));
@@ -150,6 +154,9 @@ export const logicalReconstitutionScenario = Effect.fn("LogicalReconstitution.sc
     const before = yield* inventory;
     const request = host.newRequestKey();
     const result = yield* host.run(request, inverseRoot, "inverse");
+    // Assert beyond the command's lifetime boundary so a mismatch reports the
+    // complete native values instead of becoming a sticky rollback-only error.
+    if (reconstitution === "preserveTimestamps") expect(result).toEqual([retained]);
     const after = yield* inventory;
     expect(after.rows.map(row => row.rowId)).toEqual(before.rows.map(row => row.rowId));
     expect(after.facts).toHaveLength(before.facts.length + 1);
@@ -161,6 +168,19 @@ export const logicalReconstitutionScenario = Effect.fn("LogicalReconstitution.sc
     expect(yield* host.run(request, inverseRoot, "inverse")).toEqual(result);
     expect(inverseInvocations).toBe(invoked);
     expect(yield* inventory).toEqual(after);
+    // Both policies grant the same operation, but their distinct timestamp
+    // semantics belong to the canonical participant identity and replay key.
+    yield* Effect.acquireUseRelease(makeAtomicCommerceHost({ ...hostInput, executionIsolation: "scopeExclusive",
+      commands: [seedRoot, readRoot, deleteRoot, inverseRoot],
+      participants: [{ participant, logicalStorage, commands: [seed, list, remove, inverse],
+        reconstitution: reconstitution === "advanceUpdatedAt" ? "preserveTimestamps" : "advanceUpdatedAt", validateLogical: validate }],
+    }), otherPolicy => Effect.gen(function* () {
+      const snapshot = yield* inventory, called = inverseInvocations;
+      expect(yield* Effect.result(otherPolicy.run(request, inverseRoot, "inverse")))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "requestConflict" } });
+      expect(inverseInvocations).toBe(called);
+      expect(yield* inventory).toEqual(snapshot);
+    }), otherPolicy => otherPolicy.close);
     // The same command/key cannot replay an outcome issued under the admitted
     // extension when the trusted participant omits that admission.
     yield* Effect.acquireUseRelease(makeAtomicCommerceHost({ ...hostInput, executionIsolation: "scopeExclusive",
@@ -177,12 +197,12 @@ export const logicalReconstitutionScenario = Effect.fn("LogicalReconstitution.sc
       expect(yield* inventory).toEqual(snapshot);
     }), denied => denied.close);
     expect(yield* Effect.result(makeAtomicCommerceHost({ ...hostInput, executionIsolation: "scopeExclusive",
-      commands: [inverseRoot], participants: [{ participant, logicalStorage, commands: [inverse], allowReconstitution: true }],
+      commands: [inverseRoot], participants: [{ participant, logicalStorage, commands: [inverse], reconstitution }],
     }))).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
-    for (const forgedFlag of [false, null, "true", 1]) {
-      const malformed = { participant, logicalStorage, commands: [inverse], validateLogical: validate, allowReconstitution: true as const };
+    for (const forgedPolicy of [true, false, null, "true", 1, "preserve", {}]) {
+      const malformed = { participant, logicalStorage, commands: [inverse], validateLogical: validate, reconstitution };
       // Explicit hostile runtime input, not a type assertion granting authority.
-      Object.defineProperty(malformed, "allowReconstitution", { value: forgedFlag });
+      Object.defineProperty(malformed, "reconstitution", { value: forgedPolicy });
       expect(captureAtomicCommerceParticipants([malformed]))
         .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
     }

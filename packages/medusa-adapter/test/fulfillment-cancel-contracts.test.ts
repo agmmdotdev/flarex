@@ -23,7 +23,7 @@ describe("standalone native Fulfillment cancellation authority", () => {
     const fulfillment = await Effect.runPromise(makeLocalFulfillmentCreationCommands());
     const combined = await Effect.runPromise(makeLocalFulfillmentShippingOptionReferenceDetachmentCommands());
     expect(prepareFulfillmentCancellationResources({ fulfillment: { ...fulfillment.workflow } })).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
-    expect(prepareFulfillmentCancellationResources({ fulfillment: combined.workflow })).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+    expect(Reflect.apply(prepareFulfillmentCancellationResources, undefined, [{ fulfillment: combined.workflow }])).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
     for (const supplied of [{}, { fulfillment: fulfillment.workflow, stockLocation: fulfillment.workflow }, { fulfillment: fulfillment.workflow, query: {} }])
       expect(Reflect.apply(prepareFulfillmentCancellationResources, undefined, [supplied])).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
   });

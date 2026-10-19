@@ -16,11 +16,12 @@ exception to hide the mismatch.
 ## Accepting Owner And Contract
 
 The logical relational store optionally exposes `reconstitute(context, rows)`.
-The trusted participant must explicitly select `allowReconstitution: true` and
-provide logical receipt validation. Capture accepts only the literal selection,
-physical participants refuse it, and the selected participant names enter the
-prepared execution identity. Other logical profiles retain their previous
-identity and do not expose the method.
+The trusted participant must explicitly select
+`reconstitution: "advanceUpdatedAt"` or `"preserveTimestamps"` and provide logical
+receipt validation. Capture accepts only those named policies, physical
+participants refuse them, and both participant and policy enter the prepared
+execution identity. Omission does not expose the method. An outcome issued
+under one timestamp policy cannot replay under the other policy or omission.
 
 The working set authenticates a complete supplied native row against the exact
 canonical preimage of its latest physical deletion in this live root. It checks
@@ -31,8 +32,15 @@ does not grant reconstitution. There is no insertion fallback.
 
 Reconstitution uses the existing pending document and normal write machinery.
 It preserves logical identity, logical creation time, native identity and proven
-native creation time. Existing table mechanics refresh managed update columns
-using the accepting transaction timestamp. The ordinary delete and insertion
+native creation time. The `advanceUpdatedAt` policy refreshes managed update
+columns using the accepting transaction timestamp. `preserveTimestamps` keeps
+both native timestamps from the exact proven preimage. It serves the native
+Fulfillment shipment inverse whose empty submitted Label collection captures
+complete prior Label DTOs; the projected nonempty replacement inverse still
+uses ordinary insertion with fresh timestamps. Existing Store, Pricing and
+Shipping Option consumers retain `advanceUpdatedAt`. Ordinary updates, lifecycle
+transitions and other write profiles keep their existing timestamp behavior.
+The ordinary delete and insertion
 attempts remain available to call receipts, while committed facts/revisions
 describe the final durable row transition.
 
@@ -61,7 +69,8 @@ would need a separately defined durable history and identity contract.
 Neutral PGlite and ordinary-role PostgreSQL proofs must begin with a committed
 row, then exercise deletion and reconstitution inside one actual exclusive
 atomic root. Check original internal/native identity, preserved creation time,
-accepting update time, exact attempts, net facts/revisions, replay and rollback.
+the selected accepting/preserved update time, exact attempts, net facts/revisions,
+replay and rollback. Check both named policies and refusal across policy identities.
 Refuse altered business/owner/managed fields, missing deletion, soft-delete-only
 history, occupied or ambiguous keys, repeated use, later roots and omitted or
 malformed admission. Failed, caught and cancelled roots must publish nothing.

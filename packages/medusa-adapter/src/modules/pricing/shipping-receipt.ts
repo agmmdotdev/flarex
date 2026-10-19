@@ -209,5 +209,5 @@ export function pricingShippingOptionPolicy(decodeOutput: DecodeOutput,
     if (emitted.size) return yield* Effect.fail(commerceError("receiptMismatch"));
   });
   return { capture, validateLogicalCall, ...(mutationContracts === undefined
-    ? { allowActiveRestoreUpdate: true as const } : { allowReconstitution: true as const }) };
+    ? { allowActiveRestoreUpdate: true as const } : { reconstitution: "advanceUpdatedAt" as const }) };
 }

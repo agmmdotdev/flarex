@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
+import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 
 const root = process.cwd();
 /** @param {string} file */
@@ -14,6 +14,53 @@ const upsert = "steps/upsert-shipping-options.ts";
 const providers = "steps/validate-fulfillment-providers.ts";
 const validation = "steps/validate-shipping-option-prices.ts";
 const emit = "../common/steps/emit-event.ts";
+
+describe("native shipment and nested Fulfillment update packet", () => {
+  const shipment = "workflows/create-shipment.ts", update = "workflows/update-fulfillment.ts",
+    guard = "steps/validate-shipment.ts", step = "steps/update-fulfillment.ts";
+  it("admits exact imports, erased declarations and the existing compensation annotation", () => {
+    expect(() => verifyFulfillmentShipmentCallbacks(root)).not.toThrow();
+    expect(() => verifyFulfillmentShipmentCallbacks(root, { [step]: { target: target(step)
+      .replace("const updated =", "const updated: unknown =") + "\n// erased formatting\n" } })).not.toThrow();
+  });
+  it.each([
+    ["requested guard selector", shipment, "validateShipmentStep(input.id)", "validateShipmentStep('other')"],
+    ["input spread", shipment, "...data.input,", "id: data.input.id,"],
+    ["native generated date", shipment, "shipped_at: new Date()", "shipped_at: null"],
+    ["nested update", shipment, "input: update,", "input: input,"],
+    ["finite guard import", shipment, 'from "../steps/validate-shipment"', 'from "../steps"'],
+    ["finite update import", update, 'from "../steps/update-fulfillment"', 'from "../steps"'],
+    ["genuine update result", update, "new WorkflowResponse(updateFulfillmentStep(input))", "new WorkflowResponse(input)"],
+    ["guard projection", guard, '["shipped_at", "canceled_at", "shipping_option_id"]', '["shipped_at", "shipping_option_id"]'],
+    ["shipped eligibility", guard, "if (fulfillment.shipped_at)", "if (false)"],
+    ["canceled eligibility", guard, "if (fulfillment.canceled_at)", "if (false)"],
+    ["Option eligibility", guard, "if (!fulfillment.shipping_option_id)", "if (false)"],
+    ["native refusal type", guard, "MedusaError.Types.NOT_ALLOWED", "MedusaError.Types.INVALID_DATA"],
+    ["input-derived preimage", step, "getSelectsAndRelationsFromObjectArray([data])", "getSelectsAndRelationsFromObjectArray([])"],
+    ["preimage scalar selection", step, "select: selects,", "select: [],"],
+    ["preimage relations", step, "      relations,", "      relations: [],"],
+    ["native update completion", step, "await service.updateFulfillment(id, data)", "void service.updateFulfillment(id, data)"],
+    ["actual retained preimage", step, "new StepResponse(updated, fulfillment)", "new StepResponse(updated, input)"],
+    ["native inverse", step, "    await service.updateFulfillment(id, data)", "    await service.updateFulfillment(id, {})"],
+    ["finite inverse metadata", step, 'compensation: "transactionCovered"', 'compensation: "none"'],
+  ])("rejects changed %s", (_name, file, before, after) => {
+    const original = target(file); expect(original).toContain(before);
+    expect(() => verifyFulfillmentShipmentCallbacks(root, { [file]: { target: original.replace(before, after) } }))
+      .toThrow("Changed native Fulfillment shipment callback behavior");
+  });
+  it("rejects reordered guards, missing native import anchors and extra module runtime", () => {
+    const original = target(guard), shipped = "if (fulfillment.shipped_at)", canceled = "if (fulfillment.canceled_at)";
+    expect(() => verifyFulfillmentShipmentCallbacks(root, { [guard]: { target: original
+      .replace(shipped, "if (__swap)").replace(canceled, shipped).replace("if (__swap)", canceled) } })).toThrow();
+    for (const file of [shipment, update, guard, step]) {
+      expect(() => verifyFulfillmentShipmentCallbacks(root, { [file]: { target: target(file) + "\nthrow new Error('extra');\n" } })).toThrow();
+      const source = readFileSync(path.join(root, "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment", file), "utf8");
+      expect(() => verifyFulfillmentShipmentCallbacks(root, { [file]: { source: source.replace('@medusajs/framework/workflows-sdk', 'other-sdk') } }))
+        .toThrow("native adaptation anchor");
+    }
+    expect(() => verifyFulfillmentShipmentCallbacks(root, { unknown: { target: "" } })).toThrow("unknown packet file");
+  });
+});
 
 describe("standalone native Fulfillment cancellation packet", () => {
   const cancelling = "workflows/cancel-fulfillment.ts", step = "steps/cancel-fulfillment.ts";

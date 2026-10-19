@@ -59,9 +59,9 @@ export const makeStoreUpdateCommands = Effect.fn("StoreAdapter.updateCommands")(
     const admitted = [list, updateForWorkflow, upsertForWorkflow], policy = storeUpdatePolicy(prepared);
     const workflow = yield* defineWorkflowModule({ name: Modules.STORE, source: module.description,
       methods: { listStores, updateStores, upsertStores }, graph: { aliases: [], reads: [] },
-      logical: { ...policy, commands: admitted, allowReconstitution: true } });
+      logical: { ...policy, commands: admitted, reconstitution: "advanceUpdatedAt" } });
     return { list, updateForWorkflow, upsertForWorkflow, commands: admitted, workflow, withService: module.use,
-      logicalEventPolicy: () => ({ ...policy, allowReconstitution: true as const }),
+      logicalEventPolicy: () => ({ ...policy, reconstitution: "advanceUpdatedAt" as const }),
       output: prepared.contracts.creation.Output, decodeOutput: prepared.contracts.creation.decodeRows };
   }));
 });

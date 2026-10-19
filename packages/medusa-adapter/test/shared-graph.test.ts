@@ -168,6 +168,90 @@ describe("native graph update versus upsert replacement operations", () => {
       }
     }));
   });
+
+  it("replaces explicit empty update collections only when the profile selects replacement", async () => {
+    await run(Effect.gen(function* () {
+      const unchanged = yield* fixture(seeded);
+      yield* replaceGraphRows(unchanged.ctx, { ...replacement, operation: "update" }, volume,
+        [{ isbn: "v1", editions: [], labels: [] }], { relations: ["editions", "labels"] });
+      expect(unchanged.calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+
+      const selected = yield* fixture(seeded);
+      const result = yield* replaceGraphRows(selected.ctx, { ...replacement, operation: "update", emptyCollections: "replace" }, volume,
+        [{ isbn: "v1", editions: [], labels: [] }], { relations: ["editions", "labels"] });
+      expect(selected.calls.filter(call => call.operation.startsWith("delete:")).map(call => [call.operation, call.input])).toEqual([
+        ["delete:volume_references", [{ volume_isbn: "v1", edition_serial: "old" }]],
+        ["delete:volume_labels", [{ volume_isbn: "v1", label_slug: "featured" }]],
+        ["delete:editions", [{ serial: "old" }]],
+      ]);
+      expect(result.entities).toEqual([{ isbn: "v1", title: "Old", editions: [], labels: [] }]);
+      expect(selected.calls.some(call => call.operation === "update:volumes")).toBe(false);
+    }));
+  });
+
+  it("preserves historical owned members when replacement selects active membership", async () => {
+    await run(Effect.gen(function* () {
+      const historical = { serial: "historical", volume_isbn: "v1", label: "History", deleted_at: "2026-01-01T00:00:00.000Z" };
+      const rows = new Map([...seeded, ["editions", [...seeded.get("editions") ?? [], historical]]]);
+      const { ctx, calls } = yield* fixture(rows);
+      const result = yield* replaceGraphRows(ctx, { ...replacement, operation: "update", replacementMembers: "active" }, volume,
+        [{ isbn: "v1", editions: [{ serial: "new", label: "New" }] }], { relations: ["editions"] });
+      expect(calls.filter(call => call.operation === "delete:editions").map(call => call.input)).toEqual([[{ serial: "old" }]]);
+      expect(calls.filter(call => call.operation === "insert:editions").map(call => call.input))
+        .toEqual([[{ serial: "new", label: "New", volume_isbn: "v1" }]]);
+      expect(result.performedActions.deleted.Edition).toEqual([{ serial: "old" }]);
+    }));
+  });
+
+  it("replaces active empty collections without deleting independent historical members", async () => {
+    await run(Effect.gen(function* () {
+      const historical = { serial: "historical", volume_isbn: "v1", label: "History", deleted_at: "2026-01-01T00:00:00.000Z" };
+      const rows = new Map([...seeded, ["editions", [...seeded.get("editions") ?? [], historical]]]);
+      const { ctx, calls } = yield* fixture(rows);
+      const result = yield* replaceGraphRows(ctx, {
+        ...replacement, operation: "update", emptyCollections: "replace", replacementMembers: "active",
+      }, volume, [{ isbn: "v1", editions: [] }], { relations: ["editions"] });
+      expect(calls.filter(call => call.operation === "delete:editions").map(call => call.input)).toEqual([[{ serial: "old" }]]);
+      expect(result.performedActions.deleted.Edition).toEqual([{ serial: "old" }]);
+      expect(calls.filter(call => /^(insert|update):/.test(call.operation))).toEqual([]);
+    }));
+  });
+
+  it("leaves omitted collections and association membership unchanged under replacement policies", async () => {
+    await run(Effect.gen(function* () {
+      const profile: ReplacementProfile = {
+        ...replacement, operation: "update", emptyCollections: "replace", replacementMembers: "active",
+      };
+      const omitted = yield* fixture(seeded);
+      yield* replaceGraphRows(omitted.ctx, profile, volume, [{ isbn: "v1" }], { relations: [] });
+      expect(omitted.calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+      expect(omitted.calls.filter(call => call.operation === "find:editions")).toEqual([]);
+
+      const emptyAssociation = yield* fixture(seeded);
+      yield* replaceGraphRows(emptyAssociation.ctx, { ...profile, toManyMode: () => Result.succeed("associate") }, volume,
+        [{ isbn: "v1", editions: [] }], { relations: ["editions"] });
+      expect(emptyAssociation.calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+
+      const moved = [{ serial: "old", volume_isbn: "v2", label: "Old" }];
+      const association = yield* fixture(seeded, new Map([["update:editions", moved]]));
+      const result = yield* replaceGraphRows(association.ctx, { ...profile, toManyMode: () => Result.succeed("associate") }, volume,
+        [{ isbn: "v2", editions: [{ serial: "old" }] }], { relations: ["editions"] });
+      expect(association.calls.filter(call => /^(insert|update|delete):/.test(call.operation)).map(call => [call.operation, call.input]))
+        .toEqual([["update:editions", [{ serial: "old", volume_isbn: "v2" }]]]);
+      expect(result.entities[0]?.editions).toEqual(moved);
+    }));
+  });
+
+  it("refuses selecting a historical member even when historical omissions are preserved", async () => {
+    await run(Effect.gen(function* () {
+      const rows = new Map([...seeded, ["editions", [{ serial: "historical", volume_isbn: "v1", label: "History", deleted_at: "2026-01-01T00:00:00.000Z" }]]]);
+      const { ctx, calls } = yield* fixture(rows);
+      const result = yield* replaceGraphRows(ctx, { ...replacement, operation: "update", replacementMembers: "active" }, volume,
+        [{ isbn: "v1", editions: [{ serial: "historical", label: "Changed" }] }], { relations: ["editions"] }).pipe(Effect.result);
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+      expect(calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+    }));
+  });
 });
 
 describe("checked complete-child reconstitution delegation", () => {
@@ -263,7 +347,7 @@ describe("shared graph planning over renamed module keys", () => {
       const receipt = [{ isbn: "book", title: "Stored", created_at: "clock" }];
       const { ctx, calls } = yield* fixture(new Map(), new Map([["insert:volumes", receipt]]));
       const inserted = yield* insertGraphRows(ctx, catalog, graph.rows);
-      expect(inserted.get("volumes")).toBe(receipt);
+      expect(inserted.get("volumes")).toEqual(receipt);
       expect(calls.map(call => call.operation)).toEqual([
         "table:volumes", "insert:volumes", "table:editions", "insert:editions",
         "table:volume_labels", "insert:volume_labels", "table:volume_references", "insert:volume_references",

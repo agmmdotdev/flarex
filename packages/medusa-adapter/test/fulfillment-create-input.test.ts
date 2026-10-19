@@ -3,6 +3,9 @@ import { Effect, Result } from "effect";
 import { captureFulfillmentCreationMetadata, captureServiceZoneCreationMetadata, compileFulfillmentCreationDefinition } from "../src/modules/fulfillment/shipping-profile-schema";
 import { captureFulfillmentBusinessDates, compileFulfillmentCreationContracts, decodeFulfillmentCreate, decodeFulfillmentNativeUpdate } from "../src/modules/fulfillment/fulfillment-create-input";
 import { captureFulfillmentItemQuantity, selectedManualDataAssignment } from "../src/modules/fulfillment/fulfillment-create-value-profile";
+import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
+import { compileFulfillmentShipmentContracts, decodeFulfillmentShipmentUpdate } from "../src/modules/fulfillment/fulfillment-shipment-input";
+import { prepareFulfillmentShipmentQuery } from "../src/modules/fulfillment/fulfillment-shipment-query";
 
 const input = { location_id: "location", provider_id: "manual_manual", items: [], delivery_address: {} };
 describe("selected native Fulfillment creation values", () => {
@@ -109,5 +112,43 @@ describe("native Fulfillment to-one representation", () => {
     for (const [name, type] of [["provider", "belongsTo"], ["shipping_option", "hasOneWithFK"]] as const)
       expect(Result.isFailure(compileFulfillmentCreationContracts({ ...metadata, tables: metadata.tables.map(table => table.name !== "fulfillment" ? table
         : { ...table, relationships: table.relationships.map(relation => relation.name === name ? { ...relation, type } : relation) }) }))).toBe(true);
+  });
+});
+
+describe("selected native shipment values", () => {
+  it("admits native dates and retained Label projections without expanding other Fulfillment writes", () => {
+    const date = new Date("2026-10-19T01:00:00.000Z"), value = { shipped_at: date, marked_shipped_by: null,
+      labels: [{ id: "old-label", tracking_number: "restored", tracking_url: "url", label_url: "label" }] };
+    expect(Result.getOrThrow(decodeFulfillmentShipmentUpdate(value))).toEqual({ ...value, shipped_at: date.toISOString() });
+    expect(Result.getOrThrow(decodeFulfillmentShipmentUpdate({ shipped_at: null, labels: [] }))).toEqual({ shipped_at: null, labels: [] });
+    for (const extra of [{ canceled_at: null }, { created_at: "outside" }, { delivery_address: null }, { items: [] }, { provider_id: "other" }])
+      expect(Result.isFailure(decodeFulfillmentShipmentUpdate({ shipped_at: date, ...extra }))).toBe(true);
+    let invoked = false;
+    const accessor = Object.defineProperty({}, "shipped_at", { enumerable: true, get: () => { invoked = true; return date; } });
+    expect(Result.isFailure(decodeFulfillmentShipmentUpdate(accessor))).toBe(true); expect(invoked).toBe(false);
+  });
+
+  it("keeps selected historical Option scalar filtering distinct from the native relation identity", async () => {
+    const contracts = Result.getOrThrow(compileFulfillmentCreationContracts((await Effect.runPromise(captureFulfillmentCreationMetadata())).frame)),
+      reads = Result.getOrThrow(prepareFulfillmentShipmentQuery(contracts)), values = Result.getOrThrow(compileFulfillmentShipmentContracts(contracts)),
+      stamp = "2026-10-19T01:00:00.000Z", row = { ...contracts.defaults.get("fulfillment"), id: "f", location_id: "location", provider_id: "manual_manual",
+        shipping_option_id: "historical-option", created_at: stamp, updated_at: stamp, deleted_at: null };
+    const plan = Result.getOrThrow(reads.query(buildQuery({ id: "f" }, { select: ["shipped_at", "canceled_at", "shipping_option_id"] })));
+    const result = Result.getOrThrow(plan.project([{ ...row, shipping_option: null }]))[0];
+    expect(result).toEqual({ id: "f", shipped_at: null, canceled_at: null, shipping_option_id: null, shipping_option: { id: "historical-option" } });
+    expect(row.shipping_option_id).toBe("historical-option");
+    expect(Result.isSuccess(values.decodePreimage(result))).toBe(true);
+    expect(Result.isFailure(contracts.decodeOutput(result))).toBe(true);
+    expect(Result.isFailure(reads.query(buildQuery({ id: "f" }, { select: ["unknown"] })))).toBe(true);
+    expect(Result.isFailure(reads.query(buildQuery({ id: "f" }, { relations: ["provider.secret"] })))).toBe(true);
+  });
+
+  it("retains only the native selected Label fields and implicit identity in compensation preimages", async () => {
+    const contracts = Result.getOrThrow(compileFulfillmentCreationContracts((await Effect.runPromise(captureFulfillmentCreationMetadata())).frame)),
+      reads = Result.getOrThrow(prepareFulfillmentShipmentQuery(contracts)), stamp = "2026-10-19T01:00:00.000Z",
+      row = { ...contracts.defaults.get("fulfillment"), id: "f", location_id: "location", provider_id: "manual_manual", created_at: stamp, updated_at: stamp, deleted_at: null },
+      child = { id: "l", fulfillment_id: "f", tracking_number: "n", tracking_url: "u", label_url: "l", created_at: stamp, updated_at: stamp, deleted_at: null };
+    const plan = Result.getOrThrow(reads.query(buildQuery({ id: "f" }, { select: ["labels.tracking_number", "shipped_at"], relations: ["labels"] })));
+    expect(Result.getOrThrow(plan.project([{ ...row, labels: [child] }]))).toEqual([{ id: "f", shipped_at: null, labels: [{ id: "l", tracking_number: "n" }] }]);
   });
 });

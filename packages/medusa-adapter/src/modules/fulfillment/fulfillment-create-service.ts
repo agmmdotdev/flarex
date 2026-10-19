@@ -14,6 +14,7 @@ import { captureFulfillmentCreationMetadata } from "./shipping-profile-schema";
 import { FulfillmentCreate, FulfillmentCreationId, decodeFulfillmentCreate, decodeFulfillmentCancellationId } from "./fulfillment-create-input";
 import { prepareFulfillmentCreationRepository } from "./fulfillment-create-repository";
 import { fulfillmentCreationPolicy } from "./fulfillment-create-receipt";
+import { bindFulfillmentShipmentNativeService, prepareFulfillmentShipmentCommands } from "./fulfillment-shipment-service";
 
 const createArguments = commerceDecoder(Schema.Tuple([FulfillmentCreate]), "invalidInput");
 const cancelArguments = commerceDecoder(Schema.Tuple([FulfillmentCreationId]), "invalidInput");
@@ -30,9 +31,14 @@ export const makeLocalFulfillmentCreationCommands = Effect.fn("FulfillmentAdapte
           capture: message => bound.bridge.current().captureLocalEvent(message), check: work => bound.bridge.checked(ctx, work), refuse: bound.refuse });
         return { baseRepository: bound.repository, repository: (model: FulfillmentPersistenceModel) => model === Fulfillment ? bound.repository : bound.denied,
           events: bound.mutationEvents, eventBus, denied: bound.denied };
-      }, service: bindFulfillmentCreationNativeService,
+      }, service: native => ({ ...bindFulfillmentCreationNativeService(native), ...bindFulfillmentShipmentNativeService(native) }),
     }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
-    return yield* prepareFulfillmentCreationCommands(module, prepared);
+    const base = yield* prepareFulfillmentCreationCommands(module, prepared), shipment = yield* prepareFulfillmentShipmentCommands(module, prepared),
+      commands = [...base.commands, ...shipment.commands], policy = base.logicalEventPolicy();
+    const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description,
+      methods: { ...base.workflow.methods, ...shipment.methods }, graph: { aliases: [], reads: [] },
+      logical: { ...policy, commands, allowStorageInsertionOrder: true, reconstitution: "preserveTimestamps" } });
+    return { ...base, ...shipment, workflow, commands };
   }));
 });
 

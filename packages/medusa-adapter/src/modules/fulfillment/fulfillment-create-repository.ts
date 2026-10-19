@@ -1,7 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import type { DAL } from "@medusajs/framework/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { jsonEqual } from "flarex-protocol/json";
 import { populateCommerceRelations } from "../../query/relations";
 import { prepareScalarRepository } from "../../repository/scalar";
@@ -21,6 +21,7 @@ import { compileFulfillmentCreationContracts, captureFulfillmentBusinessDates, d
   FulfillmentCreationAddress, FulfillmentCreationItem, FulfillmentCreationLabel, FulfillmentCreationId } from "./fulfillment-create-input";
 import type { captureFulfillmentCreationMetadata } from "./shipping-profile-schema";
 import { captureFulfillmentItemQuantity, selectedManualDataAssignment } from "./fulfillment-create-value-profile";
+import { prepareFulfillmentShipmentRepository } from "./fulfillment-shipment-repository";
 
 type Metadata = Effect.Success<ReturnType<typeof captureFulfillmentCreationMetadata>>["frame"];
 const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.JsonObject }))
@@ -34,8 +35,8 @@ const decodeAddress = commerceDecoder(FulfillmentCreationAddress, "invalidInput"
  * Fulfillment create/cancel. The provider and exception paths remain native. */
 export function prepareFulfillmentCreationRepository(metadata: Metadata) {
   return Result.gen(function* () {
-    const contracts = yield* compileFulfillmentCreationContracts(metadata);
-    const scalar = yield* prepareScalarRepository(contracts.fulfillment.table, "Fulfillment", scalarIdWhere, contracts.serialize);
+    const contracts = yield* compileFulfillmentCreationContracts(metadata), shipment = yield* prepareFulfillmentShipmentRepository(contracts);
+    const scalar = yield* prepareScalarRepository(contracts.fulfillment.table, "Fulfillment", scalarIdWhere, shipment.values.serialize);
     const entity = (value: typeof contracts.fulfillment) => ({ table: value.table, model: value.model, keyColumn: "id", prefix: value.table.columns.find(column => column.name === "id")?.options?.prefix });
     const address = entity(contracts.address), fulfillment = entity(contracts.fulfillment), label = entity(contracts.label), item = entity(contracts.item);
     const catalog: GraphCatalog = { entities: [address, fulfillment, label, item], tables: metadata.tables,
@@ -61,6 +62,11 @@ export function prepareFulfillmentCreationRepository(metadata: Metadata) {
       shared?: Readonly<{ bridge: ReturnType<typeof commerceRepositoryContext>; events: ReturnType<typeof commerceMutationEvents> }>) => {
       const bound = scalar.bind(root, owner, shared?.events, shared?.bridge), { bridge, events } = bound, denied = deniedCommerceRepository(bound.repository, bound.refuse);
       const find = Effect.fn("FulfillmentCreation.find")(function* (ctx: CommerceCommandContext, input: unknown) {
+        const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
+        const suppliedOptions = isJsonObject(captured) ? captured.options : undefined;
+        const options = suppliedOptions !== undefined && isJsonObject(suppliedOptions) ? suppliedOptions : undefined;
+        if (options?.fields !== undefined || Array.isArray(options?.populate) && options.populate.length > 0)
+          return structuredClone(yield* shipment.reads.find(ctx, captured));
         const result = yield* bound.find(ctx, input, false);
         if (result.rows.length > 1) return yield* ctx.refuse(commerceError("limitExceeded"));
         const rows: JsonObject[] = [];
@@ -100,7 +106,9 @@ export function prepareFulfillmentCreationRepository(metadata: Metadata) {
         if (!descriptors.entity || !("value" in descriptors.entity) || !descriptors.update || !("value" in descriptors.update) || Reflect.ownKeys(descriptors).length !== 2)
           return yield* ctx.refuse(commerceError("invalidInput"));
         const entity = yield* Effect.fromResult(captureCommerceInput(descriptors.entity.value)), update = yield* Effect.fromResult(captureFulfillmentBusinessDates(descriptors.update.value));
-        const pairs = yield* Effect.fromResult(decodePairs([{ entity, update }])), patches = yield* Effect.fromResult(updatePlan(pairs));
+        const pairs = yield* Effect.fromResult(decodePairs([{ entity, update }]));
+        if (Object.hasOwn(pairs[0]!.update, "shipped_at")) return yield* shipment.update(ctx, pairs[0]!, events, shared);
+        const patches = yield* Effect.fromResult(updatePlan(pairs));
         const before = yield* Effect.fromResult(contracts.decodeOutput(pairs[0]!.entity));
         const supplied = patches[0]!, patch = "data" in supplied ? { ...supplied, data: selectedManualDataAssignment(before) } : supplied;
         // Native dirty tracking omits a JSON-equal empty provider assignment.
@@ -129,6 +137,6 @@ export function prepareFulfillmentCreationRepository(metadata: Metadata) {
       };
       return { ...bound, repository, denied };
     };
-    return { bind, contracts, catalog, creation, query: scalar.query };
+    return { bind, contracts, catalog, creation, query: scalar.query, shipment };
   });
 }

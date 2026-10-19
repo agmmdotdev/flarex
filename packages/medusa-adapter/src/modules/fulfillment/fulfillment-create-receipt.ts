@@ -2,7 +2,7 @@ import { Effect, Option, Result, Schema } from "effect";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
 import { jsonEqual } from "flarex-protocol/json";
-import { commerceError, defaultCommerceResources, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, defaultCommerceResources, isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
 import { projectNativeRow } from "../../repository/result";
 import { commerceRelationReadQuery, prepareCommerceRelationPopulation } from "../../query/relations";
@@ -11,6 +11,7 @@ import { captureCommerceInput } from "../../value/input";
 import { FulfillmentCreationId, decodeFulfillmentCreate, decodeFulfillmentCancellationId } from "./fulfillment-create-input";
 import { captureFulfillmentItemQuantity, selectedManualDataAssignment } from "./fulfillment-create-value-profile";
 import type { prepareFulfillmentCreationRepository } from "./fulfillment-create-repository";
+import { fulfillmentShipmentPolicy } from "./fulfillment-shipment-receipt";
 
 type Prepared = Result.Result.Success<ReturnType<typeof prepareFulfillmentCreationRepository>>;
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
@@ -22,14 +23,19 @@ const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
 /** Creation returns its first detached graph, while Manual may subsequently
  * patch the stored root. Authenticate both causal states, reads and events. */
 export function fulfillmentCreationPolicy(prepared: Prepared) {
-  const { contracts } = prepared, byTable = new Map(contracts.entities.map(entity => [entity.table.name, entity]));
+  const { contracts } = prepared, byTable = new Map(contracts.entities.map(entity => [entity.table.name, entity])), shipment = fulfillmentShipmentPolicy(prepared);
   const capture = Effect.fn("FulfillmentCreation.captureEvent")(function* (input: unknown) {
+    const value = yield* Effect.fromResult(captureCommerceInput(input));
+    const metadata = isJsonObject(value) ? value.metadata : undefined;
+    if (metadata !== undefined && isJsonObject(metadata) && metadata.object === "fulfillment_label") return yield* shipment.capture(value);
     const event = yield* decodeEvent(input);
     if (event.name !== buildModuleResourceEventName({ prefix: Modules.FULFILLMENT, objectName: event.metadata.object, action: event.metadata.action }) ||
       event.metadata.action === "updated" && event.metadata.object !== "fulfillment") return yield* Effect.fail(commerceError("unadmittedEvent"));
     return { ...event, metadata: { ...event.metadata }, data: { ...event.data } };
   });
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("FulfillmentCreation.validateCall")(function* (call, activity) {
+    if (call.commandName === "fulfillmentRetrieveForWorkflow" || call.commandName === "fulfillmentUpdateForShipment")
+      return yield* shipment.validateLogicalCall(call, activity);
     const mismatch = (phase: string, cause?: unknown) => commerceError("receiptMismatch", { phase, cause });
     const creating = call.commandName === "fulfillmentCreateForWorkflow";
     if (!creating && call.commandName !== "fulfillmentCancelForWorkflow" || call.mode !== "write" || activity.lifecycle.length ||

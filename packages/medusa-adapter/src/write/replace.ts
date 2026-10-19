@@ -180,9 +180,9 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       const child = catalog.entities.find(value => value.table.name === descriptor.targetTable);
       if (child === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const members = yield* Effect.fromResult(graphArray(row[name]));
-      // Native DAL.update leaves empty collection values to its module's
-      // explicit child cleanup. Upsert replacement retains its empty-set rule.
-      if (!creation && profile.operation === "update" && members.length === 0) continue;
+      // Update profiles default to module-owned empty collection cleanup.
+      // Explicit replacement and upsert retain their empty-set rule.
+      if (!creation && profile.operation === "update" && members.length === 0 && profile.emptyCollections !== "replace") continue;
       const join = descriptor.join;
       if (join.type === "hasMany") {
         const fk = join.foreignKeys[0];
@@ -219,7 +219,8 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
           }
           continue;
         }
-        const previous = (yield* load(child.table, fk, [id])).filter(value => value[fk] === id);
+        const previous = (yield* load(child.table, fk, [id])).filter(value => value[fk] === id &&
+          (profile.replacementMembers !== "active" || value.deleted_at == null));
         const retained = new Set<string>();
         for (const member of members) {
           const value = yield* plan(child, member, { [fk]: id }, false);

@@ -103,7 +103,7 @@ export const logicalInsertionOrderScenario = Effect.fn("LogicalInsertionOrder.sc
   const readRoot = defineAtomicCommerceCommand("neutralInsertionReadRoot", (ctx, input) => ctx.call(participant, selected, input));
   const ordinaryRoot = defineAtomicCommerceCommand("neutralInsertionOrdinaryRoot", ctx => ctx.call(participant, ordinary, null));
   const commands = [mutate, selected, ordinary], roots = [root, readRoot, ordinaryRoot];
-  const member = { participant, logicalStorage, commands, allowReconstitution: true as const,
+  const member = { participant, logicalStorage, commands, reconstitution: "advanceUpdatedAt" as const,
     allowStorageInsertionOrder: true as const, validateLogicalCall };
   const statement = <A>(query: PromiseLike<A>) => runDrizzleStatementEffect(query, cause => new Error("Neutral insertion inventory", { cause }));
   const documentId = (row: typeof fxAppRowRevisions.$inferSelect) => appDocumentIdV1FromRowIdentity({ tableId: row.tableId,
@@ -198,7 +198,7 @@ export const logicalInsertionOrderScenario = Effect.fn("LogicalInsertionOrder.sc
       const closed = yield* inventory;
       expect(yield* Effect.result(escaped())).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } }); expect(yield* inventory).toEqual(closed);
       yield* Effect.acquireUseRelease(makeAtomicCommerceHost({ ...hostInput, executionIsolation: "scopeExclusive", commands: roots,
-        participants: [{ participant, logicalStorage, commands, allowReconstitution: true, validateLogicalCall }] }), denied => Effect.gen(function* () {
+        participants: [{ participant, logicalStorage, commands, reconstitution: "advanceUpdatedAt", validateLogicalCall }] }), denied => Effect.gen(function* () {
         expect(yield* Effect.result(denied.run(request, root, "pending"))).toMatchObject({ _tag: "Failure", failure: { reason: "requestConflict" } });
         expect(yield* Effect.result(denied.run(denied.newRequestKey(), root, "denied"))).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
         expect(yield* Effect.result(denied.run(denied.newRequestKey(), root, "caughtDenied"))).toMatchObject({ _tag: "Failure", failure: { reason: "rollbackOnly" } });

@@ -18,6 +18,33 @@ const port: WorkflowExecutionPort<Error> = {
 };
 
 describe("prepared workflow resolution", () => {
+  it("snapshots bare native transform Dates as ISO strings before the next callback", async () => {
+    const date = new Date("2026-10-19T01:00:00.000Z"), seen: unknown[] = [];
+    const receive = createStep("native-transform-date-receiver", (input: unknown) => {
+      seen.push(input); date.setTime(0); return new StepResponse(input);
+    });
+    const flow = createWorkflow("native-transform-date", () => new WorkflowResponse(receive(transform({}, () => ({
+      shipped_at: date, positional: [date],
+    })))));
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port))).toEqual({
+      shipped_at: "2026-10-19T01:00:00.000Z", positional: ["2026-10-19T01:00:00.000Z"],
+    });
+    expect(seen).toEqual([{ shipped_at: "2026-10-19T01:00:00.000Z", positional: ["2026-10-19T01:00:00.000Z"] }]);
+  });
+
+  it("refuses invalid, decorated and counterfeit transform Dates without invoking custom serialization", async () => {
+    const custom = vi.fn(() => "not-native"), decorated = new Date(0);
+    Object.defineProperty(decorated, "toJSON", { get: custom });
+    class DerivedDate extends Date {}
+    for (const date of [new Date(Number.NaN), decorated, Object.create(Date.prototype), new DerivedDate(0)]) {
+      const next = vi.fn(() => new StepResponse(null)), receive = createStep("refused-date-receiver", next);
+      const flow = createWorkflow("refused-transform-date", () => new WorkflowResponse(receive(transform({}, () => ({ date })))));
+      await expect(runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port))).rejects.toMatchObject({ reason: "invalidReference" });
+      expect(next).not.toHaveBeenCalled();
+    }
+    expect(custom).not.toHaveBeenCalled();
+  });
+
   // Frozen native136 SDK differential, pin48d5cc675e4e8bc821e22c20c88a751acc66fb5f:
   // create-step-handler's stored response -> resolve-value -> WorkflowResponse.
   // These are actual native result shapes, including the surprising raw-void

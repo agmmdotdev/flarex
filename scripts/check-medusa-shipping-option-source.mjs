@@ -86,6 +86,19 @@ export function verifyFulfillmentCancellationCallbacks(root, overrides = {}) {
   ], "Changed native Fulfillment cancellation callback behavior", overrides);
 }
 
+/** Shipment keeps its native guard order, generated date, nested update,
+ * input-derived preimage and original retained inverse. Only finite imports
+ * and the established transaction-covered compensation annotation differ.
+ * @param {string} root @param {Record<string, {source?: string, target?: string}>} overrides */
+export function verifyFulfillmentShipmentCallbacks(root, overrides = {}) {
+  return verifyShippingCallbacks(root, [
+    ["workflows/create-shipment.ts", undefined],
+    ["workflows/update-fulfillment.ts", undefined],
+    ["steps/validate-shipment.ts", undefined],
+    ["steps/update-fulfillment.ts", "updateFulfillmentStepId"],
+  ], "Changed native Fulfillment shipment callback behavior", overrides);
+}
+
 /** @param {string} root @param {ReadonlyArray<readonly [string, string | undefined]>} files
  * @param {string} failure @param {Record<string, {source?: string, target?: string}>} overrides */
 function verifyShippingCallbacks(root, files, failure, overrides) {
@@ -99,7 +112,7 @@ function verifyShippingCallbacks(root, files, failure, overrides) {
       : file === "steps/set-shipping-options-prices.ts" ? adaptRuleCompensation(source, "pricing", failure) : source;
     if (file !== "../common/steps/emit-event.ts") {
       expected = replaceChecked(expected, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"', 1, failure);
-      if (!["workflows/create-fulfillment.ts", "workflows/cancel-fulfillment.ts"].includes(file)) expected = replaceChecked(expected, 'from "@medusajs/framework/utils"', file === "steps/delete-shipping-options.ts"
+      if (!["workflows/create-fulfillment.ts", "workflows/cancel-fulfillment.ts", "workflows/create-shipment.ts", "workflows/update-fulfillment.ts"].includes(file)) expected = replaceChecked(expected, 'from "@medusajs/framework/utils"', file === "steps/delete-shipping-options.ts"
         ? 'from "@medusajs/utils/modules-sdk/definition"' : 'from "@medusajs/framework/utils/portable"', 1, failure);
     } else expected = replaceChecked(expected, "      options: input.options,",
       "      ...(input.options === undefined ? {} : { options: input.options }),", 1, failure);
@@ -117,6 +130,10 @@ function verifyShippingCallbacks(root, files, failure, overrides) {
       expected = replaceChecked(expected, 'from "../steps"', 'from "../steps/cancel-fulfillment"', 1, failure);
       expected = replaceChecked(expected, "    cancelFulfillmentStep(input.id)\n", "    cancelFulfillmentStep(input.id)\n    return new WorkflowResponse(void 0)\n", 1, failure);
     }
+    if (file === "workflows/create-shipment.ts") expected = replaceChecked(expected,
+      'from "../steps"', 'from "../steps/validate-shipment"', 1, failure);
+    if (file === "workflows/update-fulfillment.ts") expected = replaceChecked(expected,
+      'from "../steps"', 'from "../steps/update-fulfillment"', 1, failure);
     if (file === "workflows/update-shipping-options.ts") {
       expected = replaceChecked(expected, 'import {\n  setShippingOptionsPricesStep,\n  upsertShippingOptionsStep,\n} from "../steps"',
         'import { setShippingOptionsPricesStep } from "../steps/set-shipping-options-prices"\nimport { upsertShippingOptionsStep } from "../steps/upsert-shipping-options"', 1, failure);
