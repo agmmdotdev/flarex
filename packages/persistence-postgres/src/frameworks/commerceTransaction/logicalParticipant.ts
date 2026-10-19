@@ -10,7 +10,7 @@ import { requireLogicalRelationalAdmission, type LogicalRelationalAdmission } fr
 import { requireLogicalRelationalReadAdmission, type LogicalRelationalReadAdmission } from "../../storage/documents/logicalDocuments/relationalAdmission";
 import { makeLogicalDocumentWorkingSet, type LogicalDocumentChanges, type LogicalDocumentActivity } from "../../storage/documents/logicalDocuments/workingSet";
 import { LogicalSetNullPolicy, type LogicalStorageReadReadiness } from "../../storage/documents/logicalDocuments/model";
-import type { CommerceSetNullSelection, CommerceReferenceReplacement } from "./commands";
+import type { CommerceSetNullSelection, CommerceReferenceReplacement, CommerceDeletedReferenceSelection } from "./commands";
 import { bindPreparedLogicalRelationalRows, detachLogicalRelationalActivityJson } from "../../storage/documents/logicalDocuments/relationalRows";
 import { commerceError, logicalCommerceError, type CommerceTransactionError } from "./model";
 import { projectCommerceRequestFailure } from "./request";
@@ -53,6 +53,7 @@ declare const closureBrand: unique symbol;
 export interface LogicalCommerceClosure { readonly [closureBrand]: true }
 export interface LogicalCommerceMutation {
   readonly ordinal: number;
+  readonly deletedReference?: Readonly<{ sourceColumn: string; targetTable: string; targetColumn: string; targetKey: string; targetDeleteOrdinal: number }>;
   readonly table: string;
   readonly operation: "insert" | "patch" | "replace" | "delete";
   readonly before: JsonObject | null;
@@ -99,6 +100,7 @@ interface ClosureState {
   readonly maximumIdentities: number;
   readonly logicalPublication: "mixed" | undefined;
   readonly setNullPolicy: LogicalSetNullPolicy | undefined;
+  readonly detachDeletedReferences: boolean;
 }
 const closures = new WeakMap<object, ClosureState>();
 const decodeSetNullPolicy = Schema.decodeUnknownEffect(Schema.UndefinedOr(LogicalSetNullPolicy), { onExcessProperty: "error" });
@@ -110,7 +112,7 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, initialContext: BoundedRequestContext, id: string,
   allowReferenceReplacement = false, selectedResources?: CommerceResources, logicalPublication?: "mixed",
   allowReconstitution = false, allowPreservingDeletionUpsert = false, allowActiveRestoreUpdate = false, allowStorageInsertionOrder = false,
-  setNullPolicy?: LogicalSetNullPolicy,
+  setNullPolicy?: LogicalSetNullPolicy, detachDeletedReferences = false,
 ) {
   const decodedSetNullPolicy = yield* decodeSetNullPolicy(setNullPolicy)
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
@@ -129,6 +131,7 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
   if (readReadiness.kind === "full")
     for (const table of state.tables) yield* Effect.fromResult(bindPreparedLogicalRelationalRows(table.mechanics, logicalCommerceError));
   const working = yield* makeLogicalDocumentWorkingSet({ tx, scopeId: state.authority.scopeId, clock: state.clock, lifetime,
+    ...(detachDeletedReferences ? { detachDeletedReferences: true as const } : {}),
     ...(allowReconstitution ? { allowReconstitution: true as const } : {}),
     ...(allowPreservingDeletionUpsert ? { allowPreservingDeletionUpsert: true as const } : {}),
     ...(allowActiveRestoreUpdate ? { allowActiveRestoreUpdate: true as const } : {}),
@@ -166,7 +169,7 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
     const closure = Object.freeze({}) as LogicalCommerceClosure;
     closures.set(closure, { admission, tx, lifetime, changes, activity: () => projectActivity(activity),
       maximumIndexEntries: selectedResources?.catalogRows ?? logicalCommerceWorkingSetLimits.identities,
-      maximumFacts: resources.facts, maximumIdentities, logicalPublication, setNullPolicy: selectedSetNullPolicy });
+      maximumFacts: resources.facts, maximumIdentities, logicalPublication, setNullPolicy: selectedSetNullPolicy, detachDeletedReferences });
     return closure;
   }, work => observeExecution("LogicalCommerce.close", work, "caller"));
   const callActivity = Effect.fnUntraced(function* (
@@ -178,6 +181,15 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
     transactionTime: (context: BoundedRequestContext) => working.readTransactionTime(context, id),
     activityCursor: working.activityCursor, callActivity,
     attemptCount: working.attemptCount, lifecycleCount: working.lifecycleCount,
+    ...(detachDeletedReferences ? { detachDeletedReference: (context: BoundedRequestContext,
+      selection: CommerceDeletedReferenceSelection, cursor?: ReturnType<typeof working.activityCursor>) => Effect.gen(function* () {
+      const sourceTableId = state.writeMechanics.tableId(selection.sourceTable);
+      const targetTableId = state.writeMechanics.tableId(selection.targetTable);
+      if (sourceTableId === undefined || targetTableId === undefined)
+        return yield* lifetime.operation(context, id, "write", Effect.fail(commerceError("invalidAuthority")));
+      yield* working.detachDeletedReference(context, id, { sourceTableId, sourceColumn: selection.sourceColumn,
+        targetTableId, targetColumn: selection.targetColumn, targetKey: selection.targetKey }, cursor);
+    }) } : {}),
     planSetNull: (context: BoundedRequestContext, selection: CommerceSetNullSelection) => Effect.gen(function* () {
       if (selectedSetNullPolicy === undefined || selection.managedUpdate !== selectedSetNullPolicy.managedUpdate)
         return yield* Effect.fail(commerceError("invalidAuthority"));
@@ -228,7 +240,13 @@ export const projectLogicalCommerceActivity = Effect.fnUntraced(function* (
     if (table === undefined || table !== attempt.tableName ||
       (before !== null && !isJsonObject(before)) || (after !== null && !isJsonObject(after)))
       return yield* Effect.fail(commerceError("storedCorruption"));
-    mutations.push(Object.freeze({ ordinal: attempt.ordinal, table, operation: attempt.operation, before, after }));
+    const targetTable = attempt.deletedReference === undefined ? undefined : names.get(attempt.deletedReference.targetTableId);
+    if (attempt.deletedReference !== undefined && targetTable === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
+    mutations.push(Object.freeze({ ordinal: attempt.ordinal, table, operation: attempt.operation, before, after,
+      ...(attempt.deletedReference === undefined || targetTable === undefined ? {} : { deletedReference: Object.freeze({
+        sourceColumn: attempt.deletedReference.sourceColumn, targetTable,
+        targetColumn: attempt.deletedReference.targetColumn, targetKey: attempt.deletedReference.targetKey,
+        targetDeleteOrdinal: attempt.deletedReference.targetDeleteOrdinal }) }) }));
   }
   const lifecycle: LogicalCommerceLifecycleObservation[] = [];
   for (const observation of activity.lifecycle) {

@@ -30,7 +30,7 @@ const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String, meta
 /** Correlate finite native module calls with complete actual row/read/event
  * evidence. Shared graph/lifecycle owners remain the sole storage executors. */
 export function shippingOptionCreationPolicy(prepared: Prepared) {
-  const { contracts } = prepared, byTable = new Map(contracts.entities.map(entity => [entity.table.name, entity]));
+  const { contracts } = prepared, byTable = new Map([...contracts.entities, ...contracts.physicalEntities].map(entity => [entity.table.name, entity]));
   const capture = Effect.fn("ShippingOptionCreate.captureEvent")(function* (input: unknown) {
     const event = yield* decodeEvent(input);
     if (event.name !== buildModuleResourceEventName({ prefix: Modules.FULFILLMENT, objectName: event.metadata.object, action: event.metadata.action }) ||
@@ -108,7 +108,7 @@ export function shippingOptionCreationPolicy(prepared: Prepared) {
       if (call.result !== null) return yield* Effect.fail(mismatch());
       const ids = yield* Effect.fromResult(decodeShippingOptionPhysicalIds(call.input));
       const removed = yield* Effect.fromResult(correlatePhysicalGraphReceipt({ tables: contracts.tables, entities: contracts.physicalEntities,
-        root: contracts.option, requestedIds: ids, activity }));
+        root: contracts.option, requestedIds: ids, activity, referenceDetachments: contracts.referenceDetachments }));
       for (const id of removed) expectedEvents.push({ object: contracts.option.name, id });
     } else if (call.commandName === "shippingOptionCreateForWorkflow") {
       const input = structuredClone(yield* Effect.fromResult(decodeShippingOptionCreates(call.input)));
@@ -120,7 +120,7 @@ export function shippingOptionCreationPolicy(prepared: Prepared) {
       let tablePosition = -1;
       for (const [ordinal, mutation] of activity.mutations.entries()) {
         const position = [contracts.type.name, contracts.option.name, contracts.rule.name].indexOf(mutation.table), entity = byTable.get(mutation.table);
-        if (position < 0 || position < tablePosition || entity === undefined || mutation.ordinal !== ordinal || mutation.operation !== "insert" || mutation.before !== null || mutation.after === null)
+        if (position < 0 || position < tablePosition || entity === undefined || mutation.ordinal !== ordinal || mutation.operation !== "insert" || mutation.before !== null || mutation.after === null || mutation.deletedReference !== undefined)
           return yield* Effect.fail(mismatch());
         tablePosition = position;
         const value = yield* Effect.fromResult(entity.decodeRow(projectNativeRow(mutation.after)));

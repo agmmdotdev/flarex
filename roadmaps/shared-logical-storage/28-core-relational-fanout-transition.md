@@ -15,6 +15,12 @@ It supports the native ShippingProfile physical-detach boundary described below;
 that status does not admit a new public API, arbitrary pending source writes or
 broader fan-out capacity.
 
+A separate eager nullable-reference operation is implemented for explicitly
+selected logical participants. It provides current pending visibility for the
+private native Shipping Option physical-delete profile described below. The
+terminal `planSetNull` contract and its broader page-materialization budgets
+remain unchanged.
+
 ## Trigger and ownership
 
 Native ProductType deletion detaches each Product with the deleted `type_id`
@@ -234,6 +240,45 @@ This preflight changes private core contribution and adapter DAL contracts as
 needed. It does not change public Medusa APIs or authorize a data reset. A
 Capacity refusal remains explicit above the declared budget; a performance
 claim requires bounded multi-shop and hot-tenant measurements.
+
+## Eager deleted-reference visibility
+
+The [native Shipping Option reference-detachment profile](../flarexdb-framework-integration/preflight/142-native-shipping-option-reference-detachment.md)
+uses `detachDeletedReference` when native deletion must become visible before
+its outer module call returns. Trusted participant preparation explicitly
+selects `detachDeletedReferences:true`, captures it immutably and binds it to
+replay identity. Omission preserves existing profile identities and grants no
+eager capability. Both endpoint tables must belong to the calling member's
+write mechanics; the existing metadata owner authenticates the exact nullable
+scalar NO ACTION FK. Installing the source schema alone grants no operation.
+
+Deletion and detachment must occur within the same outer module call. Core
+selects complete indexed current source membership, including historical rows
+and pending inserts, patches, repoints and deletions, then applies ordinary
+FK-only patches with managed updates preserved. Later reads and writes observe
+the detached values. A target born and deleted in the root is admissible;
+recreating its key later does not reattach previously detached sources. A later
+real deletion can detach newly attached sources, while a still-present target
+replacement refuses the operation.
+
+Each patch retains causal evidence issued by the existing root/attempt owner.
+Contribution validation authenticates its exact source preimage and afterimage,
+real target deletion, scope and both attempt ordinals. Call-local activity
+rebases the authenticated ordinals together. A plain marker, another call's
+deletion or an invented final absence supplies no authority. The source's
+other fields, timestamps, deletion state and insertion generation remain
+unchanged; ordinary coalesced row revisions, indexes, history and durable facts
+settle through the existing publication owner. Framework events remain with
+the native adapter.
+
+This operation uses existing selection, working-set, call, byte and publication
+limits. Complete-cohort overflow refuses the whole root; it does not borrow the
+terminal transition's derived-fact allowance. Existing `planSetNull` modes,
+matching-source restrictions and terminal read/write guards remain intact.
+Independently durable borrowed journals do not admit eager detachment until
+their journal/lifetime proof exists. Public and hosted activation, populated
+source upgrades, broader native profiles and general fan-out capacity remain
+separate gates.
 
 ## Remaining scale gate
 

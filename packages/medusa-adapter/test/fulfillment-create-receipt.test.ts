@@ -10,6 +10,7 @@ import { captureFulfillmentCreationMetadata } from "../src/modules/fulfillment/s
 import { prepareFulfillmentCreationRepository } from "../src/modules/fulfillment/fulfillment-create-repository";
 import { fulfillmentCreationPolicy } from "../src/modules/fulfillment/fulfillment-create-receipt";
 import { decodeFulfillmentCreate } from "../src/modules/fulfillment/fulfillment-create-input";
+import { captureFulfillmentItemQuantity } from "../src/modules/fulfillment/fulfillment-create-value-profile";
 
 type Activity = Parameters<LogicalCallReceiptValidation>[1];
 type Call = Parameters<LogicalCallReceiptValidation>[0];
@@ -43,6 +44,26 @@ beforeAll(async () => {
 });
 
 describe("causal native Fulfillment creation receipts", () => {
+  it("requires the native Item numeric DTO instead of its persisted quantity string", async () => {
+    const first = row({}), request = { title: "Fraction", sku: "sku", barcode: "barcode", quantity: 0.125 },
+      input = { location_id: "location", provider_id: "manual_manual", items: [request], delivery_address: null, data: {} };
+    const item: JsonObject = { ...prepared.contracts.defaults.get("fulfillment_item"),
+      ...await Effect.runPromise(captureFulfillmentItemQuantity(request)), id: "item", fulfillment_id: "f",
+      created_at: before, updated_at: before, deleted_at: null };
+    const activity: Activity = { ...empty(), mutations: [{ ordinal: 0, table: "fulfillment", operation: "insert", before: null, after: first },
+      { ordinal: 1, table: "fulfillment_item", operation: "insert", before: null, after: item }],
+      observedRows: [...observed(first), { table: "fulfillment_item", row: item }], relationalReads: reads({ $or: [{ id: "f" }] }) };
+    const initial = prepared.contracts.initializeCreation(first, new Map([["fulfillment_item", [item]]]), Result.getOrThrow(decodeFulfillmentCreate(input))),
+      result = await Effect.runPromise(prepared.contracts.serialize(initial));
+    if (Array.isArray(result)) throw new Error("Expected one native Fulfillment");
+    const itemEvent = { name: "fulfillment.fulfillment-item.created", metadata: { source: "fulfillment", object: "fulfillment_item", action: "created" }, data: { id: "item" } };
+    const receipt = call("fulfillmentCreateForWorkflow", input, result, [event("created"), itemEvent], activity);
+    expect(result.items).toMatchObject([{ quantity: 0.125, raw_quantity: { value: "0.125", precision: 20 } }]);
+    expect(typeof item.quantity).toBe("string");
+    expect(Result.isSuccess(await validate(receipt, activity))).toBe(true);
+    expect(Result.isFailure(await validate({ ...receipt, result: { ...result, items: [item] } }, activity))).toBe(true);
+  });
+
   it("accepts the first null-data DTO separately from the final Manual empty-object row", async () => {
     const first = row(), final = { ...first, data: {}, updated_at: after };
     const input = { location_id: "location", provider_id: "manual_manual", items: [], delivery_address: null };

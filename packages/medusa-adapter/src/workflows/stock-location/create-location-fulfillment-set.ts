@@ -37,10 +37,13 @@ export const prepareLocationFulfillmentSetCreationWorkflow = Effect.fn("Location
   const registrations = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
   if (Object.keys(registrations).length !== 2) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const installed = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, ["fulfillment", "locationLinks"]));
-  const fulfillmentSource = workflowModuleDefinition(installed.fulfillment.module)?.source;
+  const fulfillmentDefinition = workflowModuleDefinition(installed.fulfillment.module), fulfillmentSource = fulfillmentDefinition?.source;
   const linkSource = workflowModuleDefinition(installed.locationLinks.module)?.source;
-  if (fulfillmentSource?.name !== "flarex-fulfillment-set-create" || fulfillmentSource.profile !== "fulfillment-set-create"
-    || linkSource?.profile !== "location-fulfillment-set-creation") return yield* Effect.fail(commerceError("invalidAuthority"));
+  if (!(fulfillmentSource?.name === "flarex-fulfillment-set-create" && fulfillmentSource.profile === "fulfillment-set-create" &&
+    fulfillmentDefinition?.logical?.detachDeletedReferences === undefined) &&
+    !(fulfillmentSource?.name === "flarex-fulfillment-set-create-reference-detachment" && fulfillmentSource.profile === "fulfillment-set-create-reference-detachment" &&
+      fulfillmentDefinition?.logical?.detachDeletedReferences === true) || linkSource?.profile !== "location-fulfillment-set-creation")
+    return yield* Effect.fail(commerceError("invalidAuthority"));
   for (const module of Object.values(installed)) if (module.logicalResources !== undefined && !jsonEqual(module.logicalResources, locationFulfillmentSetCreationResources))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const modules = { fulfillment: { ...installed.fulfillment, logicalResources: locationFulfillmentSetCreationResources },

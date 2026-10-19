@@ -58,6 +58,7 @@ export interface WorkflowLogicalPolicy {
   readonly validateLogicalCall: LogicalCommerceCallValidation;
   /** Module-owned conjunction over the closed activity of the same participant. */
   readonly validateLogical?: LogicalCommerceEventValidation;
+  readonly detachDeletedReferences?: true;
   readonly setNullPolicy?: LogicalSetNullPolicy;
   readonly allowReconstitution?: true;
   readonly allowPreservingDeletionUpsert?: true;
@@ -108,6 +109,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
     const supplied = definition.logical === undefined ? undefined : yield* captureWorkflowRecord(definition.logical);
     if (supplied !== undefined && (typeof supplied.capture !== "function" || typeof supplied.validateLogicalCall !== "function" ||
       supplied.validateLogical !== undefined && typeof supplied.validateLogical !== "function" ||
+      supplied.detachDeletedReferences !== undefined && supplied.detachDeletedReferences !== true ||
       supplied.allowReconstitution !== undefined && supplied.allowReconstitution !== true ||
       supplied.allowPreservingDeletionUpsert !== undefined && supplied.allowPreservingDeletionUpsert !== true ||
       supplied.allowActiveRestoreUpdate !== undefined && supplied.allowActiveRestoreUpdate !== true ||
@@ -134,6 +136,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
         yield* supplied.validateLogicalCall(call, activity, command);
       }),
       commands,
+      ...(supplied.detachDeletedReferences === undefined ? {} : { detachDeletedReferences: supplied.detachDeletedReferences }),
       ...(setNullPolicy === undefined ? {} : { setNullPolicy: Object.freeze({ ...setNullPolicy }) }),
       ...(supplied.allowReconstitution === undefined ? {} : { allowReconstitution: supplied.allowReconstitution }),
       ...(supplied.allowPreservingDeletionUpsert === undefined ? {} : { allowPreservingDeletionUpsert: supplied.allowPreservingDeletionUpsert }),

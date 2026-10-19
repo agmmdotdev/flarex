@@ -8,7 +8,7 @@ import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/framew
 import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
 import { makeStockLocationCommands } from "../../src/modules/stock-location/service";
-import { makeLocalShippingOptionCreationCommands } from "../../src/modules/fulfillment/shipping-option-create-service";
+import { makeLocalShippingOptionCreationCommands, makeLocalShippingOptionCreationWithReferenceDetachmentCommands } from "../../src/modules/fulfillment/shipping-option-create-service";
 import { compileFulfillmentCreationDefinition } from "../../src/modules/fulfillment/shipping-profile-schema";
 import { makeLocalPricingCommands } from "../../src/modules/pricing/service";
 import { makeLocalRegionReadCommands } from "../../src/modules/region/service";
@@ -52,12 +52,12 @@ export function shippingOptionCreationInput(prefix: string, count = 1): typeof S
  * provide existing endpoints; no fake provider or synthetic Query service runs. */
 export async function prepareLogicalShippingOptionCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
   shared?: Readonly<{ resource: LogicalCurrencyFixture["resource"];
-    fixtureIdentity: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }> }>) {
+    fixtureIdentity: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }> }>, profile: "standalone" | "reference-detachment" = "standalone") {
   const configuration = { includeShippingProfile: true, includeServiceZoneCreation: true, includeFulfillmentCreation: true,
     includeStockLocation: true, includeLocationFulfillmentSetLink: true, includeLocationFulfillmentProviderLink: true,
     includeShippingOptionPriceSetLink: true, includePricing: true, includeRegion: true };
   const fixture = await logicalCurrencyFixture(driver, close, shared === undefined ? configuration : { ...configuration, ...shared });
-  const fulfillment = await Effect.runPromise(makeLocalShippingOptionCreationCommands()), pricing = await Effect.runPromise(makeLocalPricingCommands("shipping-options")),
+  const fulfillment = await Effect.runPromise(profile === "reference-detachment" ? makeLocalShippingOptionCreationWithReferenceDetachmentCommands() : makeLocalShippingOptionCreationCommands()), pricing = await Effect.runPromise(makeLocalPricingCommands("shipping-options")),
     region = await Effect.runPromise(makeLocalRegionReadCommands()), stockLocation = await Effect.runPromise(makeStockLocationCommands("read")),
     locationLinks = await Effect.runPromise(prepareLocationFulfillmentSetLinkRead()), providerLinks = await Effect.runPromise(prepareLocationFulfillmentProviderLink()),
     priceSetLinks = await Effect.runPromise(prepareShippingOptionPriceSetLink());

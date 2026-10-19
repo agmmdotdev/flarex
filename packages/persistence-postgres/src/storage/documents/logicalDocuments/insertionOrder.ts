@@ -140,3 +140,73 @@ export function compareLogicalInsertionOrder(left: LogicalInsertionOrder, right:
     return left.commitSeq < right.commitSeq ? -1 : 1;
   return left.attemptOrdinal - right.attemptOrdinal;
 }
+
+/** The same attempt/root issuer authenticates eager FK-only maintenance. A
+ * public marker alone cannot prove that an admitted working set executed the
+ * indexed selection; detached finite graphs retain this inert original proof. */
+declare const deletedReferenceEvidenceBrand: unique symbol;
+export interface LogicalDeletedReferenceEvidence { readonly [deletedReferenceEvidenceBrand]: true }
+export interface LogicalDeletedReferenceCause {
+  readonly sourceColumn: string;
+  readonly targetTableId: CatalogTableId;
+  readonly targetColumn: string;
+  readonly targetKey: string;
+  readonly targetDeleteOrdinal: number;
+}
+const deletedReferenceEvidence = new WeakMap<LogicalDeletedReferenceEvidence, Readonly<{
+  allocation: Allocation; scopeId: ScopeId; tableId: CatalogTableId; documentId: AppDocumentIdV1;
+  ordinal: number; cause: LogicalDeletedReferenceCause; before: Uint8Array; after: Uint8Array;
+  targetDocumentId: AppDocumentIdV1; targetBefore: Uint8Array;
+}>>();
+export function issueLogicalDeletedReferenceEvidence(handle: LogicalInsertionRoot, scopeId: ScopeId,
+  patch: Readonly<{ ordinal: number; tableId: CatalogTableId; documentId: AppDocumentIdV1;
+    before: CanonicalFlarexValueV1; after: CanonicalFlarexValueV1 }>,
+  cause: LogicalDeletedReferenceCause, deleted: Readonly<{ documentId: AppDocumentIdV1; before: CanonicalFlarexValueV1 }>,
+): Result.Result<LogicalDeletedReferenceEvidence, "invalidAuthority"> {
+  const namespace = rootHandles.get(handle);
+  if (namespace === undefined || allocationRoot(namespace).scopeId !== scopeId) return Result.fail("invalidAuthority");
+  // SAFETY: this existing attempt issuer owns the root namespace and proof registry.
+  const evidence = Object.freeze({}) as LogicalDeletedReferenceEvidence;
+  deletedReferenceEvidence.set(evidence, Object.freeze({ allocation: allocationRoot(namespace), scopeId,
+    tableId: patch.tableId, documentId: patch.documentId, ordinal: patch.ordinal, cause: Object.freeze({ ...cause }),
+    before: patch.before.sha256.slice(), after: patch.after.sha256.slice(),
+    targetDocumentId: deleted.documentId, targetBefore: deleted.before.sha256.slice() }));
+  return Result.succeed(evidence);
+}
+export function hasLogicalDeletedReferenceEvidence(scopeId: ScopeId, handle: LogicalInsertionRoot | undefined,
+  patch: Readonly<{ ordinal: number; tableId: CatalogTableId; documentId: AppDocumentIdV1; operation: string;
+    before: CanonicalFlarexValueV1 | null; after: CanonicalFlarexValueV1 | null;
+    deletedReference?: LogicalDeletedReferenceCause; deletedReferenceEvidence?: LogicalDeletedReferenceEvidence }>,
+  deleted: Readonly<{ tableId: CatalogTableId; documentId: AppDocumentIdV1; operation: string;
+    before: CanonicalFlarexValueV1 | null; after: CanonicalFlarexValueV1 | null }> | undefined,
+): boolean {
+  const cause = patch.deletedReference;
+  if (cause === undefined) return patch.deletedReferenceEvidence === undefined;
+  const namespace = handle === undefined ? undefined : rootHandles.get(handle);
+  const proof = patch.deletedReferenceEvidence === undefined ? undefined : deletedReferenceEvidence.get(patch.deletedReferenceEvidence);
+  return namespace !== undefined && proof !== undefined && allocationRoot(namespace) === allocationRoot(proof.allocation) &&
+    allocationRoot(namespace).scopeId === scopeId && proof.scopeId === scopeId && patch.operation === "patch" &&
+    patch.before !== null && patch.after !== null && patch.ordinal === proof.ordinal && patch.tableId === proof.tableId && patch.documentId === proof.documentId &&
+    proof.cause.sourceColumn === cause.sourceColumn && proof.cause.targetTableId === cause.targetTableId &&
+    proof.cause.targetColumn === cause.targetColumn && proof.cause.targetKey === cause.targetKey &&
+    proof.cause.targetDeleteOrdinal === cause.targetDeleteOrdinal &&
+    compareBytesLexicographically(proof.before, patch.before.sha256) === 0 && compareBytesLexicographically(proof.after, patch.after.sha256) === 0 &&
+    deleted !== undefined && deleted.operation === "delete" && deleted.before !== null && deleted.after === null &&
+    deleted.tableId === cause.targetTableId && deleted.documentId === proof.targetDocumentId &&
+    compareBytesLexicographically(proof.targetBefore, deleted.before.sha256) === 0;
+}
+
+/** The original proof owner alone lends a shifted view of an authentic token.
+ * Both ordinals move together; foreign marker data never selects either one. */
+export function rebaseLogicalDeletedReferenceEvidence(evidence: LogicalDeletedReferenceEvidence,
+  offset: number): LogicalDeletedReferenceEvidence | undefined {
+  const captured = deletedReferenceEvidence.get(evidence);
+  if (captured === undefined || !Number.isSafeInteger(offset) || offset < 0 ||
+    captured.ordinal < offset || captured.cause.targetDeleteOrdinal < offset) return undefined;
+  if (offset === 0) return evidence;
+  // SAFETY: this registry retains the original root and exact causal preimages.
+  const shifted = Object.freeze({}) as LogicalDeletedReferenceEvidence;
+  deletedReferenceEvidence.set(shifted, Object.freeze({ ...captured, ordinal: captured.ordinal - offset,
+    cause: Object.freeze({ ...captured.cause, targetDeleteOrdinal: captured.cause.targetDeleteOrdinal - offset }) }));
+  return shifted;
+}

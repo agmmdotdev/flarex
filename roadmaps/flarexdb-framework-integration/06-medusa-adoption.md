@@ -524,15 +524,21 @@ consumers retain their named selection. This is no populated-source upgrade.
 Public/hosted activation, external providers and broader Fulfillment workflows
 remain separate.
 
-Physical Option deletion with existing Fulfillment references remains a
-connected compatibility gate. Both unchanged native backends clear that FK
-without touching Fulfillment timestamps or emitting its update event; Drizzle
-does so through `detachDeletedRelations`, independently of SQLite FK DDL.
-The shared Medusa lifecycle and physical receipt owners must gain the native
-metadata-derived detachment using existing core set-null mechanics, with pending
-and historical-row proofs, before broader composed deletion/inverse support is
-claimed. The create/cancel slice changes no FK rule and establishes no such
-deletion parity.
+The [physical reference-detachment preflight](./preflight/142-native-shipping-option-reference-detachment.md)
+implements the named fresh twelve-table Option/Zone/Set inverse profile against
+unchanged default native PostgreSQL. Direct Option deletion agrees across both
+native backends; referenced parent cascades succeed on PostgreSQL and roll back
+with an FK error on comparison-only Drizzle. Original comparison outcomes are
+preserved, and no Drizzle-cascade parity is claimed. Shared lifecycle metadata
+selects exact native nullable references; the core eager operation authenticates
+same-call deletion and complete current, pending and historical source selection.
+It clears only the FK while preserving source timestamps and emits no source
+update event. The actual retained inverses and the combined native
+Option/Fulfillment preparation support later reads, cancellation and target
+recreation without reattaching sources. Existing eight-table selections and
+terminal Product/ShippingProfile set-null contracts remain unchanged.
+Independently durable execution, populated source upgrades and public/hosted
+activation remain separate gates.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

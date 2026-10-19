@@ -3,7 +3,7 @@ import { ShippingOption, ServiceZone, FulfillmentSet, FulfillmentProvider } from
 import { fulfillmentStaticResources } from "@medusajs/fulfillment/static-manifest";
 import { coerceFilterValue } from "@medusajs/drizzle/filter-value";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
-import type { CreateShippingOptionDTO, FindConfig, ShippingOptionDTO, ServiceZoneDTO, FulfillmentSetDTO, FulfillmentProviderDTO } from "@medusajs/framework/types";
+import type { Context, CreateShippingOptionDTO, FindConfig, ShippingOptionDTO, ServiceZoneDTO, FulfillmentSetDTO, FulfillmentProviderDTO } from "@medusajs/framework/types";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceCommandPreparation, commerceServiceCommands } from "../../module/commands";
 import { commerceModuleEventBus } from "../../module/events";
@@ -13,7 +13,10 @@ import { decodeGraphCount } from "../../local-graph/query";
 import type { GraphModuleDefinition } from "../../local-graph/model";
 import { commerceDecoder } from "../../value/decoder";
 import { defineFulfillmentPersistenceModule, type FulfillmentPersistenceModel } from "./fulfillment-module";
-import { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
+import type { PreparedCommerceModule } from "../../module/definition";
+import type { FulfillmentModuleService } from "@medusajs/fulfillment/services";
+import type { FulfillmentPhysicalProfile } from "./fulfillment-graph-contracts";
+import { captureFulfillmentCreationMetadata, captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
 import { ShippingOptionCreates, ShippingOptionPhysicalIds, decodeShippingOptionCreates, decodeShippingOptionPhysicalIds } from "./shipping-option-create-input";
 import { ShippingOptionReadFilters, ShippingProviderReadFilters, ShippingOptionReadConfig, decodeShippingOptionReadInput, decodeShippingProviderReadInput } from "./shipping-option-create-query";
 import { prepareShippingOptionCreationRepository } from "./shipping-option-create-repository";
@@ -41,24 +44,48 @@ export function decodeShippingOptionListArguments(input: unknown) {
 
 /** Genuine native Option upsert's create branch, local Manual validation,
  * selected graph reads and retained physical inverse share one outer owner. */
-export const makeLocalShippingOptionCreationCommands = Effect.fn("ShippingOptionAdapter.createCommands")(function* () {
-  const metadata = yield* captureServiceZoneCreationMetadata();
+const makeLocalShippingOptionCreationForProfile = Effect.fn("ShippingOptionAdapter.createCommands")(function* (profile: FulfillmentPhysicalProfile) {
+  const metadata = yield* (profile === "reference-detachment" ? captureFulfillmentCreationMetadata() : captureServiceZoneCreationMetadata());
   return yield* Effect.fromResult(Result.gen(function* () {
-    const prepared = yield* prepareShippingOptionCreationRepository(metadata.frame);
-    const module = yield* defineFulfillmentPersistenceModule({ name: "flarex-shipping-option-create", profile: "shipping-option-create", providers: "manual",
+    const prepared = yield* prepareShippingOptionCreationRepository(metadata.frame, profile);
+    const module = yield* defineFulfillmentPersistenceModule({ name: profile === "reference-detachment" ? "flarex-shipping-option-create-reference-detachment" : "flarex-shipping-option-create",
+      profile: profile === "reference-detachment" ? "shipping-option-create-reference-detachment" : "shipping-option-create", providers: "manual",
       bind: (ctx, owner) => {
         const bound = prepared.bind(ctx, owner), eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
           capture: message => bound.bridge.current().captureLocalEvent(message), check: work => bound.bridge.checked(ctx, work), refuse: bound.refuse });
         return { baseRepository: bound.repository, repository: (model: FulfillmentPersistenceModel) => model === ShippingOption ? bound.repository
           : model === ServiceZone ? bound.zoneRepository : model === FulfillmentSet ? bound.setRepository : model === FulfillmentProvider ? bound.providerRepository : bound.denied,
           events: bound.mutationEvents, eventBus, denied: bound.denied };
-      }, service: native => ({ upsertShippingOptions: native.upsertShippingOptions.bind(native), deleteShippingOptions: native.deleteShippingOptions.bind(native),
-        validateShippingOptionsForPriceCalculation: native.validateShippingOptionsForPriceCalculation.bind(native),
-        listShippingOptions: native.listShippingOptions.bind(native), listAndCountShippingOptions: native.listAndCountShippingOptions.bind(native),
-        listServiceZones: native.listServiceZones.bind(native), listAndCountServiceZones: native.listAndCountServiceZones.bind(native),
-        listFulfillmentSets: native.listFulfillmentSets.bind(native), listAndCountFulfillmentSets: native.listAndCountFulfillmentSets.bind(native),
-        listFulfillmentProviders: native.listFulfillmentProviders.bind(native), listAndCountFulfillmentProviders: native.listAndCountFulfillmentProviders.bind(native) }),
+      }, service: bindShippingOptionCreationNativeService,
     }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
+    return yield* prepareShippingOptionCreationCommands(module, prepared);
+  }));
+});
+
+export const makeLocalShippingOptionCreationCommands = Effect.fn("ShippingOptionAdapter.standaloneCreation")(function* () {
+  return yield* makeLocalShippingOptionCreationForProfile("standalone");
+});
+export const makeLocalShippingOptionCreationWithReferenceDetachmentCommands = Effect.fn("ShippingOptionAdapter.referenceDetachment")(function* () {
+  return yield* makeLocalShippingOptionCreationForProfile("reference-detachment");
+});
+
+type ShippingOptionNativeService = Pick<FulfillmentModuleService, "upsertShippingOptions" | "deleteShippingOptions" |
+  "validateShippingOptionsForPriceCalculation" | "listShippingOptions" | "listAndCountShippingOptions" | "listServiceZones" |
+  "listAndCountServiceZones" | "listFulfillmentSets" | "listAndCountFulfillmentSets" | "listFulfillmentProviders" | "listAndCountFulfillmentProviders">;
+export const bindShippingOptionCreationNativeService = (native: FulfillmentModuleService) => ({
+  upsertShippingOptions: native.upsertShippingOptions.bind(native), deleteShippingOptions: native.deleteShippingOptions.bind(native),
+  validateShippingOptionsForPriceCalculation: native.validateShippingOptionsForPriceCalculation.bind(native),
+  listShippingOptions: native.listShippingOptions.bind(native), listAndCountShippingOptions: native.listAndCountShippingOptions.bind(native),
+  listServiceZones: native.listServiceZones.bind(native), listAndCountServiceZones: native.listAndCountServiceZones.bind(native),
+  listFulfillmentSets: native.listFulfillmentSets.bind(native), listAndCountFulfillmentSets: native.listAndCountFulfillmentSets.bind(native),
+  listFulfillmentProviders: native.listFulfillmentProviders.bind(native), listAndCountFulfillmentProviders: native.listAndCountFulfillmentProviders.bind(native),
+});
+
+/** Reuse native commands, authenticated method tokens, graph reads and receipt
+ * contracts when a named combined module owns the same genuine constructor. */
+export function prepareShippingOptionCreationCommands<Service extends { readonly service: ShippingOptionNativeService; readonly context: Context }>(module: PreparedCommerceModule<Service>,
+  prepared: Result.Result.Success<ReturnType<typeof prepareShippingOptionCreationRepository>>) {
+  return Result.gen(function* () {
     const commands = commerceServiceCommands(module.use), prepare = commerceCommandPreparation("ShippingOptionCreation.prepare");
     const upsert = commands.write("shippingOptionCreateForWorkflow", prepare(decodeShippingOptionCreates),
       // SAFETY: runtime admission preserves the native rule validator's wider
@@ -117,8 +144,8 @@ export const makeLocalShippingOptionCreationCommands = Effect.fn("ShippingOption
       policy = shippingOptionCreationPolicy(prepared);
     const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description,
       methods: { upsertShippingOptions, deleteShippingOptions, validateShippingOptionsForPriceCalculation,
-        listShippingOptions, listServiceZones, listFulfillmentSets, listFulfillmentProviders }, graph: { aliases, reads }, logical: { ...policy, commands: admitted } });
+        listShippingOptions, listServiceZones, listFulfillmentSets, listFulfillmentProviders }, graph: { aliases, reads }, logical: { ...policy, commands: admitted, ...(prepared.contracts.referenceDetachments.length ? { detachDeletedReferences: true as const } : {}) } });
     return { upsert, remove, validate, optionList, zoneList, setList, providerList, optionCount, zoneCount, setCount, providerCount,
       commands: admitted, workflow, withService: module.use, contracts: prepared.contracts, logicalEventPolicy: () => policy };
-  }));
-});
+  });
+}

@@ -474,6 +474,9 @@ export function runFinitePointCommitPublication(target: LocatedPointCommitPublic
     }));
     const allowed = new Set([...command.attemptedTableIds, ...command.sources.flatMap(source => [...source.selected.tableIds])]);
     yield* validateLogicalDocumentChanges({
+      // Only the admitted finite working-set issuer can produce causal proofs.
+      // Acceptance of that proof does not grant a command capability or journal mode.
+      detachDeletedReferences: true,
       tx,
       scopeId: command.authorityPins.scopeId, tables: allowed, maximumIndexEntries: 4096,
       conflict: observation => new PointCommitConflictV1Error({

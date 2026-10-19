@@ -7,11 +7,12 @@ import type { CommerceStore } from "./storeModel";
 import type { CommerceResources } from "./resources";
 import { makeCommerceOperations, type CommerceOperations } from "./operations";
 import { captureCommerceJsonData } from "./request";
-import type { CommerceSetNullSelection, CommerceReferenceReplacement } from "./commands";
+import type { CommerceSetNullSelection, CommerceReferenceReplacement, CommerceDeletedReferenceSelection } from "./commands";
 
 type CommerceContextWorking = Readonly<{ store: CommerceStore; resources: CommerceResources;
     table: (context: BoundedRequestContext, tableId: string) => Effect.Effect<CommerceStore, CommerceTransactionError>;
     transactionTime?: (context: BoundedRequestContext) => Effect.Effect<string, CommerceTransactionError>;
+    detachDeletedReference?: (context: BoundedRequestContext, selection: CommerceDeletedReferenceSelection) => Effect.Effect<void, CommerceTransactionError>;
     planSetNull?: (context: BoundedRequestContext, selection: CommerceSetNullSelection) => Effect.Effect<void, CommerceTransactionError>;
     planReferenceReplacement?: (context: BoundedRequestContext, selection: CommerceReferenceReplacement) => Effect.Effect<void, CommerceTransactionError> }>;
 type CommerceContextInvocation = (context: BoundedRequestContext, command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
@@ -24,12 +25,14 @@ export function makeCommerceCommandContext(
   invoke: CommerceContextInvocation, captureEvent: CommerceContextEventCapture,
   operations?: CommerceOperations, callLimit?: number,
 ): CommerceCommandContext {
+  const detachDeletedReference = working.detachDeletedReference;
   const planSetNull = working.planSetNull;
   const planReferenceReplacement = working.planReferenceReplacement;
   const transactionTime = working.transactionTime;
   return Object.freeze({ manager, resources: working.resources, store: working.store,
     table: tableId => working.table(manager, tableId),
     ...(transactionTime === undefined ? {} : { transactionTime: transactionTime(manager) }),
+    ...(detachDeletedReference === undefined ? {} : { detachDeletedReference: (selection: CommerceDeletedReferenceSelection) => detachDeletedReference(manager, selection) }),
     ...(planSetNull === undefined ? {} : { planSetNull: (selection: CommerceSetNullSelection) => planSetNull(manager, selection) }),
     ...(planReferenceReplacement === undefined ? {} : { planReferenceReplacement: (selection: CommerceReferenceReplacement) => planReferenceReplacement(manager, selection) }),
     captureLocalEvent: event => captureEvent(manager, event),

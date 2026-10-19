@@ -307,3 +307,16 @@ it("latches a caught borrowed pending cancellation refusal in the original lifet
     expect(sealed.cause.reasons.some(reason => Cause.isFailReason(reason) && reason.error === original)).toBe(true);
   } finally { await Effect.runPromise(borrowed.abort); evaluator.close(); }
 });
+
+it("refuses eager reference detachment for an independently durable borrowed journal before source admission", async () => {
+  const { input, evaluator } = fixture(), member = input.members[0];
+  if (member === undefined) throw new Error("Missing capture fixture member");
+  const { rootEvaluator: _rootEvaluator, rootAttemptFence: _rootAttemptFence, captureStorage: _captureStorage, ...base } = input;
+  try {
+    const result = await Effect.runPromise(Effect.result(makeBorrowedWorkflowAttempt({ ...base, pendingRows: [],
+      members: [{ ...member, detachDeletedReferences: true, validateLogicalCall: () => Effect.void }],
+    })));
+    expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(construction.admissionEntries).toBe(0); expect(construction.storageReads).toBe(0); expect(construction.workingConstructions).toBe(0);
+  } finally { evaluator.close(); }
+});

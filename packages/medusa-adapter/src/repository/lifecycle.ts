@@ -3,9 +3,11 @@ import { describeToManyRelation, tupleKey } from "@medusajs/drizzle/relation-que
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { decodeCompiledDml } from "../schema/compiled";
+import type { PhysicalReferenceDetachment } from "./reference-detachment";
 
 type Table = Effect.Success<ReturnType<typeof decodeCompiledDml>>["tables"][number];
-type Catalog = Readonly<{ tables: readonly Table[]; entities: readonly Readonly<{ table: Table; model: string }>[] }>;
+type Catalog = Readonly<{ tables: readonly Table[]; entities: readonly Readonly<{ table: Table; model: string }>[];
+  referenceDetachments?: readonly PhysicalReferenceDetachment[] }>;
 type LifecycleResult = { roots: JsonObject[]; cascades: Record<string, JsonObject[]> };
 type LifecyclePlan = { rows: (table: Table) => readonly JsonObject[]; apply: () => Effect.Effect<LifecycleResult, CommerceTransactionError> };
 
@@ -94,6 +96,17 @@ export function medusaLifecycle(ctx: CommerceCommandContext, catalog: Catalog, o
         const store = yield* getStore(table);
         const inputKeys = rows(table).map(row => Object.fromEntries(keys(table).map(key => [key, row[key]])));
         const changed = operation === "delete" ? yield* store.delete(ctx.manager, inputKeys) : yield* store.lifecycle(ctx.manager, operation, inputKeys);
+        if (operation === "delete") for (const edge of catalog.referenceDetachments ?? []) if (edge.targetTable === table.name) {
+          if (ctx.detachDeletedReference === undefined) return yield* ctx.refuse(commerceError("invalidAuthority"));
+          for (const row of changed) {
+            const targetKey = row[edge.targetColumn];
+            if (typeof targetKey !== "string") return yield* ctx.refuse(commerceError("storedCorruption"));
+            // The core authenticates this exact preceding delete and performs
+            // the complete eager FK-only transition in the same live root.
+            yield* ctx.detachDeletedReference({ sourceTable: edge.sourceTable, sourceColumn: edge.sourceColumn,
+              targetTable: edge.targetTable, targetColumn: edge.targetColumn, targetKey });
+          }
+        }
         const model = catalog.entities.find(entity => entity.table === table);
         if (model !== undefined) cascades[model.model] = changed.map(row => ({ ...row }));
         if (table === rootTable) changedRoots = changed.filter(row => rootIdentities.has(tupleKey(row, keys(rootTable))))

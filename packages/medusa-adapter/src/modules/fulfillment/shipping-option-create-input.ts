@@ -4,7 +4,7 @@ import { commerceError, type JsonObject } from "@flarex/persistence-postgres/int
 import { commerceDecoder } from "../../value/decoder";
 import { compileCompleteRow } from "../../value/complete-row";
 import { assembleCommerceRelations, type CommerceRelations, type CommerceRelation } from "../../query/relations";
-import { compileFulfillmentGraphContracts } from "./fulfillment-graph-contracts";
+import { compileFulfillmentGraphContracts, type FulfillmentPhysicalProfile } from "./fulfillment-graph-contracts";
 import { ShippingOptionRuleCreate } from "./shipping-option-rule-input";
 import type { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
 
@@ -37,9 +37,9 @@ const decodeObjects = commerceDecoder(Schema.Array(Schema.JsonObject).check(Sche
 const decodeEmpty = commerceDecoder(Schema.Array(Schema.Never), "storedCorruption");
 type Metadata = Effect.Success<ReturnType<typeof captureServiceZoneCreationMetadata>>["frame"];
 
-export function compileShippingOptionCreationContracts(metadata: Metadata) {
+export function compileShippingOptionCreationContracts(metadata: Metadata, profileSelection: FulfillmentPhysicalProfile = "standalone") {
   return Result.gen(function* () {
-    const graph = yield* compileFulfillmentGraphContracts(metadata), { option, rule, zone, set } = graph;
+    const graph = yield* compileFulfillmentGraphContracts(metadata, profileSelection), { option, rule, zone, set } = graph;
     const type = metadata.tables.find(table => table.name === "shipping_option_type"),
       profile = metadata.tables.find(table => table.name === "shipping_profile"), provider = metadata.tables.find(table => table.name === "fulfillment_provider");
     if (type === undefined || profile === undefined || provider === undefined || option.cascades.delete.length !== 1 || option.cascades.delete[0] !== "rules" ||
@@ -98,6 +98,6 @@ export function compileShippingOptionCreationContracts(metadata: Metadata) {
       return yield* decodeRows(result);
     });
     return { ...graph, tables: metadata.tables, type, profile, provider, entities, optionEntity, typeEntity, ruleEntity, relations, setRelation, rules,
-      physicalEntities: [optionEntity, ruleEntity], decodeRows, initializeRows };
+      physicalEntities: [optionEntity, ruleEntity, ...graph.referenceEntities], decodeRows, initializeRows };
   });
 }

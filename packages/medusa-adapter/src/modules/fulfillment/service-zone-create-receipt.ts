@@ -44,7 +44,7 @@ export function serviceZoneCreationPolicy(contracts: Contracts) {
         const entity = byTable.get(mutation.table), row = mutation.after;
         const position = [contracts.zone.name, contracts.geo.name].indexOf(mutation.table);
         if (entity === undefined || position < 0 || position < lastTable || mutation.ordinal !== ordinal || mutation.operation !== "insert" ||
-          mutation.before !== null || row === null || typeof row.id !== "string" || identities.has(mutation.table + ":" + row.id))
+          mutation.before !== null || row === null || typeof row.id !== "string" || identities.has(mutation.table + ":" + row.id) || mutation.deletedReference !== undefined)
           return yield* Effect.fail(mismatch());
         lastTable = position; identities.add(mutation.table + ":" + row.id);
         const decoded = yield* Effect.fromResult(entity.decodeRow(projectNativeRow(row))).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
@@ -88,7 +88,7 @@ export function serviceZoneCreationPolicy(contracts: Contracts) {
       if (call.result !== null) return yield* Effect.fail(mismatch());
       const rawIds = yield* Effect.fromResult(decodeServiceZonePhysicalDeletionIds(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
       const rootIds = yield* Effect.fromResult(correlatePhysicalGraphReceipt({ tables: contracts.tables,
-        entities: contracts.entities, root: contracts.zone, requestedIds: rawIds, activity }));
+        entities: contracts.entities, root: contracts.zone, requestedIds: rawIds, activity, referenceDetachments: contracts.referenceDetachments }));
       for (const id of rootIds) orderedEvents.push({ object: contracts.zone.name, id });
     }
     let emitted = 0;

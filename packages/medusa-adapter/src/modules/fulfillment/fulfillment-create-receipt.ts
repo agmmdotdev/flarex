@@ -43,7 +43,8 @@ export function fulfillmentCreationPolicy(prepared: Prepared) {
     let rootBefore: JsonObject | undefined, rootAfter: JsonObject | undefined, patchCount = 0, lastTable = -1;
     for (const [ordinal, mutation] of activity.mutations.entries()) {
       const entity = byTable.get(mutation.table), after = mutation.after;
-      if (!entity || mutation.ordinal !== ordinal || after === null || typeof after.id !== "string") return yield* Effect.fail(mismatch("mutation"));
+      if (!entity || mutation.ordinal !== ordinal || after === null || typeof after.id !== "string" || mutation.deletedReference !== undefined)
+        return yield* Effect.fail(mismatch("mutation"));
       const row = yield* Effect.fromResult(entity.decodeRow(projectNativeRow(after))).pipe(Effect.mapError(cause => mismatch("row", cause)));
       if (row.deleted_at !== null) return yield* Effect.fail(mismatch("active"));
       if (mutation.operation === "insert") {

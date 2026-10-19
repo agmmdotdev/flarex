@@ -1,4 +1,4 @@
-import { hasLogicalInsertionEvidence, hasLogicalInsertionGraph, logicalInsertionGraphRoot } from "./insertionOrder";
+import { hasLogicalInsertionEvidence, hasLogicalInsertionGraph, logicalInsertionGraphRoot, hasLogicalDeletedReferenceEvidence } from "./insertionOrder";
 import { Effect, Option } from "effect";
 import {
   consumeAppTableWriteFrontiersInTransactionEffect,
@@ -16,7 +16,7 @@ import type { LogicalDocumentFailure, LogicalSetNullPolicy } from "./model";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { CatalogTableId, CatalogIndexDefinitionId, CatalogIndexId } from "flarex-protocol/catalog";
-import { isJsonObject } from "flarex-protocol/json";
+import { isJsonObject, jsonEqual } from "flarex-protocol/json";
 import { consumeLogicalIndexRanges, consumeLogicalIndexPages, sameLogicalIndexMembership } from "./indexReads";
 import { readLogicalSearchRange, sameLogicalSearchMembership } from "./searchReads";
 import { readLogicalJsonContainsRange } from "./jsonContains";
@@ -131,7 +131,7 @@ export const validateLogicalDocumentReadDependencies = Effect.fn("LogicalDocumen
 export const validateLogicalDocumentChanges = Effect.fn(
   "LogicalDocuments.validateContribution",
 )(function* <Failure>(input: LogicalDocumentReadDependencyValidationInput<Failure> & Readonly<{
-  setNullPolicy?: LogicalSetNullPolicy; allowReferenceReplacement?: true;
+  setNullPolicy?: LogicalSetNullPolicy; allowReferenceReplacement?: true; detachDeletedReferences?: true;
 }>, closed: LogicalDocumentChanges) {
   const { scopeId, tables: allowed, error } = input;
   if (!hasLogicalInsertionGraph(scopeId, closed)) return yield* Effect.fail(error("invalidAuthority"));
@@ -184,6 +184,21 @@ export const validateLogicalDocumentChanges = Effect.fn(
     return yield* Effect.fail(error("invalidAuthority"));
   }
   const insertionRoot = logicalInsertionGraphRoot(closed);
+  for (const attempt of closed.attempts) {
+    const cause = attempt.deletedReference;
+    const deleted = cause === undefined ? undefined : closed.attempts[cause.targetDeleteOrdinal];
+    if (!hasLogicalDeletedReferenceEvidence(scopeId, insertionRoot, attempt, deleted))
+      return yield* Effect.fail(error("invalidAuthority"));
+    if (cause === undefined) continue;
+    if (input.detachDeletedReferences !== true || !allowed.has(attempt.tableId) || !allowed.has(cause.targetTableId) ||
+      !Number.isSafeInteger(cause.targetDeleteOrdinal) || cause.targetDeleteOrdinal < 0 || cause.targetDeleteOrdinal >= attempt.ordinal ||
+      attempt.before === null || attempt.after === null || !isJsonObject(attempt.before.valueJson) || !isJsonObject(attempt.after.valueJson) ||
+      deleted?.before === null || deleted?.before === undefined || !isJsonObject(deleted.before.valueJson) ||
+      deleted.before.valueJson[cause.targetColumn] !== cause.targetKey ||
+      attempt.before.valueJson[cause.sourceColumn] !== cause.targetKey || attempt.after.valueJson[cause.sourceColumn] !== null ||
+      !jsonEqual({ ...attempt.before.valueJson, [cause.sourceColumn]: null }, attempt.after.valueJson))
+      return yield* Effect.fail(error("invalidAuthority"));
+  }
   const insertionOrdinals = new Set<number>();
   for (const attempt of closed.attempts) {
     if (attempt.insertionAttemptOrdinal !== undefined && closed.insertionRoot !== insertionRoot ||

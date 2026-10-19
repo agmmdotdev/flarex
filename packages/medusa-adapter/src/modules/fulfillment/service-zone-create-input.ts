@@ -2,7 +2,7 @@ import { Result, Schema, type Effect } from "effect";
 import { fillEmptyToManyRelations } from "@medusajs/drizzle/relation-query";
 import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../../value/decoder";
-import { compileFulfillmentGraphContracts } from "./fulfillment-graph-contracts";
+import { compileFulfillmentGraphContracts, type FulfillmentPhysicalProfile } from "./fulfillment-graph-contracts";
 import type { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
@@ -27,9 +27,10 @@ const decodeEmptyOptions = commerceDecoder(Schema.Array(Schema.Never), "storedCo
 type Metadata = Effect.Success<ReturnType<typeof captureServiceZoneCreationMetadata>>["frame"];
 
 /** One checked native eight-table snapshot owns scalar rows and cascade closure. */
-export function compileServiceZoneCreationContracts(metadata: Metadata) {
+export function compileServiceZoneCreationContracts(metadata: Metadata, profile: FulfillmentPhysicalProfile = "standalone") {
   return Result.gen(function* () {
-    const { zone, geo, option, rule, zoneEntities: entities, relation, decodeZoneRow, decodeGeoRow } = yield* compileFulfillmentGraphContracts(metadata);
+    const { zone, geo, option, rule, zoneEntities, referenceEntities, referenceDetachments, relation, decodeZoneRow, decodeGeoRow } = yield* compileFulfillmentGraphContracts(metadata, profile);
+    const entities = [...zoneEntities, ...referenceEntities];
     const defaults = new Map<string, JsonObject>();
     for (const entity of entities) {
       const values: Record<string, Json> = {};
@@ -63,6 +64,6 @@ export function compileServiceZoneCreationContracts(metadata: Metadata) {
       return yield* decodeRows(rows);
     });
     const Output = Schema.Array(Schema.JsonObject).check(Schema.makeFilter(rows => Result.isSuccess(decodeRows(rows)) || "Expected complete native ServiceZone creation rows"));
-    return { tables: metadata.tables, zone, geo, option, rule, entities, relation, defaults, decodeZoneRow, decodeGeoRow, decodeRows, initializeRows, Output };
+    return { tables: metadata.tables, zone, geo, option, rule, entities, referenceDetachments, relation, defaults, decodeZoneRow, decodeGeoRow, decodeRows, initializeRows, Output };
   });
 }

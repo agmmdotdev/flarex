@@ -1,4 +1,4 @@
-import { captureLogicalInsertionGraph, bindLogicalInsertionRoot, issueLogicalInsertionAttempt, type LogicalInsertionEvidence, type LogicalInsertionRoot, committedLogicalInsertionOrder, compareLogicalInsertionOrder, type LogicalInsertionOrder } from "./insertionOrder";
+import { captureLogicalInsertionGraph, bindLogicalInsertionRoot, issueLogicalInsertionAttempt, type LogicalInsertionEvidence, type LogicalInsertionRoot, committedLogicalInsertionOrder, compareLogicalInsertionOrder, type LogicalInsertionOrder, issueLogicalDeletedReferenceEvidence, type LogicalDeletedReferenceCause, type LogicalDeletedReferenceEvidence, rebaseLogicalDeletedReferenceEvidence } from "./insertionOrder";
 import type { LogicalDocumentPointEvidence } from "./pointEvidence";
 import { observeExecution } from "../../../execution/diagnostics/operation";
 // Named execution diagnostics belong to explicit SDK composition. Local operations
@@ -105,6 +105,8 @@ export interface LogicalDocumentAttempt {
   readonly ordinal: number;
   readonly insertionAttemptOrdinal?: number;
   readonly insertionEvidence?: LogicalInsertionEvidence;
+  readonly deletedReference?: LogicalDeletedReferenceCause;
+  readonly deletedReferenceEvidence?: LogicalDeletedReferenceEvidence;
   readonly documentId: AppDocumentIdV1;
   readonly operation: "insert" | "patch" | "replace" | "delete";
   readonly tableId: CatalogTableId;
@@ -1413,7 +1415,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     return yield* validateNext(0);
   }));
   const recordAttempt = (pending: PendingDocument, operation: LogicalDocumentAttempt["operation"],
-    after: CanonicalFlarexValueV1 | null) => Result.gen(function* () {
+    after: CanonicalFlarexValueV1 | null, deletedReference?: Readonly<{ cause: LogicalDeletedReferenceCause; deleted: LogicalDocumentAttempt }>) => Result.gen(function* () {
     yield* consumeTableMetadataResult(pending.tableId, "writeClosure");
     yield* chargeResult(128);
     yield* markRowUse(pending.documentId);
@@ -1422,15 +1424,22 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       ? yield* issueLogicalInsertionAttempt(insertionRoot, state.scopeId, pending.tableId, pending.documentId, after)
         .pipe(Result.mapError(reason => error(reason))) : undefined;
     const insertionAttemptOrdinal = insertion?.ordinal;
+    const causalEvidence = deletedReference === undefined ? undefined : pending.current === null || after === null || deletedReference.deleted.before === null
+      ? yield* Result.fail(error("invalidAuthority")) : yield* issueLogicalDeletedReferenceEvidence(insertionRoot, state.scopeId,
+        { ordinal: attempts.length, tableId: pending.tableId, documentId: pending.documentId, before: pending.current, after },
+        deletedReference.cause, { documentId: deletedReference.deleted.documentId, before: deletedReference.deleted.before })
+        .pipe(Result.mapError(reason => error(reason)));
     const attempt = Object.freeze({ ordinal: attempts.length, documentId: pending.documentId, operation,
       tableId: pending.tableId, tableName: localTableName(pending.tableId) ?? pending.tableName, before: pending.current, after,
+      ...(deletedReference === undefined || causalEvidence === undefined ? {} : { deletedReference: deletedReference.cause, deletedReferenceEvidence: causalEvidence }),
       ...(insertion === undefined ? {} : { insertionAttemptOrdinal: insertion.ordinal, insertionEvidence: insertion.evidence }) });
     if (insertionAttemptOrdinal !== undefined) pending.insertionOrder = Object.freeze({ kind: "pending", attemptOrdinal: insertionAttemptOrdinal });
     pending.attempts.push(attempt.ordinal);
     attempts.push(attempt);
   });
   const withWrittenDocument = <Value>(pending: PendingDocument, fields: JsonObject, operation: "insert" | "patch" | "replace", consume: (written: JsonObject) => Effect.Effect<Value, Failure>,
-    prepareDocument?: (pending: PendingDocument) => Effect.Effect<CanonicalFlarexValueV1, Failure>) => observeExecution("LogicalDocuments.validateWrite", Effect.gen(function* (): Effect.fn.Return<Value, Failure> {
+    prepareDocument?: (pending: PendingDocument) => Effect.Effect<CanonicalFlarexValueV1, Failure>,
+    deletedReference?: Readonly<{ cause: LogicalDeletedReferenceCause; deleted: LogicalDocumentAttempt }>) => observeExecution("LogicalDocuments.validateWrite", Effect.gen(function* (): Effect.fn.Return<Value, Failure> {
     const document = yield* (prepareDocument === undefined ? canonicalizeFlarexValueV1Effect({ ...fields, _id: pending.documentId, _creationTime: pending.creationTime }, "appDocument")
       .pipe(Effect.mapError(cause => error("documentInvalid", cause))) : prepareDocument(pending));
     if (document.canonicalBytes.byteLength > limits.documentBytes) return yield* Effect.fail(error("limitExceeded"));
@@ -1440,7 +1449,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     return yield* withUniqueValidation(pending, document, Effect.gen(function* () {
       if (!rows.has(pending.documentId) && rows.size >= limits.identities) return yield* Effect.fail(error("limitExceeded"));
       yield* charge(document.canonicalBytes.byteLength);
-      yield* Effect.fromResult(recordAttempt(pending, operation, document));
+      yield* Effect.fromResult(recordAttempt(pending, operation, document, deletedReference));
       replaceCurrent(pending, document);
       rows.set(pending.documentId, pending);
       const written = yield* Effect.fromResult(output(document, true));
@@ -2303,6 +2312,63 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       }
     }
   }));
+  const detachDeletedReference = (context: BoundedRequestContext, id: PresentedTransactionId,
+    intent: LogicalReferenceSelection, cursor?: LogicalDocumentActivityCursor) => observeExecution("LogicalDocuments.detachDeletedReference", Effect.suspend(() =>
+      runOperation(context, id, "write", Effect.gen(function* () {
+        if (state.detachDeletedReferences !== true || state.pendingRows !== undefined || cursor !== undefined && !activityCursors.has(cursor))
+          return yield* Effect.fail(error("invalidAuthority"));
+        const foreignKey = foreignKeys.find(key => key.source.tableId === intent.sourceTableId &&
+          key.source.column === intent.sourceColumn && key.target.tableId === intent.targetTableId &&
+          key.target.column === intent.targetColumn && key.source.nullable && key.onDelete === "noAction");
+        if (foreignKey === undefined || typeof intent.targetKey !== "string" || intent.targetKey.length === 0)
+          return yield* Effect.fail(error("invalidAuthority"));
+        const targets = [...rows.values()].filter(row => row.tableId === intent.targetTableId &&
+          row.current === null && row.deletedValue !== undefined && isJsonObject(row.deletedValue.valueJson) &&
+          row.deletedValue.valueJson[intent.targetColumn] === intent.targetKey);
+        const replacement = [...rows.values()].some(row => row.tableId === intent.targetTableId && row.current !== null &&
+          isJsonObject(row.current.valueJson) && row.current.valueJson[intent.targetColumn] === intent.targetKey);
+        // Key reuse can leave older deleted identities in this root. The last
+        // genuine deletion is the current transition; old deletions grant no
+        // authority over a replacement that is still present.
+        const target = targets.toSorted((left, right) => (right.attempts.at(-1) ?? -1) - (left.attempts.at(-1) ?? -1))[0];
+        const deleteOrdinal = target?.attempts.at(-1);
+        const deleted = deleteOrdinal === undefined ? undefined : attempts[deleteOrdinal];
+        if (replacement || target === undefined || deleted?.operation !== "delete" ||
+          deleted.before !== target.deletedValue || deleteOrdinal === undefined || deleteOrdinal < localCursor.attempts + (cursor?.attempts ?? 0))
+          return yield* Effect.fail(error("invalidAuthority"));
+        const source = yield* tableForId(intent.sourceTableId);
+        if (source.relational === undefined || source.relationalMechanics === undefined)
+          return yield* Effect.fail(error("invalidAuthority"));
+        const sourceMechanics = source.relationalMechanics;
+        const policy = yield* Effect.fromResult(bindPreparedLogicalRelationalRows(sourceMechanics, error));
+        const key = policy.keyColumns[0];
+        if (policy.keyColumns.length !== 1 || key === undefined || key === intent.sourceColumn)
+          return yield* Effect.fail(error("invalidAuthority"));
+        // Complete, indexed current membership includes history and pending rows.
+        // The real query/count and its dependency remain visible to native receipts.
+        const selected = yield* readRelationalSelection(source.logicalName, {
+          predicate: { kind: "in", column: intent.sourceColumn, values: [intent.targetKey] },
+          order: { column: key, direction: "asc" },
+        }, true);
+        if (selected.total > callIdentityLimit || selected.docs.length !== selected.total)
+          return yield* Effect.fail(error("limitExceeded"));
+        yield* charge(128 + intent.targetKey.length * 2);
+        for (const previous of selected.docs) {
+          const identity = previous[key];
+          if (typeof identity !== "string") return yield* Effect.fail(error("storedCorruption"));
+          const pending = [...rows.values()].find(row => row.tableId === source.tableId && row.current !== null &&
+            isJsonObject(row.current.valueJson) && row.current.valueJson[key] === identity);
+          if (pending === undefined || pending.current === null || previous[intent.sourceColumn] !== intent.targetKey)
+            return yield* Effect.fail(error("storedCorruption"));
+          const fields = yield* Effect.fromResult(policy.normalize({ [key]: identity, [intent.sourceColumn]: null },
+            previous, yield* transactionTime, "preserve"));
+          const cause = Object.freeze({ sourceColumn: intent.sourceColumn, targetTableId: intent.targetTableId,
+            targetColumn: intent.targetColumn, targetKey: intent.targetKey, targetDeleteOrdinal: deleteOrdinal });
+          yield* withWrittenDocument(pending, fields, "patch", () => Effect.void, selectedPending =>
+            canonicalizeLogicalRelationalRow(sourceMechanics, fields, selectedPending.documentId, selectedPending.creationTime)
+              .pipe(Effect.mapError(failure => error(failure.reason, failure.cause))), { cause, deleted });
+        }
+      }))));
   const planSetNull = (context: BoundedRequestContext,
     id: PresentedTransactionId, intent: LogicalSetNullIntent) => observeExecution("LogicalDocuments.planSetNull", Effect.suspend(() => lifetime.operation(context, id, "write", Effect.gen(function* () {
       yield* state.requireAdmission;
@@ -2418,8 +2484,14 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     source?: PreparedWriteMechanicsState): LogicalDocumentActivity => {
     const attemptOffset = localCursor.attempts + (cursor?.attempts ?? 0);
     return Object.freeze({
-      attempts: Object.freeze(attempts.slice(attemptOffset).map(attempt =>
-        Object.freeze({ ...attempt, ordinal: attempt.ordinal - attemptOffset }))),
+      attempts: Object.freeze(attempts.slice(attemptOffset).map(attempt => {
+        const { deletedReferenceEvidence, ...rest } = attempt;
+        const evidence = deletedReferenceEvidence === undefined ? undefined : rebaseLogicalDeletedReferenceEvidence(deletedReferenceEvidence, attemptOffset);
+        return Object.freeze({ ...rest, ordinal: attempt.ordinal - attemptOffset,
+          ...(evidence === undefined ? {} : { deletedReferenceEvidence: evidence }),
+          ...(attempt.deletedReference === undefined ? {} : { deletedReference: Object.freeze({ ...attempt.deletedReference,
+            targetDeleteOrdinal: attempt.deletedReference.targetDeleteOrdinal - attemptOffset }) }) });
+      })),
       lifecycle: Object.freeze(lifecycle.slice(localCursor.lifecycle + (cursor?.lifecycle ?? 0)).map(observation => Object.freeze({ ...observation,
         attemptOrdinal: observation.attemptOrdinal === null ? null : observation.attemptOrdinal - attemptOffset }))),
       observedRows: cursor === undefined && source === undefined ? prepared.observedRows :
@@ -2456,6 +2528,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       yield* Effect.fromResult(lifetime.charge(0));
       if (source !== undefined && source.closed !== true) for (const owner of source.lifetimes)
         yield* Effect.fromResult(owner.checkOpen()).pipe(Effect.mapError(cause => error(cause.reason === "closed" ? "closed" : "resourceFailure", cause)));
+      const attemptOffset = localCursor.attempts + (cursor?.attempts ?? 0);
+      if (attempts.slice(attemptOffset).some(attempt => attempt.deletedReference !== undefined &&
+        attempt.deletedReference.targetDeleteOrdinal < attemptOffset)) return yield* Effect.fail(error("invalidAuthority"));
       if (source === undefined && cursor === undefined && aggregateActivity?.key === prepared.key) return aggregateActivity.activity;
       return projectActivityData(prepared, cursor, source?.closed === true ? undefined : source);
     });
@@ -2555,7 +2630,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       executeRelationalFind(context, id, tableName, input),
     relationalPage: (context: BoundedRequestContext, id: PresentedTransactionId, tableName: string, input: unknown) =>
       executeRelationalPage(context, id, tableName, input),
-    relationalAggregate, relationalChange, relationalTable, planSetNull, planReferenceReplacement, close, requirePendingDeletion, activitySnapshot,
+    relationalAggregate, relationalChange, relationalTable, detachDeletedReference, planSetNull, planReferenceReplacement, close, requirePendingDeletion, activitySnapshot,
     activityContribution, closedActivityContribution, readActivityContribution,
     readTransactionTime: (context: BoundedRequestContext, id: PresentedTransactionId) =>
       runOperation(context, id, "read", transactionTime),

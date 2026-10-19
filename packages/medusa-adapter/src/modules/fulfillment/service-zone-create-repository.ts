@@ -11,14 +11,15 @@ import { projectNativeRow } from "../../repository/result";
 import { captureGraph, insertGraphRows } from "../../write/create";
 import { captureCommerceInput } from "../../value/input";
 import type { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
+import type { FulfillmentPhysicalProfile } from "./fulfillment-graph-contracts";
 import { compileServiceZoneCreationContracts, decodeServiceZonePhysicalSelection } from "./service-zone-create-input";
 import { prepareServiceZoneCreationGraph } from "./service-zone-create-graph";
 
 type Metadata = Effect.Success<ReturnType<typeof captureServiceZoneCreationMetadata>>["frame"];
 
-export function prepareServiceZoneCreationRepository(metadata: Metadata) {
+export function prepareServiceZoneCreationRepository(metadata: Metadata, profile: FulfillmentPhysicalProfile = "standalone") {
   return Result.gen(function* () {
-    const contracts = yield* compileServiceZoneCreationContracts(metadata), graph = prepareServiceZoneCreationGraph(contracts);
+    const contracts = yield* compileServiceZoneCreationContracts(metadata, profile), graph = prepareServiceZoneCreationGraph(contracts);
     const scalar = yield* prepareScalarRepository(contracts.zone, "ServiceZone", scalarIdWhere,
       input => Effect.fromResult(contracts.decodeRows(input)));
     const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
@@ -37,7 +38,7 @@ export function prepareServiceZoneCreationRepository(metadata: Metadata) {
       });
       const remove = Effect.fn("ServiceZoneRepository.delete")(function* (ctx: CommerceCommandContext, input: unknown) {
         const selected = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources).pipe(Result.flatMap(decodeServiceZonePhysicalSelection)));
-        const operation = medusaLifecycle(ctx, { tables: metadata.tables, entities: contracts.entities }, "delete");
+        const operation = medusaLifecycle(ctx, { tables: metadata.tables, entities: contracts.entities, referenceDetachments: contracts.referenceDetachments }, "delete");
         const roots = yield* operation.roots(contracts.zone, selected.$or.map(row => row.id));
         const plan = yield* operation.plan(contracts.zone, roots);
         for (const entity of contracts.entities) {

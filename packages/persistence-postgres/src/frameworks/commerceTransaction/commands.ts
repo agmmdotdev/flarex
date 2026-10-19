@@ -5,6 +5,13 @@ import type { CommerceStore } from "./storeModel";
 import type { BoundedRequestContext } from "../../execution/preparation/boundedRequestLifetime";
 import type { CommerceTransactionError } from "./model";
 import type { LogicalSetNullPolicy } from "../../storage/documents/logicalDocuments/model";
+export interface CommerceDeletedReferenceSelection {
+  readonly sourceTable: string;
+  readonly sourceColumn: string;
+  readonly targetTable: string;
+  readonly targetColumn: string;
+  readonly targetKey: string;
+}
 export interface CommerceSetNullSelection {
   readonly sourceTable: string;
   readonly sourceColumn: string;
@@ -34,6 +41,9 @@ export interface CommerceCommandContext {
   /** Available only to admitted logical relational participants. Physical
    * compatibility commands keep their existing bounded row operations. */
   readonly planSetNull?: (selection: CommerceSetNullSelection) => Effect.Effect<void, CommerceTransactionError>;
+  /** Eager FK-only cleanup after an actual deletion in the same outer call.
+   * Trusted logical participants only; managed timestamps are preserved. */
+  readonly detachDeletedReference?: (selection: CommerceDeletedReferenceSelection) => Effect.Effect<void, CommerceTransactionError>;
   /** Seals one declared nullable-reference replacement for core settlement. */
   readonly planReferenceReplacement?: (selection: CommerceReferenceReplacement) => Effect.Effect<void, CommerceTransactionError>;
   readonly captureLocalEvent: (event: unknown) => Effect.Effect<void, CommerceTransactionError>;

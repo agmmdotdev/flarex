@@ -87,6 +87,11 @@ function makeParticipantInvocation(
   borrowedCallLimit: number | undefined,
 ) {
   const events: Json[] = [];
+  const detach = "detachDeletedReference" in working ? working.detachDeletedReference : undefined;
+  const cursor = detach === undefined || !("activityCursor" in working) ? undefined : working.activityCursor();
+  const commandWorking = detach === undefined ? working : { ...working,
+    detachDeletedReference: (manager: BoundedRequestContext, selection: Parameters<typeof detach>[1]) => detach(manager, selection, cursor),
+  };
   const invoke = Effect.fnUntraced(function* (
     manager: BoundedRequestContext,
     nested: CommerceCommand,
@@ -105,7 +110,7 @@ function makeParticipantInvocation(
     const input = value.value;
     const output = yield* withCommerceCommandContext(
       lifetime,
-      working,
+      commandWorking,
       id,
       manager,
       (current, nestedCommand, nestedInput) =>
@@ -178,7 +183,7 @@ function makeAtomicCommerceExecution(
     const created = yield* makeLogicalCommerceParticipant(admission.admission, tx, lifetime, manager, id,
       member.allowReferenceReplacement === true, member.selectedResources, member.logicalPublication,
       member.allowReconstitution === true, member.allowPreservingDeletionUpsert === true, member.allowActiveRestoreUpdate === true, member.allowStorageInsertionOrder === true,
-      member.setNullPolicy);
+      member.setNullPolicy, member.detachDeletedReferences === true);
     logicalWork.set(admission, created);
     contributions.push({ kind: "logical", token: admission, working: created });
     return created;
@@ -348,6 +353,8 @@ function makeAtomicCommerceExecution(
         const member = members[admissions.indexOf(contribution.token)];
         if (member === undefined || member.kind !== "logical") return yield* Effect.fail(commerceError("invalidAuthority"));
         const activity = yield* inspectLogicalCommerceActivity(closure, lifetime);
+        if (activity.mutations.some(mutation => mutation.deletedReference !== undefined) && member.detachDeletedReferences !== true)
+          return yield* Effect.fail(commerceError("invalidAuthority"));
         if (activity.setNull.length !== 0 && (member.setNullPolicy === undefined ||
           activity.setNull.some(intent => intent.managedUpdate !== member.setNullPolicy?.managedUpdate)))
           return yield* Effect.fail(commerceError("invalidAuthority"));

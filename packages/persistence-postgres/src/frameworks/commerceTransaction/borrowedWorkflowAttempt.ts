@@ -32,7 +32,7 @@ import {
   requirePreparedAtomicCommerceLogicalParticipant,
   type PreparedAtomicCommerceLogicalParticipant,
 } from "../atomicCommerce/participants";
-import { getCommerceCommand, type CommerceCommand } from "./commands";
+import { getCommerceCommand, type CommerceCommand, type CommerceDeletedReferenceSelection } from "./commands";
 import { makeCommerceCommandContext } from "./context";
 import { commerceError, commerceLimits, logicalCommerceError, type CommerceTransactionError } from "./model";
 import {
@@ -77,7 +77,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
           const member = yield* Effect.fromResult(requirePreparedAtomicCommerceLogicalParticipant(memberInput, undefined));
           // This borrowed view validates individual calls but owns no complete
           // participant closure on which an aggregate policy could be enforced.
-          if (member.validateLogical !== undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+          if (member.validateLogical !== undefined || member.detachDeletedReferences === true && input.rootEvaluator === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
           const firstCommand = member.commands.values().next().value;
           const name = firstCommand === undefined ? undefined : getCommerceCommand(firstCommand)?.name;
           if (member === undefined || name === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
@@ -130,6 +130,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
               { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,
                 rootAttemptFence: input.rootAttemptFence }),
             lifetime, tables: mechanics.tables,
+            ...(input.members.some(member => member.detachDeletedReferences === true) ? { detachDeletedReferences: true as const } : {}),
             ...(mechanics.relationalCapabilities === undefined ? {} : { relationalCapabilities: mechanics.relationalCapabilities }),
             searchDefinitions: mechanics.searchDefinitions,
             validateDocument: write => {
@@ -184,6 +185,14 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
                     table: (current, name) => state.writeMechanics.tableId(name) !== undefined
                       ? working.relationalTable(current, id, name) : Effect.fail(commerceError("invalidAuthority")),
                     transactionTime: current => working.readTransactionTime(current, id),
+                    ...(member.detachDeletedReferences === true ? { detachDeletedReference: (current: typeof manager, selection: CommerceDeletedReferenceSelection) => {
+                      const sourceTableId = state.writeMechanics.tableId(selection.sourceTable);
+                      const targetTableId = state.writeMechanics.tableId(selection.targetTable);
+                      return sourceTableId === undefined || targetTableId === undefined
+                        ? lifetime.operation(current, id, "write", Effect.fail(commerceError("invalidAuthority")))
+                        : working.detachDeletedReference(current, id, { sourceTableId, sourceColumn: selection.sourceColumn,
+                          targetTableId, targetColumn: selection.targetColumn, targetKey: selection.targetKey }, cursor);
+                    } } : {}),
                     planSetNull: (current, selection) => {
                       const sourceTableId = state.writeMechanics.tableId(selection.sourceTable), targetTableId = state.writeMechanics.tableId(selection.targetTable);
                       return sourceTableId === undefined || targetTableId === undefined || member.setNullPolicy === undefined ||

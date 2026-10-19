@@ -204,6 +204,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
       }
     }
     const selected = { participant: member.participant, commands: [...commands],
+      ...(moduleEvents?.detachDeletedReferences === true ? { detachDeletedReferences: true as const } : {}),
       ...(moduleEvents?.setNullPolicy === undefined ? {} : { setNullPolicy: moduleEvents.setNullPolicy }),
       ...(moduleEvents?.allowReconstitution === true ? { allowReconstitution: true as const } : {}),
       ...(moduleEvents?.allowPreservingDeletionUpsert === true ? { allowPreservingDeletionUpsert: true as const } : {}),

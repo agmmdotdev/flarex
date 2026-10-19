@@ -22,7 +22,7 @@ export const detachLogicalDocumentRootChanges = (input: LogicalDocumentChanges,
   // changes and observations. Canonical values alone use their dedicated owner.
   const detached = structuredClone({ graph: { ...rest,
     changes: changes.map(change => change.kind === "deleted" ? change : { ...change, document: null }),
-    attempts: attempts.map(({ insertionEvidence: _evidence, ...attempt }) => ({ ...attempt, before: null, after: null })),
+    attempts: attempts.map(({ insertionEvidence: _evidence, deletedReferenceEvidence: _deletedReferenceEvidence, ...attempt }) => ({ ...attempt, before: null, after: null })),
   }, originalRows: originalRows.map(row => ({ ...row, document: null })) });
   const graph: LogicalDocumentChanges = Object.freeze({ ...detached.graph,
     ...(insertionRoot === undefined ? {} : { insertionRoot }),
@@ -37,6 +37,7 @@ export const detachLogicalDocumentRootChanges = (input: LogicalDocumentChanges,
       if (original === undefined) throw new Error("Detached logical attempt lost its original ordinal");
       return Object.freeze({ ...attempt,
         ...(original.insertionEvidence === undefined ? {} : { insertionEvidence: original.insertionEvidence }),
+        ...(original.deletedReferenceEvidence === undefined ? {} : { deletedReferenceEvidence: original.deletedReferenceEvidence }),
         before: original.before === null ? null : detachDocument(original.before),
         after: original.after === null ? null : detachDocument(original.after) });
     })),

@@ -39,8 +39,8 @@ export function fulfillmentCreationInput(prefix: string, maximum = false): typeo
 /** Reuse the existing installed Shipping Option source, genuine Manual service
  * and endpoint seeds. All consumers use the same fresh twelve-table source. */
 export async function prepareLogicalFulfillmentCreation(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
-  shared?: Parameters<typeof prepareLogicalShippingOptionCreation>[2]) {
-  const base = await prepareLogicalShippingOptionCreation(driver, close, shared);
+  shared?: Parameters<typeof prepareLogicalShippingOptionCreation>[2], optionProfile: "standalone" | "reference-detachment" = "standalone") {
+  const base = await prepareLogicalShippingOptionCreation(driver, close, shared, optionProfile);
   const fulfillment = await Effect.runPromise(makeLocalFulfillmentCreationCommands());
   const stockLocation = await Effect.runPromise(makeStockLocationCommands("update"));
   const modules = { fulfillment: { ...base.modules.fulfillment, module: fulfillment.workflow, logicalResources: fulfillmentCreationResources },

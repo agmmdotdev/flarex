@@ -211,6 +211,7 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
       ...(taskControlNames === undefined ? {} : { taskControlCommands: taskControlNames }) },
     participants: capturedMembers.map(member => ({
       commandCount: member.commands.length, derivedIdEvent: member.derivedIdEvent ?? null,
+      ...(member.detachDeletedReferences === true ? { detachDeletedReferences: true } : {}),
       ...(member.setNullPolicy === undefined ? {} : { setNullPolicy: member.setNullPolicy }),
       ...(member.allowReconstitution === true ? { allowReconstitution: true } : {}),
       ...(member.allowPreservingDeletionUpsert === true ? { allowPreservingDeletionUpsert: true } : {}),
@@ -287,6 +288,9 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     } : {}),
     ...(members.some(member => member.validateLogicalCall !== undefined) ? {
       logicalCallValidation: members.filter(member => member.validateLogicalCall !== undefined).map(member => member.name),
+    } : {}),
+    ...(members.some(member => member.detachDeletedReferences === true) ? {
+      deletedReferenceDetachment: members.filter(member => member.detachDeletedReferences === true).map(member => member.name),
     } : {}),
     ...(members.some(member => member.setNullPolicy !== undefined) ? {
       setNullPolicy: members.flatMap(member => member.setNullPolicy === undefined ? [] :

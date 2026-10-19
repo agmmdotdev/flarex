@@ -16,16 +16,20 @@ import { compileShippingOptionCreationContracts, decodeShippingOptionPhysicalSel
 import { prepareShippingOptionCreationGraph } from "./shipping-option-create-graph";
 import { prepareShippingOptionCreationQuery } from "./shipping-option-create-query";
 import type { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
+import type { FulfillmentPhysicalProfile } from "./fulfillment-graph-contracts";
+import type { commerceMutationEvents } from "../../repository/mutation-events";
+import type { commerceRepositoryContext } from "../../repository/context";
 
 type Metadata = Effect.Success<ReturnType<typeof captureServiceZoneCreationMetadata>>["frame"];
 
-export function prepareShippingOptionCreationRepository(metadata: Metadata) {
+export function prepareShippingOptionCreationRepository(metadata: Metadata, profile: FulfillmentPhysicalProfile = "standalone") {
   return Result.gen(function* () {
-    const contracts = yield* compileShippingOptionCreationContracts(metadata), graph = prepareShippingOptionCreationGraph(contracts),
+    const contracts = yield* compileShippingOptionCreationContracts(metadata, profile), graph = prepareShippingOptionCreationGraph(contracts),
       reads = yield* prepareShippingOptionCreationQuery(contracts);
     const scalar = yield* prepareScalarRepository(contracts.option, "ShippingOption", scalarIdWhere);
-    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
-      const bound = scalar.bind(root, owner), { bridge, events } = bound;
+    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner,
+      shared?: Readonly<{ bridge: ReturnType<typeof commerceRepositoryContext>; events: ReturnType<typeof commerceMutationEvents> }>) => {
+      const bound = scalar.bind(root, owner, shared?.events, shared?.bridge), { bridge, events } = bound;
       const denied = deniedCommerceRepository(bound.repository, bound.refuse);
       const admitSelection = (table: string, rows: readonly JsonObject[]) => Result.gen(function* () {
         const entity = contracts.entities.find(entity => entity.table.name === table);
@@ -62,7 +66,7 @@ export function prepareShippingOptionCreationRepository(metadata: Metadata) {
       });
       const remove = Effect.fn("ShippingOptionCreation.delete")(function* (ctx: CommerceCommandContext, input: unknown) {
         const selected = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources).pipe(Result.flatMap(decodeShippingOptionPhysicalSelection)));
-        const operation = medusaLifecycle(ctx, { tables: metadata.tables, entities: contracts.physicalEntities }, "delete"),
+        const operation = medusaLifecycle(ctx, { tables: metadata.tables, entities: contracts.physicalEntities, referenceDetachments: contracts.referenceDetachments }, "delete"),
           roots = yield* operation.roots(contracts.option, selected.$or.map(row => row.id)), plan = yield* operation.plan(contracts.option, roots);
         for (const entity of contracts.physicalEntities) {
           const rows = plan.rows(entity.table);

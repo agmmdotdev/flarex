@@ -8,7 +8,8 @@ import { commerceModuleEventBus } from "../../module/events";
 import { defineWorkflowModule, defineWorkflowMethod } from "../../workflow/module";
 import { commerceDecoder } from "../../value/decoder";
 import { defineFulfillmentPersistenceModule, type FulfillmentPersistenceModel } from "./fulfillment-module";
-import { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
+import type { FulfillmentPhysicalProfile } from "./fulfillment-graph-contracts";
+import { captureFulfillmentCreationMetadata, captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
 import { prepareServiceZoneCreationRepository } from "./service-zone-create-repository";
 import { ServiceZoneCreates, ServiceZonePhysicalDeletionIds, decodeServiceZoneCreates, decodeServiceZonePhysicalDeletionIds } from "./service-zone-create-input";
 import { serviceZoneCreationPolicy } from "./service-zone-create-receipt";
@@ -17,11 +18,12 @@ const decodeCreateArguments = commerceDecoder(Schema.Tuple([ServiceZoneCreates])
 const decodeDeleteArguments = commerceDecoder(Schema.Tuple([ServiceZonePhysicalDeletionIds]), "invalidInput");
 
 /** Genuine Fulfillment create and retained physical inverse borrow one settlement. */
-export const makeServiceZoneCreationCommands = Effect.fn("ServiceZoneAdapter.createCommands")(function* () {
-  const metadata = yield* captureServiceZoneCreationMetadata();
+const makeServiceZoneCreationCommandsForProfile = Effect.fn("ServiceZoneAdapter.createCommands")(function* (profile: FulfillmentPhysicalProfile) {
+  const metadata = yield* (profile === "reference-detachment" ? captureFulfillmentCreationMetadata() : captureServiceZoneCreationMetadata());
   return yield* Effect.fromResult(Result.gen(function* () {
-    const prepared = yield* prepareServiceZoneCreationRepository(metadata.frame);
-    const module = yield* defineFulfillmentPersistenceModule({ name: "flarex-service-zone-create", profile: "service-zone-create",
+    const prepared = yield* prepareServiceZoneCreationRepository(metadata.frame, profile);
+    const module = yield* defineFulfillmentPersistenceModule({ name: profile === "reference-detachment" ? "flarex-service-zone-create-reference-detachment" : "flarex-service-zone-create",
+      profile: profile === "reference-detachment" ? "service-zone-create-reference-detachment" : "service-zone-create",
       bind: (ctx, owner) => {
         const bound = prepared.bind(ctx, owner);
         const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
@@ -50,8 +52,15 @@ export const makeServiceZoneCreationCommands = Effect.fn("ServiceZoneAdapter.cre
       moduleEvents: [buildModuleResourceEventName({ prefix: Modules.FULFILLMENT, objectName: "service_zone", action: "deleted" })] });
     const admitted = [create, deleteForWorkflow], policy = serviceZoneCreationPolicy(prepared.contracts);
     const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description,
-      methods: { createServiceZones, deleteServiceZones }, graph: { aliases: [], reads: [] }, logical: { ...policy, commands: admitted } });
+      methods: { createServiceZones, deleteServiceZones }, graph: { aliases: [], reads: [] }, logical: { ...policy, commands: admitted, ...(profile === "reference-detachment" ? { detachDeletedReferences: true as const } : {}) } });
     return { create, deleteForWorkflow, commands: admitted, workflow, withService: module.use,
       logicalEventPolicy: () => policy, output: prepared.contracts.Output, decodeOutput: prepared.contracts.decodeRows };
   }));
+});
+
+export const makeServiceZoneCreationCommands = Effect.fn("ServiceZoneAdapter.standaloneCreation")(function* () {
+  return yield* makeServiceZoneCreationCommandsForProfile("standalone");
+});
+export const makeServiceZoneCreationWithReferenceDetachmentCommands = Effect.fn("ServiceZoneAdapter.referenceDetachment")(function* () {
+  return yield* makeServiceZoneCreationCommandsForProfile("reference-detachment");
 });

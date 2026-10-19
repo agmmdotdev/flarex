@@ -40,7 +40,7 @@ export function fulfillmentSetCreationPolicy(contracts: Contracts) {
       for (const [ordinal, input] of inputs.entries()) {
         const mutation = activity.mutations[ordinal], result = output[ordinal], row = mutation?.after;
         if (mutation === undefined || result === undefined || row === null || row === undefined || mutation.ordinal !== ordinal ||
-          mutation.table !== contracts.set.name || mutation.operation !== "insert" || mutation.before !== null || typeof row.id !== "string" || inserted.has(row.id))
+          mutation.table !== contracts.set.name || mutation.operation !== "insert" || mutation.before !== null || typeof row.id !== "string" || inserted.has(row.id) || mutation.deletedReference !== undefined)
           return yield* Effect.fail(mismatch());
         const stored = yield* Effect.fromResult(contracts.decodeRow(projectNativeRow(row))).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
         const { service_zones, ...scalar } = result;
@@ -62,7 +62,7 @@ export function fulfillmentSetCreationPolicy(contracts: Contracts) {
       if (call.result !== null) return yield* Effect.fail(mismatch());
       const ids = yield* Effect.fromResult(decodeFulfillmentSetPhysicalDeletionIds(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
       const rootIds = yield* Effect.fromResult(correlatePhysicalGraphReceipt({ tables: contracts.tables,
-        entities: contracts.entities, root: contracts.set, requestedIds: ids, activity }));
+        entities: contracts.entities, root: contracts.set, requestedIds: ids, activity, referenceDetachments: contracts.referenceDetachments }));
       expectedEvents.push(...rootIds);
     }
     let emitted = 0;

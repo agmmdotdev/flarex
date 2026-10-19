@@ -10,13 +10,14 @@ import { medusaLifecycle } from "../../repository/lifecycle";
 import { projectNativeRow } from "../../repository/result";
 import { captureCommerceInput } from "../../value/input";
 import type { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
+import type { FulfillmentPhysicalProfile } from "./fulfillment-graph-contracts";
 import { compileFulfillmentSetCreationContracts, decodeFulfillmentSetPhysicalSelection } from "./fulfillment-set-create-input";
 
 type Metadata = Effect.Success<ReturnType<typeof captureServiceZoneCreationMetadata>>["frame"];
 
-export function prepareFulfillmentSetCreationRepository(metadata: Metadata) {
+export function prepareFulfillmentSetCreationRepository(metadata: Metadata, profile: FulfillmentPhysicalProfile = "standalone") {
   return Result.gen(function* () {
-    const contracts = yield* compileFulfillmentSetCreationContracts(metadata);
+    const contracts = yield* compileFulfillmentSetCreationContracts(metadata, profile);
     const scalar = yield* prepareScalarRepository(contracts.set, "FulfillmentSet", scalarIdWhere,
       input => Effect.fromResult(contracts.decodeRows(input)));
     const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
@@ -29,7 +30,7 @@ export function prepareFulfillmentSetCreationRepository(metadata: Metadata) {
         }))),
         delete: (input, shared) => bridge.executeInput(shared, input, (ctx, value) => bridge.checked(ctx, Effect.gen(function* () {
           const selected = yield* Effect.fromResult(captureCommerceInput(value, ctx.resources).pipe(Result.flatMap(decodeFulfillmentSetPhysicalSelection)));
-          const lifecycle = medusaLifecycle(ctx, { tables: metadata.tables, entities: contracts.entities }, "delete");
+          const lifecycle = medusaLifecycle(ctx, { tables: metadata.tables, entities: contracts.entities, referenceDetachments: contracts.referenceDetachments }, "delete");
           const roots = yield* lifecycle.roots(contracts.set, selected.$or.map(row => row.id));
           const plan = yield* lifecycle.plan(contracts.set, roots);
           for (const entity of contracts.entities) {

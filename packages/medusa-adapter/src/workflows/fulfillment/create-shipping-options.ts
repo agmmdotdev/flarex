@@ -8,7 +8,7 @@ import { commerceError, isJsonObject } from "@flarex/persistence-postgres/intern
 import { jsonEqual } from "flarex-protocol/json";
 import { ShippingOptionCreate, ShippingOptionInlineType, ShippingOptionId,
   compileShippingOptionCreationContracts } from "../../modules/fulfillment/shipping-option-create-input";
-import { captureServiceZoneCreationMetadata } from "../../modules/fulfillment/shipping-profile-schema";
+import { captureFulfillmentCreationMetadata, captureServiceZoneCreationMetadata } from "../../modules/fulfillment/shipping-profile-schema";
 import type { makeLocalShippingOptionCreationCommands } from "../../modules/fulfillment/shipping-option-create-service";
 import type { makeLocalPricingCommands } from "../../modules/pricing/service";
 import type { makeLocalRegionReadCommands } from "../../modules/region/service";
@@ -53,8 +53,12 @@ export function prepareShippingOptionCreationResources(input: ShippingOptionCrea
   return Result.gen(function* () {
     const modules = yield* captureWorkflowRecord(input);
     if (Object.keys(modules).length !== 7) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const fulfillmentDefinition = workflowModuleDefinition(modules.fulfillment), fulfillmentSource = fulfillmentDefinition?.source;
+    if (!(fulfillmentSource?.name === "flarex-shipping-option-create" && fulfillmentSource.profile === "shipping-option-create" &&
+      fulfillmentDefinition?.logical?.detachDeletedReferences === undefined) &&
+      !(fulfillmentSource?.name === "flarex-shipping-option-create-reference-detachment" && fulfillmentSource.profile === "shipping-option-create-reference-detachment" &&
+        fulfillmentDefinition?.logical?.detachDeletedReferences === true)) return yield* Result.fail(commerceError("invalidAuthority"));
     for (const [key, name, profile] of [
-      ["fulfillment", "flarex-shipping-option-create", "shipping-option-create"],
       ["pricing", "flarex-pricing-local", "pricing-shipping-options"],
       ["region", "flarex-region-read", "region-shipping-option-read"],
       ["stockLocation", "flarex-stock-location-read", "stock-location-id-read"],
@@ -126,8 +130,9 @@ export const prepareShippingOptionCreationWorkflow = Effect.fn("ShippingOption.p
     const { logicalPublication: _publication, ...binding } = module;
     return [name, { ...binding, logicalResources: shippingOptionCreationResources }];
   }));
-  const metadata = yield* captureServiceZoneCreationMetadata();
-  const contracts = yield* Effect.fromResult(compileShippingOptionCreationContracts(metadata.frame));
+  const referenceDetachment = workflowModuleDefinition(installed.fulfillment.module)?.logical?.detachDeletedReferences === true;
+  const metadata = yield* (referenceDetachment ? captureFulfillmentCreationMetadata() : captureServiceZoneCreationMetadata());
+  const contracts = yield* Effect.fromResult(compileShippingOptionCreationContracts(metadata.frame, referenceDetachment ? "reference-detachment" : "standalone"));
   const output = Schema.Array(Schema.Record(Schema.String, Schema.Json)).check(Schema.makeFilter(rows => Result.isSuccess(contracts.decodeRows(rows))));
   const prepared = yield* Effect.fromResult(createShippingOptionsWorkflow.prepare()).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const events = shippingOptionCreationEvents(installed.fulfillment.module, contracts);

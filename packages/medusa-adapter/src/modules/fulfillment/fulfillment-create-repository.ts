@@ -10,6 +10,8 @@ import { deniedCommerceRepository } from "../../repository/denied";
 import { medusaLifecycle } from "../../repository/lifecycle";
 import { projectNativeRow } from "../../repository/result";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
+import type { commerceMutationEvents } from "../../repository/mutation-events";
+import type { commerceRepositoryContext } from "../../repository/context";
 import { captureCommerceInput } from "../../value/input";
 import { commerceDecoder } from "../../value/decoder";
 import { captureGraph, insertGraphRows } from "../../write/create";
@@ -55,8 +57,9 @@ export function prepareFulfillmentCreationRepository(metadata: Metadata) {
         const supplied = "labels" in update ? { id: update.id, data: update.data } : update;
         return { key: id, update: supplied };
       }) });
-    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
-      const bound = scalar.bind(root, owner), { bridge, events } = bound, denied = deniedCommerceRepository(bound.repository, bound.refuse);
+    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner,
+      shared?: Readonly<{ bridge: ReturnType<typeof commerceRepositoryContext>; events: ReturnType<typeof commerceMutationEvents> }>) => {
+      const bound = scalar.bind(root, owner, shared?.events, shared?.bridge), { bridge, events } = bound, denied = deniedCommerceRepository(bound.repository, bound.refuse);
       const find = Effect.fn("FulfillmentCreation.find")(function* (ctx: CommerceCommandContext, input: unknown) {
         const result = yield* bound.find(ctx, input, false);
         if (result.rows.length > 1) return yield* ctx.refuse(commerceError("limitExceeded"));

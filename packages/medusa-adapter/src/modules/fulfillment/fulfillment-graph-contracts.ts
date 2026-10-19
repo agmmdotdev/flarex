@@ -1,22 +1,24 @@
 import { Result, Schema, type Effect } from "effect";
 import { describeToManyRelation } from "@medusajs/drizzle/relation-query";
 import { jsonEqual } from "flarex-protocol/json";
-import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { preparePhysicalReferenceDetachments } from "../../repository/reference-detachment";
 import { compileCompleteRow } from "../../value/complete-row";
 import { commerceDecoder } from "../../value/decoder";
 import { projectNativeRow } from "../../repository/result";
 import type { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
 
 type Metadata = Effect.Success<ReturnType<typeof captureServiceZoneCreationMetadata>>["frame"];
+export type FulfillmentPhysicalProfile = "standalone" | "reference-detachment";
 
 /** Checked scalar metadata and the installed FulfillmentSet descendant topology.
  * Each consumer explicitly selects its own root and bounded entity subset. */
-export function compileFulfillmentGraphContracts(metadata: Metadata) {
+export function compileFulfillmentGraphContracts(metadata: Metadata, profile: FulfillmentPhysicalProfile = "standalone") {
   return Result.gen(function* () {
     const set = metadata.tables.find(table => table.name === "fulfillment_set"),
       zone = metadata.tables.find(table => table.name === "service_zone"), geo = metadata.tables.find(table => table.name === "geo_zone"),
       option = metadata.tables.find(table => table.name === "shipping_option"), rule = metadata.tables.find(table => table.name === "shipping_option_rule");
-    if (metadata.tables.length !== 8 || set === undefined || zone === undefined || geo === undefined || option === undefined || rule === undefined)
+    if (metadata.tables.length !== (profile === "reference-detachment" ? 12 : 8) || set === undefined || zone === undefined || geo === undefined || option === undefined || rule === undefined)
       return yield* Result.fail(commerceError("unsupportedProfile"));
     const zones = describeToManyRelation(set, "service_zones", metadata.tables);
     if (zones?.targetTable !== zone.name || zones.join.type !== "hasMany" || zones.join.foreignKeys[0] !== "fulfillment_set_id" ||
@@ -46,15 +48,27 @@ export function compileFulfillmentGraphContracts(metadata: Metadata) {
     const decodeSetRow = entities[0]?.decodeRow, decodeZoneRow = entities[1]?.decodeRow, decodeGeoRow = entities[2]?.decodeRow;
     if (decodeSetRow === undefined || decodeZoneRow === undefined || decodeGeoRow === undefined)
       return yield* Result.fail(commerceError("unsupportedProfile"));
-    return { set, zone, geo, option, rule, entities, zoneEntities: entities.slice(1), zones, relation, decodeSetRow, decodeZoneRow, decodeGeoRow };
+    const referenceEntities = [];
+    if (profile === "reference-detachment") {
+      const fulfillment = metadata.tables.find(table => table.name === "fulfillment");
+      if (fulfillment === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+      referenceEntities.push({ table: fulfillment, model: "Fulfillment", maximum: defaultCommerceResources.queryRows,
+        decodeRow: yield* compileCompleteRow(fulfillment) });
+    }
+    const referenceDetachments = yield* preparePhysicalReferenceDetachments(metadata.tables, referenceEntities.map(entity => entity.table));
+    if (profile === "reference-detachment" && (referenceDetachments.length !== 1 || referenceDetachments[0]?.targetTable !== option.name ||
+      referenceDetachments[0]?.sourceColumn !== "shipping_option_id")) return yield* Result.fail(commerceError("unsupportedProfile"));
+    return { set, zone, geo, option, rule, entities, referenceEntities, referenceDetachments,
+      zoneEntities: entities.slice(1), zones, relation, decodeSetRow, decodeZoneRow, decodeGeoRow };
   });
 }
 
 /** The selected native lifecycle root owns its tuple and declared model order;
  * scalar row contracts and complete graph topology have already been checked. */
-export function compileFulfillmentLifecycleGraph(metadata: Metadata, selection: "serviceZone" | "fulfillmentSet" | "shippingOption") {
+export function compileFulfillmentLifecycleGraph(metadata: Metadata, selection: "serviceZone" | "fulfillmentSet" | "shippingOption",
+  profile: FulfillmentPhysicalProfile = "standalone") {
   return Result.gen(function* () {
-    const graph = yield* compileFulfillmentGraphContracts(metadata);
+    const graph = yield* compileFulfillmentGraphContracts(metadata, profile);
     if (graph.zone.cascades.delete.length !== 2 || graph.zone.cascades.delete[0] !== "geo_zones" || graph.zone.cascades.delete[1] !== "shipping_options" ||
       graph.option.cascades.delete.length !== 1 || graph.option.cascades.delete[0] !== "rules" || graph.geo.cascades.delete.length || graph.rule.cascades.delete.length)
       return yield* Result.fail(commerceError("unsupportedProfile"));

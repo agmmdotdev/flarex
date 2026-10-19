@@ -1,3 +1,6 @@
+import type { PreparedCommerceModule } from "../../module/definition";
+import type { FulfillmentModuleService } from "@medusajs/fulfillment/services";
+import type { Context } from "@medusajs/framework/types";
 import { Effect, Result, Schema } from "effect";
 import { Fulfillment } from "@medusajs/fulfillment/models";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
@@ -27,8 +30,21 @@ export const makeLocalFulfillmentCreationCommands = Effect.fn("FulfillmentAdapte
           capture: message => bound.bridge.current().captureLocalEvent(message), check: work => bound.bridge.checked(ctx, work), refuse: bound.refuse });
         return { baseRepository: bound.repository, repository: (model: FulfillmentPersistenceModel) => model === Fulfillment ? bound.repository : bound.denied,
           events: bound.mutationEvents, eventBus, denied: bound.denied };
-      }, service: native => ({ createFulfillment: native.createFulfillment.bind(native), cancelFulfillment: native.cancelFulfillment.bind(native) }),
+      }, service: bindFulfillmentCreationNativeService,
     }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
+    return yield* prepareFulfillmentCreationCommands(module, prepared);
+  }));
+});
+
+type FulfillmentNativeService = Pick<FulfillmentModuleService, "createFulfillment" | "cancelFulfillment">;
+export const bindFulfillmentCreationNativeService = (native: FulfillmentModuleService) => ({
+  createFulfillment: native.createFulfillment.bind(native), cancelFulfillment: native.cancelFulfillment.bind(native),
+});
+/** The standalone and explicit combined constructor share their actual native
+ * command/method preparation and the same causal receipt owner. */
+export function prepareFulfillmentCreationCommands<Service extends { readonly service: FulfillmentNativeService; readonly context: Context }>(module: PreparedCommerceModule<Service>,
+  prepared: Result.Result.Success<ReturnType<typeof prepareFulfillmentCreationRepository>>) {
+  return Result.gen(function* () {
     const commands = commerceServiceCommands(module.use), prepare = commerceCommandPreparation("FulfillmentCreation.prepare");
     const create = commands.write("fulfillmentCreateForWorkflow", prepare(decodeFulfillmentCreate), async ({ service, context }, input) => {
       // The native DTO understates witnessed nullable address/items and business
@@ -49,5 +65,5 @@ export const makeLocalFulfillmentCreationCommands = Effect.fn("FulfillmentAdapte
     const output = Schema.JsonObject.check(Schema.makeFilter(value => Result.isSuccess(prepared.contracts.decodeOutput(value)) || "Expected complete selected native Fulfillment DTO"));
     return { create, cancel, commands: admitted, workflow, contracts: prepared.contracts, withService: module.use,
       logicalEventPolicy: () => policy, output, decodeOutput: prepared.contracts.decodeOutput };
-  }));
-});
+  });
+}

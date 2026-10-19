@@ -2,7 +2,7 @@ import { Result, Schema, type Effect } from "effect";
 import { fillEmptyToManyRelations } from "@medusajs/drizzle/relation-query";
 import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../../value/decoder";
-import { compileFulfillmentLifecycleGraph } from "./fulfillment-graph-contracts";
+import { compileFulfillmentLifecycleGraph, type FulfillmentPhysicalProfile } from "./fulfillment-graph-contracts";
 import type { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
@@ -20,9 +20,9 @@ type Metadata = Effect.Success<ReturnType<typeof captureServiceZoneCreationMetad
 
 /** The full existing graph remains physical-inverse authority. Creation admits
  * just native scalar fields and native empty inverse relation initialization. */
-export function compileFulfillmentSetCreationContracts(metadata: Metadata) {
+export function compileFulfillmentSetCreationContracts(metadata: Metadata, profile: FulfillmentPhysicalProfile = "standalone") {
   return Result.gen(function* () {
-    const graph = yield* compileFulfillmentLifecycleGraph(metadata, "fulfillmentSet"), table = graph.set;
+    const graph = yield* compileFulfillmentLifecycleGraph(metadata, "fulfillmentSet", profile), table = graph.set;
     for (const [name, type, nullable] of [["id", "id", false], ["name", "text", false], ["type", "text", false], ["metadata", "json", true]] as const) {
       const column = table.columns.find(column => column.name === name);
       if (column === undefined || column.type !== type || column.nullable !== nullable ||
@@ -62,6 +62,6 @@ export function compileFulfillmentSetCreationContracts(metadata: Metadata) {
     }
     const Output = Schema.Array(Schema.JsonObject).check(Schema.makeFilter(rows =>
       Result.isSuccess(decodeRows(rows)) || "Expected complete native FulfillmentSet creation rows"));
-    return { ...graph, tables: metadata.tables, defaults, decodeRow, decodeRows, initializeRows, Output };
+    return { ...graph, entities: [...graph.entities, ...graph.referenceEntities], tables: metadata.tables, defaults, decodeRow, decodeRows, initializeRows, Output };
   });
 }
