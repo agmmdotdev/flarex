@@ -11,14 +11,15 @@ import { makeCommercePromiseOwner } from "../src/module/promise-owner";
 import { bindWorkflowQuery } from "../src/workflow/query";
 
 describe("selected native Fulfillment Delivery translation", () => {
-  it("keeps Delivery scalar assignment and its retained null inverse distinct from Shipment input", () => {
+  it("shares the complete native update contract while retaining Delivery date normalization", () => {
     const instant = new Date("2026-10-19T08:00:00.000Z");
     expect(Result.getOrThrow(decodeFulfillmentShipmentUpdate({ delivered_at: instant })))
       .toEqual({ delivered_at: instant.toISOString() });
     expect(Result.getOrThrow(decodeFulfillmentShipmentUpdate({ delivered_at: null }))).toEqual({ delivered_at: null });
     expect(Result.getOrThrow(decodeFulfillmentShipmentUpdate({ shipped_at: null, labels: [] }))).toEqual({ shipped_at: null, labels: [] });
-    for (const input of [{}, { delivered_at: null, shipped_at: null }, { delivered_at: null, labels: [] },
-      { delivered_at: null, canceled_at: null }, { delivered_at: null, updated_at: instant.toISOString() }])
+    for (const input of [{}, { delivered_at: null, shipped_at: null }, { delivered_at: null, labels: [] }])
+      expect(Result.getOrThrow(decodeFulfillmentShipmentUpdate(input))).toEqual(input);
+    for (const input of [{ delivered_at: null, canceled_at: null }, { delivered_at: null, updated_at: instant.toISOString() }])
       expect(Result.isFailure(decodeFulfillmentShipmentUpdate(input))).toBe(true);
   });
 

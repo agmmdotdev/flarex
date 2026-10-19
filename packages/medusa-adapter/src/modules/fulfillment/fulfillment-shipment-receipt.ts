@@ -2,7 +2,8 @@ import { Effect, Option, Result, Schema } from "effect";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
 import { hasChangedFields } from "@medusajs/drizzle/mutation-plan";
-import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { mergeMetadata } from "@medusajs/utils/common/merge-metadata";
+import { commerceError, defaultCommerceResources, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { jsonEqual } from "flarex-protocol/json";
 import { moduleEventDecoder } from "../../module/events";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
@@ -10,7 +11,9 @@ import { orderNativeIdRows, projectNativeRow } from "../../repository/result";
 import { assembleCommerceRelations, commerceRelationReadQuery, prepareCommerceRelationPopulation } from "../../query/relations";
 import { FulfillmentCreationId } from "./fulfillment-create-input";
 import { commerceDecoder } from "../../value/decoder";
-import { decodeFulfillmentShipmentCommand, decodeFulfillmentShipmentRead, decodeFulfillmentDeliveryList } from "./fulfillment-shipment-input";
+import { decodeFulfillmentShipmentCommand, decodeFulfillmentShipmentRead, decodeFulfillmentDeliveryList,
+  fulfillmentUpdateMutableFields, fulfillmentUpdateChangedFields } from "./fulfillment-shipment-input";
+import { assignFulfillmentJson, decodeFulfillmentAssignmentPrior } from "./fulfillment-create-value-profile";
 import type { prepareFulfillmentCreationRepository } from "./fulfillment-create-repository";
 
 type Prepared = Result.Result.Success<ReturnType<typeof prepareFulfillmentCreationRepository>>;
@@ -22,6 +25,7 @@ const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
 }), defaultCommerceResources);
 const mismatch = (phase: string, cause?: unknown) => commerceError("receiptMismatch", { phase, cause });
 const decodeOrderedIds = commerceDecoder(Schema.Array(Schema.Struct({ id: FulfillmentCreationId })).check(Schema.isMaxLength(256)), "receiptMismatch");
+const decodeManagedUpdateTime = commerceDecoder(Schema.DateFromString, "receiptMismatch");
 export const captureFulfillmentShipmentEvent = Effect.fn("FulfillmentShipment.captureEvent")(function* (input: unknown) {
   const event = yield* decodeEvent(input);
   if (event.name !== buildModuleResourceEventName({ prefix: Modules.FULFILLMENT, objectName: event.metadata.object, action: event.metadata.action }) ||
@@ -106,7 +110,7 @@ export function fulfillmentShipmentPolicy(prepared: Prepared) {
         rows.set(relation.targetTable, selected);
       }
       const assembled = assembleCommerceRelations(contracts.fulfillment.table.name, rows, plan.paths, contracts.queryRelations);
-      return { plan, rows: yield* plan.project(assembled) };
+      return { plan, rows: yield* plan.project(assembled), hydration: yield* shipment.reads.hydration(assembled) };
     });
     if (call.commandName === "fulfillmentListForDelivery") {
       if (call.mode !== "read" || activity.mutations.length || call.events.length) return yield* Effect.fail(mismatch("list-mode"));
@@ -124,6 +128,8 @@ export function fulfillmentShipmentPolicy(prepared: Prepared) {
         first = yield* Effect.fromResult(select(id, { id }, { relations: ["items", "labels"] })),
         selected = yield* Effect.fromResult(select(id, { $or: [{ id }] })), before = selected.rows[0];
       if (before === undefined || first.rows.length !== 1) return yield* Effect.fail(mismatch("update-root"));
+      const hydration = first.hydration.find(value => value.id === id);
+      if (hydration === undefined) return yield* Effect.fail(mismatch("update-hydration"));
       const initial = state.get(contracts.fulfillment.table.name)?.get(id);
       if (initial === undefined || initial.deleted_at !== null) return yield* Effect.fail(mismatch("update-initial"));
       const cache = new Map<string, Map<string, Row>>(), loaded = new Set<string>();
@@ -143,9 +149,17 @@ export function fulfillmentShipmentPolicy(prepared: Prepared) {
       yield* Effect.fromResult(load(contracts.fulfillment.table.name, "id", [id]));
       const pending = new Set(activity.mutations.map(mutation => mutation.ordinal));
       const changes: Array<{ table: string; id: string; operation: "insert" | "patch" | "delete"; expected: JsonObject; preserveTimestamps: boolean }> = [];
-      const labels = "labels" in input.update ? input.update.labels : undefined, oldLabels = labels == null ? [] : yield* Effect.fromResult(load(contracts.label.table.name, "fulfillment_id", [id])), retained = new Set<string>(), labelOrder: string[] = [];
-      const mutable = Object.fromEntries(Object.entries(input.update).filter(([name, value]) => name !== "labels" && hasChangedFields(before, { [name]: value }, [])));
-      const created: string[] = [], updated: string[] = [], deleted: string[] = [];
+      const request = yield* Effect.fromResult(fulfillmentUpdateMutableFields(before, input.update));
+      if (request.metadata !== undefined) yield* Effect.fromResult(decodeFulfillmentAssignmentPrior(initial.metadata ?? null));
+      const labels = request.labels, oldLabels = labels == null ? [] : yield* Effect.fromResult(load(contracts.label.table.name, "fulfillment_id", [id])), retained = new Set<string>(), labelOrder: string[] = [];
+      const normalized: JsonObject = { ...Object.fromEntries(Object.entries(request).filter(([name]) => name !== "labels")),
+        ...(request.data === undefined ? {} : { data: yield* Effect.fromResult(assignFulfillmentJson(initial.data, request.data)) }),
+        ...(request.metadata !== undefined && isJsonObject(request.metadata) && Object.keys(request.metadata).length
+          ? { metadata: mergeMetadata(initial.metadata !== undefined && isJsonObject(initial.metadata) ? initial.metadata : {}, request.metadata) }
+          : request.metadata !== undefined && request.metadata !== null
+            ? { metadata: yield* Effect.fromResult(assignFulfillmentJson(initial.metadata, request.metadata)) } : {}) };
+      const mutable = fulfillmentUpdateChangedFields(initial, normalized);
+      const created: string[] = [], updated: string[] = [], deleted: string[] = [], repeatedReferences = new Set<string>();
       for (const request of labels ?? []) {
         let childId = request.id;
         if (childId === undefined) {
@@ -154,11 +168,16 @@ export function fulfillmentShipmentPolicy(prepared: Prepared) {
           if (typeof mutation?.after?.id !== "string") return yield* Effect.fail(mismatch("new-label"));
           childId = mutation.after.id;
         }
-        if (retained.has(childId)) return yield* Effect.fail(mismatch("duplicate-label"));
+        if (retained.has(childId)) {
+          if (!repeatedReferences.has(childId) || Object.keys(request).length !== 1 || request.id !== childId)
+            return yield* Effect.fail(mismatch("duplicate-label"));
+          continue;
+        }
         retained.add(childId); labelOrder.push(childId);
         const previous = (yield* Effect.fromResult(load(contracts.label.table.name, "id", [childId])))[0];
         if (previous?.deleted_at != null || previous !== undefined && previous.fulfillment_id !== id || request.fulfillment_id !== undefined && request.fulfillment_id !== id)
           return yield* Effect.fail(mismatch("label-owner"));
+        if (previous !== undefined && Object.keys(request).length === 1 && request.id === childId) repeatedReferences.add(childId);
         const reconstituting = previous === undefined && ["created_at", "updated_at", "deleted_at"].some(name => Object.hasOwn(request, name));
         // Native [] preimages populate complete Label DTOs. The core alone
         // proves this exact row was deleted in the same outer root; this
@@ -166,12 +185,18 @@ export function fulfillmentShipmentPolicy(prepared: Prepared) {
         const retainedRow = reconstituting ? yield* Effect.fromResult(contracts.label.decodeRow(request)) : undefined;
         if (retainedRow !== undefined && (retainedRow.id !== childId || retainedRow.fulfillment_id !== id || retainedRow.deleted_at !== null))
           return yield* Effect.fail(mismatch("retained-label-owner"));
-        if (!reconstituting) for (const name of ["created_at", "updated_at", "deleted_at"] as const) if (request[name] !== undefined && (previous === undefined || request[name] !== previous[name]))
+        let managedUpdateChanged = false;
+        if (!reconstituting && previous !== undefined && request.updated_at !== undefined) {
+          const suppliedTime = yield* Effect.fromResult(decodeManagedUpdateTime(request.updated_at)),
+            storedTime = yield* Effect.fromResult(decodeManagedUpdateTime(previous.updated_at));
+          managedUpdateChanged = suppliedTime.getTime() !== storedTime.getTime();
+        }
+        if (!reconstituting) for (const name of ["created_at", "deleted_at"] as const) if (request[name] !== undefined && (previous === undefined || request[name] !== previous[name]))
           return yield* Effect.fail(mismatch("label-managed"));
         const supplied = Object.fromEntries(Object.entries(request).filter(([name]) => !["created_at", "updated_at", "deleted_at"].includes(name))),
           wanted = retainedRow ?? { ...contracts.defaults.get(contracts.label.table.name), ...previous, ...supplied, id: childId, fulfillment_id: id };
         yield* Effect.fromResult(load(contracts.fulfillment.table.name, "id", [id]));
-        if (previous === undefined || hasChangedFields(previous, wanted, ["id"])) {
+        if (previous === undefined || managedUpdateChanged || hasChangedFields(previous, wanted, ["id"])) {
           changes.push({ table: contracts.label.table.name, id: childId, operation: previous ? "patch" : "insert", expected: wanted, preserveTimestamps: reconstituting });
           (previous ? updated : created).push(childId);
         }
@@ -179,7 +204,9 @@ export function fulfillmentShipmentPolicy(prepared: Prepared) {
       for (const previous of oldLabels) if (previous.deleted_at === null && !retained.has(previous.id)) {
         changes.push({ table: contracts.label.table.name, id: previous.id, operation: "delete", expected: previous, preserveTimestamps: false }); deleted.push(previous.id);
       }
-      if (Object.keys(mutable).length) changes.push({ table: contracts.fulfillment.table.name, id, operation: "patch", expected: { ...initial, ...mutable }, preserveTimestamps: false });
+      const rootUpdated = Object.keys(mutable).length > 0 || hydration.dirtyReferences.length > 0;
+      if (rootUpdated)
+        changes.push({ table: contracts.fulfillment.table.name, id, operation: "patch", expected: { ...initial, ...mutable }, preserveTimestamps: false });
       // Shared graph batching deletes children, inserts replacements, then
       // writes the root and changed children in dependency order.
       const ordered = changes.filter(change => change.operation === "delete").concat(changes.filter(change => change.operation === "insert"),
@@ -219,7 +246,7 @@ export function fulfillmentShipmentPolicy(prepared: Prepared) {
       const output = contracts.initializeRead({ ...root, items, labels: labels == null ? finalLabels : labelOrder.map(id => byId.get(id)!) }, before, "assigned");
       if (!jsonEqual(call.result, yield* contracts.serialize(output))) return yield* Effect.fail(mismatch("update-result"));
       const expectedEvents = [...created.map(id => ({ object: "fulfillment_label", action: "created", id })),
-        ...(Object.keys(mutable).length ? [{ object: "fulfillment", action: "updated", id }] : []),
+        ...(rootUpdated ? [{ object: "fulfillment", action: "updated", id }] : []),
         ...updated.map(id => ({ object: "fulfillment_label", action: "updated", id })), ...deleted.map(id => ({ object: "fulfillment_label", action: "deleted", id }))];
       let index = 0;
       for (const message of call.events) {

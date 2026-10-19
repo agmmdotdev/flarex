@@ -7,11 +7,15 @@ import { compileCompleteRow } from "../../value/complete-row";
 import { projectExactNumericColumns } from "../../value/exact-numeric";
 import type { CommerceRelation, CommerceRelations } from "../../query/relations";
 import type { captureFulfillmentCreationMetadata } from "./shipping-profile-schema";
+import { FulfillmentAssignmentJson } from "./fulfillment-create-value-profile";
 
 export const FulfillmentCreationId = Schema.String.check(Schema.isLengthBetween(1, 256));
 const Text = Schema.optionalKey(Schema.NullOr(Schema.String));
 const JsonData = Schema.optionalKey(Schema.NullOr(Schema.JsonObject));
-const BusinessDate = Schema.optionalKey(Schema.NullOr(Schema.String));
+const decodeDate = Schema.decodeUnknownResult(Schema.DateFromString);
+export const FulfillmentBusinessDate = Schema.NullOr(Schema.String.check(Schema.makeFilter(value =>
+  Result.isSuccess(decodeDate(value)) || "Expected valid native business date")));
+const BusinessDate = Schema.optionalKey(FulfillmentBusinessDate);
 export const FulfillmentCreationAddress = Schema.Struct({ company: Text, first_name: Text, last_name: Text,
   address_1: Text, address_2: Text, city: Text, country_code: Text, province: Text, postal_code: Text, phone: Text, metadata: JsonData });
 export const FulfillmentCreationItem = Schema.Struct({ title: Schema.String, sku: Schema.String, barcode: Schema.String,
@@ -22,7 +26,7 @@ export const FulfillmentCreate = Schema.Struct({ location_id: FulfillmentCreatio
   delivery_address: Schema.optionalKey(Schema.NullOr(FulfillmentCreationAddress)),
   items: Schema.NullOr(Schema.Array(FulfillmentCreationItem).pipe(Schema.mutable).check(Schema.isMaxLength(4))),
   labels: Schema.optionalKey(Schema.Array(FulfillmentCreationLabel).pipe(Schema.mutable).check(Schema.isMaxLength(4))),
-  data: JsonData, metadata: JsonData, requires_shipping: Schema.optionalKey(Schema.Boolean),
+  data: Schema.optionalKey(FulfillmentAssignmentJson), metadata: JsonData, requires_shipping: Schema.optionalKey(Schema.Boolean),
   packed_at: BusinessDate, shipped_at: BusinessDate, delivered_at: BusinessDate, canceled_at: BusinessDate,
   marked_shipped_by: Text, created_by: Text,
   // Native strips order before DAL creation. Location is provider context from

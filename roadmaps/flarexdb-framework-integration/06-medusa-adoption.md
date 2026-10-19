@@ -557,10 +557,12 @@ root admits one existing ID, zero to four complete new Labels and an optional
 shipment marker. Genuine shipment guards, nested update, native collection order
 and retained step compensation use the existing local Fulfillment constructor
 and twelve-table source. The selected root borrows only retrieve/update methods.
-Full managed Label preimages restore both timestamps through the authenticated
-same-root reconstitution policy; projected preimages retain native fresh-insert
-timestamps. Empty replacement and active-only membership are explicit shared
-graph policies. Existing reconstitution consumers retain timestamp advancement.
+The approved [update preimage correction](./preflight/147-native-fulfillment-update.md)
+retains complete Labels for both empty and nonempty replacement. Authenticated
+same-root reconstitution restores both original timestamps; the earlier native
+projected-preimage recreation branch remains comparison evidence. Empty
+replacement and active-only membership are explicit shared graph policies.
+Other reconstitution consumers retain their selected timestamp policies.
 The named shipment allowance uses 128 calls with the normal 64-event, 1 MiB and
 ten-second limits. No extra Query, lock, provider call or schema is introduced.
 Public/hosted activation and populated upgrades remain separate gates.
@@ -618,6 +620,24 @@ deadline. The finite callback's transaction-covered classification does not
 admit delayed compensation or a durable Return scheduler. Order/Return modules,
 external providers, populated upgrades and public/hosted activation remain
 separate gates.
+
+The [standalone Fulfillment update](./preflight/147-native-fulfillment-update.md)
+root implements all declared update fields and the connected module/Shipment
+Label branch through the existing twelve-table constructor and authenticated
+retrieve/update pair. Its approved finite/durable preimage correction selects
+whole JSON values and complete Labels. Standalone execution is finite and
+atomic, retaining the existing 128-call allowance and ordinary event, byte and
+deadline limits. Native JSON merging and introduced-key cancellation residuals
+remain preserved; exact JSON snapshot restoration is a separate native contract.
+
+The native DAL assignment seam handles constructor-bearing JSON consistently
+for ordinary/Return creation and updates; recursive own `__proto__` remains
+outside its supported domain. Explicit shared replacement policies admit
+identical existing owned references and managed update-time signals without
+caller timestamp authority. Actual filtered hasOne hydration retains native
+root update events while preserving stored reference identities. Shipment and
+Delivery retain their own bounded contracts; no endpoint mutation, provider,
+Query, delayed compensation or hosted activation follows from this root.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

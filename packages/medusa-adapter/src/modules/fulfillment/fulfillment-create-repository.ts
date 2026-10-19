@@ -20,8 +20,9 @@ import type { CreationProfile, GraphCatalog } from "../../write/graph-model";
 import { compileFulfillmentCreationContracts, captureFulfillmentBusinessDates, decodeFulfillmentCreate, decodeFulfillmentNativeUpdate,
   FulfillmentCreationAddress, FulfillmentCreationItem, FulfillmentCreationLabel, FulfillmentCreationId } from "./fulfillment-create-input";
 import type { captureFulfillmentCreationMetadata } from "./shipping-profile-schema";
-import { captureFulfillmentItemQuantity, selectedManualDataAssignment } from "./fulfillment-create-value-profile";
+import { captureFulfillmentItemQuantity, assignFulfillmentJson } from "./fulfillment-create-value-profile";
 import { prepareFulfillmentShipmentRepository } from "./fulfillment-shipment-repository";
+import type { FulfillmentNativeHydration } from "./fulfillment-shipment-query";
 import { prepareFulfillmentReturnQuery } from "./fulfillment-return-query";
 
 type Metadata = Effect.Success<ReturnType<typeof captureFulfillmentCreationMetadata>>["frame"];
@@ -63,12 +64,24 @@ export function prepareFulfillmentCreationRepository(metadata: Metadata) {
     const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner,
       shared?: Readonly<{ bridge: ReturnType<typeof commerceRepositoryContext>; events: ReturnType<typeof commerceMutationEvents> }>) => {
       const bound = scalar.bind(root, owner, shared?.events, shared?.bridge), { bridge, events } = bound, denied = deniedCommerceRepository(bound.repository, bound.refuse);
+      // The original module update hydrates Items and Labels before its native
+      // internal service constructs the DAL pair. Creation/provider assignment
+      // does not perform this read, even when its patch has the same keys.
+      let graphBefore: { readonly row: JsonObject; readonly hydration: FulfillmentNativeHydration } | undefined;
       const find = Effect.fn("FulfillmentCreation.find")(function* (ctx: CommerceCommandContext, input: unknown) {
         const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
         const suppliedOptions = isJsonObject(captured) ? captured.options : undefined;
         const options = suppliedOptions !== undefined && isJsonObject(suppliedOptions) ? suppliedOptions : undefined;
-        if (options?.fields !== undefined || Array.isArray(options?.populate) && options.populate.length > 0)
-          return structuredClone(yield* shipment.reads.find(ctx, captured));
+        if (options?.fields !== undefined || Array.isArray(options?.populate) && options.populate.length > 0) {
+          const selected = yield* shipment.reads.find(ctx, captured), rows = selected.rows;
+          if (options?.fields === undefined && Array.isArray(options?.populate) && options.populate.length === 2 &&
+            options.populate.includes("items") && options.populate.includes("labels") && rows.length === 1) {
+            const row = rows[0]!, hydration = selected.hydration.find(value => value.id === row.id);
+            if (hydration === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));
+            graphBefore = structuredClone({ row, hydration });
+          }
+          return structuredClone(rows);
+        }
         const result = yield* bound.find(ctx, input, false);
         if (result.rows.length > 1) return yield* ctx.refuse(commerceError("limitExceeded"));
         const rows: JsonObject[] = [];
@@ -109,10 +122,10 @@ export function prepareFulfillmentCreationRepository(metadata: Metadata) {
           return yield* ctx.refuse(commerceError("invalidInput"));
         const entity = yield* Effect.fromResult(captureCommerceInput(descriptors.entity.value)), update = yield* Effect.fromResult(captureFulfillmentBusinessDates(descriptors.update.value));
         const pairs = yield* Effect.fromResult(decodePairs([{ entity, update }]));
-        if (Object.hasOwn(pairs[0]!.update, "shipped_at") || Object.hasOwn(pairs[0]!.update, "delivered_at")) return yield* shipment.update(ctx, pairs[0]!, events, shared);
+        if (graphBefore !== undefined) return yield* shipment.update(ctx, pairs[0]!, events, shared, graphBefore.row, graphBefore.hydration);
         const patches = yield* Effect.fromResult(updatePlan(pairs));
         const before = yield* Effect.fromResult(contracts.decodeOutput(pairs[0]!.entity));
-        const supplied = patches[0]!, patch = "data" in supplied ? { ...supplied, data: selectedManualDataAssignment(before) } : supplied;
+        const supplied = patches[0]!, patch = "data" in supplied ? { ...supplied, data: yield* Effect.fromResult(assignFulfillmentJson(before.data, {})) } : supplied;
         // Native dirty tracking omits a JSON-equal empty provider assignment.
         // Keep its original create DTO detached from this update result.
         if (Object.entries(patch).every(([field, value]) => before[field] !== undefined && jsonEqual(before[field], value))) return [structuredClone(before)];

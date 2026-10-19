@@ -1,9 +1,12 @@
 # Native Fulfillment shipment preflight
 
 Status: bounded private shipment integration is implemented. The unchanged-native
-PostgreSQL matrix and separate populated-to-empty Label inverse witness establish
-the native contract. The private root retains that contract on PGlite and
-ordinary-role PostgreSQL, including both retained-preimage timestamp paths.
+PostgreSQL matrix and separate populated-to-empty Label inverse witness below
+remain the original comparison baseline. The executing nested update now uses
+the explicitly approved [complete-preimage correction](./147-native-fulfillment-update.md):
+empty and nonempty Label replacements both retain complete original rows and
+restore their timestamps through authenticated same-root reconstitution. This
+supersedes the baseline's projected-preimage timestamp recreation branch.
 Public/hosted activation, external provider effects,
 populated upgrades and delivery remain separate.
 
@@ -93,7 +96,7 @@ execution index. The original 32-case packet remains unchanged.
 | Null Labels runtime control | Genuine non-null collection failure; no successful target mutation/event and permanently failed transaction cannot be canceled |
 | Late parent failure | Both genuine nested child transactions revert; original Label IDs/business values and shipped date are restored through native compensation |
 
-### Label replacement and inverse are not snapshot undo
+### Original Label replacement and inverse comparison
 
 The existing update-step TODO does not prove a failure in this selected path.
 Actual PostgreSQL cohorts remove introduced Labels and restore prior Label IDs

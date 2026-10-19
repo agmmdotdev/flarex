@@ -93,7 +93,7 @@ describe("genuine native Fulfillment shipment", { concurrent: false }, () => {
     expect(members(result, "labels")).toEqual([expect.objectContaining(labels("minimum", 1)[0])]);
   }, 180_000);
 
-  it.each([0, 4])("executes the authentic retained inverse with %s new Labels and preserves its native timestamp branch", async count => {
+  it.each([0, 4])("executes the authentic retained inverse with %s new Labels and restores its complete Label preimage", async count => {
     const created = await connected.seed("shipment144-inverse-" + count, { maximum: true }), id = idOf(created);
     await connected.arrangeShipment("fulfillment", "update", [{ id, marked_shipped_by: "previous144" }]);
     const beforeRows = await connected.read(), oldLabels = children(beforeRows, id, "label"), before = await connected.snapshot(), tap = retainedTap();
@@ -110,22 +110,16 @@ describe("genuine native Fulfillment shipment", { concurrent: false }, () => {
       expect(result).toMatchObject({ id, shipped_at: expect.any(String), marked_shipped_by: "next144" });
       expect(update).toHaveBeenCalledTimes(2);
       expect(tap.get()).toMatchObject({ id, shipped_at: null, marked_shipped_by: "previous144" });
-      const retained = Schema.decodeUnknownSync(Schema.Struct({ labels: Schema.Array(Schema.Struct({ id: Schema.String })) }))(tap.get());
+      const retained = Schema.decodeUnknownSync(Schema.Struct({ labels: Schema.Array(Schema.JsonObject) }))(tap.get());
       expect(retained.labels.map(label => label.id)).toEqual(members(created, "labels").map(label => label.id));
+      for (const previous of oldLabels) expect(retained.labels.find(label => label.id === previous.id)).toEqual(previous);
       const afterRows = await connected.read(), restored = children(afterRows, id, "label");
       expect(afterRows.find(row => row.id === id)).toMatchObject({ shipped_at: null, marked_shipped_by: "previous144" });
       expect(restored.map(row => row.id).sort()).toEqual(oldLabels.map(row => row.id).sort());
       for (const previous of oldLabels) {
         const actual = restored.find(row => row.id === previous.id);
         if (actual === undefined) throw new Error("Missing native recreated Label ID");
-        const { created_at: oldCreated, updated_at: oldUpdated, ...business } = previous;
-        const { created_at: newCreated, updated_at: newUpdated, ...restoredBusiness } = actual;
-        expect(restoredBusiness).toEqual(business);
-        if (count === 0) {
-          expect(newCreated).toBe(oldCreated); expect(newUpdated).toBe(oldUpdated);
-        } else {
-          expect(newCreated).not.toBe(oldCreated); expect(newUpdated).not.toBe(oldUpdated);
-        }
+        expect(actual).toEqual(previous);
       }
       expect(children(afterRows, id, "item")).toEqual(children(beforeRows, id, "item"));
       expect(afterRows.filter(row => row.id !== id && row.fulfillment_id !== id)).toEqual(beforeRows.filter(row => row.id !== id && row.fulfillment_id !== id));

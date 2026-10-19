@@ -30,7 +30,18 @@ export const updateFulfillmentStep = createStep(
       Modules.FULFILLMENT
     )
 
-    const { selects, relations } = getSelectsAndRelationsFromObjectArray([data])
+    const { selects, relations } = getSelectsAndRelationsFromObjectArray([data], {
+      objectFields: ["data", "metadata"],
+    })
+    if (Object.prototype.hasOwnProperty.call(data, "labels")) {
+      const scalarSelects = selects.filter(
+        (field) => field !== "labels" && !field.startsWith("labels.")
+      )
+      selects.splice(0, selects.length, ...scalarSelects, "labels.*")
+      if (!relations.includes("labels")) {
+        relations.push("labels")
+      }
+    }
     const fulfillment = await service.retrieveFulfillment(id, {
       select: selects,
       relations,

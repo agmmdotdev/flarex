@@ -41,6 +41,8 @@ export const fulfillmentCreationResources = Object.freeze({ ...defaultCommerceRe
 export const fulfillmentCreationCommandMs = 30_000;
 /** One native shipment replacement and its retained Label inverse. */
 export const fulfillmentShipmentResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
+/** One complete native update and its retained scalar/JSON/Label inverse. */
+export const fulfillmentUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Complete installed Location/Link/Fulfillment deletion graph and retained inverse. */
 export const stockLocationDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 512, eventMessages: 256, commandBytes: 2_097_152 });
 export const stockLocationDeletionCommandMs = 30_000;

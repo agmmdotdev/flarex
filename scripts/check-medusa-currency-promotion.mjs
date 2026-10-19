@@ -3,6 +3,7 @@ import { verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTe
 import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyReturnFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 import { deliverySourcePairs, verifyFulfillmentDeliveryCallbacks, verifyNativeSkipStepResponseType } from "./check-medusa-delivery-source.mjs";
 import { verifyPricingNormalizationExtraction } from "./check-medusa-pricing-normalization.mjs";
+import { verifyNativeJsonAssignment } from "./check-medusa-json-assignment-source.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -271,6 +272,7 @@ function inventory(root, relative) {
 /** @param {string} root @param {unknown} supplied @returns {Promotion} */
 export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync(path.join(root, manifestPath), "utf8"))) {
   assertPromotion(supplied);
+  verifyNativeJsonAssignment(root);
   const promotion = supplied;
   const sums = readFileSync(path.join(root, "third_party/medusa/SOURCE_SHA256SUMS"));
   if (sha256(sums) !== "d20d4f16843cd4844b2f1c4807a5787488e0f08bc068bba9641926984f183017") {

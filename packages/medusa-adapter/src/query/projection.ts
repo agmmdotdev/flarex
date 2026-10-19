@@ -11,6 +11,8 @@ export interface ProjectionPolicy {
   readonly joinKeys: "storage" | "retain" | "retainWhenNested";
   readonly incomingKeys?: boolean;
   readonly nullToOne?: boolean;
+  /** Explicit native scalar wildcard; relation traversal remains separately admitted. */
+  readonly allowWildcard?: boolean;
   readonly selectableRelations: readonly string[];
   readonly nested: ReadonlyMap<string, ProjectionPolicy>;
 }
@@ -68,7 +70,8 @@ export function compileProjection(
     const nestedFields = new Map<string, string[]>();
     const tree = toPopulateTree(paths);
     for (const field of selected) {
-      if (table.columns.includes(field)) scalar.push(field);
+      if (field === "*" && policy.allowWildcard === true) scalar.push(...table.columns);
+      else if (table.columns.includes(field)) scalar.push(field);
       else {
         const dot = field.indexOf(".");
         const name = field.slice(0, dot), child = field.slice(dot + 1);

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { captureFulfillmentCreationMetadata, captureServiceZoneCreationMetadata, compileFulfillmentCreationDefinition } from "../src/modules/fulfillment/shipping-profile-schema";
 import { captureFulfillmentBusinessDates, compileFulfillmentCreationContracts, decodeFulfillmentCreate, decodeFulfillmentNativeUpdate } from "../src/modules/fulfillment/fulfillment-create-input";
-import { captureFulfillmentItemQuantity, selectedManualDataAssignment } from "../src/modules/fulfillment/fulfillment-create-value-profile";
+import { captureFulfillmentItemQuantity, assignFulfillmentJson } from "../src/modules/fulfillment/fulfillment-create-value-profile";
 import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
 import { compileFulfillmentShipmentContracts, decodeFulfillmentShipmentUpdate } from "../src/modules/fulfillment/fulfillment-shipment-input";
 import { prepareFulfillmentShipmentQuery } from "../src/modules/fulfillment/fulfillment-shipment-query";
+import { jsonEqual } from "flarex-protocol/json";
 
 const input = { location_id: "location", provider_id: "manual_manual", items: [], delivery_address: {} };
 describe("selected native Fulfillment creation values", () => {
@@ -58,8 +59,19 @@ describe("selected native Fulfillment creation values", () => {
       { id: "f", data: {}, labels: [{ tracking_number: "unexpected" }] }, { id: "f", canceled_at: null }])
       expect(Result.isFailure(decodeFulfillmentNativeUpdate(row))).toBe(true);
     const data = { nested: [null, true] };
-    expect(selectedManualDataAssignment({ data })).toBe(data);
-    expect(selectedManualDataAssignment({ data: null })).toEqual({});
+    expect(Result.getOrThrow(assignFulfillmentJson(data, {}))).toEqual(data);
+    expect(Result.getOrThrow(assignFulfillmentJson(null, {}))).toEqual({});
+  });
+
+  it("uses genuine Manual empty assignment for constructor JSON and refuses unsafe keys at creation input", () => {
+    for (const constructor of ["native147", { business: true }]) {
+      const data = { constructor, kept: "initial147" };
+      expect(jsonEqual(Result.getOrThrow(decodeFulfillmentCreate({ ...input, data })).data ?? null, data)).toBe(true);
+      expect(Result.getOrThrow(assignFulfillmentJson(data, {}))).toEqual({});
+    }
+    const unsupported = Schema.decodeUnknownSync(Schema.JsonObject)(JSON.parse('{"nested":{"__proto__":{"native147":true}}}'));
+    expect(decodeFulfillmentCreate({ ...input, data: unsupported })).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+    expect(assignFulfillmentJson(unsupported, {})).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
   });
 
   it("normalizes only declared native business Dates without evaluating getters", () => {

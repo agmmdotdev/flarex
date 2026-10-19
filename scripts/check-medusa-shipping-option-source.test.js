@@ -84,6 +84,52 @@ const providers = "steps/validate-fulfillment-providers.ts";
 const validation = "steps/validate-shipping-option-prices.ts";
 const emit = "../common/steps/emit-event.ts";
 
+describe.each(["finite", "durable"])("approved Fulfillment update preimages in %s callbacks", profile => {
+  const finite = profile === "finite", key = finite ? "steps/update-fulfillment.ts"
+    : "packages/medusa-core-flows/src/durable/fulfillment/steps/update-fulfillment.ts";
+  const file = finite ? "packages/medusa-core-flows/src/fulfillment/" + key : key;
+  const verify = finite ? verifyFulfillmentShipmentCallbacks : verifyFulfillmentDeliveryCallbacks;
+  const read = () => readFileSync(path.join(root, file), "utf8").replaceAll("\r\n", "\n");
+  const native = () => readFileSync(path.join(root,
+    "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment/steps/update-fulfillment.ts"), "utf8");
+  it("admits the exact approved preimage correction and erased declarations", () => {
+    expect(() => verify(root)).not.toThrow();
+    expect(() => verify(root, { [key]: { target: read()
+      .replace("const scalarSelects =", "const scalarSelects: string[] =") + "\n// erased only\n" } })).not.toThrow();
+  });
+  it.each([
+    ["whole data preimage", 'objectFields: ["data", "metadata"]', 'objectFields: ["metadata"]'],
+    ["whole metadata preimage", 'objectFields: ["data", "metadata"]', 'objectFields: ["data"]'],
+    ["only declared JSON fields", 'objectFields: ["data", "metadata"]', 'objectFields: ["data", "metadata", "labels"]'],
+    ["supplied Label detection", 'Object.prototype.hasOwnProperty.call(data, "labels")', "false"],
+    ["complete Label preimage", '...scalarSelects, "labels.*"', '...scalarSelects, "labels.id"'],
+    ["partial Label select removal", '!field.startsWith("labels.")', 'field.startsWith("labels.")'],
+    ["other supplied scalar selects", '...scalarSelects, "labels.*"', '"labels.*"'],
+    ["Label relation retention", 'relations.push("labels")', 'relations.push("items")'],
+    ["native forward fields", "const updated = await service.updateFulfillment(id, data)", "const updated = await service.updateFulfillment(id, {})"],
+    ["actual retained DTO", "new StepResponse(updated, fulfillment)", "new StepResponse(updated, input)"],
+    ["original inverse method", "    await service.updateFulfillment(id, data)", "    await service.cancelFulfillment(id)"],
+    ["original inverse fields", "    await service.updateFulfillment(id, data)", "    await service.updateFulfillment(id, {})"],
+  ])("rejects changed %s", (_label, before, after) => {
+    const original = read(); expect(original).toContain(before);
+    expect(() => verify(root, { [key]: { target: original.replace(before, after) } })).toThrow();
+  });
+  it("rejects an added JSON reset write or native normalization replacement", () => {
+    const original = read(), anchor = "    await service.updateFulfillment(id, data)";
+    expect(original).toContain(anchor);
+    expect(() => verify(root, { [key]: { target: original.replace(anchor,
+      "    await service.updateFulfillment(id, { data: null, metadata: null })\n" + anchor) } })).toThrow();
+    expect(() => verify(root, { [key]: { target: original.replace("    const updated =",
+      "    data.metadata = {}\n    const updated =") } })).toThrow();
+  });
+  it("requires exactly one original native preimage adaptation anchor", () => {
+    const original = native(), anchor = "getSelectsAndRelationsFromObjectArray([data])";
+    expect(original).toContain(anchor);
+    expect(() => verify(root, { [key]: { source: original.replace(anchor, "getSelectsAndRelationsFromObjectArray([])") } })).toThrow("native adaptation anchor");
+    expect(() => verify(root, { [key]: { source: original + "\n    const { selects, relations } = " + anchor } })).toThrow("native adaptation anchor");
+  });
+});
+
 describe("native shipment and nested Fulfillment update packet", () => {
   const shipment = "workflows/create-shipment.ts", update = "workflows/update-fulfillment.ts",
     guard = "steps/validate-shipment.ts", step = "steps/update-fulfillment.ts";
@@ -105,7 +151,7 @@ describe("native shipment and nested Fulfillment update packet", () => {
     ["canceled eligibility", guard, "if (fulfillment.canceled_at)", "if (false)"],
     ["Option eligibility", guard, "if (!fulfillment.shipping_option_id)", "if (false)"],
     ["native refusal type", guard, "MedusaError.Types.NOT_ALLOWED", "MedusaError.Types.INVALID_DATA"],
-    ["input-derived preimage", step, "getSelectsAndRelationsFromObjectArray([data])", "getSelectsAndRelationsFromObjectArray([])"],
+    ["input-derived preimage", step, "getSelectsAndRelationsFromObjectArray([data],", "getSelectsAndRelationsFromObjectArray([],"],
     ["preimage scalar selection", step, "select: selects,", "select: [],"],
     ["preimage relations", step, "      relations,", "      relations: [],"],
     ["native update completion", step, "await service.updateFulfillment(id, data)", "void service.updateFulfillment(id, data)"],

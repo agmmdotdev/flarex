@@ -34,6 +34,27 @@ function replaceChecked(text, before, after, count, message) {
   return text.replaceAll(before, after);
 }
 
+/** Approved147 native update-step correction: whole JSON scalar preimages and
+ * complete Label snapshots. Forward/inverse service calls remain unchanged.
+ * hasOwnProperty.call preserves Object.hasOwn for the ES2021 portable target.
+ * @param {string} source @param {string} message */
+export function adaptFulfillmentUpdatePreimage(source, message) {
+  return replaceChecked(source,
+    "    const { selects, relations } = getSelectsAndRelationsFromObjectArray([data])",
+    String.raw`    const { selects, relations } = getSelectsAndRelationsFromObjectArray([data], {
+      objectFields: ["data", "metadata"],
+    })
+    if (Object.prototype.hasOwnProperty.call(data, "labels")) {
+      const scalarSelects = selects.filter(
+        (field) => field !== "labels" && !field.startsWith("labels.")
+      )
+      selects.splice(0, selects.length, ...scalarSelects, "labels.*")
+      if (!relations.includes("labels")) {
+        relations.push("labels")
+      }
+    }`, 1, message);
+}
+
 /** Authenticate the six Shipping files and shared event step/fourth inverse.
  * Optional explicit
  * source/target text overrides support negative provenance controls; production
@@ -96,9 +117,9 @@ export function verifyFulfillmentCancellationCallbacks(root, overrides = {}) {
   ], "Changed native Fulfillment cancellation callback behavior", overrides);
 }
 
-/** Shipment keeps its native guard order, generated date, nested update,
- * input-derived preimage and original retained inverse. Only finite imports
- * and the established transaction-covered compensation annotation differ.
+/** Shipment keeps its native guard order, generated date, nested update and
+ * original retained inverse. Its update step uses the approved147 preimages,
+ * finite imports and transaction-covered compensation annotation.
  * @param {string} root @param {Record<string, {source?: string, target?: string}>} overrides */
 export function verifyFulfillmentShipmentCallbacks(root, overrides = {}) {
   return verifyShippingCallbacks(root, [
@@ -120,6 +141,7 @@ function verifyShippingCallbacks(root, files, failure, overrides) {
       "packages/medusa-core-flows/src/fulfillment", file), "utf8");
     let expected = file === "steps/upsert-shipping-options.ts" ? adaptRuleCompensation(source, "option", failure)
       : file === "steps/set-shipping-options-prices.ts" ? adaptRuleCompensation(source, "pricing", failure) : source;
+    if (file === "steps/update-fulfillment.ts") expected = adaptFulfillmentUpdatePreimage(expected, failure);
     if (file !== "../common/steps/emit-event.ts") {
       expected = replaceChecked(expected, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"', 1, failure);
       if (!["workflows/create-fulfillment.ts", "workflows/create-return-fulfillment.ts", "workflows/cancel-fulfillment.ts", "workflows/create-shipment.ts", "workflows/update-fulfillment.ts"].includes(file)) expected = replaceChecked(expected, 'from "@medusajs/framework/utils"', file === "steps/delete-shipping-options.ts"

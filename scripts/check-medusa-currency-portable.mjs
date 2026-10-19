@@ -23,6 +23,7 @@ for (const entry of [
   "packages/medusa-core-flows/src/fulfillment/workflows/create-shipment.ts",
   "packages/medusa-core-flows/src/fulfillment/workflows/update-fulfillment.ts",
   "packages/medusa-adapter/src/workflows/fulfillment/create-shipment.ts",
+  "packages/medusa-adapter/src/workflows/fulfillment/update-fulfillment.ts",
   "packages/medusa-adapter/src/workflows/fulfillment/create-fulfillment.ts",
   "packages/medusa-adapter/src/workflows/fulfillment/create-return-fulfillment.ts",
   "packages/medusa-adapter/src/workflows/fulfillment/cancel-fulfillment.ts",

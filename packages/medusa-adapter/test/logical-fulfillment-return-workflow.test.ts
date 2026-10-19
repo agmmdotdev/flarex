@@ -7,6 +7,7 @@ import { buildModuleResourceEventName } from "@medusajs/framework/utils/portable
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
+import { jsonEqual } from "flarex-protocol/json";
 import { fulfillmentCreationResources } from "../src/workflow/policy";
 import { prepareLogicalFulfillmentReturn } from "./support/logical-fulfillment-return-fixture";
 
@@ -111,6 +112,45 @@ describe(`genuine native Return Fulfillment workflow - ${driver}`, { concurrent:
     const rows = await connected.read(); expect(rows.find(row => row.id === result.id)?.data).toEqual({});
     expect(members(result, "labels").map(row => row.id).sort()).toEqual(rows.filter(row => row.fulfillment_id === result.id &&
       typeof row.tracking_number === "string").map(row => row.id).sort());
+  }, 180_000);
+
+  it.each(["ordinary", "constructor-string", "constructor-object", "nested-constructor"] as const)(
+    "retains native Return initial/stored JSON for %s and reads that stored value during actual cancellation", async kind => {
+      const data: JsonObject = kind === "constructor-string" ? { constructor: "own-string147", kept: "constructor147" }
+        : kind === "constructor-object" ? { constructor: { marker: "own-object147" }, kept: "constructor147" }
+        : kind === "nested-constructor" ? { kept: "nested147", nested: { constructor: "nested-string147", kept: true } }
+        : { kept: "ordinary147", nested: { kept: true } };
+      const stored = kind === "constructor-string" || kind === "constructor-object" ? {} : data;
+      const tap = retainedTap(), nativeCancel = vi.spyOn(FulfillmentModuleService.prototype, "cancelFulfillment"),
+        manualCreate = vi.spyOn(ManualFulfillmentService.prototype, "createReturnFulfillment"), manualCancel = vi.spyOn(ManualFulfillmentService.prototype, "cancelFulfillment");
+      try {
+        const beforeRows = await connected.read(), host = await connected.prepareWrapped({ retained: tap.get });
+        const result = await Effect.runPromise(host.run(host.newRequestKey(), { ...connected.input("return147-" + kind), data }));
+        expect(jsonEqual(result.data ?? null, data)).toBe(true); expect(tap.get()).toBe(result.id);
+        expect(manualCreate).toHaveBeenCalledTimes(1);
+        const providerResult = manualCreate.mock.results[0]; if (providerResult?.type !== "return") throw new Error("Missing actual Manual Return result");
+        expect(await providerResult.value).toEqual({ data: {}, labels: [] });
+        expect(nativeCancel).toHaveBeenCalledTimes(1); expect(manualCancel).toHaveBeenCalledTimes(1);
+        expect(manualCancel.mock.calls[0]).toEqual([stored]);
+        const cancellation = nativeCancel.mock.results[0]; if (cancellation?.type !== "return") throw new Error("Missing actual native Return cancellation DTO");
+        expect(await cancellation.value).toMatchObject({ id: result.id, data: stored, canceled_at: expect.any(String) });
+        const rows = await connected.read(); expect(rows.find(row => row.id === result.id)).toMatchObject({ data: stored, canceled_at: expect.any(String) });
+        for (const prior of beforeRows) expect(rows).toContainEqual(prior);
+        for (const child of [...members(result, "items"), ...members(result, "labels")])
+          expect(rows.find(row => row.id === child.id)).toMatchObject({ fulfillment_id: result.id, deleted_at: null });
+      } finally { tap.restore(); nativeCancel.mockRestore(); manualCreate.mockRestore(); manualCancel.mockRestore(); }
+    }, 180_000);
+
+  it("refuses own __proto__ JSON before native Return creation without publication", async () => {
+    const host = await connected.prepare(), before = await connected.snapshot();
+    const data: unknown = JSON.parse('{"__proto__":{"polluted147":true},"kept":"unsafe147"}');
+    const create = vi.spyOn(FulfillmentModuleService.prototype, "createReturnFulfillment");
+    try {
+      expect(Result.isFailure(await Effect.runPromise(Effect.result(Reflect.apply(host.run, host,
+        [host.newRequestKey(), { ...connected.input("return147-unsafe"), data }]))))).toBe(true);
+      expect(create).not.toHaveBeenCalled(); noMutation(before, await connected.snapshot());
+      expect(Object.prototype).not.toHaveProperty("polluted147");
+    } finally { create.mockRestore(); }
   }, 180_000);
 
   it.each(["omitted", "null", "empty"] as const)("preserves native %s Address and null/empty Item branches", async mode => {

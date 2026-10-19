@@ -9,7 +9,7 @@ import { commerceRelationReadQuery, prepareCommerceRelationPopulation } from "..
 import { moduleEventDecoder } from "../../module/events";
 import { captureCommerceInput } from "../../value/input";
 import { FulfillmentCreationId, decodeFulfillmentCreate, decodeFulfillmentCancellationId } from "./fulfillment-create-input";
-import { captureFulfillmentItemQuantity, selectedManualDataAssignment } from "./fulfillment-create-value-profile";
+import { captureFulfillmentItemQuantity, assignFulfillmentJson } from "./fulfillment-create-value-profile";
 import type { prepareFulfillmentCreationRepository } from "./fulfillment-create-repository";
 import { fulfillmentShipmentPolicy } from "./fulfillment-shipment-receipt";
 
@@ -146,7 +146,7 @@ export function fulfillmentCreationPolicy(prepared: Prepared) {
         reads.push({ table: contracts.option.table.name, query: commerceRelationReadQuery(defaultCommerceResources, plan.query.predicate), total: 1, returned: 1 });
         remember(contracts.option.table.name, option);
       }
-      const assigned = selectedManualDataAssignment(rootBefore), changed = !jsonEqual(rootBefore.data ?? null, assigned);
+      const assigned = yield* Effect.fromResult(assignFulfillmentJson(rootBefore.data, {})), changed = !jsonEqual(rootBefore.data ?? null, assigned);
       if (patchCount !== (changed ? 1 : 0)) return yield* Effect.fail(mismatch("provider-dirty-state"));
       for (const [field, value] of Object.entries(rootBefore)) if (field !== "updated_at" &&
         (rootAfter[field] === undefined || !jsonEqual(rootAfter[field], field === "data" ? assigned : value))) return yield* Effect.fail(mismatch("provider-update", { field }));

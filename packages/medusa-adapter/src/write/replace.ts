@@ -5,6 +5,7 @@ import { Effect, Result, Schema } from "effect";
 import { generateEntityId, MedusaError } from "@medusajs/framework/utils/portable";
 import { emptyPerformedActions, addPerformedAction } from "@medusajs/drizzle/mutation-events";
 import { tupleKey } from "@medusajs/drizzle/relation-query";
+import { jsonEqual } from "flarex-protocol/json";
 import { hasChangedFields, relationshipNotFoundMessage } from "@medusajs/drizzle/mutation-plan";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -17,6 +18,8 @@ import type { GraphEntity, GraphTable, ReplacementProfile, ReplacedGraph } from 
 const graphArray = (value: Json): Result.Result<readonly Json[], CommerceTransactionError> =>
   Array.isArray(value) ? Result.succeed(value) : Result.fail(commerceError("invalidInput"));
 const decodeConfig = commerceDecoder(Schema.Struct({ relations: Schema.Array(Schema.String) }), "unsupportedProfile");
+const decodeManagedUpdateTime = commerceDecoder(Schema.DateFromString, "invalidInput");
+const decodeStoredUpdateTime = commerceDecoder(Schema.DateFromString, "storedCorruption");
 type Table = GraphTable;
 
 /** One replacement operation owns this plan and its complete scoped snapshots.
@@ -40,6 +43,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
   const updates = new Map<string, Map<string, JsonObject>>();
   const deletes = new Map<string, Map<string, JsonObject>>();
   const visited = new Set<string>();
+  const repeatedReferences = new Map<string, { readonly owner: JsonObject; readonly row: JsonObject }>();
   const stores = new Map<string, Effect.Success<ReturnType<CommerceCommandContext["table"]>>>();
   const getStore = (table: Table) => observeExecution("MedusaGraph.store", Effect.gen(function* () {
     const previous = stores.get(table.name);
@@ -122,7 +126,14 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
     const id = generateEntityId(decoded.key, target.prefix);
     const row = decoded.supplied;
     const token = target.table.name + ":" + id;
-    if (visited.has(token)) return yield* Effect.fail(commerceError("invalidInput"));
+    const keyOnly = Object.keys(row).length === 1 && row[target.keyColumn] === id;
+    const reusable = !creation && profile.operation === "update" && !root && !touch && Object.keys(owner).length > 0 && keyOnly &&
+      profile.repeatedOwnedReferences === "coalesceIdentical";
+    if (visited.has(token)) {
+      const previous = repeatedReferences.get(token);
+      if (reusable && previous !== undefined && jsonEqual(previous.owner, owner)) return previous.row;
+      return yield* Effect.fail(commerceError("invalidInput"));
+    }
     visited.add(token);
     const rows = yield* load(target.table, target.keyColumn, [id]);
     const existing = rows.find(value => value[target.keyColumn] === id);
@@ -132,9 +143,18 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
     const scalar: Record<string, Json> = { ...Object.fromEntries(Object.entries(row).filter(([name]) => target.table.columns.some(column => column.name === name))), ...owner, [target.keyColumn]: id };
     const reconstitution = existing === undefined && !root && profile.allowReconstitution === true &&
       ["created_at", "updated_at", "deleted_at"].some(name => scalar[name] !== undefined);
+    const managedChildUpdateTime = !creation && profile.operation === "update" && !root && existing !== undefined &&
+      Object.keys(owner).length > 0 && profile.ownedChildUpdatedAt === "managed" && scalar.updated_at !== undefined;
+    let managedUpdateChanged = false;
+    if (managedChildUpdateTime) {
+      const suppliedTime = yield* Effect.fromResult(decodeManagedUpdateTime(scalar.updated_at)),
+        storedTime = yield* Effect.fromResult(decodeStoredUpdateTime(existing?.updated_at));
+      managedUpdateChanged = suppliedTime.getTime() !== storedTime.getTime();
+    }
     for (const name of ["created_at", "updated_at", "deleted_at"]) {
       if (reconstitution) continue;
-      if (scalar[name] !== undefined && (existing === undefined || scalar[name] !== existing[name])) return yield* Effect.fail(commerceError("invalidInput"));
+      if (!(name === "updated_at" && managedChildUpdateTime) && scalar[name] !== undefined &&
+        (existing === undefined || scalar[name] !== existing[name])) return yield* Effect.fail(commerceError("invalidInput"));
       delete scalar[name];
     }
     for (const name of profile.ownedToOne(target)) {
@@ -168,12 +188,14 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
         if (scalar[name] !== existing[name]) return yield* Effect.fail(commerceError("invalidInput"));
         delete scalar[name];
       }
-      const update = root ? profile.operation === "upsertWithReplace" || Object.keys(scalar).some(name => name !== target.keyColumn)
-        : touch || hasChangedFields(existing, scalar, [target.keyColumn]);
+      const rootTouch = !creation && profile.operation === "update" && profile.touchExistingRoot === true;
+      const update = root ? profile.operation === "upsertWithReplace" || rootTouch || Object.keys(scalar).some(name => name !== target.keyColumn)
+        : touch || managedUpdateChanged || hasChangedFields(existing, scalar, [target.keyColumn]);
       if (update) put(updates, target.table, scalar);
     } else put(reconstitution ? reconstitutions : inserts, target.table, scalar);
     const next = { ...existing, ...scalar };
     state.set(target.table.name, [...(state.get(target.table.name) ?? []).filter(value => value[target.keyColumn] !== id), next]);
+    if (reusable && existing !== undefined) repeatedReferences.set(token, { owner, row: next });
     for (const [name, descriptor] of catalog.queryRelations.get(target.table.name) ?? []) {
       if (row[name] === undefined || descriptor.join.type === "belongsTo") continue;
       if (root && !relations.includes(name)) return yield* Effect.fail(commerceError("unsupportedProfile"));

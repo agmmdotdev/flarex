@@ -3,6 +3,11 @@
   "version": "2.13.4",
   "private": true,
   "exports": {
+    "./dal/json-assignment": {
+      "types": "./dist/dal/json-assignment.d.ts",
+      "source": "./src/dal/json-assignment.ts",
+      "default": "./dist/dal/json-assignment.js"
+    },
     "./common/trim-zeros": {
       "types": "./dist/common/trim-zeros.d.ts",
       "source": "./src/common/trim-zeros.ts",

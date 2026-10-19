@@ -51,6 +51,19 @@ export interface ReplacementProfile {
   /** Restrict owned has-many replacement omissions to active rows. The default
    * includes historical members; association and pivot membership are separate. */
   readonly replacementMembers?: "active";
+  /** A selected update profile may coalesce repeated existing active key-only
+   * owned has-many references with the same owner. Full writes, new members,
+   * roots, association changes and the default policy still reject repeats. */
+  readonly repeatedOwnedReferences?: "coalesceIdentical";
+  /** Native owned-child assignment may accept a retained update timestamp as
+   * a dirty-tracking signal. Its value never reaches storage: a changed stamp
+   * triggers an ordinary managed update. Roots and other managed fields stay
+   * strict, and deleted-row reconstitution keeps its separate proof. */
+  readonly ownedChildUpdatedAt?: "managed";
+  /** Selected native assignment may dirty an existing root without changing
+   * business values. This requests an ordinary core-managed update only; it
+   * never admits supplied timestamps or mutable foreign keys. */
+  readonly touchExistingRoot?: true;
   readonly ordering: ReadonlyMap<string, CommerceRelationOrder>;
   /** Complete deleted-child DTOs still need the accepting core's exact
    * same-root deletion proof; this policy never grants timestamp authority. */

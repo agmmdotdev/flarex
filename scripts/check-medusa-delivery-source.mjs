@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@typescript/typescript6";
+import { adaptFulfillmentUpdatePreimage } from "./check-medusa-shipping-option-source.mjs";
 
 const failure = "Changed native Fulfillment delivery closure behavior";
 /** @type {ReadonlyArray<readonly [string, string, string]>} */
@@ -36,6 +37,8 @@ function runtime(text) {
 /** @param {string} source @param {string} file */
 function adapt(source, file) {
   let expected = source.replaceAll("\r\n", "\n");
+  if (file === "packages/medusa-core-flows/src/durable/fulfillment/steps/update-fulfillment.ts")
+    expected = adaptFulfillmentUpdatePreimage(expected, failure);
   if (expected.includes('from "@medusajs/framework/workflows-sdk"')) expected = replaceChecked(expected,
     'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk/durable"');
   else if (file.includes("/durable/") && expected.includes('from "@medusajs/workflows-sdk"')) expected = replaceChecked(expected,

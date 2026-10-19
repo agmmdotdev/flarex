@@ -2,20 +2,19 @@ import { Effect, Result, Schema } from "effect";
 import type { DAL } from "@medusajs/framework/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { hasChangedFields } from "@medusajs/drizzle/mutation-plan";
 import { commerceDecoder } from "../../value/decoder";
 import { projectNativeRow } from "../../repository/result";
 import { replaceGraphRows } from "../../write/replace";
 import type { GraphCatalog, ReplacementProfile } from "../../write/graph-model";
 import type { commerceMutationEvents } from "../../repository/mutation-events";
-import { compileFulfillmentShipmentContracts, FulfillmentShipmentLabel, FulfillmentShipmentUpdate, FulfillmentDeliveryUpdate, decodeFulfillmentShipmentUpdate } from "./fulfillment-shipment-input";
+import { compileFulfillmentShipmentContracts, FulfillmentShipmentLabel, FulfillmentGraphUpdate, decodeFulfillmentShipmentUpdate,
+  fulfillmentUpdateMutableFields, fulfillmentUpdateChangedFields } from "./fulfillment-shipment-input";
+import { assignFulfillmentJson, decodeFulfillmentAssignmentPrior } from "./fulfillment-create-value-profile";
 import { FulfillmentCreationId, type compileFulfillmentCreationContracts } from "./fulfillment-create-input";
-import { prepareFulfillmentShipmentQuery } from "./fulfillment-shipment-query";
+import { prepareFulfillmentShipmentQuery, type FulfillmentNativeHydration } from "./fulfillment-shipment-query";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compileFulfillmentCreationContracts>>;
-const rootInput = commerceDecoder(Schema.Struct({ id: FulfillmentCreationId, shipped_at: Schema.optionalKey(FulfillmentShipmentUpdate.fields.shipped_at),
-  delivered_at: Schema.optionalKey(FulfillmentDeliveryUpdate.fields.delivered_at),
-  marked_shipped_by: FulfillmentShipmentUpdate.fields.marked_shipped_by, labels: FulfillmentShipmentUpdate.fields.labels }), "invalidInput");
+const rootInput = commerceDecoder(Schema.Struct({ id: FulfillmentCreationId, ...FulfillmentGraphUpdate.fields }), "invalidInput");
 const childInput = commerceDecoder(FulfillmentShipmentLabel, "invalidInput");
 
 /** The genuine module already performed Label normalization and internal
@@ -33,23 +32,37 @@ export function prepareFulfillmentShipmentRepository(contracts: Contracts) {
         return { supplied: row, key: row.id };
       }), decodeReference: () => Result.fail(commerceError("unsupportedProfile")), decodeAssociation: () => Result.fail(commerceError("unsupportedProfile")) };
     const profile: ReplacementProfile = { catalog, operation: "update", ordering: reads.ordering, emptyCollections: "replace", replacementMembers: "active", allowReconstitution: true,
+      repeatedOwnedReferences: "coalesceIdentical",
+      ownedChildUpdatedAt: "managed",
       allowedRelations: target => target === fulfillment ? ["labels"] : [], ownedToOne: () => [], mutableForeignKeys: () => false,
       admitSelection: (table, rows) => reads.admitSelection(table.name, rows), prepareProjection: () => Effect.void,
       toManyMode: (target, name, child) => target === fulfillment && name === "labels" && child === label ? Result.succeed("replace") : Result.fail(commerceError("unsupportedProfile")),
       validateLink: () => Effect.fail(commerceError("unsupportedProfile")), projectionPaths: () => ["items", "labels"],
       project: rows => Result.succeed(new Map([...rows].map(([table, members]) => [table, members.filter(row => row.deleted_at === null)]))) };
     const update = Effect.fn("FulfillmentShipment.update")(function* (ctx: CommerceCommandContext, pair: { readonly entity: JsonObject; readonly update: JsonObject },
-      events: ReturnType<typeof commerceMutationEvents>, shared: Parameters<DAL.RepositoryService["update"]>[1]) {
+      events: ReturnType<typeof commerceMutationEvents>, shared: Parameters<DAL.RepositoryService["update"]>[1], original: JsonObject,
+      hydration: FulfillmentNativeHydration) {
       if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
       const before = yield* Effect.fromResult(contracts.decodeOutput(pair.entity)), { id, ...raw } = pair.update;
       if (typeof id !== "string" || id !== before.id) return yield* ctx.refuse(commerceError("invalidInput"));
-      const request = yield* Effect.fromResult(decodeFulfillmentShipmentUpdate(raw));
-      const labels = "labels" in request ? request.labels : undefined;
+      if (original.id !== id) return yield* ctx.refuse(commerceError("invalidInput"));
+      if (hydration.id !== id || hydration.dirtyReferences.some(reference => original[reference.column] !== reference.key ||
+        !contracts.referenceFields.some(field => field.nativeKind === "hasOneWithFK" && field.column === reference.column)))
+        return yield* ctx.refuse(commerceError("invalidInput"));
+      if (Object.hasOwn(raw, "metadata")) yield* Effect.fromResult(decodeFulfillmentAssignmentPrior(original.metadata ?? null));
+      const decoded = yield* Effect.fromResult(decodeFulfillmentShipmentUpdate(raw)),
+        request = yield* Effect.fromResult(fulfillmentUpdateMutableFields(before, decoded));
+      const labels = request.labels;
       // Native ORM dirty tracking omits equal scalar assignments. Labels have
       // their own shared child dirty tracking and native event contribution.
-      const scalar = Object.fromEntries(Object.entries(request).filter(([name, value]) => name !== "labels" && hasChangedFields(before, { [name]: value }, [])));
+      const normalized = { ...Object.fromEntries(Object.entries(request).filter(([name]) => name !== "labels")),
+        ...(request.data === undefined ? {} : { data: yield* Effect.fromResult(assignFulfillmentJson(before.data, request.data)) }),
+        ...(request.metadata !== undefined && request.metadata !== null && Object.keys(request.metadata).length === 0
+          ? { metadata: yield* Effect.fromResult(assignFulfillmentJson(before.metadata, request.metadata)) } : {}) };
+      const scalar = fulfillmentUpdateChangedFields(original, normalized);
       const input = { id, ...scalar, ...(labels == null ? {} : { labels }) };
-      const replaced = yield* replaceGraphRows(ctx, profile, fulfillment, [input], { relations: labels == null ? [] : ["labels"] });
+      const replacement: ReplacementProfile = hydration.dirtyReferences.length ? { ...profile, touchExistingRoot: true } : profile;
+      const replaced = yield* replaceGraphRows(ctx, replacement, fulfillment, [input], { relations: labels == null ? [] : ["labels"] });
       const root = replaced.entities[0];
       if (root === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));
       for (const [action, event] of [["created", "afterCreate"], ["updated", "afterUpdate"], ["deleted", "afterDelete"]] as const) {
@@ -64,6 +77,7 @@ export function prepareFulfillmentShipmentRepository(contracts: Contracts) {
         for (const labelRequest of labels) {
           const id = labelRequest.id ?? created.shift()?.id, row = rows.get(id);
           if (row === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));
+          if (ordered.includes(row)) continue;
           ordered.push(row);
         }
         return [{ ...result, labels: ordered }];
