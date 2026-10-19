@@ -1,6 +1,44 @@
 // @ts-check
 import ts from "@typescript/typescript6";
 
+/** Native149 creation keeps the complete native workflow and retained physical
+ * deletion callback. Only direct imports and covered metadata differ.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyPricePreferenceCreateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const failure = "Changed native PricePreference creation callback behavior";
+  /** @param {string} text @param {string} before @param {string} after */
+  const replace = (text, before, after) => {
+    if (text.split(before).length !== 2) throw new Error(failure + ": missing native adaptation anchor");
+    return text.replace(before, after);
+  };
+  let expectedWorkflow = replace(nativeWorkflow.replaceAll("\r\n", "\n"), 'from "@medusajs/framework/types"', 'from "@medusajs/types"');
+  expectedWorkflow = replace(expectedWorkflow, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  expectedWorkflow = replace(expectedWorkflow, 'from "../steps"', 'from "../steps/create-price-preferences"');
+  let expectedStep = replace(nativeStep.replaceAll("\r\n", "\n"), "import {\n  IPricingModuleService,", "import type {\n  IPricingModuleService,");
+  expectedStep = replace(expectedStep, 'from "@medusajs/framework/types"', 'from "@medusajs/types"');
+  expectedStep = replace(expectedStep, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  expectedStep = replace(expectedStep, 'from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"');
+  expectedStep = replace(expectedStep, "  createPricePreferencesStepId,", '  { name: createPricePreferencesStepId, compensation: "transactionCovered" },');
+  const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+  /** @param {string} text @param {string} name */
+  const contract = (text, name) => {
+    const file = ts.createSourceFile("price-preference.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const declarations = file.statements.filter(node => ts.isTypeAliasDeclaration(node) && node.name.text === name);
+    const selected = declarations[0];
+    if (declarations.length !== 1 || selected === undefined) throw new Error(failure);
+    const typeImports = file.statements.filter(node => ts.isImportDeclaration(node) && node.importClause?.isTypeOnly);
+    return [selected, ...typeImports].map(node => printer.printNode(ts.EmitHint.Unspecified, node, file)).join("\n");
+  };
+  /** @type {Array<[string,string,string]>} */
+  const pairs = [[expectedWorkflow, workflow, "CreatePricePreferencesWorkflowInput"],
+    [expectedStep, step, "CreatePricePreferencesStepInput"]];
+  for (const [expected, target, name] of pairs) {
+    if (nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(target, failure) || contract(expected, name) !== contract(target, name))
+      throw new Error(failure);
+  }
+}
+
 /** Native148 Product/Channel membership: only the existing finite SDK input/
  * void wrappers, leaf imports, optional-link types and transaction-covered
  * compensation metadata differ. All native callbacks and empty guards remain.
@@ -377,9 +415,10 @@ export function verifyPricingCreateTests(source, target) {
     throw new Error("Changed selected native Pricing test bodies or seed");
 }
 
-/** Pricing retains its original Product/Store and Shipping creation/lifecycle
- * profiles. The separately named Shipping update profile grants exactly four
- * native methods and requires its complete mutation/causal receipt inputs.
+/** Pricing retains its Product and Shipping creation/lifecycle profiles. The
+ * named preference profile shares native creation with Store lookup/upsert and
+ * physical deletion. Shipping updates keep their four native methods and full
+ * mutation/causal receipt inputs.
  * @param {string} source @param {string} target @param {string} repositorySource */
 export function verifyPricingWorkflowSelection(source, target, repositorySource) {
   const contract = ts.createSourceFile("native.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
@@ -398,6 +437,10 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
   const lifecycles = [];
   /** @type {ts.VariableDeclaration[]} */
   const preferences = [];
+  /** @type {ts.VariableDeclaration[]} */
+  const preferenceContracts = [];
+  /** @type {ts.VariableDeclaration[]} */
+  const preferencePolicies = [];
   /** @type {ts.VariableDeclaration[]} */
   const shippings = [];
   /** @type {ts.VariableDeclaration[]} */
@@ -422,6 +465,8 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "mutable") admissions.push(node);
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "lifecycle") lifecycles.push(node);
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "preferences") preferences.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "preferenceContracts") preferenceContracts.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "preferencePolicy") preferencePolicies.push(node);
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "shipping") shippings.push(node);
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "shippingUpdates") shippingUpdates.push(node);
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "admitted") admitted.push(node);
@@ -446,7 +491,7 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
   const expectedMethods = `const methods = {
     ...(shippingUpdates ? { updatePriceSets: updateShippingPriceSets, listPrices: listShippingPrices,
       listPriceRules: listShippingPriceRules, createPriceRules: createShippingPriceRules } : {}),
-    ...(preferences ? { listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),
+    ...(preferences ? { createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),
     ...(!preferences && !shippingUpdates ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}),
       ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}),
       ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {})
@@ -475,7 +520,7 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
     return { service: {
       createPriceSets: preferences ? binding.refuse : native.createPriceSets.bind(native),
       createPriceLists: preferences || shipping ? binding.refuse : native.createPriceLists.bind(native),
-      createPricePreferences: preferences || shipping ? binding.refuse : native.createPricePreferences.bind(native),
+      createPricePreferences: shipping ? binding.refuse : native.createPricePreferences.bind(native),
       listPriceSets: preferences ? binding.refuse : native.listPriceSets.bind(native),
       retrievePriceSet: preferences ? binding.refuse : native.retrievePriceSet.bind(native),
       listAndCountPriceSets: preferences ? binding.refuse : native.listAndCountPriceSets.bind(native),
@@ -496,14 +541,16 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
   const shippingCapture = shippingCaptures[0]?.parent.parent;
   if (admissions.length !== 1 || admissions[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="variant-updates"||admission==="product-updates"' ||
     lifecycles.length !== 1 || lifecycles[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="product-updates"' ||
-    preferences.length !== 1 || preferences[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="store-preferences"' ||
+    preferences.length !== 1 || preferences[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="price-preferences"' ||
+    preferenceContracts.length !== 1 || preferenceContracts[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'yield*compilePricePreferenceContracts(metadata.frame)' ||
+    preferencePolicies.length !== 1 || preferencePolicies[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'pricingPreferencePolicy(preferenceContracts)' ||
     shippings.length !== 1 || shippings[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="shipping-options"||shippingUpdates' ||
     shippingUpdates.length !== 1 || shippingUpdates[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="shipping-option-updates"' ||
     shippingCaptures.length !== 1 || shippingCapture === undefined || !ts.isIfStatement(shippingCapture) ||
     nativeWorkflowProgram(shippingCapture.getText(adapter), "Invalid Pricing selection") !== nativeWorkflowProgram(
       'if (shipping && !shippingUpdates) shippingLifecycleServices.set(workflow, { routing: nativePricingRouting, softDelete: softDeletePriceSets, restore: restorePriceSets });', "Invalid Pricing selection") ||
     parameters.length !== 1 || parameters[0]?.initializer?.getText(adapter) !== '"create"' ||
-    parameters[0]?.type?.getText(adapter).replace(/\s/g, "") !== '"create"|"variant-updates"|"product-updates"|"store-preferences"|"shipping-options"|"shipping-option-updates"' ||
+    parameters[0]?.type?.getText(adapter).replace(/\s/g, "") !== '"create"|"variant-updates"|"product-updates"|"price-preferences"|"shipping-options"|"shipping-option-updates"' ||
     selections.length !== 1 || selected.length !== 1 || !exactMethods ||
     modules.length !== 1 || repositories.length !== 1 || repositories[0]?.arguments.map(argument => argument.getText(adapter)).join(",") !== "metadata.frame,mutable,lifecycle,preferences,shipping,shippingUpdates" ||
     services.length !== 1 || service === undefined || nativeWorkflowProgram('const service = ' + service.getText(adapter), "Invalid Pricing selection") !== nativeWorkflowProgram(expectedService, "Invalid Pricing selection") ||
@@ -511,19 +558,20 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
     profiles.length !== 1 || profile === undefined || !ts.isObjectLiteralExpression(profile) ||
     profile.properties.some(property => (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) || !ts.isIdentifier(property.name)) ||
     profileNames.length !== 1 || profileNames[0]?.initializer.getText(adapter).replace(/\s/g, "") !==
-      'shippingUpdates?"pricing-shipping-option-updates":shipping?"pricing-shipping-options":preferences?"pricing-store-preferences":lifecycle?"pricing-product-updates":mutable?"pricing-variant-updates":"pricing-base-prices"' ||
+      'shippingUpdates?"pricing-shipping-option-updates":shipping?"pricing-shipping-options":preferences?"pricing-price-preferences":lifecycle?"pricing-product-updates":mutable?"pricing-variant-updates":"pricing-base-prices"' ||
     admitted.length !== 1 || admitted[0]?.initializer?.getText(adapter).replace(/\s/g, "") !==
-      'shippingUpdates?[shippingUpdate,shippingListPrices,shippingListRules,shippingCreateRules,list,count,retrieve]:shipping?[create,list,count,retrieve,softDeletePriceSetsCommand,restorePriceSetsCommand,deletePriceSetsCommand]:preferences?[preferenceList,preferenceUpsert,preferenceDelete]:[create,createList,createPreference,list,count,retrieve,calculate,...(mutable?[upsert,update]:[]),...(lifecycle?[softDeletePriceSetsCommand]:[])]' ||
+      'shippingUpdates?[shippingUpdate,shippingListPrices,shippingListRules,shippingCreateRules,list,count,retrieve]:shipping?[create,list,count,retrieve,softDeletePriceSetsCommand,restorePriceSetsCommand,deletePriceSetsCommand]:preferences?[createPreference,preferenceList,preferenceUpsert,preferenceDelete]:[create,createList,createPreference,list,count,retrieve,calculate,...(mutable?[upsert,update]:[]),...(lifecycle?[softDeletePriceSetsCommand]:[])]' ||
     graphs.length !== 1 || graph === undefined || !ts.isConditionalExpression(graph) ||
     graph.condition.getText(adapter) !== "preferences" || graph.whenTrue.getText(adapter).replace(/\s/g, "") !== '{aliases:[],reads:[]}' ||
     policies.length !== 1 || policyProperties.length !== 2 || policySpread === undefined || !ts.isSpreadAssignment(policySpread) ||
     policySpread.expression.getText(adapter).replace(/\s/g, "") !==
-      '(shipping?pricingShippingOptionPolicy(shippingOutput,shippingUpdates?shippingMutation:undefined,shippingUpdates?prepared:undefined):preferences?pricingStorePreferencePolicy(preferenceContracts):lifecycle?pricingLogicalProductUpdateEventPolicy():mutable?pricingLogicalMutationEventPolicy():pricingLogicalCreateEventPolicy())' ||
+      '(shipping?pricingShippingOptionPolicy(preferencePolicy,shippingOutput,shippingUpdates?shippingMutation:undefined,shippingUpdates?prepared:undefined):preferences?preferencePolicy:lifecycle?pricingLogicalProductUpdateEventPolicy(preferencePolicy):mutable?pricingLogicalMutationEventPolicy(preferencePolicy):pricingLogicalCreateEventPolicy(preferencePolicy))' ||
     commands === undefined || !ts.isPropertyAssignment(commands) || commands.name.getText(adapter) !== "commands" || commands.initializer.getText(adapter) !== "admitted")
     throw new Error("Unadmitted native Pricing workflow selection");
 
-  // Keep the old Product preference lookup grammar unchanged. The named Store
-  // repository has its own four-pair decoder, selected only by its explicit flag.
+  // Keep the existing Product preference lookup grammar unchanged. The named
+  // preference repository retains Store's four-pair lookup decoder and explicit
+  // profile selection; standalone creation does not widen either read grammar.
   const repository = ts.createSourceFile("repository.ts", repositorySource, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
   /** @type {ts.VariableDeclaration[]} */
   const lookups = [];

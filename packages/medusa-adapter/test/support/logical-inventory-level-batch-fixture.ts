@@ -1,3 +1,4 @@
+import { preparePricingPreferencePolicy } from "./logical-pricing-fixture";
 import { Effect, Result, Schema } from "effect";
 import { and, eq } from "drizzle-orm";
 import { fxControlTables, fxAppRowCurrent } from "../../../persistence-postgres/src/database/schema";
@@ -105,7 +106,7 @@ export async function prepareLogicalInventoryLevelBatch(driver: "pglite" | "post
     if (!pricingSeeded) {
       const pricing = await prepareLogicalPricingHost(common.fixture); await Effect.runPromise(pricing.host.initialize([]));
       close(() => Effect.runPromise(pricing.host.close));
-      const participant = defineAtomicCommerceParticipant("pricing"), policy = pricingLogicalCreateEventPolicy();
+      const participant = defineAtomicCommerceParticipant("pricing"), policy = pricingLogicalCreateEventPolicy(await preparePricingPreferencePolicy());
       const names = ["pricing.price-set.created", "pricing.price.created", "pricing.price-rule.created"];
       const contracts = names.map(name => ({ name, contract: defineCommerceEventContract({ name, revision: "4".repeat(64), internal: true, decode: policy.capture }) }));
       const create = defineAtomicCommerceCommand("levelBatchProtectedPricingSeed", (ctx, input) => ctx.call(participant, pricing.runtime.create, input));

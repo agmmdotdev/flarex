@@ -1,3 +1,4 @@
+import { preparePricingPreferencePolicy } from "./support/logical-pricing-fixture";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result, Schema } from "effect";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
@@ -50,16 +51,16 @@ describe("native Pricing on shared logical storage", () => {
   });
 
   it("rejects a PricePreference result mismatch or an extra inserted row and event", async () => {
-    const policy = pricingLogicalCreateEventPolicy();
+    const policy = pricingLogicalCreateEventPolicy(await preparePricingPreferencePolicy());
     const call = { commandName: "pricingCreatePreference", mode: "write" as const,
       input: [{ attribute: "currency_code", value: "USD" }],
-      result: [{ id: "prpref_test", attribute: "currency_code", value: "USD", is_tax_inclusive: false }],
+      result: [{ id: "prpref_test", attribute: "currency_code", value: "USD", is_tax_inclusive: false, created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z", deleted_at: null }],
       events: [{ name: "pricing.price-preference.created",
         metadata: { source: "pricing", object: "price_preference", action: "created" },
         data: { id: "prpref_test" } }], fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 };
     const activity = { mutations: [{ ordinal: 0, table: "price_preference", operation: "insert" as const,
       before: null, after: { id: "prpref_test", attribute: "currency_code", value: "USD",
-        is_tax_inclusive: false, deleted_at: null } }], lifecycle: [], observedRows: [],
+        is_tax_inclusive: false, created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z", deleted_at: null } }], lifecycle: [], observedRows: [],
       setNull: [], relationalReads: [], referenceReplacements: [] };
     await Effect.runPromise(policy.validateLogicalCall(call, activity));
     expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ ...call,
@@ -235,7 +236,11 @@ describe("native Pricing on shared logical storage", () => {
         data: typeof PricePreferencesInput.Type, { container },
       ) => {
         const service = container.resolve<IPricingModuleService>(Modules.PRICING);
-        return new StepResponse(await service.createPricePreferences(data.map(preference => ({ ...preference }))));
+        // Preserve the pinned public DTO while the private DML-checked input
+        // crosses its witnessed nullable-value typing gap at this foreign call.
+        const output: unknown = await Reflect.apply(service.createPricePreferences, service,
+          [data.map(preference => ({ ...preference }))]);
+        return new StepResponse(output);
       });
       const preferenceFlow = createWorkflow("create-logical-price-preferences", (
         input: WorkflowData<typeof PricePreferencesInput.Type>,

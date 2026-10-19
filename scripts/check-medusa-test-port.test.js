@@ -145,7 +145,7 @@ describe("maintained Medusa test ports", () => {
     const selected = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/service.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const repository = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/repository.ts", import.meta.url), "utf8");
     expect(() => verifyPricingWorkflowSelection(original, selected, repository)).not.toThrow();
-    const methods = 'methods: { ...(shippingUpdates ? { updatePriceSets: updateShippingPriceSets, listPrices: listShippingPrices,\n        listPriceRules: listShippingPriceRules, createPriceRules: createShippingPriceRules } : {}),\n        ...(preferences ? { listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),\n        ...(!preferences && !shippingUpdates ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}), ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {}) }';
+    const methods = 'methods: { ...(shippingUpdates ? { updatePriceSets: updateShippingPriceSets, listPrices: listShippingPrices,\n        listPriceRules: listShippingPriceRules, createPriceRules: createShippingPriceRules } : {}),\n        ...(preferences ? { createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),\n        ...(!preferences && !shippingUpdates ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}), ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {}) }';
     expect(selected).toContain(methods);
     expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: {}'), repository)).toThrow();
     expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceSets, createPriceLists, createPricePreferences, calculatePrices }'), repository)).toThrow();
@@ -159,6 +159,14 @@ describe("maintained Medusa test ports", () => {
     }
     for (const changed of [
       selected.replace('const mutable = admission === "variant-updates" || admission === "product-updates"', 'const mutable = true'),
+      selected.replace('const preferences = admission === "price-preferences"', 'const preferences = true'),
+      selected.replace('yield* compilePricePreferenceContracts(metadata.frame)', 'yield* compilePricePreferenceContracts(otherFrame)'),
+      selected.replace('pricingPreferencePolicy(preferenceContracts)', 'pricingLogicalCreateEventPolicy(preferenceContracts)'),
+      selected.replace('...(preferences ? { createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences } : {})',
+        '...(preferences ? { listPricePreferences, upsertPricePreferences, deletePricePreferences } : {})'),
+      selected.replace('preferences ? [createPreference, preferenceList, preferenceUpsert, preferenceDelete]', 'preferences ? [preferenceList, preferenceUpsert, preferenceDelete]'),
+      selected.replace('createPricePreferences: shipping ? binding.refuse : native.createPricePreferences.bind(native)',
+        'createPricePreferences: preferences || shipping ? binding.refuse : native.createPricePreferences.bind(native)'),
       selected.replace('lifecycle = admission === "product-updates"', 'lifecycle = true'),
       selected.replace('...(lifecycle || shipping ? { softDeletePriceSets } : {})', '...(mutable ? { softDeletePriceSets } : {})'),
       selected.replace('...(lifecycle || shipping ? { softDeletePriceSets } : {})', '...(lifecycle || shipping ? { softDeletePriceSets, calculatePrices } : {})'),
@@ -169,7 +177,7 @@ describe("maintained Medusa test ports", () => {
       selected.replace('upsertPriceSets, updatePriceSets, listPriceSets } : {}', 'get upsertPriceSets() { return calculatePrices; }, updatePriceSets, listPriceSets } : {}'),
       selected.replace('upsertPriceSets, updatePriceSets, listPriceSets } : {}', 'upsertPriceSets, updatePriceSets, ["listPriceSets"]: listPriceSets } : {}'),
       selected.replace('upsertPriceSets, updatePriceSets, listPriceSets } : {}', 'upsertPriceSets, updatePriceSets, listPriceSets } : { calculatePrices }'),
-      selected.replace('const shipping = admission === "shipping-options"', 'const shipping = admission !== "store-preferences"'),
+      selected.replace('const shipping = admission === "shipping-options"', 'const shipping = admission !== "price-preferences"'),
       selected.replace('...(shipping ? { restorePriceSets, deletePriceSets } : {})', '...(lifecycle || shipping ? { restorePriceSets, deletePriceSets } : {})'),
       selected.replace('...(shipping ? { restorePriceSets, deletePriceSets } : {})', '...(shipping ? { restorePriceSets, deletePriceSets, calculatePrices } : {})'),
       selected.replace('...(!shipping ? { createPriceLists, createPricePreferences } : {})', '...{ createPriceLists, createPricePreferences }'),
@@ -181,7 +189,7 @@ describe("maintained Medusa test ports", () => {
       selected.replace('deletePriceSets: shipping ? native.deletePriceSets.bind(native) : binding.refuse',
         'deletePriceSets: mutable || shipping ? native.deletePriceSets.bind(native) : binding.refuse'),
       selected.replace('if (shipping && !shippingUpdates) shippingLifecycleServices.set', 'if (lifecycle || shipping) shippingLifecycleServices.set'),
-      selected.replace('shipping ? pricingShippingOptionPolicy(shippingOutput, shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined)', 'shipping ? pricingLogicalProductUpdateEventPolicy()'),
+      selected.replace('shipping ? pricingShippingOptionPolicy(preferencePolicy, shippingOutput, shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined)', 'shipping ? pricingLogicalProductUpdateEventPolicy()'),
       selected.replace('const shippingUpdates = admission === "shipping-option-updates"', 'const shippingUpdates = shipping'),
       selected.replace('...(!preferences && !shippingUpdates ?', '...(!preferences ?'),
       selected.replace('createPriceRules: createShippingPriceRules } : {})', 'createPriceRules: createShippingPriceRules, deletePriceSets } : {})'),

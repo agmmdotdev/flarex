@@ -5,9 +5,10 @@ import { commerceError, defaultCommerceResources, type JsonObject } from "@flare
 import { moduleEventDecoder } from "../../module/events";
 import { projectNativeRow, orderNativeIdRows } from "../../repository/result";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
-import { compileStorePreferenceContracts, decodeStorePreferenceFilters, decodeStorePreferenceIds } from "./preference-input";
+import { compilePricePreferenceContracts, decodeStorePreferenceFilters, decodePricePreferenceIds } from "./preference-input";
+import { decodePricePreferenceCreate } from "./input";
 
-type Contracts = Result.Result.Success<ReturnType<typeof compileStorePreferenceContracts>>;
+type Contracts = Result.Result.Success<ReturnType<typeof compilePricePreferenceContracts>>;
 type Row = Result.Result.Success<ReturnType<Contracts["decodeRow"]>>;
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
@@ -17,8 +18,9 @@ const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
 }), defaultCommerceResources);
 
 /** This named profile authenticates complete native preference rows, public
- * lookup membership, partitioned upsert order, no-op rows and physical inverses. */
-export function pricingStorePreferencePolicy(contracts: Contracts) {
+ * creation, Store lookup membership, partitioned upsert order, no-op rows and
+ * physical inverses against one complete DML-derived row contract. */
+export function pricingPreferencePolicy(contracts: Contracts) {
   const capture = Effect.fn("PricingPreferences.captureEvent")(function* (input: unknown) {
     const message = yield* decodeEvent(input);
     if (message.name !== buildModuleResourceEventName({ prefix: Modules.PRICING, objectName: "price_preference", action: message.metadata.action }))
@@ -54,6 +56,28 @@ export function pricingStorePreferencePolicy(contracts: Contracts) {
     if (initial.size > 4) return yield* Effect.fail(mismatch());
     const expectedEvents: Array<Readonly<{ id: string; action: "created" | "updated" | "deleted" }>> = [];
     switch (call.commandName) {
+      case "pricingCreatePreference": {
+        if (call.mode !== "write" || initial.size !== 0) return yield* Effect.fail(mismatch());
+        const input = yield* Effect.fromResult(decodePricePreferenceCreate(call.input))
+          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        const output = yield* Effect.fromResult(contracts.decodeOutput(call.result))
+          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        if (activity.mutations.length !== input.length || output.length !== input.length)
+          return yield* Effect.fail(mismatch());
+        for (const [ordinal, supplied] of input.entries()) {
+          const mutation = activity.mutations[ordinal];
+          if (mutation?.operation !== "insert" || mutation.before !== null || mutation.after === null)
+            return yield* Effect.fail(mismatch());
+          const after = yield* decodeRow(mutation.after);
+          const returned = output[ordinal];
+          if (after.attribute !== supplied.attribute || after.value !== (supplied.value ?? null) ||
+            after.is_tax_inclusive !== (supplied.is_tax_inclusive ?? false) || after.deleted_at !== null ||
+            after.created_at !== after.updated_at || returned === undefined || !jsonEqual(returned, after))
+            return yield* Effect.fail(mismatch());
+          expectedEvents.push({ id: after.id, action: "created" });
+        }
+        break;
+      }
       case "pricingStorePreferenceList": {
         if (call.mode !== "read" || activity.mutations.length || call.events.length) return yield* Effect.fail(mismatch());
         const filters = yield* Effect.fromResult(decodeStorePreferenceFilters(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
@@ -101,9 +125,9 @@ export function pricingStorePreferencePolicy(contracts: Contracts) {
         if (ordinal !== activity.mutations.length || !jsonEqual(output, expected)) return yield* Effect.fail(mismatch());
         break;
       }
-      case "pricingStorePreferenceDelete": {
+      case "pricingPreferenceDelete": {
         if (call.mode !== "write" || call.result !== null) return yield* Effect.fail(mismatch());
-        const ids = yield* Effect.fromResult(decodeStorePreferenceIds(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        const ids = yield* Effect.fromResult(decodePricePreferenceIds(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
         const expected = orderNativeIdRows([...initial.values()], {});
         if (expected.some(row => !ids.includes(row.id)) || activity.mutations.length !== expected.length)
           return yield* Effect.fail(mismatch());

@@ -27,9 +27,9 @@ import { pricingLogicalMutationEventPolicy } from "./mutation-events";
 import { NativePreimageConfig, nativePreimageSelection } from "../../workflow/preimage";
 import { PricingLifecycleSelection, PricingLifecycleConfig, decodePricingLifecycleInput } from "./lifecycle";
 import { pricingLogicalProductUpdateEventPolicy } from "./lifecycle-events";
-import { StorePreferenceFilters, StorePreferenceUpserts, StorePreferenceIds, decodeStorePreferenceFilters,
-  decodeStorePreferenceIds, compileStorePreferenceContracts } from "./preference-input";
-import { pricingStorePreferencePolicy } from "./preference-receipt";
+import { StorePreferenceFilters, StorePreferenceUpserts, PricePreferenceIds, decodeStorePreferenceFilters,
+  decodePricePreferenceIds, compilePricePreferenceContracts } from "./preference-input";
+import { pricingPreferencePolicy } from "./preference-receipt";
 import { ShippingPriceSetsInput, ShippingPricingSelection, ShippingPriceSetDeletionIds, decodeShippingPriceSetCreate,
   decodeShippingPriceSetDeletionIds, decodeShippingPricingLifecycle, compileShippingPricingOutput, compileShippingPricingMutationContracts,
   ShippingPricingIdConfig, ShippingPriceReadInput, decodeShippingPriceRead, decodeShippingRuleRead } from "./shipping-input";
@@ -38,7 +38,7 @@ const decodeCreateArguments = commerceDecoder(Schema.Tuple([PriceSetsInput]), "i
 const decodeCreatePreferenceArguments = commerceDecoder(Schema.Tuple([PricePreferencesInput]), "invalidInput");
 const decodeStorePreferenceListArguments = commerceDecoder(Schema.Tuple([StorePreferenceFilters]), "invalidInput");
 const decodeStorePreferenceUpsertArguments = commerceDecoder(Schema.Tuple([StorePreferenceUpserts]), "invalidInput");
-const decodeStorePreferenceDeleteArguments = commerceDecoder(Schema.Tuple([StorePreferenceIds]), "invalidInput");
+const decodePreferenceDeleteArguments = commerceDecoder(Schema.Tuple([PricePreferenceIds]), "invalidInput");
 const decodeUpsertArguments = commerceDecoder(Schema.Tuple([PriceSetsUpsertInput]), "invalidInput");
 const decodeUpdateArguments = commerceDecoder(Schema.Tuple([PriceSetsUpdateInput.fields.selector, PriceSetsUpdateInput.fields.update]), "invalidInput");
 const decodeListArguments = commerceDecoder(Schema.Union([Schema.Tuple([PriceSetFilters]), Schema.Tuple([PriceSetFilters, NativePreimageConfig])]), "invalidInput");
@@ -56,16 +56,17 @@ export function shippingPricingLifecycleServiceDefinition(input: unknown) {
   return definition === undefined ? undefined : { ...definition, routing: structuredClone(definition.routing) };
 }
 
-export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(function* (admission: "create" | "variant-updates" | "product-updates" | "store-preferences" | "shipping-options" | "shipping-option-updates" = "create") {
-  if (admission !== "create" && admission !== "variant-updates" && admission !== "product-updates" && admission !== "store-preferences" && admission !== "shipping-options" && admission !== "shipping-option-updates") return yield* Effect.fail(commerceError("unsupportedProfile"));
+export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(function* (admission: "create" | "variant-updates" | "product-updates" | "price-preferences" | "shipping-options" | "shipping-option-updates" = "create") {
+  if (admission !== "create" && admission !== "variant-updates" && admission !== "product-updates" && admission !== "price-preferences" && admission !== "shipping-options" && admission !== "shipping-option-updates") return yield* Effect.fail(commerceError("unsupportedProfile"));
   const mutable = admission === "variant-updates" || admission === "product-updates", lifecycle = admission === "product-updates";
-  const preferences = admission === "store-preferences";
+  const preferences = admission === "price-preferences";
   const shippingUpdates = admission === "shipping-option-updates";
   const shipping = admission === "shipping-options" || shippingUpdates;
   const metadata = yield* capturePricingMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
     const prepared = yield* preparePricingRepository(metadata.frame, mutable, lifecycle, preferences, shipping, shippingUpdates);
-    const preferenceContracts = yield* compileStorePreferenceContracts(metadata.frame);
+    const preferenceContracts = yield* compilePricePreferenceContracts(metadata.frame);
+    const preferencePolicy = pricingPreferencePolicy(preferenceContracts);
     const shippingOutput = yield* compileShippingPricingOutput(metadata.frame);
     const shippingMutation = yield* compileShippingPricingMutationContracts(metadata.frame);
     const bind = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
@@ -82,13 +83,13 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
     };
     const module = yield* defineCommerceModule({ name: "flarex-pricing-local",
       models: [PriceSet, Price, PriceRule, PriceList, PriceListRule, PricePreference],
-      profile: { name: shippingUpdates ? "pricing-shipping-option-updates" : shipping ? "pricing-shipping-options" : preferences ? "pricing-store-preferences" : lifecycle ? "pricing-product-updates" : mutable ? "pricing-variant-updates" : "pricing-base-prices", capabilities: [], bind },
+      profile: { name: shippingUpdates ? "pricing-shipping-option-updates" : shipping ? "pricing-shipping-options" : preferences ? "pricing-price-preferences" : lifecycle ? "pricing-product-updates" : mutable ? "pricing-variant-updates" : "pricing-base-prices", capabilities: [], bind },
       extensions: { pricingRepository: { mode: "add", create: ({ binding }) => ({ calculatePrices: binding.calculatePrices } satisfies PricingRepositoryService) } },
       service: ({ binding, dependencies, context }) => {
         const container = { ...dependencies, [Modules.EVENT_BUS]: binding.eventBus };
         const native = new PricingModuleService(container, { scope: "internal" });
         return { service: { createPriceSets: preferences ? binding.refuse : native.createPriceSets.bind(native), createPriceLists: preferences || shipping ? binding.refuse : native.createPriceLists.bind(native),
-          createPricePreferences: preferences || shipping ? binding.refuse : native.createPricePreferences.bind(native),
+          createPricePreferences: shipping ? binding.refuse : native.createPricePreferences.bind(native),
           listPriceSets: preferences ? binding.refuse : native.listPriceSets.bind(native),
           retrievePriceSet: preferences ? binding.refuse : native.retrievePriceSet.bind(native), listAndCountPriceSets: preferences ? binding.refuse : native.listAndCountPriceSets.bind(native),
           calculatePrices: preferences || shipping ? binding.refuse : native.calculatePrices.bind(native), upsertPriceSets: mutable ? native.upsertPriceSets.bind(native) : binding.refuse,
@@ -150,13 +151,18 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
         return { ...fields, prices: prices.map(price => ({ ...price })),
           ...(rules === undefined ? {} : { rules: { region_id: [...rules.region_id] } }) };
       }) as PricingTypes.CreatePriceListDTO[], context));
+    // The pinned DTO omits null although native DML accepts a nullable value
+    // and native creation normalizes a null tax flag. The checked command input
+    // crosses that foreign typing discrepancy once; complete DML output and
+    // receipt validation retain the runtime contract.
     const createPreference = commands.write("pricingCreatePreference", prepare(decodePricePreferenceCreate),
-      ({ service, context }, data) => service.createPricePreferences(data.map(preference => ({ ...preference })), context));
+      ({ service, context }, data): Promise<unknown> => Reflect.apply(service.createPricePreferences, service,
+        [data.map(preference => ({ ...preference })), context]));
     const preferenceList = commands.read("pricingStorePreferenceList", prepare(decodeStorePreferenceFilters),
       ({ service, context }, filters) => service.listPricePreferences({ $or: filters.$or.map(pair => ({ ...pair })) }, {}, context));
     const preferenceUpsert = commands.write("pricingStorePreferenceUpsert", prepare(preferenceContracts.decodeUpsert),
       ({ service, context }, data) => service.upsertPricePreferences(data.map(row => ({ ...row })), context));
-    const preferenceDelete = commands.write("pricingStorePreferenceDelete", prepare(decodeStorePreferenceIds), async ({ service, context }, ids) => {
+    const preferenceDelete = commands.write("pricingPreferenceDelete", prepare(decodePricePreferenceIds), async ({ service, context }, ids) => {
       const result = await service.deletePricePreferences([...ids], context);
       if (result !== undefined) throw commerceError("storedCorruption");
       return null;
@@ -188,8 +194,7 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
     });
     const createPricePreferences = yield* defineWorkflowMethod({ command: createPreference,
       arguments: decodeCreatePreferenceArguments, encode: ([preferences]) => preferences,
-      output: commerceDecoder(Schema.Array(Schema.StructWithRest(Schema.Struct({ id: PricingId }),
-        [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isLengthBetween(1, 4)), "storedCorruption"),
+      output: preferenceContracts.decodeOutput,
       moduleEvents: [buildModuleResourceEventName({ prefix: Modules.PRICING,
         objectName: "price_preference", action: "created" })],
     });
@@ -247,10 +252,10 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
       output: preferenceContracts.decodeOutput, moduleEvents: ["created", "updated"].map(action =>
         buildModuleResourceEventName({ prefix: Modules.PRICING, objectName: "price_preference", action })) });
     const deletePricePreferences = yield* defineWorkflowMethod({ command: preferenceDelete,
-      arguments: decodeStorePreferenceDeleteArguments, encode: ([ids]) => ids,
+      arguments: decodePreferenceDeleteArguments, encode: ([ids]) => ids,
       output: commerceDecoder(Schema.Null, "storedCorruption"), moduleEvents: [buildModuleResourceEventName({ prefix: Modules.PRICING,
         objectName: "price_preference", action: "deleted" })] });
-    const admitted = shippingUpdates ? [shippingUpdate, shippingListPrices, shippingListRules, shippingCreateRules, list, count, retrieve] : shipping ? [create, list, count, retrieve, softDeletePriceSetsCommand, restorePriceSetsCommand, deletePriceSetsCommand] : preferences ? [preferenceList, preferenceUpsert, preferenceDelete]
+    const admitted = shippingUpdates ? [shippingUpdate, shippingListPrices, shippingListRules, shippingCreateRules, list, count, retrieve] : shipping ? [create, list, count, retrieve, softDeletePriceSetsCommand, restorePriceSetsCommand, deletePriceSetsCommand] : preferences ? [createPreference, preferenceList, preferenceUpsert, preferenceDelete]
       : [create, createList, createPreference, list, count, retrieve, calculate, ...(mutable ? [upsert, update] : []), ...(lifecycle ? [softDeletePriceSetsCommand] : [])];
     const listPriceSets = yield* defineWorkflowMethod({ command: list, arguments: decodeListArguments,
       encode: args => ({ filters: args[0], ...(args.length === 1 ? {} : { config: nativePreimageSelection(args[1], graph.reads[0]!) }) }),
@@ -258,9 +263,9 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
     const workflow = yield* defineWorkflowModule({ name: Modules.PRICING, source: module.description,
       methods: { ...(shippingUpdates ? { updatePriceSets: updateShippingPriceSets, listPrices: listShippingPrices,
         listPriceRules: listShippingPriceRules, createPriceRules: createShippingPriceRules } : {}),
-        ...(preferences ? { listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),
+        ...(preferences ? { createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),
         ...(!preferences && !shippingUpdates ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}), ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {}) }, graph,
-      logical: { ...(shipping ? pricingShippingOptionPolicy(shippingOutput, shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined) : preferences ? pricingStorePreferencePolicy(preferenceContracts) : lifecycle ? pricingLogicalProductUpdateEventPolicy() : mutable ? pricingLogicalMutationEventPolicy() : pricingLogicalCreateEventPolicy()), commands: admitted },
+      logical: { ...(shipping ? pricingShippingOptionPolicy(preferencePolicy, shippingOutput, shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined) : preferences ? preferencePolicy : lifecycle ? pricingLogicalProductUpdateEventPolicy(preferencePolicy) : mutable ? pricingLogicalMutationEventPolicy(preferencePolicy) : pricingLogicalCreateEventPolicy(preferencePolicy)), commands: admitted },
     });
     if (shipping && !shippingUpdates) shippingLifecycleServices.set(workflow, { routing: nativePricingRouting, softDelete: softDeletePriceSets, restore: restorePriceSets });
     return { create, createList, createPreference, preferenceList, preferenceUpsert, preferenceDelete, list, count, retrieve, calculate, ...(mutable ? { upsert, update } : {}),

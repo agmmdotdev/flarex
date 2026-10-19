@@ -53,7 +53,7 @@ export async function prepareLogicalStoreUpdate(driver: "pglite" | "postgres", c
   const fixture = await logicalCurrencyFixture(driver, close, shared === undefined
     ? { includeStore: true, includePricing: true }
     : { includeStore: true, includePricing: true, ...shared });
-  const store = await Effect.runPromise(makeStoreUpdateCommands()), pricing = await Effect.runPromise(makeLocalPricingCommands("store-preferences"));
+  const store = await Effect.runPromise(makeStoreUpdateCommands()), pricing = await Effect.runPromise(makeLocalPricingCommands("price-preferences"));
   const definition = fixture.storeDefinition, pricingDefinition = fixture.pricingDefinition;
   if (definition === undefined || pricingDefinition === undefined) throw new Error("Missing installed Store/Pricing source");
   const ordered = ["store", "store_currency", "store_locale"].flatMap(table => initial.filter(value => value.table === table));

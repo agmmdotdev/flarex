@@ -1,3 +1,4 @@
+import { preparePricingPreferencePolicy } from "./logical-pricing-fixture";
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import { pricingLogicalCreateEventPolicy } from "../../src/modules/pricing/events";
@@ -17,7 +18,7 @@ export async function logicalPricingTestHost(registerCleanup: (close: () => Prom
   const pricing = await prepareLogicalPricingHost(currency);
   registerCleanup(() => Effect.runPromise(pricing.host.close));
   await Effect.runPromise(pricing.host.initialize([]));
-  const policy = pricingLogicalCreateEventPolicy();
+  const policy = pricingLogicalCreateEventPolicy(await preparePricingPreferencePolicy());
   const revision = createHash("sha256").update("logical-pricing-base-test").digest("hex");
   const contracts = ["pricing.price-set.created", "pricing.price.created", "pricing.price-rule.created"]
     .map(name => ({ name, token: defineCommerceEventContract({ name, revision, internal: true,

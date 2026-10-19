@@ -1,3 +1,4 @@
+import { preparePricingPreferencePolicy } from "./support/logical-pricing-fixture";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Schema } from "effect";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
@@ -26,7 +27,7 @@ async function connect() {
   if (!runtime.upsert || !runtime.update) throw new Error("Missing Pricing mutation admission");
   const upsertCommand = runtime.upsert, updateCommand = runtime.update;
   const participant = defineAtomicCommerceParticipant("pricing");
-  const policy = pricingLogicalMutationEventPolicy();
+  const policy = pricingLogicalMutationEventPolicy(await preparePricingPreferencePolicy());
   const names = ["pricing.price-set.created", "pricing.price-list.created", "pricing.price-list-rule.created", "pricing.price-preference.created",
     ...["price", "price-rule"].flatMap(object => ["created", "updated", "deleted"].map(action => "pricing." + object + "." + action))];
   const contracts = names.map(name => ({ name, token: defineCommerceEventContract({ name, revision: "a".repeat(64), internal: true, decode: policy.capture }) }));

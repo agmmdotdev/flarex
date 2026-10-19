@@ -1,4 +1,7 @@
-import { Effect } from "effect";
+import { capturePricingMetadata } from "../../src/modules/pricing/schema";
+import { compilePricePreferenceContracts } from "../../src/modules/pricing/preference-input";
+import { pricingPreferencePolicy } from "../../src/modules/pricing/preference-receipt";
+import { Effect, Result } from "effect";
 import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
 import { makeLocalPricingCommands } from "../../src/modules/pricing/service";
@@ -48,7 +51,7 @@ export async function seedLogicalPricingLists(fixture: LogicalCurrencyFixture, p
 }> {
   if (workflowModuleDefinition(pricing.runtime.workflow)?.source.profile !== "pricing-product-updates")
     throw new Error("PriceList rule seeding requires the Product-update Pricing profile");
-  const participant = defineAtomicCommerceParticipant("pricing"), policy = pricingLogicalProductUpdateEventPolicy();
+  const participant = defineAtomicCommerceParticipant("pricing"), policy = pricingLogicalProductUpdateEventPolicy(await preparePricingPreferencePolicy());
   const names = ["pricing.price-list.created", "pricing.price.created", "pricing.price-list-rule.created", "pricing.price-rule.created"];
   const contracts = names.map(name => ({ name, token: defineCommerceEventContract({ name, revision: "a".repeat(64), internal: true, decode: policy.capture }) }));
   const command = defineAtomicCommerceCommand("pricingListSeed", (ctx, data) => ctx.call(participant, pricing.runtime.createList, data));
@@ -68,4 +71,10 @@ export async function seedLogicalPricingLists(fixture: LogicalCurrencyFixture, p
     if (activity === undefined) throw new Error("Missing native PriceList seed receipt");
     return { result, activity };
   } finally { await Effect.runPromise(host.close); }
+}
+
+/** Assemble complete DML validation for comparison tests of combined policies. */
+export async function preparePricingPreferencePolicy() {
+  const { frame } = await Effect.runPromise(capturePricingMetadata());
+  return pricingPreferencePolicy(Result.getOrThrow(compilePricePreferenceContracts(frame)));
 }

@@ -7,14 +7,15 @@ import { moduleEventDecoder } from "../../module/events";
 import { captureCommerceInput } from "../../value/input";
 import { pricingLogicalMutationEventPolicy } from "./mutation-events";
 import { decodePricingLifecycleInput, pricingLifecycleIds } from "./lifecycle";
+import type { pricingPreferencePolicy } from "./preference-receipt";
 
 const models = new Map([["price_set", "PriceSet"], ["price", "Price"], ["price_rule", "PriceRule"]]);
 const linkableKeys = pricingStaticResources.joinerConfig?.linkableKeys ?? {};
 
 /** Pricing owns native module events/results, while storage authenticates each
  * managed transition and its complete before/after row. */
-export function pricingLogicalProductUpdateEventPolicy() {
-  const mutation = pricingLogicalMutationEventPolicy({ priceListPriceRules: true });
+export function pricingLogicalProductUpdateEventPolicy(preferences: ReturnType<typeof pricingPreferencePolicy>) {
+  const mutation = pricingLogicalMutationEventPolicy(preferences, { priceListPriceRules: true });
   const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(Modules.PRICING), object: Schema.Literals(["price_set", "price", "price_rule"]),

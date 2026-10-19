@@ -1,3 +1,4 @@
+import { preparePricingPreferencePolicy } from "./support/logical-pricing-fixture";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Schema } from "effect";
 import { pricingStaticResources } from "@medusajs/pricing/static-manifest";
@@ -27,7 +28,7 @@ async function connect() {
   const runtime = pricing.runtime, softDelete = runtime.softDeletePriceSets;
   if (softDelete === undefined) throw new Error("Missing Pricing lifecycle admission");
   const participant = defineAtomicCommerceParticipant("pricing");
-  const policy = pricingLogicalProductUpdateEventPolicy();
+  const policy = pricingLogicalProductUpdateEventPolicy(await preparePricingPreferencePolicy());
   const names = ["pricing.price-set.created", "pricing.price-set.deleted", "pricing.price-list.created", "pricing.price-list-rule.created", "pricing.price-preference.created",
     ...["price", "price-rule"].flatMap(object => ["created", "updated", "deleted"].map(action => "pricing." + object + "." + action))];
   const contracts = names.map(name => ({ name, token: defineCommerceEventContract({ name, revision: "a".repeat(64), internal: true, decode: policy.capture }) }));

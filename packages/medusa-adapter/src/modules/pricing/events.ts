@@ -6,14 +6,15 @@ import { CommonEvents, Modules, buildModuleResourceEventName } from "@medusajs/f
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import type { pricingPreferencePolicy } from "./preference-receipt";
 
 /** Core owns FK/unique settlement; this receipt authenticates the exact native
  * create events for each admitted Pricing graph. */
-export function pricingLogicalCreateEventPolicy(options: Readonly<{ priceListPriceRules?: true }> = {}) {
+export function pricingLogicalCreateEventPolicy(preferences: ReturnType<typeof pricingPreferencePolicy>,
+  options: Readonly<{ priceListPriceRules?: true }> = {}) {
   const profiles = new Map<string, ReadonlySet<string>>([
     ["pricingCreate", new Set(["price_set", "price", "price_rule"])],
     ["pricingCreateList", new Set(["price_list", "price", "price_list_rule", ...(options.priceListPriceRules ? ["price_rule"] : [])])],
-    ["pricingCreatePreference", new Set(["price_preference"])],
   ]);
   const tables = new Set([...profiles.values()].flatMap(profile => [...profile]));
   const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
@@ -24,7 +25,10 @@ export function pricingLogicalCreateEventPolicy(options: Readonly<{ priceListPri
       Schema.isMaxLength(defaultCommerceResources.eventIds))]) }),
   }), defaultCommerceResources);
   const capture = Effect.fn("PricingEvents.captureLogical")(function* (input: unknown) {
+    // The complete preference owner authenticates its event envelope and rows.
+    // Capture uses the same outer private-data boundary as the generic decoder.
     const message = yield* decode(input);
+    if (message.metadata.object === "price_preference") return yield* preferences.capture(input);
     if (!tables.has(message.metadata.object) || message.name !== buildModuleResourceEventName({
       prefix: Modules.PRICING, objectName: message.metadata.object, action: CommonEvents.CREATED,
     })) return yield* Effect.fail(commerceError("unadmittedEvent"));
@@ -32,6 +36,7 @@ export function pricingLogicalCreateEventPolicy(options: Readonly<{ priceListPri
   });
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("PricingEvents.validateLogicalCreate")(
     function* (call: Parameters<LogicalCommerceCallValidation>[0], activity: Parameters<LogicalCommerceCallValidation>[1]) {
+      if (call.commandName === "pricingCreatePreference") return yield* preferences.validateLogicalCall(call, activity);
       const { mutations, lifecycle, setNull, referenceReplacements } = activity;
       if (lifecycle.length || setNull.length || referenceReplacements.length ||
         mutations.some((mutation, index) => mutation.ordinal !== index))
@@ -58,32 +63,20 @@ export function pricingLogicalCreateEventPolicy(options: Readonly<{ priceListPri
         }
         expected.add(identity);
       }
-      if (call.commandName === "pricingCreateList" || call.commandName === "pricingCreatePreference") {
+      if (call.commandName === "pricingCreateList") {
         if (!Array.isArray(call.input) || !Array.isArray(call.result) ||
           call.input.length < 1 || call.input.length > 4 ||
-          (call.commandName === "pricingCreateList" && listRoots !== call.input.length) ||
-          (call.commandName === "pricingCreatePreference" && mutations.length !== call.input.length) ||
+          listRoots !== call.input.length ||
           call.result.length !== call.input.length)
           return yield* Effect.fail(commerceError("receiptMismatch"));
         const resultIds = new Set<string>();
-        for (const [index, result] of call.result.entries()) {
+        for (const result of call.result) {
           if (!isJsonObject(result) || typeof result.id !== "string")
             return yield* Effect.fail(commerceError("receiptMismatch"));
           if (resultIds.has(result.id)) return yield* Effect.fail(commerceError("receiptMismatch"));
           resultIds.add(result.id);
-          if (call.commandName === "pricingCreateList" && !listRootIds.delete(result.id))
+          if (!listRootIds.delete(result.id))
             return yield* Effect.fail(commerceError("receiptMismatch"));
-          if (call.commandName === "pricingCreatePreference") {
-            const supplied = call.input[index];
-            const persisted = mutations.find(mutation => mutation.table === "price_preference" &&
-              mutation.after?.id === result.id)?.after;
-            if (!expected.has("price_preference:" + result.id) || !isJsonObject(supplied) ||
-              persisted === undefined || !isJsonObject(persisted) || result.attribute !== supplied.attribute ||
-              result.value !== supplied.value || result.is_tax_inclusive !== (supplied.is_tax_inclusive ?? false) ||
-              persisted.attribute !== result.attribute || persisted.value !== result.value ||
-              persisted.is_tax_inclusive !== result.is_tax_inclusive)
-              return yield* Effect.fail(commerceError("receiptMismatch"));
-          }
         }
         if (listRootIds.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
       }

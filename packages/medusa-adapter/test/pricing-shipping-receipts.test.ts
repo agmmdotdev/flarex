@@ -1,3 +1,4 @@
+import { preparePricingPreferencePolicy } from "./support/logical-pricing-fixture";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result, Schema } from "effect";
 import type { Json, JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -35,7 +36,7 @@ const dto = () => [{ ...root, prices: [{ ...price, amount: 10, price_list: null,
 
 beforeAll(async () => {
   decodeOutput = Result.getOrThrow(compileShippingPricingOutput((await Effect.runPromise(capturePricingMetadata())).frame));
-  policy = pricingShippingOptionPolicy(decodeOutput);
+  policy = pricingShippingOptionPolicy(await preparePricingPreferencePolicy(), decodeOutput);
 });
 
 describe("selected Shipping Option Pricing contracts", () => {
@@ -49,7 +50,7 @@ describe("selected Shipping Option Pricing contracts", () => {
     definition.routing.__joinerConfig.linkableKeys = {};
     expect(shippingPricingLifecycleServiceDefinition(shipping.workflow)?.routing.__joinerConfig).toEqual(PricingModuleService.prototype.__joinerConfig());
     expect(shippingPricingLifecycleServiceDefinition({ ...shipping.workflow })).toBeUndefined();
-    for (const profile of ["create", "variant-updates", "product-updates", "store-preferences"] as const)
+    for (const profile of ["create", "variant-updates", "product-updates", "price-preferences"] as const)
       expect(shippingPricingLifecycleServiceDefinition((await Effect.runPromise(makeLocalPricingCommands(profile))).workflow)).toBeUndefined();
   });
 

@@ -41,7 +41,7 @@ export const prepareStoreCreationWorkflow = Effect.fn("Store.prepareCreation")(f
   const modules = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, ["store", "pricing"]));
   for (const [module, name, profile] of [
     [modules.store.module, "flarex-store-create", "store-create"],
-    [modules.pricing.module, "flarex-pricing-local", "pricing-store-preferences"],
+    [modules.pricing.module, "flarex-pricing-local", "pricing-price-preferences"],
   ] as const) {
     const definition = workflowModuleDefinition(module);
     if (definition === undefined || definition.source.name !== name || definition.source.profile !== profile)

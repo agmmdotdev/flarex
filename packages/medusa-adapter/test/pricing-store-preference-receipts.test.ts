@@ -3,14 +3,14 @@ import { Effect, Result } from "effect";
 import type { Json, JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCallReceiptValidation } from "../src/repository/call-receipt";
 import { capturePricingMetadata } from "../src/modules/pricing/schema";
-import { compileStorePreferenceContracts, decodeStorePreferenceFilters } from "../src/modules/pricing/preference-input";
-import { pricingStorePreferencePolicy } from "../src/modules/pricing/preference-receipt";
+import { compilePricePreferenceContracts, decodeStorePreferenceFilters } from "../src/modules/pricing/preference-input";
+import { pricingPreferencePolicy } from "../src/modules/pricing/preference-receipt";
 
 type Activity = Parameters<LogicalCallReceiptValidation>[1];
 type Receipt = Parameters<LogicalCallReceiptValidation>[0];
-type Contracts = Result.Result.Success<ReturnType<typeof compileStorePreferenceContracts>>;
+type Contracts = Result.Result.Success<ReturnType<typeof compilePricePreferenceContracts>>;
 let contracts: Contracts;
-let policy: ReturnType<typeof pricingStorePreferencePolicy>;
+let policy: ReturnType<typeof pricingPreferencePolicy>;
 const stamp = "2026-10-17T01:00:00.000Z", changed = "2026-10-17T02:00:00.000Z";
 const row = (id: string, value: string, flag = false, fields: JsonObject = {}): JsonObject => ({ id,
   attribute: "currency_code", value, is_tax_inclusive: flag, created_at: stamp, updated_at: stamp, deleted_at: null, ...fields });
@@ -28,8 +28,8 @@ const refused = async (call: Receipt, evidence: Activity) =>
   expect(Result.isFailure(await Effect.runPromise(Effect.result(policy.validateLogicalCall(call, evidence))))).toBe(true);
 
 beforeAll(async () => {
-  contracts = Result.getOrThrow(compileStorePreferenceContracts((await Effect.runPromise(capturePricingMetadata())).frame));
-  policy = pricingStorePreferencePolicy(contracts);
+  contracts = Result.getOrThrow(compilePricePreferenceContracts((await Effect.runPromise(capturePricingMetadata())).frame));
+  policy = pricingPreferencePolicy(contracts);
 });
 
 describe("named Store Pricing preference admission", () => {
@@ -53,7 +53,7 @@ describe("named Store Pricing preference admission", () => {
   it("authenticates empty lookup/upsert/physical-delete with exactly empty effects", async () => {
     const empty = activity();
     const cases: Array<readonly [string, Json, Json]> = [["pricingStorePreferenceList", { $or: [] }, []],
-      ["pricingStorePreferenceUpsert", [], []], ["pricingStorePreferenceDelete", [], null]];
+      ["pricingStorePreferenceUpsert", [], []], ["pricingPreferenceDelete", [], null]];
     for (const [name, input, output] of cases) {
       const call = receipt(name, input, output, [], empty); await Effect.runPromise(policy.validateLogicalCall(call, empty));
       await refused({ ...call, events: [event("created", "invented")] }, empty);
@@ -144,7 +144,7 @@ describe("named Store Pricing preference admission", () => {
       { ordinal: 0, table: "price_preference", operation: "delete", before: first, after: null },
       { ordinal: 1, table: "price_preference", operation: "delete", before: deleted, after: null },
     ], [first, deleted]);
-    const call = receipt("pricingStorePreferenceDelete", ["z", "missing", "a", "a"], null,
+    const call = receipt("pricingPreferenceDelete", ["z", "missing", "a", "a"], null,
       [event("deleted", "a"), event("deleted", "z")], evidence);
     await Effect.runPromise(policy.validateLogicalCall(call, evidence));
     await refused({ ...call, input: ["a"] }, evidence);
@@ -153,10 +153,11 @@ describe("named Store Pricing preference admission", () => {
     await refused(call, { ...evidence, mutations: evidence.mutations.slice(0, 1) });
   });
 
-  it("refuses foreign tables, public methods, wrong actions and mismatched event provenance", async () => {
+  it("shares preference creation ownership while refusing unrelated Pricing commands, foreign tables and event mismatches", async () => {
     const created = row("new", "USD"), evidence = activity([{ ordinal: 0, table: "price_preference", operation: "insert", before: null, after: created }]);
     const call = receipt("pricingStorePreferenceUpsert", [{ attribute: "currency_code", value: "USD" }], [created], [event("created", "new")], evidence);
-    await refused({ ...call, commandName: "pricingCreatePreference" }, evidence);
+    await Effect.runPromise(policy.validateLogicalCall({ ...call, commandName: "pricingCreatePreference" }, evidence));
+    await refused({ ...call, commandName: "pricingCreate" }, evidence);
     await refused({ ...call, events: [event("updated", "new")] }, evidence);
     await refused({ ...call, events: [event("created", ["new", "new"])] }, evidence);
     await refused(call, { ...evidence, mutations: [{ ...evidence.mutations[0]!, table: "price_set" }] });

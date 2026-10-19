@@ -653,6 +653,21 @@ event, byte and deadline limits remain unchanged. The earlier authored
 endpoint-creation workflow remains a distinct consumer. Durable scheduling,
 delayed compensation and public/hosted activation remain separate gates.
 
+The [native Price Preference creation](./preflight/149-native-price-preference-creation.md)
+root admits zero to four raw attribute/value inputs through the existing
+Pricing factory. Its shared `pricing-price-preferences` profile owns complete
+DML-derived preference rows and receipts for both ordinary creation and Store
+workflows; Store pair lookup/upsert grammar remains separate. The root selects
+only creation and physical deletion, with graph access off. Native empty calls,
+nullable values, tax defaults, raw case, nulls-distinct uniqueness, retained IDs
+and physical cancellation remain preserved. The existing physical lifecycle
+uses canonical selected-row order where native deletion has no ordering promise.
+Native public DTOs remain unchanged; the checked private boundary admits the
+witnessed nullable runtime inputs and refuses managed caller fields. Normal
+64-call/64-event, byte and deadline limits remain unchanged. Region lookup,
+other Pricing methods, providers, durable scheduling and public/hosted
+activation remain separate gates.
+
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
 The genuine creation step remains unchanged and returns complete native rows,

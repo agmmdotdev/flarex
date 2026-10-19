@@ -7,6 +7,7 @@ import { moduleEventDecoder } from "../../module/events";
 import { pricingLogicalCreateEventPolicy } from "./events";
 import { projectExactNumericColumns } from "../../value/exact-numeric";
 import { jsonEqual } from "flarex-protocol/json";
+import type { pricingPreferencePolicy } from "./preference-receipt";
 function matchesStoredScalars(actual: JsonObject, expected: JsonObject) {
   return Object.entries(expected).every(([key, value]) => {
     if (key === "_id" || key === "_creationTime") return true;
@@ -16,8 +17,9 @@ function matchesStoredScalars(actual: JsonObject, expected: JsonObject) {
 
 /** Native Pricing replacements authenticate operation-local base-price and
  * rule mutations. Physical cascade cleanup has no separate native rule event. */
-export function pricingLogicalMutationEventPolicy(options: Readonly<{ priceListPriceRules?: true; scalarPriceSetUpdate?: true }> = {}) {
-  const creation = pricingLogicalCreateEventPolicy(options);
+export function pricingLogicalMutationEventPolicy(preferences: ReturnType<typeof pricingPreferencePolicy>,
+  options: Readonly<{ priceListPriceRules?: true; scalarPriceSetUpdate?: true }> = {}) {
+  const creation = pricingLogicalCreateEventPolicy(preferences, options);
   const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(Modules.PRICING), object: Schema.String,

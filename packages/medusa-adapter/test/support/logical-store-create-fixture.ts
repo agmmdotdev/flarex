@@ -16,7 +16,7 @@ import { storeCreationResources } from "../../src/workflow/policy";
 import { makeStoreCreationCommands } from "../../src/modules/store/create-service";
 import { StoreCreates, StorePhysicalDeletionIds } from "../../src/modules/store/create-input";
 import { makeLocalPricingCommands } from "../../src/modules/pricing/service";
-import { StorePreferenceIds, StorePreferenceUpserts } from "../../src/modules/pricing/preference-input";
+import { PricePreferenceIds, StorePreferenceUpserts } from "../../src/modules/pricing/preference-input";
 import { prepareStoreCreationWorkflow, StoreCreationInput } from "../../src/workflows/store/create";
 import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
@@ -65,7 +65,7 @@ export async function prepareLogicalStoreCreation(driver: "pglite" | "postgres",
     ? { includeStore: true, includePricing: true }
     : { includeStore: true, includePricing: true, ...shared });
   const store = await Effect.runPromise(makeStoreCreationCommands());
-  const pricing = await Effect.runPromise(makeLocalPricingCommands("store-preferences"));
+  const pricing = await Effect.runPromise(makeLocalPricingCommands("price-preferences"));
   const storeDefinition = fixture.storeDefinition, pricingDefinition = fixture.pricingDefinition;
   if (storeDefinition === undefined || pricingDefinition === undefined) throw new Error("Missing installed Store/Pricing source");
   const storeRows: Array<{ table: string; row: JsonObject }> = [
@@ -121,7 +121,7 @@ export async function prepareLogicalStoreCreation(driver: "pglite" | "postgres",
       store: { module: store.workflow, methods: ["createStores", "deleteStores"], graph: false },
       pricing: { module: pricing.workflow, methods: ["listPricePreferences", "upsertPricePreferences", "deletePricePreferences"], graph: false },
     }, true));
-    const Compensation = Schema.Struct({ prevData: Schema.Array(Schema.JsonObject).pipe(Schema.mutable).check(Schema.isMaxLength(4)), newDataIds: StorePreferenceIds });
+    const Compensation = Schema.Struct({ prevData: Schema.Array(Schema.JsonObject).pipe(Schema.mutable).check(Schema.isMaxLength(4)), newDataIds: PricePreferenceIds });
     const StoreCreated = Schema.Struct({ output: store.output, compensation: StorePhysicalDeletionIds });
     const PreferencesCreated = Schema.Struct({ output: Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(4)), compensation: Compensation });
     const forwardStore = createStep("probe-retained-store-create", resources.callback(async (input: typeof StoreCreates.Type, context) => {

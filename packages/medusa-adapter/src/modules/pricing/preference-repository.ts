@@ -9,11 +9,13 @@ import { medusaLifecycle } from "../../repository/lifecycle";
 import { projectNativeRow, orderNativeIdRows } from "../../repository/result";
 import { readCommerceRelationRows } from "../../query/relations";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
+import type { commerceRepositoryContext } from "../../repository/context";
+import type { commerceMutationEvents } from "../../repository/mutation-events";
 import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
 import type { capturePricingMetadata } from "./schema";
-import { compileStorePreferenceContracts, decodeStorePreferenceCreates, decodeStorePreferenceFindWhere,
-  decodeStorePreferenceDeleteWhere, decodeStorePreferenceUpsertShape } from "./preference-input";
+import { compilePricePreferenceContracts, decodePricePreferenceCreates, decodeStorePreferenceFindWhere,
+  decodePricePreferenceDeleteWhere, decodeStorePreferenceUpsertShape } from "./preference-input";
 
 const decodeEnvelope = commerceDecoder(Schema.Struct({ where: Schema.JsonObject, options: Schema.JsonObject }), "unsupportedProfile");
 const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.JsonObject })).check(Schema.isMaxLength(4)), "unsupportedProfile");
@@ -23,7 +25,7 @@ const managed = ["created_at", "updated_at", "deleted_at"];
  * scalar reads/creates, keyed writes and lifecycle retain persistence mechanics. */
 export function preparePricingPreferenceRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"]) {
   return Result.gen(function* () {
-    const contracts = yield* compileStorePreferenceContracts(metadata), table = contracts.table;
+    const contracts = yield* compilePricePreferenceContracts(metadata), table = contracts.table;
     const scalar = yield* prepareScalarRepository(table, "PricePreference", { decode: decodeStorePreferenceFindWhere,
       fields: new Map(), selectors: { decode: input => decodeStorePreferenceFindWhere({ $or: input }).pipe(Result.map(value => value.$or)),
         mode: "tuples", key: "id" } }, input => Effect.fromResult(contracts.decodeOutput(input)));
@@ -39,8 +41,9 @@ export function preparePricingPreferenceRepository(metadata: Effect.Success<Retu
         // are read evidence; the shared writer owns the fresh update timestamp.
         return { key: before.id, update: Object.fromEntries(Object.entries(update).filter(([name]) => !managed.includes(name))) };
       }) });
-    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
-      const bound = scalar.bind(root, owner), { bridge, events } = bound;
+    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner,
+      sharedEvents?: ReturnType<typeof commerceMutationEvents>, sharedBridge?: ReturnType<typeof commerceRepositoryContext>) => {
+      const bound = scalar.bind(root, owner, sharedEvents, sharedBridge), { bridge, events } = bound;
       const denied = deniedCommerceRepository(bound.repository, bound.refuse);
       const repository: DAL.RepositoryService = { ...denied, serialize: bound.repository.serialize };
       const preferenceRepository: DAL.RepositoryService = { ...repository,
@@ -71,7 +74,7 @@ export function preparePricingPreferenceRepository(metadata: Effect.Success<Retu
           return structuredClone(orderNativeIdRows(decoded, where));
         }))),
         create: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
-          const rows = yield* Effect.fromResult(captureCommerceInput(captured, ctx.resources).pipe(Result.flatMap(decodeStorePreferenceCreates)));
+          const rows = yield* Effect.fromResult(captureCommerceInput(captured, ctx.resources).pipe(Result.flatMap(decodePricePreferenceCreates)));
           return yield* bound.createRows(ctx, [...rows], shared);
         }))),
         update: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
@@ -98,7 +101,7 @@ export function preparePricingPreferenceRepository(metadata: Effect.Success<Retu
           return structuredClone(complete);
         }))),
         delete: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
-          const selection = yield* Effect.fromResult(captureCommerceInput(captured, ctx.resources).pipe(Result.flatMap(decodeStorePreferenceDeleteWhere)));
+          const selection = yield* Effect.fromResult(captureCommerceInput(captured, ctx.resources).pipe(Result.flatMap(decodePricePreferenceDeleteWhere)));
           const lifecycle = medusaLifecycle(ctx, { tables: [table], entities: [{ table, model: "PricePreference" }] }, "delete");
           const roots = yield* lifecycle.roots(table, selection.$or.map(row => row.id));
           if (roots.length > 4) return yield* ctx.refuse(commerceError("limitExceeded"));

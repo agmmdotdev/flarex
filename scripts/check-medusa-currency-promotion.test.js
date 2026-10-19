@@ -1,5 +1,5 @@
 // @ts-check
-import { verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
+import { verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
@@ -8,6 +8,63 @@ import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-
 const root = process.cwd();
 const promotion = verifyCurrencyPromotion(root);
 const source = "packages/medusa-currency/src/models/currency.ts";
+
+describe("native PricePreference creation callback provenance", () => {
+  const paths = ["pricing/workflows/create-price-preferences.ts", "pricing/steps/create-price-preferences.ts"];
+  const originals = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8"));
+  const targets = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8"));
+  const verify = (workflow = targets[0], step = targets[1]) => verifyPricePreferenceCreateCallbacks(originals[0], workflow, originals[1], step);
+  it("admits original array inputs, full results and retained physical deletion with only portable seams", () => {
+    expect(() => verify()).not.toThrow();
+    expect(() => verify(targets[0], targets[1].replace("const pricePreferences =", "const pricePreferences: unknown ="))).not.toThrow();
+  });
+  /** @type {Array<[number,string,string,string]>} */
+  const mutations = [
+    [0, "workflow identity", '"create-price-preferences"', '"other-price-preferences"'],
+    [0, "original child input", "createPricePreferencesStep(input)", "createPricePreferencesStep([])"],
+    [0, "original full result", "new WorkflowResponse(createPricePreferencesStep(input))", "new WorkflowResponse([])"],
+    [0, "original child import", 'from "../steps/create-price-preferences"', 'from "../steps"'],
+    [0, "public workflow array contract", "PricingWorkflow.CreatePricePreferencesWorkflowInput[]", "PricingWorkflow.CreatePricePreferencesWorkflowInput"],
+    [0, "public workflow type owner", 'import type { PricingWorkflow } from "@medusajs/types"', 'import type { PricingWorkflow } from "other-types"'],
+    [1, "step identity", '"create-price-preferences"', '"other-price-preferences"'],
+    [1, "covered settlement metadata", 'compensation: "transactionCovered"', 'compensation: "noCompensation"'],
+    [1, "Pricing capability", "Modules.PRICING", "Modules.REGION"],
+    [1, "original array argument", "pricingModule.createPricePreferences(data)", "pricingModule.createPricePreferences([])"],
+    [1, "native creation method", "pricingModule.createPricePreferences(data)", "pricingModule.upsertPricePreferences(data)"],
+    [1, "awaited original creation", "await pricingModule.createPricePreferences(data)", "pricingModule.createPricePreferences(data)"],
+    [1, "raw order and duplicates", "pricingModule.createPricePreferences(data)", "pricingModule.createPricePreferences(data.slice().reverse())"],
+    [1, "retained returned IDs", "pricePreference.id)", "pricePreference.value)"],
+    [1, "returned full DTOs", "      pricePreferences,", "      pricePreferences.map((entry) => entry.id),"],
+    [1, "empty input still calls Pricing", "    const pricePreferences = await", "    if (!data.length) return new StepResponse([], [])\n    const pricePreferences = await"],
+    [1, "inverse empty guard", "if (!pricePreferences?.length)", "if (!pricePreferences)"],
+    [1, "physical inverse", "pricingModule.deletePricePreferences(pricePreferences)", "pricingModule.softDeletePricePreferences(pricePreferences)"],
+    [1, "exact retained inverse input", "pricingModule.deletePricePreferences(pricePreferences)", "pricingModule.deletePricePreferences([])"],
+    [1, "awaited original inverse", "await pricingModule.deletePricePreferences(pricePreferences)", "pricingModule.deletePricePreferences(pricePreferences)"],
+    [1, "original step array contract", "PricingWorkflow.CreatePricePreferencesWorkflowInput[]", "PricingWorkflow.CreatePricePreferencesWorkflowInput[] | null"],
+    [1, "original type import owner", 'from "@medusajs/types"', 'from "other-types"'],
+  ];
+  it.each(mutations)("rejects changed member %i %s", (index, _name, before, after) => {
+    expect(targets[index]).toContain(before);
+    const changed = targets.map((text, slot) => slot === index ? text.replace(before, after) : text);
+    expect(() => verify(changed[0], changed[1])).toThrow("Changed native PricePreference creation callback behavior");
+  });
+  it("rejects extra behavior in either whole module and altered native anchors", () => {
+    for (let index = 0; index < targets.length; index++) {
+      const changed = targets.map((text, slot) => slot === index ? text + '\nthrow new Error("extra");\n' : text);
+      expect(() => verify(changed[0], changed[1])).toThrow();
+    }
+    expect(() => verifyPricePreferenceCreateCallbacks(originals[0].replace('from "../steps"', 'from "other-steps"'), targets[0], originals[1], targets[1]))
+      .toThrow("missing native adaptation anchor");
+  });
+  it.each(paths.flatMap(file => [
+    { file, field: "classification", mutation: { classification: "authored", source: undefined } },
+    { file, field: "source", mutation: { source: "third_party/medusa/upstream/packages/core/core-flows/src/pricing/steps/create-price-sets.ts" } },
+  ]))("pins the exact $field for $file", ({ file, mutation }) => {
+    const target = "packages/medusa-core-flows/src/" + file;
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(entry => entry.target === target ? { ...entry, ...mutation } : entry) }))
+      .toThrow("PricePreference creation outside its exact pinned source pair");
+  });
+});
 
 describe("native SalesChannel Product membership callback provenance", () => {
   const paths = [
@@ -282,32 +339,38 @@ describe("named Pricing workflow admission selection", () => {
   const native = readFileSync("third_party/medusa/upstream/packages/core/types/src/pricing/service.ts", "utf8");
   const adapter = readFileSync("packages/medusa-adapter/src/modules/pricing/service.ts", "utf8");
   const repository = readFileSync("packages/medusa-adapter/src/modules/pricing/repository.ts", "utf8");
-  it("retains the original profiles and isolates Store preferences Shipping lifecycle and Shipping updates", () => {
+  it("retains Product profiles and isolates PricePreference creation/Store lookup from Shipping lifecycle and updates", () => {
     expect(() => verifyPricingWorkflowSelection(native, adapter, repository)).not.toThrow();
   });
   it.each([
-    ["admission union", '"product-updates" | "store-preferences" | "shipping-options" | "shipping-option-updates" = "create"', '"product-updates" | "store-preferences" | "shipping-options" | "shipping-option-updates" | "unbounded" = "create"'],
+    ["admission union", '"product-updates" | "price-preferences" | "shipping-options" | "shipping-option-updates" = "create"', '"product-updates" | "price-preferences" | "shipping-options" | "shipping-option-updates" | "unbounded" = "create"'],
     ["old-profile mutability", 'admission === "variant-updates" || admission === "product-updates"', 'admission !== "create"'],
     ["Product lifecycle predicate", 'lifecycle = admission === "product-updates"', 'lifecycle = mutable'],
-    ["preference predicate", 'preferences = admission === "store-preferences"', 'preferences = mutable'],
+    ["preference predicate", 'preferences = admission === "price-preferences"', 'preferences = mutable'],
+    ["preference DML contracts", 'yield* compilePricePreferenceContracts(metadata.frame)', 'yield* compilePricePreferenceContracts(otherFrame)'],
+    ["preference policy construction", 'pricingPreferencePolicy(preferenceContracts)', 'pricingLogicalCreateEventPolicy(preferenceContracts)'],
     ["methods branch predicate", '...(preferences ?', '...(mutable ?'],
-    ["extra old-profile method", '{ listPricePreferences, upsertPricePreferences, deletePricePreferences }', '{ listPricePreferences, upsertPricePreferences, deletePricePreferences, createPriceSets }'],
-    ["missing required preference method", '{ listPricePreferences, upsertPricePreferences, deletePricePreferences }', '{ listPricePreferences, upsertPricePreferences }'],
-    ["method spread override", '{ listPricePreferences, upsertPricePreferences, deletePricePreferences }', '{ listPricePreferences, upsertPricePreferences, deletePricePreferences, ...override }'],
+    ["extra PriceSet method in preference profile", '{ createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences }', '{ createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences, createPriceSets }'],
+    ["missing required preference creation method", '{ createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences }', '{ listPricePreferences, upsertPricePreferences, deletePricePreferences }'],
+    ["missing required preference inverse", '{ createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences }', '{ createPricePreferences, listPricePreferences, upsertPricePreferences }'],
+    ["method spread override", '{ createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences }', '{ createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences, ...override }'],
+    ["preference native create refusal", 'createPricePreferences: shipping ? binding.refuse : native.createPricePreferences.bind(native)', 'createPricePreferences: preferences || shipping ? binding.refuse : native.createPricePreferences.bind(native)'],
+    ["Shipping preference native create overgrant", 'createPricePreferences: shipping ? binding.refuse : native.createPricePreferences.bind(native)', 'createPricePreferences: native.createPricePreferences.bind(native)'],
     ["original creation method", '...(!shipping ? { createPriceLists, createPricePreferences } : {})', '...(!shipping ? { createPriceLists } : {})'],
     ["complementary branch predicate", '...(!preferences && !shippingUpdates ? { createPriceSets,', '...(preferences ? { createPriceSets,'],
     ["variant method admission", '...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {})', '...(preferences ? { upsertPriceSets, updatePriceSets, listPriceSets } : {})'],
-    ["preference command capability", 'preferences ? [preferenceList, preferenceUpsert, preferenceDelete]', 'preferences ? [preferenceList, preferenceUpsert, preferenceDelete, create]'],
+    ["preference command capability", 'preferences ? [createPreference, preferenceList, preferenceUpsert, preferenceDelete]', 'preferences ? [createPreference, preferenceList, preferenceUpsert, preferenceDelete, create]'],
+    ["missing preference creation command", 'preferences ? [createPreference, preferenceList, preferenceUpsert, preferenceDelete]', 'preferences ? [preferenceList, preferenceUpsert, preferenceDelete]'],
     ["repository selection", 'preparePricingRepository(metadata.frame, mutable, lifecycle, preferences, shipping, shippingUpdates)', 'preparePricingRepository(metadata.frame, mutable, lifecycle, mutable, shipping, shippingUpdates)'],
     ["preference graph", 'preferences ? { aliases: [], reads: [] }', 'preferences ? { aliases: [{ name: "prices", model: "PriceSet" }], reads: [] }'],
-    ["old create receipt", ': pricingLogicalCreateEventPolicy()', ': pricingStorePreferencePolicy(preferenceContracts)'],
-    ["named profile identity", 'preferences ? "pricing-store-preferences"', 'preferences ? "pricing-base-prices"'],
+    ["old create receipt", ': pricingLogicalCreateEventPolicy(preferencePolicy)', ': preferencePolicy'],
+    ["named profile identity", 'preferences ? "pricing-price-preferences"', 'preferences ? "pricing-base-prices"'],
     ["Shipping profile capture", 'if (shipping && !shippingUpdates) shippingLifecycleServices.set', 'if (lifecycle || shipping) shippingLifecycleServices.set'],
     ["Shipping restore isolation", 'restorePriceSets: shipping ? native.restorePriceSets.bind(native) : binding.refuse', 'restorePriceSets: lifecycle || shipping ? native.restorePriceSets.bind(native) : binding.refuse'],
     ["Shipping physical delete isolation", 'deletePriceSets: shipping ? native.deletePriceSets.bind(native) : binding.refuse', 'deletePriceSets: mutable || shipping ? native.deletePriceSets.bind(native) : binding.refuse'],
     ["Shipping command selector", 'shipping ? [create, list, count, retrieve, softDeletePriceSetsCommand, restorePriceSetsCommand, deletePriceSetsCommand]', 'shipping ? [create, list, count, retrieve, calculate, softDeletePriceSetsCommand, restorePriceSetsCommand, deletePriceSetsCommand]'],
     ["Shipping method selector", '...(shipping ? { restorePriceSets, deletePriceSets } : {})', '...(shipping ? { restorePriceSets } : {})'],
-    ["Shipping receipt policy", 'shipping ? pricingShippingOptionPolicy(shippingOutput, shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined)', 'shipping ? pricingLogicalProductUpdateEventPolicy()'],
+    ["Shipping receipt policy", 'shipping ? pricingShippingOptionPolicy(preferencePolicy, shippingOutput, shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined)', 'shipping ? preferencePolicy'],
     ["Shipping update predicate", 'shippingUpdates = admission === "shipping-option-updates"', 'shippingUpdates = true'],
     ["Shipping update profile identity", 'shippingUpdates ? "pricing-shipping-option-updates"', 'shippingUpdates ? "pricing-shipping-options"'],
     ["Shipping update creation exclusion", '...(!preferences && !shippingUpdates ?', '...(!preferences ?'],

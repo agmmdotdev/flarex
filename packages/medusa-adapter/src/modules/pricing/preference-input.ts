@@ -3,7 +3,7 @@ import { commerceError, type JsonObject } from "@flarex/persistence-postgres/int
 import { commerceDecoder } from "../../value/decoder";
 import { compileCompleteRow, compileRowProjection } from "../../value/complete-row";
 import type { capturePricingMetadata } from "./schema";
-import { PricingId } from "./input";
+import { PricePreferencesInput, PricingId } from "./input";
 
 const Text = Schema.String.check(Schema.isLengthBetween(1, 256));
 export const StorePreferencePair = Schema.Struct({ attribute: Text, value: Text });
@@ -14,12 +14,12 @@ const Update = Schema.Struct({ id: PricingId, attribute: Schema.optionalKey(Text
 const Previous = Schema.Struct({ id: PricingId, attribute: Text, value: Schema.NullOr(Text), is_tax_inclusive: Schema.Boolean,
   created_at: Schema.String, updated_at: Schema.String, deleted_at: Schema.NullOr(Schema.String) });
 export const StorePreferenceUpserts = Schema.Array(Schema.Union([Create, Update, Previous])).pipe(Schema.mutable).check(Schema.isMaxLength(4));
-export const StorePreferenceIds = Schema.Array(PricingId).pipe(Schema.mutable).check(Schema.isMaxLength(4));
+export const PricePreferenceIds = Schema.Array(PricingId).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 export const decodeStorePreferenceFilters = commerceDecoder(StorePreferenceFilters, "invalidInput");
-export const decodeStorePreferenceIds = commerceDecoder(StorePreferenceIds, "invalidInput");
-export const decodeStorePreferenceCreates = commerceDecoder(Schema.Array(Create).check(Schema.isMaxLength(4)), "unsupportedProfile");
+export const decodePricePreferenceIds = commerceDecoder(PricePreferenceIds, "invalidInput");
+export const decodePricePreferenceCreates = commerceDecoder(PricePreferencesInput, "unsupportedProfile");
 export const decodeStorePreferenceUpsertShape = commerceDecoder(StorePreferenceUpserts, "invalidInput");
-export const decodeStorePreferenceDeleteWhere = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: PricingId })).check(Schema.isMaxLength(4)) }), "unsupportedProfile");
+export const decodePricePreferenceDeleteWhere = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: PricingId })).check(Schema.isMaxLength(4)) }), "unsupportedProfile");
 export const decodeStorePreferenceFindWhere = commerceDecoder(Schema.Union([StorePreferenceFilters,
   Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: PricingId })).check(Schema.isMaxLength(4)) })]), "unsupportedProfile");
 const decodeOutputShape = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(4)), "storedCorruption");
@@ -27,7 +27,7 @@ const decodeId = commerceDecoder(PricingId, "storedCorruption");
 
 /** Profile grammar follows the checked native table; raw preference values are
  * independent of Store's lowercased StoreCurrency values. */
-export function compileStorePreferenceContracts(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"]) {
+export function compilePricePreferenceContracts(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"]) {
   return Result.gen(function* () {
     const table = metadata.tables.find(table => table.name === "price_preference");
     if (table === undefined || table.foreignKeys.length || table.relationships.length ||
@@ -46,6 +46,11 @@ export function compileStorePreferenceContracts(metadata: Effect.Success<ReturnT
       for (const row of rows) output.push(yield* decodeRow(row));
       return output;
     });
+    // Workflow hosts require a Schema; preserve the one complete DML verdict
+    // used by repositories, native method results and logical call receipts.
+    const Output = Schema.Array(Schema.StructWithRest(Schema.Struct({ id: PricingId }),
+      [Schema.Record(Schema.String, Schema.Json)])).check(Schema.makeFilter(rows =>
+      Result.isSuccess(decodeOutput(rows)) || "Expected complete native PricePreference rows"));
     const decodeUpsert = (input: unknown) => Result.gen(function* () {
       const rows = yield* decodeStorePreferenceUpsertShape(input);
       for (const row of rows) {
@@ -54,6 +59,6 @@ export function compileStorePreferenceContracts(metadata: Effect.Success<ReturnT
       }
       return rows;
     });
-    return { table, decodeRow, decodeOutput, decodeUpsert };
+    return { table, decodeRow, decodeOutput, Output, decodeUpsert };
   });
 }

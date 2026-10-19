@@ -32,6 +32,7 @@
     "./product/create-product-variants-step": "./src/product/steps/create-product-variants.ts",
     "./product/create-variant-pricing-link-step": "./src/product/steps/create-variant-pricing-link.ts",
     "./pricing/create-price-sets-step": "./src/pricing/steps/create-price-sets.ts",
+    "./pricing/create-price-preferences": "./src/pricing/workflows/create-price-preferences.ts",
     "./product/create-product-variants": "./src/product/workflows/create-product-variants.ts",
     "./product/create-products": "./src/product/workflows/create-products.ts",
     "./inventory/create-inventory-levels": "./src/inventory/workflows/create-inventory-levels.ts",

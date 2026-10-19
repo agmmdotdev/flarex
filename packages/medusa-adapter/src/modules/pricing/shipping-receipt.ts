@@ -12,6 +12,7 @@ import { pricingLogicalCreateEventPolicy } from "./events";
 import { pricingLogicalMutationEventPolicy } from "./mutation-events";
 import { pricingShippingUpdateReceipt } from "./shipping-update-receipt";
 import type { preparePricingRepository } from "./repository";
+import type { pricingPreferencePolicy } from "./preference-receipt";
 import { compileShippingPricingOutput, decodeShippingPriceSetCreate, decodeShippingPriceSetDeletionIds,
   decodeShippingPricingLifecycle, shippingPricingIds, compileShippingPricingMutationContracts, decodeShippingPriceRead, decodeShippingRuleRead } from "./shipping-input";
 
@@ -26,11 +27,11 @@ const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
 
 /** Shipping owns its selected Pricing capability; core authenticates managed
  * transitions, complete reads and mutation preimages. */
-export function pricingShippingOptionPolicy(decodeOutput: DecodeOutput,
+export function pricingShippingOptionPolicy(preferences: ReturnType<typeof pricingPreferencePolicy>, decodeOutput: DecodeOutput,
   mutationContracts?: Result.Result.Success<ReturnType<typeof compileShippingPricingMutationContracts>>,
   prepared?: Result.Result.Success<ReturnType<typeof preparePricingRepository>>) {
-  const create = pricingLogicalCreateEventPolicy();
-  const mutation = pricingLogicalMutationEventPolicy({ scalarPriceSetUpdate: true });
+  const create = pricingLogicalCreateEventPolicy(preferences);
+  const mutation = pricingLogicalMutationEventPolicy(preferences, { scalarPriceSetUpdate: true });
   const validateUpdate = mutationContracts && prepared ? pricingShippingUpdateReceipt(mutationContracts, prepared) : undefined;
   const capture = Effect.fn("PricingEvents.captureShippingOption")(function* (input: unknown) {
     const message = yield* decodeEvent(input);

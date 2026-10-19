@@ -1,3 +1,4 @@
+import { preparePricingPreferencePolicy } from "./support/logical-pricing-fixture";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { defaultCommerceResources, isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -39,7 +40,7 @@ beforeAll(async () => {
   const { frame } = await Effect.runPromise(capturePricingMetadata());
   contracts = Result.getOrThrow(compileShippingPricingMutationContracts(frame));
   prepared = Result.getOrThrow(preparePricingRepository(frame, false, false, false, true, true));
-  policy = pricingShippingOptionPolicy(Result.getOrThrow(compileShippingPricingOutput(frame)), contracts, prepared);
+  policy = pricingShippingOptionPolicy(await preparePricingPreferencePolicy(), Result.getOrThrow(compileShippingPricingOutput(frame)), contracts, prepared);
 });
 
 describe("Shipping Option update Pricing boundaries", () => {
@@ -127,7 +128,7 @@ describe("Shipping Option update Pricing boundaries", () => {
       const forged = { ...call, input: { selector: "s", update: { prices } } };
       // Retain the prior mechanical-only counterexample separately: the
       // selected native proof must reject both otherwise valid row transcripts.
-      await Effect.runPromise(pricingLogicalMutationEventPolicy({ scalarPriceSetUpdate: true }).validateLogicalCall(forged, evidence));
+      await Effect.runPromise(pricingLogicalMutationEventPolicy(await preparePricingPreferencePolicy(), { scalarPriceSetUpdate: true }).validateLogicalCall(forged, evidence));
       await refused(forged, evidence);
     }
     await refused(call, activity);

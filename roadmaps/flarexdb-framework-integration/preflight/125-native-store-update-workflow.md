@@ -94,7 +94,8 @@ the original internal/native identity and creation time. Existing table
 mechanics refresh update time. No history or timestamp capability reaches the
 adapter, and ordinary creation remains unchanged.
 
-The Pricing participant remains `pricing-store-preferences`, including its
+The Pricing participant uses the shared `pricing-price-preferences` profile
+from [native preference creation](149-native-price-preference-creation.md), including its
 existing complete-row contracts, RAW attribute/value matching, tax-flag behavior,
 created-before-updated results and full prior-DTO inverse. Its inverse calls
 both upsert and physical deletion, including empty arrays. No new Pricing
