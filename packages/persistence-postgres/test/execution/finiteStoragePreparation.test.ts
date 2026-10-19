@@ -32,6 +32,7 @@ import { postgresUrl } from "../support/postgresHelpers";
 const locator: ScopePhysicalLocator = { kind: "shared_database", databaseKey: "prepared-database", schemaName: "capture_target" };
 const constructionDriver: Extract<FiniteStorageCaptureProfile, { kind: "installed" }>["driver"] = {
   runImplicitCommandEffect: () => Effect.die("Construction must never acquire a client"),
+  runInitialTransactionEffect: () => Effect.die("Construction must never acquire a client"),
 };
 
 /** A tiny installation-issuer fixture, not an installed serving database. It
@@ -113,6 +114,10 @@ describe("database-owned finite storage preparation", () => {
             first[index("storagePresent")] = true;
             first[index("transactionTimestamp")] = "2026-10-08 00:00:00+00";
             first[index("exists")] = layout.historicalIdentity;
+            if (kind === "rows") {
+              first[index("raw", "insertionCommitSeq")] = "2";
+              first[index("raw", "insertionAttemptOrdinal")] = "0";
+            }
             const bodyOrdinal = fields.findIndex(field => field.path[0] === "raw" && field.path[1] === "ordinal");
             if (bodyOrdinal >= 0) first[bodyOrdinal] = 1;
             const later: unknown[] = fields.map(() => null);
@@ -124,6 +129,9 @@ describe("database-owned finite storage preparation", () => {
             }
             if (bodyOrdinal >= 0) later[bodyOrdinal] = 2;
             const accepted = mapper([first, later]);
+            if (kind === "rows") expect(accepted.rawRows[0]).toMatchObject({
+              insertionCommitSeq: "2", insertionAttemptOrdinal: "0",
+            });
             expect(accepted.layoutFailure, profile.kind + ":" + kind).toBeUndefined();
             expect(accepted.header).toMatchObject({ reason: "accepted", servingCommitSeq: "2", retainedFloor: "0" });
             expect(accepted.header).not.toHaveProperty("frontier");

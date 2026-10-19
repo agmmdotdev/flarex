@@ -3,9 +3,10 @@ import { and, eq } from "drizzle-orm";
 import { NodePgSession } from "drizzle-orm/node-postgres";
 import { PgliteSession } from "drizzle-orm/pglite";
 import type { PreparedQueryConfig } from "drizzle-orm/pg-core/session";
-import { Effect, Result } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { isNonArrayRecord } from "@flarex/utils/records";
+import type { JsonObject } from "flarex-protocol/json";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1FromBytesResult, appRowIdHexV1ToBytes,
   decodeAppRowIdHexV1, type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
@@ -13,22 +14,26 @@ import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import { encodeAdmittedFrameworkOperationV1Result } from "flarex-protocol/internal/admitted-framework-operation-v1";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { createMixedMutationProductFixture } from "../../../executor/test/performance/support/mixedMutationProductFixture";
-import { runNativeStandaloneProductMutation, seedNativeProductAttemptGraph } from "../../../medusa-adapter/test/support/native-product-attempt-seed";
+import { runNativeStandaloneProductMutation, runNativeStandaloneProductUpdate, seedNativeProductAttemptGraph } from "../../../medusa-adapter/test/support/native-product-attempt-seed";
 import { fxAppRowRevisions } from "../../src/database/schema";
 import { LogicalParticipantInvocationError } from "../../src/storage/documents/logicalDocuments/participantErrors";
 import type { FiniteSessionJournalParticipantSelection } from "../../src/execution/journal/api";
 import { makeBoundedRequestLifetime, type BoundedRequestLifetime } from "../../src/execution/preparation/boundedRequestLifetime";
-import { withLogicalRelationalAttemptAdmissionEffect } from "../../src/storage/documents/logicalDocuments/relationalAdmission";
+import { withLogicalRelationalAttemptAdmissionEffect, type LogicalRelationalAttemptAdmissionState } from "../../src/storage/documents/logicalDocuments/relationalAdmission";
+import { compileLogicalRelationalRead } from "../../src/storage/documents/logicalDocuments/relationalQuery";
+import { preparePostgresRelationalBatch, decodePostgresRelationalMatches } from "../../src/storage/documents/logicalDocuments/postgresRelationalPredicate";
 import { requireLogicalDocumentRootEvaluatorOpen } from "../../src/storage/documents/logicalDocuments/rootEvaluator";
 import { makeLogicalDocumentWorkingSet } from "../../src/storage/documents/logicalDocuments/workingSet";
 import type { LogicalFiniteStorageCapture } from "../../src/storage/documents/logicalDocuments/model";
 import { logicalCommerceBatchResources, logicalCommerceWorkingSetLimits } from "../../src/frameworks/commerceTransaction/resources";
+import { advanceScopeAuthorizationRevocationEpochInTransactionEffect } from "../../src/scope/scopeClock";
+import { createPointMutationSessionAttemptTerminalizationPersistenceV1 } from "../../src/execution/session/terminalization";
 import { postgresUrl } from "../support/postgresHelpers";
 
 type Fixture = Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
 type Working = Effect.Success<ReturnType<typeof makeLogicalDocumentWorkingSet<Error>>>;
-type NativeCapture = Readonly<{ kind: "indexPage" | "rows"; bodyIds: readonly AppRowIdHexV1[];
-  bodyBytes: number; rawCount: number; withheld: number; transferBudget: number | undefined }>;
+type NativeCapture = Readonly<{ kind: "indexPage" | "rows" | "relationalPredicate"; bodyIds: readonly AppRowIdHexV1[];
+  bodyBytes: number; rawCount: number; withheld: number; transferBudget: number | undefined; headerReason?: string }>;
 const failure = (reason: string, cause?: unknown) => new Error(reason, { cause });
 async function nativeSeedPhase<Value>(phase: string, run: () => Promise<Value>): Promise<Value> {
   try { return await run(); }
@@ -43,7 +48,11 @@ const rowId = (bytes: unknown): AppRowIdHexV1 => {
  * registers authority, retries capture, or manufactures a successful body. */
 function observeNativeCaptures() {
   const captures: NativeCapture[] = [];
+  const headers: Readonly<{ reason: string; databaseNow: string | undefined }>[] = [];
   let observing = false;
+  let afterPredicateBody: (() => Promise<void>) | undefined;
+  let installationTransportFailure: Error | undefined;
+  let installationTransportFailures = 0;
   let membershipIds: AppRowIdHexV1[] = [];
   let corruptUniqueMembership = false;
   let substituteCachedAbsence: AppRowIdHexV1 | undefined;
@@ -54,17 +63,34 @@ function observeNativeCaptures() {
   if (pglite === undefined || postgres === undefined) throw failure("Missing original native capture drivers");
   const wrap = <T extends PreparedQueryConfig>(args: Parameters<typeof PgliteSession.prototype.prepareQuery<T>>) => {
     const mapper = args[4], fields = args[1];
-    if (!observing || !args[2]?.startsWith("fx_finite_") || mapper === undefined || fields === undefined) return;
+    if (!observing || mapper === undefined || fields === undefined) return;
     const kind = fields.some(field => field.path[0] === "raw" && field.path[1] === "valueBytes") ? "rows" :
-      fields.some(field => field.path[0] === "raw" && field.path[1] === "encodedKeyBytes") ? "indexPage" : undefined;
-    if (kind === undefined) return;
+      fields.some(field => field.path[0] === "raw" && field.path[1] === "encodedKeyBytes") ? "indexPage" :
+      fields.some(field => field.path[0] === "raw" && field.path[1] === "matched") ? "relationalPredicate" :
+      args[2]?.startsWith("fx_finite_") && fields.some(field => field.path[0] === "reason") ? "header" : undefined;
+    // Predicate bodies are deliberately unnamed: pooled statements must not
+    // retain one request's captured values. Their actual field layout identifies
+    // this observer's narrow boundary without assigning a reusable SQL name.
+    if (kind === undefined || kind !== "relationalPredicate" && !args[2]?.startsWith("fx_finite_")) return;
     let transferBudget: number | undefined;
     args[4] = rows => {
       const mapped = mapper(rows);
-      if (!isNonArrayRecord(mapped) || !isNonArrayRecord(mapped.header) || mapped.header.reason !== "accepted" ||
+      if (!isNonArrayRecord(mapped) || !isNonArrayRecord(mapped.header) ||
         !Array.isArray(mapped.rawRows)) throw failure("Missing actual accepted native finite envelope");
       expect(mapped.layoutFailure).toBeUndefined();
+      if (typeof mapped.header.reason !== "string") throw failure("Missing actual finite header reason");
+      headers.push({ reason: mapped.header.reason,
+        databaseNow: typeof mapped.header.databaseNow === "string" ? mapped.header.databaseNow : undefined });
+      if (kind === "header") return mapped;
       const raw: unknown[] = mapped.rawRows;
+      if (kind === "relationalPredicate" && mapped.header.reason !== "accepted") {
+        if (typeof mapped.header.reason !== "string") throw failure("Missing native refusal reason");
+        expect(raw).toHaveLength(0);
+        captures.push({ kind, bodyIds: [], bodyBytes: 0, rawCount: raw.length, withheld: 0, transferBudget,
+          headerReason: mapped.header.reason });
+        return mapped;
+      }
+      if (mapped.header.reason !== "accepted") throw failure("Missing actual accepted native finite envelope");
       const bodyIds: AppRowIdHexV1[] = [];
       let bodyBytes = 0, withheld = 0;
       if (kind === "rows") for (const value of raw) {
@@ -72,7 +98,8 @@ function observeNativeCaptures() {
         if (value.valueBytes instanceof Uint8Array) { bodyIds.push(rowId(value.requestedRowId)); bodyBytes += value.valueBytes.byteLength; }
         if (value.bodyWithheld === true) withheld++;
       }
-      captures.push({ kind, bodyIds, bodyBytes, rawCount: raw.length, withheld, transferBudget });
+      captures.push({ kind, bodyIds, bodyBytes, rawCount: raw.length, withheld, transferBudget,
+        ...(kind === "relationalPredicate" ? { headerReason: "accepted" } : {}) });
       if (kind === "indexPage") {
         membershipIds = raw.map(value => {
           if (!isNonArrayRecord(value)) throw failure("Missing native membership");
@@ -80,7 +107,7 @@ function observeNativeCaptures() {
         });
       }
       const injectFault = kind === "indexPage" ? corruptUniqueMembership || substituteCachedAbsence !== undefined
-        : corruptBodyOrdinal !== undefined;
+        : kind === "rows" && corruptBodyOrdinal !== undefined;
       if (!injectFault) return mapped;
       // Original mapped records remain frozen and intact. Fault copies keep
       // native scalar/byte identities; only the selected foreign field changes.
@@ -116,50 +143,77 @@ function observeNativeCaptures() {
       // after cloning so their protected bytes and lazy corruption getter survive.
       return Object.assign(structuredClone(mapped), { header: mapped.header, rawRows: faultRows });
     };
-    return (bindings: unknown[]) => {
+    return { bind: (bindings: unknown[]) => {
       const bound = bindings[0];
+      if (kind === "relationalPredicate" || kind === "header") return;
       if (!isNonArrayRecord(bound) || typeof bound.transferBudget !== "number")
         throw failure("Missing original native transfer budget binding");
       transferBudget = bound.transferBudget;
-    };
+    }, after: kind === "relationalPredicate" ? () => afterPredicateBody?.() : undefined };
+  };
+  const executeWithObservation = (original: () => unknown, sql: string,
+    observation: ReturnType<typeof wrap>, bindings: unknown[], installationFrontier: boolean) => {
+    // Full profiles call the original admission helper; installed profiles
+    // select the co-located frontier's exact generation projection. Neither
+    // injection replaces a finite header, body, result mapper or authority.
+    const admission = sql.includes("fx_lock_installation_admission") ||
+      installationFrontier && sql.includes("fx_lock_installation_frontier");
+    if (observing && installationTransportFailure !== undefined && admission) {
+      const originalFailure = installationTransportFailure;
+      installationTransportFailure = undefined;
+      installationTransportFailures++;
+      return Promise.reject(originalFailure);
+    }
+    observation?.bind(bindings);
+    const result = original();
+    return observation?.after === undefined ? result : Promise.resolve(result).then(async value => {
+      await observation.after?.();
+      return value;
+    });
   };
   const originalPglite = PgliteSession.prototype.prepareQuery, originalPostgres = NodePgSession.prototype.prepareQuery;
   PgliteSession.prototype.prepareQuery = function <T extends PreparedQueryConfig = PreparedQueryConfig>(
     ...args: Parameters<typeof originalPglite<T>>
   ) {
-    const observeBindings = wrap(args), prepared = (originalPglite<T>).apply(this, args);
-    return observeBindings === undefined ? prepared : new Proxy(prepared, { get(target, property, receiver) {
+    const observation = wrap(args), prepared = (originalPglite<T>).apply(this, args);
+    return !observing ? prepared : new Proxy(prepared, { get(target, property, receiver) {
       if (property !== "execute") return Reflect.get(target, property, receiver);
       return new Proxy(target.execute, { apply(execute, _receiver, bindings: unknown[]) {
-        observeBindings(bindings);
-        return Reflect.apply(execute, target, bindings);
+        return executeWithObservation(() => Reflect.apply(execute, target, bindings), args[0].sql, observation, bindings,
+          args[1]?.some(field => field.path.length === 1 && field.path[0] === "targetMetadataGeneration") ?? false);
       } });
     } });
   };
   NodePgSession.prototype.prepareQuery = function <T extends PreparedQueryConfig = PreparedQueryConfig>(
     ...args: Parameters<typeof originalPostgres<T>>
   ) {
-    const observeBindings = wrap(args), prepared = (originalPostgres<T>).apply(this, args);
-    return observeBindings === undefined ? prepared : new Proxy(prepared, { get(target, property, receiver) {
+    const observation = wrap(args), prepared = (originalPostgres<T>).apply(this, args);
+    return !observing ? prepared : new Proxy(prepared, { get(target, property, receiver) {
       if (property !== "execute") return Reflect.get(target, property, receiver);
       return new Proxy(target.execute, { apply(execute, _receiver, bindings: unknown[]) {
-        observeBindings(bindings);
-        return Reflect.apply(execute, target, bindings);
+        return executeWithObservation(() => Reflect.apply(execute, target, bindings), args[0].sql, observation, bindings,
+          args[1]?.some(field => field.path.length === 1 && field.path[0] === "targetMetadataGeneration") ?? false);
       } });
     } });
   };
   return {
     captures,
+    headers,
     get membershipIds() { return membershipIds; },
     get corruptBodyReads() { return corruptBodyReads; },
+    get installationTransportFailures() { return installationTransportFailures; },
+    failNextInstallationAdmission(original: Error) { installationTransportFailure = original; },
     begin(input: Readonly<{ corruptUniqueMembership?: boolean; substituteCachedAbsence?: AppRowIdHexV1;
-      corruptBodyOrdinal?: number }> = {}) {
-      captures.length = 0; membershipIds = []; corruptBodyReads = 0; observing = true;
+      corruptBodyOrdinal?: number; afterPredicateBody?: () => Promise<void> }> = {}) {
+      captures.length = 0; headers.length = 0; membershipIds = []; corruptBodyReads = 0; observing = true;
+      afterPredicateBody = input.afterPredicateBody;
+      installationTransportFailure = undefined;
+      installationTransportFailures = 0;
       corruptUniqueMembership = input.corruptUniqueMembership ?? false;
       substituteCachedAbsence = input.substituteCachedAbsence;
       corruptBodyOrdinal = input.corruptBodyOrdinal;
     },
-    stop() { observing = false; },
+    stop() { observing = false; afterPredicateBody = undefined; installationTransportFailure = undefined; },
     restore() {
       Object.defineProperty(PgliteSession.prototype, "prepareQuery", pglite);
       Object.defineProperty(NodePgSession.prototype, "prepareQuery", postgres);
@@ -167,12 +221,29 @@ function observeNativeCaptures() {
   };
 }
 
+type PredicatePermission = Pick<LogicalRelationalAttemptAdmissionState, "tables" | "schema"> &
+  Readonly<{ capture: LogicalFiniteStorageCapture<Error> }>;
+type PredicateSource = LogicalRelationalAttemptAdmissionState["tables"][number];
+const predicateBatch = (permission: PredicatePermission, table: PredicateSource, rows: readonly JsonObject[], predicate: unknown) => Result.gen(function* () {
+  const query = yield* compileLogicalRelationalRead(table.definition, permission.schema.capabilities,
+    { order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [
+      { kind: "in", column: "id", values: rows.map(row => row.id) }, predicate,
+    ] } }, 128, failure);
+  if (query.postgresPredicate === undefined) return yield* Result.fail(failure("Missing genuine SQL predicate program"));
+  for (const row of rows) yield* query.inspectRow(row);
+  return yield* preparePostgresRelationalBatch(query.postgresPredicate, table.definition, table.tableId, rows,
+    { rows: 4, bytes: 65_536 }, failure);
+});
+
 type ReadCase = Readonly<{
+  caseName?: string;
   identities?: number;
+  commandMilliseconds?: number;
   beforeRead?: (selection: "point" | "batch" | "scan" | "index", lifetime: BoundedRequestLifetime<Error>) => Effect.Effect<void, Error>;
   afterMembership?: (lifetime: BoundedRequestLifetime<Error>) => Effect.Effect<void, Error>;
   run: (working: Working, lifetime: BoundedRequestLifetime<Error>, id: string,
-    root: NonNullable<Parameters<typeof requireLogicalDocumentRootEvaluatorOpen>[0]>) => Effect.Effect<void, Error>;
+    root: NonNullable<Parameters<typeof requireLogicalDocumentRootEvaluatorOpen>[0]>,
+    permission: PredicatePermission) => Effect.Effect<void, Error>;
 }>;
 
 /** Build the same working-set profile inside the actual admitted borrow. The
@@ -201,7 +272,7 @@ async function runReadCase(fixture: Fixture, participant: FiniteSessionJournalPa
       return withLogicalRelationalAttemptAdmissionEffect(sourceAdmission, input.attempt, input.method,
         (state, checkedRead, tx) => Effect.gen(function* () {
           const lifetime = yield* makeBoundedRequestLifetime(failure,
-            { calls: 64, commandBytes: 1_048_576, commandMs: 10_000 }, input.attempt, {}, "finite-body-permission", "write");
+            { calls: 64, commandBytes: 1_048_576, commandMs: selected.commandMilliseconds ?? 10_000 }, input.attempt, {}, "finite-body-permission", "write");
           const captureStorage: LogicalFiniteStorageCapture<Error> = (capture, demand) =>
             originalCapture(capture, demand).pipe(Effect.mapError(cause => failure("captureFailure", cause)),
               Effect.tap(envelope => capture.kind === "indexPage" && envelope.kind === "indexPage" && selected.afterMembership !== undefined
@@ -226,18 +297,19 @@ async function runReadCase(fixture: Fixture, participant: FiniteSessionJournalPa
               identities: selected.identities ?? logicalCommerceBatchResources.catalogRows },
           }, AppCreationTimeV1Schema.make(1), state.writeMechanics.unique, state.writeMechanics.indexes,
           { beforeRead: selection => selected.beforeRead?.(selection, lifetime) ?? Effect.void }, tx);
-          return { working, lifetime, id: yield* lifetime.begin(lifetime.context) };
-        }), (_state, _checkedRead, { working, lifetime, id }) => Effect.succeed({
+          return { working, lifetime, id: yield* lifetime.begin(lifetime.context),
+            permission: { capture: captureStorage, tables: state.tables, schema: state.schema } };
+        }), (_state, _checkedRead, { working, lifetime, id, permission }) => Effect.succeed({
           abort: lifetime.close,
           currentUsage: () => ({ workBytes: 1_048_576 - lifetime.remainingBytes(), workCalls: lifetime.usedCalls() }),
-          invoke: () => selected.run(working, lifetime, id, root).pipe(
+          invoke: () => selected.run(working, lifetime, id, root, permission).pipe(
             Effect.mapError(cause => new LogicalParticipantInvocationError({ kind: "infrastructure", cause })),
             Effect.tap(() => Effect.sync(() => { completed = true; })),
             Effect.andThen(Effect.fail(new LogicalParticipantInvocationError({ kind: "rejection", cause: "read-only witness discards root" }))),
             Effect.ensuring(lifetime.close)),
         })).pipe(Effect.mapError(cause => new LogicalParticipantInvocationError({ kind: "infrastructure", cause })));
     }));
-    expect(completed).toBe(true);
+    if (!completed) throw failure(`Finite permission case ${selected.caseName ?? "unnamed"} did not complete`, outcome);
     expect(Result.isFailure(outcome)).toBe(true);
     if (!Result.isFailure(outcome)) throw failure("Expected read-only witness rejection");
     expect(outcome.failure).toMatchObject({ _tag: "LogicalParticipantInvocationError",
@@ -307,7 +379,7 @@ describe.each(drivers)("finite indexed body permission on %s", driver => {
       const nativeRows = () => observer.captures.filter(capture => capture.kind === "rows");
       const fresh = async (name: string, selected: ReadCase) => {
         const fixture = await base.openCompetingFiniteFixture(`finite-permission-${driver}-${name}`);
-        try { await runReadCase(fixture, originalParticipant, selected); }
+        try { await runReadCase(fixture, originalParticipant, { ...selected, caseName: name }); }
         finally { observer.stop(); await fixture.close(); }
       };
       observer.begin();
@@ -492,4 +564,293 @@ describe.each(drivers)("finite indexed body permission on %s", driver => {
       });
     } finally { observer.restore(); await base.close(); }
   }, 180_000);
+
+  it("evaluates captured predicates through genuine finite permission and nullable current/pending Product rows", async () => {
+    let participant: FiniteSessionJournalParticipantSelection | undefined;
+    const base = await createMixedMutationProductFixture({ driver, suffix: `finite-predicate-${driver}`,
+      hooks: { transformFiniteEntrySources: participants => { participant = participants[0]; return participants; } } });
+    const observer = observeNativeCaptures();
+    try {
+      if (participant === undefined) throw failure("Missing actual predicate participant");
+      const originalParticipant = participant;
+      const second = await nativeSeedPhase(`${driver}: predicate second Product`, () =>
+        seedNativeProductAttemptGraph(base.currency, base.product, `finite-predicate-${driver}-second`));
+      await nativeSeedPhase(`${driver}: native nullable text`, () => runNativeStandaloneProductUpdate(base.currency, base.product,
+        `finite-predicate-${driver}-subtitle`, { id: second.seed.productId, data: { subtitle: "a%b" } }));
+      const productName = base.seedGraph.catalog.product.table.name;
+      const variantName = base.seedGraph.catalog.variant.table.name;
+      const ids = [base.seed.productId, second.seed.productId];
+      const anchor = { kind: "in", column: "id", values: ids };
+      const text = (operator: string, value: string | boolean) => ({ kind: "postgresText", column: "subtitle", operator, value });
+      const query = (predicate: unknown) => ({ order: { column: "id", direction: "asc" },
+        predicate: { kind: "and", children: [anchor, predicate] } });
+      const fresh = async (name: string, selected: ReadCase) => {
+        const fixture = await base.openCompetingFiniteFixture(`finite-predicate-${driver}-${name}`);
+        try { observer.begin(); await runReadCase(fixture, originalParticipant, { ...selected, caseName: name }); }
+        finally { observer.stop(); await fixture.close(); }
+      };
+      const predicateCaptures = () => observer.captures.filter(capture => capture.kind === "relationalPredicate");
+      await fresh("nullable-current-and-pending", {
+        run: (working, lifetime, id, _root, permission) => Effect.gen(function* () {
+          const table = permission.tables.find(value => value.localName === productName);
+          if (table === undefined) throw failure("Missing genuine Product source");
+          const store = yield* working.relationalTable(lifetime.context, id, productName);
+          const rows = yield* store.find(lifetime.context, { order: { column: "id", direction: "asc" }, predicate: anchor });
+          const empty = rows.find(row => row.id === base.seed.productId), nonempty = rows.find(row => row.id === second.seed.productId);
+          if (empty === undefined || nonempty === undefined) throw failure("Missing native predicate candidates");
+          expect(empty.subtitle).toBeNull();
+          expect(nonempty.subtitle).toBe("a%b");
+          // Repeated values retain their original candidate ordinal. No test
+          // SQL or substitute envelope supplies the verdicts.
+          const batch = yield* Effect.fromResult(predicateBatch(permission, table, [nonempty, empty, nonempty], text("like", "a\\%b")));
+          const envelope = yield* permission.capture({ kind: "relationalPredicate", tableId: table.tableId, batch },
+            { kind: "rows", tableId: table.tableId });
+          if (envelope.kind !== "relationalPredicate") throw failure("Missing genuine predicate envelope");
+          expect(envelope.rawRows).toEqual([{ ordinal: 0, matched: true }, { ordinal: 1, matched: false }, { ordinal: 2, matched: true }]);
+          expect(yield* Effect.fromResult(decodePostgresRelationalMatches(batch, table.tableId, envelope.rawRows, failure)))
+            .toMatchObject({ matches: [true, false, true] });
+          expect(predicateCaptures().at(-1)).toMatchObject({ rawCount: 3, headerReason: "accepted" });
+          const selectedIds = (predicate: unknown) => store.find(lifetime.context, query(predicate)).pipe(
+            Effect.map(found => found.map(row => row.id).sort()));
+          expect(yield* selectedIds(text("exists", false))).toEqual([base.seed.productId]);
+          expect(yield* selectedIds(text("exists", true))).toEqual([second.seed.productId]);
+          expect(yield* selectedIds({ kind: "postgresText", column: "subtitle", operator: "notIn", values: [] })).toEqual([...ids].sort());
+          expect(yield* selectedIds({ kind: "postgresText", column: "subtitle", operator: "notIn", values: ["foreign"] })).toEqual([second.seed.productId]);
+          expect(yield* selectedIds({ kind: "or", children: [text("regex", "^a%b$"),
+            { kind: "in", column: "id", values: [base.seed.productId] }] })).toEqual([...ids].sort());
+          expect(yield* selectedIds({ kind: "and", children: [text("regex", "^a%b$"),
+            { kind: "in", column: "id", values: [base.seed.productId] }] })).toEqual([]);
+          yield* store.write(lifetime.context, "update", [{ id: base.seed.productId, subtitle: "pending" }]);
+          expect(yield* selectedIds(text("exists", false))).toEqual([]);
+          expect(yield* selectedIds(text("regex", "^pending$"))).toEqual([base.seed.productId]);
+          expect(yield* selectedIds({ kind: "postgresText", column: "subtitle", operator: "notIn", values: ["a%b"] })).toEqual([base.seed.productId]);
+        }),
+      });
+      for (const refusal of ["cloned-token", "wrong-table", "clock-demand", "wrong-demand-table", "cloned-source", "other-source"] as const) await fresh(`authority-${refusal}`, {
+        run: (working, lifetime, id, _root, permission) => Effect.gen(function* () {
+          const table = permission.tables.find(value => value.localName === productName);
+          const other = permission.tables.find(value => value.localName === variantName);
+          if (table === undefined || other === undefined) throw failure("Missing genuine source pins");
+          const store = yield* working.relationalTable(lifetime.context, id, productName);
+          const rows = yield* store.find(lifetime.context, { order: { column: "id", direction: "asc" }, predicate: anchor });
+          let batch = yield* Effect.fromResult(predicateBatch(permission, table, rows, text("exists", true)));
+          const before = predicateCaptures().length;
+          // A genuine issuer token from a different source is still unable to
+          // borrow this Product table's admitted authority. Prepare every
+          // required row before the first refusal: refusal closes this root.
+          if (refusal === "cloned-token") batch = structuredClone(batch);
+          if (refusal === "cloned-source") {
+            const copiedSource = { ...table, definition: { ...table.definition } };
+            batch = yield* Effect.fromResult(predicateBatch(permission, copiedSource, rows, text("exists", true)));
+          }
+          if (refusal === "other-source") {
+            const otherStore = yield* working.relationalTable(lifetime.context, id, variantName);
+            const otherRows = yield* otherStore.find(lifetime.context, { order: { column: "id", direction: "asc" },
+              predicate: { kind: "in", column: "product_id", values: [base.seed.productId] } });
+            expect(otherRows.length).toBeGreaterThan(0);
+            const otherProgram = yield* Effect.fromResult(compileLogicalRelationalRead(other.definition, permission.schema.capabilities,
+              { order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [
+                { kind: "in", column: "id", values: otherRows.map(row => row.id) },
+                { kind: "postgresText", column: "id", operator: "like", value: "%" },
+              ] } }, 128, failure));
+            if (otherProgram.postgresPredicate === undefined) throw failure("Missing genuine other-table program");
+            for (const row of otherRows) yield* Effect.fromResult(otherProgram.inspectRow(row));
+            batch = yield* Effect.fromResult(preparePostgresRelationalBatch(otherProgram.postgresPredicate,
+              other.definition, table.tableId, otherRows, { rows: 4, bytes: 65_536 }, failure));
+          }
+          const target = refusal === "wrong-table" ? other.tableId : table.tableId;
+          const demand = refusal === "clock-demand" ? { kind: "clock" as const } : { kind: "rows" as const,
+            tableId: refusal === "wrong-demand-table" ? other.tableId : target };
+          expect(yield* Effect.result(permission.capture({ kind: "relationalPredicate", tableId: target, batch },
+            demand))).toMatchObject({ _tag: "Failure", failure: { message: "captureFailure",
+              cause: { _tag: "FiniteStorageCaptureError", reason: "invalidAuthority" } } });
+          expect(predicateCaptures()).toHaveLength(before);
+        }),
+      });
+      await fresh("original-sql-error", {
+        run: (working, lifetime, id, _root, permission) => Effect.gen(function* () {
+          const table = permission.tables.find(value => value.localName === productName);
+          if (table === undefined) throw failure("Missing genuine predicate source");
+          const store = yield* working.relationalTable(lifetime.context, id, productName);
+          const rows = yield* store.find(lifetime.context, { order: { column: "id", direction: "asc" }, predicate: anchor });
+          const batch = yield* Effect.fromResult(predicateBatch(permission, table, rows, text("regex", "[")));
+          expect(yield* Effect.result(permission.capture({ kind: "relationalPredicate", tableId: table.tableId, batch },
+            { kind: "rows", tableId: table.tableId }))).toMatchObject({ _tag: "Failure", failure: { message: "captureFailure",
+              cause: { _tag: "FiniteStorageCaptureError", reason: "resourceFailure" } } });
+          expect(predicateCaptures()).toHaveLength(0);
+        }),
+      });
+      await fresh("mid-capture-interruption", {
+        run: (working, lifetime, id, _root, permission) => Effect.gen(function* () {
+          const table = permission.tables.find(value => value.localName === productName);
+          if (table === undefined) throw failure("Missing actual interruption source");
+          const store = yield* working.relationalTable(lifetime.context, id, productName);
+          const rows = yield* store.find(lifetime.context, { order: { column: "id", direction: "asc" }, predicate: anchor });
+          const batch = yield* Effect.fromResult(predicateBatch(permission, table, rows, text("exists", true)));
+          const entered = yield* Deferred.make<void>(), release = yield* Deferred.make<void>();
+          let exposed = false, interruptionSettled = false;
+          observer.begin({ afterPredicateBody: () => Effect.runPromise(Deferred.succeed(entered, undefined).pipe(
+            Effect.andThen(Deferred.await(release)))) });
+          const capturing = yield* Effect.forkChild(permission.capture({ kind: "relationalPredicate", tableId: table.tableId, batch },
+            { kind: "rows", tableId: table.tableId }).pipe(Effect.tap(() => Effect.sync(() => { exposed = true; }))));
+          yield* Effect.gen(function* () {
+            yield* Deferred.await(entered).pipe(Effect.timeout("10 seconds"));
+            expect(predicateCaptures()).toEqual([expect.objectContaining({ headerReason: "accepted", rawCount: rows.length })]);
+            const interrupting = yield* Effect.forkChild(Fiber.interrupt(capturing).pipe(
+              Effect.tap(() => Effect.sync(() => { interruptionSettled = true; }))));
+            if (driver === "postgres") yield* Fiber.join(interrupting).pipe(Effect.timeout("10 seconds"));
+            else yield* Effect.sleep(20);
+            // Native SQL has finished; only this observer's Promise is held.
+            // The installed PostgreSQL owner cancels its callback and rolls
+            // back immediately. The full-profile PGlite bridge drains that
+            // independent callback before exposing interruption.
+            expect(interruptionSettled).toBe(driver === "postgres");
+            expect(exposed).toBe(false);
+            yield* Deferred.succeed(release, undefined);
+            yield* Fiber.join(interrupting);
+            const exit = yield* Fiber.await(capturing);
+            expect(Exit.isFailure(exit)).toBe(true);
+            if (!Exit.isFailure(exit)) throw failure("Interrupted capture unexpectedly exposed a value");
+            expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+            expect(interruptionSettled).toBe(true);
+            expect(exposed).toBe(false);
+            expect(observer.headers.map(header => header.reason)).toEqual(driver === "postgres"
+              ? ["accepted", "accepted"] : ["accepted", "accepted", "accepted"]);
+          }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)));
+        }),
+      });
+      await fresh("locks-available-after-interruption", {
+        run: (working, lifetime, id) => Effect.gen(function* () {
+          const store = yield* working.relationalTable(lifetime.context, id, productName);
+          expect((yield* store.find(lifetime.context, query(text("exists", true)))).map(row => row.id))
+            .toEqual([second.seed.productId]);
+          expect(predicateCaptures().some(capture => capture.headerReason === "accepted")).toBe(true);
+        }),
+      });
+      await fresh("installation-admission-transport-failure", {
+        run: (working, lifetime, id, _root, permission) => Effect.gen(function* () {
+          const table = permission.tables.find(value => value.localName === productName);
+          if (table === undefined) throw failure("Missing actual installation failure source");
+          const store = yield* working.relationalTable(lifetime.context, id, productName);
+          const rows = yield* store.find(lifetime.context, { order: { column: "id", direction: "asc" }, predicate: anchor });
+          const batch = yield* Effect.fromResult(predicateBatch(permission, table, rows, text("exists", true)));
+          const originalFailure = new Error("Original installation admission transport failed");
+          observer.begin();
+          observer.failNextInstallationAdmission(originalFailure);
+          const result = yield* Effect.result(permission.capture({ kind: "relationalPredicate", tableId: table.tableId, batch },
+            { kind: "rows", tableId: table.tableId }));
+          expect(result).toMatchObject({ _tag: "Failure", failure: { message: "captureFailure",
+            cause: { _tag: "FiniteStorageCaptureError", reason: "resourceFailure" } } });
+          if (!Result.isFailure(result)) throw failure("Installation failure unexpectedly exposed predicate results");
+          let original: unknown = result.failure;
+          for (let depth = 0; depth < 8 && original !== originalFailure; depth++) {
+            if (!isNonArrayRecord(original)) break;
+            original = original.cause;
+          }
+          expect(original).toBe(originalFailure);
+          expect(observer.installationTransportFailures).toBe(1);
+          expect(predicateCaptures()).toHaveLength(0);
+        }),
+      });
+      await fresh("closed", {
+        run: (working, lifetime, id) => Effect.gen(function* () {
+          const store = yield* working.relationalTable(lifetime.context, id, productName);
+          yield* lifetime.close;
+          expect(yield* Effect.result(store.find(lifetime.context, query(text("exists", true)))))
+            .toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+          expect(predicateCaptures()).toHaveLength(0);
+        }),
+      });
+      await fresh("deadline", {
+        commandMilliseconds: 1_000,
+        run: (working, lifetime, id) => Effect.gen(function* () {
+          const store = yield* working.relationalTable(lifetime.context, id, productName);
+          yield* Effect.sleep(1_050);
+          expect(yield* Effect.result(store.find(lifetime.context, query(text("exists", true)))))
+            .toMatchObject({ _tag: "Failure", failure: { message: "deadlineExceeded" } });
+          expect(predicateCaptures()).toHaveLength(0);
+        }),
+      });
+      // Revocation is performed by the existing scope-clock owner. The body
+      // contains an invalid native regex so any eager execution is observable.
+      await fresh("revoked-before-body", {
+        run: (working, lifetime, id, _root, permission) => Effect.gen(function* () {
+          const table = permission.tables.find(value => value.localName === productName);
+          if (table === undefined) throw failure("Missing genuine revocation source");
+          const store = yield* working.relationalTable(lifetime.context, id, productName);
+          const rows = yield* store.find(lifetime.context, { order: { column: "id", direction: "asc" }, predicate: anchor });
+          const batch = yield* Effect.fromResult(predicateBatch(permission, table, rows, text("regex", "[")));
+          yield* Effect.tryPromise({ try: () => base.currency.persistence.drizzle.transaction(tx => Effect.runPromise(
+            advanceScopeAuthorizationRevocationEpochInTransactionEffect(tx, base.currency.application.authority.scopeId))),
+            catch: cause => failure("Owner revocation failed", cause) });
+          expect(yield* Effect.result(permission.capture({ kind: "relationalPredicate", tableId: table.tableId, batch },
+            { kind: "rows", tableId: table.tableId }))).toMatchObject({ _tag: "Failure", failure: { message: "captureFailure",
+              cause: { _tag: "FiniteStorageCaptureError", reason: "authorizationRevocationEpochChanged" } } });
+          // The protected entry header refuses before a dynamic predicate
+          // command is prepared or planned, including its invalid regex.
+          expect(predicateCaptures()).toHaveLength(0);
+        }),
+      });
+    } finally { observer.restore(); await base.close(); }
+  }, 120_000);
+
+  it("refuses a predicate result when the genuine grant expires after the original body and before its fresh tail", async () => {
+    let participant: FiniteSessionJournalParticipantSelection | undefined;
+    const base = await createMixedMutationProductFixture({ driver, suffix: `finite-predicate-tail-${driver}`,
+      hooks: { transformFiniteEntrySources: participants => { participant = participants[0]; return participants; } } });
+    const observer = observeNativeCaptures();
+    const failures: unknown[] = [];
+    let fixture: Fixture | undefined;
+    try {
+      if (participant === undefined) throw failure("Missing genuine short-grant participant");
+      const child = await base.openCompetingFiniteFixture(`finite-predicate-short-tail-${driver}`,
+        { finiteGrantLifetimeMilliseconds: 5_000 });
+      fixture = child;
+      observer.begin();
+      await runReadCase(child, participant, { caseName: "expired-after-actual-body", commandMilliseconds: 20_000,
+        run: (working, lifetime, id, _root, permission) => Effect.gen(function* () {
+          const table = permission.tables.find(value => value.localName === child.seedGraph.catalog.product.table.name);
+          if (table === undefined) throw failure("Missing genuine short-grant Product source");
+          const store = yield* working.relationalTable(lifetime.context, id, table.localName);
+          const rows = yield* store.find(lifetime.context, { order: { column: "id", direction: "asc" },
+            predicate: { kind: "in", column: "id", values: [child.seed.productId] } });
+          expect(rows).toHaveLength(1);
+          const batch = yield* Effect.fromResult(predicateBatch(permission, table, rows,
+            { kind: "postgresText", column: "subtitle", operator: "exists", value: false }));
+          let bodyReached = false, exposed = false;
+          observer.begin({ afterPredicateBody: async () => {
+            // The original mapper has already authenticated and recorded the
+            // actual body. Delay only its delivery to the transaction owner.
+            bodyReached = true;
+            expect(observer.captures).toEqual([expect.objectContaining({ kind: "relationalPredicate", rawCount: 1, headerReason: "accepted" })]);
+            expect(observer.headers.map(header => header.reason)).toEqual(["accepted", "accepted"]);
+            await Effect.runPromise(Effect.sleep(5_500));
+          } });
+          const result = yield* Effect.result(permission.capture({ kind: "relationalPredicate", tableId: table.tableId, batch },
+            { kind: "rows", tableId: table.tableId }).pipe(Effect.tap(() => Effect.sync(() => { exposed = true; }))));
+          expect(bodyReached).toBe(true);
+          expect(exposed).toBe(false);
+          expect(result).toMatchObject({ _tag: "Failure", failure: { message: "captureFailure",
+            cause: { _tag: "FiniteStorageCaptureError", reason: "expired" } } });
+          expect(observer.headers.map(header => header.reason)).toEqual(["accepted", "accepted", "expired"]);
+          const first = observer.headers[0]?.databaseNow, last = observer.headers[2]?.databaseNow;
+          if (first === undefined || last === undefined) throw failure("Missing original entry/tail database clocks");
+          expect(Number(last) - Number(first)).toBeGreaterThanOrEqual(5_000);
+        }),
+      });
+      // The genuine expired child has no remaining live execution claim. Let
+      // its existing terminalization owner confirm expiry before normal close
+      // joins the original continuation; the base remains independently live.
+      expect(await Effect.runPromise(createPointMutationSessionAttemptTerminalizationPersistenceV1(
+        child.application.sessionAuthority).expireEffect(child.selector)))
+        .toMatchObject({ terminal: { lifecycle: "expired" } });
+    } catch (cause) {
+      failures.push(cause);
+    } finally {
+      observer.restore();
+      try { await fixture?.close(); } catch (cause) { failures.push(cause); }
+      try { await base.close(); } catch (cause) { failures.push(cause); }
+    }
+    if (failures.length > 0) throw new AggregateError(failures, "Native predicate tail witness or cleanup failed");
+  }, 120_000);
 });

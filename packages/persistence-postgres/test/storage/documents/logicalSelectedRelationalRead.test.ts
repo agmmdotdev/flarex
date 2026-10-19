@@ -1,13 +1,96 @@
 import { Result } from "effect";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import { describe, expect, it } from "vitest";
 import { normalizeRelationalSchema, relationalReverseIndexes } from "flarex-protocol/internal/relational-schema";
 import { compileLogicalRelationalRead, prepareLogicalRelationalRead } from "../../../src/storage/documents/logicalDocuments/relationalQuery";
 import { prepareLogicalRelationalTableMechanics } from "../../../src/storage/documents/logicalDocuments/relationalRows";
 import { syntheticSchemaInput } from "../../installation/frameworkSchema/frameworkMigrationValueFixtures";
+import { buildPostgresRelationalPredicateBody, decodePostgresRelationalMatches, inspectPostgresRelationalBatch,
+  preparePostgresRelationalBatch } from "../../../src/storage/documents/logicalDocuments/postgresRelationalPredicate";
 
 const failure = (reason: string) => new Error(reason);
 
 describe("selected relational read access", () => {
+  const postgresFixture = () => {
+    const origin = { kind: "authored", sourceId: "fixture.postgres-predicate" };
+    const schema = Result.getOrThrow(normalizeRelationalSchema({ owner: "medusa", lineageId: "postgres-predicate", capabilities: [], tables: [{
+      tableId: "rows", origin, columns: ["id", "value", "deleted_at"].map(columnId => ({ columnId, type: "text",
+        nullable: columnId !== "id", default: { kind: "none" }, origin })),
+      keys: [{ keyId: "id", kind: "primary", columns: ["id"], origin }], indexes: [], constraints: [], relationships: [],
+    }] }));
+    const table = schema.tables[0];
+    if (table === undefined) throw new Error("Missing PostgreSQL predicate fixture");
+    return table;
+  };
+
+  it("retains the complete PostgreSQL predicate and indexed candidates without eager regex evaluation", () => {
+    const table = postgresFixture();
+    const regex = { kind: "postgresText", column: "value", operator: "regex", value: "[" };
+    const query = Result.getOrThrow(compileLogicalRelationalRead(table, [], { order: { column: "id", direction: "asc" },
+      predicate: { kind: "and", children: [{ kind: "in", column: "id", values: ["a"] }, { kind: "or", children: [
+        { kind: "and", children: [] }, regex,
+      ] }] } }, 4, failure));
+    expect(query.selections).toEqual([{ column: "id", value: "a" }]);
+    expect(query.inspect({ id: "a", value: "valid", deleted_at: null })).toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
+    expect(Result.getOrThrow(query.inspectRow({ id: "a", value: "valid", deleted_at: null })).order).toEqual(new TextEncoder().encode("a"));
+    expect(query.inspectRow({ id: "a", value: 1, deleted_at: null })).toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+    if (query.postgresPredicate === undefined) throw new Error("Missing PostgreSQL predicate");
+    // A later mutation of caller-owned source data cannot alter the program.
+    regex.value = "changed";
+    const tableId = decodeCatalogTableId(1);
+    const batch = Result.getOrThrow(preparePostgresRelationalBatch(query.postgresPredicate, table, tableId,
+      [{ id: "a", value: "valid", deleted_at: null }], { rows: 4, bytes: 8192 }, failure));
+    const statement = new PgDialect().sqlToQuery(Result.getOrThrow(buildPostgresRelationalPredicateBody(batch, tableId, failure)));
+    expect(statement.sql).toContain(" or ");
+    expect(statement.sql).toContain("true");
+    expect(statement.sql).toContain(" ~ ");
+    expect(statement.sql).toContain("candidate_rows as materialized");
+    expect(statement.sql).toContain("matches as materialized");
+    expect(statement.sql).toContain("where");
+    expect(statement.params).toContain("[");
+    expect(statement.params).not.toContain("changed");
+  });
+
+  it("binds immutable PostgreSQL batches to their issuer/table and validates exact nullable result ordinals", () => {
+    const table = postgresFixture(), tableId = decodeCatalogTableId(1), otherId = decodeCatalogTableId(2);
+    const query = Result.getOrThrow(compileLogicalRelationalRead(table, [], { order: { column: "id", direction: "asc" },
+      predicate: { kind: "and", children: [{ kind: "in", column: "id", values: ["a", "b"] },
+        { kind: "postgresText", column: "value", operator: "notIn", values: ["excluded"] }] } }, 4, failure));
+    if (query.postgresPredicate === undefined) throw new Error("Missing PostgreSQL predicate");
+    const source = [{ id: "a", value: "kept", deleted_at: null }, { id: "b", value: null, deleted_at: null }];
+    const bounds = { rows: 4, bytes: 8192 };
+    const batch = Result.getOrThrow(preparePostgresRelationalBatch(query.postgresPredicate, table, tableId, source, bounds, failure));
+    const first = source[0];
+    if (first === undefined) throw new Error("Missing first candidate");
+    first.value = "changed";
+    expect(Result.getOrThrow(inspectPostgresRelationalBatch(batch, tableId, failure)).rows).toBe(2);
+    expect(buildPostgresRelationalPredicateBody(batch, otherId, failure)).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+    const clone = structuredClone(batch);
+    let inspected = 0;
+    Object.defineProperty(clone, "anything", { get: () => { inspected++; throw new Error("Do not inspect foreign getters"); } });
+    expect(inspectPostgresRelationalBatch(clone, tableId, failure)).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+    expect(inspected).toBe(0);
+    expect(preparePostgresRelationalBatch(structuredClone(query.postgresPredicate), table, tableId, source, bounds, failure))
+      .toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+    expect(preparePostgresRelationalBatch(query.postgresPredicate, { ...table }, tableId, source, bounds, failure))
+      .toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+    expect(preparePostgresRelationalBatch(query.postgresPredicate, table, tableId, source, { ...bounds, rows: 1 }, failure))
+      .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+    expect(preparePostgresRelationalBatch(query.postgresPredicate, table, tableId, source, { ...bounds, bytes: 1 }, failure))
+      .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+    expect(preparePostgresRelationalBatch(query.postgresPredicate, table, tableId,
+      [{ id: "a", value: "x".repeat(1_048_576), deleted_at: null }],
+      { rows: Number.MAX_SAFE_INTEGER, bytes: Number.MAX_SAFE_INTEGER }, failure))
+      .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+    const statement = new PgDialect().sqlToQuery(Result.getOrThrow(buildPostgresRelationalPredicateBody(batch, tableId, failure)));
+    expect(statement.params).toContain(JSON.stringify([{ id: "a", value: "kept", deleted_at: null }, { id: "b", value: null, deleted_at: null }]));
+    expect(Result.getOrThrow(decodePostgresRelationalMatches(batch, tableId,
+      [{ ordinal: 0, matched: true }, { ordinal: 1, matched: null }], failure)).matches).toEqual([true, null]);
+    for (const malformed of [[{ ordinal: 1, matched: true }, { ordinal: 0, matched: false }], [{ ordinal: 0, matched: true }],
+      [{ ordinal: 0, matched: true }, { ordinal: 0, matched: false }], [{ ordinal: 0, matched: true, extra: 1 }, { ordinal: 1, matched: null }]])
+      expect(decodePostgresRelationalMatches(batch, tableId, malformed, failure)).toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+  });
   it("keeps both native uniqueness OR branches indexed beneath an inherited active-row predicate", () => {
     const origin = { kind: "authored", sourceId: "fixture.link-uniqueness" };
     const schema = Result.getOrThrow(normalizeRelationalSchema({ owner: "medusa", lineageId: "link-uniqueness", capabilities: [], tables: [{

@@ -339,7 +339,8 @@ target snapshot or cached live verdict.
 The [approved finite contract](../roadmaps/mixed-mutation-core/23-finite-execution-contract-preflight.md)
 and [whole-mutation capture replacement](../roadmaps/mixed-mutation-core/24-whole-mutation-redesign-preflight.md)
 supersede explicit-transaction choreography for installed named storage captures.
-Each capture authenticates both installed namespaces and the exact placement,
+Except for the named relational-predicate case below, each capture authenticates
+both installed namespaces and the exact placement,
 then acquires kernel and selected build locks and checks fresh post-wait liveness
 inside one implicit SQL statement. Its installation admission and authority
 locks last through that statement; the physical callback view expires before
@@ -353,6 +354,31 @@ and must serialize with capture admission. Full root entry, aggregate seal,
 publication and recovery retain their distinct explicit protected tails and
 complete obligations. This refinement adds no permission cache, surviving
 transaction observation, public capability or durable format.
+
+The named `relationalPredicate` capture is an explicit short-transaction
+exception under [its closed predicate contract](../roadmaps/shared-logical-storage/68-postgres-relational-predicates.md).
+PostgreSQL can plan an invalid regex in a complete WHERE expression before
+evaluating a rejecting header in the same statement. This capture therefore
+holds one physical checkout/deadline and one protected transaction: acquire the
+actual co-located installation admission, accept the existing static
+ownership-fence header, evaluate the parameterized complete predicate over its
+genuine captured candidates, decode the exact results, and require a fresh
+header tail with the same command-local metadata epochs. Confirm settlement
+before releasing results and the checkout. For installed capture, the existing
+physical driver's initial-transaction owner directly owns BEGIN, COMMIT,
+rollback after cancellation, draining and quarantine. Its callback performs
+only installation admission, entry/body/tail and local admission closure; it
+does not nest a transaction inside a read callback whose work fence closes on
+cancellation. Header, body or tail failure rolls back; callback and cleanup
+Causes remain complete. An uncertain settlement releases no business envelope,
+retains the initial and any quarantine failure, and adds no retry or recovery
+protocol. Existing relational command, lock and cleanup deadlines apply only
+to this named operation. Full-artifact execution retains its existing protected
+transaction-settlement bridge and actual current installation; interruption
+withholds delivery and drains that read-only transaction before checkout release.
+No native or untrusted callback runs inside it, and no independent transaction, database function,
+migration, generic read fallback, reusable SQL capability or permission cache
+is introduced. Other named captures retain the implicit-statement contract.
 
 Pending hydration uses exact captured point identities or, where exclusion cannot
 be proved, the actual queried table's bounded seed set. Original snapshot evidence

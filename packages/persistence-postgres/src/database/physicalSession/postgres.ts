@@ -117,9 +117,9 @@ const connectionIdentities = new WeakMap<
   PhysicalConnectionIdentity
 >();
 
-/** Source-private transport construction. The installed capture composition
- * supplies its single fixed statement; consumers receive only named captures.
- * Both reads retain the same checkout, deadline, work fence and quarantine. */
+/** Source-private transport construction. Installed capture composition supplies
+ * fixed commands or its named protected transaction; consumers receive only
+ * named captures. The driver owns checkout, deadline, work fence and quarantine. */
 export interface PostgresPhysicalSessionDriver<ResourceIssue> extends SessionDriver<ResourceIssue> {
   readonly runImplicitCommandEffect: <Value>(input: { readonly deadline: PhysicalDeadline },
     command: NativePhysicalCommand<Value>, bindings: Record<string, unknown>) => Effect.Effect<Value, ResourceIssue>;

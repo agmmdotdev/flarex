@@ -1,8 +1,9 @@
 import { observeExecution } from "./diagnostics/operation";
 import { createHash } from "node:crypto";
 import { captureDriverDecoder, compileFiniteCaptureResultMapper, type CaptureProjectionField } from "./finiteStorageCaptureProjection";
-import { Data, Effect, Result, Schema } from "effect";
-import { sql } from "drizzle-orm";
+import { Cause, Data, Effect, Result, Schema } from "effect";
+import { sql, type SQL } from "drizzle-orm";
+import { buildPostgresRelationalPredicateBody, decodePostgresRelationalMatches, inspectPostgresRelationalBatch, type PostgresRelationalPredicateBatch } from "../storage/documents/logicalDocuments/postgresRelationalPredicate";
 import { alias } from "drizzle-orm/pg-core";
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
 import { appIndexPhysicalSpecSha256HexV1ToBytes } from "flarex-protocol/index-definition";
@@ -12,17 +13,21 @@ import type { FlarexMetadataTransaction } from "../database/metadataTransaction"
 import type { ScopePhysicalLocator } from "../scope/scopeMetadataTypes";
 import { prepareFiniteAttemptStorageCaptureBasis, readCapturedFiniteAttemptAnchorRow } from "./finiteAttemptAnchor";
 import { prepareInstalledFiniteCaptureSource } from "../scope/scopeAuthorityControlRead";
-import { getCoLocatedReadInstallationReferencesResult, type PreparedCoLocatedReadInstallation } from "../installation/installationLifecycle";
-import { runEffectTransaction } from "../database/effectTransaction";
+import { acquireCoLocatedInstallationAdmission, closeInstallationAdmission, getCoLocatedReadInstallationReferencesResult,
+  lockInstallationForCurrentTransaction, type InstallationLifecycleError, type PreparedCoLocatedReadInstallation } from "../installation/installationLifecycle";
+import { runEffectTransaction, runEffectTransactionSettlement } from "../database/effectTransaction";
 
 import { prepareAppRowsSnapshotReadResult, buildPreparedAppRowsSnapshotReadStatement } from "../storage/documents/appRows";
 import { prepareAppIndexSnapshotReadResult, buildPreparedAppIndexSnapshotReadStatement } from "../storage/indexes/appIndexEntries";
 import { inspectFiniteParticipantStorageDemand } from "../storage/documents/logicalDocuments/participantAdmission";
+import { matchesLogicalRelationalAttemptTable } from "../storage/documents/logicalDocuments/relationalAdmission";
 import { inspectFiniteApplicationStorageDemand, readFiniteStorageCaptureMetadata, readFiniteStorageCaptureRetirementAuthority } from "../storage/documents/logicalDocuments/sourceAdmission";
 import { fxSystemTransactionSessions, fxSystemPreparedMetadataEpoch } from "../database/schema";
 import { makePhysicalDeadlineOperations } from "../database/physicalSession/deadline";
 import { executeNativePhysicalCommand } from "../database/physicalSession/drizzle";
 import type { PostgresPhysicalSessionDriver } from "../database/physicalSession/postgres";
+import { physicalSessionErrors } from "../database/physicalSession/errors";
+import { relationalLimits } from "./preparation/frameworkExecutionPolicy";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { ScanAppIndexAtSnapshotV1Input, PreparedAppIndexSnapshotRead } from "../storage/indexes/appIndexEntries";
 import type { ReadAppRowsAtSnapshotV1Input, PreparedAppRowsSnapshotRead } from "../storage/documents/appRows";
@@ -56,12 +61,15 @@ import { CommitSeqSchema } from "flarex-protocol/storage-authority";
 export type FiniteStorageCaptureOperation =
   | Readonly<{ kind: "rows"; input: ReadAppRowsAtSnapshotV1Input; maximumTotalValueBytes?: number; settlementWindow?: true }>
   | Readonly<{ kind: "indexPage"; input: ScanAppIndexAtSnapshotV1Input; tableId: CatalogTableId }>
+  | Readonly<{ kind: "relationalPredicate"; tableId: CatalogTableId; batch: PostgresRelationalPredicateBatch }>
   | Readonly<{ kind: "ownership"; tableId: CatalogTableId }>
   | Readonly<{ kind: "historicalIdentity"; tableId: CatalogTableId; rowId: Uint8Array }>
   | Readonly<{ kind: "transactionTime" }>
   | Readonly<{ kind: "retirement"; selector: PointMutationSessionAttemptSelectorV1; executionClaim: TransactionExecutionClaimPinV1 }>;
 
 export interface FiniteStorageCaptureEnvelopes {
+  readonly relationalPredicate: Readonly<{ kind: "relationalPredicate"; rawRows: readonly unknown[];
+    matches: readonly (boolean | null)[]; bytes: number }>;
   readonly rows: Readonly<{ kind: "rows"; prepared: PreparedAppRowsSnapshotRead; rawRows: readonly unknown[] }>;
   readonly indexPage: Readonly<{ kind: "indexPage"; prepared: PreparedAppIndexSnapshotRead; rawRows: readonly unknown[] }>;
   readonly ownership: Readonly<{ kind: "ownership"; denied: boolean }>;
@@ -72,6 +80,8 @@ export interface FiniteStorageCaptureEnvelopes {
 
 const refused = (reason: FiniteStorageCaptureError["reason"], cause?: unknown) =>
   new FiniteStorageCaptureError({ reason, ...(cause === undefined ? {} : { cause }) });
+const installationFailure = (cause: InstallationLifecycleError) => refused(
+  cause.reason === "resourceFailure" || cause.reason === "busy" ? "resourceFailure" : "invalidAuthority", cause);
 const scopeFailure = (cause: TrustedScopeAuthorityError) => cause instanceof TrustedScopeAuthorityPortError ? refused(
   cause.cause instanceof ScopeClockCorruptionError ? "storedCorruption" : "resourceFailure", cause) : refused("invalidAuthority", cause);
 const HeaderReasonSchema = Schema.Literals(["accepted", "invalidAuthority", "resourceFailure", "storedCorruption", "attemptMissing",
@@ -93,7 +103,7 @@ const sameControlEpoch = (a: ControlEpoch, b: ControlEpoch) => a.databaseName ==
 
 export type FiniteStorageCaptureProfile =
   | Readonly<{ kind: "installed"; installation: PreparedCoLocatedReadInstallation;
-      driver: Pick<PostgresPhysicalSessionDriver<FiniteStorageCaptureError>, "runImplicitCommandEffect"> }>
+      driver: Pick<PostgresPhysicalSessionDriver<FiniteStorageCaptureError>, "runImplicitCommandEffect" | "runInitialTransactionEffect"> }>
   | Readonly<{ kind: "fullArtifact"; authority?: ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> }>;
 
 type InternalCaptureOperation = FiniteStorageCaptureOperation |
@@ -150,7 +160,8 @@ const ownershipFields = ["kind", "ordinal", "scopeId", "sequenceText", "previous
 const manifestFields = ["evidenceLength", "bytes", "hash", "publicationHash", "analysisHash", "deploymentId", "schemaVersionId"];
 const closureFields = ["kind", "ordinal", "evidenceLength", "deploymentId", "schemaVersionId", "setCodecVersion", "definitionCount", "definitionSetSha256", "closedAtText", "uniqueConstraintDefinitionId", "logicalUniqueConstraintId", "tableId", "physicalSpecCodecVersion", "physicalSpecJson", "physicalSpecBytes", "physicalSpecSha256", "definitionCreatedAtText", "bindingDefinitionId", "bindingLogicalId", "requiredForActivation", "bindingCreatedAtText"];
 const rowFields = ["ordinal", "requestedRowId", "rowPresent", "scopeUuid", "tableId", "rowId", "commitSeq", "prevCommitSeq",
-  "writeEpochUuid", "schemaVersionId", "creationTime", "valueCodecVersion", "isTombstone", "valueSha256", "valueBytes", "bodyWithheld"];
+  "writeEpochUuid", "schemaVersionId", "creationTime", "insertionCommitSeq", "insertionAttemptOrdinal",
+  "valueCodecVersion", "isTombstone", "valueSha256", "valueBytes", "bodyWithheld"];
 const indexFields = ["ordinal", "tableIdText", "keyCodecVersionText", "physicalSpecSha256", "encodedKeyBytes",
   "keySha256", "rowIdBytes", "commitSeqText", "isTombstone"];
 
@@ -173,9 +184,12 @@ function compileControlResultMapper<T>(fields: readonly CaptureProjectionField[]
 /** Database-owned pure SQL topology. No query/session, driver, attempt or verdict
  * survives compilation. Installed SQL embeds only the genuine immutable inputs. */
 function compileFiniteStorageCapturePlan(database: FlarexMetadataDatabase, locator: ScopePhysicalLocator,
-  installed: Result.Result.Success<ReturnType<typeof prepareInstalledFiniteCaptureSource>> | undefined) {
+  installed: Result.Result.Success<ReturnType<typeof prepareInstalledFiniteCaptureSource>> | undefined,
+  relationalBody?: SQL) {
   const namespace = sql.identifier(installed?.schemaName ?? locator.schemaName);
-  const compile = (kind: InternalCaptureOperation["kind"]) => {
+  const compile = (operation: Readonly<{ kind: Exclude<InternalCaptureOperation["kind"], "relationalPredicate"> }> |
+    Readonly<{ kind: "relationalPredicate"; body: SQL }>) => {
+    const { kind } = operation;
     const captureSource = sql`(with accepted_capture as materialized (select ${namespace}.fx_accept_finite_storage_capture(
       ${installed?.acceptedScope ?? sql.placeholder("scopeId")},
       row(${sql.placeholder("pin_scopeUuid")} ::uuid,
@@ -225,7 +239,7 @@ function compileFiniteStorageCapturePlan(database: FlarexMetadataDatabase, locat
       scopeUuid: parameter("scopeUuid"), indexDefinitionId: parameter("indexDefinitionId"), snapshotCommitSeq: parameter("snapshot"),
       start: parameter("start"), end: parameter("end"), afterKey: parameter("afterKey"), afterRow: parameter("afterRow"), limit: parameter("limit"),
     });
-    const storage = kind === "rows" ? buildPreparedAppRowsSnapshotReadStatement(installed?.schemaName ?? locator.schemaName, {
+    const storage = operation.kind === "relationalPredicate" ? operation.body : kind === "rows" ? buildPreparedAppRowsSnapshotReadStatement(installed?.schemaName ?? locator.schemaName, {
       scopeUuid: parameter("scopeUuid"), tableId: parameter("tableId"),
       rowIds: sql`coalesce((select array_agg(decode(id,'hex') order by ord)
         from unnest(${parameter("rowIds")}::text[]) with ordinality x(id,ord)),array[]::bytea[])`,
@@ -237,7 +251,7 @@ function compileFiniteStorageCapturePlan(database: FlarexMetadataDatabase, locat
     kind === "ownershipUniqueClosure" ? sql`select * from ${sql.identifier(installed?.controlSchemaName ?? locator.schemaName)}.fx_read_application_ownership_unique_closure(
       ${parameter("catalogDeploymentId")}::text,${parameter("catalogSchemaVersionId")}::text,
       ${parameter("remainingRecords")}::integer,${parameter("remainingBytes")}::integer)` : sql`select 0 as ordinal`;
-    const rawFields = kind === "rows" ? rowFields : kind === "indexPage" ? indexFields : kind === "ownership" ? ownershipFields :
+    const rawFields = kind === "relationalPredicate" ? ["ordinal", "matched"] : kind === "rows" ? rowFields : kind === "indexPage" ? indexFields : kind === "ownership" ? ownershipFields :
       kind === "ownershipPolicyManifest" ? manifestFields : kind === "ownershipUniqueClosure" ? closureFields : ["ordinal"];
     const storageOrder = kind === "ownership" || kind === "ownershipUniqueClosure" ? sql`s.kind,s.ordinal` :
         kind === "ownershipPolicyManifest" ? sql`1` : sql`s.ordinal`;
@@ -268,13 +282,15 @@ function compileFiniteStorageCapturePlan(database: FlarexMetadataDatabase, locat
     const statement = query.toSQL();
     // PostgreSQL retains parsing on the actual pooled connection. Only fixed
     // SQL names are shared; every execution binds fresh pins and checks state.
-    const statementName = `fx_finite_${createHash("sha256").update(statement.sql).digest("hex").slice(0, 40)}`;
+    const statementName = kind === "relationalPredicate" ? undefined :
+      `fx_finite_${createHash("sha256").update(statement.sql).digest("hex").slice(0, 40)}`;
     return Object.freeze({ statement: Object.freeze(statement), statementName, orderedFields,
       mapResult: compileFiniteCaptureResultMapper<Omit<typeof query._.result[number], "storagePresent" | "raw">>(orderedFields, { historicalIdentity: kind === "historicalIdentity", fullArtifact: installed === undefined }) });
   };
   const shapes = new Map<InternalCaptureOperation["kind"], ReturnType<typeof compile>>();
-  for (const kind of ["rows", "indexPage", "ownership", "historicalIdentity", "transactionTime", "retirement",
-    "ownershipPolicyManifest", "ownershipUniqueClosure", "ownershipFence"] as const) shapes.set(kind, compile(kind));
+  if (relationalBody !== undefined) shapes.set("relationalPredicate", compile({ kind: "relationalPredicate", body: relationalBody }));
+  else for (const kind of ["rows", "indexPage", "ownership", "historicalIdentity", "transactionTime", "retirement",
+    "ownershipPolicyManifest", "ownershipUniqueClosure", "ownershipFence"] as const) shapes.set(kind, compile({ kind }));
   const plan: ReadonlyMap<InternalCaptureOperation["kind"], ReturnType<typeof compile>> = shapes;
   return plan;
 }
@@ -412,16 +428,24 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
         const preparedIndex = operation.kind === "indexPage" ? yield* prepareAppIndexSnapshotReadResult(operation.input)
           .pipe(Result.mapError(cause => refused("invalidInput", cause))) : undefined;
         const selectedTable = preparedRows?.tableId ?? (operation.kind === "indexPage" || operation.kind === "ownership" ||
-          operation.kind === "historicalIdentity" ? operation.tableId : selected?.demand.kind !== "clock" ? selected?.demand.tableId ?? null : null);
+          operation.kind === "historicalIdentity" || operation.kind === "relationalPredicate" ? operation.tableId : selected?.demand.kind !== "clock" ? selected?.demand.tableId ?? null : null);
         const selectedSnapshot = preparedRows?.snapshotCommitSeq ?? preparedIndex?.snapshotCommitSeq ?? expected.snapshotToken.commitSeq;
         if (selectedSnapshot !== expected.snapshotToken.commitSeq || preparedRows !== undefined && preparedRows.scopeId !== input.selector.scopeId ||
           preparedIndex !== undefined && preparedIndex.scopeId !== input.selector.scopeId ||
           selected !== undefined && selected.demand.kind !== "clock" && selectedTable !== selected.demand.tableId)
           return yield* Result.fail(refused("invalidAuthority"));
         const selectsBusiness = operation.kind === "rows" || operation.kind === "indexPage" ||
-          operation.kind === "ownership" || operation.kind === "historicalIdentity";
+          operation.kind === "ownership" || operation.kind === "historicalIdentity" || operation.kind === "relationalPredicate";
         if (selectsBusiness && (selected === undefined || selected.demand.kind === "clock"))
           return yield* Result.fail(refused("invalidAuthority"));
+        if (operation.kind === "relationalPredicate") {
+          if (participant?.demand.kind !== "rows" || input.finiteReadDemand === undefined)
+            return yield* Result.fail(refused("invalidAuthority"));
+          const batch = yield* inspectPostgresRelationalBatch(operation.batch, operation.tableId,
+            reason => refused(reason === "invalidAuthority" ? "invalidAuthority" : "invalidInput"));
+          if (!matchesLogicalRelationalAttemptTable(input.finiteReadDemand.admission, operation.tableId, batch.table))
+            return yield* Result.fail(refused("invalidAuthority"));
+        }
         if (preparedIndex !== undefined && (selected?.definition === undefined ||
           selected.definition.indexDefinitionId !== preparedIndex.indexDefinitionId ||
           !bytesEqualFullScan(appIndexPhysicalSpecSha256HexV1ToBytes(selected.definition.physicalSpecSha256Hex), preparedIndex.physicalSpecSha256)))
@@ -430,7 +454,12 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
       }));
       const selectedIndexId = selected?.definition?.indexDefinitionId ?? null;
       const unique = participant?.uniqueDefinition;
-      const shape = shapes.get(operation.kind);
+      // Query-specific bodies remain local to this capture. They are never
+      // retained in the static topology cache or named on pooled connections.
+      const operationShapes = operation.kind === "relationalPredicate" ? compileFiniteStorageCapturePlan(database, locator, installed,
+        yield* Effect.fromResult(buildPostgresRelationalPredicateBody(operation.batch, operation.tableId,
+          reason => refused(reason === "invalidAuthority" ? "invalidAuthority" : "invalidInput")))) : shapes;
+      const shape = operationShapes.get(operation.kind);
       if (shape === undefined) return yield* Effect.die("Named finite capture shape missing");
       const placeholders = Object.setPrototypeOf({
         deploymentId: input.selector.deploymentId, scopeId: input.selector.scopeId,
@@ -457,14 +486,7 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
         remainingBytes: operation.kind === "ownershipPolicyManifest" || operation.kind === "ownershipUniqueClosure" ? operation.remaining.bytes : 1_048_576,
       }, attemptBasis.parameters);
       type Captured = ReturnType<typeof shape.mapResult>;
-      const result = profile.kind === "installed" ? yield* profile.driver.runImplicitCommandEffect<Captured>(
-        { deadline: yield* deadlines.start("read", 30_000) }, shape, placeholders) :
-        yield* runEffectTransaction<Captured, FiniteStorageCaptureError, FiniteStorageCaptureError, FlarexMetadataTransaction>(
-          work => database.transaction(work), "Finite named capture failed", db => Effect.tryPromise({
-          try: () => executeNativePhysicalCommand<Captured>(db._.session, shape, placeholders), catch: cause => refused("resourceFailure", cause),
-        }),
-          cause => refused("resourceFailure", cause));
-      const accepted = yield* Effect.gen(function* () {
+      const acceptCapture = Effect.fnUntraced(function* (result: Captured, requiredEpoch = metadataEpoch) {
         const first = result.header;
         if (first === undefined) return yield* Effect.fail(refused("invalidAuthority"));
         const reason = yield* decodeReason(first.reason).pipe(Effect.mapError(cause => refused("storedCorruption", cause)));
@@ -483,11 +505,78 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
         if (selected !== undefined && operation.kind !== "retirement" && retained === undefined)
           return yield* Effect.fail(refused("invalidAuthority"));
         const observedEpoch = Object.freeze({ target: first.targetMetadataEpoch, control: first.controlMetadataEpoch });
-        if (metadataEpoch !== undefined && (observedEpoch.target !== metadataEpoch.target || observedEpoch.control !== metadataEpoch.control))
+        if (requiredEpoch !== undefined && (observedEpoch.target !== requiredEpoch.target || observedEpoch.control !== requiredEpoch.control))
           return yield* Effect.fail(refused("invalidAuthority"));
         if (result.layoutFailure !== undefined) return yield* Effect.fail(refused("storedCorruption", result.layoutFailure));
         return { kind: "accepted" as const, first, observedEpoch };
       });
+      const protectedPredicate = Effect.fnUntraced(function* (predicate: Extract<FiniteStorageCaptureOperation, { kind: "relationalPredicate" }>) {
+        const headerShape = shapes.get("ownershipFence");
+        if (headerShape === undefined) return yield* Effect.die("Finite capture header shape missing");
+        const requireAccepted = Effect.fnUntraced(function* (result: Captured, epoch?: Readonly<{ target: string | null; control: string | null }>) {
+          const accepted = yield* acceptCapture(result, epoch);
+          if (accepted.kind === "attemptReplaced") {
+            yield* readCapturedFiniteAttemptAnchorRow(accepted.first.frontier).pipe(
+              Effect.mapError(cause => refused(cause.reason === "resourceFailure" ? "resourceFailure" : "storedCorruption", cause)));
+            return yield* Effect.fail(refused("attemptReplaced"));
+          }
+          if (accepted.kind !== "accepted") return yield* Effect.fail(refused("invalidAuthority"));
+          return accepted.observedEpoch;
+        });
+        const work = Effect.fnUntraced(function* (tx: FlarexMetadataTransaction) {
+            if (profile.kind === "installed") yield* acquireCoLocatedInstallationAdmission(profile.installation, database, tx)
+              .pipe(Effect.mapError(installationFailure));
+            else yield* lockInstallationForCurrentTransaction(tx).pipe(Effect.mapError(installationFailure));
+            const execute = (command: typeof shape) => Effect.tryPromise({
+              try: () => executeNativePhysicalCommand<Captured>(tx._.session, command, placeholders),
+              catch: cause => refused("resourceFailure", cause),
+            });
+            // Planning PostgreSQL regex WHERE clauses can fail before execution.
+            // Send the body only after actual admission, retaining its locks.
+            const epoch = yield* requireAccepted(yield* execute(headerShape));
+            const body = yield* execute(shape);
+            yield* requireAccepted(body, epoch);
+            const decoded = yield* Effect.fromResult(decodePostgresRelationalMatches(predicate.batch, predicate.tableId, body.rawRows,
+              (reason, cause) => refused(reason === "invalidAuthority" ? "invalidAuthority" : "storedCorruption", cause)));
+            yield* requireAccepted(yield* execute(headerShape), epoch);
+            return { body, decoded };
+          }, (effect, tx) => effect.pipe(Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx)))));
+        if (profile.kind === "fullArtifact") return yield* runEffectTransactionSettlement(
+          transaction => database.transaction(transaction), "Protected relational predicate capture failed", work,
+          cause => refused("resourceFailure", cause));
+        // The physical transaction owner retains rollback access after callback
+        // cancellation closes its work fence. Do not nest a Drizzle transaction
+        // inside a read callback, whose rollback would use that closed fence.
+        return yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
+          const settled = yield* profile.driver.runInitialTransactionEffect({ isolationLevel: "read committed",
+            deadline: yield* deadlines.start("initial", relationalLimits.commandMs),
+            lockTimeoutMilliseconds: relationalLimits.lockMs, recoveryTimeoutMilliseconds: relationalLimits.cleanupMs,
+          }, restore, work);
+          switch (settled.kind) {
+            case "committed": return settled.value;
+            case "callbackRolledBack": return yield* Effect.failCause(settled.callbackCause);
+            case "callbackCleanupFailed": return yield* Effect.failCause(Cause.combine(settled.callbackCause, settled.cleanupCause));
+            case "notCommitted": return yield* Effect.failCause(settled.cause);
+            case "uncertain": {
+              const failure = Cause.fail(refused("resourceFailure", settled.initialSettlementCause));
+              return yield* Effect.failCause(settled.quarantine.kind === "confirmed" ? failure : Cause.combine(failure,
+                Cause.die(physicalSessionErrors.cleanup({ phase: "quarantine", cause: settled.quarantine.cause }))));
+            }
+          }
+        }));
+      });
+      if (operation.kind === "relationalPredicate") {
+        const { body, decoded } = yield* protectedPredicate(operation);
+        return Object.freeze({ kind: "relationalPredicate" as const, rawRows: body.rawRows, ...decoded });
+      }
+      const result = profile.kind === "installed" ? yield* profile.driver.runImplicitCommandEffect<Captured>(
+        { deadline: yield* deadlines.start("read", 30_000) }, shape, placeholders) :
+        yield* runEffectTransaction<Captured, FiniteStorageCaptureError, FiniteStorageCaptureError, FlarexMetadataTransaction>(
+          work => database.transaction(work), "Finite named capture failed", db => Effect.tryPromise({
+          try: () => executeNativePhysicalCommand<Captured>(db._.session, shape, placeholders), catch: cause => refused("resourceFailure", cause),
+        }),
+          cause => refused("resourceFailure", cause));
+      const accepted = yield* acceptCapture(result);
       if (accepted.kind === "attemptReplaced") {
         yield* readCapturedFiniteAttemptAnchorRow(accepted.first.frontier).pipe(
           Effect.mapError(cause => refused(cause.reason === "resourceFailure" ? "resourceFailure" : "storedCorruption", cause)));

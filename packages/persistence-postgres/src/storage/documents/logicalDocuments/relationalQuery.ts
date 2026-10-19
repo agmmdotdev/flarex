@@ -13,6 +13,7 @@ import { hasMandatorySearchTrigram, type LogicalSearchPattern } from "./searchRe
 import { jsonbContains } from "./jsonContains";
 import { relationalReadLimits } from "../../../execution/preparation/frameworkExecutionPolicy";
 import type { LogicalSelectionValues } from "./query";
+import { issuePostgresRelationalPredicate, type NormalizedRelationalPredicate } from "./postgresRelationalPredicate";
 
 /** The admitted indexed text relational profile. Other predicate families require
  * their own indexed execution contract before they can be enabled here. */
@@ -37,6 +38,12 @@ const Node = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("greaterThan"), column: Schema.String, value: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("textLikeAscii"), column: Schema.String, pattern: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("jsonContains"), column: Schema.String, value: Schema.Json }),
+  Schema.Struct({ kind: Schema.Literal("postgresText"), column: Schema.String,
+    operator: Schema.Literals(["gt", "gte", "lt", "lte", "like", "ilike", "regex", "fulltext"]), value: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("postgresText"), column: Schema.String,
+    operator: Schema.Literal("notIn"), values: Schema.Array(Schema.String) }),
+  Schema.Struct({ kind: Schema.Literal("postgresText"), column: Schema.String,
+    operator: Schema.Literal("exists"), value: Schema.Boolean }),
 ]);
 const decodeEnvelope = Schema.decodeUnknownResult(Envelope, { onExcessProperty: "error" });
 const decodeNode = Schema.decodeUnknownResult(Node, { onExcessProperty: "error" });
@@ -78,6 +85,8 @@ interface SelectionPlan {
   readonly unindexedText: boolean;
 }
 interface Filter<Failure> {
+  readonly predicate: NormalizedRelationalPredicate;
+  readonly postgres: boolean;
   /** null denotes no indexed selection; an empty list matches no rows. */
   readonly select: (requiredNulls: ReadonlySet<string>, access?: LogicalRelationalReadAccess) => Result.Result<SelectionPlan, Failure>;
   /** Every matching row has these null fields, including across OR branches. */
@@ -194,7 +203,7 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
           return yield* Result.fail(error("invalidInput"));
         demandedFields.add(node.column);
         const keys = new Set(node.values);
-        return { select: (requiredNulls: ReadonlySet<string>, access?: LogicalRelationalReadAccess) => {
+        return { predicate: node, postgres: false, select: (requiredNulls: ReadonlySet<string>, access?: LogicalRelationalReadAccess) => {
           const indexes = access?.indexes ?? table.indexes, tableKeys = access?.keys ?? table.keys;
           const declaredUnconditional = tableKeys.some(tableKey => tableKey.columns[0]?.columnId === node.column) ||
             indexes.some(index => index.predicate === null && index.kind !== "jsonContainment" && index.columns[0]?.columnId === node.column);
@@ -228,7 +237,7 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         for (const column of node.columns) demandedFields.add(column);
         demandedPoints.set(JSON.stringify(node.columns), Object.freeze([...node.columns]));
         const points = new Set(node.values.map(point => JSON.stringify(point)));
-        return { select: (requiredNulls: ReadonlySet<string>, access?: LogicalRelationalReadAccess) => {
+        return { predicate: node, postgres: false, select: (requiredNulls: ReadonlySet<string>, access?: LogicalRelationalReadAccess) => {
           const plan = pointPlan(node.columns, node.values, requiredNulls, access);
           return plan === null ? Result.fail(error("invalidInput")) : Result.succeed(plan);
         }, requiredNulls: new Set<string>(), search: null,
@@ -238,7 +247,7 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         const column = columnForName(node.column);
         if (column === undefined) return yield* Result.fail(error("invalidInput"));
         if (column.nullable) demandedNulls.add(node.column);
-        return { select: () => Result.succeed({ selections: column.nullable ? null : [], unindexedText: false }),
+        return { predicate: node, postgres: false, select: () => Result.succeed({ selections: column.nullable ? null : [], unindexedText: false }),
           requiredNulls: column.nullable ? new Set([node.column]) : new Set<string>(),
           search: null,
           matches: row => row[node.column] === null };
@@ -247,7 +256,7 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         const column = columnForName(node.column);
         if (column?.type !== "text" || !isRelationalColumnValue("text", false, node.value))
           return yield* Result.fail(error("invalidInput"));
-        return { select: () => Result.succeed({ selections: null, unindexedText: false }), requiredNulls: new Set<string>(), search: null,
+        return { predicate: node, postgres: false, select: () => Result.succeed({ selections: null, unindexedText: false }), requiredNulls: new Set<string>(), search: null,
           matches: row => typeof row[node.column] === "string" && row[node.column] !== node.value };
       }
       if (node.kind === "greaterThan") {
@@ -257,7 +266,7 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
           return yield* Result.fail(error("invalidInput"));
         demandedFields.add(node.column);
         const bound = new TextEncoder().encode(node.value);
-        return { select: (_requiredNulls: ReadonlySet<string>, access?: LogicalRelationalReadAccess) => {
+        return { predicate: node, postgres: false, select: (_requiredNulls: ReadonlySet<string>, access?: LogicalRelationalReadAccess) => {
           const indexed = (access?.indexes ?? table.indexes).some(index => index.predicate === null &&
             index.kind !== "textEquality" && index.kind !== "jsonContainment" &&
             index.columns[0]?.columnId === node.column);
@@ -274,7 +283,7 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         if (column?.type !== "text" || !isRelationalColumnValue("text", false, node.pattern))
           return yield* Result.fail(error("invalidInput"));
         if ([...node.pattern].length > 256) return yield* Result.fail(error("limitExceeded"));
-        return { select: () => Result.succeed({ selections: null, unindexedText: true }),
+        return { predicate: node, postgres: false, select: () => Result.succeed({ selections: null, unindexedText: true }),
           requiredNulls: new Set<string>(), search: [{ column: node.column, pattern: node.pattern }],
           matches: row => { const value = row[node.column]; return typeof value === "string" &&
             matchesTextLikeAscii(value, node.pattern); } };
@@ -285,11 +294,29 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         const encoded = new TextEncoder().encode(JSON.stringify(node.value));
         if (encoded.byteLength > 4096) return yield* Result.fail(error("limitExceeded"));
         demandedFields.add(node.column);
-        return { select: () => Result.succeed({ selections: null, unindexedText: true }),
+        return { predicate: node, postgres: false, select: () => Result.succeed({ selections: null, unindexedText: true }),
           requiredNulls: new Set<string>(), search: null,
           json: { column: node.column, value: node.value },
           matches: row => row[node.column] !== null && row[node.column] !== undefined &&
             jsonbContains(row[node.column]!, node.value) };
+      }
+      if (node.kind === "postgresText") {
+        const column = columnForName(node.column);
+        if (column?.type !== "text") return yield* Result.fail(error("invalidInput"));
+        const values = node.operator === "notIn" ? node.values : [node.value];
+        operands += values.length;
+        if (operands > relationalReadLimits.filterOperands) return yield* Result.fail(error("limitExceeded"));
+        if (node.operator !== "exists" && values.some(value => !isRelationalColumnValue("text", false, value)))
+          return yield* Result.fail(error("invalidInput"));
+        demandedFields.add(node.column);
+        const nullOnly = node.operator === "exists" && !node.value;
+        if (nullOnly && column.nullable) demandedNulls.add(node.column);
+        return { predicate: node, postgres: true,
+          select: () => Result.succeed({ selections: nullOnly && !column.nullable ? [] : null, unindexedText: true }),
+          requiredNulls: new Set(nullOnly && column.nullable ? [node.column] : []), search: null,
+          // A PostgreSQL program replaces the complete predicate. This leaf
+          // never provides an approximate JavaScript verdict.
+          matches: () => false };
       }
       const children: Filter<Failure>[] = [];
       for (const child of node.children) children.push(yield* visit(child, depth + 1));
@@ -313,7 +340,9 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         }
       }
       const jsonChild = node.kind === "and" ? children.find(child => child.json !== undefined) : undefined;
-      return { select: (inheritedNulls: ReadonlySet<string>, access?: LogicalRelationalReadAccess) => Result.gen(function* () {
+      return { predicate: { kind: node.kind, children: children.map(child => child.predicate) },
+        postgres: children.some(child => child.postgres),
+        select: (inheritedNulls: ReadonlySet<string>, access?: LogicalRelationalReadAccess) => Result.gen(function* () {
         const available = node.kind === "and" ? new Set([...inheritedNulls, ...requiredNulls]) : inheritedNulls;
         let selections: readonly Selection[] | null = node.kind === "and" ? null : [];
         let unindexedText = false;
@@ -353,6 +382,7 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         matches: row => node.kind === "and" ? children.every(child => child.matches(row)) : children.some(child => child.matches(row)) };
     });
     const filter = yield* visit(query.predicate ?? { kind: "and", children: [] }, 0);
+    const postgresPredicate = filter.postgres ? yield* issuePostgresRelationalPredicate(sourceTable, filter.predicate, error) : undefined;
     const demand: LogicalRelationalReadDemand = Object.freeze({ fields: Object.freeze([...demandedFields].toSorted()),
       nulls: Object.freeze([...demandedNulls].toSorted()), points: Object.freeze([...demandedPoints].toSorted(([left], [right]) =>
         left === right ? 0 : left < right ? -1 : 1).map(([, columns]) => columns)) });
@@ -387,6 +417,27 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
         [JSON.stringify(selection), selection] as const)).values()]);
       if (storageInsertion && (selections === null || search !== null || json !== null))
         return yield* Result.fail(error("invalidInput"));
+      const inspectRow = (row: JsonObject, document?: CanonicalFlarexValueV1) => Result.gen(function* () {
+        // Validate the complete row before projection or PostgreSQL predicate
+        // evaluation; neither path can hide malformed persisted data.
+        const retained = mechanics === undefined || document === undefined ? undefined : yield* inspectLogicalRelationalCanonicalRow(
+          mechanics, document, row, "storedCorruption").pipe(Result.mapError(cause => error(cause.reason, cause.cause)));
+        if (retained === undefined) {
+          const { _id: _internalId, _creationTime: _internalTime, ...native } = row;
+          yield* validate(native, "storedCorruption");
+        }
+        if (storageInsertion) return { order: new Uint8Array() };
+        if (orderColumn === undefined) return yield* Result.fail(error("invalidInput"));
+        const value = row[orderColumnName];
+        if (!isRelationalColumnValue(orderColumn.type, false, value ?? null)) return yield* Result.fail(error("storedCorruption"));
+        // Native text sorting uses complete UTF-8 bytes, independently of the
+        // selected PostgreSQL predicate's native text comparison semantics.
+        if (orderColumn.type === "text" && typeof value === "string") return { order: new TextEncoder().encode(value) };
+        const order = yield* Result.try({ try: () => orderedIndexKeyHexV1ToBytes(
+          encodeOrderedIndexComponentsV1([orderedIndexValueFromFlarexValueV1(value)])),
+          catch: cause => { if (cause instanceof OrderedIndexKeyTooLargeError) return error("limitExceeded", cause); throw cause; } });
+        return { order };
+      });
       return Object.freeze({ key, identityColumns: identity, selections, search: json !== null ? null : search, json, storageInsertion,
         requiresIndexedNullAnchor: selections === null && planned.unindexedText && search === null && json === null,
         requiredNulls: Object.freeze([...filter.requiredNulls]),
@@ -403,29 +454,10 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
           }) ?? false;
         },
         offset: query.skip ?? 0, limit: take, direction: query.order.direction, orderColumn: orderColumnName, fields: Object.freeze([...fields]),
-        inspect: (row: JsonObject, document?: CanonicalFlarexValueV1) => Result.gen(function* () {
-          // Read the complete native row before projecting, including exact numeric
-          // companions; projection cannot hide malformed persisted data.
-          const retained = mechanics === undefined || document === undefined ? undefined : yield* inspectLogicalRelationalCanonicalRow(
-            mechanics, document, row, "storedCorruption").pipe(Result.mapError(cause => error(cause.reason, cause.cause)));
-          if (retained === undefined) {
-            const { _id: _internalId, _creationTime: _internalTime, ...native } = row;
-            yield* validate(native, "storedCorruption");
-          }
-          if (storageInsertion) return { matches: filter.matches(row), order: new Uint8Array() };
-          if (orderColumn === undefined) return yield* Result.fail(error("invalidInput"));
-          const value = row[orderColumnName];
-          if (!isRelationalColumnValue(orderColumn.type, false, value ?? null)) return yield* Result.fail(error("storedCorruption"));
-          // Compare complete UTF-8 bytes for native text order. JS code-unit
-          // order differs for supplementary characters; neither path needs a
-          // bounded ordered-index key for in-memory row sorting.
-          if (orderColumn.type === "text" && typeof value === "string")
-            return { matches: filter.matches(row), order: new TextEncoder().encode(value) };
-          const order = yield* Result.try({ try: () => orderedIndexKeyHexV1ToBytes(
-            encodeOrderedIndexComponentsV1([orderedIndexValueFromFlarexValueV1(value)])),
-            catch: cause => { if (cause instanceof OrderedIndexKeyTooLargeError) return error("limitExceeded", cause); throw cause; } });
-          return { matches: filter.matches(row), order };
-        }),
+        postgresPredicate, inspectRow,
+        inspect: (row: JsonObject, document?: CanonicalFlarexValueV1) => postgresPredicate === undefined
+          ? inspectRow(row, document).pipe(Result.map(({ order }) => ({ matches: filter.matches(row), order })))
+          : Result.fail(error("invalidInput")),
       });
     });
     return Object.freeze({ demand, pointDemand, compile });

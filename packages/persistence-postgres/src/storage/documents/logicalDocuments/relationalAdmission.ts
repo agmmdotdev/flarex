@@ -141,6 +141,12 @@ export interface LogicalRelationalAttemptAdmissionState extends Omit<LogicalRela
 }
 const relationalAttemptStates = new WeakMap<object, LogicalRelationalAttemptAdmissionState>();
 
+/** Original relational source provenance only. The capture owner separately
+ * authenticates this admission's exact attempt, method and selected demand. */
+export const matchesLogicalRelationalAttemptTable = (admission: LogicalParticipantAttemptAdmission,
+  tableId: CatalogTableId, table: RelationalTableDefinition): boolean =>
+  relationalAttemptStates.get(admission)?.tables.some(member => member.tableId === tableId && member.definition === table) ?? false;
+
 export const withLogicalRelationalAttemptAdmissionEffect = Effect.fnUntraced(
   function* <Prepared, Value, PreparationFailure, Failure, Requirements>(admission: LogicalParticipantAttemptAdmission,
     attempt: SessionJournalAttempt, method: string,

@@ -306,7 +306,8 @@ export interface MixedMutationProductFixture {
   readonly replayFiniteActivation: () => Effect.Effect<AuthenticatedFiniteInitialEntry["activation"], import("../../../src/mutation/session/pointMutationSessionActivation").ApplicationPointMutationFiniteStartError>;
   readonly activateCompetingFiniteRequest: (suffix: string) => Effect.Effect<AuthenticatedFiniteInitialEntry["activation"], import("../../../src/mutation/session/pointMutationSessionActivation").ApplicationPointMutationFiniteStartError | PreparedHostRuntimeError>;
   /** A distinct genuine attempt over this fixture's retained context and seed. */
-  readonly openCompetingFiniteFixture: (suffix: string) => Promise<MixedMutationProductFixture>;
+  readonly openCompetingFiniteFixture: (suffix: string,
+    options?: Pick<MixedMutationProductFixtureHooks, "finiteGrantLifetimeMilliseconds">) => Promise<MixedMutationProductFixture>;
   readonly prepared: Effect.Success<ReturnType<typeof prepareLogicalRelationalAdmission>>;
   readonly binding: Effect.Success<ReturnType<typeof preparePrivateProductAttempt>>;
   readonly productProfileRevision: string;
@@ -559,7 +560,8 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
   const acquireFreshApplicationPreparation = sourceGraph.use(current =>
     current.acquireFreshFinitePreparation.pipe(Effect.map(graph => graph.payload)));
   const prepareAttempt = async (suffix: string, validatedArgsJson?: Readonly<{ body: string }>,
-    diagnostics?: MixedMutationEffectDiagnostics, selected?: ApplicationPreparation) => {
+    diagnostics?: MixedMutationEffectDiagnostics, selected?: ApplicationPreparation,
+    finiteGrantLifetimeMilliseconds = input.hooks?.finiteGrantLifetimeMilliseconds) => {
     const read = (graph: ApplicationPreparation) =>
       Effect.fromResult(readPreparedFiniteApplicationMutationInputs(graph.preparedAdmission, admissionContext)).pipe(
         Effect.map(applicationAdmission => ({ preparedAdmission: graph.preparedAdmission, candidateSchemaWriteGuard: graph.candidateSchemaWriteGuard, applicationAdmission })));
@@ -573,8 +575,8 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
       deploymentId: currency.deploymentId,
       executionAuthority: applicationAdmission.executionAuthority,
       requestKey: `mixed-product-${suffix}`, grantId: `mixed-product-${suffix}-grant`,
-      ...(input.hooks?.finiteGrantLifetimeMilliseconds === undefined ? {} : {
-        grantLifetimeMilliseconds: input.hooks.finiteGrantLifetimeMilliseconds,
+      ...(finiteGrantLifetimeMilliseconds === undefined ? {} : {
+        grantLifetimeMilliseconds: finiteGrantLifetimeMilliseconds,
       }),
       ...(validatedArgsJson === undefined ? {} : { validatedArgsJson }),
     }, runPreparation);
@@ -997,7 +999,8 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
   // that generation through final execution and the existing close handshake.
   const initialFiber = runForkEffect(Effect.gen(function* () {
     const preparation = yield* Effect.promise(() => tracePhase("stored read and source preparation", () =>
-      context.prepareAttempt(input.suffix, performance?.validatedArgsJson, performance?.diagnostics, graph)));
+      context.prepareAttempt(input.suffix, performance?.validatedArgsJson, performance?.diagnostics, graph,
+        input.hooks?.finiteGrantLifetimeMilliseconds)));
     yield* Deferred.succeed(preparedReady, preparation);
     const execution = yield* Deferred.await(executionReady);
     yield* execution;
@@ -1889,7 +1892,9 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
         admissionContext: context.admissionContext, evidence: competing.activationInput.evidence, currentEntry },
         activated => Effect.succeed(inspectActivatedPointMutationSessionV1(activated)));
     })),
-    openCompetingFiniteFixture: suffix => createMixedMutationAttemptFixture({ ...input, suffix }, context, seedGraph, false),
+    openCompetingFiniteFixture: (suffix, options) => createMixedMutationAttemptFixture({ ...input, suffix,
+      ...(options === undefined ? {} : { hooks: { ...input.hooks, ...options } }),
+    }, context, seedGraph, false),
     productProfileRevision: revision,
     ...(workflowBinding === undefined ? {} : { workflowBinding }),
     schemaVersionId, logicalSchemaVersionId,

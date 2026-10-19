@@ -50,6 +50,9 @@ import { decodeCapturedAppIndexSnapshotPageEffect,
   MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, type AppIndexRangeCursorV1, type AppIndexRangePageV1 } from "../../indexes/appIndexEntries";
 import { decodeLogicalFindQuery, isLogicalRange, selectLogicalIndex, selectLogicalPageIndex, prepareLogicalQueryPredicate, logicalWhereValues, logicalSelectionWhere, selectLogicalUniqueValues, selectLogicalIndexValues, type LogicalSelectionValues, type LogicalWhere } from "./query";
 import { prepareLogicalRelationalRead, logicalRelationalSelectionValues, type LogicalRelationalReadDemand } from "./relationalQuery";
+import { preparePostgresRelationalBatch, inspectPostgresRelationalBatch, buildPostgresRelationalPredicateBody,
+  decodePostgresRelationalMatches } from "./postgresRelationalPredicate";
+import { rowsFromDriverExecuteResult } from "../../../database/driverExecuteResult";
 import { decodeLogicalAggregate, sumLogicalRows } from "./aggregate";
 import { relationalTextIdentity } from "./relationalRows";
 import { prepareLogicalRelationalTableMechanics, hasPreparedLogicalRelationalTableMechanics,
@@ -1236,6 +1239,30 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         checkedRootOverlayGenerations.set(demand.tableId, checkedGeneration);
     })));
   });
+  /** Candidate acquisition owns dependencies; PostgreSQL evaluates the captured
+   * current values without rereading committed rows or retaining a verdict.
+   * Find/page retain their existing outer diagnostic operation boundaries. */
+  const evaluateRelationalPredicate = Effect.fnUntraced(function* (table: LogicalDocumentTable, query: ReadQuery, documents: readonly JsonObject[]) {
+    if (query.postgresPredicate === undefined || table.relational === undefined)
+      return yield* Effect.fail(error("invalidAuthority"));
+    const batch = yield* Effect.fromResult(preparePostgresRelationalBatch(query.postgresPredicate,
+      table.relational, table.tableId, documents, { rows: callIdentityLimit, bytes: lifetime.remainingBytes() }, error));
+    const inspected = yield* Effect.fromResult(inspectPostgresRelationalBatch(batch, table.tableId, error));
+    yield* charge(inspected.inputBytes);
+    const result = yield* (finiteProfile === undefined ? runStorageRead({ kind: "rows", tableId: table.tableId },
+      { tableId: table.tableId }, tx => Effect.gen(function* () {
+        const body = yield* Effect.fromResult(buildPostgresRelationalPredicateBody(batch, table.tableId, error));
+        const captured = yield* runDrizzleStatementEffect(tx.execute(body), cause => error("resourceFailure", cause));
+        return yield* Effect.try({
+          try: () => rowsFromDriverExecuteResult(captured, () => { throw new Error("Malformed relational predicate driver result"); }),
+          catch: cause => error("storedCorruption", cause),
+        });
+      })).pipe(Effect.flatMap(rawRows => Effect.fromResult(decodePostgresRelationalMatches(batch, table.tableId, rawRows, error)))) :
+      finiteProfile.captureStorage({ kind: "relationalPredicate", tableId: table.tableId, batch },
+        { kind: "rows", tableId: table.tableId }));
+    yield* charge(result.bytes);
+    return result.matches;
+  });
   const withStorageFrontier = <A>(demand: LogicalStorageReadDemand, selection: PendingSelection,
     work: Effect.Effect<A, Failure>): Effect.Effect<A, Failure> =>
     Effect.suspend(() => finiteProfile !== undefined ? work : frontierTx !== undefined ? runStorageRead(demand, selection, () => work) : runStorageRead(demand, selection, tx =>
@@ -1840,20 +1867,21 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     }
     // Selection has settled. Inspection, ordering and projection are bounded
     // synchronous owner work; retain lazy row order inside one Result fold.
-    const result = yield* Effect.fromResult(Result.gen(function* () {
-      const matched: { document: JsonObject; order: Uint8Array; documentId: AppDocumentIdV1; insertionOrder?: LogicalInsertionOrder }[] = [];
+    const candidates = yield* Effect.fromResult(Result.gen(function* () {
+      const inspectedRows: { row: PendingDocument; document: JsonObject; order: Uint8Array; matches?: boolean }[] = [];
       const generations = new Set<string>();
       for (const row of selected.values()) {
         if (row.current === null) continue;
         const current = row.current;
         const document = yield* output(current, true);
-        const inspected = yield* query.inspect(document, current);
+        const inspected = yield* (query.postgresPredicate === undefined ? query.inspect(document, current) : query.inspectRow(document, current));
         // A selected pending search member is observed before residuals just
         // like its committed counterpart. An unrelated overlay is not a member.
         if (usedSearchDefinition !== undefined && (row.borrowedOverlay === true || row.attempts.length > 0) &&
           (usedSearchDefinition.nullPredicateField === null || document[usedSearchDefinition.nullPredicateField] === null) &&
           query.matchesSearchAnchor(document)) yield* markRowUse(row.documentId);
-        if (inspected.matches) {
+        if (query.postgresPredicate === undefined && "matches" in inspected && inspected.matches) {
+          // Preserve the pure path's original per-row failure and charge order.
           yield* markRowUse(row.documentId);
           if (query.storageInsertion) {
             if (row.insertionOrder === undefined) return yield* Result.fail(error("invalidInput"));
@@ -1863,7 +1891,29 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
             if (generations.has(encoded)) return yield* Result.fail(error("storedCorruption"));
             generations.add(encoded);
           }
-          matched.push({ document, order: inspected.order, documentId: row.documentId,
+        }
+        inspectedRows.push({ row, document, ...inspected });
+      }
+      return inspectedRows;
+    }));
+    const matches = query.postgresPredicate === undefined ? candidates.map(candidate => candidate.matches === true) :
+      yield* evaluateRelationalPredicate(table, query, candidates.map(candidate => candidate.document));
+    const result = yield* Effect.fromResult(Result.gen(function* () {
+      const matched: { document: JsonObject; order: Uint8Array; documentId: AppDocumentIdV1; insertionOrder?: LogicalInsertionOrder }[] = [];
+      const generations = new Set<string>();
+      for (const [index, candidate] of candidates.entries()) {
+        const { row, document, order } = candidate;
+        if (matches[index] === true) {
+          if (query.postgresPredicate !== undefined) yield* markRowUse(row.documentId);
+          if (query.postgresPredicate !== undefined && query.storageInsertion) {
+            if (row.insertionOrder === undefined) return yield* Result.fail(error("invalidInput"));
+            const generation = row.insertionOrder.kind === "pending" ? ["pending", row.insertionOrder.attemptOrdinal] :
+              [String(row.insertionOrder.commitSeq), row.insertionOrder.attemptOrdinal];
+            const encoded = JSON.stringify(generation);
+            if (generations.has(encoded)) return yield* Result.fail(error("storedCorruption"));
+            generations.add(encoded);
+          }
+          matched.push({ document, order, documentId: row.documentId,
             ...(row.insertionOrder === undefined ? {} : { insertionOrder: row.insertionOrder }) });
         }
       }
@@ -1916,7 +1966,12 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     if (query.storageInsertion || query.search !== null || query.direction !== "asc" || query.selections !== null && query.selections.length > 1)
       return yield* Effect.fail(error("invalidInput"));
     if (query.offset >= callIdentityLimit) return yield* Effect.fail(error("limitExceeded"));
-    if (query.selections?.length === 0) return Object.freeze({ rows: Object.freeze([]), hasMore: false });
+    if (query.selections?.length === 0) {
+      // An impossible index candidate set does not eliminate PostgreSQL's
+      // complete WHERE planning errors (for example, an invalid regex).
+      if (query.postgresPredicate !== undefined) yield* evaluateRelationalPredicate(table, query, []);
+      return Object.freeze({ rows: Object.freeze([]), hasMore: false });
+    }
     const pageSelection = query.selections?.[0];
     const pageEquality = pageSelection === undefined || pageSelection.kind === "point" || typeof pageSelection.value === "object"
       ? undefined : { column: pageSelection.column, value: pageSelection.value };
@@ -1942,27 +1997,35 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     type Member = { row: PendingDocument; key: string; document: JsonObject };
     const matched = new Map<AppDocumentIdV1, Member>();
 
-    const add = (row: PendingDocument) => observeExecution("LogicalDocuments.pageMember", Effect.gen(function* () {
-      if (row.current === null) return;
-      const key = yield* Effect.fromResult(lowerIndex(selection.definition, row.current, row.creationTime, "storedCorruption"));
-      if (key === null || !indexKeyWithinBounds(key, selection.bounds)) return;
-      yield* Effect.fromResult(markRowUse(row.documentId));
-      const document = row.current;
-      const inspected = yield* Effect.fromResult(Result.gen(function* () {
-        const runtime = yield* output(document, true);
-        const verdict = yield* query.inspect(runtime, document);
-        return { document: runtime, ...verdict };
+    const add = (pending: readonly PendingDocument[]) => observeExecution("LogicalDocuments.pageMembers", Effect.gen(function* () {
+      const candidates = yield* Effect.fromResult(Result.gen(function* () {
+        const inspectedRows: (Member & { matches?: boolean })[] = [];
+        for (const row of pending) {
+          if (row.current === null) continue;
+          const key = yield* lowerIndex(selection.definition, row.current, row.creationTime, "storedCorruption");
+          if (key === null || !indexKeyWithinBounds(key, selection.bounds)) continue;
+          yield* markRowUse(row.documentId);
+          const document = yield* output(row.current, true);
+          const verdict = yield* (query.postgresPredicate === undefined ? query.inspect(document, row.current) : query.inspectRow(document, row.current));
+          inspectedRows.push({ row, key, document, ...verdict });
+        }
+        return inspectedRows;
       }));
-      if (inspected.matches) matched.set(row.documentId, { row, key, document: inspected.document });
+      const matches = query.postgresPredicate === undefined ? candidates.map(candidate => candidate.matches === true) :
+        yield* evaluateRelationalPredicate(table, query, candidates.map(candidate => candidate.document));
+      for (const [index, candidate] of candidates.entries())
+        if (matches[index] === true) matched.set(candidate.row.documentId, candidate);
     }));
     return yield* withStorageFrontier({ kind: "index", tableId: table.tableId,
       indexDefinitionId: selection.definition.indexDefinitionId }, { tableId: table.tableId }, Effect.gen(function* () {
       let examined = 0;
+      const pendingCandidates: PendingDocument[] = [];
       for (const row of rows.values()) if (row.tableId === table.tableId && (row.borrowedOverlay === true || row.attempts.length > 0)) {
         if (++examined > callIdentityLimit) return yield* Effect.fail(error("limitExceeded"));
         yield* charge(64);
-        yield* add(row);
+        pendingCandidates.push(row);
       }
+      yield* add(pendingCandidates);
       const needed = query.offset + query.limit + 1;
       let after: AppIndexRangeCursorV1 | undefined;
       let result: Member[] = [];
@@ -2008,13 +2071,15 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
           if (missing.length > 0) yield* readBaseInTransaction(tx, table.tableId, undefined, missing.map(entry => entry.rowId));
           return window;
         })));
+        const committed: PendingDocument[] = [];
         for (const entry of page.entries) {
           const { pending } = yield* locate(appDocumentIdV1FromRowIdentity(entry), tableName);
           if (pending?.base?.kind !== "live" || pending.base.commitSeq < entry.commitSeq) return yield* Effect.fail(error("writeConflict"));
           const baseKey = yield* Effect.fromResult(lowerIndex(selection.definition, pending.base.document, pending.base.creationTime, "storedCorruption"));
           if (baseKey !== entry.encodedKey) return yield* Effect.fail(error("writeConflict"));
-          if (pending.attempts.length === 0) yield* add(pending);
+          if (pending.attempts.length === 0) committed.push(pending);
         }
+        yield* add(committed);
         result = [...matched.values()].toSorted((left, right) => comparePagePosition({ key: left.key, rowId: left.row.rowId }, { key: right.key, rowId: right.row.rowId }));
         const frontier = result[needed - 1], witness = page.entries[page.entries.length - 1];
         // A pending-only frontier still requires a committed successor or EOF.

@@ -210,23 +210,31 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
     const clock = await getScopeClock(db, scopeId);
     if (clock === null) throw new Error("Missing neutral working-set scope");
     const failure = (reason: string, cause?: unknown) => new Error(reason, { cause });
+    const attempt = {} as SessionJournalAttempt;
+    const snapshotCommitSeq = CommitSeqSchema.make(3n);
     // The return allowance is checked after tentative mutation. A validator
     // failure at the earlier callback must leave no attempt; a later return
     // refusal must retain the attempt and original Cause until owner cleanup.
     await db.transaction(tx => runEffect(Effect.scoped(Effect.gen(function* () {
       for (const at of ["validator", "return"] as const) {
+        const writePins = { attempt, scopeId, snapshotCommitSeq, attemptFence: `write-order-${at}` };
+        const writeRoot = yield* Effect.acquireRelease(Effect.sync(() => makeLogicalDocumentRootEvaluator(writePins,
+          { identities: 8, workingBytes: 262_144 })), evaluator => Effect.sync(() => evaluator.close()));
         const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
-          { calls: 16, commandBytes: 262_144, commandMs: 60_000 }, {}, {}, `write-order-${at}`, "write"), resource => resource.close);
+          { calls: 16, commandBytes: 262_144, commandMs: 60_000 }, attempt, {}, `write-order-${at}`, "write"), resource => resource.close);
         let returnBytes = 0;
         let validations = 0;
         const validatorFailure = failure("validatorFirst");
         const working = yield* makeLogicalDocumentWorkingSet({ scopeId, clock, lifetime, tx,
-          tables: [{ tableId: firstTable, logicalName: "notes" }], readReadiness: { kind: "full" }, requireAdmission: Effect.void,
+          snapshotCommitSeq, rootEvaluator: writeRoot, rootAttempt: attempt, rootAttemptFence: writePins.attemptFence,
+          tables: [{ tableId: firstTable, logicalName: "notes" }], readReadiness: { kind: "full" },
+          requireAdmission: requireLogicalDocumentRootEvaluatorOpen(writeRoot, writePins, () => failure("closed")),
           validateDocument: ({ document }) => Effect.gen(function* () {
             validations++;
             if (at === "validator") return yield* Effect.fail(validatorFailure);
             returnBytes = yield* Effect.fromResult(capturePrivateJsonData(document.value, 65_536, failure).pipe(Result.map(value => value.bytes)));
-            yield* Effect.fromResult(lifetime.charge(lifetime.remainingBytes() - document.canonicalBytes.byteLength - 128 - returnBytes + 1));
+            // Retaining the attempt also records its identity's first row use.
+            yield* Effect.fromResult(lifetime.charge(lifetime.remainingBytes() - document.canonicalBytes.byteLength - 128 - 32 - returnBytes + 1));
           }), error: failure, uniqueConflict: () => failure("uniqueConflict"),
           limits: { pageRows: 8, identities: 8, documentBytes: 65_536 },
         }, firstTime, [], []);
@@ -236,7 +244,14 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         expect(written.failure.message).toBe(at === "validator" ? "validatorFirst" : "limitExceeded");
         if (at === "validator") expect(written.failure).toBe(validatorFailure);
         else expect(lifetime.remainingBytes()).toBe(returnBytes - 1);
-        const activity = yield* working.activitySnapshot();
+        expect(working.attemptCount()).toBe(at === "validator" ? 0 : 1);
+        const refusedActivity = yield* Effect.result(working.activitySnapshot());
+        if (Result.isSuccess(refusedActivity)) throw failure("Expected rollback-only activity refusal");
+        expect(refusedActivity.failure.message).toBe("rollbackOnly");
+        expect(refusedActivity.failure.cause).toEqual(Cause.fail(written.failure));
+        // The trusted root can inspect retained tentative state after refusal;
+        // the request's activity reader must keep rejecting that same lifetime.
+        const activity = writeRoot.snapshot();
         expect(activity.attempts).toHaveLength(at === "validator" ? 0 : 1);
         expect(activity.observedRows).toHaveLength(at === "validator" ? 0 : 1);
         if (at === "return") expect(activity.observedRows[0]?.value).toMatchObject({ label: "pending-return" });
@@ -445,8 +460,6 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
           basis: { kind: "noVisibleRevision" } } } },
       ]);
     })));
-    const attempt = {} as SessionJournalAttempt;
-    const snapshotCommitSeq = CommitSeqSchema.make(3n);
     const pins = { attempt, scopeId, snapshotCommitSeq, attemptFence: "working-set-root-1" };
     const root = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });
     const originalRevision = await runEffect(runEffectTransaction<AppRowReadResultV1, ReadAppRowError | Error, Error, FlarexMetadataTransaction>(
@@ -1252,7 +1265,8 @@ export async function logicalWorkingSetCurrentIndexBudgetScenario(db: FlarexMeta
   const membershipBytes = (selected: typeof fixtures) => 128 + selected.reduce((bytes, row) => bytes + 128 + row.encodedKey.length / 2, 0);
   const queryBytes = (query: typeof singleQuery) => Result.getOrThrow(capturePrivateJsonData(query, 1_048_576, failure)).bytes;
   const firstPacketBytes = packetRows.slice(0, 256).reduce((bytes, row) => bytes + row.document.canonicalBytes.byteLength, 0);
-  const firstPacketCharges = firstPacketBytes + 256 * 256;
+  // Each first live observation retains its dependency, row and row-use entry.
+  const firstPacketCharges = firstPacketBytes + 256 * (128 + 128 + 32);
   const secondPacketBytes = packetRows.slice(256).reduce((bytes, row) => bytes + row.document.canonicalBytes.byteLength, 0);
   await db.transaction(tx => runEffect(withInstallation(tx, Effect.scoped(Effect.gen(function* () {
     const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
@@ -1593,7 +1607,7 @@ export async function logicalWorkingSetCurrentUniqueBudgetScenario(db: FlarexMet
         .toMatchObject({ docs: [document.value], total: 1 });
       // Fresh agreement precedes the first output capture, so no reusable
       // canonical-row verdict exists yet and no derived key is retained.
-      expect(fresh.lifetime.remainingBytes()).toBe(beforeFresh - queryBytes(query) - 256 - document.canonicalBytes.byteLength
+      expect(fresh.lifetime.remainingBytes()).toBe(beforeFresh - queryBytes(query) - 256 - 32 - document.canonicalBytes.byteLength
         - 128 - ownerKey.canonicalKeyBytes.byteLength - outputBytes);
       expect(uniqueQueries).toBe(1);
       expect(transported).toEqual([rowId]);

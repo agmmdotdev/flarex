@@ -56,6 +56,14 @@ with digest-bound table targets and the existing first-data and settlement owner
 
 ## Current Sources Of Truth
 
+[PostgreSQL relational predicates](./68-postgres-relational-predicates.md) owns
+the implemented bounded private prerequisite for complete native
+text predicate trees over captured candidates. Native Price Preference update
+retains its separate integration gate; existing pure predicates and selected
+storage authority remain distinct. Its named installed capture uses the existing
+physical transaction owner directly for admission/body/tail and cancellation
+rollback; other finite captures keep their implicit-statement contract.
+
 [Protected insertion-generation order](./67-insertion-generation-order.md) owns
 the implemented bounded neutral contract for native relation insertion order.
 It preserves public creation timestamps and existing profiles while requiring
