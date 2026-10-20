@@ -72,27 +72,24 @@ import { uuidSequence, sha256Hex } from "./readinessEvidence";
 export type TestPersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
 
 export interface ReadinessFixtureOptions {
-  /** Already migrated; its instrumented driver remains owned by the caller. */
-  readonly targetPersistence?: TestPersistence;
+  /** Explicit alternate publication placement; the caller owns its lifetime. */
+  readonly schemaControl?: TestPersistence;
   readonly registerTaskCatalog?: boolean;
   readonly includeFunction?: boolean;
   readonly includeTable?: boolean;
   readonly includeIndex?: boolean;
   readonly includeTask?: boolean;
   readonly coldMode?: "normal" | "wrongTarget" | "advanceAuthority";
-  readonly foreignSchemaControl?: boolean;
   readonly failSchemaPublication?: boolean;
   readonly functionKind?: "query" | "mutation" | "action";
 }
 
-export async function readinessFixture(options: ReadinessFixtureOptions = {}) {
-  const [control, target] = await Promise.all([
-    createReadinessPGlitePersistence(),
-    options.targetPersistence ?? createReadinessPGlitePersistence(),
-  ]);
-  const schemaControl = options.foreignSchemaControl === true
-    ? await createReadinessPGlitePersistence()
-    : control;
+export async function readinessFixture(
+  control: TestPersistence,
+  target: TestPersistence,
+  options: ReadinessFixtureOptions = {},
+) {
+  const schemaControl = options.schemaControl ?? control;
   const deploymentId = "deployment_application_readiness";
   const provisioned = await createPGliteSplitScopeAuthorityProvisioner(
     control,

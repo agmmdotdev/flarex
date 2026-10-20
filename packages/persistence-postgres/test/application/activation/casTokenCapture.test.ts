@@ -16,7 +16,10 @@ import {
   fxSystemScopeExecutionAuthorities,
 } from "../../../src/database/schema";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
-import { readinessFixture } from "../support/readinessFixture";
+import {
+  createReadinessPGlitePersistence,
+  readinessFixture,
+} from "../support/readinessFixture";
 import { prepareReadinessAuthorities } from "../support/readinessPreparation";
 
 beforeAll(() => {
@@ -29,7 +32,12 @@ const token = (): ApplicationActiveCasToken => ({ activationSequence: 1n, headSh
 
 describe("Application activation CAS token capture", { timeout: 30_000 }, () => {
   it("refuses malformed own descriptors without getters or authority work, retains reflection causes, then activates", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       activation: { kind: "fullProof" },

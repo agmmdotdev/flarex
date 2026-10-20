@@ -10,7 +10,10 @@ import {
 import { createPGlitePersistence } from "../../../src/database/pglite";
 import { runEffect } from "../../support/effectTestRuntime";
 import { RUNTIME_HOST_IDENTITY, COMPATIBILITY_DATE } from "../support/readinessArtifacts";
-import { readinessFixture } from "../support/readinessFixture";
+import {
+  createReadinessPGlitePersistence,
+  readinessFixture,
+} from "../support/readinessFixture";
 import { prepareReadinessAuthorities } from "../support/readinessPreparation";
 import { scalarCount } from "../support/readinessEvidence";
 
@@ -55,7 +58,10 @@ describe("Application readiness/settlement", { timeout: 30_000 }, () => {
         })),
       },
     });
-    const fixture = await readinessFixture({ targetPersistence });
+    const fixture = await readinessFixture(
+      await createReadinessPGlitePersistence(),
+      targetPersistence,
+    );
     const result = await runEffect(Effect.result(fixture.repository.readReady({
       deploymentId: "",
       scopeId: fixture.input.scopeId,
@@ -113,7 +119,13 @@ describe("Application readiness/settlement", { timeout: 30_000 }, () => {
   })
 
   it("fails before schema publication when the explicit task catalog is absent", async () => {
-    const fixture = await readinessFixture({ registerTaskCatalog: false });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { registerTaskCatalog: false },
+    );
 
     const result = await runEffect(fixture.repository.settle(fixture.input));
 
@@ -133,7 +145,16 @@ describe("Application readiness/settlement", { timeout: 30_000 }, () => {
   })
 
   it("rejects a schema publisher bound to another control database", async () => {
-    const fixture = await readinessFixture({ foreignSchemaControl: true });
+    const [control, target] = await Promise.all([
+      createReadinessPGlitePersistence(),
+      createReadinessPGlitePersistence(),
+    ]);
+    const schemaControl = await createReadinessPGlitePersistence();
+    const fixture = await readinessFixture(
+      control,
+      target,
+      { schemaControl },
+    );
 
     const result = await runEffect(Effect.result(
       fixture.repository.settle(fixture.input),
@@ -154,7 +175,13 @@ describe("Application readiness/settlement", { timeout: 30_000 }, () => {
   })
 
   it("rolls back schema authority when atomic publication fails", async () => {
-    const fixture = await readinessFixture({ failSchemaPublication: true });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { failSchemaPublication: true },
+    );
 
     const result = await runEffect(Effect.result(
       fixture.repository.settle(fixture.input),
@@ -172,7 +199,12 @@ describe("Application readiness/settlement", { timeout: 30_000 }, () => {
   })
 
   it("settles and exactly replays across split control and target stores", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
 
     const first = await runEffect(fixture.repository.settle(fixture.input));
@@ -209,7 +241,12 @@ describe("Application readiness/settlement", { timeout: 30_000 }, () => {
   })
 
   it("converges concurrent identical settlement on one readiness receipt", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
 
     const results = await Promise.all([
@@ -235,7 +272,13 @@ describe("Application readiness/settlement", { timeout: 30_000 }, () => {
   })
 
   it("rejects invalid cold evidence without committing readiness", async () => {
-    const fixture = await readinessFixture({ coldMode: "wrongTarget" });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { coldMode: "wrongTarget" },
+    );
     await prepareReadinessAuthorities(fixture);
 
     const result = await runEffect(Effect.result(
@@ -258,7 +301,12 @@ describe("Application readiness/settlement", { timeout: 30_000 }, () => {
   })
 
   it("fails closed on stored cold-receipt corruption without rematerializing", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
     await runEffect(fixture.repository.settle(fixture.input));
     await fixture.target.query(
@@ -280,7 +328,13 @@ describe("Application readiness/settlement", { timeout: 30_000 }, () => {
   })
 
   it("rejects a non-empty task catalog with a missing stored definition", async () => {
-    const fixture = await readinessFixture({ includeTask: true });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { includeTask: true },
+    );
     await fixture.target.query(
       `delete from fx_system_application_task_definition_v1
         where scope_id = $1 and revision_id = $2`,
@@ -302,7 +356,12 @@ describe("Application readiness/settlement", { timeout: 30_000 }, () => {
   })
 
   it("rejects corrupted task-catalog binding evidence", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await fixture.target.query(
       `update fx_system_application_task_catalog_v1
           set binding_bytes = $1
@@ -325,7 +384,13 @@ describe("Application readiness/settlement", { timeout: 30_000 }, () => {
   })
 
   it("commits runtime policy for an explicit zero-function revision", async () => {
-    const fixture = await readinessFixture({ includeFunction: false });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { includeFunction: false },
+    );
     await prepareReadinessAuthorities(fixture);
 
     const result = await runEffect(fixture.repository.settle(fixture.input));

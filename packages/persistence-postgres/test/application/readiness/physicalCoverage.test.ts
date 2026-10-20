@@ -19,7 +19,10 @@ import {
   fxSystemIndexMaintenanceObligations,
   fxSystemScopeClocks,
 } from "../../../src/database/schema";
-import { readinessFixture } from "../support/readinessFixture";
+import {
+  createReadinessPGlitePersistence,
+  readinessFixture,
+} from "../support/readinessFixture";
 import { prepareReadinessAuthorities, enablePhysicalBuilds } from "../support/readinessPreparation";
 import { scalarCount } from "../support/readinessEvidence";
 
@@ -34,7 +37,12 @@ beforeAll(() => {
 
 describe("Application readiness/physicalCoverage", { timeout: 30_000 }, () => {
   it("rejects a structurally copied physical lifecycle capability", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     const repository = makeApplicationReadinessRepository(Object.freeze({
       ...fixture.readinessContext,
       physicalDefinitionLifecycle: Object.freeze({
@@ -57,7 +65,13 @@ describe("Application readiness/physicalCoverage", { timeout: 30_000 }, () => {
   })
 
   it("requires the existing physical-build owner for a table-bearing schema", async () => {
-    const fixture = await readinessFixture({ includeTable: true });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { includeTable: true },
+    );
     await prepareReadinessAuthorities(fixture);
 
     const result = await runEffect(fixture.repository.settle(fixture.input));
@@ -74,7 +88,13 @@ describe("Application readiness/physicalCoverage", { timeout: 30_000 }, () => {
   })
 
   it("settles a table-bearing schema only after the real physical build enables", async () => {
-    const fixture = await readinessFixture({ includeTable: true });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { includeTable: true },
+    );
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     await enablePhysicalBuilds(fixture, schemaVersionId);
 
@@ -95,7 +115,13 @@ describe("Application readiness/physicalCoverage", { timeout: 30_000 }, () => {
   })
 
   it("binds immutable first-readable authority across bounded and continuous coverage", async () => {
-    const fixture = await readinessFixture({ includeTable: true });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { includeTable: true },
+    );
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     await enablePhysicalBuilds(fixture, schemaVersionId);
     const ready = await runEffect(fixture.repository.settle(fixture.input));
@@ -148,7 +174,13 @@ describe("Application readiness/physicalCoverage", { timeout: 30_000 }, () => {
   })
 
   it("fails closed when enabled physical evidence starts after the scope frontier", async () => {
-    const fixture = await readinessFixture({ includeTable: true });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { includeTable: true },
+    );
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     await enablePhysicalBuilds(fixture, schemaVersionId);
     const clock = await fixture.target.getScopeClock(fixture.authority.scopeId);
@@ -176,7 +208,13 @@ describe("Application readiness/physicalCoverage", { timeout: 30_000 }, () => {
   })
 
   it("rejects a scope-fence change during cold proof without committing", async () => {
-    const fixture = await readinessFixture({ coldMode: "advanceAuthority" });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { coldMode: "advanceAuthority" },
+    );
     await prepareReadinessAuthorities(fixture);
 
     const result = await runEffect(Effect.result(

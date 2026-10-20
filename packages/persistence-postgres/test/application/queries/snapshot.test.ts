@@ -22,7 +22,10 @@ import {
 } from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
 import { runEffect } from "../../support/effectTestRuntime";
 import { fxSystemIndexBuildStates } from "../../../src/database/schema";
-import { readinessFixture } from "../support/readinessFixture";
+import {
+  createReadinessPGlitePersistence,
+  readinessFixture,
+} from "../support/readinessFixture";
 import { prepareReadinessAuthorities, enablePhysicalBuilds } from "../support/readinessPreparation";
 import { createAdditionalApplicationRevision } from "../support/readinessPublication";
 import { deferred } from "../support/readinessEvidence";
@@ -44,7 +47,12 @@ beforeAll(() => {
 
 describe("Application queries/snapshot", { timeout: 30_000 }, () => {
   it("opens and revalidates an Application query snapshot from exact active function evidence", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
@@ -101,7 +109,12 @@ describe("Application queries/snapshot", { timeout: 30_000 }, () => {
   })
 
   it("accepts Application query snapshots at or above the retained floor and rejects below it", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
@@ -172,7 +185,12 @@ describe("Application queries/snapshot", { timeout: 30_000 }, () => {
   })
 
   it("rejects corrupted stored Application function evidence before issuing a query snapshot", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
@@ -214,7 +232,12 @@ describe("Application queries/snapshot", { timeout: 30_000 }, () => {
   })
 
   it("rejects a developer-index port issued by another control database", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
@@ -251,7 +274,13 @@ describe("Application queries/snapshot", { timeout: 30_000 }, () => {
   })
 
   it("enforces point-read budgets and retained-history staleness on an issued query snapshot", async () => {
-    const fixture = await readinessFixture({ includeTable: true });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { includeTable: true },
+    );
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     await enablePhysicalBuilds(fixture, schemaVersionId);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
@@ -347,10 +376,16 @@ describe("Application queries/snapshot", { timeout: 30_000 }, () => {
   })
 
   it("finalizes one immutable deduplicated Application query dependency receipt", async () => {
-    const fixture = await readinessFixture({
-      includeTable: true,
-      includeIndex: true,
-    });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      {
+        includeTable: true,
+        includeIndex: true,
+      },
+    );
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     await insertApplicationQueryRow(fixture, schemaVersionId);
     await enablePhysicalBuilds(fixture, schemaVersionId);
@@ -449,7 +484,12 @@ describe("Application queries/snapshot", { timeout: 30_000 }, () => {
   })
 
   it("rejects a query snapshot after the Application active head moves", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
@@ -505,7 +545,13 @@ describe("Application queries/snapshot", { timeout: 30_000 }, () => {
   })
 
   it("closes queued query reads before they start another transaction", async () => {
-    const fixture = await readinessFixture({ includeTable: true });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { includeTable: true },
+    );
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     await enablePhysicalBuilds(fixture, schemaVersionId);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
@@ -575,10 +621,16 @@ describe("Application queries/snapshot", { timeout: 30_000 }, () => {
   })
 
   it("materializes an ordered developer-index page from the active snapshot", async () => {
-    const fixture = await readinessFixture({
-      includeTable: true,
-      includeIndex: true,
-    });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      {
+        includeTable: true,
+        includeIndex: true,
+      },
+    );
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     const expected = await insertApplicationQueryRow(fixture, schemaVersionId);
     await enablePhysicalBuilds(fixture, schemaVersionId);

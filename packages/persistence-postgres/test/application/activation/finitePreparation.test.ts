@@ -72,7 +72,10 @@ import {
   fxSystemApplicationPublicationsV1,
   fxSystemApplicationReadinessFunctionsV1,
 } from "../../../src/database/schema";
-import { readinessFixture } from "../support/readinessFixture";
+import {
+  createReadinessPGlitePersistence,
+  readinessFixture,
+} from "../support/readinessFixture";
 import { prepareReadinessAuthorities, enablePhysicalBuilds } from "../support/readinessPreparation";
 import { uuidSequence } from "../support/readinessEvidence";
 import { applicationMutationActivationInput } from "../admission/support/mutationActivation";
@@ -89,7 +92,13 @@ beforeAll(async () => {
 
 describe("Application activation/finitePreparation", { timeout: 30_000 }, () => {
   it("prepares private finite mutation inputs with detached getters and fresh unprotected acceptance", async () => {
-    const fixture = await readinessFixture({ functionKind: "mutation" });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { functionKind: "mutation" },
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });
@@ -346,7 +355,13 @@ describe("Application activation/finitePreparation", { timeout: 30_000 }, () => 
   })
 
   it("charges retained finite opaque index lifecycle evidence before issuing a usable handle", async () => {
-    const fixture = await readinessFixture({ includeTable: true, includeIndex: true, functionKind: "mutation" });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { includeTable: true, includeIndex: true, functionKind: "mutation" },
+    );
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     await enablePhysicalBuilds(fixture, schemaVersionId);
     await runEffect(fixture.repository.settle(fixture.input));
@@ -447,7 +462,11 @@ describe("Application activation/finitePreparation", { timeout: 30_000 }, () => 
         } }),
       })),
     } });
-    const fixture = await readinessFixture({ targetPersistence, functionKind: "mutation" });
+    const fixture = await readinessFixture(
+      await createReadinessPGlitePersistence(),
+      targetPersistence,
+      { functionKind: "mutation" },
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });
@@ -485,7 +504,13 @@ describe("Application activation/finitePreparation", { timeout: 30_000 }, () => 
   })
 
   it("refuses unchanged-digest publication body corruption before issuing finite preparation", async () => {
-    const fixture = await readinessFixture({ functionKind: "mutation" });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { functionKind: "mutation" },
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });

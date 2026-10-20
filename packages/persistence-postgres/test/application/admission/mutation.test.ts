@@ -18,7 +18,10 @@ import { fxSystemApplicationActiveHeads } from "../../../src/application/applica
 import { runEffect } from "../../support/effectTestRuntime";
 import { fxSystemApplicationFunctionsV1 } from "../../../src/database/schema";
 import { LOCATOR } from "../support/readinessArtifacts";
-import { readinessFixture } from "../support/readinessFixture";
+import {
+  createReadinessPGlitePersistence,
+  readinessFixture,
+} from "../support/readinessFixture";
 import { prepareReadinessAuthorities } from "../support/readinessPreparation";
 import { scalarCount, uuidSequence } from "../support/readinessEvidence";
 import { applicationMutationActivationInput } from "./support/mutationActivation";
@@ -34,7 +37,13 @@ beforeAll(() => {
 
 describe("Application admission/mutation", { timeout: 30_000 }, () => {
   it("admits and replays exact Application mutation authority and rejects stale or foreign authority", async () => {
-    const fixture = await readinessFixture({ functionKind: "mutation" });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { functionKind: "mutation" },
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
@@ -292,7 +301,13 @@ describe("Application admission/mutation", { timeout: 30_000 }, () => {
   })
 
   it("selects an exact public Application mutation and rejects a stale admitted head", async () => {
-    const fixture = await readinessFixture({ functionKind: "mutation" });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { functionKind: "mutation" },
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,

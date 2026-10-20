@@ -75,7 +75,10 @@ import {
   fxSystemApplicationReadinessV1,
 } from "../../../src/database/schema";
 import { RUNTIME_HOST_IDENTITY, COMPATIBILITY_DATE, LOCATOR } from "../support/readinessArtifacts";
-import { readinessFixture } from "../support/readinessFixture";
+import {
+  createReadinessPGlitePersistence,
+  readinessFixture,
+} from "../support/readinessFixture";
 import {
   prepareReadinessAuthorities,
   enablePhysicalBuilds,
@@ -97,7 +100,12 @@ beforeAll(() => {
 
 describe("Application activation/active", { timeout: 30_000 }, () => {
   it("keeps readiness and active selection on the chosen scope after a peer shop joins the deployment", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
@@ -128,7 +136,13 @@ describe("Application activation/active", { timeout: 30_000 }, () => {
   })
 
   it("keeps an active Application with an enabled unique definition readable after a peer shop joins", async () => {
-    const fixture = await readinessFixture({ includeTable: true });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { includeTable: true },
+    );
     expect(await runEffect(fixture.repository.settle(fixture.input)))
       .toMatchObject({ status: "not_ready", reason: "candidateValidationMissing" });
     const schemaVersionId = await applicationSchemaVersionId(fixture.control);
@@ -183,7 +197,13 @@ describe("Application activation/active", { timeout: 30_000 }, () => {
   })
 
   it("closes readiness and active selection while a required definition drains", async () => {
-    const fixture = await readinessFixture({ includeTable: true });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { includeTable: true },
+    );
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     await enablePhysicalBuilds(fixture, schemaVersionId);
     expect(await runEffect(fixture.repository.settle(fixture.input)))
@@ -271,7 +291,12 @@ describe("Application activation/active", { timeout: 30_000 }, () => {
   })
 
   it("fails closed when durable readiness disappears before an active read", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
     const ready = await runEffect(fixture.repository.settle(fixture.input));
     expect(ready).toMatchObject({ status: "ready" });
@@ -298,7 +323,12 @@ describe("Application activation/active", { timeout: 30_000 }, () => {
   })
 
   it("revalidates the stored application graph inside the activation transaction", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
     const settled = await runEffect(fixture.repository.settle(fixture.input));
     expect(settled).toMatchObject({ status: "ready" });
@@ -352,7 +382,12 @@ describe("Application activation/active", { timeout: 30_000 }, () => {
   })
 
   it("activates by explicit CAS, exactly replays, and issues one authentic selection", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
@@ -444,7 +479,13 @@ describe("Application activation/active", { timeout: 30_000 }, () => {
   })
 
   it("classifies retained active readiness as non-serving and rejects a corrupt active head", async () => {
-    const fixture = await readinessFixture({ functionKind: "mutation" });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { functionKind: "mutation" },
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
@@ -511,7 +552,12 @@ describe("Application activation/active", { timeout: 30_000 }, () => {
   })
 
   it("rolls back history and head together after a late injected failure", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
@@ -540,7 +586,12 @@ describe("Application activation/active", { timeout: 30_000 }, () => {
   })
 
   it("surfaces a committed uncertain activation and cold-replays its exact history", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
     const resolved = await fixture.authorityPorts.scopeClockTargets.resolve();
     const runner = Reflect.get(
@@ -615,7 +666,12 @@ describe("Application activation/active", { timeout: 30_000 }, () => {
   })
 
   it("fails closed when the active-head canonical evidence is corrupted", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
@@ -642,7 +698,12 @@ describe("Application activation/active", { timeout: 30_000 }, () => {
   })
 
   it("moves the head with the prior CAS token and invalidates the issued selection", async () => {
-    const fixture = await readinessFixture();
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,

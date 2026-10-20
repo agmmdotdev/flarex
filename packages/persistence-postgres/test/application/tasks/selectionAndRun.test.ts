@@ -54,7 +54,10 @@ import {
 } from "../../../src/tasks/taskSystemRunAttemptStoreV1";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { RUNTIME_HOST_IDENTITY, COMPATIBILITY_DATE, taskSha256 } from "../support/readinessArtifacts";
-import { readinessFixture } from "../support/readinessFixture";
+import {
+  createReadinessPGlitePersistence,
+  readinessFixture,
+} from "../support/readinessFixture";
 import { prepareReadinessAuthorities } from "../support/readinessPreparation";
 import { createAdditionalApplicationRevision } from "../support/readinessPublication";
 import {
@@ -79,7 +82,13 @@ beforeAll(() => {
 
 describe("Application tasks/selectionAndRun", { timeout: 30_000 }, () => {
   it("selects one immutable Application task without creating a run and invalidates it on head movement", async () => {
-    const fixture = await readinessFixture({ includeTask: true });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { includeTask: true },
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
@@ -173,7 +182,13 @@ describe("Application tasks/selectionAndRun", { timeout: 30_000 }, () => {
   })
 
   it("creates and replays one Application task run from the authentic selection", async () => {
-    const fixture = await readinessFixture({ includeTask: true });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { includeTask: true },
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
@@ -934,7 +949,12 @@ describe("Application tasks/selectionAndRun", { timeout: 30_000 }, () => {
   })
 
   it("rejects a missing or corrupted stored Application task", async () => {
-    const empty = await readinessFixture();
+    const empty = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+    );
     await prepareReadinessAuthorities(empty);
     const emptyActivation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: empty.input.deploymentId,
@@ -962,7 +982,13 @@ describe("Application tasks/selectionAndRun", { timeout: 30_000 }, () => {
       expect(missing.failure).toMatchObject({ reason: "taskMissing" });
     }
 
-    const corrupt = await readinessFixture({ includeTask: true });
+    const corrupt = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { includeTask: true },
+    );
     await prepareReadinessAuthorities(corrupt);
     const corruptActivation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: corrupt.input.deploymentId,

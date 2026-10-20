@@ -170,7 +170,7 @@ export async function resetScopeAuthorityRowsInTransaction(transaction: Transact
   await resetControlScopeRowsInTransaction(transaction);
 }
 
-async function resetControlScopeRowsInTransaction(transaction: Transaction): Promise<void> {
+export async function resetControlScopeRowsInTransaction(transaction: Transaction): Promise<void> {
   // Preserve every foreign key and leave other deployment dependants intact.
   await transaction.exec(`
     delete from fx_control_scope_provisioning;

@@ -35,7 +35,10 @@ import { fxSystemApplicationActiveHeads } from "../../../src/application/applica
 import { runEffect } from "../../support/effectTestRuntime";
 import { fxSystemApplicationActionInvocationsV1 } from "../../../src/database/schema";
 import { COMPATIBILITY_DATE, LOCATOR } from "../support/readinessArtifacts";
-import { readinessFixture } from "../support/readinessFixture";
+import {
+  createReadinessPGlitePersistence,
+  readinessFixture,
+} from "../support/readinessFixture";
 import { prepareReadinessAuthorities } from "../support/readinessPreparation";
 import { sha256Hex } from "../support/readinessEvidence";
 
@@ -50,7 +53,13 @@ beforeAll(() => {
 
 describe("Application actions/admissionAndLifecycle", { timeout: 30_000 }, () => {
   it("selects an exact public Application action without legacy revision evidence", async () => {
-    const fixture = await readinessFixture({ functionKind: "action" });
+    const fixture = await readinessFixture(
+      ...await Promise.all([
+        createReadinessPGlitePersistence(),
+        createReadinessPGlitePersistence(),
+      ]),
+      { functionKind: "action" },
+    );
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
