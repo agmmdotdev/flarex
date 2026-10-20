@@ -21,7 +21,9 @@ import {
 import {
   makeStandardApplicationTaskSha256V1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
-import { eq } from "drizzle-orm";
+import { webcrypto } from "node:crypto";
+
+import { and, eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import {
   applicationTaskMutationRequestKeyV1FromDigest,
@@ -66,8 +68,13 @@ import {
 } from "../../src/tasks/taskSystemRunAttemptStoreV1";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import {
-  createApplicationNativeMutationPGliteFixture,
+  createApplicationNativeMutationPGliteFixtureWithPersistence,
 } from "../application/applicationNativeMutationTestFixture";
+import {
+  useFileScopedPersistence,
+  type FileScopedPersistenceFixture,
+} from "../support/fileScopedPersistenceFixture";
+import { createFileScopedPGliteFixture } from "../support/pgliteTestFixture";
 
 const DEADLINE_POLICY = Object.freeze({
   connectionTimeoutMilliseconds: 250,
@@ -77,7 +84,9 @@ const DEADLINE_POLICY = Object.freeze({
   settlementReserveMilliseconds: 3_000,
 });
 
-describe("DTE06-F0b Task external-effect authority", () => {
+describe("DTE06-F0b Task external-effect authority", { concurrent: false }, () => {
+  const withAuthorityPersistence = useFileScopedPersistence(createAuthorityPersistencePair, false);
+
   it("rejects competing pool deadline configuration", () => {
     const result = createPostgresTaskExternalEffectAuthorityResource(
       { connectionTimeoutMillis: 1 },
@@ -101,8 +110,8 @@ describe("DTE06-F0b Task external-effect authority", () => {
 
   it("owns exact child-mutation sequencing, replay, and lifecycle transitions", {
     timeout: 180_000,
-  }, async () => {
-    const setup = await makeExecutingApplicationTask();
+  }, async () => withAuthorityPersistence(async persistence => {
+    const setup = await makeExecutingApplicationTask(persistence);
     const first = effectInput(1n, 0x11);
 
     const concurrentPrepare = await Promise.all([
@@ -259,12 +268,12 @@ describe("DTE06-F0b Task external-effect authority", () => {
       BigInt(row.effect_ordinal),
       row.stable_effect_key,
     ]));
-  });
+  }));
 
   it("admits live-lease work before heartbeat and rejects stale subjects", {
     timeout: 180_000,
-  }, async () => {
-    const setup = await makeApplicationTask(false);
+  }, async () => withAuthorityPersistence(async persistence => {
+    const setup = await makeApplicationTask(persistence, false);
     await expect(runEffect(prepareTaskChildMutationEffect(
       setup.subject,
       effectInput(1n, 0x31),
@@ -400,12 +409,12 @@ describe("DTE06-F0b Task external-effect authority", () => {
       _tag: "InvalidApplicationTaskExternalEffectSubjectError",
       reason: "revoked",
     });
-  });
+  }));
 
   it("rolls back every persisted transition before admitting exact retry", {
     timeout: 180_000,
-  }, async () => {
-    const setup = await makeExecutingApplicationTask();
+  }, async () => withAuthorityPersistence(async persistence => {
+    const setup = await makeExecutingApplicationTask(persistence);
 
     await expectInjectedRollback(
       setup,
@@ -501,12 +510,12 @@ describe("DTE06-F0b Task external-effect authority", () => {
       "settlement_unknown",
       setup.context,
     ));
-  });
+  }));
 
   it("rejects aggregate/projection contradiction before writing effect evidence", {
     timeout: 180_000,
-  }, async () => {
-    const setup = await makeExecutingApplicationTask();
+  }, async () => withAuthorityPersistence(async persistence => {
+    const setup = await makeExecutingApplicationTask(persistence);
     await setup.fixture.target.query(
       `update fx_system_durable_task_run_v1
           set run_version = run_version + 1
@@ -528,12 +537,12 @@ describe("DTE06-F0b Task external-effect authority", () => {
       [setup.context.authority.scopeId],
     );
     expect(rows.rows[0]?.count).toBe("0");
-  });
+  }));
 
   it("requires a live database-time lease for issue, prepare, and dispatch only", {
     timeout: 180_000,
-  }, async () => {
-    const setup = await makeExecutingApplicationTask();
+  }, async () => withAuthorityPersistence(async persistence => {
+    const setup = await makeExecutingApplicationTask(persistence);
     const databaseNowMs = await readDatabaseNowMs(setup);
 
     await setCurrentLeaseExpiry(setup, databaseNowMs + 60_000);
@@ -589,12 +598,12 @@ describe("DTE06-F0b Task external-effect authority", () => {
       disposition: "applied",
       effect: { state: "confirmed" },
     });
-  });
+  }));
 
   it("reconciles every stored state without guessing or creating missing work", {
     timeout: 180_000,
-  }, async () => {
-    const setup = await makeExecutingApplicationTask();
+  }, async () => withAuthorityPersistence(async persistence => {
+    const setup = await makeExecutingApplicationTask(persistence);
     const first = effectInput(1n, 0xa1);
     const firstReconcile = await reconcileInput(setup, first, null);
 
@@ -693,12 +702,12 @@ describe("DTE06-F0b Task external-effect authority", () => {
       _tag: "TaskExternalEffectRequestConflictError",
       field: "stableRequestKey",
     });
-  });
+  }));
 
   it("rejects a missing earlier ordinal when later effect evidence exists", {
     timeout: 180_000,
-  }, async () => {
-    const setup = await makeExecutingApplicationTask();
+  }, async () => withAuthorityPersistence(async persistence => {
+    const setup = await makeExecutingApplicationTask(persistence);
     const first = effectInput(1n, 0xc4);
     const second = effectInput(2n, 0xc6);
     await runEffect(prepareTaskChildMutationEffect(
@@ -718,7 +727,10 @@ describe("DTE06-F0b Task external-effect authority", () => {
     ));
     await setup.fixture.target.drizzle.delete(
       fxSystemExternalEffectAttemptsV1,
-    ).where(eq(fxSystemExternalEffectAttemptsV1.effectOrdinal, 1n));
+    ).where(and(
+      eq(fxSystemExternalEffectAttemptsV1.scopeId, setup.context.authority.scopeId),
+      eq(fxSystemExternalEffectAttemptsV1.effectOrdinal, 1n),
+    ));
 
     await expect(runEffectFailure(reconcileTaskChildMutationDisposition(
       setup.subject,
@@ -728,12 +740,12 @@ describe("DTE06-F0b Task external-effect authority", () => {
       _tag: "TaskExternalEffectAuthorityCorruptionError",
       detail: "Task external-effect sequence contains a missing earlier ordinal",
     });
-  });
+  }));
 
   it("recovers exact terminal evidence after committed transition responses are lost", {
     timeout: 180_000,
-  }, async () => {
-    const setup = await makeExecutingApplicationTask();
+  }, async () => withAuthorityPersistence(async persistence => {
+    const setup = await makeExecutingApplicationTask(persistence);
 
     const first = effectInput(1n, 0xd1);
     setup.loseNextCommittedResponse();
@@ -815,21 +827,65 @@ describe("DTE06-F0b Task external-effect authority", () => {
       disposition: "replayed",
       effect: { state: "confirmed", outcomeSha256: outcome },
     });
-  });
+  }));
 });
 
-async function makeExecutingApplicationTask() {
-  return makeApplicationTask(true);
+let fixtureOrdinal = 0;
+
+type AuthorityPersistence = Parameters<
+  typeof createApplicationNativeMutationPGliteFixtureWithPersistence
+>[1];
+
+async function createAuthorityPersistencePair(): Promise<FileScopedPersistenceFixture<AuthorityPersistence>> {
+  if (globalThis.crypto === undefined) {
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      value: webcrypto,
+    });
+  }
+  const control = await createFileScopedPGliteFixture(async () => async () => {});
+  let target: Awaited<ReturnType<typeof createFileScopedPGliteFixture>>;
+  try {
+    target = await createFileScopedPGliteFixture(async () => async () => {});
+  } catch (error: unknown) {
+    try { await control.dispose(); }
+    catch (cleanupError: unknown) {
+      throw new AggregateError([error, cleanupError], "Task authority fixture setup and cleanup failed");
+    }
+    throw error;
+  }
+  return {
+    persistence: { control: control.persistence, target: target.persistence },
+    // Each borrower creates a fresh scope; retain immutable activation evidence.
+    reset: async () => {},
+    dispose: async () => {
+      const settled = await Promise.allSettled([control.dispose(), target.dispose()]);
+      const failures: unknown[] = settled.flatMap(result =>
+        result.status === "rejected" ? [result.reason] : []);
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) throw new AggregateError(failures, "Task authority fixture cleanup failed");
+    },
+  };
 }
 
-async function makeApplicationTask(enterExecuting: boolean) {
+async function makeExecutingApplicationTask(persistence: AuthorityPersistence) {
+  return makeApplicationTask(persistence, true);
+}
+
+async function makeApplicationTask(persistence: AuthorityPersistence, enterExecuting: boolean) {
   const runtimeHostIdentity = "flarex.test/task-external-effect-authority";
   const compatibilityDate = "2026-08-20";
-  const fixture = await createApplicationNativeMutationPGliteFixture({
+  const ordinal = ++fixtureOrdinal;
+  const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
     runtimeHostIdentity,
     compatibilityDate,
     includeTask: true,
-  });
+    fixtureIdentity: {
+      deploymentId: `deployment_task_external_effect_${ordinal}`,
+      projectId: `project_task_external_effect_${ordinal}`,
+      uuidOffset: ordinal * 100,
+    },
+  }, persistence);
   const selected = await runEffect(selectApplicationTask(
     fixture.active.selection,
     "tasks.users.task",
