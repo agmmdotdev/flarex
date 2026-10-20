@@ -44,7 +44,8 @@ export async function ce0CmsAuthorityBoundaryScenario(
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
   session: RelationalSession,
 ) {
-  const other = await cmsExecutionMeasurementFixture(persistence, session);
+  const other = await cmsExecutionMeasurementFixture(persistence, session, undefined,
+    { controlPersistence: tested.fixture.control });
   const reference = await runEffect(makeCe0CmsMutationReference(tested.input));
   const otherReference = await runEffect(
     makeCe0CmsMutationReference(other.input),
@@ -346,6 +347,7 @@ export async function ce0CmsAuthorityBoundaryScenario(
           .update(fxSystemIndexBuildStates)
           .set({
             lifecycle: "retiring",
+            maintenanceAuthorityKind: null,
             maintenanceActivationSequence: null,
           })
           .where(selected),
@@ -354,6 +356,7 @@ export async function ce0CmsAuthorityBoundaryScenario(
           .update(fxSystemIndexBuildStates)
           .set({
             lifecycle: build.lifecycle,
+            maintenanceAuthorityKind: build.maintenanceAuthorityKind,
             maintenanceActivationSequence: build.maintenanceActivationSequence,
           })
           .where(selected),
@@ -374,6 +377,7 @@ export async function ce0CmsAuthorityBoundaryScenario(
         persistence.drizzle
           .update(fxSystemUniqueConstraintBuilds)
           .set({
+            maintenanceAuthorityKind: null,
             maintenanceActivationSequence: null,
           })
           .where(selected),
@@ -381,6 +385,7 @@ export async function ce0CmsAuthorityBoundaryScenario(
         persistence.drizzle
           .update(fxSystemUniqueConstraintBuilds)
           .set({
+            maintenanceAuthorityKind: build.maintenanceAuthorityKind,
             maintenanceActivationSequence: build.maintenanceActivationSequence,
           })
           .where(selected),
