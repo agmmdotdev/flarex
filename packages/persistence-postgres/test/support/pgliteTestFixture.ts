@@ -179,6 +179,16 @@ export async function resetControlScopeRowsInTransaction(transaction: Transactio
   `);
 }
 
+export async function refuseMaintenanceObligations(transaction: Transaction, message: string): Promise<void> {
+  const obligations = await transaction.query<{ present: boolean }>(`
+    select exists(select 1 from fx_system_unique_maintenance_obligation)
+      or exists(select 1 from fx_system_index_maintenance_obligation) as present
+  `);
+  if (obligations.rows[0]?.present !== false) {
+    throw new Error(message);
+  }
+}
+
 async function resetCommitSchemaRows(db: PGlite): Promise<void> {
   await db.transaction(async transaction => {
     await transaction.exec(`
@@ -192,7 +202,7 @@ async function resetCommitSchemaRows(db: PGlite): Promise<void> {
   });
 }
 
-async function resetStorageRowsInTransaction(transaction: Transaction): Promise<void> {
+export async function resetStorageRowsInTransaction(transaction: Transaction): Promise<void> {
   // DELETE preserves constraints from other table families.
   await transaction.exec(`
     delete from fx_app_edge_current;

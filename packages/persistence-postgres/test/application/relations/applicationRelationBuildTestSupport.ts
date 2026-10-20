@@ -1,4 +1,10 @@
 import { webcrypto } from "node:crypto";
+import {
+  createFileScopedPGliteFixture,
+  refuseMaintenanceObligations,
+  resetControlScopeRowsInTransaction,
+  resetStorageRowsInTransaction,
+} from "../../support/pgliteTestFixture";
 
 import {
   canonicalizeApplicationManifestV2,
@@ -33,6 +39,28 @@ export interface RelationBuildPublicationOptions {
   readonly maximumItems?: number;
   readonly secondInverseName?: string;
   readonly secondRelation?: boolean;
+}
+
+export async function createFileScopedRelationBuildFixture() {
+  return createFileScopedPGliteFixture(async db => () => db.transaction(async transaction => {
+    await refuseMaintenanceObligations(transaction, "Application relation fixture cannot reset maintenance obligations");
+    await transaction.exec(`
+      delete from fx_system_application_relation_semantic_readiness;
+      delete from fx_system_application_relation_semantic_validation;
+      delete from fx_system_edge_definition_readiness;
+      delete from fx_system_edge_definition_build;
+      delete from fx_control_application_manifest_schema_binding;
+      delete from fx_control_bound_application_schema;
+      delete from fx_control_schema_relation_binding;
+      delete from fx_control_edge_definition;
+      delete from fx_control_relation;
+      delete from fx_control_index_definition;
+      delete from fx_control_schema_version;
+      delete from fx_control_table;
+    `);
+    await resetStorageRowsInTransaction(transaction);
+    await resetControlScopeRowsInTransaction(transaction);
+  }));
 }
 
 export function ensureRelationBuildTestWebCrypto(): void {

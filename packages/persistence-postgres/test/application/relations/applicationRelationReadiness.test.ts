@@ -22,6 +22,7 @@ import { TransactionGrantDeploymentIdV1Schema } from
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../../support/pgliteTestFixture";
+import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
 import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../../../src/installation/installationLifecycle";
 
 import {
@@ -80,6 +81,7 @@ import {
 } from "../../../src/database/schema";
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import {
+  createFileScopedRelationBuildFixture,
   ensureRelationBuildTestWebCrypto,
   relationBuildDocumentId,
   relationBuildPublicationInput,
@@ -96,51 +98,54 @@ const LOCATOR = Object.freeze({
 
 let fixtureOrdinal = 0;
 
-describe("E01-B private application relation readiness", () => {
+describe("E01-B private application relation readiness", { concurrent: false }, () => {
   beforeAll(async () => { await migratedPGliteDataDir(); });
+  const withPersistence = useFileScopedPersistence(createFileScopedRelationBuildFixture, false);
 
   it("prepares the exact manifest-bound relation and physical-work set", async () => {
-    const fixture = await fixtureFor("prepare");
-    const publication = await publishNew(fixture, fixtureOrdinal);
-    const prepared = await runEffect(fixture.port.prepare({
-      deploymentId: fixture.deploymentId,
-      applicationManifestSha256:
-        publication.manifestBinding.applicationManifestSha256,
-    }));
+    return withPersistence(async control => {
+      const fixture = await fixtureFor(control, "prepare");
+      const publication = await publishNew(fixture, fixtureOrdinal);
+      const prepared = await runEffect(fixture.port.prepare({
+        deploymentId: fixture.deploymentId,
+        applicationManifestSha256:
+          publication.manifestBinding.applicationManifestSha256,
+      }));
 
-    expect(prepared).toMatchObject({
-      deploymentId: fixture.deploymentId,
-      applicationManifestSha256:
-        publication.manifestBinding.applicationManifestSha256,
-      manifestSchemaBindingSha256:
-        publication.manifestSchemaBindingSha256,
-      applicationSchemaSha256: publication.binding.applicationSchemaSha256,
-      schemaVersionId: publication.binding.schemaVersionId,
-      schemaVersion: publication.binding.schemaVersion,
-      schemaManifestSha256: publication.binding.schemaManifestSha256,
-      boundPublicationSha256: publication.boundPublicationSha256,
-    });
-    expect(prepared.relations).toHaveLength(1);
-    expect(prepared.relations[0]).toMatchObject({
-      binding: publication.binding.relationBindings[0],
-      immediateOrigin: null,
-    });
-    expect(hasApplicationRelationReadinessAuthority(fixture.port)).toBe(true);
-    expect(hasPreparedApplicationRelationReadinessAuthority(
-      fixture.port,
-      prepared,
-    )).toBe(true);
-    expect(hasPreparedApplicationRelationReadinessAuthority(
-      fixture.port,
-      Object.freeze({ ...prepared }),
-    )).toBe(false);
+      expect(prepared).toMatchObject({
+        deploymentId: fixture.deploymentId,
+        applicationManifestSha256:
+          publication.manifestBinding.applicationManifestSha256,
+        manifestSchemaBindingSha256:
+          publication.manifestSchemaBindingSha256,
+        applicationSchemaSha256: publication.binding.applicationSchemaSha256,
+        schemaVersionId: publication.binding.schemaVersionId,
+        schemaVersion: publication.binding.schemaVersion,
+        schemaManifestSha256: publication.binding.schemaManifestSha256,
+        boundPublicationSha256: publication.boundPublicationSha256,
+      });
+      expect(prepared.relations).toHaveLength(1);
+      expect(prepared.relations[0]).toMatchObject({
+        binding: publication.binding.relationBindings[0],
+        immediateOrigin: null,
+      });
+      expect(hasApplicationRelationReadinessAuthority(fixture.port)).toBe(true);
+      expect(hasPreparedApplicationRelationReadinessAuthority(
+        fixture.port,
+        prepared,
+      )).toBe(true);
+      expect(hasPreparedApplicationRelationReadinessAuthority(
+        fixture.port,
+        Object.freeze({ ...prepared }),
+      )).toBe(false);
 
-    const copiedPort = Object.freeze({ ...fixture.port });
-    expect(hasApplicationRelationReadinessAuthority(copiedPort)).toBe(false);
+      const copiedPort = Object.freeze({ ...fixture.port });
+      expect(hasApplicationRelationReadinessAuthority(copiedPort)).toBe(false);
+    });
   });
 
   it("issues stable nominal evidence for the exact direct relation set", async () => {
-    const fixture = await fixtureFor("direct_set");
+    const fixture = await fixtureFor(await createMigratedPGlitePersistence(), "direct_set");
     const publication = await publishNew(fixture, fixtureOrdinal);
     const edgeDefinitionId = await enablePhysicalReadiness(
       fixture,
@@ -220,7 +225,7 @@ describe("E01-B private application relation readiness", () => {
       fixture.port,
       Object.freeze({ ...first.evidence }),
     )).toBe(false);
-    const foreign = await fixtureFor("direct_set_foreign");
+    const foreign = await fixtureFor(await createMigratedPGlitePersistence(), "direct_set_foreign");
     expect(hasApplicationRelationSetReadinessEvidenceAuthority(
       foreign.port,
       first.evidence,
@@ -237,281 +242,285 @@ describe("E01-B private application relation readiness", () => {
   });
 
   it("folds two distinct reused relations without changing physical state", async () => {
-    const fixture = await fixtureFor("two_relation_set");
-    const original = await publishNew(fixture, fixtureOrdinal, {
-      secondRelation: true,
-      inverseName: "authoredPosts",
-      secondInverseName: "reviewedPosts",
-    });
-    expect(original.binding.relationBindings.map(binding =>
-      binding.relationOrdinal
-    )).toEqual([1, 2]);
-    expect(new Set(original.binding.relationBindings.map(binding =>
-      binding.relationId
-    )).size).toBe(2);
-    expect(new Set(original.binding.relationBindings.map(binding =>
-      binding.edgeDefinitionId
-    )).size).toBe(2);
-    expect(new Set(original.binding.relationBindings.map(binding =>
-      binding.semanticDefinitionSha256
-    )).size).toBe(2);
-
-    await seedPopulatedRows(fixture, original, 3);
-    const enabled = await enablePhysicalReadinessSet(fixture, original);
-    expect(enabled.map(definition => definition.relationOrdinal)).toEqual([
-      1,
-      2,
-    ]);
-    const originalPrepared = await prepare(fixture, original);
-    expect(new Set(originalPrepared.relations.map(relation =>
-      relation.physicalDefinitionSha256
-    )).size).toBe(2);
-    const directSet = await validateSet(fixture, originalPrepared);
-    expect(directSet.status).toBe("ready");
-    if (directSet.status !== "ready") {
-      throw new Error("Original two-relation set was not ready.");
-    }
-    expect(directSet.evidence.receipt.relations.map(child => ({
-      ordinal: child.relationOrdinal,
-      kind: child.readinessKind,
-    }))).toEqual([
-      { ordinal: 1, kind: "physical" },
-      { ordinal: 2, kind: "physical" },
-    ]);
-    expect(new Set(directSet.evidence.receipt.relations.map(child =>
-      child.readinessSha256
-    )).size).toBe(2);
-    const physicalRows = await fixture.control.drizzle.select().from(
-      fxSystemEdgeDefinitionReadiness,
-    ).where(eq(
-      fxSystemEdgeDefinitionReadiness.scopeId,
-      fixture.scopeId,
-    ));
-    expect(physicalRows).toHaveLength(2);
-    const physicalByEdgeDefinitionId = new Map(physicalRows.map(row => [
-      row.edgeDefinitionId,
-      row,
-    ] as const));
-    for (const child of directSet.evidence.receipt.relations) {
-      const relation = originalPrepared.relations[child.relationOrdinal - 1];
-      const physical = physicalByEdgeDefinitionId.get(child.edgeDefinitionId);
-      if (relation === undefined || physical === undefined) {
-        throw new Error("Two-relation physical evidence mapping is missing.");
-      }
-      expect(child).toMatchObject({
-        relationId: relation.binding.relationId,
-        edgeDefinitionId: relation.edge.edgeDefinitionId,
-        physicalDefinitionSha256: relation.physicalDefinitionSha256,
-        attemptFence: physical.attemptFence.toString(),
-        readinessSha256: encodeBytesToLowercaseHex(
-          physical.readinessSha256,
-        ),
+    return withPersistence(async control => {
+      const fixture = await fixtureFor(control, "two_relation_set");
+      const original = await publishNew(fixture, fixtureOrdinal, {
+        secondRelation: true,
+        inverseName: "authoredPosts",
+        secondInverseName: "reviewedPosts",
       });
-    }
-    const physicalBefore = await physicalStateSnapshot(fixture);
+      expect(original.binding.relationBindings.map(binding =>
+        binding.relationOrdinal
+      )).toEqual([1, 2]);
+      expect(new Set(original.binding.relationBindings.map(binding =>
+        binding.relationId
+      )).size).toBe(2);
+      expect(new Set(original.binding.relationBindings.map(binding =>
+        binding.edgeDefinitionId
+      )).size).toBe(2);
+      expect(new Set(original.binding.relationBindings.map(binding =>
+        binding.semanticDefinitionSha256
+      )).size).toBe(2);
 
-    const successor = await publishReuse(
-      fixture,
-      fixtureOrdinal + 1_000,
-      original,
-      {
-        inverseName: "articlesAuthored",
-        secondInverseName: "articlesReviewed",
-      },
-    );
-    const successorPrepared = await prepare(fixture, successor);
-    expect(successor.binding.schemaVersionId).not.toBe(
-      original.binding.schemaVersionId,
-    );
-    expect(successor.boundPublicationSha256).not.toBe(
-      original.boundPublicationSha256,
-    );
-    for (let index = 0; index < 2; index += 1) {
-      const originalBinding = original.binding.relationBindings[index];
-      const successorBinding = successor.binding.relationBindings[index];
-      const originalRelation = originalPrepared.relations[index];
-      const successorRelation = successorPrepared.relations[index];
-      if (
-        originalBinding === undefined || successorBinding === undefined ||
-        originalRelation === undefined || successorRelation === undefined
-      ) {
-        throw new Error("Two-relation readiness fixture is not dense.");
+      await seedPopulatedRows(fixture, original, 3);
+      const enabled = await enablePhysicalReadinessSet(fixture, original);
+      expect(enabled.map(definition => definition.relationOrdinal)).toEqual([
+        1,
+        2,
+      ]);
+      const originalPrepared = await prepare(fixture, original);
+      expect(new Set(originalPrepared.relations.map(relation =>
+        relation.physicalDefinitionSha256
+      )).size).toBe(2);
+      const directSet = await validateSet(fixture, originalPrepared);
+      expect(directSet.status).toBe("ready");
+      if (directSet.status !== "ready") {
+        throw new Error("Original two-relation set was not ready.");
       }
-      expect(successorBinding).toMatchObject({
-        relationOrdinal: index + 1,
-        relationId: originalBinding.relationId,
-        edgeDefinitionId: originalBinding.edgeDefinitionId,
-        evolution: {
-          kind: "preserve",
-          fromSchemaVersionId: original.binding.schemaVersionId,
-          fromRelationOrdinal: index + 1,
-          physical: "reuse",
-        },
-      });
-      expect(successorBinding.semanticDefinitionSha256).not.toBe(
-        originalBinding.semanticDefinitionSha256,
-      );
-      expect(successorRelation.physicalDefinitionSha256).toBe(
-        originalRelation.physicalDefinitionSha256,
-      );
-    }
-    expect(new Set(successorPrepared.relations.map(relation =>
-      relation.edge.edgeDefinitionId
-    )).size).toBe(2);
-    expect(new Set(successorPrepared.relations.map(relation =>
-      relation.physicalDefinitionSha256
-    )).size).toBe(2);
-
-    const steps = await advanceUntilComplete(fixture, successor);
-    const settledOrdinals = steps.flatMap(step =>
-      "relationOrdinal" in step ? [step.relationOrdinal] : []
-    );
-    const firstSecond = settledOrdinals.indexOf(2);
-    expect(firstSecond).toBeGreaterThan(0);
-    expect(settledOrdinals.slice(0, firstSecond).every(value => value === 1))
-      .toBe(true);
-    expect(settledOrdinals.slice(firstSecond).every(value => value === 2))
-      .toBe(true);
-
-    const semanticRows = await fixture.control.drizzle.select().from(
-      fxSystemApplicationRelationSemanticReadiness,
-    ).where(and(
-      eq(
-        fxSystemApplicationRelationSemanticReadiness.scopeId,
+      expect(directSet.evidence.receipt.relations.map(child => ({
+        ordinal: child.relationOrdinal,
+        kind: child.readinessKind,
+      }))).toEqual([
+        { ordinal: 1, kind: "physical" },
+        { ordinal: 2, kind: "physical" },
+      ]);
+      expect(new Set(directSet.evidence.receipt.relations.map(child =>
+        child.readinessSha256
+      )).size).toBe(2);
+      const physicalRows = await fixture.control.drizzle.select().from(
+        fxSystemEdgeDefinitionReadiness,
+      ).where(eq(
+        fxSystemEdgeDefinitionReadiness.scopeId,
         fixture.scopeId,
-      ),
-      eq(
-        fxSystemApplicationRelationSemanticReadiness.schemaVersionId,
-        successor.binding.schemaVersionId,
-      ),
-    )).orderBy(asc(
-      fxSystemApplicationRelationSemanticReadiness.relationOrdinal,
-    ));
-    expect(semanticRows.map(row => row.relationOrdinal)).toEqual([1, 2]);
-    expect(semanticRows.every(row =>
-      row.originReadinessKind === "physical"
-    )).toBe(true);
-
-    const semanticSet = await validateSet(fixture, successorPrepared);
-    expect(semanticSet.status).toBe("ready");
-    if (semanticSet.status !== "ready") {
-      throw new Error("Successor two-relation set was not ready.");
-    }
-    expect(semanticSet.evidence.receipt.relationCount).toBe(2);
-    expect(semanticSet.evidence.receipt.relations.map(child => ({
-      ordinal: child.relationOrdinal,
-      kind: child.readinessKind,
-    }))).toEqual([
-      { ordinal: 1, kind: "semantic" },
-      { ordinal: 2, kind: "semantic" },
-    ]);
-    expect(new Set(semanticSet.evidence.receipt.relations.map(child =>
-      child.readinessSha256
-    )).size).toBe(2);
-    const semanticByOrdinal = new Map(semanticRows.map(row => [
-      row.relationOrdinal,
-      row,
-    ] as const));
-    for (const child of semanticSet.evidence.receipt.relations) {
-      const semantic = semanticByOrdinal.get(child.relationOrdinal);
-      const physical = physicalByEdgeDefinitionId.get(
-        child.edgeDefinitionId,
-      );
-      if (semantic === undefined || physical === undefined) {
-        throw new Error("Two-relation semantic evidence mapping is missing.");
-      }
-      expect(child).toMatchObject({
-        attemptFence: semantic.attemptFence.toString(),
-        readinessSha256: encodeBytesToLowercaseHex(
-          semantic.readinessSha256,
-        ),
-      });
-      expect(child.readinessSha256).not.toBe(encodeBytesToLowercaseHex(
-        physical.readinessSha256,
       ));
-    }
-    expect(semanticSet.evidence.sha256).not.toEqual(directSet.evidence.sha256);
-    expect(await physicalStateSnapshot(fixture)).toEqual(physicalBefore);
-    for (const definition of enabled) {
-      expect(await sidecarCounts(
+      expect(physicalRows).toHaveLength(2);
+      const physicalByEdgeDefinitionId = new Map(physicalRows.map(row => [
+        row.edgeDefinitionId,
+        row,
+      ] as const));
+      for (const child of directSet.evidence.receipt.relations) {
+        const relation = originalPrepared.relations[child.relationOrdinal - 1];
+        const physical = physicalByEdgeDefinitionId.get(child.edgeDefinitionId);
+        if (relation === undefined || physical === undefined) {
+          throw new Error("Two-relation physical evidence mapping is missing.");
+        }
+        expect(child).toMatchObject({
+          relationId: relation.binding.relationId,
+          edgeDefinitionId: relation.edge.edgeDefinitionId,
+          physicalDefinitionSha256: relation.physicalDefinitionSha256,
+          attemptFence: physical.attemptFence.toString(),
+          readinessSha256: encodeBytesToLowercaseHex(
+            physical.readinessSha256,
+          ),
+        });
+      }
+      const physicalBefore = await physicalStateSnapshot(fixture);
+
+      const successor = await publishReuse(
         fixture,
-        definition.edgeDefinitionId,
-      )).toEqual({ edges: 3, versions: 6 });
-    }
+        fixtureOrdinal + 1_000,
+        original,
+        {
+          inverseName: "articlesAuthored",
+          secondInverseName: "articlesReviewed",
+        },
+      );
+      const successorPrepared = await prepare(fixture, successor);
+      expect(successor.binding.schemaVersionId).not.toBe(
+        original.binding.schemaVersionId,
+      );
+      expect(successor.boundPublicationSha256).not.toBe(
+        original.boundPublicationSha256,
+      );
+      for (let index = 0; index < 2; index += 1) {
+        const originalBinding = original.binding.relationBindings[index];
+        const successorBinding = successor.binding.relationBindings[index];
+        const originalRelation = originalPrepared.relations[index];
+        const successorRelation = successorPrepared.relations[index];
+        if (
+          originalBinding === undefined || successorBinding === undefined ||
+          originalRelation === undefined || successorRelation === undefined
+        ) {
+          throw new Error("Two-relation readiness fixture is not dense.");
+        }
+        expect(successorBinding).toMatchObject({
+          relationOrdinal: index + 1,
+          relationId: originalBinding.relationId,
+          edgeDefinitionId: originalBinding.edgeDefinitionId,
+          evolution: {
+            kind: "preserve",
+            fromSchemaVersionId: original.binding.schemaVersionId,
+            fromRelationOrdinal: index + 1,
+            physical: "reuse",
+          },
+        });
+        expect(successorBinding.semanticDefinitionSha256).not.toBe(
+          originalBinding.semanticDefinitionSha256,
+        );
+        expect(successorRelation.physicalDefinitionSha256).toBe(
+          originalRelation.physicalDefinitionSha256,
+        );
+      }
+      expect(new Set(successorPrepared.relations.map(relation =>
+        relation.edge.edgeDefinitionId
+      )).size).toBe(2);
+      expect(new Set(successorPrepared.relations.map(relation =>
+        relation.physicalDefinitionSha256
+      )).size).toBe(2);
+
+      const steps = await advanceUntilComplete(fixture, successor);
+      const settledOrdinals = steps.flatMap(step =>
+        "relationOrdinal" in step ? [step.relationOrdinal] : []
+      );
+      const firstSecond = settledOrdinals.indexOf(2);
+      expect(firstSecond).toBeGreaterThan(0);
+      expect(settledOrdinals.slice(0, firstSecond).every(value => value === 1))
+        .toBe(true);
+      expect(settledOrdinals.slice(firstSecond).every(value => value === 2))
+        .toBe(true);
+
+      const semanticRows = await fixture.control.drizzle.select().from(
+        fxSystemApplicationRelationSemanticReadiness,
+      ).where(and(
+        eq(
+          fxSystemApplicationRelationSemanticReadiness.scopeId,
+          fixture.scopeId,
+        ),
+        eq(
+          fxSystemApplicationRelationSemanticReadiness.schemaVersionId,
+          successor.binding.schemaVersionId,
+        ),
+      )).orderBy(asc(
+        fxSystemApplicationRelationSemanticReadiness.relationOrdinal,
+      ));
+      expect(semanticRows.map(row => row.relationOrdinal)).toEqual([1, 2]);
+      expect(semanticRows.every(row =>
+        row.originReadinessKind === "physical"
+      )).toBe(true);
+
+      const semanticSet = await validateSet(fixture, successorPrepared);
+      expect(semanticSet.status).toBe("ready");
+      if (semanticSet.status !== "ready") {
+        throw new Error("Successor two-relation set was not ready.");
+      }
+      expect(semanticSet.evidence.receipt.relationCount).toBe(2);
+      expect(semanticSet.evidence.receipt.relations.map(child => ({
+        ordinal: child.relationOrdinal,
+        kind: child.readinessKind,
+      }))).toEqual([
+        { ordinal: 1, kind: "semantic" },
+        { ordinal: 2, kind: "semantic" },
+      ]);
+      expect(new Set(semanticSet.evidence.receipt.relations.map(child =>
+        child.readinessSha256
+      )).size).toBe(2);
+      const semanticByOrdinal = new Map(semanticRows.map(row => [
+        row.relationOrdinal,
+        row,
+      ] as const));
+      for (const child of semanticSet.evidence.receipt.relations) {
+        const semantic = semanticByOrdinal.get(child.relationOrdinal);
+        const physical = physicalByEdgeDefinitionId.get(
+          child.edgeDefinitionId,
+        );
+        if (semantic === undefined || physical === undefined) {
+          throw new Error("Two-relation semantic evidence mapping is missing.");
+        }
+        expect(child).toMatchObject({
+          attemptFence: semantic.attemptFence.toString(),
+          readinessSha256: encodeBytesToLowercaseHex(
+            semantic.readinessSha256,
+          ),
+        });
+        expect(child.readinessSha256).not.toBe(encodeBytesToLowercaseHex(
+          physical.readinessSha256,
+        ));
+      }
+      expect(semanticSet.evidence.sha256).not.toEqual(directSet.evidence.sha256);
+      expect(await physicalStateSnapshot(fixture)).toEqual(physicalBefore);
+      for (const definition of enabled) {
+        expect(await sidecarCounts(
+          fixture,
+          definition.edgeDefinitionId,
+        )).toEqual({ edges: 3, versions: 6 });
+      }
+    });
   });
 
   it("orders one semantic child and one new physical child", async () => {
-    const fixture = await fixtureFor("mixed_relation_set");
-    const original = await publishNew(fixture, fixtureOrdinal, {
-      inverseName: "authoredPosts",
-    });
-    await enablePhysicalReadiness(fixture, original);
-    const successor = await runEffect(publishApplicationRelationBindingEffect(
-      repositoryFor(fixture),
-      await relationBuildPublicationInput(
-        fixture.deploymentId,
-        fixtureOrdinal + 1_000,
-        {
-          secondRelation: true,
-          inverseName: "articlesAuthored",
-          secondInverseName: "reviewedPosts",
-          decisions: Object.freeze([{
-            relationOrdinal: 1,
-            evolution: Object.freeze({
-              kind: "preserve" as const,
-              fromSchemaVersionId: original.binding.schemaVersionId,
-              fromRelationOrdinal: 1,
-              physical: "reuse" as const,
-            }),
-          }, {
-            relationOrdinal: 2,
-            evolution: Object.freeze({ kind: "new" as const }),
-          }]),
-        },
-      ),
-    ));
-    const definitions = await runEffect(fixture.relationCommit.locate({
-      deploymentId: fixture.deploymentId,
-      schemaVersionId: successor.binding.schemaVersionId,
-    }));
-    const second = definitions?.definitions[1];
-    if (second === undefined) {
-      throw new Error("Mixed relation-set second definition is missing.");
-    }
-    await advancePhysicalUntilEnabled(
-      fixture,
-      physicalInput(
+    return withPersistence(async control => {
+      const fixture = await fixtureFor(control, "mixed_relation_set");
+      const original = await publishNew(fixture, fixtureOrdinal, {
+        inverseName: "authoredPosts",
+      });
+      await enablePhysicalReadiness(fixture, original);
+      const successor = await runEffect(publishApplicationRelationBindingEffect(
+        repositoryFor(fixture),
+        await relationBuildPublicationInput(
+          fixture.deploymentId,
+          fixtureOrdinal + 1_000,
+          {
+            secondRelation: true,
+            inverseName: "articlesAuthored",
+            secondInverseName: "reviewedPosts",
+            decisions: Object.freeze([{
+              relationOrdinal: 1,
+              evolution: Object.freeze({
+                kind: "preserve" as const,
+                fromSchemaVersionId: original.binding.schemaVersionId,
+                fromRelationOrdinal: 1,
+                physical: "reuse" as const,
+              }),
+            }, {
+              relationOrdinal: 2,
+              evolution: Object.freeze({ kind: "new" as const }),
+            }]),
+          },
+        ),
+      ));
+      const definitions = await runEffect(fixture.relationCommit.locate({
+        deploymentId: fixture.deploymentId,
+        schemaVersionId: successor.binding.schemaVersionId,
+      }));
+      const second = definitions?.definitions[1];
+      if (second === undefined) {
+        throw new Error("Mixed relation-set second definition is missing.");
+      }
+      await advancePhysicalUntilEnabled(
         fixture,
-        successor,
-        second.edge.edgeDefinitionId,
-      ),
-    );
-    await advanceUntilComplete(fixture, successor);
-    const prepared = await prepare(fixture, successor);
-    const result = await validateSet(fixture, prepared);
-    expect(result.status).toBe("ready");
-    if (result.status !== "ready") {
-      throw new Error("Mixed relation set was not ready.");
-    }
-    expect(result.evidence.receipt.relations.map(child => ({
-      ordinal: child.relationOrdinal,
-      kind: child.readinessKind,
-    }))).toEqual([
-      { ordinal: 1, kind: "semantic" },
-      { ordinal: 2, kind: "physical" },
-    ]);
-    expect(result.evidence.receipt.relations[0]).toMatchObject({
-      relationId: original.binding.relationBindings[0]?.relationId,
-      edgeDefinitionId:
-        original.binding.relationBindings[0]?.edgeDefinitionId,
+        physicalInput(
+          fixture,
+          successor,
+          second.edge.edgeDefinitionId,
+        ),
+      );
+      await advanceUntilComplete(fixture, successor);
+      const prepared = await prepare(fixture, successor);
+      const result = await validateSet(fixture, prepared);
+      expect(result.status).toBe("ready");
+      if (result.status !== "ready") {
+        throw new Error("Mixed relation set was not ready.");
+      }
+      expect(result.evidence.receipt.relations.map(child => ({
+        ordinal: child.relationOrdinal,
+        kind: child.readinessKind,
+      }))).toEqual([
+        { ordinal: 1, kind: "semantic" },
+        { ordinal: 2, kind: "physical" },
+      ]);
+      expect(result.evidence.receipt.relations[0]).toMatchObject({
+        relationId: original.binding.relationBindings[0]?.relationId,
+        edgeDefinitionId:
+          original.binding.relationBindings[0]?.edgeDefinitionId,
+      });
+      expect(result.evidence.receipt.relations[1]?.relationId).not.toBe(
+        result.evidence.receipt.relations[0]?.relationId,
+      );
     });
-    expect(result.evidence.receipt.relations[1]?.relationId).not.toBe(
-      result.evidence.receipt.relations[0]?.relationId,
-    );
   });
 
   it("rejects a foreign prepared token and an unexpected semantic head", async () => {
-    const fixture = await fixtureFor("exact_set_negative");
+    const fixture = await fixtureFor(await createMigratedPGlitePersistence(), "exact_set_negative");
     const original = await publishNew(fixture, fixtureOrdinal);
     await enablePhysicalReadiness(fixture, original);
     const reused = await publishReuse(
@@ -523,7 +532,7 @@ describe("E01-B private application relation readiness", () => {
     await advanceUntilComplete(fixture, reused);
     const prepared = await prepare(fixture, reused);
 
-    const foreign = await fixtureFor("exact_set_foreign");
+    const foreign = await fixtureFor(await createMigratedPGlitePersistence(), "exact_set_foreign");
     const foreignPublication = await publishNew(
       foreign,
       fixtureOrdinal + 2_000,
@@ -568,105 +577,109 @@ describe("E01-B private application relation readiness", () => {
   });
 
   it("stays read-only on rollback and rejects stale locked authority", async () => {
-    const fixture = await fixtureFor("set_authority");
-    const publication = await publishNew(fixture, fixtureOrdinal);
-    await enablePhysicalReadiness(fixture, publication);
-    const prepared = await prepare(fixture, publication);
-    const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(
-      fixture.deploymentId,
-      fixture.authority,
-    ));
-    const before = await physicalStateSnapshot(fixture);
-    const rollbackMarker = new Error("rollback relation-set validation");
-    await expect(fixture.control.drizzle.transaction(async (tx) => {
-      const clock = await runEffect(
-        lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId),
-      );
-      const result = await runEffect(
-        validateApplicationRelationSetReadinessInTransactionEffect(
-          fixture.port,
-          tx,
-          located.authority,
-          clock,
-          prepared,
-        ),
-      );
-      expect(result.status).toBe("ready");
-      throw rollbackMarker;
-    })).rejects.toBe(rollbackMarker);
-    expect(await physicalStateSnapshot(fixture)).toEqual(before);
+    return withPersistence(async control => {
+      const fixture = await fixtureFor(control, "set_authority");
+      const publication = await publishNew(fixture, fixtureOrdinal);
+      await enablePhysicalReadiness(fixture, publication);
+      const prepared = await prepare(fixture, publication);
+      const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(
+        fixture.deploymentId,
+        fixture.authority,
+      ));
+      const before = await physicalStateSnapshot(fixture);
+      const rollbackMarker = new Error("rollback relation-set validation");
+      await expect(fixture.control.drizzle.transaction(async (tx) => {
+        const clock = await runEffect(
+          lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId),
+        );
+        const result = await runEffect(
+          validateApplicationRelationSetReadinessInTransactionEffect(
+            fixture.port,
+            tx,
+            located.authority,
+            clock,
+            prepared,
+          ),
+        );
+        expect(result.status).toBe("ready");
+        throw rollbackMarker;
+      })).rejects.toBe(rollbackMarker);
+      expect(await physicalStateSnapshot(fixture)).toEqual(before);
 
-    const movedEpoch = ScopeEpochSchema.make(
-      `epoch_e01b9999-0000-4000-8000-${fixtureOrdinal.toString(16)
-        .padStart(12, "0")}`,
-    );
-    await fixture.control.drizzle.update(fxSystemScopeExecutionAuthorities).set({
-      epoch: movedEpoch,
-    }).where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.scopeId));
-    const stale = await fixture.control.drizzle.transaction(async (tx) => {
-      const clock = await runEffect(
-        lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId),
+      const movedEpoch = ScopeEpochSchema.make(
+        `epoch_e01b9999-0000-4000-8000-${fixtureOrdinal.toString(16)
+          .padStart(12, "0")}`,
       );
-      return runEffectFailure(
-        validateApplicationRelationSetReadinessInTransactionEffect(
-          fixture.port,
-          tx,
-          located.authority,
-          clock,
-          prepared,
-        ),
+      await fixture.control.drizzle.update(fxSystemScopeExecutionAuthorities).set({
+        epoch: movedEpoch,
+      }).where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.scopeId));
+      const stale = await fixture.control.drizzle.transaction(async (tx) => {
+        const clock = await runEffect(
+          lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId),
+        );
+        return runEffectFailure(
+          validateApplicationRelationSetReadinessInTransactionEffect(
+            fixture.port,
+            tx,
+            located.authority,
+            clock,
+            prepared,
+          ),
+        );
+      });
+      expect(stale).toBeInstanceOf(
+        ApplicationRelationReadinessStaleAuthorityError,
       );
+      expect(stale).toMatchObject({ reason: "epoch" });
     });
-    expect(stale).toBeInstanceOf(
-      ApplicationRelationReadinessStaleAuthorityError,
-    );
-    expect(stale).toMatchObject({ reason: "epoch" });
   });
 
   it("retains exact immediate lineage across chained semantic reuse", async () => {
-    const fixture = await fixtureFor("chain");
-    const original = await publishNew(fixture, fixtureOrdinal);
-    const reused = await publishReuse(
-      fixture,
-      fixtureOrdinal + 1_000,
-      original,
-      { extraUserField: true },
-    );
-    const chained = await publishReuse(
-      fixture,
-      fixtureOrdinal + 2_000,
-      reused,
-      { extraUserField: true, inverseName: "articles" },
-    );
+    return withPersistence(async control => {
+      const fixture = await fixtureFor(control, "chain");
+      const original = await publishNew(fixture, fixtureOrdinal);
+      const reused = await publishReuse(
+        fixture,
+        fixtureOrdinal + 1_000,
+        original,
+        { extraUserField: true },
+      );
+      const chained = await publishReuse(
+        fixture,
+        fixtureOrdinal + 2_000,
+        reused,
+        { extraUserField: true, inverseName: "articles" },
+      );
 
-    const reusedPrepared = await prepare(fixture, reused);
-    const chainedPrepared = await prepare(fixture, chained);
-    const reusedRelation = reusedPrepared.relations[0];
-    const chainedRelation = chainedPrepared.relations[0];
-    expect(reusedRelation?.immediateOrigin).toMatchObject({
-      schemaVersionId: original.binding.schemaVersionId,
-      relationOrdinal: 1,
-      edgeDefinitionId:
-        original.binding.relationBindings[0]?.edgeDefinitionId,
+      const reusedPrepared = await prepare(fixture, reused);
+      const chainedPrepared = await prepare(fixture, chained);
+      const reusedRelation = reusedPrepared.relations[0];
+      const chainedRelation = chainedPrepared.relations[0];
+      expect(reusedRelation?.immediateOrigin).toMatchObject({
+        schemaVersionId: original.binding.schemaVersionId,
+        relationOrdinal: 1,
+        edgeDefinitionId:
+          original.binding.relationBindings[0]?.edgeDefinitionId,
+      });
+      expect(chainedRelation?.immediateOrigin).toMatchObject({
+        schemaVersionId: reused.binding.schemaVersionId,
+        relationOrdinal: 1,
+        semanticDefinitionSha256:
+          reused.binding.relationBindings[0]?.semanticDefinitionSha256,
+        edgeDefinitionId:
+          original.binding.relationBindings[0]?.edgeDefinitionId,
+      });
+      expect(chainedRelation?.immediateOrigin?.schemaVersionId).not.toBe(
+        original.binding.schemaVersionId,
+      );
+      expect(chainedRelation?.physicalDefinitionSha256).toBe(
+        reusedRelation?.physicalDefinitionSha256,
+      );
     });
-    expect(chainedRelation?.immediateOrigin).toMatchObject({
-      schemaVersionId: reused.binding.schemaVersionId,
-      relationOrdinal: 1,
-      semanticDefinitionSha256:
-        reused.binding.relationBindings[0]?.semanticDefinitionSha256,
-      edgeDefinitionId:
-        original.binding.relationBindings[0]?.edgeDefinitionId,
-    });
-    expect(chainedRelation?.immediateOrigin?.schemaVersionId).not.toBe(
-      original.binding.schemaVersionId,
-    );
-    expect(chainedRelation?.physicalDefinitionSha256).toBe(
-      reusedRelation?.physicalDefinitionSha256,
-    );
   });
 
   it("fails closed for an absent manifest pin and mismatched composition", async () => {
-    const fixture = await fixtureFor("missing");
+    const fixture = await fixtureFor(await createMigratedPGlitePersistence(), "missing");
     const publication = await publishNew(fixture, fixtureOrdinal);
     const missing = await runEffectFailure(fixture.port.prepare({
       deploymentId: fixture.deploymentId,
@@ -683,7 +696,7 @@ describe("E01-B private application relation readiness", () => {
     );
     expect(missing).toMatchObject({ reason: "manifestBindingUnavailable" });
 
-    const foreign = await fixtureFor("foreign");
+    const foreign = await fixtureFor(await createMigratedPGlitePersistence(), "foreign");
     const invalidPort = createApplicationRelationReadinessPort(
       fixture.control.drizzle,
       fixture.authority,
@@ -699,129 +712,342 @@ describe("E01-B private application relation readiness", () => {
   });
 
   it("fails closed before semantic state is written when the physical receipt is corrupt", async () => {
-    const fixture = await fixtureFor("corrupt_physical_receipt");
-    const original = await publishNew(fixture, fixtureOrdinal);
-    const edgeDefinitionId = await enablePhysicalReadiness(fixture, original);
-    const reused = await publishReuse(
-      fixture,
-      fixtureOrdinal + 1_000,
-      original,
-      { extraUserField: true },
-    );
-    const physicalRows = await fixture.control.drizzle.select().from(
-      fxSystemEdgeDefinitionReadiness,
-    ).where(and(
-      eq(fxSystemEdgeDefinitionReadiness.scopeId, fixture.scopeId),
-      eq(
-        fxSystemEdgeDefinitionReadiness.edgeDefinitionId,
-        edgeDefinitionId,
-      ),
-    ));
-    const physical = physicalRows[0];
-    if (physical === undefined) {
-      throw new Error("E01-B physical receipt is missing from the fixture.");
-    }
-    const corruptBytes = Uint8Array.from(physical.receiptBytes);
-    corruptBytes[0] = (corruptBytes[0] ?? 0) ^ 1;
-    await fixture.control.drizzle.update(fxSystemEdgeDefinitionReadiness).set({
-      receiptBytes: corruptBytes,
-    }).where(and(
-      eq(fxSystemEdgeDefinitionReadiness.scopeId, fixture.scopeId),
-      eq(
-        fxSystemEdgeDefinitionReadiness.edgeDefinitionId,
-        edgeDefinitionId,
-      ),
-    ));
+    return withPersistence(async control => {
+      const fixture = await fixtureFor(control, "corrupt_physical_receipt");
+      const original = await publishNew(fixture, fixtureOrdinal);
+      const edgeDefinitionId = await enablePhysicalReadiness(fixture, original);
+      const reused = await publishReuse(
+        fixture,
+        fixtureOrdinal + 1_000,
+        original,
+        { extraUserField: true },
+      );
+      const physicalRows = await fixture.control.drizzle.select().from(
+        fxSystemEdgeDefinitionReadiness,
+      ).where(and(
+        eq(fxSystemEdgeDefinitionReadiness.scopeId, fixture.scopeId),
+        eq(
+          fxSystemEdgeDefinitionReadiness.edgeDefinitionId,
+          edgeDefinitionId,
+        ),
+      ));
+      const physical = physicalRows[0];
+      if (physical === undefined) {
+        throw new Error("E01-B physical receipt is missing from the fixture.");
+      }
+      const corruptBytes = Uint8Array.from(physical.receiptBytes);
+      corruptBytes[0] = (corruptBytes[0] ?? 0) ^ 1;
+      await fixture.control.drizzle.update(fxSystemEdgeDefinitionReadiness).set({
+        receiptBytes: corruptBytes,
+      }).where(and(
+        eq(fxSystemEdgeDefinitionReadiness.scopeId, fixture.scopeId),
+        eq(
+          fxSystemEdgeDefinitionReadiness.edgeDefinitionId,
+          edgeDefinitionId,
+        ),
+      ));
 
-    const failure = await runEffectFailure(fixture.port.advance(readinessInput(
-      fixture,
-      reused,
-    )));
-    expect(failure).toBeInstanceOf(ApplicationRelationBuildCorruptionError);
-    expect(failure).toMatchObject({ reason: "receiptEvidence" });
-    const semanticRows = await fixture.control.drizzle.select().from(
-      fxSystemApplicationRelationSemanticValidations,
-    ).where(eq(
-      fxSystemApplicationRelationSemanticValidations.scopeId,
-      fixture.scopeId,
-    ));
-    expect(semanticRows).toHaveLength(0);
+      const failure = await runEffectFailure(fixture.port.advance(readinessInput(
+        fixture,
+        reused,
+      )));
+      expect(failure).toBeInstanceOf(ApplicationRelationBuildCorruptionError);
+      expect(failure).toMatchObject({ reason: "receiptEvidence" });
+      const semanticRows = await fixture.control.drizzle.select().from(
+        fxSystemApplicationRelationSemanticValidations,
+      ).where(eq(
+        fxSystemApplicationRelationSemanticValidations.scopeId,
+        fixture.scopeId,
+      ));
+      expect(semanticRows).toHaveLength(0);
+    });
   });
 
   it("settles direct and chained semantic reuse without sidecar writes", async () => {
-    const fixture = await fixtureFor("semantic_chain");
-    const original = await publishNew(fixture, fixtureOrdinal);
-    const edgeDefinitionId = await enablePhysicalReadiness(
-      fixture,
-      original,
-    );
-    const reused = await publishReuse(
-      fixture,
-      fixtureOrdinal + 1_000,
-      original,
-      { extraUserField: true },
-    );
-    const chained = await publishReuse(
-      fixture,
-      fixtureOrdinal + 2_000,
-      reused,
-      { extraUserField: true, inverseName: "articles" },
-    );
-    const before = await sidecarCounts(fixture, edgeDefinitionId);
+    return withPersistence(async control => {
+      const fixture = await fixtureFor(control, "semantic_chain");
+      const original = await publishNew(fixture, fixtureOrdinal);
+      const edgeDefinitionId = await enablePhysicalReadiness(
+        fixture,
+        original,
+      );
+      const reused = await publishReuse(
+        fixture,
+        fixtureOrdinal + 1_000,
+        original,
+        { extraUserField: true },
+      );
+      const chained = await publishReuse(
+        fixture,
+        fixtureOrdinal + 2_000,
+        reused,
+        { extraUserField: true, inverseName: "articles" },
+      );
+      const before = await sidecarCounts(fixture, edgeDefinitionId);
 
-    const blocked = await runEffect(fixture.port.advance(readinessInput(
-      fixture,
-      chained,
-    )));
-    expect(blocked).toMatchObject({
-      status: "not_ready",
-      reason: "semanticOriginMissing",
-      relationOrdinal: 1,
-      edgeDefinitionId,
+      const blocked = await runEffect(fixture.port.advance(readinessInput(
+        fixture,
+        chained,
+      )));
+      expect(blocked).toMatchObject({
+        status: "not_ready",
+        reason: "semanticOriginMissing",
+        relationOrdinal: 1,
+        edgeDefinitionId,
+      });
+
+      const directSteps = await advanceUntilComplete(
+        fixture,
+        reused,
+      );
+      expect(directSteps.map((step) => step.status)).toEqual([
+        "initialized",
+        "advanced",
+        "advanced",
+        "ready",
+        "complete",
+      ]);
+      const directRows = await fixture.control.drizzle.select().from(
+        fxSystemApplicationRelationSemanticReadiness,
+      ).where(and(
+        eq(
+          fxSystemApplicationRelationSemanticReadiness.scopeId,
+          fixture.scopeId,
+        ),
+        eq(
+          fxSystemApplicationRelationSemanticReadiness.schemaVersionId,
+          reused.binding.schemaVersionId,
+        ),
+      ));
+      expect(directRows).toHaveLength(1);
+      expect(directRows[0]).toMatchObject({
+        originReadinessKind: "physical",
+        originSchemaVersionId: original.binding.schemaVersionId,
+        physicalOriginSchemaVersionId: original.binding.schemaVersionId,
+        originSemanticAttemptFence: null,
+        originSemanticReadinessSha256: null,
+        sourceCount: 0n,
+        edgeCount: 0n,
+        versionCount: 0n,
+      });
+
+      const chainedSteps = await advanceUntilComplete(
+        fixture,
+        chained,
+      );
+      expect(chainedSteps.at(-1)?.status).toBe("complete");
+      const [reusedHead, chainedReceipt, physicalReceipt] = await Promise.all([
+        fixture.control.drizzle.select().from(
+          fxSystemApplicationRelationSemanticValidations,
+        ).where(and(
+          eq(
+            fxSystemApplicationRelationSemanticValidations.scopeId,
+            fixture.scopeId,
+          ),
+          eq(
+            fxSystemApplicationRelationSemanticValidations.schemaVersionId,
+            reused.binding.schemaVersionId,
+          ),
+        )).then((rows) => rows[0]),
+        fixture.control.drizzle.select().from(
+          fxSystemApplicationRelationSemanticReadiness,
+        ).where(and(
+          eq(
+            fxSystemApplicationRelationSemanticReadiness.scopeId,
+            fixture.scopeId,
+          ),
+          eq(
+            fxSystemApplicationRelationSemanticReadiness.schemaVersionId,
+            chained.binding.schemaVersionId,
+          ),
+        )).then((rows) => rows[0]),
+        fixture.control.drizzle.select().from(
+          fxSystemEdgeDefinitionReadiness,
+        ).where(and(
+          eq(fxSystemEdgeDefinitionReadiness.scopeId, fixture.scopeId),
+          eq(
+            fxSystemEdgeDefinitionReadiness.edgeDefinitionId,
+            edgeDefinitionId,
+          ),
+        )).then((rows) => rows[0]),
+      ]);
+      expect(reusedHead?.readinessSha256).toBeInstanceOf(Uint8Array);
+      expect(chainedReceipt).toMatchObject({
+        originReadinessKind: "semantic",
+        originSchemaVersionId: reused.binding.schemaVersionId,
+        physicalOriginSchemaVersionId: original.binding.schemaVersionId,
+        originSemanticAttemptFence: reusedHead?.attemptFence,
+      });
+      expect(chainedReceipt?.originSemanticReadinessSha256).toEqual(
+        reusedHead?.readinessSha256,
+      );
+      expect(chainedReceipt?.physicalReadinessSha256).toEqual(
+        physicalReceipt?.readinessSha256,
+      );
+      expect(await sidecarCounts(fixture, edgeDefinitionId)).toEqual(before);
     });
+  });
 
-    const directSteps = await advanceUntilComplete(
-      fixture,
-      reused,
-    );
-    expect(directSteps.map((step) => step.status)).toEqual([
-      "initialized",
-      "advanced",
-      "advanced",
-      "ready",
-      "complete",
-    ]);
-    const directRows = await fixture.control.drizzle.select().from(
-      fxSystemApplicationRelationSemanticReadiness,
-    ).where(and(
-      eq(
-        fxSystemApplicationRelationSemanticReadiness.scopeId,
-        fixture.scopeId,
-      ),
-      eq(
-        fxSystemApplicationRelationSemanticReadiness.schemaVersionId,
-        reused.binding.schemaVersionId,
-      ),
-    ));
-    expect(directRows).toHaveLength(1);
-    expect(directRows[0]).toMatchObject({
-      originReadinessKind: "physical",
-      originSchemaVersionId: original.binding.schemaVersionId,
-      physicalOriginSchemaVersionId: original.binding.schemaVersionId,
-      originSemanticAttemptFence: null,
-      originSemanticReadinessSha256: null,
-      sourceCount: 0n,
-      edgeCount: 0n,
-      versionCount: 0n,
+  it("revalidates populated current rows, edges, and endpoint versions", async () => {
+    return withPersistence(async control => {
+      const fixture = await fixtureFor(control, "populated_semantic");
+      const original = await publishNew(fixture, fixtureOrdinal);
+      await seedPopulatedRows(fixture, original, 3);
+      const edgeDefinitionId = await enablePhysicalReadiness(
+        fixture,
+        original,
+      );
+      const reused = await publishReuse(
+        fixture,
+        fixtureOrdinal + 1_000,
+        original,
+        { extraUserField: true },
+      );
+      const before = await sidecarCounts(fixture, edgeDefinitionId);
+      expect(before).toEqual({ edges: 3, versions: 6 });
+
+      const steps = await advanceUntilComplete(fixture, reused);
+      expect(steps.at(-1)?.status).toBe("complete");
+      const receipts = await fixture.control.drizzle.select().from(
+        fxSystemApplicationRelationSemanticReadiness,
+      ).where(and(
+        eq(
+          fxSystemApplicationRelationSemanticReadiness.scopeId,
+          fixture.scopeId,
+        ),
+        eq(
+          fxSystemApplicationRelationSemanticReadiness.schemaVersionId,
+          reused.binding.schemaVersionId,
+        ),
+      ));
+      expect(receipts).toHaveLength(1);
+      expect(receipts[0]).toMatchObject({
+        sourceCount: 3n,
+        edgeCount: 3n,
+        versionCount: 6n,
+        physicalFrontierCommitSeq: 1n,
+        frontierCommitSeq: 1n,
+      });
+      expect(await sidecarCounts(fixture, edgeDefinitionId)).toEqual(before);
     });
+  });
 
-    const chainedSteps = await advanceUntilComplete(
-      fixture,
-      chained,
-    );
-    expect(chainedSteps.at(-1)?.status).toBe("complete");
-    const [reusedHead, chainedReceipt, physicalReceipt] = await Promise.all([
-      fixture.control.drizzle.select().from(
+  it("pauses and restarts direct and chained validation across a physical attempt change", async () => {
+    return withPersistence(async control => {
+      const fixture = await fixtureFor(control, "physical_attempt_change");
+      const original = await publishNew(fixture, fixtureOrdinal);
+      await seedPopulatedRows(fixture, original, 1);
+      const edgeDefinitionId = await enablePhysicalReadiness(
+        fixture,
+        original,
+      );
+      const reused = await publishReuse(
+        fixture,
+        fixtureOrdinal + 1_000,
+        original,
+        { extraUserField: true },
+      );
+      const chained = await publishReuse(
+        fixture,
+        fixtureOrdinal + 2_000,
+        reused,
+        { extraUserField: true, inverseName: "articles" },
+      );
+      await advanceUntilComplete(fixture, reused);
+      expect(await runEffect(fixture.port.advance(readinessInput(
+        fixture,
+        chained,
+      )))).toMatchObject({
+        status: "initialized",
+        attemptFence: 1n,
+      });
+
+      expect(await runEffect(fixture.build.restart(physicalInput(
+        fixture,
+        original,
+        edgeDefinitionId,
+      )))).toMatchObject({
+        status: "restarted",
+        lifecycle: "cleaning",
+        attemptFence: 2n,
+      });
+      expect(await runEffect(fixture.port.advance(readinessInput(
+        fixture,
+        reused,
+      )))).toMatchObject({
+        status: "not_ready",
+        reason: "physicalReadinessMissing",
+      });
+      expect(await runEffect(fixture.port.advance(readinessInput(
+        fixture,
+        chained,
+      )))).toMatchObject({
+        status: "not_ready",
+        reason: "semanticOriginMissing",
+      });
+
+      await advancePhysicalUntilEnabled(
+        fixture,
+        physicalInput(fixture, original, edgeDefinitionId),
+      );
+      expect(await runEffect(fixture.port.advance(readinessInput(
+        fixture,
+        reused,
+      )))).toMatchObject({
+        status: "restarted",
+        attemptFence: 2n,
+      });
+      expect(await runEffect(fixture.port.advance(readinessInput(
+        fixture,
+        chained,
+      )))).toMatchObject({
+        status: "not_ready",
+        reason: "semanticOriginMissing",
+      });
+      await advanceUntilComplete(fixture, reused);
+      expect(await runEffect(fixture.port.advance(readinessInput(
+        fixture,
+        chained,
+      )))).toMatchObject({
+        status: "restarted",
+        attemptFence: 2n,
+      });
+      expect((await advanceUntilComplete(fixture, chained)).at(-1)?.status)
+        .toBe("complete");
+    });
+  });
+
+  it("restarts only semantic validation when the locked frontier moves", async () => {
+    return withPersistence(async control => {
+      const fixture = await fixtureFor(control, "frontier_restart");
+      const original = await publishNew(fixture, fixtureOrdinal);
+      const edgeDefinitionId = await enablePhysicalReadiness(
+        fixture,
+        original,
+      );
+      const reused = await publishReuse(
+        fixture,
+        fixtureOrdinal + 1_000,
+        original,
+        { extraUserField: true },
+      );
+      const input = readinessInput(fixture, reused);
+      expect(await runEffect(fixture.port.advance(input))).toMatchObject({
+        status: "initialized",
+        attemptFence: 1n,
+        frontierCommitSeq: 0n,
+      });
+      await fixture.control.drizzle.update(fxSystemScopeClocks).set({
+        lastCommitSeq: CommitSeqSchema.make(1n),
+      }).where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId));
+      expect(await runEffect(fixture.port.advance(input))).toMatchObject({
+        status: "restarted",
+        attemptFence: 2n,
+        frontierCommitSeq: 1n,
+      });
+      const remaining = await advanceUntilComplete(fixture, reused);
+      expect(remaining.at(-1)?.status).toBe("complete");
+      const head = await fixture.control.drizzle.select().from(
         fxSystemApplicationRelationSemanticValidations,
       ).where(and(
         eq(
@@ -832,220 +1058,17 @@ describe("E01-B private application relation readiness", () => {
           fxSystemApplicationRelationSemanticValidations.schemaVersionId,
           reused.binding.schemaVersionId,
         ),
-      )).then((rows) => rows[0]),
-      fixture.control.drizzle.select().from(
-        fxSystemApplicationRelationSemanticReadiness,
-      ).where(and(
-        eq(
-          fxSystemApplicationRelationSemanticReadiness.scopeId,
-          fixture.scopeId,
-        ),
-        eq(
-          fxSystemApplicationRelationSemanticReadiness.schemaVersionId,
-          chained.binding.schemaVersionId,
-        ),
-      )).then((rows) => rows[0]),
-      fixture.control.drizzle.select().from(
-        fxSystemEdgeDefinitionReadiness,
-      ).where(and(
-        eq(fxSystemEdgeDefinitionReadiness.scopeId, fixture.scopeId),
-        eq(
-          fxSystemEdgeDefinitionReadiness.edgeDefinitionId,
-          edgeDefinitionId,
-        ),
-      )).then((rows) => rows[0]),
-    ]);
-    expect(reusedHead?.readinessSha256).toBeInstanceOf(Uint8Array);
-    expect(chainedReceipt).toMatchObject({
-      originReadinessKind: "semantic",
-      originSchemaVersionId: reused.binding.schemaVersionId,
-      physicalOriginSchemaVersionId: original.binding.schemaVersionId,
-      originSemanticAttemptFence: reusedHead?.attemptFence,
-    });
-    expect(chainedReceipt?.originSemanticReadinessSha256).toEqual(
-      reusedHead?.readinessSha256,
-    );
-    expect(chainedReceipt?.physicalReadinessSha256).toEqual(
-      physicalReceipt?.readinessSha256,
-    );
-    expect(await sidecarCounts(fixture, edgeDefinitionId)).toEqual(before);
-  });
-
-  it("revalidates populated current rows, edges, and endpoint versions", async () => {
-    const fixture = await fixtureFor("populated_semantic");
-    const original = await publishNew(fixture, fixtureOrdinal);
-    await seedPopulatedRows(fixture, original, 3);
-    const edgeDefinitionId = await enablePhysicalReadiness(
-      fixture,
-      original,
-    );
-    const reused = await publishReuse(
-      fixture,
-      fixtureOrdinal + 1_000,
-      original,
-      { extraUserField: true },
-    );
-    const before = await sidecarCounts(fixture, edgeDefinitionId);
-    expect(before).toEqual({ edges: 3, versions: 6 });
-
-    const steps = await advanceUntilComplete(fixture, reused);
-    expect(steps.at(-1)?.status).toBe("complete");
-    const receipts = await fixture.control.drizzle.select().from(
-      fxSystemApplicationRelationSemanticReadiness,
-    ).where(and(
-      eq(
-        fxSystemApplicationRelationSemanticReadiness.scopeId,
-        fixture.scopeId,
-      ),
-      eq(
-        fxSystemApplicationRelationSemanticReadiness.schemaVersionId,
-        reused.binding.schemaVersionId,
-      ),
-    ));
-    expect(receipts).toHaveLength(1);
-    expect(receipts[0]).toMatchObject({
-      sourceCount: 3n,
-      edgeCount: 3n,
-      versionCount: 6n,
-      physicalFrontierCommitSeq: 1n,
-      frontierCommitSeq: 1n,
-    });
-    expect(await sidecarCounts(fixture, edgeDefinitionId)).toEqual(before);
-  });
-
-  it("pauses and restarts direct and chained validation across a physical attempt change", async () => {
-    const fixture = await fixtureFor("physical_attempt_change");
-    const original = await publishNew(fixture, fixtureOrdinal);
-    await seedPopulatedRows(fixture, original, 1);
-    const edgeDefinitionId = await enablePhysicalReadiness(
-      fixture,
-      original,
-    );
-    const reused = await publishReuse(
-      fixture,
-      fixtureOrdinal + 1_000,
-      original,
-      { extraUserField: true },
-    );
-    const chained = await publishReuse(
-      fixture,
-      fixtureOrdinal + 2_000,
-      reused,
-      { extraUserField: true, inverseName: "articles" },
-    );
-    await advanceUntilComplete(fixture, reused);
-    expect(await runEffect(fixture.port.advance(readinessInput(
-      fixture,
-      chained,
-    )))).toMatchObject({
-      status: "initialized",
-      attemptFence: 1n,
-    });
-
-    expect(await runEffect(fixture.build.restart(physicalInput(
-      fixture,
-      original,
-      edgeDefinitionId,
-    )))).toMatchObject({
-      status: "restarted",
-      lifecycle: "cleaning",
-      attemptFence: 2n,
-    });
-    expect(await runEffect(fixture.port.advance(readinessInput(
-      fixture,
-      reused,
-    )))).toMatchObject({
-      status: "not_ready",
-      reason: "physicalReadinessMissing",
-    });
-    expect(await runEffect(fixture.port.advance(readinessInput(
-      fixture,
-      chained,
-    )))).toMatchObject({
-      status: "not_ready",
-      reason: "semanticOriginMissing",
-    });
-
-    await advancePhysicalUntilEnabled(
-      fixture,
-      physicalInput(fixture, original, edgeDefinitionId),
-    );
-    expect(await runEffect(fixture.port.advance(readinessInput(
-      fixture,
-      reused,
-    )))).toMatchObject({
-      status: "restarted",
-      attemptFence: 2n,
-    });
-    expect(await runEffect(fixture.port.advance(readinessInput(
-      fixture,
-      chained,
-    )))).toMatchObject({
-      status: "not_ready",
-      reason: "semanticOriginMissing",
-    });
-    await advanceUntilComplete(fixture, reused);
-    expect(await runEffect(fixture.port.advance(readinessInput(
-      fixture,
-      chained,
-    )))).toMatchObject({
-      status: "restarted",
-      attemptFence: 2n,
-    });
-    expect((await advanceUntilComplete(fixture, chained)).at(-1)?.status)
-      .toBe("complete");
-  });
-
-  it("restarts only semantic validation when the locked frontier moves", async () => {
-    const fixture = await fixtureFor("frontier_restart");
-    const original = await publishNew(fixture, fixtureOrdinal);
-    const edgeDefinitionId = await enablePhysicalReadiness(
-      fixture,
-      original,
-    );
-    const reused = await publishReuse(
-      fixture,
-      fixtureOrdinal + 1_000,
-      original,
-      { extraUserField: true },
-    );
-    const input = readinessInput(fixture, reused);
-    expect(await runEffect(fixture.port.advance(input))).toMatchObject({
-      status: "initialized",
-      attemptFence: 1n,
-      frontierCommitSeq: 0n,
-    });
-    await fixture.control.drizzle.update(fxSystemScopeClocks).set({
-      lastCommitSeq: CommitSeqSchema.make(1n),
-    }).where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId));
-    expect(await runEffect(fixture.port.advance(input))).toMatchObject({
-      status: "restarted",
-      attemptFence: 2n,
-      frontierCommitSeq: 1n,
-    });
-    const remaining = await advanceUntilComplete(fixture, reused);
-    expect(remaining.at(-1)?.status).toBe("complete");
-    const head = await fixture.control.drizzle.select().from(
-      fxSystemApplicationRelationSemanticValidations,
-    ).where(and(
-      eq(
-        fxSystemApplicationRelationSemanticValidations.scopeId,
-        fixture.scopeId,
-      ),
-      eq(
-        fxSystemApplicationRelationSemanticValidations.schemaVersionId,
-        reused.binding.schemaVersionId,
-      ),
-    ));
-    expect(head[0]).toMatchObject({
-      lifecycle: "ready",
-      physicalFrontierCommitSeq: 0n,
-      frontierCommitSeq: 1n,
-      attemptFence: 2n,
-    });
-    expect(await sidecarCounts(fixture, edgeDefinitionId)).toEqual({
-      edges: 0,
-      versions: 0,
+      ));
+      expect(head[0]).toMatchObject({
+        lifecycle: "ready",
+        physicalFrontierCommitSeq: 0n,
+        frontierCommitSeq: 1n,
+        attemptFence: 2n,
+      });
+      expect(await sidecarCounts(fixture, edgeDefinitionId)).toEqual({
+        edges: 0,
+        versions: 0,
+      });
     });
   });
 });
@@ -1064,10 +1087,12 @@ interface Fixture {
   readonly port: ApplicationRelationReadinessPort;
 }
 
-async function fixtureFor(suffix: string): Promise<Fixture> {
+async function fixtureFor(
+  control: PGliteFlarexPersistence,
+  suffix: string,
+): Promise<Fixture> {
   ensureRelationBuildTestWebCrypto();
   fixtureOrdinal += 1;
-  const control = await createMigratedPGlitePersistence();
   const uuidSuffix = fixtureOrdinal.toString(16).padStart(12, "0");
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     `deployment_e01_b_${suffix}_${fixtureOrdinal}`,

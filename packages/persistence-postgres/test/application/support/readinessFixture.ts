@@ -20,10 +20,11 @@ import { newTestPGlite } from "../../support/pgliteSearchExtensions";
 import {
   createFileScopedPGliteFixture,
   migratedPGliteDataDir,
+  refuseMaintenanceObligations,
   resetControlScopeRowsInTransaction,
   resetScopeAuthorityRowsInTransaction,
 } from "../../support/pgliteTestFixture";
-import type { PGlite, Transaction } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import type { FileScopedPersistenceFixture } from "../../support/fileScopedPersistenceFixture";
 import {
   createAppSchemaCandidateReadinessPort,
@@ -294,19 +295,9 @@ export async function createReadinessPGlitePersistence(): Promise<TestPersistenc
   return createPGlitePersistence({ db });
 }
 
-async function refuseMaintenanceObligations(transaction: Transaction): Promise<void> {
-  const obligations = await transaction.query<{ present: boolean }>(`
-    select exists(select 1 from fx_system_unique_maintenance_obligation)
-      or exists(select 1 from fx_system_index_maintenance_obligation) as present
-  `);
-  if (obligations.rows[0]?.present !== false) {
-    throw new Error("Application binding fixture cannot reset maintenance obligations");
-  }
-}
-
 export async function createFileScopedReadinessControlFixture(): Promise<FileScopedPersistenceFixture<TestPersistence>> {
   return createFileScopedPGliteFixture(async db => () => db.transaction(async transaction => {
-    await refuseMaintenanceObligations(transaction);
+    await refuseMaintenanceObligations(transaction, "Application binding fixture cannot reset maintenance obligations");
     await transaction.exec(`
       delete from fx_control_application_schema_authority_v1;
       delete from fx_control_schema_unique_constraint_set;
@@ -331,7 +322,7 @@ export async function createFileScopedReadinessTargetFixture(): Promise<FileScop
   const owner = await createFileScopedPGliteFixture(async db => {
     driver = db;
     return () => db.transaction(async transaction => {
-      await refuseMaintenanceObligations(transaction);
+      await refuseMaintenanceObligations(transaction, "Application binding fixture cannot reset maintenance obligations");
       await transaction.exec(`
         delete from fx_system_application_read_binding;
         delete from fx_system_application_active_head;
