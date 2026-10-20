@@ -46,7 +46,13 @@ import {
 } from "../../../src/database/pglite";
 import { reconcilePublishedIndexBuildsV1Effect } from "../../../src/storage/indexes/indexBuildReconciliation";
 import { fxSystemIndexBuildStates, fxSystemScopeClocks } from "../../../src/database/schema";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import {
+  createFileScopedPGliteFixture,
+  refuseMaintenanceObligations,
+  resetControlScopeRowsInTransaction,
+  resetStorageRowsInTransaction,
+} from "../../support/pgliteTestFixture";
+import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
 const LOCATOR = Object.freeze({
@@ -55,8 +61,10 @@ const LOCATOR = Object.freeze({
   schemaName: "public",
 } as const);
 
-describe("C08-I1 intrinsic creation-time index build and maintenance", () => {
-  it("exposes one precise private Effect contract and validates its work budget", async () => {
+describe("C08-I1 intrinsic creation-time index build and maintenance", { concurrent: false }, () => {
+  const withPersistence = useFileScopedIntrinsicIndexPersistence();
+
+  it("exposes one precise private Effect contract and validates its work budget", () => withPersistence(async persistence => {
     expectTypeOf<
       ReturnType<typeof buildIntrinsicCreationTimeIndexV1Effect>
     >().toEqualTypeOf<
@@ -65,7 +73,7 @@ describe("C08-I1 intrinsic creation-time index build and maintenance", () => {
         BuildIntrinsicCreationTimeIndexV1Error
       >
     >();
-    const fixture = await makeFixture("input");
+    const fixture = await makeFixture(persistence, "input");
     const failure = await runEffectFailure(
       buildIntrinsicCreationTimeIndexV1Effect(fixture.ports, {
         deploymentId: fixture.deploymentId,
@@ -76,10 +84,10 @@ describe("C08-I1 intrinsic creation-time index build and maintenance", () => {
     expect(failure).toBeInstanceOf(
       InvalidIntrinsicCreationTimeIndexBuildInputV1Error,
     );
-  });
+  }));
 
-  it("advances the exact C4 lifecycle, backfills bounded pages, and cold-replays enabled state", async () => {
-    const fixture = await makeFixture("lifecycle", [
+  it("advances the exact C4 lifecycle, backfills bounded pages, and cold-replays enabled state", () => withPersistence(async persistence => {
+    const fixture = await makeFixture(persistence, "lifecycle", [
       { rowByte: 0x10, creationTime: 10 },
       { rowByte: 0x20, creationTime: 20 },
       { rowByte: 0x30, creationTime: 30 },
@@ -118,10 +126,10 @@ describe("C08-I1 intrinsic creation-time index build and maintenance", () => {
       lifecycle: "enabled",
       processedRows: 0,
     });
-  });
+  }));
 
-  it("does not resurrect a deleted row and catches an insert behind the backfill cursor", async () => {
-    const fixture = await makeFixture("race", [
+  it("does not resurrect a deleted row and catches an insert behind the backfill cursor", () => withPersistence(async persistence => {
+    const fixture = await makeFixture(persistence, "race", [
       { rowByte: 0x10, creationTime: 10 },
       { rowByte: 0x20, creationTime: 20 },
     ]);
@@ -141,10 +149,10 @@ describe("C08-I1 intrinsic creation-time index build and maintenance", () => {
       "10".repeat(16),
     ]);
     expect(rows.map((row) => row.commit_seq)).toEqual(["4", "1"]);
-  });
+  }));
 
-  it("rolls back page faults and leaves validating unreachable on exact-content mismatch", async () => {
-    const fixture = await makeFixture("rollback", [
+  it("rolls back page faults and leaves validating unreachable on exact-content mismatch", () => withPersistence(async persistence => {
+    const fixture = await makeFixture(persistence, "rollback", [
       { rowByte: 0x11, creationTime: 11 },
     ]);
     await buildStep(fixture, 1);
@@ -186,10 +194,10 @@ describe("C08-I1 intrinsic creation-time index build and maintenance", () => {
     expect(await buildState(fixture)).toMatchObject({
       lifecycle: "validating",
     });
-  });
+  }));
 
-  it("prevents deleting a stable row identity referenced by membership history", async () => {
-    const fixture = await makeFixture("index-only", [
+  it("prevents deleting a stable row identity referenced by membership history", () => withPersistence(async persistence => {
+    const fixture = await makeFixture(persistence, "index-only", [
       { rowByte: 0x12, creationTime: 12 },
     ]);
     await buildStep(fixture, 1);
@@ -202,8 +210,26 @@ describe("C08-I1 intrinsic creation-time index build and maintenance", () => {
     expect((await buildUntilEnabled(fixture, 1)).at(-1)?.lifecycle).toBe(
       "enabled",
     );
-  });
+  }));
 });
+
+function useFileScopedIntrinsicIndexPersistence() {
+  return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () =>
+    db.transaction(async transaction => {
+      await refuseMaintenanceObligations(transaction, "Intrinsic index fixture cannot reset maintenance obligations");
+      // Keep every guard and foreign key enabled; unexpected dependants reject.
+      await transaction.exec(`
+        delete from fx_app_index_entry_current;
+        delete from fx_app_index_entry_rev;
+        delete from fx_system_index_build_state;
+        delete from fx_control_index_definition;
+        delete from fx_control_schema_version;
+        delete from fx_control_table;
+      `);
+      await resetStorageRowsInTransaction(transaction);
+      await resetControlScopeRowsInTransaction(transaction);
+    })), false);
+}
 
 interface Fixture {
   readonly persistence: PGliteFlarexPersistence;
@@ -217,6 +243,7 @@ interface Fixture {
 }
 
 async function makeFixture(
+  persistence: PGliteFlarexPersistence,
   suffix: string,
   rows: ReadonlyArray<
     Readonly<{
@@ -225,7 +252,6 @@ async function makeFixture(
     }>
   > = [],
 ): Promise<Fixture> {
-  const persistence = await createMigratedPGlitePersistence();
   const deploymentId = `deployment_c08_${suffix}`;
   const scopeId = ScopeIdSchema.make(
     "scope_c0800000-0000-0000-0000-000000000001",

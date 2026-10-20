@@ -1,5 +1,7 @@
 import {
-  createMigratedPGlitePersistence,
+  createFileScopedPGliteFixture,
+  refuseMaintenanceObligations,
+  resetStorageRowsInTransaction,
   migratedPGliteDataDir,
 } from "../../support/pgliteTestFixture";
 import { createHash } from "node:crypto";
@@ -25,6 +27,7 @@ import {
 } from "flarex-protocol/storage-authority";
 import { Effect, Result, Schema } from "effect";
 import { beforeAll, describe, expect, it } from "vitest";
+import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
 
 import {
   canonicalizeAppUniqueKeyV1Result,
@@ -85,13 +88,14 @@ const keyB = projection("beta");
 
 beforeAll(() => migratedPGliteDataDir(), 120_000);
 
-describe("S11 app unique-key storage", () => {
-  it("applies bounded unique sets and rolls back later-batch failures", async () => {
-    const persistence = await uniquePersistence();
+describe("S11 app unique-key storage", { concurrent: false }, () => {
+  const withPersistence = useFileScopedUniquePersistence();
+  it("applies bounded unique sets and rolls back later-batch failures", async () => withPersistence(async persistence => {
+    await uniquePersistence(persistence);
     await verifyUniqueBatches(persistence, persistence.drizzle, scopeId, epoch);
-  }, 60_000);
-  it("rejects ambiguous stored ownership through genuine native admission and rolls it back", async () => {
-    const persistence = await uniquePersistence();
+  }), 60_000);
+  it("rejects ambiguous stored ownership through genuine native admission and rolls it back", async () => withPersistence(async persistence => {
+    await uniquePersistence(persistence);
     await appendRow(persistence, await liveRow(scopeId, epoch, rowA, 1n, null, "a"));
     await apply(persistence, mutation(scopeId, epoch, rowA, null, keyA));
     const inventory = async () => ({
@@ -141,7 +145,7 @@ describe("S11 app unique-key storage", () => {
     });
     expect(await inventory()).toEqual(before);
     expect((await apply(persistence, mutation(scopeId, epoch, rowA, keyA, keyA))).status).toBe("unchanged");
-  });
+  }));
   it("freezes sparse, missing, null, and localized canonical semantics", () => {
     const sparseMissing = Result.getOrThrow(canonicalizeAppUniqueKeyV1Result({
       sparse: true,
@@ -199,8 +203,8 @@ describe("S11 app unique-key storage", () => {
     expect(sparseReads).toBe(1);
   });
 
-  it("decodes a malformed stored slot before comparing canonical bytes", async () => {
-    const persistence = await uniquePersistence();
+  it("decodes a malformed stored slot before comparing canonical bytes", async () => withPersistence(async persistence => {
+    await uniquePersistence(persistence);
     await appendRow(persistence, await liveRow(scopeId, epoch, rowA, 1n, null, "a"));
     await apply(persistence, mutation(scopeId, epoch, rowA, null, keyA));
     const rollback = new Error("restore deliberately malformed storage");
@@ -217,10 +221,10 @@ describe("S11 app unique-key storage", () => {
         } finally { closeInstallationAdmission(tx); }
       })).rejects.toBe(rollback);
     expect((await apply(persistence, mutation(scopeId, epoch, rowA, keyA, keyA))).status).toBe("unchanged");
-  });
+  }));
 
-  it("claims, preserves unchanged owners, rejects overwrite, releases, reuses, and localizes by scope", async () => {
-    const persistence = await uniquePersistence();
+  it("claims, preserves unchanged owners, rejects overwrite, releases, reuses, and localizes by scope", async () => withPersistence(async persistence => {
+    await uniquePersistence(persistence);
     await appendRow(
       persistence,
       await liveRow(scopeId, epoch, rowA, 1n, null, "a"),
@@ -390,10 +394,10 @@ return await runEffectFailure(applyAppUniqueKeyMutationsInTransactionEffect(
       { locale_key: "en" },
       { locale_key: "fr" },
     ]);
-  });
+  }));
 
-  it("detects equal-digest unequal-key collisions without overwriting", async () => {
-    const persistence = await uniquePersistence();
+  it("detects equal-digest unequal-key collisions without overwriting", async () => withPersistence(async persistence => {
+    await uniquePersistence(persistence);
     const fixedDigest: AppUniqueKeySha256V1 = async () => new Uint8Array(32).fill(7);
     await appendRow(
       persistence,
@@ -432,10 +436,10 @@ return await runEffectFailure(applyAppUniqueKeyMutationsInTransactionEffect(
     );
     expect(stored.rows).toHaveLength(1);
     expect(encodeBytesToLowercaseHex(stored.rows[0]!.row_id)).toBe(rowA);
-  });
+  }));
 
-  it("retains stable ownership across body revisions and requires a live current parent", async () => {
-    const persistence = await uniquePersistence();
+  it("retains stable ownership across body revisions and requires a live current parent", async () => withPersistence(async persistence => {
+    await uniquePersistence(persistence);
     const missing = await persistence.drizzle.transaction(async (tx) => {
         await runEffect(lockInstallationForCurrentTransaction(tx));
         try {
@@ -462,10 +466,10 @@ return await runEffectFailure(applyAppUniqueKeyMutationsInTransactionEffect(tx, 
     expect(tombstoned).toBeInstanceOf(AppUniqueKeyParentRowError);
     expect(tombstoned).toMatchObject({reason: "tombstonedClaim"});
     expect((await apply(persistence, mutation(scopeId, epoch, rowA, keyA, null))).status).toBe("released");
-  });
+  }));
 
-  it("captures every accessor-backed mutation field once", async () => {
-    const persistence = await uniquePersistence();
+  it("captures every accessor-backed mutation field once", async () => withPersistence(async persistence => {
+    await uniquePersistence(persistence);
     await appendRow(
       persistence,
       await liveRow(scopeId, epoch, rowA, 1n, null, "accessor"),
@@ -494,10 +498,10 @@ return await runEffectFailure(applyAppUniqueKeyMutationsInTransactionEffect(tx, 
       previous: 1,
       next: 1,
     });
-  });
+  }));
 
-  it("keeps row and unique-key publication atomic under caller rollback", async () => {
-    const persistence = await uniquePersistence();
+  it("keeps row and unique-key publication atomic under caller rollback", async () => withPersistence(async persistence => {
+    await uniquePersistence(persistence);
     await expect(persistence.drizzle.transaction(async (tx) => {
         await runEffect(lockInstallationForCurrentTransaction(tx));
         try {
@@ -517,11 +521,21 @@ return await runEffectFailure(applyAppUniqueKeyMutationsInTransactionEffect(tx, 
         (select count(*)::text from fx_app_unique_key) as keys_count
     `);
     expect(counts.rows).toEqual([{ rows_count: "0", keys_count: "0" }]);
-  });
+  }));
 });
 
-async function uniquePersistence(): Promise<PGliteFlarexPersistence> {
-  const persistence = await createMigratedPGlitePersistence();
+function useFileScopedUniquePersistence() {
+  return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () =>
+    db.transaction(async transaction => {
+      await refuseMaintenanceObligations(transaction,
+        "Unique-key fixture cannot reset maintenance obligations");
+      // Claims restrict deletion of stable current-row identities.
+      await transaction.exec("delete from fx_app_unique_key");
+      await resetStorageRowsInTransaction(transaction);
+    })), false);
+}
+
+async function uniquePersistence(persistence: PGliteFlarexPersistence): Promise<PGliteFlarexPersistence> {
   await persistence.query(
     `with clock as (
        insert into fx_system_scope_clock (scope_id, last_commit_seq)
