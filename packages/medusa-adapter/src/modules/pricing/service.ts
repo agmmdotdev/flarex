@@ -28,6 +28,9 @@ import { PriceListUpdatesInput, PriceListUpdateReadInput, PriceListUpdateReadCon
 import { pricingListUpdatePolicy } from "./list-update-receipt";
 import { compilePriceListDeletionContracts } from "./list-deletion-input";
 import { pricingListDeletionPolicy } from "./list-deletion-receipt";
+import { AddPriceListPricesInput, PriceListPriceRemovalIds, PriceListPriceReadInput, decodePriceListPriceRead, decodeAddPriceListPrices, decodePriceListPriceRemovalIds,
+  compilePriceListPriceCreationContracts } from "./price-list-price-input";
+import { pricingListPriceCreationPolicy } from "./price-list-price-receipt";
 import { decodePricingCalculation } from "./calculation";
 import { pricingLogicalCreateEventPolicy } from "./events";
 import { pricingLogicalMutationEventPolicy } from "./mutation-events";
@@ -68,7 +71,7 @@ export function shippingPricingLifecycleServiceDefinition(input: unknown) {
 }
 
 export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(function* (admission: PricingRepositoryAdmission = "create") {
-  if (admission !== "create" && admission !== "variant-updates" && admission !== "product-updates" && admission !== "price-preferences" && admission !== "price-preference-updates" && admission !== "price-preference-deletions" && admission !== "price-list-creations" && admission !== "price-list-updates" && admission !== "price-list-deletions" && admission !== "shipping-options" && admission !== "shipping-option-updates") return yield* Effect.fail(commerceError("unsupportedProfile"));
+  if (admission !== "create" && admission !== "variant-updates" && admission !== "product-updates" && admission !== "price-preferences" && admission !== "price-preference-updates" && admission !== "price-preference-deletions" && admission !== "price-list-creations" && admission !== "price-list-updates" && admission !== "price-list-deletions" && admission !== "price-list-price-creations" && admission !== "shipping-options" && admission !== "shipping-option-updates") return yield* Effect.fail(commerceError("unsupportedProfile"));
   const mutable = admission === "variant-updates" || admission === "product-updates", lifecycle = admission === "product-updates";
   const preferenceUpdates = admission === "price-preference-updates";
   const preferenceDeletions = admission === "price-preference-deletions";
@@ -78,12 +81,14 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
   const listCreations = admission === "price-list-creations";
   const listUpdates = admission === "price-list-updates";
   const listDeletions = admission === "price-list-deletions";
+  const listPriceCreations = admission === "price-list-price-creations";
   const metadata = yield* capturePricingMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
     const prepared = yield* preparePricingRepository(metadata.frame, admission);
     const listContracts = yield* compilePriceListCreationContracts(metadata.frame);
     const listUpdateContracts = yield* compilePriceListUpdateContracts(metadata.frame);
     const listDeletionContracts = yield* compilePriceListDeletionContracts(metadata.frame);
+    const listPriceContracts = yield* compilePriceListPriceCreationContracts(metadata.frame);
     const preferenceContracts = yield* compilePricePreferenceContracts(metadata.frame);
     const preferencePolicy = pricingPreferencePolicy(preferenceContracts);
     const shippingOutput = yield* compileShippingPricingOutput(metadata.frame);
@@ -96,6 +101,7 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
         });
       return { baseRepository: bound.repository, repository: (model: typeof Price | typeof PriceSet | typeof PriceRule | typeof PriceList | typeof PriceListRule | typeof PricePreference) =>
         preferences ? model === PricePreference ? bound.preferenceRepository : bound.denied :
+        listPriceCreations ? model === PriceList ? bound.listRepository : model === Price ? bound.priceRepository : bound.denied :
         listCreations || listUpdates || listDeletions ? model === PriceList ? bound.listRepository : bound.denied :
         model === PriceSet ? bound.repository : model === Price ? bound.priceRepository : model === PriceList ? bound.listRepository : model === PriceRule ? bound.ruleRepository :
           model === PricePreference ? bound.preferenceRepository : bound.denied,
@@ -103,21 +109,23 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
     };
     const module = yield* defineCommerceModule({ name: "flarex-pricing-local",
       models: [PriceSet, Price, PriceRule, PriceList, PriceListRule, PricePreference],
-      profile: { name: listDeletions ? "pricing-price-list-deletions" : listUpdates ? "pricing-price-list-updates" : listCreations ? "pricing-price-list-creations" : shippingUpdates ? "pricing-shipping-option-updates" : shipping ? "pricing-shipping-options" : preferenceDeletions ? "pricing-price-preference-deletions" : preferenceUpdates ? "pricing-price-preference-updates" : preferences ? "pricing-price-preferences" : lifecycle ? "pricing-product-updates" : mutable ? "pricing-variant-updates" : "pricing-base-prices", capabilities: [], bind },
+      profile: { name: listPriceCreations ? "pricing-price-list-price-creations" : listDeletions ? "pricing-price-list-deletions" : listUpdates ? "pricing-price-list-updates" : listCreations ? "pricing-price-list-creations" : shippingUpdates ? "pricing-shipping-option-updates" : shipping ? "pricing-shipping-options" : preferenceDeletions ? "pricing-price-preference-deletions" : preferenceUpdates ? "pricing-price-preference-updates" : preferences ? "pricing-price-preferences" : lifecycle ? "pricing-product-updates" : mutable ? "pricing-variant-updates" : "pricing-base-prices", capabilities: [], bind },
       extensions: { pricingRepository: { mode: "add", create: ({ binding }) => ({ calculatePrices: binding.calculatePrices } satisfies PricingRepositoryService) } },
       service: ({ binding, dependencies, context }) => {
         const container = { ...dependencies, [Modules.EVENT_BUS]: binding.eventBus };
         const native = new PricingModuleService(container, { scope: "internal" });
-        return { service: { createPriceSets: preferences || listCreations || listUpdates || listDeletions ? binding.refuse : native.createPriceSets.bind(native), createPriceLists: preferences || shipping || listUpdates || listDeletions ? binding.refuse : native.createPriceLists.bind(native),
+        return { service: { createPriceSets: preferences || listCreations || listUpdates || listDeletions || listPriceCreations ? binding.refuse : native.createPriceSets.bind(native), createPriceLists: preferences || shipping || listUpdates || listDeletions || listPriceCreations ? binding.refuse : native.createPriceLists.bind(native),
           deletePriceLists: listCreations ? native.deletePriceLists.bind(native) : binding.refuse,
           softDeletePriceLists: listDeletions ? native.softDeletePriceLists.bind(native) : binding.refuse,
           restorePriceLists: listDeletions ? native.restorePriceLists.bind(native) : binding.refuse,
-          listPriceLists: listUpdates ? native.listPriceLists.bind(native) : binding.refuse,
+          listPriceLists: listUpdates || listPriceCreations ? native.listPriceLists.bind(native) : binding.refuse,
+          addPriceListPrices: listPriceCreations ? native.addPriceListPrices.bind(native) : binding.refuse,
+          removePrices: listPriceCreations ? native.removePrices.bind(native) : binding.refuse,
           updatePriceLists: listUpdates ? native.updatePriceLists.bind(native) : binding.refuse,
-          createPricePreferences: shipping || preferenceUpdates || preferenceDeletions || listCreations || listUpdates || listDeletions ? binding.refuse : native.createPricePreferences.bind(native),
-          listPriceSets: preferences || listCreations || listUpdates || listDeletions ? binding.refuse : native.listPriceSets.bind(native),
-          retrievePriceSet: preferences || listCreations || listUpdates || listDeletions ? binding.refuse : native.retrievePriceSet.bind(native), listAndCountPriceSets: preferences || listCreations || listUpdates || listDeletions ? binding.refuse : native.listAndCountPriceSets.bind(native),
-          calculatePrices: preferences || shipping || listCreations || listUpdates || listDeletions ? binding.refuse : native.calculatePrices.bind(native), upsertPriceSets: mutable ? native.upsertPriceSets.bind(native) : binding.refuse,
+          createPricePreferences: shipping || preferenceUpdates || preferenceDeletions || listCreations || listUpdates || listDeletions || listPriceCreations ? binding.refuse : native.createPricePreferences.bind(native),
+          listPriceSets: preferences || listCreations || listUpdates || listDeletions || listPriceCreations ? binding.refuse : native.listPriceSets.bind(native),
+          retrievePriceSet: preferences || listCreations || listUpdates || listDeletions || listPriceCreations ? binding.refuse : native.retrievePriceSet.bind(native), listAndCountPriceSets: preferences || listCreations || listUpdates || listDeletions || listPriceCreations ? binding.refuse : native.listAndCountPriceSets.bind(native),
+          calculatePrices: preferences || shipping || listCreations || listUpdates || listDeletions || listPriceCreations ? binding.refuse : native.calculatePrices.bind(native), upsertPriceSets: mutable ? native.upsertPriceSets.bind(native) : binding.refuse,
           updatePriceSets: mutable || shippingUpdates ? native.updatePriceSets.bind(native) : binding.refuse,
           listPrices: shippingUpdates ? native.listPrices.bind(native) : binding.refuse,
           listPriceRules: shippingUpdates ? native.listPriceRules.bind(native) : binding.refuse,
@@ -186,6 +194,17 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
     const listUpdateRead = commands.read("pricingListUpdateRead", prepare(decodePriceListUpdateRead),
       ({ service, context }, data): Promise<unknown> => Reflect.apply(service.listPriceLists, service,
         [structuredClone(data.filters), structuredClone(data.config ?? {}), context]));
+    const listPriceRead = commands.read("pricingPriceListPriceRead", prepare(decodePriceListPriceRead),
+      ({ service, context }, data): Promise<unknown> => Reflect.apply(service.listPriceLists, service,
+        [structuredClone(data.filters), structuredClone(data.config), context]));
+    const addListPrices = commands.write("pricingAddPriceListPrices", prepare(decodeAddPriceListPrices),
+      ({ service, context }, data): Promise<unknown> => Reflect.apply(service.addPriceListPrices, service, [structuredClone(data), context]));
+    const removeListPrices = commands.write("pricingRemovePriceListPrices", prepare(decodePriceListPriceRemovalIds),
+      async ({ service, context }, ids) => {
+        const result = await service.removePrices([...ids], context);
+        if (result !== undefined) throw commerceError("storedCorruption");
+        return null;
+      });
     const listUpdate = commands.write("pricingListUpdate", prepare(decodePriceListUpdate),
       ({ service, context }, data): Promise<unknown> => Reflect.apply(service.updatePriceLists, service, [structuredClone(data), context]));
     // The pinned DTO omits null although native DML accepts a nullable value
@@ -230,7 +249,7 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
       service.calculatePrices({ id: [...args.filters.id] }, args.pricingContext, context));
     const joiner = pricingStaticResources.joinerConfig;
     if (!joiner) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const graph: GraphModuleDefinition = preferences || listCreations || listUpdates || listDeletions ? { aliases: [], reads: [] } : { aliases: yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : joiner.alias === undefined ? [] : [joiner.alias]).filter(alias => alias.entity === "PriceSet") }),
+    const graph: GraphModuleDefinition = preferences || listCreations || listUpdates || listDeletions || listPriceCreations ? { aliases: [], reads: [] } : { aliases: yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : joiner.alias === undefined ? [] : [joiner.alias]).filter(alias => alias.entity === "PriceSet") }),
       reads: [{ model: "PriceSet", command: count, table: prepared.table, paths: prepared.paths, orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }],
     };
     const decodeShippingCreateArguments = commerceDecoder(Schema.Tuple([ShippingPriceSetsInput]), "invalidInput");
@@ -256,6 +275,19 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
     ]), "invalidInput");
     const listPriceListsForUpdate = yield* defineWorkflowMethod({ command: listUpdateRead, arguments: listUpdateReadArguments,
       encode: args => ({ filters: args[0], config: args[1] ?? {} }), output: listUpdateContracts.decodeReadOutput });
+    const listPriceReadArguments = commerceDecoder(Schema.Union([Schema.Tuple([PriceListPriceReadInput.fields.filters]),
+      Schema.Tuple([PriceListPriceReadInput.fields.filters, Schema.Struct({})])]), "invalidInput");
+    const listPriceListsForPriceCreation = yield* defineWorkflowMethod({ command: listPriceRead, arguments: listPriceReadArguments,
+      encode: args => ({ filters: args[0], config: args[1] ?? {} }), output: listPriceContracts.listReadContracts.decodeReadOutput });
+    const priceCreationEvents = ["created", "updated", "deleted"].flatMap(action => ["price", "price_rule"].map(objectName =>
+      buildModuleResourceEventName({ prefix: Modules.PRICING, objectName, action })));
+    const addPriceListPrices = yield* defineWorkflowMethod({ command: addListPrices,
+      arguments: commerceDecoder(Schema.Tuple([AddPriceListPricesInput]), "invalidInput"), encode: ([data]: readonly [typeof AddPriceListPricesInput.Type]) => data,
+      output: listPriceContracts.decodeOutput, moduleEvents: priceCreationEvents });
+    const removePrices = yield* defineWorkflowMethod({ command: removeListPrices,
+      arguments: commerceDecoder(Schema.Tuple([PriceListPriceRemovalIds]), "invalidInput"), encode: ([ids]: readonly [typeof PriceListPriceRemovalIds.Type]) => ids,
+      output: commerceDecoder(Schema.Null, "storedCorruption"),
+      moduleEvents: [buildModuleResourceEventName({ prefix: Modules.PRICING, objectName: "price", action: "deleted" })] });
     const updatePriceLists = yield* defineWorkflowMethod({ command: listUpdate,
       arguments: decodeListUpdateArguments, encode: ([rows]) => rows,
       output: listUpdateContracts.decodeUpdateOutput,
@@ -349,25 +381,25 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
         buildModuleResourceEventName({ prefix: Modules.PRICING, objectName, action }))) });
     const restorePriceLists = yield* defineWorkflowMethod({ command: listRestore,
       arguments: decodePriceListDeletionArguments, encode: ([ids]) => ids, output: listDeletionContracts.decodeOutput });
-    const admitted = listDeletions ? [listSoftDelete, listRestore] : listUpdates ? [listUpdateRead, listUpdate] : listCreations ? [createList, deleteList] : preferenceDeletions ? [preferenceSoftDelete, preferenceRestore] : preferenceUpdates ? [preferenceUpdateList, preferenceUpdate, preferenceUpdateUpsert] : shippingUpdates ? [shippingUpdate, shippingListPrices, shippingListRules, shippingCreateRules, list, count, retrieve] : shipping ? [create, list, count, retrieve, softDeletePriceSetsCommand, restorePriceSetsCommand, deletePriceSetsCommand] : preferences ? [createPreference, preferenceList, preferenceUpsert, preferenceDelete]
+    const admitted = listPriceCreations ? [listPriceRead, addListPrices, removeListPrices] : listDeletions ? [listSoftDelete, listRestore] : listUpdates ? [listUpdateRead, listUpdate] : listCreations ? [createList, deleteList] : preferenceDeletions ? [preferenceSoftDelete, preferenceRestore] : preferenceUpdates ? [preferenceUpdateList, preferenceUpdate, preferenceUpdateUpsert] : shippingUpdates ? [shippingUpdate, shippingListPrices, shippingListRules, shippingCreateRules, list, count, retrieve] : shipping ? [create, list, count, retrieve, softDeletePriceSetsCommand, restorePriceSetsCommand, deletePriceSetsCommand] : preferences ? [createPreference, preferenceList, preferenceUpsert, preferenceDelete]
       : [create, createList, createPreference, list, count, retrieve, calculate, ...(mutable ? [upsert, update] : []), ...(lifecycle ? [softDeletePriceSetsCommand] : [])];
     const listPriceSets = yield* defineWorkflowMethod({ command: list, arguments: decodeListArguments,
       encode: args => ({ filters: args[0], ...(args.length === 1 ? {} : { config: nativePreimageSelection(args[1], graph.reads[0]!) }) }),
       output: commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(4)), "storedCorruption") });
     const existingPolicy = shipping ? pricingShippingOptionPolicy(preferencePolicy, shippingOutput, shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined) : preferences ? preferencePolicy : lifecycle ? pricingLogicalProductUpdateEventPolicy(preferencePolicy) : mutable ? pricingLogicalMutationEventPolicy(preferencePolicy) : pricingLogicalCreateEventPolicy(preferencePolicy);
-    const policy = listDeletions ? pricingListDeletionPolicy(listDeletionContracts) : listUpdates ? pricingListUpdatePolicy(listUpdateContracts) : listCreations ? pricingListCreationPolicy(listContracts) : !preferences && !shipping
+    const policy = listPriceCreations ? pricingListPriceCreationPolicy(listPriceContracts) : listDeletions ? pricingListDeletionPolicy(listDeletionContracts) : listUpdates ? pricingListUpdatePolicy(listUpdateContracts) : listCreations ? pricingListCreationPolicy(listContracts) : !preferences && !shipping
       ? pricingListCreationPolicy(listContracts, existingPolicy) : existingPolicy;
     const workflow = yield* defineWorkflowModule({ name: Modules.PRICING, source: module.description,
-      methods: { ...(listDeletions ? { softDeletePriceLists, restorePriceLists } : {}), ...(listUpdates ? { listPriceLists: listPriceListsForUpdate, updatePriceLists } : {}), ...(listCreations ? { createPriceLists, deletePriceLists } : {}), ...(shippingUpdates ? { updatePriceSets: updateShippingPriceSets, listPrices: listShippingPrices,
+      methods: { ...(listPriceCreations ? { listPriceLists: listPriceListsForPriceCreation, addPriceListPrices, removePrices } : {}), ...(listDeletions ? { softDeletePriceLists, restorePriceLists } : {}), ...(listUpdates ? { listPriceLists: listPriceListsForUpdate, updatePriceLists } : {}), ...(listCreations ? { createPriceLists, deletePriceLists } : {}), ...(shippingUpdates ? { updatePriceSets: updateShippingPriceSets, listPrices: listShippingPrices,
         listPriceRules: listShippingPriceRules, createPriceRules: createShippingPriceRules } : {}),
         ...(preferences && !preferenceUpdates && !preferenceDeletions ? { createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),
         ...(preferenceUpdates ? { listPricePreferences: listUpdatePricePreferences, updatePricePreferences, upsertPricePreferences: upsertUpdatePricePreferences } : {}),
         ...(preferenceDeletions ? { softDeletePricePreferences, restorePricePreferences } : {}),
-        ...(!preferences && !shippingUpdates && !listCreations && !listUpdates && !listDeletions ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}), ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {}) }, graph,
+        ...(!preferences && !shippingUpdates && !listCreations && !listUpdates && !listDeletions && !listPriceCreations ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}), ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {}) }, graph,
       logical: { ...policy, commands: admitted },
     });
     if (shipping && !shippingUpdates) shippingLifecycleServices.set(workflow, { routing: nativePricingRouting, softDelete: softDeletePriceSets, restore: restorePriceSets });
-    return { create, createList, deleteList, listUpdateRead, listUpdate, createPreference, preferenceList, preferenceUpsert, preferenceDelete,
+    return { create, createList, deleteList, listUpdateRead, listUpdate, listPriceRead, addListPrices, removeListPrices, createPreference, preferenceList, preferenceUpsert, preferenceDelete,
       preferenceUpdateList, preferenceUpdate, preferenceUpdateUpsert, list, count, retrieve, calculate, ...(mutable ? { upsert, update } : {}),
       preferenceSoftDelete, preferenceRestore, listSoftDelete, listRestore,
       ...(shippingUpdates ? { shippingUpdate, shippingListPrices, shippingListRules, shippingCreateRules } : {}),

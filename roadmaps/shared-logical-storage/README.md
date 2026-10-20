@@ -60,7 +60,9 @@ with digest-bound table targets and the existing first-data and settlement owner
 the implemented bounded private prerequisite for complete native
 text predicate trees over captured candidates. Native Price Preference update
 retains its separate integration gate; existing pure predicates and selected
-storage authority remain distinct. Its named installed capture uses the existing
+storage authority remain distinct. Its exact numeric membership leaf preserves
+decimal equality over existing bounded candidate paths without adding numeric
+index selection. Its named installed capture uses the existing
 physical transaction owner directly for admission/body/tail and cancellation
 rollback; other finite captures keep their implicit-statement contract.
 

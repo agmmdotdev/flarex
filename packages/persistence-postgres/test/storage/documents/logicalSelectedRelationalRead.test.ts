@@ -11,6 +11,81 @@ import { buildPostgresRelationalPredicateBody, decodePostgresRelationalMatches, 
 
 const failure = (reason: string) => new Error(reason);
 
+describe("exact numeric terminal membership", () => {
+  const origin = { kind: "synthetic", sourceId: "neutral-numeric-membership" };
+  const schema = Result.getOrThrow(normalizeRelationalSchema({ owner: "medusa", lineageId: "numeric-membership", capabilities: [], tables: [{
+    tableId: "measurements", origin, columns: [
+      { columnId: "id", type: "text", nullable: false, default: { kind: "none" }, origin },
+      { columnId: "amount", type: "numeric", nullable: true, default: { kind: "none" }, origin },
+      { columnId: "label", type: "text", nullable: false, default: { kind: "none" }, origin },
+    ], keys: [{ keyId: "measurements.primary", kind: "primary", columns: ["id"], origin }], indexes: [], constraints: [], relationships: [],
+  }] }));
+  const table = schema.tables[0];
+  if (table === undefined) throw new Error("Missing neutral numeric table");
+  const order = { column: "id", direction: "asc" };
+  const compile = (values: readonly (string | number)[], postgres = false) => compileLogicalRelationalRead(table, [], {
+    fields: ["id"], order, predicate: { kind: "and", children: [
+      { kind: "in", column: "id", values: ["selected"] }, { kind: "numericIn", column: "amount", values },
+      ...(postgres ? [{ kind: "postgresText", column: "label", operator: "like", value: "%selected%" }] : []),
+    ] },
+  }, 8, failure);
+
+  it("normalizes exact decimal aliases and signed zero without losing precision or changing access paths", () => {
+    const values = [1, "1.0000", "9007199254740993.125", -0];
+    const query = Result.getOrThrow(compile(values));
+    values.splice(0, values.length, "changed after preparation");
+    expect(query.selections).toEqual([{ column: "id", value: "selected" }]);
+    for (const value of [1, "1.0000", "1e0", 0, "-0.000", "9007199254740993.125"]) {
+      expect(Result.getOrThrow(query.inspect({ id: "selected", amount: value, label: "selected" })).matches).toBe(true);
+    }
+    for (const value of [null, "9007199254740993.126", "1.0000000000000000001"]) {
+      expect(Result.getOrThrow(query.inspect({ id: "selected", amount: value, label: "selected" })).matches).toBe(false);
+    }
+    expect(Result.getOrThrow(compile([])).selections).toEqual([]);
+  });
+
+  it("validates complete stored rows before numeric matching and sparse projection", () => {
+    const query = Result.getOrThrow(compile([1]));
+    for (const row of [
+      { id: "selected", amount: "invalid", label: "selected" },
+      { id: "selected", amount: 1, label: 7 },
+      { id: "selected", amount: null, label: "selected", undeclared: true },
+    ]) expect(query.inspect(row)).toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+    const pg = Result.getOrThrow(compile([1], true));
+    expect(pg.inspectRow({ id: "selected", amount: "invalid", label: "selected" }))
+      .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+  });
+
+  it("refuses wrong columns, malformed operands and unchanged legacy in numeric selections", () => {
+    for (const predicate of [
+      { kind: "numericIn", column: "label", values: [1] },
+      { kind: "numericIn", column: "missing", values: [1] },
+      { kind: "in", column: "amount", values: [1] },
+      { kind: "in", column: "amount", values: ["1"] },
+      ...[null, true, "NaN", " 1", "+1", "1\n", "1e999999", "1".repeat(1025)].map(value =>
+        ({ kind: "numericIn", column: "amount", values: [value] })),
+    ]) expect(compileLogicalRelationalRead(table, [], { order, predicate }, 8, failure))
+      .toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
+    expect(compile(Array.from({ length: 257 }, () => 1)))
+      .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+  });
+
+  it("lowers the complete mixed PostgreSQL tree using numeric casts and canonical string binds", () => {
+    const query = Result.getOrThrow(compile([1, "1.0000", "9007199254740993.125", -0], true));
+    if (query.postgresPredicate === undefined) throw new Error("Missing mixed PostgreSQL predicate");
+    const tableId = decodeCatalogTableId(1);
+    const batch = Result.getOrThrow(preparePostgresRelationalBatch(query.postgresPredicate, table, tableId,
+      [{ id: "selected", amount: "9007199254740993.125", label: "selected" }], { rows: 8, bytes: 8192 }, failure));
+    const statement = new PgDialect().sqlToQuery(Result.getOrThrow(buildPostgresRelationalPredicateBody(batch, tableId, failure)));
+    expect(statement.sql).toContain("::numeric in (");
+    expect(statement.params).toContain("1e0");
+    expect(statement.params.filter(value => value === "1e0")).toHaveLength(1);
+    expect(statement.params).toContain("9007199254740993125e-3"); expect(statement.params).toContain("0");
+    expect(statement.params.some(value => typeof value === "number" && value > Number.MAX_SAFE_INTEGER)).toBe(false);
+    expect(query.selections).toEqual([{ column: "id", value: "selected" }]);
+  });
+});
+
 describe("selected relational read access", () => {
   const postgresFixture = () => {
     const origin = { kind: "authored", sourceId: "fixture.postgres-predicate" };

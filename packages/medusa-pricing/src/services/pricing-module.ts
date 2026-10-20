@@ -1781,7 +1781,7 @@ const isTaxInclusive = (
  * Build targeted database constraints to fetch only prices that could match the incoming data.
  * Uses the same properties as hashPrice to ensure consistency.
  */
-const buildPreNormalizationPriceConstraintsFromData = (
+export const buildPreNormalizationPriceConstraintsFromData = (
   prices: (
     | PricingTypes.CreatePricesDTO
     | ServiceTypes.UpsertPriceDTO

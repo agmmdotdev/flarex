@@ -4,6 +4,7 @@ import { commerceDecoder } from "../value/decoder";
 
 export type Predicate =
   | { readonly kind: "in"; readonly column: string; readonly values: readonly Json[] }
+  | { readonly kind: "numericIn"; readonly column: string; readonly values: readonly (string | number)[] }
   | { readonly kind: "isNull"; readonly column: string }
   | { readonly kind: "and" | "or"; readonly children: readonly Predicate[] }
   | { readonly kind: "greaterThan"; readonly column: string; readonly value: string }

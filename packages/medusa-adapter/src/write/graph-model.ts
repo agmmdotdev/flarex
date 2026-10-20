@@ -46,10 +46,20 @@ export interface ReplacementProfile {
   /** Native update and upsertWithReplace differ on root writes and empty collections. */
   readonly operation: "upsertWithReplace" | "update";
   /** A selected replacement may map already-active roots to the existing core
-   * upsert semantics. Every requested root must exist; this does not admit root
-   * insertion, historical-row reactivation or supplied managed timestamps.
-   * Owned children retain their ordinary insert/update behavior. */
-  readonly existingRootWrite?: "upsert";
+   * upsert semantics. `upsert` requires every root to exist; `upsertOrInsert`
+   * admits missing roots through ordinary insertion. Neither admits historical
+   * root reactivation or supplied managed timestamps. Owned children retain
+   * their ordinary insert/update behavior. */
+  readonly existingRootWrite?: "upsert" | "upsertOrInsert";
+  /** Selected native replacement attempts an upsert for every supplied active
+   * owned has-many child, including equal values. The exact existing owner and
+   * managed preimage remain protected; missing children use ordinary insertion.
+   * Owned to-one and association-only writes retain their ordinary behavior. */
+  readonly ownedChildWrite?: "upsert";
+  /** Native FK semantics may admit an existing historical endpoint for one
+   * declared scalar reference. Omission keeps active-only selection. This does
+   * not change root/child history guards, owner equality or reference existence. */
+  readonly foreignKeyVisibility?: (entity: GraphEntity, column: string) => "active" | "existing";
   /** Opt into replacing explicit empty collections during update. Omission
    * always leaves a collection unchanged; the default ignores update empties. */
   readonly emptyCollections?: "replace";

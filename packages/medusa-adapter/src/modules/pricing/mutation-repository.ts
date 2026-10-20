@@ -38,6 +38,30 @@ const decodeIds = commerceDecoder(Schema.Union([PricingId, Schema.Array(PricingI
 const decodeId = commerceDecoder(PricingId, "storedCorruption");
 const scalarProjection: ProjectionPolicy = { keys: "selected", storageKeys: "last", joinKeys: "storage", selectableRelations: [], nested: new Map() };
 
+/** Physical Price removal owns its complete Rule history. Base-price and
+ * workflow profiles share this inverse; each retains its own selector grammar
+ * and total resource bound rather than a forward Rule count. */
+export const deletePricingPriceRows = Effect.fn("PricingRepository.deletePrices")(function* (
+  ctx: CommerceCommandContext, price: GraphEntity, rule: GraphEntity,
+  selected: Readonly<{ $or: readonly Readonly<{ id: string }>[] }>, ruleLimit: number, rootOrder?: "storageInsertion",
+) {
+  const children = yield* readCommerceRelationRows(ctx, rule.table.name,
+    { kind: "in", column: "price_id", values: selected.$or.map(row => row.id) });
+  if (children.length > ruleLimit) return yield* ctx.refuse(commerceError("limitExceeded"));
+  // The native selector is an OR predicate. Repeated alternatives still select
+  // one stored row; the core's write batch accepts each identity exactly once.
+  const ids = [...new Set(selected.$or.map(row => row.id))];
+  const identities = rootOrder === undefined ? ids.map(id => ({ id })) : yield* Effect.forEach(
+    yield* readCommerceRelationRows(ctx, price.table.name, { kind: "in", column: "id", values: ids }, { kind: "storageInsertion", direction: "asc" }),
+    row => Effect.fromResult(decodeId(row.id)).pipe(Effect.map(id => ({ id }))),
+  );
+  yield* (yield* ctx.table(rule.table.name)).delete(ctx.manager, children.map(row => ({ id: row.id })));
+  const deleted = yield* (yield* ctx.table(price.table.name)).delete(ctx.manager, identities);
+  const deletedIds: string[] = [];
+  for (const row of deleted) deletedIds.push(yield* Effect.fromResult(decodeId(row.id)));
+  return deletedIds;
+});
+
 /** Pricing's normalized base-price mutations. Native services own replacement
  * decisions; shared readers, graph insertion, keyed writes and events execute them. */
 export function preparePricingMutations(catalog: GraphCatalog, price: GraphEntity, rule: GraphEntity, cascadeRules: boolean, shipping = false) {
@@ -183,9 +207,7 @@ export function preparePricingMutations(catalog: GraphCatalog, price: GraphEntit
         delete: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
           const selected = yield* Effect.fromResult((entity === rule ? selectedDelete : decodeDelete)(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));
           if (entity === price) {
-            const children = yield* readCommerceRelationRows(ctx, rule.table.name, { kind: "in", column: "price_id", values: selected.$or.map(row => row.id) });
-            if (children.length > ruleLimit) return yield* ctx.refuse(commerceError("limitExceeded"));
-            yield* (yield* ctx.table(rule.table.name)).delete(ctx.manager, children.map(row => ({ id: row.id })));
+            return yield* deletePricingPriceRows(ctx, price, rule, selected, ruleLimit);
           }
           const deleted = yield* (yield* ctx.table(entity.table.name)).delete(ctx.manager, selected.$or);
           const ids: string[] = [];

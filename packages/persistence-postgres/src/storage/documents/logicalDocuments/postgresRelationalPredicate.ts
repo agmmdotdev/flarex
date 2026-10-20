@@ -12,6 +12,7 @@ import { MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES } from "../appRows";
 export type NormalizedRelationalPredicate =
   | Readonly<{ kind: "and" | "or"; children: readonly NormalizedRelationalPredicate[] }>
   | Readonly<{ kind: "in"; column: string; values: readonly (string | boolean)[] }>
+  | Readonly<{ kind: "numericIn"; column: string; values: readonly string[] }>
   | Readonly<{ kind: "indexedPoints"; columns: readonly string[]; values: readonly (readonly (string | boolean)[])[] }>
   | Readonly<{ kind: "isNull"; column: string }>
   | Readonly<{ kind: "textNotEqual" | "greaterThan"; column: string; value: string }>
@@ -99,6 +100,8 @@ function expression(node: NormalizedRelationalPredicate): SQL {
   switch (node.kind) {
     case "and": case "or": return join(node.children.map(expression), node.kind);
     case "in": return membership(node.column, node.values);
+    case "numericIn": return node.values.length === 0 ? sql`false`
+      : sql`(${text(node.column)})::numeric in (${sql.join(node.values.map(value => sql`${value}::numeric`), sql`, `)})`;
     case "indexedPoints": return join(node.values.map(point => join(node.columns.map((column, offset) =>
       sql`${text(column)} = ${String(point[offset])}`), "and")), "or");
     case "isNull": return sql`${text(node.column)} is null`;

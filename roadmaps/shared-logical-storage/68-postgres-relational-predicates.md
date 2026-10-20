@@ -108,6 +108,31 @@ Dynamic bodies use ephemeral unnamed SQL; no prepared-statement-name collision,
 retained query session or cached permission verdict is introduced. Other named
 finite captures retain their implicit-statement contract.
 
+## Exact numeric membership
+
+Native Price List Price creation requires numeric equality for finite quantity
+selectors under [preflight 155](../flarexdb-framework-integration/preflight/155-native-price-list-price-creation.md).
+The earlier `in` grammar accepts only text and Boolean operands and refuses a
+numeric column; converting numbers to strings does not satisfy that column
+contract. The separate private `numericIn` leaf now accepts checked exact-decimal
+strings and finite numbers only against a numeric column. Existing `in` and
+explicit-null semantics remain unchanged.
+
+The relational preparation owner canonicalizes operands with the existing exact
+decimal decoder. Pure matching compares canonical decimal values, preserving
+equivalent scales and signed zero without binary64 equality for stored decimal
+strings. When a complete tree requires PostgreSQL evaluation, the existing
+compiler binds canonical strings and casts both the captured column and operands
+to `numeric`. Invalid operands and wrong column types refuse before execution;
+complete stored-row validation still precedes matching and projection.
+
+This terminal membership leaf adds no numeric index selection, ordered encoding,
+scan permission or new capture lifetime. Existing indexed conjuncts, complete
+candidate and identity proofs, pending overlays, counts, dependencies and
+node/depth/operand/byte limits keep their current owners. Empty membership proves
+an empty selection; null requires the existing explicit-null predicate. Framework
+adapters choose their finite input grammar and translate to this shared leaf.
+
 ## Bounds and failure
 
 Complete-set reads can explicitly request `includeIdentities: true`. The shared

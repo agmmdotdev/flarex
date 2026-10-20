@@ -410,7 +410,7 @@ describe("native composed Product workflows", () => {
     }
   }, 30_000);
 
-  it("binds logical validation mode into replay identity and rejects ambiguous policy ownership", async () => {
+  it("binds single and conjunctive logical validation modes into replay identity", async () => {
     const participant = defineAtomicCommerceParticipant("validationMode");
     const read = defineCommerceCommand("readValidationMode", "read", () => Effect.succeed(null));
     const command = defineAtomicCommerceCommand("validationMode", ctx => ctx.call(participant, read, null));
@@ -420,13 +420,20 @@ describe("native composed Product workflows", () => {
       participants: [{ ...member, validateLogical: () => Effect.void }] }));
     const perCall = await runEffect(makeAtomicCommerceHost({ ...input,
       participants: [{ ...member, validateLogicalCall: () => Effect.void }] }));
+    const validations: string[] = [];
+    const dual = await runEffect(makeAtomicCommerceHost({ ...input, participants: [{ ...member,
+      validateLogicalCall: () => Effect.sync(() => { validations.push("call"); }),
+      validateLogical: () => Effect.sync(() => { validations.push("aggregate"); }) }] }));
     try {
       const key = aggregate.newRequestKey();
       expect(await runEffect(aggregate.run(key, command, null))).toBeNull();
       expect(await runEffectFailure(perCall.run(key, command, null))).toMatchObject({ reason: "requestConflict" });
-      expect(await runEffectFailure(makeAtomicCommerceHost({ ...input, participants: [{ ...member,
-        validateLogical: () => Effect.void, validateLogicalCall: () => Effect.void }] })))
-        .toMatchObject({ reason: "unsupportedProfile" });
-    } finally { await runEffect(aggregate.close); await runEffect(perCall.close); }
+      expect(await runEffectFailure(dual.run(key, command, null))).toMatchObject({ reason: "requestConflict" });
+      const dualKey = dual.newRequestKey();
+      expect(await runEffect(dual.run(dualKey, command, null))).toBeNull();
+      expect(validations).toEqual(["call", "aggregate"]);
+      for (const single of [aggregate, perCall])
+        expect(await runEffectFailure(single.run(dualKey, command, null))).toMatchObject({ reason: "requestConflict" });
+    } finally { await runEffect(dual.close); await runEffect(aggregate.close); await runEffect(perCall.close); }
   }, 30_000);
 });

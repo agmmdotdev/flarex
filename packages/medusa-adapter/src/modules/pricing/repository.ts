@@ -23,7 +23,7 @@ import type { capturePricingMetadata } from "./schema";
 import { relationPaths } from "../../local-graph/module";
 import { calculateLogicalPrices } from "./calculation";
 import { readCommerceRelationRows, assembleCommerceRelations } from "../../query/relations";
-import { preparePricingMutations } from "./mutation-repository";
+import { preparePricingMutations, deletePricingPriceRows } from "./mutation-repository";
 import { softDeletePricingPriceSets } from "./lifecycle";
 import { preparePricingPreferenceRepository } from "./preference-repository";
 import { ShippingNormalizedSet, ShippingNormalizedPrice, ShippingNormalizedRule } from "./shipping-input";
@@ -36,6 +36,8 @@ import { compilePriceListUpdateContracts } from "./list-update-input";
 import { readPriceListUpdateRows, preparePriceListUpdateReplacement } from "./list-update-repository";
 import { compilePriceListDeletionContracts } from "./list-deletion-input";
 import { priceListLifecycleMethods } from "./list-deletion-repository";
+import { compilePriceListPriceCreationContracts, decodePriceListPricePhysicalSelection } from "./price-list-price-input";
+import { preparePriceListPriceReplacement, readPriceListPriceCandidates } from "./price-list-price-repository";
 
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
 const Rule = Schema.Struct({ id: Schema.optionalKey(PricingId), attribute: Schema.String, value: Schema.String,
@@ -100,7 +102,7 @@ const projectionPolicy: ProjectionPolicy = { ...scalarProjection, allowedPaths: 
 /** Pricing owns the finite nested creation policy; shared graph/read owners
  * retain traversal, scoped persistence and native mutation dispatch. */
 export type PricingRepositoryAdmission = "create" | "variant-updates" | "product-updates" | "price-preferences" |
-  "price-preference-updates" | "price-preference-deletions" | "price-list-creations" | "price-list-updates" | "price-list-deletions" | "shipping-options" | "shipping-option-updates";
+  "price-preference-updates" | "price-preference-deletions" | "price-list-creations" | "price-list-updates" | "price-list-deletions" | "price-list-price-creations" | "shipping-options" | "shipping-option-updates";
 export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], admission: PricingRepositoryAdmission = "create") {
   return Result.gen(function* () {
     const mutable = admission === "variant-updates" || admission === "product-updates", lifecycle = admission === "product-updates";
@@ -110,6 +112,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
     const listCreations = admission === "price-list-creations";
     const listUpdates = admission === "price-list-updates";
     const listDeletions = admission === "price-list-deletions";
+    const listPriceCreations = admission === "price-list-price-creations";
     const listDeletionContracts = listDeletions ? yield* compilePriceListDeletionContracts(metadata) : undefined;
     if (preferences) {
       const prepared = yield* preparePricingPreferenceRepository(metadata, preferenceDeletions ? "deletions" : preferenceUpdates ? "updates" : "store");
@@ -118,6 +121,11 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
     const listUpdate = listUpdates ? yield* Result.gen(function* () {
       const contracts = yield* compilePriceListUpdateContracts(metadata);
       const replacement = yield* preparePriceListUpdateReplacement(contracts);
+      return { contracts, ...replacement };
+    }) : undefined;
+    const listPrice = listPriceCreations ? yield* Result.gen(function* () {
+      const contracts = yield* compilePriceListPriceCreationContracts(metadata);
+      const replacement = yield* preparePriceListPriceReplacement(contracts);
       return { contracts, ...replacement };
     }) : undefined;
     const entities: GraphEntity[] = [];
@@ -239,7 +247,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       const mutationEvents: CommerceModuleEvents = { createEventSubscriber: events.createSubscriber, registerEventSubscriber: events.registerSubscriber,
         dispatchMutationEvent: (event, args, shared, subscriber) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
           if ((!events.isSubscribed(shared) && (subscriber === undefined || !events.ownsSubscriber(subscriber))) ||
-            !(listUpdates ? ["afterCreate", "afterUpdate", "afterDelete"] : mutable || shipping || listDeletions ? ["afterDelete", "afterUpdate"] : ["afterDelete"]).includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+            !(listUpdates || listPriceCreations ? ["afterCreate", "afterUpdate", "afterDelete"] : mutable || shipping || listDeletions ? ["afterDelete", "afterUpdate"] : ["afterDelete"]).includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
           yield* events.dispatch(event, args, shared, subscriber);
         }))),
       };
@@ -355,9 +363,10 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       const listLifecycle = listDeletionContracts === undefined ? undefined : priceListLifecycleMethods(listDeletionContracts, bridge, events);
       const listRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
         ...(listLifecycle === undefined ? {} : listLifecycle),
-        create: listUpdates || listDeletions ? refuse : (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
-        find: listUpdate === undefined ? refuse : (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx,
-          readPriceListUpdateRows(ctx, listUpdate.contracts, input))),
+        create: listUpdates || listDeletions || listPriceCreations ? refuse : (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
+        find: listPrice !== undefined ? (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx,
+          readPriceListUpdateRows(ctx, listPrice.contracts.listReadContracts, captured))) : listUpdate === undefined ? refuse :
+          (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, readPriceListUpdateRows(ctx, listUpdate.contracts, input))),
         upsertWithReplace: listUpdate === undefined ? refuse : (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx,
           listUpdate.replace(ctx, input, config))),
         delete: listCreations ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
@@ -386,6 +395,16 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findTaxRules(ctx, input))),
       };
       const mutationRepositories = mutations?.bind(bridge, events, { ...denied, serialize: repository.serialize }, createGraph, findTaxRules);
+      const listPriceRepository: DAL.RepositoryService | undefined = listPrice === undefined ? undefined : {
+        ...denied, serialize: repository.serialize,
+        find: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx,
+          readPriceListPriceCandidates(ctx, listPrice.contracts, captured))),
+        upsertWithReplace: (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, listPrice.replace(ctx, input, config))),
+        delete: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+          const selected = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources).pipe(Result.flatMap(decodePriceListPricePhysicalSelection)));
+          return yield* deletePricingPriceRows(ctx, listPrice.root, listPrice.rule, selected, ctx.resources.queryRows, "storageInsertion");
+        }))),
+      };
       const preferenceRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
         create: preferenceCreate,
         find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
@@ -405,7 +424,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         shared: Parameters<import("@medusajs/framework/types").PricingRepositoryService["calculatePrices"]>[2]) =>
         bridge.execute(shared, ctx => bridge.checked(ctx, calculateLogicalPrices(ctx, { filters, pricingContext })));
       return { repository, denied, listRepository, ruleRepository: mutationRepositories?.ruleRepository ?? ruleRepository,
-        priceRepository: mutationRepositories?.priceRepository ?? denied, preferenceRepository, mutationEvents, bridge, refuse, calculatePrices };
+        priceRepository: listPriceRepository ?? mutationRepositories?.priceRepository ?? denied, preferenceRepository, mutationEvents, bridge, refuse, calculatePrices };
     };
     return { bind, query, mutationQuery: mutations?.query, table: yield* readCatalog.table(set.table.name), paths: yield* relationPaths(readCatalog, set.table.name, paths, shippingUpdates ? { nativeFields: true } : undefined) };
   });

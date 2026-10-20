@@ -26,6 +26,9 @@ function block(source, start, end) {
  */
 export function verifyPricingNormalizationExtraction(source, target, helper) {
   source = lf(source); target = lf(target); helper = lf(helper);
+  const constraintExport = "export const buildPreNormalizationPriceConstraintsFromData = (";
+  if (target.split(constraintExport).length !== 2) throw new Error(message);
+  target = target.replace(constraintExport, "const buildPreNormalizationPriceConstraintsFromData = (");
   const method = block(source, "  private normalizePrices(", "\n  async addPrices("),
     hash = block(source, "const hashPrice = (", "\n/**\n * Build targeted database constraints");
   const functionBody = method.split("\n").map(line => line.startsWith("  ") ? line.slice(2) : line).join("\n")
@@ -49,4 +52,12 @@ export function verifyPricingNormalizationExtraction(source, target, helper) {
     reversed = reversed.replace(anchor, anchor + restored);
   }
   return reversed;
+}
+
+/** The receipt imports the same native selector builder already used by the
+ * service. The private barrel may expose only that additional named owner.
+ * @param {string} source @param {string} target */
+export function verifyPricingCandidateConstraintExport(source, target) {
+  const expected = lf(source).trimEnd() + '\nexport { buildPreNormalizationPriceConstraintsFromData } from "./pricing-module"\n';
+  if (lf(target) !== expected) throw new Error("Changed native Pricing candidate constraint export");
 }

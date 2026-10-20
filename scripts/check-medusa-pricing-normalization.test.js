@@ -1,7 +1,7 @@
 // @ts-check
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { verifyPricingNormalizationExtraction } from "./check-medusa-pricing-normalization.mjs";
+import { verifyPricingNormalizationExtraction, verifyPricingCandidateConstraintExport } from "./check-medusa-pricing-normalization.mjs";
 
 const source = readFileSync("third_party/medusa/upstream/packages/modules/pricing/src/services/pricing-module.ts", "utf8");
 const target = readFileSync("packages/medusa-pricing/src/services/pricing-module.ts", "utf8");
@@ -24,5 +24,16 @@ describe("native Pricing normalization extraction provenance", () => {
   it("refuses bypassing the extracted helper at the original service owner", () => {
     expect(() => verifyPricingNormalizationExtraction(source, target.replace("return normalizePricingPrices(data, existingPrices, priceListId)", "return []"), helper))
       .toThrow("Changed native Pricing normalization extraction");
+  });
+  it("retains only the same native candidate constraint builder as a named export", () => {
+    expect(() => verifyPricingNormalizationExtraction(source,
+      target.replace("export const buildPreNormalizationPriceConstraintsFromData = (", "const buildPreNormalizationPriceConstraintsFromData = ("), helper))
+      .toThrow("Changed native Pricing normalization extraction");
+  });
+  it("exposes the same selector owner through only the existing private services barrel", () => {
+    const original = readFileSync("third_party/medusa/upstream/packages/modules/pricing/src/services/index.ts", "utf8");
+    const barrel = readFileSync("packages/medusa-pricing/src/services/index.ts", "utf8");
+    expect(() => verifyPricingCandidateConstraintExport(original, barrel)).not.toThrow();
+    expect(() => verifyPricingCandidateConstraintExport(original, barrel.replace("buildPreNormalizationPriceConstraintsFromData", "otherBuilder"))).toThrow();
   });
 });

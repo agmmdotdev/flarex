@@ -31,7 +31,8 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
   input: unknown, config: unknown, creation = false,
 ): Effect.fn.Return<ReplacedGraph, CommerceTransactionError> {
   const catalog = profile.catalog;
-  if (profile.existingRootWrite !== undefined && (creation || profile.operation !== "upsertWithReplace"))
+  if ((profile.existingRootWrite !== undefined || profile.ownedChildWrite !== undefined) &&
+    (creation || profile.operation !== "upsertWithReplace"))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const supplied = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
   const inputs = yield* Effect.fromResult(graphArray(supplied));
@@ -43,7 +44,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
   const inserts = new Map<string, Map<string, JsonObject>>();
   const reconstitutions = new Map<string, Map<string, JsonObject>>();
   const updates = new Map<string, Map<string, JsonObject>>();
-  const upsertRoots = new Set<string>();
+  const upserts = new Map<string, Map<string, JsonObject>>();
   const deletes = new Map<string, Map<string, JsonObject>>();
   const visited = new Set<string>();
   const repeatedReferences = new Map<string, { readonly owner: JsonObject; readonly row: JsonObject }>();
@@ -152,12 +153,13 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
     const rows = yield* load(target.table, target.keyColumn, [id]);
     const existing = rows.find(value => value[target.keyColumn] === id);
     if (existing?.deleted_at != null || (creation && root && existing !== undefined)) return yield* Effect.fail(commerceError("invalidInput"));
-    if (root && profile.existingRootWrite === "upsert") {
-      if (existing === undefined) return yield* Effect.fail(commerceError("invalidInput"));
-      upsertRoots.add(identity(target.table, existing));
-    }
+    if (root && profile.existingRootWrite === "upsert" && existing === undefined)
+      return yield* Effect.fail(commerceError("invalidInput"));
     if (Object.entries(owner).some(([name, value]) => (row[name] !== undefined && row[name] !== value) || (existing !== undefined && existing[name] !== value)))
       return yield* Effect.fail(commerceError("invalidInput"));
+    const preservingUpsert = existing !== undefined && (root ? profile.existingRootWrite !== undefined
+      : Object.keys(owner).length > 0 && profile.ownedChildWrite === "upsert");
+    if (existing !== undefined && preservingUpsert) put(upserts, target.table, existing);
     const scalar: Record<string, Json> = { ...Object.fromEntries(Object.entries(row).filter(([name]) => target.table.columns.some(column => column.name === name))), ...owner, [target.keyColumn]: id };
     const reconstitution = existing === undefined && !root && profile.allowReconstitution === true &&
       ["created_at", "updated_at", "deleted_at"].some(name => scalar[name] !== undefined);
@@ -195,7 +197,9 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       if (reference === undefined || reference === null) continue;
       const table = catalog.tables.find(table => table.name === fk.referencedTable);
       if (table === undefined || typeof reference !== "string") return yield* Effect.fail(commerceError("invalidInput"));
-      if (!(yield* load(table, targetColumn, [reference])).some(row => row[targetColumn] === reference && row.deleted_at == null))
+      const visibility = profile.foreignKeyVisibility?.(target, column) ?? "active";
+      if (!(yield* load(table, targetColumn, [reference])).some(row => row[targetColumn] === reference &&
+        (visibility === "existing" || row.deleted_at == null)))
         return yield* Effect.fail(commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA, relationshipNotFoundMessage(column, reference))));
     }
     if (existing !== undefined) {
@@ -208,7 +212,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       }
       const rootTouch = !creation && profile.operation === "update" && profile.touchExistingRoot === true;
       const update = root ? profile.operation === "upsertWithReplace" || rootTouch || Object.keys(scalar).some(name => name !== target.keyColumn)
-        : touch || managedUpdateChanged || hasChangedFields(existing, scalar, [target.keyColumn]);
+        : preservingUpsert || touch || managedUpdateChanged || hasChangedFields(existing, scalar, [target.keyColumn]);
       if (update) put(updates, target.table, scalar);
     } else put(reconstitution ? reconstitutions : inserts, target.table, scalar);
     const next = { ...existing, ...scalar };
@@ -370,13 +374,15 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       if (reconstitute === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
       written = yield* reconstitute(ctx.manager, rows);
     } else {
-      if (operation === "update" && table === entity.table && upsertRoots.size > 0) {
-        // Tag actual planned roots, rather than every row in the root's table:
-        // recursive owned children still use ordinary managed updates. Keep
-        // original row order when the table contains both kinds of write.
+      const selectedUpserts = upserts.get(table.name);
+      if (operation === "update" && selectedUpserts !== undefined) {
+        // Route only exact selected active identities. Nested rows sharing a
+        // root table and unselected child policies keep ordinary managed
+        // updates; existing owner proofs precede any owned-child selection.
+        // Keep original row order when a table contains both kinds of write.
         const batches: Array<{ mode: "update" | "upsert"; rows: JsonObject[] }> = [];
         for (const row of rows) {
-          const mode = upsertRoots.has(identity(table, row)) ? "upsert" : "update";
+          const mode = selectedUpserts.has(identity(table, row)) ? "upsert" : "update";
           const previous = batches.at(-1);
           if (previous?.mode === mode) previous.rows.push(row);
           else batches.push({ mode, rows: [row] });

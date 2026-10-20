@@ -108,6 +108,11 @@
       "source": "./src/dal/mikro-orm/mikro-orm-repository.ts",
       "default": "./dist/dal/mikro-orm/mikro-orm-repository.js"
     },
+    "./dal/upsert-planning": {
+      "types": "./dist/dal/upsert-planning.d.ts",
+      "source": "./src/dal/upsert-planning.ts",
+      "default": "./dist/dal/upsert-planning.js"
+    },
     "./dml/helpers/create-mikro-orm-entity": {
       "types": "./dist/dml/helpers/create-mikro-orm-entity.d.ts",
       "source": "./src/dml/helpers/create-mikro-orm-entity.ts",

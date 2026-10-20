@@ -32,6 +32,7 @@ import {
 import { toMikroORMEntity } from "../../dml"
 import { buildQuery } from "../../modules-sdk/build-query"
 import { transactionWrapper } from "../utils"
+import { applyUpsertRelationResults, planUpsertManyEntries, planUpsertRelationEntries, prepareUpsertWithReplaceEntries, uniqueUpsertEntries } from "../upsert-planning"
 import { dbErrorMapper } from "./db-error-mapper"
 import { mikroOrmSerializer } from "./mikro-orm-serializer"
 import { mikroOrmUpdateDeletedAtRecursively } from "./utils"
@@ -657,11 +658,8 @@ export function mikroOrmBaseRepositoryFactory<const T extends object>(
       }
 
       // We want to response with all the data including the IDs in the same order as the input. We also include data that was passed but not processed.
-      const reconstructedResponse: any[] = []
-      const originalDataMap = new Map<string, T>()
-
       // Create only the top-level entity without the relations first
-      const toUpsert = normalizedData.map((entry) => {
+      const { toUpsert, originalDataMap, reconstructedResponse: reconstructedRows } = prepareUpsertWithReplaceEntries(normalizedData, (entry) => {
         // Make a copy of the data and remove undefined fields. The data is already a POJO due to the serialization above
         const entryCopy = JSON.parse(JSON.stringify(entry))
         const reconstructedEntry: any = {}
@@ -678,11 +676,9 @@ export function mikroOrmBaseRepositoryFactory<const T extends object>(
           this.entity.name,
           entryCopy
         )
-        reconstructedResponse.push({ ...mainEntity, ...reconstructedEntry })
-        originalDataMap.set(mainEntity.id, entry)
-
-        return mainEntity
+        return { entity: mainEntity, relations: reconstructedEntry }
       })
+      const reconstructedResponse: any[] = reconstructedRows
 
       let {
         orderedEntities: upsertedTopLevelEntities,
@@ -710,16 +706,7 @@ export function mikroOrmBaseRepositoryFactory<const T extends object>(
           return
         }
 
-        const entitiesForRelation = upsertedTopLevelEntities
-          .map((entityEntry, i) => {
-            const originalEntry = originalDataMap.get((entityEntry as any).id)!
-            return {
-              entity: { ...originalEntry, id: (entityEntry as any).id },
-              reconstructedEntry: reconstructedResponse[i],
-              index: i,
-            }
-          })
-          .filter((item) => item.entity[relationName as string] !== undefined)
+        const entitiesForRelation = planUpsertRelationEntries(upsertedTopLevelEntities, originalDataMap, reconstructedResponse, relationName as string)
 
         if (entitiesForRelation.length > 0) {
           relationsByType.set(relationName as string, {
@@ -739,11 +726,7 @@ export function mikroOrmBaseRepositoryFactory<const T extends object>(
               )
 
               // Update reconstructed response with results
-              entitiesResults.forEach(
-                ({ entities: relationEntities, index }) => {
-                  reconstructedResponse[index][relationName] = relationEntities
-                }
-              )
+              applyUpsertRelationResults(reconstructedResponse, relationName, entitiesResults)
             }
           )
         )
@@ -938,7 +921,7 @@ export function mikroOrmBaseRepositoryFactory<const T extends object>(
           joinColumnsConstraints[joinColumn] = entity[referencedColumnName]
         })
 
-        const normalizedData = dataForRelation.map((item: any) => {
+        const normalizedData = Array.from(dataForRelation).map((item: any) => {
           const normalized = this.getEntityWithId(manager, relation.type, item)
           return { ...normalized, ...joinColumnsConstraints }
         })
@@ -1153,9 +1136,24 @@ export function mikroOrmBaseRepositoryFactory<const T extends object>(
     ): Record<string, any> & { id: string } {
       // We set the id to undefined to make sure the entity isn't fetched from the entity map if it is an update,
       // giving us incorrect data for the bignumberdata field (I though managed: false and persist: false would already do this)
+      const dataToCreate = { ...data, id: undefined }
+      Object.entries(manager.getMetadata<Record<string, unknown>>(entityName).properties)
+        .filter(
+          ([_, propDef]) =>
+            propDef.persist === false &&
+            propDef.kind === ReferenceKind.MANY_TO_ONE &&
+            propDef.joinColumns?.length &&
+            propDef.joinColumns.every(
+              (column) => dataToCreate[column] !== undefined
+            )
+        )
+        .forEach(([key]) => {
+          delete dataToCreate[key]
+        })
+
       const created = manager.create(
         entityName,
-        { ...data, id: undefined },
+        dataToCreate,
         {
           managed: false,
           persist: false,
@@ -1196,15 +1194,7 @@ export function mikroOrmBaseRepositoryFactory<const T extends object>(
         }
       }
 
-      const uniqueEntriesMap = new Map<string, any>()
-      const orderedUniqueEntries: any[] = []
-
-      entries.forEach((entry) => {
-        if (!uniqueEntriesMap.has(entry.id)) {
-          uniqueEntriesMap.set(entry.id, entry)
-          orderedUniqueEntries.push(entry)
-        }
-      })
+      const orderedUniqueEntries = uniqueUpsertEntries(entries)
 
       const existingEntitiesMap = new Map()
 
@@ -1221,33 +1211,14 @@ export function mikroOrmBaseRepositoryFactory<const T extends object>(
         })
       }
 
-      const orderedEntities: T[] = []
       const performedActions = {
         created: {},
         updated: {},
         deleted: {},
       }
 
-      const toInsert: any[] = []
-      const toUpdate: any[] = []
-      const insertOrderMap = new Map<string, number>()
-      const updateOrderMap = new Map<string, number>()
-
       // Single pass to categorize operations while preserving order
-      orderedUniqueEntries.forEach((data, index) => {
-        const existingEntity = existingEntitiesMap.get(data.id)
-        orderedEntities.push(data)
-
-        if (existingEntity) {
-          if (!skipUpdate) {
-            toUpdate.push(data)
-            updateOrderMap.set(data.id, index)
-          }
-        } else {
-          toInsert.push(data)
-          insertOrderMap.set(data.id, index)
-        }
-      })
+      const { orderedEntities, toInsert, toUpdate, insertOrderMap, updateOrderMap } = planUpsertManyEntries(orderedUniqueEntries, existingEntitiesMap, skipUpdate)
 
       const promises: Promise<any>[] = []
 

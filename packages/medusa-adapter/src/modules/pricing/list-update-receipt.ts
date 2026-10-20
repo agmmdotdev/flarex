@@ -24,11 +24,12 @@ const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
 }), defaultCommerceResources);
 type Capture = (input: unknown) => ReturnType<typeof decodeEvent>;
 
-const readReceipt = Effect.fn("PricingLists.validateUpdateRead")(function* (
+export const validatePriceListReadReceipt = Effect.fn("PricingLists.validateRead")(function* (
   contracts: PriceListUpdateContracts, call: Call, activity: Activity,
+  commandName: "pricingListUpdateRead" | "pricingPriceListPriceRead" = "pricingListUpdateRead",
 ) {
   const mismatch = () => commerceError("receiptMismatch");
-  if (call.mode !== "read" || call.commandName !== "pricingListUpdateRead" || call.events.length || activity.mutations.length ||
+  if (call.mode !== "read" || call.commandName !== commandName || call.events.length || activity.mutations.length ||
     activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length)
     return yield* Effect.fail(mismatch());
   const input = yield* Effect.fromResult(decodePriceListUpdateRead(call.input));
@@ -232,7 +233,7 @@ export function pricingListUpdatePolicy(contracts: PriceListUpdateContracts) {
     return message;
   });
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("PricingLists.validateUpdateCall")(function* (call: Call, activity: Activity) {
-    if (call.commandName === "pricingListUpdateRead") return yield* readReceipt(contracts, call, activity);
+    if (call.commandName === "pricingListUpdateRead") return yield* validatePriceListReadReceipt(contracts, call, activity);
     return yield* validateWrite(contracts, capture, call, activity);
   }, Effect.mapError((cause: ReturnType<typeof commerceError>) => cause.reason === "receiptMismatch" ? cause : commerceError("receiptMismatch", cause)));
   return { capture, validateLogicalCall, allowStorageInsertionOrder: true as const };

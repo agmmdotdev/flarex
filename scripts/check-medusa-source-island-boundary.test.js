@@ -37,7 +37,8 @@ describe("Medusa source-island boundary checker", () => {
   it("excludes only the exact native source proof tools while adjacent tooling remains denied", () => {
     const repoRoot = mkdtempSync(join(tmpdir(), "flarex-medusa-proof-boundary-"));
     const verifierPaths = ["scripts/check-medusa-shipping-option-source.mjs", "scripts/check-medusa-shipping-option-source.test.js",
-      "scripts/check-medusa-delivery-source.mjs", "scripts/check-medusa-json-assignment-source.mjs", "scripts/medusa-json-assignment.test.js"];
+      "scripts/check-medusa-delivery-source.mjs", "scripts/check-medusa-json-assignment-source.mjs", "scripts/medusa-json-assignment.test.js",
+      "scripts/check-medusa-price-list-prices-source.mjs", "scripts/check-medusa-price-list-prices-source.test.js"];
     const adjacentPaths = verifierPaths.flatMap(relativePath => [
       relativePath.replace(/\.(mjs|js)$/, "-adjacent.$1"),
       "scripts/nested/" + posix.basename(relativePath), "tools/" + posix.basename(relativePath),

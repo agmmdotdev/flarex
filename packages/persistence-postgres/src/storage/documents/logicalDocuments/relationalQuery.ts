@@ -6,6 +6,7 @@ import { encodeOrderedIndexComponentsV1, orderedIndexKeyHexV1ToBytes,
   orderedIndexValueFromFlarexValueV1, OrderedIndexKeyTooLargeError } from "flarex-protocol/ordered-index";
 import type { Json, JsonObject } from "flarex-protocol/json";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
+import { decodeExactDecimal } from "flarex-protocol/internal/exact-decimal";
 import type { LogicalDocumentFailure } from "./model";
 import { prepareLogicalRelationalRowValues, relationalTextIdentity, hasPreparedLogicalRelationalTableMechanics,
   inspectLogicalRelationalCanonicalRow, type PreparedLogicalRelationalTableMechanics } from "./relationalRows";
@@ -31,6 +32,8 @@ const Node = Schema.Union([
   Schema.Struct({ kind: Schema.Literals(["and", "or"]), children: Schema.Array(Schema.Unknown) }),
   Schema.Struct({ kind: Schema.Literal("in"), column: Schema.String,
     values: Schema.Array(Schema.Union([Schema.String, Schema.Boolean])) }),
+  Schema.Struct({ kind: Schema.Literal("numericIn"), column: Schema.String,
+    values: Schema.Array(Schema.Union([Schema.String, Schema.Number])) }),
   Schema.Struct({ kind: Schema.Literal("indexedPoints"),
     columns: Schema.Array(Schema.String).check(Schema.isMinLength(2), Schema.isMaxLength(4)),
     values: Schema.Array(Schema.Array(Schema.Union([Schema.String, Schema.Boolean]))).check(Schema.isMaxLength(16)) }),
@@ -222,6 +225,29 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
             ...(nullColumn === undefined ? {} : { nullColumn }) })), unindexedText: false });
         }, requiredNulls: new Set<string>(), search: null, equalities: new Map([[node.column, [...keys]]]),
           matches: row => { const value = row[node.column]; return (typeof value === "string" || typeof value === "boolean") && keys.has(value); } };
+      }
+      if (node.kind === "numericIn") {
+        operands += node.values.length;
+        if (operands > relationalReadLimits.filterOperands) return yield* Result.fail(error("limitExceeded"));
+        const column = columnForName(node.column);
+        if (column?.type !== "numeric" || node.values.some(value => !isRelationalColumnValue("numeric", false, value)))
+          return yield* Result.fail(error("invalidInput"));
+        const values: string[] = [];
+        for (const value of node.values) values.push((yield* decodeExactDecimal(String(value))
+          .pipe(Result.mapError(cause => error("invalidInput", cause)))).canonical);
+        const keys = new Set(values);
+        // This terminal predicate does not introduce a numeric access path.
+        // Existing indexed conjuncts, row validation and bounded reads retain
+        // their owners. Empty membership still proves an empty selection.
+        return { predicate: { kind: "numericIn", column: node.column, values: [...keys] }, postgres: false,
+          select: () => Result.succeed({ selections: keys.size === 0 ? [] : null, unindexedText: false }),
+          requiredNulls: new Set<string>(), search: null,
+          matches: row => {
+            const value = row[node.column];
+            return (typeof value === "string" || typeof value === "number") && Result.match(decodeExactDecimal(String(value)), {
+              onFailure: () => false, onSuccess: decoded => keys.has(decoded.canonical),
+            });
+          } };
       }
       if (node.kind === "indexedPoints") {
         operands += node.values.length * node.columns.length;

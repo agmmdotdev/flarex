@@ -714,6 +714,22 @@ flushes interleave those families; the unchanged native baseline remains separat
 from this portable contract. Shared publication preserves the actual emitted
 sequence.
 
+The [native Price List Price creation](./preflight/155-native-price-list-price-creation.md)
+root and private adapter admit zero to four List entries, two Prices per entry
+and two raw Rule attributes per Price, using up to eight raw Variant selectors
+over four distinct stored Link endpoints. The connected branch uses only Pricing
+List reads, add/remove and genuine stored Variant-PriceSet Query. The approved
+native DAL correction and shared native planner preserve existing/mixed reuse,
+sparse duplicate response positions, managed stamps and native events. Reused
+existing Price IDs retain their destructive physical inverse, including complete
+all-history Rule cleanup and root-only deletion events. This profile alone
+selects the approved storage-insertion-ordered deletion cohort. Its named
+128-call allowance retains 64 events and all other default limits. Empty Rule
+records retain the private invalid-input refusal and rollback boundary. General
+Price List Price update, removal and batch roots remain separate admissions;
+the unchanged native baselines remain separate from the approved portable
+contract. Hosted activation, external delivery and arbitrary scale remain gated.
+
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
 The genuine creation step remains unchanged and returns complete native rows,

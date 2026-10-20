@@ -2,8 +2,9 @@
 import { verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder, verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
 import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyReturnFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 import { deliverySourcePairs, verifyFulfillmentDeliveryCallbacks, verifyNativeSkipStepResponseType } from "./check-medusa-delivery-source.mjs";
-import { verifyPricingNormalizationExtraction } from "./check-medusa-pricing-normalization.mjs";
+import { verifyPricingNormalizationExtraction, verifyPricingCandidateConstraintExport } from "./check-medusa-pricing-normalization.mjs";
 import { verifyNativeJsonAssignment } from "./check-medusa-json-assignment-source.mjs";
+import { pricingRepositoryNormalizationSource, verifyNativePriceListPriceNormalization, verifyPriceListPriceCreationCallbacks, verifyPriceListPriceCreationSelection } from "./check-medusa-price-list-prices-source.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -273,6 +274,20 @@ function inventory(root, relative) {
 export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync(path.join(root, manifestPath), "utf8"))) {
   assertPromotion(supplied);
   verifyNativeJsonAssignment(root);
+  verifyPricingCandidateConstraintExport(
+    readFileSync(path.join(root, sourcePrefix + "packages/modules/pricing/src/services/index.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-pricing/src/services/index.ts"), "utf8"));
+  verifyNativePriceListPriceNormalization(
+    readFileSync(path.join(root, pricingRepositoryNormalizationSource[1]), "utf8"),
+    readFileSync(path.join(root, pricingRepositoryNormalizationSource[0]), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-utils/src/dal/upsert-planning.ts"), "utf8"));
+  verifyPriceListPriceCreationCallbacks(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/price-list/workflows/create-price-list-prices.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/price-list/workflows/create-price-list-prices.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/price-list/steps/create-price-list-prices.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/price-list/steps/create-price-list-prices.ts"), "utf8"));
+  verifyPriceListPriceCreationSelection(readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/pricing/create-price-list-prices.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-adapter/src/workflow/policy.ts"), "utf8"));
   verifyPriceListDeleteSelection(
     readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/pricing/delete-price-lists.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/src/workflow/policy.ts"), "utf8"));
@@ -603,7 +618,16 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       sourcePrefix + "packages/core/core-flows/src/" + relative]);
   const priceListRuleBuilderTarget = "packages/medusa-utils/src/pricing/price-list-rules.ts";
   const priceListRuleBuilderSource = sourcePrefix + "packages/core/utils/src/pricing/builders.ts";
+  const priceListPriceSources = ["price-list/workflows/create-price-list-prices.ts", "price-list/steps/create-price-list-prices.ts"];
   for (const file of promotion.files) {
+    const normalizationPair = file.source === pricingRepositoryNormalizationSource[1] &&
+      (file.target === pricingRepositoryNormalizationSource[0] && file.classification === "nativeRepositoryFork" ||
+        file.target === "packages/medusa-utils/src/dal/upsert-planning.ts" && file.classification === "selectedExportFacade");
+    if (([pricingRepositoryNormalizationSource[0], "packages/medusa-utils/src/dal/upsert-planning.ts"].includes(file.target) || file.source === pricingRepositoryNormalizationSource[1] || file.classification === "nativeRepositoryFork") && !normalizationPair)
+      throw new Error("Native Pricing normalization outside its exact promoted repository pair");
+    const priceListPricePair = priceListPriceSources.find(relative => file.target === "packages/medusa-core-flows/src/" + relative || file.source === sourcePrefix + "packages/core/core-flows/src/" + relative);
+    if (priceListPricePair !== undefined && (file.target !== "packages/medusa-core-flows/src/" + priceListPricePair || file.source !== sourcePrefix + "packages/core/core-flows/src/" + priceListPricePair || file.classification !== "workflowFork"))
+      throw new Error("PriceList Price creation outside its exact pinned source pair");
     // Bind both directions: neither a selected target nor its native source
     // can be relabeled, redirected, or reused as a different extraction.
     const priceListDeletePair = priceListDeleteSources.find(([target, source]) => file.target === target || file.source === source);
@@ -695,7 +719,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       ["packages/medusa-pricing/src/normalization.ts", "packages/modules/pricing/src/services/pricing-module.ts"],
     ]) if (file.target === target && (file.classification !== "selectedExportFacade" || file.source !== sourcePrefix + source))
       throw new Error("Shipping Option extraction outside its exact pinned source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
