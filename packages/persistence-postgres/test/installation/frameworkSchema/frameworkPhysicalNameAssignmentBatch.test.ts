@@ -1,7 +1,7 @@
 import { describe } from "vitest";
 import { assignmentBatchSuite } from "./frameworkPhysicalNameAssignmentBatchSuite";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import { useFileScopedFrameworkCoordinatorPersistence } from "./frameworkCoordinatorRepositoryTestSupport";
 
-describe("bounded physical-name assignment batches (PGlite)", () => {
-  assignmentBatchSuite(async run => run(await createMigratedPGlitePersistence()));
+describe("bounded physical-name assignment batches (PGlite)", { concurrent: false }, () => {
+  assignmentBatchSuite(useFileScopedFrameworkCoordinatorPersistence());
 });
