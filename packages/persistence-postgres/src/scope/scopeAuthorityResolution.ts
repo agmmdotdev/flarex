@@ -33,8 +33,11 @@ export interface ScopeProvisioningReceiptReader {
   ): Promise<SplitScopeAuthorityProvisioningReceipt | null>;
 }
 
+export type ScopeAuthorityClock = Pick<ScopeClockRecord,
+  "scopeId" | "storageGeneration" | "storageGenerationFence" | "epoch" | "lastCommitSeq">;
+
 export interface ScopeClockReader {
-  getCurrentClock(scopeId: ScopeId): Promise<ScopeClockRecord | null>;
+  getCurrentClock(scopeId: ScopeId): Promise<ScopeAuthorityClock | null>;
 }
 
 export interface LocatedScopeClockReader extends ScopeClockReader {
@@ -421,7 +424,7 @@ function requireSplitScopeReceiptResult(intent: ScopeAuthorityIntent, expectedLo
  * placement, receipt and clock under one installed PostgreSQL snapshot. */
 export function resolveTrustedScopeAuthoritySnapshotResult(selection: TrustedScopeSelection,
   scope: ScopeMetadataRecord | null, receipt: SplitScopeAuthorityProvisioningReceipt | null,
-  targetLocator: ScopePhysicalLocator, clock: ScopeClockRecord | null,
+  targetLocator: ScopePhysicalLocator, clock: ScopeAuthorityClock | null,
 ): Result.Result<TrustedScopeAuthority, TrustedScopeAuthorityResolutionError> {
   return Result.gen(function* () {
     const intent = yield* resolveTrustedScopePlacementSnapshotResult(selection, scope, receipt, targetLocator);
@@ -511,7 +514,7 @@ const resolveScopeAuthorityAtTarget = Effect.fn(
 function trustedAuthorityResult(
   intent: ScopeAuthorityIntent,
   physicalLocator: ScopePhysicalLocator,
-  clock: ScopeClockRecord | null,
+  clock: ScopeAuthorityClock | null,
 ): Result.Result<
   TrustedScopeAuthority,
   TrustedScopeAuthorityResolutionError

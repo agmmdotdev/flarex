@@ -60,6 +60,7 @@ import {
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
 } from "../../../src/scope/scopeAuthorityResolution";
+import { getScopeMetadataByDeploymentId } from "../../../src/scope/scopeMetadata";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../../src/execution/readCommittedTransactionFailure";
@@ -67,16 +68,11 @@ import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
 } from "../../../src/database/locatedTransactionIdentity";
-import {
-  createPGlitePersistence,
-  type PGliteFlarexPersistence,
-} from "../../../src/database/pglite";
+import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
 import {
   createPGliteLocatedApplicationRevisionRegistrationTargetV1,
 } from "../../../src/testing/systemTestApplicationRevisionTargetsV1";
-import {
-  withHistoricalApplicationAnalysisMigrations,
-} from "../../../src/testing/systemTestHistoricalApplicationAnalysisMigrations";
+import { useHistoricalVerifierPGlite } from "../../legacy/historicalVerifierFixture";
 import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
 import { runEffect } from "../../support/effectTestRuntime";
 import {
@@ -127,6 +123,26 @@ describe("inactive application revision registration V1", () => {
       });
     }
   });
+
+  const createHistoricalPersistence = useHistoricalVerifierPGlite();
+
+  function registrationFixture(correlate = true) {
+    return Effect.gen(function* () {
+      const persistence = yield* Effect.promise(
+        createHistoricalPersistence,
+      );
+      const target =
+        createPGliteLocatedApplicationRevisionRegistrationTargetV1(
+          persistence,
+          LOCATOR,
+        );
+      return yield* registrationFixtureForPersistence(
+        persistence,
+        target,
+        correlate,
+      );
+    });
+  }
 
   it("registers atomically, replays concurrently, and cold-reloads DB time", async () => {
     await runEffect(Effect.scoped(Effect.gen(function* () {
@@ -228,7 +244,7 @@ describe("inactive application revision registration V1", () => {
   it("registers through backend-owned opaque evidence and its exact command receipt", async () => {
     await runEffect(Effect.scoped(Effect.gen(function* () {
       const persistence = yield* Effect.promise(
-        createHistoricalApplicationAnalysisPGlitePersistence,
+        createHistoricalPersistence,
       );
       const target =
         createPGliteLocatedApplicationRevisionRegistrationTargetV1(
@@ -581,7 +597,10 @@ describe("inactive application revision registration V1", () => {
       const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
         DEPLOYMENT_ID,
         {
-          scopeMetadata: fixture.persistence,
+          scopeMetadata: {
+            getScopeMetadataByDeploymentId: deploymentId =>
+              getScopeMetadataByDeploymentId(fixture.persistence.drizzle, deploymentId),
+          },
           provisioningReceipts: {
             getScopeAuthorityProvisioningReceipt: async () => {
               throw new Error("Shared runtime publication has no split receipt.");
@@ -887,32 +906,6 @@ function makeTestEvidenceAuthority() {
   });
 }
 
-function registrationFixture(correlate = true) {
-  return Effect.gen(function* () {
-    const persistence = yield* Effect.promise(
-      createHistoricalApplicationAnalysisPGlitePersistence,
-    );
-    const target =
-      createPGliteLocatedApplicationRevisionRegistrationTargetV1(
-        persistence,
-        LOCATOR,
-      );
-    return yield* registrationFixtureForPersistence(
-      persistence,
-      target,
-      correlate,
-    );
-  });
-}
-
-async function createHistoricalApplicationAnalysisPGlitePersistence() {
-  return withHistoricalApplicationAnalysisMigrations(async migrationsFolder => {
-    const persistence = await createPGlitePersistence({ migrationsFolder });
-    await persistence.migrate();
-    return persistence;
-  });
-}
-
 /** This retained registration owner runs only before analysis retirement (0064),
  * including the explicitly staged Task System callers through 0046. */
 async function insertHistoricalApplicationRegistrationScope(
@@ -1114,7 +1107,10 @@ export function makeRegistrationTestContext(
 ) {
   return makeApplicationRevisionRegistrationContextV1({
     authority: {
-      scopeMetadata: persistence,
+      scopeMetadata: {
+        getScopeMetadataByDeploymentId: deploymentId =>
+          getScopeMetadataByDeploymentId(persistence.drizzle, deploymentId),
+      },
       provisioningReceipts: {
         getScopeAuthorityProvisioningReceipt: async () => {
           throw new Error("Shared registration must not read split receipts.");

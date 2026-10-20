@@ -3853,6 +3853,18 @@ historical registration/repository consumers still own their separate retirement
 gates. Do not restore retired columns or combine historical registration rows
 with current execution authority.
 
+The retained pre-0064 registration owner reads and locks the genuine inline
+historical clock, including its generation, fence, epoch and retained range.
+It issues no current execution observation or metadata watermark. Historical
+metadata reads reuse the raw scope metadata owner; registration transactions
+reuse READ COMMITTED settlement mechanics without current installation admission.
+Native registration retains the same physical client observation, uncertain
+settlement, quarantine and release owner as installed transactions. The authority
+resolver requires only its actual five clock fields and retains its placement
+and receipt checks. Current installation admission and clock/execution-authority
+pair remain with their current owners; historical fixtures do not synthesize
+their schema or weaken their admission.
+
 Stop here. `AA-R9` routing, bindings, deployment, caller selection, auth and
 production cutover remain unauthorized.
 

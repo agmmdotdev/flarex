@@ -5,6 +5,7 @@ import {
   classifyPostgresLocatedReadCommittedSettlementV1,
   createPostgresLocatedReadCommittedTransactionRunnerV1,
   createPostgresClientLocatedReadCommittedTransactionRunnerV1,
+  createHistoricalPostgresLocatedReadCommittedTransactionRunnerV1,
 } from "../../src/database/postgresLocatedReadCommitted";
 import {
   LocatedReadCommittedTransactionFailureV1,
@@ -118,7 +119,10 @@ describe("Postgres located READ COMMITTED settlement provenance", () => {
   });
 });
 
-describe("pooled located READ COMMITTED connection errors", () => {
+describe.each([
+  { profile: "installed", createRunner: createPostgresLocatedReadCommittedTransactionRunnerV1, admissionEvents: ["installation gate"] },
+  { profile: "historical", createRunner: createHistoricalPostgresLocatedReadCommittedTransactionRunnerV1, admissionEvents: [] },
+])("pooled located READ COMMITTED connection errors - $profile", ({ createRunner, admissionEvents }) => {
   it("observes a checked-out fatal error, preserves it, and discards before returning", async () => {
     const events: string[] = [];
     const callbackCause = new Error("query rejected after termination");
@@ -131,7 +135,7 @@ describe("pooled located READ COMMITTED connection errors", () => {
       discard = cause;
       events.push("release");
     });
-    const run = createPostgresLocatedReadCommittedTransactionRunnerV1({
+    const run = createRunner({
       connect: (callback) => {
         callback(undefined, client);
         expect(client.listenerCount("error")).toBe(1);
@@ -159,11 +163,37 @@ describe("pooled located READ COMMITTED connection errors", () => {
     expect(events).toEqual([
       "begin",
       "set transaction isolation level read committed",
-      "installation gate",
+      ...admissionEvents,
       "callback",
       "rollback",
       "release",
     ]);
+    expect(client.listenerCount("error")).toBe(0);
+  });
+
+  it("discards a failed BEGIN before returning without entering the callback", async () => {
+    const events: string[] = [];
+    const beginCause = new Error("BEGIN rejected after checkout");
+    let discard: Error | boolean | undefined;
+    const client = fakePoolClient(events, cause => {
+      discard = cause;
+      events.push("release");
+    }, { beginCause });
+    const run = createRunner({ connect: callback => callback(undefined, client) });
+
+    await expect(run(async () => {
+      events.push("callback");
+      return "forbidden";
+    })).rejects.toMatchObject({
+      issue: {
+        kind: "infrastructureFailure",
+        phase: "beginOrConfigure",
+        cause: { cause: beginCause },
+      },
+    });
+    expect(discard).toBeInstanceOf(Error);
+    expect(discard instanceof Error ? discard.cause : undefined).toBe(beginCause);
+    expect(events).toEqual(["begin", "release"]);
     expect(client.listenerCount("error")).toBe(0);
   });
 });
@@ -427,6 +457,7 @@ function captureFailure(run: () => unknown): unknown {
 function fakeClient(
   events: string[],
   faults: Readonly<{
+    readonly beginCause?: unknown;
     readonly beforeCommit?: () => Promise<void>;
     readonly commitCause?: unknown;
     readonly rollbackCause?: unknown;
@@ -460,6 +491,9 @@ function fakeClient(
         const text = queryText(query);
         const installationGate = text.includes("from fx_lock_installation_admission() as i");
         events.push(installationGate ? "installation gate" : text);
+        if (text === "begin" && faults.beginCause !== undefined) {
+          throw faults.beginCause;
+        }
         if (installationGate) {
           expect(text).toContain("current_user = session_user");
           expect(text).toContain("current_schema() = i.schema_name");
@@ -494,8 +528,9 @@ function fakeClient(
 function fakePoolClient(
   events: string[],
   release: (error?: Error | boolean) => void,
+  faults: Parameters<typeof fakeClient>[1] = {},
 ): PoolClient {
-  return Object.assign(fakeClient(events), { release });
+  return Object.assign(fakeClient(events, faults), { release });
 }
 
 function queryText(query: unknown): string {

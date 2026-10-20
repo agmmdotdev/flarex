@@ -83,10 +83,10 @@ import {
 } from "../functionMetadataCodec";
 import type { FunctionMetadataSha256V1Error } from "../functionMetadataSha256";
 import {
-  getScopeClock,
-  lockScopeClockForUpdateInTransactionEffect,
-  type LockScopeClockForUpdateError,
-} from "../../scope/scopeClock";
+  readLegacyApplicationRevisionRegistrationClock,
+  lockLegacyApplicationRevisionRegistrationClock,
+  type LegacyApplicationRevisionRegistrationClockError,
+} from "./legacyApplicationRevisionRegistrationClock";
 import {
   prepareSchemaManifestAppSchemaBindingsV1Effect,
   type PrepareSchemaManifestAppSchemaBindingsV1Error,
@@ -116,8 +116,8 @@ import {
   captureScopePhysicalLocator,
 } from "../../scope/scopePhysicalLocator";
 import {
-  createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from "../../database/locatedReadCommittedRunner";
+  createReadCommittedTransactionRunner,
+} from "../../database/readCommittedTransactionRunner";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../execution/readCommittedTransactionFailure";
@@ -169,11 +169,11 @@ export function createLocatedApplicationRevisionRegistrationTargetV1(
   physicalLocator: ScopePhysicalLocator,
   runReadCommitted:
     RunLocatedReadCommittedTransactionV1 =
-      createDefaultLocatedReadCommittedTransactionRunnerV1(db),
+      createReadCommittedTransactionRunner(db, async () => {}),
 ): LocatedApplicationRevisionRegistrationTargetV1 {
   return Object.freeze({
     physicalLocator: captureScopePhysicalLocator(physicalLocator),
-    getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
+    getCurrentClock: (scopeId: ScopeId) => Effect.runPromise(readLegacyApplicationRevisionRegistrationClock(db, scopeId)),
     [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted,
     [REGISTRATION_TARGET_DB]: db,
   });
@@ -363,7 +363,7 @@ export type RegisterApplicationRevisionV1Error =
   | ApplicationRevisionRegistrationResourceV1Error
   | TrustedScopeAuthorityError
   | DeclarativeV2VerifierProgressRepositoryV2Error
-  | LockScopeClockForUpdateError
+  | LegacyApplicationRevisionRegistrationClockError
   | PublishPreparedAppSchemaV1InTransactionError
   | FunctionMetadataSha256V1Error
   | DeclarativeV2Sha256V1Error;
@@ -1330,7 +1330,7 @@ function runRegistrationTransactionAttempt(
   return Effect.suspend(() => {
     let callbackCause:
       | Cause.Cause<
-        | LockScopeClockForUpdateError
+        | LegacyApplicationRevisionRegistrationClockError
         | PublishPreparedAppSchemaV1InTransactionError
         | ApplicationRevisionRegistrationEvidenceV1Error
         | ApplicationRevisionRegistrationRequestConflictV1Error
@@ -1398,22 +1398,23 @@ function runRegistrationTransactionAttempt(
   });
 }
 
-function registerInTransaction(
+const registerInTransaction = Effect.fn(
+  "ApplicationRevisionRegistration.registerInTransaction",
+)(function* (
   tx: AppRowTransaction,
   state: CorrelatedRegistrationStateV1,
   requestKey: ApplicationRevisionRegistrationRequestKeyV1,
   registrationInputSha256: Uint8Array,
-): Effect.Effect<
+): Effect.fn.Return<
   DurableRegisteredApplicationRevisionV1,
-  | LockScopeClockForUpdateError
+  | LegacyApplicationRevisionRegistrationClockError
   | PublishPreparedAppSchemaV1InTransactionError
   | ApplicationRevisionRegistrationEvidenceV1Error
   | ApplicationRevisionRegistrationRequestConflictV1Error
   | ApplicationRevisionRegistrationStoredStateV1Error
   | ApplicationRevisionRegistrationConfirmedRollbackV1Error
 > {
-  return Effect.gen(function* () {
-    const clock = yield* lockScopeClockForUpdateInTransactionEffect(
+    const clock = yield* lockLegacyApplicationRevisionRegistrationClock(
       tx,
       state.authority.scopeId,
     );
@@ -1569,7 +1570,6 @@ function registerInTransaction(
     }));
     return revision;
   });
-}
 
 function verifyDurableAnalyzerEvidence(
   tx: AppRowTransaction,

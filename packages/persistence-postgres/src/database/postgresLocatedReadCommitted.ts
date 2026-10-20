@@ -88,6 +88,29 @@ export function createPostgresLocatedReadCommittedTransactionRunnerV1(
   pool: PostgresLocatedReadCommittedPoolV1,
   options: PostgresLocatedReadCommittedRunnerOptionsV1 = {},
 ): RunLocatedReadCommittedTransactionV1 {
+  return createPooledReadCommittedTransactionRunner(
+    pool,
+    options,
+    async tx => { await Effect.runPromise(acquireRunnerInstallationAdmission(options, tx)); },
+    closeInstallationAdmission,
+  );
+}
+
+/** Retained pre-installation repositories keep the same physical settlement
+ * owner without constructing current installation or execution authority. */
+export function createHistoricalPostgresLocatedReadCommittedTransactionRunnerV1(
+  pool: PostgresLocatedReadCommittedPoolV1,
+  options: Pick<PostgresLocatedReadCommittedRunnerOptionsV1, "afterAcquire" | "release"> = {},
+): RunLocatedReadCommittedTransactionV1 {
+  return createPooledReadCommittedTransactionRunner(pool, options, async () => {}, () => {});
+}
+
+function createPooledReadCommittedTransactionRunner(
+  pool: PostgresLocatedReadCommittedPoolV1,
+  options: Pick<PostgresLocatedReadCommittedRunnerOptionsV1, "afterAcquire" | "release">,
+  configure: (tx: AppRowTransaction) => Promise<void>,
+  finalize: (tx: AppRowTransaction) => void,
+): RunLocatedReadCommittedTransactionV1 {
   return async <Result>(work: (
     tx: AppRowTransaction,
   ) => Promise<Result>): Promise<Result> => {
@@ -102,14 +125,16 @@ export function createPostgresLocatedReadCommittedTransactionRunnerV1(
       });
     }
 
-    return runLocatedReadCommittedWithPoolClient(acquired, work, options);
+    return runLocatedReadCommittedWithPoolClient(acquired, work, options, configure, finalize);
   };
 }
 
 async function runLocatedReadCommittedWithPoolClient<Result>(
   acquired: CheckedOutPoolClientV1,
   work: (tx: AppRowTransaction) => Promise<Result>,
-  options: PostgresLocatedReadCommittedRunnerOptionsV1,
+  options: Pick<PostgresLocatedReadCommittedRunnerOptionsV1, "afterAcquire" | "release">,
+  configure: (tx: AppRowTransaction) => Promise<void>,
+  finalize: (tx: AppRowTransaction) => void,
 ): Promise<Result> {
   const { client, connectionErrors } = acquired;
   try {
@@ -155,7 +180,7 @@ async function runLocatedReadCommittedWithPoolClient<Result>(
       async (tx): Promise<Result> => {
         state.phase = "configuring";
         await tx.setTransaction({ isolationLevel: "read committed" });
-        await Effect.runPromise(acquireRunnerInstallationAdmission(options, tx));
+        await configure(tx);
         state.phase = "runningCallback";
         try {
           const result = await work(tx);
@@ -166,7 +191,7 @@ async function runLocatedReadCommittedWithPoolClient<Result>(
           state.callbackCause = cause;
           throw cause;
         } finally {
-          closeInstallationAdmission(tx);
+          finalize(tx);
         }
       },
     ));

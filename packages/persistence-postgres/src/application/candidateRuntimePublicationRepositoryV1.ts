@@ -127,7 +127,7 @@ class PublicationConflict extends Error {
 }
 
 export function makeCandidateRuntimePublicationRepositoryV1(
-  target: LocatedReadCommittedAttemptTargetV1,
+  target: Pick<LocatedReadCommittedAttemptTargetV1, typeof RUN_LOCATED_READ_COMMITTED_V1>,
   options: CandidateRuntimePublicationRepositoryV1Options = {},
   sha256: DeclarativeV2Sha256V1 = makeLiveDeclarativeV2Sha256V1(),
 ): CandidateRuntimePublicationRepositoryV1 {

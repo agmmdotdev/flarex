@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,6 +7,7 @@ import {
 import { runEffect } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
+  rollbackAndReleasePostgresClient,
   withTemporaryPostgresPersistence,
 } from "../../support/postgresHelpers";
 
@@ -261,6 +262,69 @@ describePostgres("real Postgres inactive application revision registration V1", 
         receipts: "0",
         schemas: "0",
       }]);
+    }, { historicalApplicationAnalysis: true });
+  }, 60_000);
+  it("rechecks historical authority after waiting for the registration clock lock", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const { registrationFixtureForPersistence } = await loadRegistrationFixture();
+      const target = createPostgresLocatedApplicationRevisionRegistrationTargetV1(
+        persistence,
+        LOCATOR,
+      );
+      const held = await persistence.pool.connect();
+      const failure = await runEffect(Effect.scoped(Effect.gen(function* () {
+        const fixture = yield* registrationFixtureForPersistence(persistence, target);
+        yield* Effect.tryPromise(() => held.query("begin"));
+        const locked = yield* Effect.tryPromise(() => held.query<{ pid: number; scope_id: string }>(
+          "select pg_backend_pid()::int as pid, scope_id from fx_system_scope_clock for update",
+        ));
+        expect(locked.rows).toHaveLength(1);
+        const blockerPid = locked.rows[0]?.pid;
+        const scopeId = locked.rows[0]?.scope_id;
+        const registration = yield* fixture.context.register(
+          fixture.analysis,
+          "postgres:clock-transition",
+        ).pipe(Effect.flip, Effect.forkScoped);
+
+        yield* Effect.gen(function* () {
+          for (;;) {
+            const waiters = yield* Effect.tryPromise(() => persistence.query<{ blocked: boolean }>(`
+              select exists(select 1 from pg_stat_activity
+                where datname = current_database()
+                  and $1::int = any(pg_blocking_pids(pid))
+                  and query like '%fx_system_scope_clock%'
+                  and query like '%for update%') as blocked
+            `, [blockerPid]));
+            if (waiters.rows[0]?.blocked === true) break;
+            yield* Effect.sleep("10 millis");
+          }
+        }).pipe(Effect.timeout("5 seconds"));
+
+        yield* Effect.tryPromise(() => held.query(`
+          update fx_system_scope_clock
+          set storage_generation_fence = storage_generation_fence + 1
+          where scope_id = $1
+        `, [scopeId]));
+        yield* Effect.tryPromise(() => held.query("commit"));
+        return yield* Fiber.join(registration);
+      }).pipe(Effect.ensuring(
+        Effect.tryPromise(() => rollbackAndReleasePostgresClient(held)).pipe(Effect.orDie),
+      ))));
+      expect(failure).toMatchObject({
+        _tag: "ApplicationRevisionRegistrationEvidenceV1Error",
+        reason: "authorityChanged",
+      });
+      const rows = await persistence.query<{
+        revisions: string;
+        receipts: string;
+        schemas: string;
+      }>(`
+        select
+          (select count(*)::text from fx_system_application_revision_v1) as revisions,
+          (select count(*)::text from fx_system_application_revision_request_v1) as receipts,
+          (select count(*)::text from fx_control_schema_version) as schemas
+      `);
+      expect(rows.rows).toEqual([{ revisions: "0", receipts: "0", schemas: "0" }]);
     }, { historicalApplicationAnalysis: true });
   }, 60_000);
 });

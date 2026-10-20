@@ -14,6 +14,7 @@ import {
 } from "../application/revision/applicationRevisionActivationV1";
 import {
   createPostgresLocatedReadCommittedTransactionRunnerV1,
+  createHistoricalPostgresLocatedReadCommittedTransactionRunnerV1,
 } from "../database/postgresLocatedReadCommitted";
 import type { ScopePhysicalLocator } from "../scope/scopeMetadataTypes";
 
@@ -54,7 +55,7 @@ export function createPostgresLocatedApplicationRevisionRegistrationTargetV1(
   return createLocatedApplicationRevisionRegistrationTargetV1(
     persistence.drizzle,
     physicalLocator,
-    createPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool),
+    createHistoricalPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool),
   );
 }
 

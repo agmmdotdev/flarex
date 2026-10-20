@@ -105,6 +105,8 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/persistence-postgres/src/storage/catalog/appSchemaCandidateValidation.ts", "startLocatedEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/storage/catalog/appTableDefinitionsArtifacts.ts", "runPreparedAppTableDefinitionsArtifactTransactionEffect"), 1],
   [siteKey("packages/persistence-postgres/src/application/revision/applicationRevisionRegistrationV1.ts", "runRegistrationTransactionAttempt"), 1],
+  // The retained registration target exposes a Promise-only historical clock port.
+  [siteKey("packages/persistence-postgres/src/application/revision/applicationRevisionRegistrationV1.ts", "getCurrentClock"), 1],
   [siteKey("packages/persistence-postgres/src/storage/indexes/indexBuildReconciliation.ts", "startLocatedEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/storage/unique/appUniqueConstraintSetBuildV1.ts", "startLocatedEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/application/revision/applicationRevisionReadinessV1.ts", "startLocatedEffectTransaction"), 1],
@@ -119,7 +121,7 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/persistence-postgres/src/commit/commitWakeOutbox.ts", "claimForCommit"), 1],
   [siteKey("packages/persistence-postgres/src/commit/commitWakeOutbox.ts", "claimReadyBatch"), 1],
   [siteKey("packages/persistence-postgres/src/commit/commitWakeOutbox.ts", "settleClaim"), 1],
-  [siteKey("packages/persistence-postgres/src/database/postgresLocatedReadCommitted.ts", "runLocatedReadCommittedWithPoolClient"), 1],
+  [siteKey("packages/persistence-postgres/src/database/postgresLocatedReadCommitted.ts", "createPostgresLocatedReadCommittedTransactionRunnerV1"), 1],
   [siteKey("packages/persistence-postgres/src/database/postgresLocatedReadCommitted.ts", "createPostgresClientLocatedReadCommittedTransactionRunnerV1"), 1],
   // Compatibility maintenance owns migration and canonical backfills together;
   // the final bridge initializes a genuinely fresh unverified installation.
