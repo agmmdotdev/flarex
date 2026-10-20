@@ -781,7 +781,7 @@ async function verifyFrozenActualIndexActionLimit(persistence: MaterializationCo
  * its actual catalog owner; this does not claim Application source-closure
  * reachability for 512 indexes on one table. */
 async function verifyNativeOrderedIndexPairCapacity(persistence: MaterializationCompositionPersistence) {
-  const originalFixture = await compositionFixture(persistence, 1151);
+  const originalFixture = await compositionFixture(persistence, 1195);
   const schemaVersionId = decodeCatalogSchemaVersionId("native_ordered_index_capacity");
   await persistence.publishAppSchemaV1({ deploymentId: originalFixture.deploymentId, schemaVersionId,
     version: CatalogSchemaVersionSchema.make(1), tables: [{ logicalName: "documents", definition: {
