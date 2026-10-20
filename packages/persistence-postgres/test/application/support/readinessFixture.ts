@@ -310,7 +310,12 @@ export async function createFileScopedReadinessControlFixture(): Promise<FileSco
     await transaction.exec(`
       delete from fx_control_application_schema_authority_v1;
       delete from fx_control_schema_unique_constraint_set;
+      delete from fx_control_schema_version_unique_constraint_binding;
+      delete from fx_control_unique_constraint_definition;
+      delete from fx_control_unique_constraint;
+      delete from fx_control_schema_version_index_binding;
       delete from fx_control_index_definition;
+      delete from fx_control_index;
       delete from fx_control_schema_version;
       delete from fx_control_table;
     `);
