@@ -1,12 +1,9 @@
-import { copyDrizzleMigrations } from "../../../src/testing/systemTestMigrationFiles";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFile, writeFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
 import type { FlarexSqlClient } from "../../../src";
+import { makeDrizzleCopyFixture } from "../../support/migrationFixtureSupport";
 import { createPostgresPersistence } from "../../../src/database/postgres";
 import {
   writeJournalThrough0031,
@@ -38,9 +35,10 @@ type SqlPersistence = Pick<FlarexSqlClient, "query">;
 
 describePostgres("real Postgres B2b1 exact-attempt claim schema", () => {
   it("rolls back, upgrades 0031 without backfill, and replays off public", async () => {
-    const fixture = await migrationFixture();
+    const fixture = await makeDrizzleCopyFixture("flarex-b2b1", "postgres", MIGRATION_NAME);
     const sessionId = transactionSessionIdAt(331);
     try {
+      await writeJournalThrough0031(fixture.currentJournal, fixture.temporaryJournal);
       await withTemporaryPostgresSchema(async (databaseOptions) => {
         const previous = await createPostgresPersistence({
           ...databaseOptions,
@@ -69,9 +67,9 @@ describePostgres("real Postgres B2b1 exact-attempt claim schema", () => {
             fixture.currentJournal,
             fixture.temporaryJournal,
           );
-          const migration = await readFile(fixture.copiedMigration, "utf8");
+          const migration = await readFile(fixture.migrationPath, "utf8");
           await writeFile(
-            fixture.copiedMigration,
+            fixture.migrationPath,
             `${migration}\n--> statement-breakpoint\nselect * from fx_b2b1_deliberate_missing_table;\n`,
             "utf8",
           );
@@ -93,7 +91,7 @@ describePostgres("real Postgres B2b1 exact-attempt claim schema", () => {
             receipts: 32,
           });
 
-          await writeFile(fixture.copiedMigration, migration, "utf8");
+          await writeFile(fixture.migrationPath, migration, "utf8");
           await expect(current.migrate()).resolves.toBeUndefined();
           await expect(current.migrate()).resolves.toBeUndefined();
           await expect(readUpgradeState(
@@ -113,7 +111,7 @@ describePostgres("real Postgres B2b1 exact-attempt claim schema", () => {
         }
       });
     } finally {
-      await rm(fixture.root, { recursive: true, force: true });
+      await fixture.cleanup();
     }
   }, 30_000);
 
@@ -239,30 +237,6 @@ async function readUpgradeState(
     claims,
     claimTables: row.claim_tables,
     receipts: row.receipts,
-  });
-}
-
-async function migrationFixture(): Promise<Readonly<{
-  root: string;
-  migrationsFolder: string;
-  currentJournal: string;
-  temporaryJournal: string;
-  copiedMigration: string;
-}>> {
-  const root = await mkdtemp(resolve(tmpdir(), "flarex-b2b1-postgres-"));
-  const migrationsFolder = resolve(root, "drizzle");
-  const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-  const currentMigrationsFolder = resolve(packageRoot, "drizzle");
-  const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
-  const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
-  await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
-  await writeJournalThrough0031(currentJournal, temporaryJournal);
-  return Object.freeze({
-    root,
-    migrationsFolder,
-    currentJournal,
-    temporaryJournal,
-    copiedMigration: resolve(migrationsFolder, MIGRATION_NAME),
   });
 }
 

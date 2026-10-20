@@ -1,10 +1,6 @@
-import { copyDrizzleMigrations } from "../../src/testing/systemTestMigrationFiles";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFile, writeFile } from "node:fs/promises";
 import { Effect } from "effect";
-import { isNonArrayRecord } from "@flarex/utils/records";
+import { makeDrizzleCopyFixture, writeJournalThrough } from "../support/migrationFixtureSupport";
 import { describe, expect, it } from "vitest";
 import { createPostgresPersistence } from "../../src/database/postgres";
 import { bootstrapInstallationMigrations } from "../../src/database/postgresInstallationMaintenance";
@@ -19,17 +15,11 @@ import {
 
 describe.skipIf(postgresUrl === null)("whole mutation migration 0127 on ordinary-role PostgreSQL", () => {
   it.each(["running", "aborted"] as const)("preserves a %s predecessor through the actual maintenance owner", async lifecycle => {
-    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-whole-mutation-postgres-"));
-    const migrationsFolder = resolve(testRoot, "drizzle");
-    const sourceFolder = resolve(dirname(fileURLToPath(import.meta.url)), "../../drizzle");
+    const fixture = await makeDrizzleCopyFixture("flarex-whole-mutation", "postgres", "0127_whole_mutation.sql");
+    const { migrationsFolder, temporaryJournal: journalPath } = fixture;
     try {
-      await copyDrizzleMigrations(sourceFolder, migrationsFolder);
-      const journalPath = resolve(migrationsFolder, "meta/_journal.json");
       const journalText = await readFile(journalPath, "utf8");
-      const parsed: unknown = JSON.parse(journalText);
-      if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) throw new Error("Missing exact migration journal");
-      await writeFile(journalPath, JSON.stringify({ ...parsed, entries: parsed.entries.filter(entry =>
-        isNonArrayRecord(entry) && typeof entry.idx === "number" && entry.idx < 127) }), "utf8");
+      await writeJournalThrough(fixture.currentJournal, journalPath, 126);
       await withTemporaryPostgresSchema(async options => {
         const previous = await createPostgresPersistence({ ...options, migrationsFolder });
         try {
@@ -87,6 +77,6 @@ describe.skipIf(postgresUrl === null)("whole mutation migration 0127 on ordinary
           } finally { await current.close(); }
         } finally { await previous.close(); }
       });
-    } finally { await rm(testRoot, { recursive: true, force: true }); }
+    } finally { await fixture.cleanup(); }
   }, 180_000);
 });

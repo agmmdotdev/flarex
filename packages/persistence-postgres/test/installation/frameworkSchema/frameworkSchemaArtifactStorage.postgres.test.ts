@@ -1,11 +1,7 @@
-import { copyDrizzleMigrations } from "../../../src/testing/systemTestMigrationFiles";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { isNonArrayRecord } from "@flarex/utils/records";
+import { readFile, writeFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { makeDrizzleCopyFixture, writeJournalThrough } from "../../support/migrationFixtureSupport";
 
 import { createPostgresPersistence } from "../../../src/database/postgres";
 import {
@@ -22,32 +18,12 @@ const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("framework schema artifact storage - PostgreSQL", () => {
   it("installs atomically in the selected schema and accepts maximum index keys", async () => {
-    const testRoot = await mkdtemp(resolve(
-      tmpdir(),
-      "flarex-framework-artifact-storage-pg-",
-    ));
-    const migrationsFolder = resolve(testRoot, "drizzle");
-    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
-    const currentJournal = resolve(
-      currentMigrationsFolder,
-      "meta/_journal.json",
-    );
-    const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
-    const migrationPath = resolve(
-      migrationsFolder,
-      `${MIGRATION_TAG}.sql`,
-    );
+    const fixture = await makeDrizzleCopyFixture("flarex-framework-artifact-storage", "pg", `${MIGRATION_TAG}.sql`);
+    const { migrationsFolder, currentJournal, temporaryJournal, migrationPath } = fixture;
 
     try {
-      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
-      const journalText = await readFile(currentJournal, "utf8");
       const migrationText = await readFile(migrationPath, "utf8");
-      await writeFile(
-        temporaryJournal,
-        migrationJournalBefore(journalText, MIGRATION_INDEX),
-        "utf8",
-      );
+      await writeJournalThrough(currentJournal, temporaryJournal, MIGRATION_INDEX - 1);
 
       await withTemporaryPostgresSchema(async databaseOptions => {
         const persistence = await createPostgresPersistence({
@@ -61,19 +37,20 @@ describePostgres("framework schema artifact storage - PostgreSQL", () => {
             databaseOptions.migrationsSchema,
           )).toEqual({ receipts: 79, sequences: 0, tables: 0 });
 
-          await writeFile(
-            temporaryJournal,
-            migrationJournalBefore(journalText, MIGRATION_INDEX + 1),
-            "utf8",
-          );
+          await writeJournalThrough(currentJournal, temporaryJournal, MIGRATION_INDEX);
           await writeFile(
             migrationPath,
             `${migrationText}\n--> statement-breakpoint\nselect * from fx_framework_artifact_deliberate_missing_table;\n`,
             "utf8",
           );
-          await expect(persistence.migrate()).rejects.toThrow(
-            /fx_framework_artifact_deliberate_missing_table/,
-          );
+          await expect(persistence.migrate()).rejects.toMatchObject({
+            _tag: "InstallationLifecycleError",
+            reason: "resourceFailure",
+            cause: { cause: {
+              code: "42P01",
+              message: expect.stringContaining("fx_framework_artifact_deliberate_missing_table"),
+            } },
+          });
           expect(await storageInventory(
             persistence,
             databaseOptions.migrationsSchema,
@@ -153,7 +130,7 @@ describePostgres("framework schema artifact storage - PostgreSQL", () => {
         }
       });
     } finally {
-      await rm(testRoot, { recursive: true, force: true });
+      await fixture.cleanup();
     }
   }, 480_000);
 });
@@ -161,24 +138,6 @@ describePostgres("framework schema artifact storage - PostgreSQL", () => {
 type PostgresPersistence = Awaited<
   ReturnType<typeof createPostgresPersistence>
 >;
-
-function migrationJournalBefore(
-  journalText: string,
-  exclusiveIndex: number,
-): string {
-  const parsed: unknown = JSON.parse(journalText);
-  if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
-    throw new Error("Current Drizzle journal is missing its entries array.");
-  }
-  return `${JSON.stringify({
-    ...parsed,
-    entries: parsed.entries.filter(entry =>
-      isNonArrayRecord(entry) &&
-      typeof entry.idx === "number" &&
-      entry.idx < exclusiveIndex
-    ),
-  }, null, 2)}\n`;
-}
 
 function deterministicAscii(seed: string, byteLength: number): string {
   const chunks: string[] = [];

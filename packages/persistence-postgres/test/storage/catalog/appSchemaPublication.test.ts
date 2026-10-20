@@ -69,15 +69,6 @@ const publishAppSchemaV1WithRepository = (
   ...args: Parameters<typeof publishAppSchemaV1WithRepositoryEffect>
 ) => runEffect(publishAppSchemaV1WithRepositoryEffect(...args));
 
-let persistence: PGlitePersistence;
-let dispose: (() => Promise<void>) | undefined;
-
-beforeAll(async () => {
-  persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
-}, 120_000);
-
-afterAll(async () => { await dispose?.(); }, 120_000);
-
 describe("app-schema V1 publication facade", { concurrent: false }, () => {
   it("keeps the coordinator Effect-native behind the runtime facade", () => {
     expectTypeOf<
@@ -86,125 +77,6 @@ describe("app-schema V1 publication facade", { concurrent: false }, () => {
       PublishAppSchemaV1Result,
       PublishAppSchemaV1Error
     >>();
-  });
-
-  it("publishes and exactly replays the complete projection", async () => {
-    const deploymentId = "deployment_schema_publication_v1_facade_replay";
-    await insertDeployment(persistence, deploymentId);
-    const input = publicationInput(
-      deploymentId,
-      "schema_publication_v1_facade_replay",
-    );
-
-    const created = await persistence.publishAppSchemaV1(input);
-    const replayed = await persistence.publishAppSchemaV1(input);
-
-    expect(created).toEqual(replayed);
-    expect(created.manifest).toEqual(created.artifact.manifestJson);
-    expect(created.manifest.tableDefinitions.tables).toMatchObject([
-      { logicalName: "users", tableId: 1 },
-    ]);
-    expect(created.manifest.indexBindings.indexes).toMatchObject([
-      { descriptor: "byEmail", logicalIndexId: 1, tableId: 1 },
-    ]);
-    expect(created.creationTimeIndexDefinitions).toMatchObject([
-      { indexDefinitionId: 1, access: { kind: "by_creation_time", tableId: 1 } },
-    ]);
-    expect(created.developerIndexDefinitions).toMatchObject([
-      {
-        indexDefinitionId: 2,
-        access: { kind: "developer", tableId: 1, logicalIndexId: 1 },
-      },
-    ]);
-    expect(created.schemaVersionIndexBindings).toMatchObject([
-      { logicalIndexId: 1, indexDefinitionId: 2 },
-    ]);
-    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
-      tables: 1,
-      indexes: 1,
-      schemaVersions: 1,
-      definitions: 2,
-      schemaBindings: 1,
-      buildStates: 0,
-    });
-  });
-
-  it("snapshots once, then replans and rehashes every stale attempt", async () => {
-    const deploymentId = "deployment_schema_publication_v1_facade_stale";
-    await insertDeployment(persistence, deploymentId);
-    const input = publicationInput(
-      deploymentId,
-      "schema_publication_v1_facade_stale",
-    );
-    const initial = await prepareAppSchemaPublicationV1(
-      persistence.drizzle,
-      input,
-    );
-    const initialState = getPreparedAppSchemaPublicationV1State(initial);
-    const initialCanonical = await canonicalizeSchemaManifestV1(
-      decodeSchemaManifestJson(initialState.logicalBindings.manifest),
-    );
-    let transactionAttempts = 0;
-    const digest = vi.spyOn(crypto.subtle, "digest");
-    const digestCountsAtTransaction: number[] = [];
-    const repository = {
-      db: persistence.drizzle,
-      async runTransaction<Result>(
-        run: (tx: StableTableCatalogTransaction) => Promise<Result>,
-      ): Promise<Result> {
-        transactionAttempts += 1;
-        digestCountsAtTransaction.push(digest.mock.calls.length);
-        if (transactionAttempts === 1) {
-          const firstTable = input.tables[0];
-          const firstIndex = input.indexes[0];
-          if (firstTable === undefined || firstIndex === undefined) {
-            throw new Error("Expected mutable publication fixtures.");
-          }
-          replaceOwnDataProperty(firstTable, "logicalName", "mutatedAfterCall");
-          replaceOwnDataProperty(firstIndex.fields, 0, "mutatedAfterCall");
-          await runEffect(
-            ensureStableTableIdentityEffect(persistence.drizzle, {
-              deploymentId,
-              namespace: "payload",
-              logicalName: "allocator_winner",
-            }),
-          );
-        }
-        return persistence.drizzle.transaction(run);
-      },
-    } satisfies AppSchemaPublicationV1Repository;
-
-    try {
-      const result = await publishAppSchemaV1WithRepository(
-        repository,
-        input,
-      );
-
-      expect(transactionAttempts).toBe(2);
-      expect(digestCountsAtTransaction).toHaveLength(2);
-      expect(digestCountsAtTransaction[1]).toBeGreaterThan(
-        digestCountsAtTransaction[0] ?? 0,
-      );
-      expect(result.manifest.tableDefinitions.tables).toMatchObject([
-        { logicalName: "users", tableId: 2 },
-      ]);
-      expect(result.manifest.indexBindings.indexes).toMatchObject([
-        { descriptor: "byEmail", logicalIndexId: 1, tableId: 2 },
-      ]);
-      expect(Array.from(result.artifact.manifestSha256)).not.toEqual(
-        Array.from(initialCanonical.sha256),
-      );
-      await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
-        tables: 2,
-        indexes: 1,
-        schemaVersions: 1,
-        definitions: 2,
-        schemaBindings: 1,
-        buildStates: 0,
-      });
-    } finally {
-      digest.mockRestore();
-    }
   });
 
   it("retries only typed combined-stale outcomes and retains the last cause", async () => {
@@ -257,64 +129,6 @@ describe("app-schema V1 publication facade", { concurrent: false }, () => {
     ).catch((error: unknown) => error);
     expect(terminalAttempts).toBe(1);
     expect(rejected).toBe(terminal);
-  });
-
-  it("retains the initiating Effect cause when transaction cleanup fails", async () => {
-    const deploymentId = "deployment_schema_publication_v1_rollback_failure";
-    await insertDeployment(persistence, deploymentId);
-    const rollbackFailure = new Error("injected transaction rollback failure");
-    let transactionAttempts = 0;
-    const repository = {
-      db: persistence.drizzle,
-      async runTransaction<Result>(
-        run: (tx: StableTableCatalogTransaction) => Promise<Result>,
-      ): Promise<Result> {
-        transactionAttempts += 1;
-        await runEffect(ensureStableTableIdentityEffect(
-          persistence.drizzle,
-          {
-            deploymentId,
-            namespace: "payload",
-            logicalName: "allocator_winner",
-          },
-        ));
-        try {
-          return await persistence.drizzle.transaction(run);
-        } catch {
-          throw rollbackFailure;
-        }
-      },
-    } satisfies AppSchemaPublicationV1Repository;
-
-    const failure = await publishAppSchemaV1WithRepository(
-      repository,
-      publicationInput(
-        deploymentId,
-        "schema_publication_v1_rollback_failure",
-      ),
-    ).catch((cause: unknown) => cause);
-
-    expect(transactionAttempts).toBe(1);
-    expect(failure).toBeInstanceOf(AppSchemaPublicationV1TransactionError);
-    expect(failure).toMatchObject({ cause: rollbackFailure });
-    if (!(failure instanceof AppSchemaPublicationV1TransactionError)) {
-      throw new Error("Expected a typed publication transaction failure.");
-    }
-    expect(failure.callbackCause).toBeDefined();
-    if (failure.callbackCause !== undefined) {
-      expect(Cause.hasFails(failure.callbackCause)).toBe(true);
-      expect(failure.callbackCause.toString()).toContain(
-        "stable table catalog advanced",
-      );
-    }
-    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
-      tables: 1,
-      indexes: 0,
-      schemaVersions: 0,
-      definitions: 0,
-      schemaBindings: 0,
-      buildStates: 0,
-    });
   });
 
   it("enforces fixed declaration and canonical-byte quotas at their boundaries", () => {
@@ -523,62 +337,250 @@ describe("app-schema V1 publication facade", { concurrent: false }, () => {
     }
   });
 
-  it("retains the exact post-preparation byte gate before the transaction", async () => {
-    const deploymentId = "deployment_schema_publication_v1_exact_byte_fallback";
-    await insertDeployment(persistence, deploymentId);
-    const baseline = await prepareAppSchemaPublicationV1(
-      persistence.drizzle,
-      {
-        deploymentId,
-        schemaVersionId: CatalogSchemaVersionIdSchema.make(
-          "schema_publication_v1_exact_byte_calibration",
-        ),
-        version: CatalogSchemaVersionSchema.make(1),
-        tables: [literalTable("exactFallback", "")],
-        indexes: [],
-      },
-    );
-    const baselineState =
-      getPreparedAppSchemaPublicationV1State(baseline);
-    const baselineCanonical = await canonicalizeSchemaManifestV1(
-      decodeSchemaManifestJson(baselineState.logicalBindings.manifest),
-    );
-    const literalLength =
-      MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES -
-      baselineCanonical.canonicalBytes.byteLength +
-      1;
-    if (literalLength <= 0) {
-      throw new Error("Expected positive exact-byte fallback fixture length.");
-    }
-    const transaction = vi.spyOn(persistence.drizzle, "transaction");
+  describe("database-backed catalog cases", { concurrent: false }, () => {
+    let persistence: PGlitePersistence;
+    let dispose: (() => Promise<void>) | undefined;
 
-    try {
-      await expect(
-        persistence.publishAppSchemaV1({
+    beforeAll(async () => {
+      persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
+    }, 120_000);
+
+    afterAll(async () => { await dispose?.(); }, 120_000);
+
+    it("publishes and exactly replays the complete projection", async () => {
+      const deploymentId = "deployment_schema_publication_v1_facade_replay";
+      await insertDeployment(persistence, deploymentId);
+      const input = publicationInput(
+        deploymentId,
+        "schema_publication_v1_facade_replay",
+      );
+
+      const created = await persistence.publishAppSchemaV1(input);
+      const replayed = await persistence.publishAppSchemaV1(input);
+
+      expect(created).toEqual(replayed);
+      expect(created.manifest).toEqual(created.artifact.manifestJson);
+      expect(created.manifest.tableDefinitions.tables).toMatchObject([
+        { logicalName: "users", tableId: 1 },
+      ]);
+      expect(created.manifest.indexBindings.indexes).toMatchObject([
+        { descriptor: "byEmail", logicalIndexId: 1, tableId: 1 },
+      ]);
+      expect(created.creationTimeIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 1, access: { kind: "by_creation_time", tableId: 1 } },
+      ]);
+      expect(created.developerIndexDefinitions).toMatchObject([
+        {
+          indexDefinitionId: 2,
+          access: { kind: "developer", tableId: 1, logicalIndexId: 1 },
+        },
+      ]);
+      expect(created.schemaVersionIndexBindings).toMatchObject([
+        { logicalIndexId: 1, indexDefinitionId: 2 },
+      ]);
+      await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+        tables: 1,
+        indexes: 1,
+        schemaVersions: 1,
+        definitions: 2,
+        schemaBindings: 1,
+        buildStates: 0,
+      });
+    });
+
+    it("snapshots once, then replans and rehashes every stale attempt", async () => {
+      const deploymentId = "deployment_schema_publication_v1_facade_stale";
+      await insertDeployment(persistence, deploymentId);
+      const input = publicationInput(
+        deploymentId,
+        "schema_publication_v1_facade_stale",
+      );
+      const initial = await prepareAppSchemaPublicationV1(
+        persistence.drizzle,
+        input,
+      );
+      const initialState = getPreparedAppSchemaPublicationV1State(initial);
+      const initialCanonical = await canonicalizeSchemaManifestV1(
+        decodeSchemaManifestJson(initialState.logicalBindings.manifest),
+      );
+      let transactionAttempts = 0;
+      const digest = vi.spyOn(crypto.subtle, "digest");
+      const digestCountsAtTransaction: number[] = [];
+      const repository = {
+        db: persistence.drizzle,
+        async runTransaction<Result>(
+          run: (tx: StableTableCatalogTransaction) => Promise<Result>,
+        ): Promise<Result> {
+          transactionAttempts += 1;
+          digestCountsAtTransaction.push(digest.mock.calls.length);
+          if (transactionAttempts === 1) {
+            const firstTable = input.tables[0];
+            const firstIndex = input.indexes[0];
+            if (firstTable === undefined || firstIndex === undefined) {
+              throw new Error("Expected mutable publication fixtures.");
+            }
+            replaceOwnDataProperty(firstTable, "logicalName", "mutatedAfterCall");
+            replaceOwnDataProperty(firstIndex.fields, 0, "mutatedAfterCall");
+            await runEffect(
+              ensureStableTableIdentityEffect(persistence.drizzle, {
+                deploymentId,
+                namespace: "payload",
+                logicalName: "allocator_winner",
+              }),
+            );
+          }
+          return persistence.drizzle.transaction(run);
+        },
+      } satisfies AppSchemaPublicationV1Repository;
+
+      try {
+        const result = await publishAppSchemaV1WithRepository(
+          repository,
+          input,
+        );
+
+        expect(transactionAttempts).toBe(2);
+        expect(digestCountsAtTransaction).toHaveLength(2);
+        expect(digestCountsAtTransaction[1]).toBeGreaterThan(
+          digestCountsAtTransaction[0] ?? 0,
+        );
+        expect(result.manifest.tableDefinitions.tables).toMatchObject([
+          { logicalName: "users", tableId: 2 },
+        ]);
+        expect(result.manifest.indexBindings.indexes).toMatchObject([
+          { descriptor: "byEmail", logicalIndexId: 1, tableId: 2 },
+        ]);
+        expect(Array.from(result.artifact.manifestSha256)).not.toEqual(
+          Array.from(initialCanonical.sha256),
+        );
+        await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+          tables: 2,
+          indexes: 1,
+          schemaVersions: 1,
+          definitions: 2,
+          schemaBindings: 1,
+          buildStates: 0,
+        });
+      } finally {
+        digest.mockRestore();
+      }
+    });
+
+    it("retains the initiating Effect cause when transaction cleanup fails", async () => {
+      const deploymentId = "deployment_schema_publication_v1_rollback_failure";
+      await insertDeployment(persistence, deploymentId);
+      const rollbackFailure = new Error("injected transaction rollback failure");
+      let transactionAttempts = 0;
+      const repository = {
+        db: persistence.drizzle,
+        async runTransaction<Result>(
+          run: (tx: StableTableCatalogTransaction) => Promise<Result>,
+        ): Promise<Result> {
+          transactionAttempts += 1;
+          await runEffect(ensureStableTableIdentityEffect(
+            persistence.drizzle,
+            {
+              deploymentId,
+              namespace: "payload",
+              logicalName: "allocator_winner",
+            },
+          ));
+          try {
+            return await persistence.drizzle.transaction(run);
+          } catch {
+            throw rollbackFailure;
+          }
+        },
+      } satisfies AppSchemaPublicationV1Repository;
+
+      const failure = await publishAppSchemaV1WithRepository(
+        repository,
+        publicationInput(
+          deploymentId,
+          "schema_publication_v1_rollback_failure",
+        ),
+      ).catch((cause: unknown) => cause);
+
+      expect(transactionAttempts).toBe(1);
+      expect(failure).toBeInstanceOf(AppSchemaPublicationV1TransactionError);
+      expect(failure).toMatchObject({ cause: rollbackFailure });
+      if (!(failure instanceof AppSchemaPublicationV1TransactionError)) {
+        throw new Error("Expected a typed publication transaction failure.");
+      }
+      expect(failure.callbackCause).toBeDefined();
+      if (failure.callbackCause !== undefined) {
+        expect(Cause.hasFails(failure.callbackCause)).toBe(true);
+        expect(failure.callbackCause.toString()).toContain(
+          "stable table catalog advanced",
+        );
+      }
+      await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+        tables: 1,
+        indexes: 0,
+        schemaVersions: 0,
+        definitions: 0,
+        schemaBindings: 0,
+        buildStates: 0,
+      });
+    });
+
+    it("retains the exact post-preparation byte gate before the transaction", async () => {
+      const deploymentId = "deployment_schema_publication_v1_exact_byte_fallback";
+      await insertDeployment(persistence, deploymentId);
+      const baseline = await prepareAppSchemaPublicationV1(
+        persistence.drizzle,
+        {
           deploymentId,
           schemaVersionId: CatalogSchemaVersionIdSchema.make(
-            "schema_publication_v1_exact_byte_fallback",
+            "schema_publication_v1_exact_byte_calibration",
           ),
-          version: CatalogSchemaVersionSchema.make(2),
-          tables: [
-            literalTable("exactFallback", "x".repeat(literalLength)),
-          ],
+          version: CatalogSchemaVersionSchema.make(1),
+          tables: [literalTable("exactFallback", "")],
           indexes: [],
-        }),
-      ).rejects.toMatchObject({
-        name: "AppSchemaPublicationV1QuotaExceededError",
-        issue: {
-          reason: "canonicalBytesExceeded",
-          actualBytes:
-            MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES + 1,
-          maximumBytes:
-            MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
         },
-      });
-      expect(transaction).not.toHaveBeenCalled();
-    } finally {
-      transaction.mockRestore();
-    }
+      );
+      const baselineState =
+        getPreparedAppSchemaPublicationV1State(baseline);
+      const baselineCanonical = await canonicalizeSchemaManifestV1(
+        decodeSchemaManifestJson(baselineState.logicalBindings.manifest),
+      );
+      const literalLength =
+        MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES -
+        baselineCanonical.canonicalBytes.byteLength +
+        1;
+      if (literalLength <= 0) {
+        throw new Error("Expected positive exact-byte fallback fixture length.");
+      }
+      const transaction = vi.spyOn(persistence.drizzle, "transaction");
+
+      try {
+        await expect(
+          persistence.publishAppSchemaV1({
+            deploymentId,
+            schemaVersionId: CatalogSchemaVersionIdSchema.make(
+              "schema_publication_v1_exact_byte_fallback",
+            ),
+            version: CatalogSchemaVersionSchema.make(2),
+            tables: [
+              literalTable("exactFallback", "x".repeat(literalLength)),
+            ],
+            indexes: [],
+          }),
+        ).rejects.toMatchObject({
+          name: "AppSchemaPublicationV1QuotaExceededError",
+          issue: {
+            reason: "canonicalBytesExceeded",
+            actualBytes:
+              MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES + 1,
+            maximumBytes:
+              MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
+          },
+        });
+        expect(transaction).not.toHaveBeenCalled();
+      } finally {
+        transaction.mockRestore();
+      }
+    });
   });
 });
 

@@ -1,9 +1,4 @@
-import { copyDrizzleMigrations } from "../../../src/testing/systemTestMigrationFiles";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
 import { asc, eq } from "drizzle-orm";
 
 import {
@@ -402,27 +397,11 @@ describePostgres("real Postgres C03 SessionJournalStore", { concurrent: false },
   });
 
   it("locks and refuses migration 0076 while legacy relation evidence exists", async () => {
-    const testRoot = await mkdtemp(resolve(
-      tmpdir(),
-      "flarex-ra01-j-postgres-",
-    ));
-    const migrationsFolder = resolve(testRoot, "drizzle");
-    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
-    const currentJournal = resolve(
-      currentMigrationsFolder,
-      "meta/_journal.json",
-    );
-    const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
+    const fixture = await makeDrizzleCopyFixture("flarex-ra01-j", "postgres", "0076_pink_toxin.sql");
+    const { migrationsFolder, currentJournal, temporaryJournal } = fixture;
 
     try {
-      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
-      const journalText = await readFile(currentJournal, "utf8");
-      await writeFile(
-        temporaryJournal,
-        migrationJournalBefore(journalText, 76),
-        "utf8",
-      );
+      await writeJournalThrough(currentJournal, temporaryJournal, 75);
 
       await withTemporaryPostgresSchema(async databaseOptions => {
         const previous = await createPostgresPersistence({
@@ -455,11 +434,7 @@ describePostgres("real Postgres C03 SessionJournalStore", { concurrent: false },
                '2030-01-01T00:00:00.000Z')
           `, [session.scopeUuid, session.sessionId]);
 
-          await writeFile(
-            temporaryJournal,
-            migrationJournalBefore(journalText, 77),
-            "utf8",
-          );
+          await writeJournalThrough(currentJournal, temporaryJournal, 76);
           current = await createPostgresPersistence({
             ...databaseOptions,
             migrationsFolder,
@@ -542,7 +517,7 @@ describePostgres("real Postgres C03 SessionJournalStore", { concurrent: false },
         }
       });
     } finally {
-      await rm(testRoot, { recursive: true, force: true });
+      await fixture.cleanup();
     }
   }, 120_000);
 
@@ -1762,24 +1737,6 @@ function sharedLocator(
     databaseKey,
     schemaName: "public",
   });
-}
-
-function migrationJournalBefore(
-  journalText: string,
-  exclusiveIndex: number,
-): string {
-  const parsed = JSON.parse(journalText) as {
-    entries?: Array<{ readonly idx?: number }>;
-  };
-  if (!Array.isArray(parsed.entries)) {
-    throw new Error("Current Drizzle journal is missing its entries array.");
-  }
-  return `${JSON.stringify({
-    ...parsed,
-    entries: parsed.entries.filter(entry =>
-      entry.idx !== undefined && entry.idx < exclusiveIndex
-    ),
-  }, null, 2)}\n`;
 }
 
 function quoteIdentifier(value: string): string {

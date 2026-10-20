@@ -1,10 +1,6 @@
-import { copyDrizzleMigrations } from "../../../src/testing/systemTestMigrationFiles";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { isNonArrayRecord } from "@flarex/utils/records";
+import { readFile, writeFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { makeDrizzleCopyFixture, writeJournalThrough } from "../../support/migrationFixtureSupport";
 
 import { createPostgresPersistence } from "../../../src/database/postgres";
 import { postgresUrl, withTemporaryPostgresSchema } from "../../support/postgresHelpers";
@@ -13,25 +9,11 @@ const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("real PostgreSQL O11-F1 retained-history migration", () => {
   it("upgrades atomically, rolls back a failed install, and rejects invalid singleton rows", async () => {
-    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-o11-f1-pg-migration-"));
-    const migrationsFolder = resolve(testRoot, "drizzle");
-    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
-    const currentJournalPath = resolve(
-      currentMigrationsFolder,
-      "meta/_journal.json",
-    );
-    const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
-    const copiedMigrationPath = resolve(
-      migrationsFolder,
-      "0065_omniscient_prism.sql",
-    );
+    const fixture = await makeDrizzleCopyFixture("flarex-o11-f1-pg", "migration", "0065_omniscient_prism.sql");
+    const { migrationsFolder, currentJournal: currentJournalPath, temporaryJournal: copiedJournalPath, migrationPath: copiedMigrationPath } = fixture;
     try {
-      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
-      const journalText = await readFile(currentJournalPath, "utf8");
-      const previousJournal = migrationJournalBefore(journalText, 65);
       const migrationText = await readFile(copiedMigrationPath, "utf8");
-      await writeFile(copiedJournalPath, previousJournal, "utf8");
+      await writeJournalThrough(currentJournalPath, copiedJournalPath, 64);
 
       await withTemporaryPostgresSchema(async (databaseOptions) => {
         const persistence = await createPostgresPersistence({
@@ -49,15 +31,20 @@ describePostgres("real PostgreSQL O11-F1 retained-history migration", () => {
             databaseOptions.migrationsSchema,
           )).toEqual({ tableCount: 0, rowCount: 0, pointFence: "7", receipts: 65 });
 
-          await writeFile(copiedJournalPath, journalText, "utf8");
+          await writeJournalThrough(currentJournalPath, copiedJournalPath, 65);
           await writeFile(
             copiedMigrationPath,
             `${migrationText}\n--> statement-breakpoint\nselect * from fx_o11_f1_deliberate_missing_table;\n`,
             "utf8",
           );
-          await expect(persistence.migrate()).rejects.toThrow(
-            /fx_o11_f1_deliberate_missing_table/,
-          );
+          await expect(persistence.migrate()).rejects.toMatchObject({
+            _tag: "InstallationLifecycleError",
+            reason: "resourceFailure",
+            cause: { cause: {
+              code: "42P01",
+              message: expect.stringContaining("fx_o11_f1_deliberate_missing_table"),
+            } },
+          });
           expect(await inventory(
             persistence,
             databaseOptions.migrationsSchema,
@@ -84,28 +71,10 @@ describePostgres("real PostgreSQL O11-F1 retained-history migration", () => {
         }
       });
     } finally {
-      await rm(testRoot, { recursive: true, force: true });
+      await fixture.cleanup();
     }
   }, 180_000);
 });
-
-function migrationJournalBefore(
-  journalText: string,
-  exclusiveIndex: number,
-): string {
-  const parsed: unknown = JSON.parse(journalText);
-  if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
-    throw new Error("Current Drizzle journal is missing its entries array.");
-  }
-  return `${JSON.stringify({
-    ...parsed,
-    entries: parsed.entries.filter((entry) =>
-      isNonArrayRecord(entry) &&
-      typeof entry.idx === "number" &&
-      entry.idx < exclusiveIndex
-    ),
-  }, null, 2)}\n`;
-}
 
 async function inventory(
   persistence: Awaited<ReturnType<typeof createPostgresPersistence>>,

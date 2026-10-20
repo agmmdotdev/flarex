@@ -36,9 +36,12 @@ describePostgres("Application Analysis retirement - PostgreSQL", () => {
           ...databaseOptions,
           migrationsFolder: fixture.migrationsFolder,
         });
-        await previous.migrate();
-        await seedRetiredApplicationAnalysisCandidate(previous);
-        await previous.close();
+        try {
+          await previous.migrate();
+          await seedRetiredApplicationAnalysisCandidate(previous);
+        } finally {
+          await previous.close();
+        }
         await writeFile(fixture.journalPath, fixture.currentJournal, "utf8");
 
         const migrationSql = await readFile(fixture.migrationPath, "utf8");

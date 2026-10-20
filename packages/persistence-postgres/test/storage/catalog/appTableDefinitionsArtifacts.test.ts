@@ -84,15 +84,6 @@ type CallerComputedManifestAccepted = CallerComputedManifest extends
   ? true
   : false;
 
-let persistence: PGlitePersistence;
-let dispose: (() => Promise<void>) | undefined;
-
-beforeAll(async () => {
-  persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
-}, 120_000);
-
-afterAll(async () => { await dispose?.(); }, 120_000);
-
 describe("table-only app definitions artifact compatibility", { concurrent: false }, () => {
   it("keeps one high-level facade and hides every swappable child boundary", () => {
     expectTypeOf<PublicInternalCompatibilityExport>().toEqualTypeOf<never>();
@@ -118,347 +109,6 @@ describe("table-only app definitions artifact compatibility", { concurrent: fals
       EnsureSchemaVersionArtifactResult,
       EnsureAppTableDefinitionsArtifactV1Error
     >>();
-  });
-
-  it("maps transaction infrastructure rejection once to its tagged failure", async () => {
-    const deploymentId = "deployment_table_artifact_transaction_rejection";
-    await insertDeployment(persistence, deploymentId);
-    const rejection = new Error("table artifact transaction rejected");
-    const repository = {
-      db: persistence.drizzle,
-      runTransaction<Result>(): Promise<Result> {
-        return Promise.reject(rejection);
-      },
-    } satisfies AppTableDefinitionsArtifactV1Repository;
-
-    const failure = await runEffectFailure(
-      ensureAppTableDefinitionsArtifactV1WithRepositoryEffect(
-        repository,
-        appSchemaInput(deploymentId, "schema_transaction_rejection", ["users"]),
-      ),
-    );
-
-    expect(failure).toBeInstanceOf(
-      AppTableDefinitionsArtifactV1TransactionError,
-    );
-    expect(failure).toMatchObject({ cause: rejection });
-  });
-
-  it("keeps table-only schema-owned field failures typed", async () => {
-    const valid = appSchemaInput(
-      "deployment_table_artifact_invalid_fields",
-      "schema_table_artifact_invalid_fields",
-      ["users"],
-    );
-    const invalidFields: ReadonlyArray<readonly [string, unknown]> = [
-      ["schemaVersionId", { ...valid, schemaVersionId: "" }],
-      ["version", { ...valid, version: 0 }],
-      ["tables", { ...valid, tables: {} }],
-    ];
-
-    for (const [field, input] of invalidFields) {
-      await expect(
-        runEffect(Reflect.apply(
-          prepareAppTableDefinitionsArtifactV1Effect,
-          undefined,
-          [persistence.drizzle, input],
-        )),
-      ).rejects.toMatchObject({
-        name: "InvalidAppTableDefinitionsArtifactV1InputError",
-        issue: { reason: "invalidField", field },
-      });
-    }
-  });
-
-  it("preserves input reflection and field-access failures as defects", async () => {
-    const reflectionDefect = new Error("table artifact input ownKeys defect");
-    const fieldDefect = new Error("table artifact input field defect");
-    const declarationDefect = new Error(
-      "table artifact declaration reflection defect",
-    );
-    const valid = appSchemaInput(
-      "deployment_input_defect",
-      "schema_input_defect",
-      ["users"],
-    );
-    const firstTable = valid.tables[0];
-    if (firstTable === undefined) throw new Error("Expected a table fixture.");
-    const cases: ReadonlyArray<
-      readonly [Error, EnsureAppTableDefinitionsArtifactV1Input]
-    > = [
-      [reflectionDefect, new Proxy(valid, {
-        ownKeys(): never {
-          throw reflectionDefect;
-        },
-      })],
-      [fieldDefect, new Proxy(valid, {
-        get(target, property, receiver): unknown {
-          if (property === "schemaVersionId") throw fieldDefect;
-          return Reflect.get(target, property, receiver);
-        },
-      })],
-      [declarationDefect, {
-        ...valid,
-        tables: [new Proxy(firstTable, {
-          ownKeys(): never {
-            throw declarationDefect;
-          },
-        })],
-      }],
-    ];
-
-    for (const [defect, input] of cases) {
-      const exit = await Effect.runPromiseExit(
-        prepareAppTableDefinitionsArtifactV1Effect(persistence.drizzle, input),
-      );
-
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        expect(Cause.hasDies(exit.cause)).toBe(true);
-        expect(Cause.hasFails(exit.cause)).toBe(false);
-        expect(exit.cause.toString()).toContain(defect.message);
-      }
-    }
-  });
-
-  it("preserves schema snapshot failures as defects", async () => {
-    const defect = new Error("table artifact schema snapshot defect");
-    const snapshot = vi.spyOn(globalThis, "structuredClone")
-      .mockImplementation((): never => {
-        throw defect;
-      });
-
-    try {
-      const exit = await Effect.runPromiseExit(
-        prepareAppTableDefinitionsArtifactV1Effect(
-          persistence.drizzle,
-          appSchemaInput(
-            "deployment_snapshot_defect",
-            "schema_snapshot_defect",
-            ["users"],
-          ),
-        ),
-      );
-
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        expect(Cause.hasDies(exit.cause)).toBe(true);
-        expect(Cause.hasFails(exit.cause)).toBe(false);
-        expect(exit.cause.toString()).toContain(defect.message);
-      }
-    } finally {
-      snapshot.mockRestore();
-    }
-  });
-
-  it("waits for the transaction owner to settle before interruption completes", async () => {
-    const deploymentId = "deployment_table_artifact_interruption";
-    await insertDeployment(persistence, deploymentId);
-    const entered = deferredValue<void>();
-    const release = deferredValue<void>();
-    const repository = {
-      db: persistence.drizzle,
-      async runTransaction<Result>(
-        run: (tx: AppTableDefinitionsArtifactV1Transaction) => Promise<Result>,
-      ): Promise<Result> {
-        const result = await persistence.drizzle.transaction(run);
-        entered.resolve(undefined);
-        await release.promise;
-        return result;
-      },
-    } satisfies AppTableDefinitionsArtifactV1Repository;
-    const fiber = Effect.runFork(
-      ensureAppTableDefinitionsArtifactV1WithRepositoryEffect(
-        repository,
-        appSchemaInput(deploymentId, "schema_interruption", ["users"]),
-      ),
-    );
-
-    await entered.promise;
-    const completion = runEffect(Fiber.await(fiber));
-    let interruptionSettled = false;
-    const interruption = runEffect(Fiber.interrupt(fiber)).then(() => {
-      interruptionSettled = true;
-    });
-    try {
-      await delay(25);
-      expect(interruptionSettled).toBe(false);
-    } finally {
-      release.resolve(undefined);
-    }
-
-    await interruption;
-    const exit = await completion;
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
-    }
-  });
-
-  it("atomically ensures coherent mappings and replays the exact artifact", async () => {
-    const deploymentId = "deployment_app_schema_publish";
-    await insertDeployment(persistence, deploymentId);
-    const input = appSchemaInput(
-      deploymentId,
-      "schema_app_publish",
-      ["users", "products"],
-    );
-
-    const created = await persistence.ensureAppTableDefinitionsArtifactV1(input);
-    expect(created.status).toBe("created");
-    const createdSection = decodeSchemaManifestTableDefinitionsV1(
-      created.artifact.manifestJson,
-    );
-    expect(tableIdentities(createdSection)).toEqual([
-      { logicalName: "products", tableId: 1 },
-      { logicalName: "users", tableId: 2 },
-    ]);
-    await expectCatalogMatchesSection(
-      persistence,
-      deploymentId,
-      createdSection,
-    );
-
-    const reversed = await persistence.ensureAppTableDefinitionsArtifactV1({
-      ...input,
-      tables: [...input.tables].reverse(),
-    });
-    expect(reversed).toMatchObject({
-      status: "existing",
-      artifact: { createdAt: created.artifact.createdAt },
-    });
-    expect(Array.from(reversed.artifact.manifestSha256)).toEqual(
-      Array.from(created.artifact.manifestSha256),
-    );
-
-    await ensureTable(persistence, {
-      deploymentId,
-      namespace: "payload",
-      logicalName: "payload_internal",
-    });
-    const replayAfterFrontierAdvance =
-      await persistence.ensureAppTableDefinitionsArtifactV1(input);
-    expect(replayAfterFrontierAdvance.status).toBe("existing");
-    expect(Array.from(replayAfterFrontierAdvance.artifact.manifestSha256))
-      .toEqual(Array.from(created.artifact.manifestSha256));
-    await expectCatalogMatchesSection(
-      persistence,
-      deploymentId,
-      createdSection,
-    );
-    await expect(rowCounts(persistence, deploymentId)).resolves.toEqual({
-      artifacts: 1,
-      tables: 3,
-    });
-  });
-
-  it("rolls planned mappings back when immutable artifact replay conflicts", async () => {
-    const deploymentId = "deployment_app_schema_conflict";
-    await insertDeployment(persistence, deploymentId);
-    const schemaVersionId = CatalogSchemaVersionIdSchema.make(
-      "schema_app_conflict",
-    );
-    const version = CatalogSchemaVersionSchema.make(1);
-    const existing = await ensureArtifact(persistence, {
-      deploymentId,
-      schemaVersionId,
-      version,
-      manifest: { legacy: true },
-    });
-
-    await expect(
-      persistence.ensureAppTableDefinitionsArtifactV1({
-        deploymentId,
-        schemaVersionId,
-        version,
-        tables: [appDeclaration("users")],
-      }),
-    ).rejects.toMatchObject({
-      name: "SchemaVersionArtifactConflictError",
-      conflict: { reason: "artifactMismatch" },
-    });
-    await expect(
-      runEffect(
-        getStableTableIdentityByNameEffect(persistence.drizzle, {
-          deploymentId,
-          namespace: "app",
-          logicalName: "users",
-        }),
-      ),
-    ).resolves.toBeNull();
-
-    const next = await ensureTable(persistence, {
-      deploymentId,
-      namespace: "payload",
-      logicalName: "after_failed_publication",
-    });
-    expect(next.table.tableId).toBe(1);
-    await expect(
-      getSchemaVersionArtifactByVersion(
-        persistence.drizzle,
-        deploymentId,
-        version,
-      ),
-    ).resolves.toEqual(existing.artifact);
-  });
-
-  it("rebuilds and rehashes the whole publication after one stale plan", async () => {
-    const deploymentId = "deployment_app_schema_retry";
-    await insertDeployment(persistence, deploymentId);
-    const input = appSchemaInput(
-      deploymentId,
-      "schema_app_retry",
-      ["users"],
-    );
-    const initialBindings = await runEffect(
-      prepareSchemaManifestAppTableBindingsV1Effect(persistence.drizzle, {
-        deploymentId,
-        tables: input.tables,
-      }),
-    );
-    const initialCanonical = await canonicalizeSchemaManifestV1(
-      decodeSchemaManifestJson(initialBindings.section),
-    );
-    const baseRepository = publicationRepository(persistence);
-    let transactionAttempts = 0;
-    const racingRepository = {
-      db: persistence.drizzle,
-      runTransaction: async <Result>(
-        run: (
-          tx: AppTableDefinitionsArtifactV1Transaction,
-        ) => Promise<Result>,
-      ): Promise<Result> => {
-        transactionAttempts += 1;
-        if (transactionAttempts === 1) {
-          await ensureTable(persistence, {
-            deploymentId,
-            namespace: "payload",
-            logicalName: "racing_allocation",
-          });
-        }
-        return baseRepository.runTransaction(run);
-      },
-    } satisfies AppTableDefinitionsArtifactV1Repository;
-
-    const result = await runEffect(
-      ensureAppTableDefinitionsArtifactV1WithRepositoryEffect(
-        racingRepository,
-        input,
-      ),
-    );
-
-    expect(result.status).toBe("created");
-    expect(transactionAttempts).toBe(2);
-    const section = decodeSchemaManifestTableDefinitionsV1(
-      result.artifact.manifestJson,
-    );
-    expect(tableIdentities(section)).toEqual([
-      { logicalName: "users", tableId: 2 },
-    ]);
-    expect(Array.from(result.artifact.manifestSha256)).not.toEqual(
-      Array.from(initialCanonical.sha256),
-    );
-    await expectCatalogMatchesSection(persistence, deploymentId, section);
   });
 
   it("bounds stale retries and propagates every terminal error unchanged", async () => {
@@ -504,58 +154,410 @@ describe("table-only app definitions artifact compatibility", { concurrent: fals
     expect(terminalAttempts).toBe(1);
   });
 
-  it("rejects caller-computed fields, child tokens, and structural forgeries", async () => {
-    const deploymentId = "deployment_app_schema_tokens";
-    await insertDeployment(persistence, deploymentId);
-    const input = appSchemaInput(
-      deploymentId,
-      "schema_app_tokens",
-      ["users"],
-    );
+  describe("database-backed catalog cases", { concurrent: false }, () => {
+    let persistence: PGlitePersistence;
+    let dispose: (() => Promise<void>) | undefined;
 
-    await expect(
-      runEffect(Reflect.apply(
-        prepareAppTableDefinitionsArtifactV1Effect,
-        undefined,
-        [persistence.drizzle, { ...input, manifest: { caller: true } }],
-      )),
-    ).rejects.toBeInstanceOf(InvalidAppTableDefinitionsArtifactV1InputError);
+    beforeAll(async () => {
+      persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
+    }, 120_000);
 
-    const bindingToken = await runEffect(
-      prepareSchemaManifestAppTableBindingsV1Effect(persistence.drizzle, {
+    afterAll(async () => { await dispose?.(); }, 120_000);
+
+    it("maps transaction infrastructure rejection once to its tagged failure", async () => {
+      const deploymentId = "deployment_table_artifact_transaction_rejection";
+      await insertDeployment(persistence, deploymentId);
+      const rejection = new Error("table artifact transaction rejected");
+      const repository = {
+        db: persistence.drizzle,
+        runTransaction<Result>(): Promise<Result> {
+          return Promise.reject(rejection);
+        },
+      } satisfies AppTableDefinitionsArtifactV1Repository;
+
+      const failure = await runEffectFailure(
+        ensureAppTableDefinitionsArtifactV1WithRepositoryEffect(
+          repository,
+          appSchemaInput(deploymentId, "schema_transaction_rejection", ["users"]),
+        ),
+      );
+
+      expect(failure).toBeInstanceOf(
+        AppTableDefinitionsArtifactV1TransactionError,
+      );
+      expect(failure).toMatchObject({ cause: rejection });
+    });
+
+    it("keeps table-only schema-owned field failures typed", async () => {
+      const valid = appSchemaInput(
+        "deployment_table_artifact_invalid_fields",
+        "schema_table_artifact_invalid_fields",
+        ["users"],
+      );
+      const invalidFields: ReadonlyArray<readonly [string, unknown]> = [
+        ["schemaVersionId", { ...valid, schemaVersionId: "" }],
+        ["version", { ...valid, version: 0 }],
+        ["tables", { ...valid, tables: {} }],
+      ];
+
+      for (const [field, input] of invalidFields) {
+        await expect(
+          runEffect(Reflect.apply(
+            prepareAppTableDefinitionsArtifactV1Effect,
+            undefined,
+            [persistence.drizzle, input],
+          )),
+        ).rejects.toMatchObject({
+          name: "InvalidAppTableDefinitionsArtifactV1InputError",
+          issue: { reason: "invalidField", field },
+        });
+      }
+    });
+
+    it("preserves input reflection and field-access failures as defects", async () => {
+      const reflectionDefect = new Error("table artifact input ownKeys defect");
+      const fieldDefect = new Error("table artifact input field defect");
+      const declarationDefect = new Error(
+        "table artifact declaration reflection defect",
+      );
+      const valid = appSchemaInput(
+        "deployment_input_defect",
+        "schema_input_defect",
+        ["users"],
+      );
+      const firstTable = valid.tables[0];
+      if (firstTable === undefined) throw new Error("Expected a table fixture.");
+      const cases: ReadonlyArray<
+        readonly [Error, EnsureAppTableDefinitionsArtifactV1Input]
+      > = [
+        [reflectionDefect, new Proxy(valid, {
+          ownKeys(): never {
+            throw reflectionDefect;
+          },
+        })],
+        [fieldDefect, new Proxy(valid, {
+          get(target, property, receiver): unknown {
+            if (property === "schemaVersionId") throw fieldDefect;
+            return Reflect.get(target, property, receiver);
+          },
+        })],
+        [declarationDefect, {
+          ...valid,
+          tables: [new Proxy(firstTable, {
+            ownKeys(): never {
+              throw declarationDefect;
+            },
+          })],
+        }],
+      ];
+
+      for (const [defect, input] of cases) {
+        const exit = await Effect.runPromiseExit(
+          prepareAppTableDefinitionsArtifactV1Effect(persistence.drizzle, input),
+        );
+
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Cause.hasDies(exit.cause)).toBe(true);
+          expect(Cause.hasFails(exit.cause)).toBe(false);
+          expect(exit.cause.toString()).toContain(defect.message);
+        }
+      }
+    });
+
+    it("preserves schema snapshot failures as defects", async () => {
+      const defect = new Error("table artifact schema snapshot defect");
+      const snapshot = vi.spyOn(globalThis, "structuredClone")
+        .mockImplementation((): never => {
+          throw defect;
+        });
+
+      try {
+        const exit = await Effect.runPromiseExit(
+          prepareAppTableDefinitionsArtifactV1Effect(
+            persistence.drizzle,
+            appSchemaInput(
+              "deployment_snapshot_defect",
+              "schema_snapshot_defect",
+              ["users"],
+            ),
+          ),
+        );
+
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Cause.hasDies(exit.cause)).toBe(true);
+          expect(Cause.hasFails(exit.cause)).toBe(false);
+          expect(exit.cause.toString()).toContain(defect.message);
+        }
+      } finally {
+        snapshot.mockRestore();
+      }
+    });
+
+    it("waits for the transaction owner to settle before interruption completes", async () => {
+      const deploymentId = "deployment_table_artifact_interruption";
+      await insertDeployment(persistence, deploymentId);
+      const entered = deferredValue<void>();
+      const release = deferredValue<void>();
+      const repository = {
+        db: persistence.drizzle,
+        async runTransaction<Result>(
+          run: (tx: AppTableDefinitionsArtifactV1Transaction) => Promise<Result>,
+        ): Promise<Result> {
+          const result = await persistence.drizzle.transaction(run);
+          entered.resolve(undefined);
+          await release.promise;
+          return result;
+        },
+      } satisfies AppTableDefinitionsArtifactV1Repository;
+      const fiber = Effect.runFork(
+        ensureAppTableDefinitionsArtifactV1WithRepositoryEffect(
+          repository,
+          appSchemaInput(deploymentId, "schema_interruption", ["users"]),
+        ),
+      );
+
+      await entered.promise;
+      const completion = runEffect(Fiber.await(fiber));
+      let interruptionSettled = false;
+      const interruption = runEffect(Fiber.interrupt(fiber)).then(() => {
+        interruptionSettled = true;
+      });
+      try {
+        await delay(25);
+        expect(interruptionSettled).toBe(false);
+      } finally {
+        release.resolve(undefined);
+      }
+
+      await interruption;
+      const exit = await completion;
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+      }
+    });
+
+    it("atomically ensures coherent mappings and replays the exact artifact", async () => {
+      const deploymentId = "deployment_app_schema_publish";
+      await insertDeployment(persistence, deploymentId);
+      const input = appSchemaInput(
         deploymentId,
-        tables: input.tables,
-      }),
-    );
-    const artifactToken = await runEffect(prepareSchemaVersionArtifactEffect({
-      deploymentId,
-      schemaVersionId: input.schemaVersionId,
-      version: input.version,
-      manifest: decodeSchemaManifestJson(bindingToken.section),
-    }));
-    const invalidTokens: ReadonlyArray<unknown> = [
-      bindingToken,
-      artifactToken,
-      {
+        "schema_app_publish",
+        ["users", "products"],
+      );
+
+      const created = await persistence.ensureAppTableDefinitionsArtifactV1(input);
+      expect(created.status).toBe("created");
+      const createdSection = decodeSchemaManifestTableDefinitionsV1(
+        created.artifact.manifestJson,
+      );
+      expect(tableIdentities(createdSection)).toEqual([
+        { logicalName: "products", tableId: 1 },
+        { logicalName: "users", tableId: 2 },
+      ]);
+      await expectCatalogMatchesSection(
+        persistence,
+        deploymentId,
+        createdSection,
+      );
+
+      const reversed = await persistence.ensureAppTableDefinitionsArtifactV1({
+        ...input,
+        tables: [...input.tables].reverse(),
+      });
+      expect(reversed).toMatchObject({
+        status: "existing",
+        artifact: { createdAt: created.artifact.createdAt },
+      });
+      expect(Array.from(reversed.artifact.manifestSha256)).toEqual(
+        Array.from(created.artifact.manifestSha256),
+      );
+
+      await ensureTable(persistence, {
+        deploymentId,
+        namespace: "payload",
+        logicalName: "payload_internal",
+      });
+      const replayAfterFrontierAdvance =
+        await persistence.ensureAppTableDefinitionsArtifactV1(input);
+      expect(replayAfterFrontierAdvance.status).toBe("existing");
+      expect(Array.from(replayAfterFrontierAdvance.artifact.manifestSha256))
+        .toEqual(Array.from(created.artifact.manifestSha256));
+      await expectCatalogMatchesSection(
+        persistence,
+        deploymentId,
+        createdSection,
+      );
+      await expect(rowCounts(persistence, deploymentId)).resolves.toEqual({
+        artifacts: 1,
+        tables: 3,
+      });
+    });
+
+    it("rolls planned mappings back when immutable artifact replay conflicts", async () => {
+      const deploymentId = "deployment_app_schema_conflict";
+      await insertDeployment(persistence, deploymentId);
+      const schemaVersionId = CatalogSchemaVersionIdSchema.make(
+        "schema_app_conflict",
+      );
+      const version = CatalogSchemaVersionSchema.make(1);
+      const existing = await ensureArtifact(persistence, {
+        deploymentId,
+        schemaVersionId,
+        version,
+        manifest: { legacy: true },
+      });
+
+      await expect(
+        persistence.ensureAppTableDefinitionsArtifactV1({
+          deploymentId,
+          schemaVersionId,
+          version,
+          tables: [appDeclaration("users")],
+        }),
+      ).rejects.toMatchObject({
+        name: "SchemaVersionArtifactConflictError",
+        conflict: { reason: "artifactMismatch" },
+      });
+      await expect(
+        runEffect(
+          getStableTableIdentityByNameEffect(persistence.drizzle, {
+            deploymentId,
+            namespace: "app",
+            logicalName: "users",
+          }),
+        ),
+      ).resolves.toBeNull();
+
+      const next = await ensureTable(persistence, {
+        deploymentId,
+        namespace: "payload",
+        logicalName: "after_failed_publication",
+      });
+      expect(next.table.tableId).toBe(1);
+      await expect(
+        getSchemaVersionArtifactByVersion(
+          persistence.drizzle,
+          deploymentId,
+          version,
+        ),
+      ).resolves.toEqual(existing.artifact);
+    });
+
+    it("rebuilds and rehashes the whole publication after one stale plan", async () => {
+      const deploymentId = "deployment_app_schema_retry";
+      await insertDeployment(persistence, deploymentId);
+      const input = appSchemaInput(
+        deploymentId,
+        "schema_app_retry",
+        ["users"],
+      );
+      const initialBindings = await runEffect(
+        prepareSchemaManifestAppTableBindingsV1Effect(persistence.drizzle, {
+          deploymentId,
+          tables: input.tables,
+        }),
+      );
+      const initialCanonical = await canonicalizeSchemaManifestV1(
+        decodeSchemaManifestJson(initialBindings.section),
+      );
+      const baseRepository = publicationRepository(persistence);
+      let transactionAttempts = 0;
+      const racingRepository = {
+        db: persistence.drizzle,
+        runTransaction: async <Result>(
+          run: (
+            tx: AppTableDefinitionsArtifactV1Transaction,
+          ) => Promise<Result>,
+        ): Promise<Result> => {
+          transactionAttempts += 1;
+          if (transactionAttempts === 1) {
+            await ensureTable(persistence, {
+              deploymentId,
+              namespace: "payload",
+              logicalName: "racing_allocation",
+            });
+          }
+          return baseRepository.runTransaction(run);
+        },
+      } satisfies AppTableDefinitionsArtifactV1Repository;
+
+      const result = await runEffect(
+        ensureAppTableDefinitionsArtifactV1WithRepositoryEffect(
+          racingRepository,
+          input,
+        ),
+      );
+
+      expect(result.status).toBe("created");
+      expect(transactionAttempts).toBe(2);
+      const section = decodeSchemaManifestTableDefinitionsV1(
+        result.artifact.manifestJson,
+      );
+      expect(tableIdentities(section)).toEqual([
+        { logicalName: "users", tableId: 2 },
+      ]);
+      expect(Array.from(result.artifact.manifestSha256)).not.toEqual(
+        Array.from(initialCanonical.sha256),
+      );
+      await expectCatalogMatchesSection(persistence, deploymentId, section);
+    });
+
+    it("rejects caller-computed fields, child tokens, and structural forgeries", async () => {
+      const deploymentId = "deployment_app_schema_tokens";
+      await insertDeployment(persistence, deploymentId);
+      const input = appSchemaInput(
+        deploymentId,
+        "schema_app_tokens",
+        ["users"],
+      );
+
+      await expect(
+        runEffect(Reflect.apply(
+          prepareAppTableDefinitionsArtifactV1Effect,
+          undefined,
+          [persistence.drizzle, { ...input, manifest: { caller: true } }],
+        )),
+      ).rejects.toBeInstanceOf(InvalidAppTableDefinitionsArtifactV1InputError);
+
+      const bindingToken = await runEffect(
+        prepareSchemaManifestAppTableBindingsV1Effect(persistence.drizzle, {
+          deploymentId,
+          tables: input.tables,
+        }),
+      );
+      const artifactToken = await runEffect(prepareSchemaVersionArtifactEffect({
         deploymentId,
         schemaVersionId: input.schemaVersionId,
         version: input.version,
-      },
-    ];
-    for (const invalidToken of invalidTokens) {
-      await expect(
-        persistence.drizzle.transaction((tx) => runEffect(Reflect.apply(
-          ensurePreparedAppTableDefinitionsArtifactV1InTransactionEffect,
-          undefined,
-          [tx, invalidToken],
-        ))),
-      ).rejects.toBeInstanceOf(
-        InvalidPreparedAppTableDefinitionsArtifactV1Error,
-      );
-    }
-    await expect(rowCounts(persistence, deploymentId)).resolves.toEqual({
-      artifacts: 0,
-      tables: 0,
+        manifest: decodeSchemaManifestJson(bindingToken.section),
+      }));
+      const invalidTokens: ReadonlyArray<unknown> = [
+        bindingToken,
+        artifactToken,
+        {
+          deploymentId,
+          schemaVersionId: input.schemaVersionId,
+          version: input.version,
+        },
+      ];
+      for (const invalidToken of invalidTokens) {
+        await expect(
+          persistence.drizzle.transaction((tx) => runEffect(Reflect.apply(
+            ensurePreparedAppTableDefinitionsArtifactV1InTransactionEffect,
+            undefined,
+            [tx, invalidToken],
+          ))),
+        ).rejects.toBeInstanceOf(
+          InvalidPreparedAppTableDefinitionsArtifactV1Error,
+        );
+      }
+      await expect(rowCounts(persistence, deploymentId)).resolves.toEqual({
+        artifacts: 0,
+        tables: 0,
+      });
     });
   });
 });

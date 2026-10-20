@@ -1,10 +1,7 @@
-import { copyDrizzleMigrations } from "../../src/testing/systemTestMigrationFiles";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFile, writeFile } from "node:fs/promises";
 
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { makeDrizzleCopyFixture } from "../support/migrationFixtureSupport";
 import { describe, expect, it } from "vitest";
 
 import { createPostgresPersistence } from "../../src/database/postgres";
@@ -26,8 +23,23 @@ describe("DTE05-E2A PostgreSQL acceptance environment", () => {
 
 describePostgres("real Postgres DTE05-E2A Task repair scheduler schema", () => {
   it("migrates idempotently to one inert row and enforces its checks", async () => {
-    const fixture = await makeMigrationFixture();
+    const fixture = await makeDrizzleCopyFixture("flarex-dte05-e2a", "postgres", "0048_late_blazing_skull.sql");
     try {
+      const journalPath = fixture.temporaryJournal;
+      const parsed: unknown = JSON.parse(await readFile(journalPath, "utf8"));
+      if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
+        throw new Error("Drizzle journal must contain an entries array.");
+      }
+      const entries = parsed.entries.filter((entry) =>
+        isNonArrayRecord(entry) && entry.idx === 48
+      );
+      if (entries.length !== 1) {
+        throw new Error("Expected exactly one DTE05-E2A migration entry.");
+      }
+      await writeFile(journalPath, JSON.stringify({
+        ...parsed,
+        entries,
+      }, null, 2), "utf8");
       await withTemporaryPostgresSchema(async (databaseOptions) => {
         const persistence = await createPostgresPersistence({
           ...databaseOptions,
@@ -131,30 +143,3 @@ describePostgres("real Postgres DTE05-E2A Task repair scheduler schema", () => {
     }
   }, 120_000);
 });
-
-async function makeMigrationFixture() {
-  const root = await mkdtemp(resolve(tmpdir(), "flarex-dte05-e2a-postgres-"));
-  const migrationsFolder = resolve(root, "drizzle");
-  const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const currentMigrationsFolder = resolve(packageRoot, "drizzle");
-  const journalPath = resolve(migrationsFolder, "meta/_journal.json");
-  await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
-  const parsed: unknown = JSON.parse(await readFile(journalPath, "utf8"));
-  if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
-    throw new Error("Drizzle journal must contain an entries array.");
-  }
-  const entries = parsed.entries.filter((entry) =>
-    isNonArrayRecord(entry) && entry.idx === 48
-  );
-  if (entries.length !== 1) {
-    throw new Error("Expected exactly one DTE05-E2A migration entry.");
-  }
-  await writeFile(journalPath, JSON.stringify({
-    ...parsed,
-    entries,
-  }, null, 2), "utf8");
-  return Object.freeze({
-    migrationsFolder,
-    cleanup: () => rm(root, { recursive: true, force: true }),
-  });
-}

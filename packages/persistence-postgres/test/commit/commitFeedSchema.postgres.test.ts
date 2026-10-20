@@ -1,13 +1,10 @@
-import { copyDrizzleMigrations } from "../../src/testing/systemTestMigrationFiles";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import type { FlarexPersistence } from "../../src";
-import { writeJournalThrough } from "../support/migrationFixtureSupport";
+import { makeDrizzleCopyFixture, writeJournalThrough } from "../support/migrationFixtureSupport";
 import {
   createPostgresPersistence,
   type PostgresFlarexPersistence,
@@ -32,18 +29,12 @@ type SqlPersistence = Pick<FlarexPersistence, "query">;
 
 describePostgres("real Postgres S08 commit/change-feed schema", () => {
   it("rolls back, upgrades from 0028, and replays in a non-public schema", async () => {
-    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-s08-postgres-"));
-    const migrationsFolder = resolve(testRoot, "drizzle");
-    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
-    const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
-    const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
     const migrationName = "0029_mysterious_namora.sql";
-    const copiedMigration = resolve(migrationsFolder, migrationName);
+    const fixture = await makeDrizzleCopyFixture("flarex-s08", "postgres", migrationName);
+    const { migrationsFolder, currentMigrationsFolder, currentJournal, temporaryJournal, migrationPath: copiedMigration } = fixture;
 
     try {
-      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
-      await writeJournalThrough0028(currentJournal, temporaryJournal);
+      await writeJournalThrough(currentJournal, temporaryJournal, 28);
 
       await withTemporaryPostgresSchema(async (databaseOptions) => {
         const previous = await createPostgresPersistence({
@@ -70,7 +61,7 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
             ),
           ).rejects.toThrow();
 
-          await writeJournalThrough0029(currentJournal, temporaryJournal);
+          await writeJournalThrough(currentJournal, temporaryJournal, 29);
           const realMigration = await readFile(copiedMigration, "utf8");
           await writeFile(
             copiedMigration,
@@ -150,21 +141,16 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
         }
       });
     } finally {
-      await rm(testRoot, { recursive: true, force: true });
+      await fixture.cleanup();
     }
   }, 30_000);
 
   it("upgrades 0076 headers to zero relation facts in a non-public schema", async () => {
-    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-r03-postgres-"));
-    const migrationsFolder = resolve(testRoot, "drizzle");
-    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
-    const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
-    const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
+    const fixture = await makeDrizzleCopyFixture("flarex-r03", "postgres", "0077_lame_human_torch.sql");
+    const { migrationsFolder, currentJournal, temporaryJournal } = fixture;
 
     try {
-      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
-      await writeJournalBeforeIndex(currentJournal, temporaryJournal, 77);
+      await writeJournalThrough(currentJournal, temporaryJournal, 76);
       await withTemporaryPostgresSchema(async (databaseOptions) => {
         const previous = await createPostgresPersistence({
           ...databaseOptions,
@@ -254,7 +240,7 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
         }
       });
     } finally {
-      await rm(testRoot, { recursive: true, force: true });
+      await fixture.cleanup();
     }
   }, 30_000);
 
@@ -389,37 +375,6 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
     });
   }, 30_000);
 });
-
-async function writeJournalThrough0028(
-  currentJournal: string,
-  targetJournal: string,
-): Promise<void> {
-  return writeJournalBeforeIndex(currentJournal, targetJournal, 29);
-}
-
-async function writeJournalThrough0029(
-  currentJournal: string,
-  targetJournal: string,
-): Promise<void> {
-  return writeJournalBeforeIndex(currentJournal, targetJournal, 30);
-}
-
-async function writeJournalBeforeIndex(
-  currentJournal: string,
-  targetJournal: string,
-  beforeIndex: number,
-): Promise<void> {
-  const parsed = JSON.parse(await readFile(currentJournal, "utf8")) as {
-    entries?: Array<{ idx?: number }>;
-  };
-  if (!Array.isArray(parsed.entries)) {
-    throw new Error("Current Drizzle journal is missing its entries array.");
-  }
-  parsed.entries = parsed.entries.filter(
-    (entry) => typeof entry.idx === "number" && entry.idx < beforeIndex,
-  );
-  await writeFile(targetJournal, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
-}
 
 async function insertScope(
   persistence: SqlPersistence,

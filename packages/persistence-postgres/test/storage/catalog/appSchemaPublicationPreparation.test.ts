@@ -154,16 +154,7 @@ type PublicPublicationResult = Awaited<
   ReturnType<FlarexPersistence["publishAppSchemaV1"]>
 >;
 
-let persistence: PGlitePersistence;
-let dispose: (() => Promise<void>) | undefined;
-
-beforeAll(async () => {
-  persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
-}, 120_000);
-
-afterAll(async () => { await dispose?.(); }, 120_000);
-
-describe("app-schema V1 publication preparation", { concurrent: false }, () => {
+describe("app-schema V1 publication", { concurrent: false }, () => {
   it("keeps the no-write preparation seam package-internal and opaque", () => {
     expectTypeOf<PublicInternalPublicationExport>().toEqualTypeOf<never>();
     expectTypeOf<ThrowingPreparedPublicationStateExport>()
@@ -206,672 +197,685 @@ describe("app-schema V1 publication preparation", { concurrent: false }, () => {
     >>();
   });
 
-  it("couples one bound plan, D1 result, and full artifact without writes", async () => {
-    const deploymentId = "deployment_schema_publication_v1_prepare";
-    await insertDeployment(persistence, deploymentId);
-    const input = publicationInput(deploymentId, "schema_publication_v1_prepare");
-    const before = await catalogCounts(persistence, deploymentId);
+  describe("database-backed catalog cases", { concurrent: false }, () => {
+    let persistence: PGlitePersistence;
+    let dispose: (() => Promise<void>) | undefined;
 
-    const prepared = await prepareAppSchemaPublicationV1(
-      persistence.drizzle,
-      input,
-    );
-    const state = getPreparedAppSchemaPublicationV1State(prepared);
+    beforeAll(async () => {
+      persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
+    }, 120_000);
 
-    expect(Object.keys(prepared).sort()).toEqual([
-      "deploymentId",
-      "schemaVersionId",
-      "version",
-    ]);
-    expect(prepared).toMatchObject({
-      deploymentId,
-      schemaVersionId: "schema_publication_v1_prepare",
-      version: 1,
-    });
-    expect(state.logicalBindings.manifest.tableDefinitions.tables.map(
-      (table) => ({ tableId: table.tableId, logicalName: table.logicalName }),
-    )).toEqual([
-      { tableId: 1, logicalName: "posts" },
-      { tableId: 2, logicalName: "users" },
-    ]);
-    expect(state.logicalBindings.manifest.indexBindings.indexes.map(
-      (index) => ({
-        logicalIndexId: index.logicalIndexId,
-        tableId: index.tableId,
-        descriptor: index.descriptor,
-      }),
-    )).toEqual([
-      { logicalIndexId: 1, tableId: 1, descriptor: "byAuthor" },
-      { logicalIndexId: 2, tableId: 2, descriptor: "byEmail" },
-    ]);
-    expect(state.requirements.creationTimeIndexes).toHaveLength(2);
-    expect(state.requirements.developerIndexes.map((index) => ({
-      logicalIndexId: index.logicalIndexId,
-      accessPath: index.canonical.physicalSpec.accessPath,
-    }))).toEqual([
-      { logicalIndexId: 1, accessPath: "developer" },
-      { logicalIndexId: 2, accessPath: "developer" },
-    ]);
-    expect(state.requirements).toEqual(
-      await compileAppSchemaCatalogRequirementsV1(
-        state.logicalBindings.manifest,
-      ),
-    );
-    expect(state.artifact).toMatchObject({
-      deploymentId,
-      schemaVersionId: "schema_publication_v1_prepare",
-      version: 1,
-    });
-    expect(Object.isFrozen(prepared)).toBe(true);
-    expect(Object.isFrozen(state)).toBe(true);
-    expect(Object.isFrozen(state.logicalBindings)).toBe(true);
-    expect(Object.isFrozen(state.requirements)).toBe(true);
-    expect(Object.isFrozen(state.artifact)).toBe(true);
-    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual(
-      before,
-    );
+    afterAll(async () => { await dispose?.(); }, 120_000);
 
-    await expect(
-      persistence.drizzle.transaction(async (tx) => {
-        const result = await ensureSchemaVersionArtifactInTransaction(
-          tx,
-          state.artifact,
-        );
-        expect(result.artifact.manifestJson).toEqual(
-          state.logicalBindings.manifest,
-        );
-        throw new Error("injected D2a artifact-coupling rollback");
-      }),
-    ).rejects.toThrow("injected D2a artifact-coupling rollback");
-    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual(
-      before,
-    );
-  });
+    describe("preparation", { concurrent: false }, () => {
+      it("couples one bound plan, D1 result, and full artifact without writes", async () => {
+        const deploymentId = "deployment_schema_publication_v1_prepare";
+        await insertDeployment(persistence, deploymentId);
+        const input = publicationInput(deploymentId, "schema_publication_v1_prepare");
+        const before = await catalogCounts(persistence, deploymentId);
 
-  it("rejects copied, spread, serialized, and structural token forgeries", async () => {
-    const deploymentId = "deployment_schema_publication_v1_forgery";
-    await insertDeployment(persistence, deploymentId);
-    const prepared = await prepareAppSchemaPublicationV1(
-      persistence.drizzle,
-      publicationInput(deploymentId, "schema_publication_v1_forgery"),
-    );
-    const forgeries: ReadonlyArray<unknown> = [
-      { ...prepared },
-      JSON.parse(JSON.stringify(prepared)),
-      {
-        deploymentId: prepared.deploymentId,
-        schemaVersionId: prepared.schemaVersionId,
-        version: prepared.version,
-      },
-    ];
-
-    for (const forgery of forgeries) {
-      const state = Reflect.apply(
-        getPreparedAppSchemaPublicationV1StateResult,
-        undefined,
-        [forgery],
-      );
-      expect(Result.isFailure(state)).toBe(true);
-      if (Result.isFailure(state)) {
-        expect(state.failure).toBeInstanceOf(
-          InvalidPreparedAppSchemaPublicationV1Error,
-        );
-      }
-    }
-  });
-
-  it("snapshots every declaration before the first database await", async () => {
-    const deploymentId = "deployment_schema_publication_v1_snapshot";
-    await insertDeployment(persistence, deploymentId);
-    const input = publicationInput(deploymentId, "schema_publication_v1_snapshot");
-    const preparation = prepareAppSchemaPublicationV1(
-      persistence.drizzle,
-      input,
-    );
-    const firstTable = input.tables[0];
-    const firstIndex = input.indexes[0];
-    if (firstTable === undefined || firstIndex === undefined) {
-      throw new Error("Expected mutable publication fixtures.");
-    }
-    replaceOwnDataProperty(firstTable, "logicalName", "changedAfterCall");
-    replaceOwnDataProperty(firstIndex.fields, 0, "changedAfterCall");
-
-    const prepared = await preparation;
-    const state = getPreparedAppSchemaPublicationV1State(prepared);
-    expect(state.logicalBindings.manifest.tableDefinitions.tables.map(
-      (table) => table.logicalName,
-    )).toEqual(["posts", "users"]);
-    expect(state.logicalBindings.manifest.indexBindings.indexes.map(
-      (index) => [...index.spec.fields],
-    )).toEqual([["authorId"], ["email"]]);
-    expect(Object.isFrozen(input)).toBe(false);
-  });
-
-  it("rejects every non-exact or caller-authored preparation shape", async () => {
-    const deploymentId = "deployment_schema_publication_v1_shape";
-    await insertDeployment(persistence, deploymentId);
-    const valid = publicationInput(deploymentId, "schema_publication_v1_shape");
-    const { indexes: _indexes, ...missingIndexes } = valid;
-    const inherited = Object.create(valid);
-    const symbolExtra = { ...valid, [Symbol("extra")]: true };
-    const callerAuthored = {
-      ...valid,
-      manifest: { caller: true },
-      compiledRequirements: { caller: true },
-      indexDefinitionIds: [1],
-      lifecycle: "enabled",
-      readiness: "ready",
-    };
-    let getterInvoked = false;
-    const accessor = { ...valid };
-    Object.defineProperty(accessor, "deploymentId", {
-      enumerable: true,
-      get: () => {
-        getterInvoked = true;
-        return deploymentId;
-      },
-    });
-
-    for (const invalid of [
-      null,
-      missingIndexes,
-      inherited,
-      symbolExtra,
-      callerAuthored,
-      accessor,
-    ]) {
-      await expect(
-        Reflect.apply(prepareAppSchemaPublicationV1, undefined, [
-          persistence.drizzle,
-          invalid,
-        ]),
-      ).rejects.toBeInstanceOf(
-        InvalidAppSchemaPublicationV1InputError,
-      );
-    }
-    expect(getterInvoked).toBe(false);
-  });
-
-  it("keeps schema-owned field failures typed", async () => {
-    const valid = publicationInput(
-      "deployment_schema_publication_v1_invalid_fields",
-      "schema_publication_v1_invalid_fields",
-    );
-    const invalidFields: ReadonlyArray<readonly [string, unknown]> = [
-      ["schemaVersionId", { ...valid, schemaVersionId: "" }],
-      ["version", { ...valid, version: 0 }],
-      ["tables", { ...valid, tables: {} }],
-      ["indexes", { ...valid, indexes: {} }],
-    ];
-
-    for (const [field, input] of invalidFields) {
-      await expect(
-        Reflect.apply(prepareAppSchemaPublicationV1, undefined, [
+        const prepared = await prepareAppSchemaPublicationV1(
           persistence.drizzle,
           input,
-        ]),
-      ).rejects.toMatchObject({
-        name: "InvalidAppSchemaPublicationV1InputError",
-        issue: { reason: "invalidField", field },
-      });
-    }
-  });
-
-  it("preserves unexpected publication input and declaration access as defects", async () => {
-    const fieldDefect = new Error("schema publication input field defect");
-    const declarationDefect = new Error(
-      "schema publication declaration reflection defect",
-    );
-    const valid = publicationInput(
-      "deployment_schema_publication_v1_field_defect",
-      "schema_publication_v1_field_defect",
-    );
-    const firstTable = valid.tables[0];
-    if (firstTable === undefined) throw new Error("Expected a table fixture.");
-    const cases: ReadonlyArray<
-      readonly [Error, PrepareAppSchemaPublicationV1Input]
-    > = [
-      [fieldDefect, new Proxy(valid, {
-        get(target, property, receiver): unknown {
-          if (property === "schemaVersionId") throw fieldDefect;
-          return Reflect.get(target, property, receiver);
-        },
-      })],
-      [declarationDefect, {
-        ...valid,
-        tables: [new Proxy(firstTable, {
-          ownKeys(): never {
-            throw declarationDefect;
-          },
-        })],
-      }],
-    ];
-
-    for (const [defect, input] of cases) {
-      const exit = await Effect.runPromiseExit(
-        prepareAppSchemaPublicationV1Effect(persistence.drizzle, input),
-      );
-
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        expect(Cause.hasDies(exit.cause)).toBe(true);
-        expect(Cause.hasFails(exit.cause)).toBe(false);
-        expect(exit.cause.toString()).toContain(defect.message);
-      }
-    }
-  });
-
-  it("propagates D1 semantic failures without writing a partial plan", async () => {
-    const deploymentId = "deployment_schema_publication_v1_semantic";
-    await insertDeployment(persistence, deploymentId);
-    const before = await catalogCounts(persistence, deploymentId);
-    const impossibleField = publicationInput(
-      deploymentId,
-      "schema_publication_v1_impossible",
-    );
-    const firstIndex = impossibleField.indexes[0];
-    if (firstIndex === undefined) throw new Error("Expected an index fixture.");
-    replaceOwnDataProperty(firstIndex.fields, 0, "missing.path");
-
-    await expect(
-      prepareAppSchemaPublicationV1(
-        persistence.drizzle,
-        impossibleField,
-      ),
-    ).rejects.toMatchObject({
-      name: "AppSchemaCatalogCompilationErrorV1",
-      issue: { reason: "impossibleIndexField", fieldPath: "missing.path" },
-    });
-
-    const unknownTarget = publicationInput(
-      deploymentId,
-      "schema_publication_v1_unknown_target",
-    );
-    const firstTable = unknownTarget.tables[0];
-    if (firstTable === undefined) throw new Error("Expected a table fixture.");
-    replaceOwnDataProperty(
-      firstTable.definition.documentType.value,
-      "unknown",
-      {
-        fieldType: { type: "id", tableName: "missing" },
-        optional: false,
-      },
-    );
-    await expect(
-      prepareAppSchemaPublicationV1(
-        persistence.drizzle,
-        unknownTarget,
-      ),
-    ).rejects.toBeInstanceOf(AppSchemaCatalogCompilationErrorV1);
-    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual(
-      before,
-    );
-  });
-
-  it("propagates a missing deployment before producing a token", async () => {
-    await expect(
-      prepareAppSchemaPublicationV1(
-        persistence.drizzle,
-        publicationInput("missing_deployment", "schema_publication_v1_missing"),
-      ),
-    ).rejects.toBeInstanceOf(StableTableCatalogDeploymentNotFoundError);
-  });
-});
-
-describe("app-schema V1 publication transaction", { concurrent: false }, () => {
-  it("publishes and exactly replays the complete normalized projection", async () => {
-    const deploymentId = "deployment_schema_publication_v1_publish";
-    await insertDeployment(persistence, deploymentId);
-    const input = publicationInput(deploymentId, "schema_publication_v1_publish");
-    const prepared = await prepareAppSchemaPublicationV1(
-      persistence.drizzle,
-      input,
-    );
-
-    const created = await publishPrepared(persistence, prepared);
-    expect(created.manifest).toEqual(created.artifact.manifestJson);
-    expect(created.creationTimeIndexDefinitions.map((definition) => ({
-      indexDefinitionId: definition.indexDefinitionId,
-      access: definition.access,
-    }))).toEqual([
-      { indexDefinitionId: 1, access: { kind: "by_creation_time", tableId: 1 } },
-      { indexDefinitionId: 2, access: { kind: "by_creation_time", tableId: 2 } },
-    ]);
-    expect(created.developerIndexDefinitions.map((definition) => ({
-      indexDefinitionId: definition.indexDefinitionId,
-      access: definition.access,
-    }))).toEqual([
-      {
-        indexDefinitionId: 3,
-        access: { kind: "developer", tableId: 1, logicalIndexId: 1 },
-      },
-      {
-        indexDefinitionId: 4,
-        access: { kind: "developer", tableId: 2, logicalIndexId: 2 },
-      },
-    ]);
-    expect(created.schemaVersionIndexBindings.map((binding) => ({
-      logicalIndexId: binding.logicalIndexId,
-      indexDefinitionId: binding.indexDefinitionId,
-      requiredForActivation: binding.requiredForActivation,
-    }))).toEqual([
-      { logicalIndexId: 1, indexDefinitionId: 3, requiredForActivation: true },
-      { logicalIndexId: 2, indexDefinitionId: 4, requiredForActivation: true },
-    ]);
-    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
-      tables: 2,
-      indexes: 2,
-      schemaVersions: 1,
-      definitions: 4,
-      schemaBindings: 2,
-      buildStates: 0,
-    });
-    await expect(
-      physicalProjection(persistence, deploymentId),
-    ).resolves.toEqual({
-      definitions: [
-        {
-          index_definition_id: 1,
-          access_kind: "by_creation_time",
-          table_id: 1,
-          logical_index_id: null,
-        },
-        {
-          index_definition_id: 2,
-          access_kind: "by_creation_time",
-          table_id: 2,
-          logical_index_id: null,
-        },
-        {
-          index_definition_id: 3,
-          access_kind: "developer",
-          table_id: 1,
-          logical_index_id: 1,
-        },
-        {
-          index_definition_id: 4,
-          access_kind: "developer",
-          table_id: 2,
-          logical_index_id: 2,
-        },
-      ],
-      bindings: [
-        { logical_index_id: 1, index_definition_id: 3 },
-        { logical_index_id: 2, index_definition_id: 4 },
-      ],
-    });
-
-    const sameTokenReplay = await publishPrepared(persistence, prepared);
-    const freshTokenReplay = await publishPrepared(
-      persistence,
-      await prepareAppSchemaPublicationV1(persistence.drizzle, input),
-    );
-    expect(sameTokenReplay.creationTimeIndexDefinitions.map(
-      (definition) => definition.indexDefinitionId,
-    )).toEqual([1, 2]);
-    expect(freshTokenReplay.developerIndexDefinitions.map(
-      (definition) => definition.indexDefinitionId,
-    )).toEqual([3, 4]);
-    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
-      tables: 2,
-      indexes: 2,
-      schemaVersions: 1,
-      definitions: 4,
-      schemaBindings: 2,
-      buildStates: 0,
-    });
-  });
-
-  it("publishes intrinsic definitions without fabricating schema bindings", async () => {
-    const deploymentId = "deployment_schema_publication_v1_intrinsic_only";
-    await insertDeployment(persistence, deploymentId);
-    const prepared = await prepareAppSchemaPublicationV1(
-      persistence.drizzle,
-      {
-        deploymentId,
-        schemaVersionId: CatalogSchemaVersionIdSchema.make(
-          "schema_publication_v1_intrinsic_only",
-        ),
-        version: CatalogSchemaVersionSchema.make(1),
-        tables: [
-          appTable("users", { email: appField({ type: "string" }) }),
-        ],
-        indexes: [],
-      },
-    );
-
-    const projection = await publishPrepared(persistence, prepared);
-    expect(projection.creationTimeIndexDefinitions).toHaveLength(1);
-    expect(projection.developerIndexDefinitions).toEqual([]);
-    expect(projection.schemaVersionIndexBindings).toEqual([]);
-    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
-      tables: 1,
-      indexes: 0,
-      schemaVersions: 1,
-      definitions: 1,
-      schemaBindings: 0,
-      buildStates: 0,
-    });
-  });
-
-  it("rolls every projected row back and reuses rolled-back definition IDs", async () => {
-    const deploymentId = "deployment_schema_publication_v1_rollback";
-    await insertDeployment(persistence, deploymentId);
-    const prepared = await prepareAppSchemaPublicationV1(
-      persistence.drizzle,
-      publicationInput(deploymentId, "schema_publication_v1_rollback"),
-    );
-
-    await expect(
-      persistence.drizzle.transaction(async (tx) => {
-        await runEffect(
-          publishPreparedAppSchemaV1InTransactionEffect(tx, prepared),
         );
-        throw new Error("injected D2c rollback");
-      }),
-    ).rejects.toThrow("injected D2c rollback");
-    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
-      tables: 0,
-      indexes: 0,
-      schemaVersions: 0,
-      definitions: 0,
-      schemaBindings: 0,
-      buildStates: 0,
+        const state = getPreparedAppSchemaPublicationV1State(prepared);
+
+        expect(Object.keys(prepared).sort()).toEqual([
+          "deploymentId",
+          "schemaVersionId",
+          "version",
+        ]);
+        expect(prepared).toMatchObject({
+          deploymentId,
+          schemaVersionId: "schema_publication_v1_prepare",
+          version: 1,
+        });
+        expect(state.logicalBindings.manifest.tableDefinitions.tables.map(
+          (table) => ({ tableId: table.tableId, logicalName: table.logicalName }),
+        )).toEqual([
+          { tableId: 1, logicalName: "posts" },
+          { tableId: 2, logicalName: "users" },
+        ]);
+        expect(state.logicalBindings.manifest.indexBindings.indexes.map(
+          (index) => ({
+            logicalIndexId: index.logicalIndexId,
+            tableId: index.tableId,
+            descriptor: index.descriptor,
+          }),
+        )).toEqual([
+          { logicalIndexId: 1, tableId: 1, descriptor: "byAuthor" },
+          { logicalIndexId: 2, tableId: 2, descriptor: "byEmail" },
+        ]);
+        expect(state.requirements.creationTimeIndexes).toHaveLength(2);
+        expect(state.requirements.developerIndexes.map((index) => ({
+          logicalIndexId: index.logicalIndexId,
+          accessPath: index.canonical.physicalSpec.accessPath,
+        }))).toEqual([
+          { logicalIndexId: 1, accessPath: "developer" },
+          { logicalIndexId: 2, accessPath: "developer" },
+        ]);
+        expect(state.requirements).toEqual(
+          await compileAppSchemaCatalogRequirementsV1(
+            state.logicalBindings.manifest,
+          ),
+        );
+        expect(state.artifact).toMatchObject({
+          deploymentId,
+          schemaVersionId: "schema_publication_v1_prepare",
+          version: 1,
+        });
+        expect(Object.isFrozen(prepared)).toBe(true);
+        expect(Object.isFrozen(state)).toBe(true);
+        expect(Object.isFrozen(state.logicalBindings)).toBe(true);
+        expect(Object.isFrozen(state.requirements)).toBe(true);
+        expect(Object.isFrozen(state.artifact)).toBe(true);
+        await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual(
+          before,
+        );
+
+        await expect(
+          persistence.drizzle.transaction(async (tx) => {
+            const result = await ensureSchemaVersionArtifactInTransaction(
+              tx,
+              state.artifact,
+            );
+            expect(result.artifact.manifestJson).toEqual(
+              state.logicalBindings.manifest,
+            );
+            throw new Error("injected D2a artifact-coupling rollback");
+          }),
+        ).rejects.toThrow("injected D2a artifact-coupling rollback");
+        await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual(
+          before,
+        );
+      });
+
+      it("rejects copied, spread, serialized, and structural token forgeries", async () => {
+        const deploymentId = "deployment_schema_publication_v1_forgery";
+        await insertDeployment(persistence, deploymentId);
+        const prepared = await prepareAppSchemaPublicationV1(
+          persistence.drizzle,
+          publicationInput(deploymentId, "schema_publication_v1_forgery"),
+        );
+        const forgeries: ReadonlyArray<unknown> = [
+          { ...prepared },
+          JSON.parse(JSON.stringify(prepared)),
+          {
+            deploymentId: prepared.deploymentId,
+            schemaVersionId: prepared.schemaVersionId,
+            version: prepared.version,
+          },
+        ];
+
+        for (const forgery of forgeries) {
+          const state = Reflect.apply(
+            getPreparedAppSchemaPublicationV1StateResult,
+            undefined,
+            [forgery],
+          );
+          expect(Result.isFailure(state)).toBe(true);
+          if (Result.isFailure(state)) {
+            expect(state.failure).toBeInstanceOf(
+              InvalidPreparedAppSchemaPublicationV1Error,
+            );
+          }
+        }
+      });
+
+      it("snapshots every declaration before the first database await", async () => {
+        const deploymentId = "deployment_schema_publication_v1_snapshot";
+        await insertDeployment(persistence, deploymentId);
+        const input = publicationInput(deploymentId, "schema_publication_v1_snapshot");
+        const preparation = prepareAppSchemaPublicationV1(
+          persistence.drizzle,
+          input,
+        );
+        const firstTable = input.tables[0];
+        const firstIndex = input.indexes[0];
+        if (firstTable === undefined || firstIndex === undefined) {
+          throw new Error("Expected mutable publication fixtures.");
+        }
+        replaceOwnDataProperty(firstTable, "logicalName", "changedAfterCall");
+        replaceOwnDataProperty(firstIndex.fields, 0, "changedAfterCall");
+
+        const prepared = await preparation;
+        const state = getPreparedAppSchemaPublicationV1State(prepared);
+        expect(state.logicalBindings.manifest.tableDefinitions.tables.map(
+          (table) => table.logicalName,
+        )).toEqual(["posts", "users"]);
+        expect(state.logicalBindings.manifest.indexBindings.indexes.map(
+          (index) => [...index.spec.fields],
+        )).toEqual([["authorId"], ["email"]]);
+        expect(Object.isFrozen(input)).toBe(false);
+      });
+
+      it("rejects every non-exact or caller-authored preparation shape", async () => {
+        const deploymentId = "deployment_schema_publication_v1_shape";
+        await insertDeployment(persistence, deploymentId);
+        const valid = publicationInput(deploymentId, "schema_publication_v1_shape");
+        const { indexes: _indexes, ...missingIndexes } = valid;
+        const inherited = Object.create(valid);
+        const symbolExtra = { ...valid, [Symbol("extra")]: true };
+        const callerAuthored = {
+          ...valid,
+          manifest: { caller: true },
+          compiledRequirements: { caller: true },
+          indexDefinitionIds: [1],
+          lifecycle: "enabled",
+          readiness: "ready",
+        };
+        let getterInvoked = false;
+        const accessor = { ...valid };
+        Object.defineProperty(accessor, "deploymentId", {
+          enumerable: true,
+          get: () => {
+            getterInvoked = true;
+            return deploymentId;
+          },
+        });
+
+        for (const invalid of [
+          null,
+          missingIndexes,
+          inherited,
+          symbolExtra,
+          callerAuthored,
+          accessor,
+        ]) {
+          await expect(
+            Reflect.apply(prepareAppSchemaPublicationV1, undefined, [
+              persistence.drizzle,
+              invalid,
+            ]),
+          ).rejects.toBeInstanceOf(
+            InvalidAppSchemaPublicationV1InputError,
+          );
+        }
+        expect(getterInvoked).toBe(false);
+      });
+
+      it("keeps schema-owned field failures typed", async () => {
+        const valid = publicationInput(
+          "deployment_schema_publication_v1_invalid_fields",
+          "schema_publication_v1_invalid_fields",
+        );
+        const invalidFields: ReadonlyArray<readonly [string, unknown]> = [
+          ["schemaVersionId", { ...valid, schemaVersionId: "" }],
+          ["version", { ...valid, version: 0 }],
+          ["tables", { ...valid, tables: {} }],
+          ["indexes", { ...valid, indexes: {} }],
+        ];
+
+        for (const [field, input] of invalidFields) {
+          await expect(
+            Reflect.apply(prepareAppSchemaPublicationV1, undefined, [
+              persistence.drizzle,
+              input,
+            ]),
+          ).rejects.toMatchObject({
+            name: "InvalidAppSchemaPublicationV1InputError",
+            issue: { reason: "invalidField", field },
+          });
+        }
+      });
+
+      it("preserves unexpected publication input and declaration access as defects", async () => {
+        const fieldDefect = new Error("schema publication input field defect");
+        const declarationDefect = new Error(
+          "schema publication declaration reflection defect",
+        );
+        const valid = publicationInput(
+          "deployment_schema_publication_v1_field_defect",
+          "schema_publication_v1_field_defect",
+        );
+        const firstTable = valid.tables[0];
+        if (firstTable === undefined) throw new Error("Expected a table fixture.");
+        const cases: ReadonlyArray<
+          readonly [Error, PrepareAppSchemaPublicationV1Input]
+        > = [
+          [fieldDefect, new Proxy(valid, {
+            get(target, property, receiver): unknown {
+              if (property === "schemaVersionId") throw fieldDefect;
+              return Reflect.get(target, property, receiver);
+            },
+          })],
+          [declarationDefect, {
+            ...valid,
+            tables: [new Proxy(firstTable, {
+              ownKeys(): never {
+                throw declarationDefect;
+              },
+            })],
+          }],
+        ];
+
+        for (const [defect, input] of cases) {
+          const exit = await Effect.runPromiseExit(
+            prepareAppSchemaPublicationV1Effect(persistence.drizzle, input),
+          );
+
+          expect(Exit.isFailure(exit)).toBe(true);
+          if (Exit.isFailure(exit)) {
+            expect(Cause.hasDies(exit.cause)).toBe(true);
+            expect(Cause.hasFails(exit.cause)).toBe(false);
+            expect(exit.cause.toString()).toContain(defect.message);
+          }
+        }
+      });
+
+      it("propagates D1 semantic failures without writing a partial plan", async () => {
+        const deploymentId = "deployment_schema_publication_v1_semantic";
+        await insertDeployment(persistence, deploymentId);
+        const before = await catalogCounts(persistence, deploymentId);
+        const impossibleField = publicationInput(
+          deploymentId,
+          "schema_publication_v1_impossible",
+        );
+        const firstIndex = impossibleField.indexes[0];
+        if (firstIndex === undefined) throw new Error("Expected an index fixture.");
+        replaceOwnDataProperty(firstIndex.fields, 0, "missing.path");
+
+        await expect(
+          prepareAppSchemaPublicationV1(
+            persistence.drizzle,
+            impossibleField,
+          ),
+        ).rejects.toMatchObject({
+          name: "AppSchemaCatalogCompilationErrorV1",
+          issue: { reason: "impossibleIndexField", fieldPath: "missing.path" },
+        });
+
+        const unknownTarget = publicationInput(
+          deploymentId,
+          "schema_publication_v1_unknown_target",
+        );
+        const firstTable = unknownTarget.tables[0];
+        if (firstTable === undefined) throw new Error("Expected a table fixture.");
+        replaceOwnDataProperty(
+          firstTable.definition.documentType.value,
+          "unknown",
+          {
+            fieldType: { type: "id", tableName: "missing" },
+            optional: false,
+          },
+        );
+        await expect(
+          prepareAppSchemaPublicationV1(
+            persistence.drizzle,
+            unknownTarget,
+          ),
+        ).rejects.toBeInstanceOf(AppSchemaCatalogCompilationErrorV1);
+        await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual(
+          before,
+        );
+      });
+
+      it("propagates a missing deployment before producing a token", async () => {
+        await expect(
+          prepareAppSchemaPublicationV1(
+            persistence.drizzle,
+            publicationInput("missing_deployment", "schema_publication_v1_missing"),
+          ),
+        ).rejects.toBeInstanceOf(StableTableCatalogDeploymentNotFoundError);
+      });
     });
 
-    const committed = await publishPrepared(persistence, prepared);
-    expect(committed.creationTimeIndexDefinitions[0]?.indexDefinitionId).toBe(1);
-    expect(committed.developerIndexDefinitions[0]?.indexDefinitionId).toBe(3);
-  });
+    describe("transaction", { concurrent: false }, () => {
+      it("publishes and exactly replays the complete normalized projection", async () => {
+        const deploymentId = "deployment_schema_publication_v1_publish";
+        await insertDeployment(persistence, deploymentId);
+        const input = publicationInput(deploymentId, "schema_publication_v1_publish");
+        const prepared = await prepareAppSchemaPublicationV1(
+          persistence.drizzle,
+          input,
+        );
 
-  it("rolls stable bindings back when a later artifact conflict fails", async () => {
-    const deploymentId = "deployment_schema_publication_v1_late_conflict";
-    await insertDeployment(persistence, deploymentId);
-    const target = await prepareAppSchemaPublicationV1(
-      persistence.drizzle,
-      publicationInput(deploymentId, "schema_publication_v1_late_conflict"),
-    );
-    const conflicting = await prepareAppSchemaPublicationV1(
-      persistence.drizzle,
-      userPublicationInput(
-        deploymentId,
-        "schema_publication_v1_late_conflict",
-        1,
-        [{ descriptor: "byEmail", field: "email" }],
-      ),
-    );
-    const conflictingState =
-      getPreparedAppSchemaPublicationV1State(conflicting);
-    await persistence.drizzle.transaction((tx) =>
-      ensureSchemaVersionArtifactInTransaction(tx, conflictingState.artifact)
-    );
+        const created = await publishPrepared(persistence, prepared);
+        expect(created.manifest).toEqual(created.artifact.manifestJson);
+        expect(created.creationTimeIndexDefinitions.map((definition) => ({
+          indexDefinitionId: definition.indexDefinitionId,
+          access: definition.access,
+        }))).toEqual([
+          { indexDefinitionId: 1, access: { kind: "by_creation_time", tableId: 1 } },
+          { indexDefinitionId: 2, access: { kind: "by_creation_time", tableId: 2 } },
+        ]);
+        expect(created.developerIndexDefinitions.map((definition) => ({
+          indexDefinitionId: definition.indexDefinitionId,
+          access: definition.access,
+        }))).toEqual([
+          {
+            indexDefinitionId: 3,
+            access: { kind: "developer", tableId: 1, logicalIndexId: 1 },
+          },
+          {
+            indexDefinitionId: 4,
+            access: { kind: "developer", tableId: 2, logicalIndexId: 2 },
+          },
+        ]);
+        expect(created.schemaVersionIndexBindings.map((binding) => ({
+          logicalIndexId: binding.logicalIndexId,
+          indexDefinitionId: binding.indexDefinitionId,
+          requiredForActivation: binding.requiredForActivation,
+        }))).toEqual([
+          { logicalIndexId: 1, indexDefinitionId: 3, requiredForActivation: true },
+          { logicalIndexId: 2, indexDefinitionId: 4, requiredForActivation: true },
+        ]);
+        await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+          tables: 2,
+          indexes: 2,
+          schemaVersions: 1,
+          definitions: 4,
+          schemaBindings: 2,
+          buildStates: 0,
+        });
+        await expect(
+          physicalProjection(persistence, deploymentId),
+        ).resolves.toEqual({
+          definitions: [
+            {
+              index_definition_id: 1,
+              access_kind: "by_creation_time",
+              table_id: 1,
+              logical_index_id: null,
+            },
+            {
+              index_definition_id: 2,
+              access_kind: "by_creation_time",
+              table_id: 2,
+              logical_index_id: null,
+            },
+            {
+              index_definition_id: 3,
+              access_kind: "developer",
+              table_id: 1,
+              logical_index_id: 1,
+            },
+            {
+              index_definition_id: 4,
+              access_kind: "developer",
+              table_id: 2,
+              logical_index_id: 2,
+            },
+          ],
+          bindings: [
+            { logical_index_id: 1, index_definition_id: 3 },
+            { logical_index_id: 2, index_definition_id: 4 },
+          ],
+        });
 
-    await expect(publishPrepared(persistence, target)).rejects.toBeInstanceOf(
-      SchemaVersionArtifactConflictError,
-    );
-    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
-      tables: 0,
-      indexes: 0,
-      schemaVersions: 1,
-      definitions: 0,
-      schemaBindings: 0,
-      buildStates: 0,
-    });
-  });
+        const sameTokenReplay = await publishPrepared(persistence, prepared);
+        const freshTokenReplay = await publishPrepared(
+          persistence,
+          await prepareAppSchemaPublicationV1(persistence.drizzle, input),
+        );
+        expect(sameTokenReplay.creationTimeIndexDefinitions.map(
+          (definition) => definition.indexDefinitionId,
+        )).toEqual([1, 2]);
+        expect(freshTokenReplay.developerIndexDefinitions.map(
+          (definition) => definition.indexDefinitionId,
+        )).toEqual([3, 4]);
+        await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+          tables: 2,
+          indexes: 2,
+          schemaVersions: 1,
+          definitions: 4,
+          schemaBindings: 2,
+          buildStates: 0,
+        });
+      });
 
-  it("rejects excess schema-version bindings as catalog corruption and rolls back", async () => {
-    const deploymentId = "deployment_schema_publication_v1_extra_binding";
-    await insertDeployment(persistence, deploymentId);
-    const baselinePublication = await prepareAppSchemaPublicationV1(
-      persistence.drizzle,
-      userPublicationInput(
-        deploymentId,
-        "schema_publication_v1_extra_binding_baseline",
-        1,
-        [
-          { descriptor: "byEmail", field: "email" },
-          { descriptor: "byPhone", field: "phone" },
-        ],
-      ),
-    );
-    const baselineProjection = await publishPrepared(
-      persistence,
-      baselinePublication,
-    );
-    const targetPublication = await prepareAppSchemaPublicationV1(
-      persistence.drizzle,
-      userPublicationInput(
-        deploymentId,
-        "schema_publication_v1_extra_binding_target",
-        2,
-        [{ descriptor: "byEmail", field: "email" }],
-      ),
-    );
-    const targetState = getPreparedAppSchemaPublicationV1State(
-      targetPublication,
-    );
-    await persistence.drizzle.transaction((tx) =>
-      ensureSchemaVersionArtifactInTransaction(tx, targetState.artifact)
-    );
-    const extraLogicalIndex =
-      baselineProjection.manifest.indexBindings.indexes.find(
-        (index) => index.descriptor === "byPhone",
-      );
-    if (extraLogicalIndex === undefined) {
-      throw new Error("Expected the baseline byPhone logical index.");
-    }
-    const extraBinding = await prepareAppDeveloperIndexDefinitionBindingV1({
-      deploymentId,
-      schemaVersionId: targetPublication.schemaVersionId,
-      tableId: extraLogicalIndex.tableId,
-      logicalIndexId: extraLogicalIndex.logicalIndexId,
-      logicalSpec: extraLogicalIndex.spec,
-    });
-    await persistence.drizzle.transaction((tx) =>
-      runEffect(
-        ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
-          tx,
-          extraBinding,
-        ),
-      )
-    );
+      it("publishes intrinsic definitions without fabricating schema bindings", async () => {
+        const deploymentId = "deployment_schema_publication_v1_intrinsic_only";
+        await insertDeployment(persistence, deploymentId);
+        const prepared = await prepareAppSchemaPublicationV1(
+          persistence.drizzle,
+          {
+            deploymentId,
+            schemaVersionId: CatalogSchemaVersionIdSchema.make(
+              "schema_publication_v1_intrinsic_only",
+            ),
+            version: CatalogSchemaVersionSchema.make(1),
+            tables: [
+              appTable("users", { email: appField({ type: "string" }) }),
+            ],
+            indexes: [],
+          },
+        );
 
-    await expect(
-      publishPrepared(persistence, targetPublication),
-    ).rejects.toMatchObject({
-      name: "AppIndexDefinitionCatalogCorruptionError",
-      detail: "schema-version binding count exceeds the required maximum",
-    });
-    await expect(
-      publishPrepared(persistence, targetPublication),
-    ).rejects.toBeInstanceOf(AppIndexDefinitionCatalogCorruptionError);
-    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
-      tables: 1,
-      indexes: 2,
-      schemaVersions: 2,
-      definitions: 3,
-      schemaBindings: 3,
-      buildStates: 0,
-    });
-  });
+        const projection = await publishPrepared(persistence, prepared);
+        expect(projection.creationTimeIndexDefinitions).toHaveLength(1);
+        expect(projection.developerIndexDefinitions).toEqual([]);
+        expect(projection.schemaVersionIndexBindings).toEqual([]);
+        await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+          tables: 1,
+          indexes: 0,
+          schemaVersions: 1,
+          definitions: 1,
+          schemaBindings: 0,
+          buildStates: 0,
+        });
+      });
 
-  it("rejects artifact JSON drift even when canonical bytes remain unchanged", async () => {
-    const deploymentId = "deployment_schema_publication_v1_artifact_json_drift";
-    await insertDeployment(persistence, deploymentId);
-    const prepared = await prepareAppSchemaPublicationV1(
-      persistence.drizzle,
-      publicationInput(deploymentId, "schema_publication_v1_artifact_json_drift"),
-    );
-    await publishPrepared(persistence, prepared);
-    await persistence.query(
-      `
+      it("rolls every projected row back and reuses rolled-back definition IDs", async () => {
+        const deploymentId = "deployment_schema_publication_v1_rollback";
+        await insertDeployment(persistence, deploymentId);
+        const prepared = await prepareAppSchemaPublicationV1(
+          persistence.drizzle,
+          publicationInput(deploymentId, "schema_publication_v1_rollback"),
+        );
+
+        await expect(
+          persistence.drizzle.transaction(async (tx) => {
+            await runEffect(
+              publishPreparedAppSchemaV1InTransactionEffect(tx, prepared),
+            );
+            throw new Error("injected D2c rollback");
+          }),
+        ).rejects.toThrow("injected D2c rollback");
+        await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+          tables: 0,
+          indexes: 0,
+          schemaVersions: 0,
+          definitions: 0,
+          schemaBindings: 0,
+          buildStates: 0,
+        });
+
+        const committed = await publishPrepared(persistence, prepared);
+        expect(committed.creationTimeIndexDefinitions[0]?.indexDefinitionId).toBe(1);
+        expect(committed.developerIndexDefinitions[0]?.indexDefinitionId).toBe(3);
+      });
+
+      it("rolls stable bindings back when a later artifact conflict fails", async () => {
+        const deploymentId = "deployment_schema_publication_v1_late_conflict";
+        await insertDeployment(persistence, deploymentId);
+        const target = await prepareAppSchemaPublicationV1(
+          persistence.drizzle,
+          publicationInput(deploymentId, "schema_publication_v1_late_conflict"),
+        );
+        const conflicting = await prepareAppSchemaPublicationV1(
+          persistence.drizzle,
+          userPublicationInput(
+            deploymentId,
+            "schema_publication_v1_late_conflict",
+            1,
+            [{ descriptor: "byEmail", field: "email" }],
+          ),
+        );
+        const conflictingState =
+          getPreparedAppSchemaPublicationV1State(conflicting);
+        await persistence.drizzle.transaction((tx) =>
+          ensureSchemaVersionArtifactInTransaction(tx, conflictingState.artifact)
+        );
+
+        await expect(publishPrepared(persistence, target)).rejects.toBeInstanceOf(
+          SchemaVersionArtifactConflictError,
+        );
+        await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+          tables: 0,
+          indexes: 0,
+          schemaVersions: 1,
+          definitions: 0,
+          schemaBindings: 0,
+          buildStates: 0,
+        });
+      });
+
+      it("rejects excess schema-version bindings as catalog corruption and rolls back", async () => {
+        const deploymentId = "deployment_schema_publication_v1_extra_binding";
+        await insertDeployment(persistence, deploymentId);
+        const baselinePublication = await prepareAppSchemaPublicationV1(
+          persistence.drizzle,
+          userPublicationInput(
+            deploymentId,
+            "schema_publication_v1_extra_binding_baseline",
+            1,
+            [
+              { descriptor: "byEmail", field: "email" },
+              { descriptor: "byPhone", field: "phone" },
+            ],
+          ),
+        );
+        const baselineProjection = await publishPrepared(
+          persistence,
+          baselinePublication,
+        );
+        const targetPublication = await prepareAppSchemaPublicationV1(
+          persistence.drizzle,
+          userPublicationInput(
+            deploymentId,
+            "schema_publication_v1_extra_binding_target",
+            2,
+            [{ descriptor: "byEmail", field: "email" }],
+          ),
+        );
+        const targetState = getPreparedAppSchemaPublicationV1State(
+          targetPublication,
+        );
+        await persistence.drizzle.transaction((tx) =>
+          ensureSchemaVersionArtifactInTransaction(tx, targetState.artifact)
+        );
+        const extraLogicalIndex =
+          baselineProjection.manifest.indexBindings.indexes.find(
+            (index) => index.descriptor === "byPhone",
+          );
+        if (extraLogicalIndex === undefined) {
+          throw new Error("Expected the baseline byPhone logical index.");
+        }
+        const extraBinding = await prepareAppDeveloperIndexDefinitionBindingV1({
+          deploymentId,
+          schemaVersionId: targetPublication.schemaVersionId,
+          tableId: extraLogicalIndex.tableId,
+          logicalIndexId: extraLogicalIndex.logicalIndexId,
+          logicalSpec: extraLogicalIndex.spec,
+        });
+        await persistence.drizzle.transaction((tx) =>
+          runEffect(
+            ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
+              tx,
+              extraBinding,
+            ),
+          )
+        );
+
+        await expect(
+          publishPrepared(persistence, targetPublication),
+        ).rejects.toMatchObject({
+          name: "AppIndexDefinitionCatalogCorruptionError",
+          detail: "schema-version binding count exceeds the required maximum",
+        });
+        await expect(
+          publishPrepared(persistence, targetPublication),
+        ).rejects.toBeInstanceOf(AppIndexDefinitionCatalogCorruptionError);
+        await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+          tables: 1,
+          indexes: 2,
+          schemaVersions: 2,
+          definitions: 3,
+          schemaBindings: 3,
+          buildStates: 0,
+        });
+      });
+
+      it("rejects artifact JSON drift even when canonical bytes remain unchanged", async () => {
+        const deploymentId = "deployment_schema_publication_v1_artifact_json_drift";
+        await insertDeployment(persistence, deploymentId);
+        const prepared = await prepareAppSchemaPublicationV1(
+          persistence.drizzle,
+          publicationInput(deploymentId, "schema_publication_v1_artifact_json_drift"),
+        );
+        await publishPrepared(persistence, prepared);
+        await persistence.query(
+          `
         update fx_control_schema_version
         set manifest_json = '{"tampered": true}'::jsonb
         where deployment_id = $1 and schema_version_id = $2
       `,
-      [deploymentId, prepared.schemaVersionId],
-    );
+          [deploymentId, prepared.schemaVersionId],
+        );
 
-    await expect(publishPrepared(persistence, prepared)).rejects.toBeInstanceOf(
-      SchemaVersionArtifactCorruptionError,
-    );
-  });
+        await expect(publishPrepared(persistence, prepared)).rejects.toBeInstanceOf(
+          SchemaVersionArtifactCorruptionError,
+        );
+      });
 
-  it("authenticates the full publication token before writing", async () => {
-    const deploymentId = "deployment_schema_publication_v1_transaction_forgery";
-    await insertDeployment(persistence, deploymentId);
-    const prepared = await prepareAppSchemaPublicationV1(
-      persistence.drizzle,
-      publicationInput(
-        deploymentId,
-        "schema_publication_v1_transaction_forgery",
-      ),
-    );
-    const forgery = { ...prepared };
-
-    await expect(
-      persistence.drizzle.transaction((tx) =>
-        runEffect(
-          Reflect.apply(
-            publishPreparedAppSchemaV1InTransactionEffect,
-            undefined,
-            [tx, forgery],
+      it("authenticates the full publication token before writing", async () => {
+        const deploymentId = "deployment_schema_publication_v1_transaction_forgery";
+        await insertDeployment(persistence, deploymentId);
+        const prepared = await prepareAppSchemaPublicationV1(
+          persistence.drizzle,
+          publicationInput(
+            deploymentId,
+            "schema_publication_v1_transaction_forgery",
           ),
-        )
-      ),
-    ).rejects.toBeInstanceOf(
-      InvalidPreparedAppSchemaPublicationV1Error,
-    );
-    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
-      tables: 0,
-      indexes: 0,
-      schemaVersions: 0,
-      definitions: 0,
-      schemaBindings: 0,
-      buildStates: 0,
-    });
-  });
+        );
+        const forgery = { ...prepared };
 
-  it("performs no Web Crypto during the transaction", async () => {
-    const deploymentId = "deployment_schema_publication_v1_no_locked_crypto";
-    await insertDeployment(persistence, deploymentId);
-    const prepared = await prepareAppSchemaPublicationV1(
-      persistence.drizzle,
-      publicationInput(deploymentId, "schema_publication_v1_no_locked_crypto"),
-    );
-    const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(
-      new Error("Web Crypto must stay outside the D2c transaction"),
-    );
-    try {
-      await expect(publishPrepared(persistence, prepared)).resolves.toMatchObject({
-        artifact: { schemaVersionId: prepared.schemaVersionId },
+        await expect(
+          persistence.drizzle.transaction((tx) =>
+            runEffect(
+              Reflect.apply(
+                publishPreparedAppSchemaV1InTransactionEffect,
+                undefined,
+                [tx, forgery],
+              ),
+            )
+          ),
+        ).rejects.toBeInstanceOf(
+          InvalidPreparedAppSchemaPublicationV1Error,
+        );
+        await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+          tables: 0,
+          indexes: 0,
+          schemaVersions: 0,
+          definitions: 0,
+          schemaBindings: 0,
+          buildStates: 0,
+        });
       });
-      await expect(publishPrepared(persistence, prepared)).resolves.toMatchObject({
-        artifact: { schemaVersionId: prepared.schemaVersionId },
+
+      it("performs no Web Crypto during the transaction", async () => {
+        const deploymentId = "deployment_schema_publication_v1_no_locked_crypto";
+        await insertDeployment(persistence, deploymentId);
+        const prepared = await prepareAppSchemaPublicationV1(
+          persistence.drizzle,
+          publicationInput(deploymentId, "schema_publication_v1_no_locked_crypto"),
+        );
+        const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(
+          new Error("Web Crypto must stay outside the D2c transaction"),
+        );
+        try {
+          await expect(publishPrepared(persistence, prepared)).resolves.toMatchObject({
+            artifact: { schemaVersionId: prepared.schemaVersionId },
+          });
+          await expect(publishPrepared(persistence, prepared)).resolves.toMatchObject({
+            artifact: { schemaVersionId: prepared.schemaVersionId },
+          });
+        } finally {
+          digest.mockRestore();
+        }
       });
-    } finally {
-      digest.mockRestore();
-    }
+    });
   });
 });
 

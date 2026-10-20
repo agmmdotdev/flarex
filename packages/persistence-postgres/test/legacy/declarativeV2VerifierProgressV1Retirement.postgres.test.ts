@@ -65,8 +65,11 @@ describePostgres("Declarative V2 verifier-progress V1 retirement - PostgreSQL", 
           ...databaseOptions,
           migrationsFolder: fixture.migrationsFolder,
         });
-        await previous.migrate();
-        await previous.close();
+        try {
+          await previous.migrate();
+        } finally {
+          await previous.close();
+        }
         await writeFile(fixture.journalPath, fixture.currentJournal, "utf8");
         const migrationSql = await readFile(fixture.migrationPath, "utf8");
         expect(migrationSql).not.toMatch(/\bcascade\b/i);

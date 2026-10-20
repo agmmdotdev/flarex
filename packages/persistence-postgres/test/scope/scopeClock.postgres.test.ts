@@ -1,9 +1,6 @@
-import { copyDrizzleMigrations } from "../../src/testing/systemTestMigrationFiles";
-import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { copyFile, readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
 import { eq, sql } from "drizzle-orm";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import {
@@ -30,7 +27,7 @@ import {
   type FlarexPersistence,
 } from "../../src";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
-import { writeJournalThrough } from "../support/migrationFixtureSupport";
+import { makeDrizzleCopyFixture, writeJournalThrough } from "../support/migrationFixtureSupport";
 import {
   createPostgresLocatedScopeAuthorizationEpochTarget,
   createPostgresPersistence,
@@ -658,22 +655,12 @@ describePostgres("real Postgres scope clock locking", { timeout: 30_000 }, () =>
   });
 
   it("upgrades, rolls back, recovers, and replays the S07-A migration", async () => {
-    const testRoot = await mkdtemp(
-      resolve(tmpdir(), "flarex-revocation-epoch-postgres-"),
-    );
-    const migrationsFolder = resolve(testRoot, "drizzle");
-    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
-    const previousJournal = resolve(
-      packageRoot,
-      "test/fixtures/drizzle-through-0026-journal.json",
-    );
-    const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
     const migrationName = "0027_graceful_silver_fox.sql";
-    const copiedMigration = resolve(migrationsFolder, migrationName);
+    const fixture = await makeDrizzleCopyFixture("flarex-revocation-epoch", "postgres", migrationName);
+    const { migrationsFolder, currentMigrationsFolder, currentJournal, migrationPath: copiedMigration } = fixture;
+    const previousJournal = resolve(currentMigrationsFolder, "../test/fixtures/drizzle-through-0026-journal.json");
 
     try {
-      await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
       await copyFile(
         previousJournal,
         resolve(migrationsFolder, "meta/_journal.json"),
@@ -776,7 +763,7 @@ describePostgres("real Postgres scope clock locking", { timeout: 30_000 }, () =>
         }
       });
     } finally {
-      await rm(testRoot, { recursive: true, force: true });
+      await fixture.cleanup();
     }
   });
 });

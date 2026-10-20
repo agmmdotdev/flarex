@@ -1,3 +1,4 @@
+import { newTestPGlite } from "../../support/pgliteSearchExtensions";
 import { describe, expect, it } from "vitest";
 
 import { createPGlitePersistence } from "../../../src/database/pglite";
@@ -19,37 +20,43 @@ describe("M03-A candidate-validation migration - PGlite", () => {
         fixture.temporaryJournal,
         56,
       );
-      const previous = await createPGlitePersistence({
-        migrationsFolder: fixture.migrationsFolder,
-      });
-      await previous.migrate();
-      await seedHistory(previous, false, "valid");
-      expect(await inventory(previous)).toEqual({
-        tables: 0, indexes: 0, receipts: 57, revisions: 2,
-      });
+      const db = newTestPGlite();
+      try {
+        const previous = await createPGlitePersistence({
+          db,
+          migrationsFolder: fixture.migrationsFolder,
+        });
+        await previous.migrate();
+        await seedHistory(previous, false, "valid");
+        expect(await inventory(previous)).toEqual({
+          tables: 0, indexes: 0, receipts: 57, revisions: 2,
+        });
 
-      await writeAppSchemaCandidateValidationJournalThrough(
-        fixture.currentJournal,
-        fixture.temporaryJournal,
-        57,
-      );
-      await injectAppSchemaCandidateValidationMigrationFailure(
-        fixture.migrationPath,
-      );
-      await expect(previous.migrate()).rejects.toThrow();
-      expect(await inventory(previous)).toEqual({
-        tables: 0, indexes: 0, receipts: 57, revisions: 2,
-      });
+        await writeAppSchemaCandidateValidationJournalThrough(
+          fixture.currentJournal,
+          fixture.temporaryJournal,
+          57,
+        );
+        await injectAppSchemaCandidateValidationMigrationFailure(
+          fixture.migrationPath,
+        );
+        await expect(previous.migrate()).rejects.toThrow();
+        expect(await inventory(previous)).toEqual({
+          tables: 0, indexes: 0, receipts: 57, revisions: 2,
+        });
 
-      await restoreAppSchemaCandidateValidationMigration(
-        fixture.migrationPath,
-        fixture.currentMigrationsFolder,
-      );
-      await expect(previous.migrate()).resolves.toBeUndefined();
-      await expect(previous.migrate()).resolves.toBeUndefined();
-      expect(await inventory(previous)).toEqual({
-        tables: 1, indexes: 1, receipts: 58, revisions: 2,
-      });
+        await restoreAppSchemaCandidateValidationMigration(
+          fixture.migrationPath,
+          fixture.currentMigrationsFolder,
+        );
+        await expect(previous.migrate()).resolves.toBeUndefined();
+        await expect(previous.migrate()).resolves.toBeUndefined();
+        expect(await inventory(previous)).toEqual({
+          tables: 1, indexes: 1, receipts: 58, revisions: 2,
+        });
+      } finally {
+        await db.close();
+      }
     } finally {
       await fixture.cleanup();
     }
@@ -65,20 +72,26 @@ describe("M03-A candidate-validation migration - PGlite", () => {
         fixture.temporaryJournal,
         56,
       );
-      const previous = await createPGlitePersistence({
-        migrationsFolder: fixture.migrationsFolder,
-      });
-      await previous.migrate();
-      await seedHistory(previous, true, "duplicate");
-      await writeAppSchemaCandidateValidationJournalThrough(
-        fixture.currentJournal,
-        fixture.temporaryJournal,
-        57,
-      );
-      await expect(previous.migrate()).rejects.toThrow();
-      expect(await inventory(previous)).toEqual({
-        tables: 0, indexes: 0, receipts: 57, revisions: 2,
-      });
+      const db = newTestPGlite();
+      try {
+        const previous = await createPGlitePersistence({
+          db,
+          migrationsFolder: fixture.migrationsFolder,
+        });
+        await previous.migrate();
+        await seedHistory(previous, true, "duplicate");
+        await writeAppSchemaCandidateValidationJournalThrough(
+          fixture.currentJournal,
+          fixture.temporaryJournal,
+          57,
+        );
+        await expect(previous.migrate()).rejects.toThrow();
+        expect(await inventory(previous)).toEqual({
+          tables: 0, indexes: 0, receipts: 57, revisions: 2,
+        });
+      } finally {
+        await db.close();
+      }
     } finally {
       await fixture.cleanup();
     }
