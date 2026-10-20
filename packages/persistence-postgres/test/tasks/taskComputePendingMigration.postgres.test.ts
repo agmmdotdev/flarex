@@ -1,10 +1,5 @@
-import { copyDrizzleMigrations } from "../../src/testing/systemTestMigrationFiles";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { isNonArrayRecord } from "@flarex/utils/records";
 import { describe, expect, it } from "vitest";
+import { makeDrizzleCopyFixture, writeJournalThrough } from "../support/migrationFixtureSupport";
 
 import { createPostgresPersistence } from "../../src/database/postgres";
 import {
@@ -20,8 +15,9 @@ const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("real PostgreSQL DTE06-C3 compute pending migration", () => {
   it("backfills only unmaterialized compute effects under an ordinary role", async () => {
-    const fixture = await makeMigrationFixture();
+    const fixture = await makeDrizzleCopyFixture("flarex-dte06-c3", "pg", "0053_sleepy_morgan_stark.sql");
     try {
+      await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 52);
       await withTemporaryPostgresSchema(async (databaseOptions) => {
         const previous = await createPostgresPersistence({
           ...databaseOptions,
@@ -69,7 +65,7 @@ describePostgres("real PostgreSQL DTE06-C3 compute pending migration", () => {
           await previous.close();
         }
 
-        await fixture.activateCurrentJournal();
+        await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 53);
         const current = await createPostgresPersistence({
           ...databaseOptions,
           migrationsFolder: fixture.migrationsFolder,
@@ -127,46 +123,3 @@ describePostgres("real PostgreSQL DTE06-C3 compute pending migration", () => {
     }
   }, 480_000);
 });
-
-async function makeMigrationFixture() {
-  const root = await mkdtemp(resolve(tmpdir(), "flarex-dte06-c3-pg-"));
-  const migrationsFolder = resolve(root, "drizzle");
-  const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const currentMigrationsFolder = resolve(packageRoot, "drizzle");
-  const currentJournalPath = resolve(
-    currentMigrationsFolder,
-    "meta/_journal.json",
-  );
-  const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
-  await copyDrizzleMigrations(currentMigrationsFolder, migrationsFolder);
-  const journalText = await readFile(currentJournalPath, "utf8");
-  const parsed: unknown = JSON.parse(journalText);
-  if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
-    throw new Error("Expected a Drizzle migration journal.");
-  }
-  await writeFile(copiedJournalPath, `${JSON.stringify({
-    ...parsed,
-    entries: parsed.entries.filter((entry) =>
-      isNonArrayRecord(entry)
-      && typeof entry.idx === "number"
-      && entry.idx < 53
-    ),
-  }, null, 2)}\n`, "utf8");
-  const targetJournalText = `${JSON.stringify({
-    ...parsed,
-    entries: parsed.entries.filter((entry) =>
-      isNonArrayRecord(entry)
-      && typeof entry.idx === "number"
-      && entry.idx < 54
-    ),
-  }, null, 2)}\n`;
-  return Object.freeze({
-    migrationsFolder,
-    activateCurrentJournal: () => writeFile(
-      copiedJournalPath,
-      targetJournalText,
-      "utf8",
-    ),
-    cleanup: () => rm(root, { recursive: true, force: true }),
-  });
-}
