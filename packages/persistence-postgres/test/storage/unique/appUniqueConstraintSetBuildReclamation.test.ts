@@ -44,15 +44,29 @@ import {
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
 } from "../../../src/database/locatedReadCommittedRunner";
+import { useFileScopedApplicationNativeMutationPersistence } from
+  "../../application/applicationNativeMutationPGlitePersistence";
 import {
-  createApplicationNativeMutationPGliteFixture,
+  createApplicationNativeMutationPGliteFixtureWithPersistence,
   type ApplicationNativeMutationPGliteFixture,
 } from "../../application/applicationNativeMutationTestFixture";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
-describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, () => {
-  it("retains shared physical work and releases only known private membership", async () => {
-    const fixture = await createApplicationNativeMutationPGliteFixture({ runtimeHostIdentity: "flarex.test/unique-shared", compatibilityDate: "2026-08-16" });
+const withPersistence = useFileScopedApplicationNativeMutationPersistence();
+let fixtureOrdinal = 0;
+
+function nextFixtureIdentity() {
+  const ordinal = ++fixtureOrdinal;
+  return {
+    deploymentId: `deployment_unique_set_reclamation_${ordinal}`,
+    projectId: `project_unique_set_reclamation_${ordinal}`,
+    uuidOffset: ordinal * 100,
+  };
+}
+
+describe("M05-A unique-set build workspace reclamation", { timeout: 180_000, concurrent: false }, () => {
+  it("retains shared physical work and releases only known private membership", async () => withPersistence(async persistence => {
+    const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({ runtimeHostIdentity: "flarex.test/unique-shared", compatibilityDate: "2026-08-16", fixtureIdentity: nextFixtureIdentity() }, persistence);
     const candidateA = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(manifestWithOptionalField(fixture.active.basis.manifest, "shared"), "onlyA"),
     );
@@ -84,13 +98,14 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     await closeCandidateSet(fixture, candidateC.schemaVersionId, []);
     await expect(runEffect(reclaimSupersededAppUniqueConstraintSetBuildEffect(fixture.uniqueConstraintEligibility, buildInput(fixture, candidateB.schemaVersionId))))
       .resolves.toMatchObject({ disposition: "deleted", deletedDefinitionIds: [sharedId], retainedDefinitionIds: [] });
-  });
+  }));
 
-  it("atomically reclaims the exact candidate displaced by private installation", async () => {
-    const fixture = await createApplicationNativeMutationPGliteFixture({
+  it("atomically reclaims the exact candidate displaced by private installation", async () => withPersistence(async persistence => {
+    const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
       runtimeHostIdentity: "flarex.test/m05-a2-runtime-host",
       compatibilityDate: "2026-08-16",
-    });
+      fixtureIdentity: nextFixtureIdentity(),
+    }, persistence);
     const port = fixture.uniqueConstraintEligibility;
     const activeSchemaVersionId = fixture.active.basis.schemaVersionId;
     await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
@@ -221,13 +236,14 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       },
     });
     await expectBuildPresence(fixture, candidateB.schemaVersionId, true);
-  });
+  }));
 
-  it("refuses the active and current candidate schemas but reclaims a superseded schema", async () => {
-    const fixture = await createApplicationNativeMutationPGliteFixture({
+  it("refuses the active and current candidate schemas but reclaims a superseded schema", async () => withPersistence(async persistence => {
+    const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
       runtimeHostIdentity: "flarex.test/m05-a-runtime-host",
       compatibilityDate: "2026-08-16",
-    });
+      fixtureIdentity: nextFixtureIdentity(),
+    }, persistence);
     const port = createAppUniqueConstraintSetEligibilityPortV1({
       controlDb: fixture.control.drizzle,
       authority: fixture.authorityPorts,
@@ -337,13 +353,14 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       buildPorts(fixture),
       buildInput(fixture, superseded.schemaVersionId),
     ))).resolves.toMatchObject({ disposition: "created" });
-  });
+  }));
 
-  it("cold-replays an atomically committed supersession after a lost response", async () => {
-    const fixture = await createApplicationNativeMutationPGliteFixture({
+  it("cold-replays an atomically committed supersession after a lost response", async () => withPersistence(async persistence => {
+    const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
       runtimeHostIdentity: "flarex.test/m05-a2-uncertain-runtime-host",
       compatibilityDate: "2026-08-16",
-    });
+      fixtureIdentity: nextFixtureIdentity(),
+    }, persistence);
     const candidateA = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidateA"),
     );
@@ -418,13 +435,14 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       installation: { disposition: "replayed" },
       workspace: { disposition: "not_applicable" },
     });
-  });
+  }));
 
-  it("fails closed when the observed candidate head moves before admission", async () => {
-    const fixture = await createApplicationNativeMutationPGliteFixture({
+  it("fails closed when the observed candidate head moves before admission", async () => withPersistence(async persistence => {
+    const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
       runtimeHostIdentity: "flarex.test/m05-a2-head-drift-runtime-host",
       compatibilityDate: "2026-08-16",
-    });
+      fixtureIdentity: nextFixtureIdentity(),
+    }, persistence);
     const candidateA = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidateA"),
     );
@@ -491,13 +509,14 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     expect(transactionCount).toBe(3);
     await expectCurrentCandidate(fixture, racingCandidate.schemaVersionId);
     await expectBuildPresence(fixture, candidateA.schemaVersionId, true);
-  });
+  }));
 
-  it("fails closed when deployment ownership drifts after the head claim", async () => {
-    const fixture = await createApplicationNativeMutationPGliteFixture({
+  it("fails closed when deployment ownership drifts after the head claim", async () => withPersistence(async persistence => {
+    const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
       runtimeHostIdentity: "flarex.test/m05-a2-deployment-drift-runtime-host",
       compatibilityDate: "2026-08-16",
-    });
+      fixtureIdentity: nextFixtureIdentity(),
+    }, persistence);
     const candidateA = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidateA"),
     );
@@ -576,13 +595,14 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       schema_version_id: candidateA.schemaVersionId,
     }]);
     await expectBuildPresence(fixture, candidateA.schemaVersionId, true);
-  });
+  }));
 
-  it("retains unknown displaced membership without weakening candidate installation", async () => {
-    const fixture = await createApplicationNativeMutationPGliteFixture({
+  it("retains unknown displaced membership without weakening candidate installation", async () => withPersistence(async persistence => {
+    const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
       runtimeHostIdentity: "flarex.test/m05-a2-absent-runtime-host",
       compatibilityDate: "2026-08-16",
-    });
+      fixtureIdentity: nextFixtureIdentity(),
+    }, persistence);
     const candidateA = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidateA"),
     );
@@ -609,13 +629,14 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       },
     });
     await expectCurrentCandidate(fixture, candidateB.schemaVersionId);
-  });
+  }));
 
-  it("reuses one exact build-directory slot during candidate supersession", async () => {
-    const fixture = await createApplicationNativeMutationPGliteFixture({
+  it("reuses one exact build-directory slot during candidate supersession", async () => withPersistence(async persistence => {
+    const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
       runtimeHostIdentity: "flarex.test/m05-a2-directory-runtime-host",
       compatibilityDate: "2026-08-16",
-    });
+      fixtureIdentity: nextFixtureIdentity(),
+    }, persistence);
     const candidateA = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidateA"),
     );
@@ -668,13 +689,14 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     expect(await buildDirectoryCount(fixture)).toBe(
       MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
     );
-  });
+  }));
 
-  it("rejects a structurally copied candidate-validation capability", async () => {
-    const fixture = await createApplicationNativeMutationPGliteFixture({
+  it("rejects a structurally copied candidate-validation capability", async () => withPersistence(async persistence => {
+    const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
       runtimeHostIdentity: "flarex.test/m05-a2-composition-runtime-host",
       compatibilityDate: "2026-08-16",
-    });
+      fixtureIdentity: nextFixtureIdentity(),
+    }, persistence);
     const candidate = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidate"),
     );
@@ -692,7 +714,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       reason: "invalidPort",
       retryable: false,
     });
-  });
+  }));
 });
 
 function buildPorts(fixture: ApplicationNativeMutationPGliteFixture) {
