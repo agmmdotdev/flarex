@@ -1,7 +1,9 @@
+import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
+import { useFileScopedPersistence } from "../support/fileScopedPersistenceFixture";
 import {
-  createMigratedPGlitePersistence,
-  migratedPGliteDataDir,
-} from "../support/pgliteTestFixture";
+  createFileScopedReadinessTargetFixture,
+  type TestPersistence,
+} from "./support/readinessFixture";
 import { webcrypto } from "node:crypto";
 import {
   canonicalizeApplicationManifestV1,
@@ -54,421 +56,443 @@ beforeAll(() => {
 
 beforeAll(() => migratedPGliteDataDir(), 120_000);
 
-describe("Application Analysis persistence generation", () => {
+describe("Application Analysis persistence generation", { concurrent: false }, () => {
+  const withTarget = useFileScopedPersistence(createFileScopedReadinessTargetFixture, false);
+
   it("admits one pending authority and replays the request key exactly", async () => {
-    const fixture = await repositoryFixture();
-    const first = await runEffect(fixture.repository.begin(beginInput()));
-    const replay = await runEffect(fixture.repository.begin(beginInput()));
+    return withTarget(async ({ persistence }) => {
+      const fixture = await repositoryFixture(persistence);
+      const first = await runEffect(fixture.repository.begin(beginInput()));
+      const replay = await runEffect(fixture.repository.begin(beginInput()));
 
-    expect(first).toMatchObject({ status: "pending" });
-    expect(replay).toEqual(first);
-    expect(fixture.issued()).toBe(2);
+      expect(first).toMatchObject({ status: "pending" });
+      expect(replay).toEqual(first);
+      expect(fixture.issued()).toBe(2);
 
-    const conflict = await runEffect(Effect.result(fixture.repository.begin({
-      ...beginInput(),
-      sourceArtifactRootSha256: "c".repeat(64),
-    })));
-    expect(Result.isFailure(conflict)).toBe(true);
-    if (Result.isFailure(conflict)) {
-      expect(conflict.failure).toMatchObject({
-        _tag: "ApplicationAnalysisPersistenceError",
-        reason: "requestKeyReuse",
-        retryable: false,
-      });
-    }
+      const conflict = await runEffect(Effect.result(fixture.repository.begin({
+        ...beginInput(),
+        sourceArtifactRootSha256: "c".repeat(64),
+      })));
+      expect(Result.isFailure(conflict)).toBe(true);
+      if (Result.isFailure(conflict)) {
+        expect(conflict.failure).toMatchObject({
+          _tag: "ApplicationAnalysisPersistenceError",
+          reason: "requestKeyReuse",
+          retryable: false,
+        });
+      }
+    });
   });
 
   it("serializes concurrent admission and competing terminal contenders", async () => {
-    const fixture = await repositoryFixture();
-    const [firstAdmission, secondAdmission] = await Promise.all([
-      runEffect(fixture.repository.begin(beginInput())),
-      runEffect(fixture.repository.begin(beginInput())),
-    ]);
-    expect(secondAdmission).toEqual(firstAdmission);
-    expect(fixture.issued()).toBe(2);
+    return withTarget(async ({ persistence }) => {
+      const fixture = await repositoryFixture(persistence);
+      const [firstAdmission, secondAdmission] = await Promise.all([
+        runEffect(fixture.repository.begin(beginInput())),
+        runEffect(fixture.repository.begin(beginInput())),
+      ]);
+      expect(secondAdmission).toEqual(firstAdmission);
+      expect(fixture.issued()).toBe(2);
 
-    const [firstTerminal, secondTerminal] = await Promise.all([
-      runEffect(fixture.repository.settle(AUTHORITY, {
-        kind: "rejected",
-        candidateId: firstAdmission.candidateId,
-        sourceArtifactRootSha256: ROOT,
-        analyzerIdentity: "analyzer-1",
-        analyzerPolicyIdentity: "policy-1",
-        failureCode: "invalid_registration",
-        detail: "registration is invalid",
-      })),
-      runEffect(fixture.repository.settle(AUTHORITY, {
-        kind: "analyzed",
-        candidateId: firstAdmission.candidateId,
-        sourceArtifactRootSha256: ROOT,
-        analyzerIdentity: "analyzer-1",
-        analyzerPolicyIdentity: "policy-1",
-        canonicalManifest: manifestText(),
-      })),
-    ]);
-    expect(secondTerminal).toEqual(firstTerminal);
-    const revisions = await fixture.persistence.query<{ count: string }>(
-      "select count(*)::text as count from fx_system_application_revision_v2",
-    );
-    expect(revisions.rows).toEqual([{
-      count: firstTerminal.status === "analyzed" ? "1" : "0",
-    }]);
+      const [firstTerminal, secondTerminal] = await Promise.all([
+        runEffect(fixture.repository.settle(AUTHORITY, {
+          kind: "rejected",
+          candidateId: firstAdmission.candidateId,
+          sourceArtifactRootSha256: ROOT,
+          analyzerIdentity: "analyzer-1",
+          analyzerPolicyIdentity: "policy-1",
+          failureCode: "invalid_registration",
+          detail: "registration is invalid",
+        })),
+        runEffect(fixture.repository.settle(AUTHORITY, {
+          kind: "analyzed",
+          candidateId: firstAdmission.candidateId,
+          sourceArtifactRootSha256: ROOT,
+          analyzerIdentity: "analyzer-1",
+          analyzerPolicyIdentity: "policy-1",
+          canonicalManifest: manifestText(),
+        })),
+      ]);
+      expect(secondTerminal).toEqual(firstTerminal);
+      const revisions = await fixture.persistence.query<{ count: string }>(
+        "select count(*)::text as count from fx_system_application_revision_v2",
+      );
+      expect(revisions.rows).toEqual([{
+        count: firstTerminal.status === "analyzed" ? "1" : "0",
+      }]);
+    });
   });
 
   it("keeps integration retry pending and replays the first rejected terminal", async () => {
-    const fixture = await repositoryFixture();
-    const pending = await runEffect(fixture.repository.begin(beginInput()));
+    return withTarget(async ({ persistence }) => {
+      const fixture = await repositoryFixture(persistence);
+      const pending = await runEffect(fixture.repository.begin(beginInput()));
 
-    const afterIntegrationFailure = await runEffect(
-      fixture.repository.inspect(AUTHORITY, pending.candidateId),
-    );
-    expect(afterIntegrationFailure).toEqual(pending);
+      const afterIntegrationFailure = await runEffect(
+        fixture.repository.inspect(AUTHORITY, pending.candidateId),
+      );
+      expect(afterIntegrationFailure).toEqual(pending);
 
-    const rejected = await runEffect(fixture.repository.settle(AUTHORITY, {
-      kind: "rejected",
-      candidateId: pending.candidateId,
-      sourceArtifactRootSha256: ROOT,
-      analyzerIdentity: "analyzer-1",
-      analyzerPolicyIdentity: "policy-1",
-      failureCode: "invalid_registration",
-      detail: "registration is invalid",
-    }));
-    expect(rejected).toMatchObject({
-      status: "rejected",
-      receipt: {
-        status: "rejected",
+      const rejected = await runEffect(fixture.repository.settle(AUTHORITY, {
+        kind: "rejected",
+        candidateId: pending.candidateId,
+        sourceArtifactRootSha256: ROOT,
+        analyzerIdentity: "analyzer-1",
+        analyzerPolicyIdentity: "policy-1",
         failureCode: "invalid_registration",
-      },
-    });
+        detail: "registration is invalid",
+      }));
+      expect(rejected).toMatchObject({
+        status: "rejected",
+        receipt: {
+          status: "rejected",
+          failureCode: "invalid_registration",
+        },
+      });
 
-    const attemptedReplacement = await runEffect(fixture.repository.settle(
-      AUTHORITY,
-      {
+      const attemptedReplacement = await runEffect(fixture.repository.settle(
+        AUTHORITY,
+        {
+          kind: "analyzed",
+          candidateId: pending.candidateId,
+          sourceArtifactRootSha256: ROOT,
+          analyzerIdentity: "analyzer-1",
+          analyzerPolicyIdentity: "policy-1",
+          canonicalManifest: manifestText(),
+        },
+      ));
+      expect(attemptedReplacement).toEqual(rejected);
+
+      const mismatchedReplay = await runEffect(Effect.result(
+        fixture.repository.settle(AUTHORITY, {
+          kind: "rejected",
+          candidateId: pending.candidateId,
+          sourceArtifactRootSha256: ROOT,
+          analyzerIdentity: "different-analyzer",
+          analyzerPolicyIdentity: "policy-1",
+          failureCode: "invalid_registration",
+          detail: "registration is invalid",
+        }),
+      ));
+      expect(Result.isFailure(mismatchedReplay)).toBe(true);
+      if (Result.isFailure(mismatchedReplay)) {
+        expect(mismatchedReplay.failure.reason).toBe("terminalMismatch");
+      }
+      const revisions = await fixture.persistence.query<{ count: string }>(
+        "select count(*)::text as count from fx_system_application_revision_v2",
+      );
+      expect(revisions.rows).toEqual([{ count: "0" }]);
+    });
+  });
+
+  it("settles an analyzed manifest into one inactive revision and detects corruption", async () => {
+    return withTarget(async ({ persistence }) => {
+      const fixture = await repositoryFixture(persistence);
+      const pending = await runEffect(fixture.repository.begin(beginInput()));
+      const analyzed = await runEffect(fixture.repository.settle(AUTHORITY, {
         kind: "analyzed",
         candidateId: pending.candidateId,
         sourceArtifactRootSha256: ROOT,
         analyzerIdentity: "analyzer-1",
         analyzerPolicyIdentity: "policy-1",
         canonicalManifest: manifestText(),
-      },
-    ));
-    expect(attemptedReplacement).toEqual(rejected);
+      }));
 
-    const mismatchedReplay = await runEffect(Effect.result(
-      fixture.repository.settle(AUTHORITY, {
-        kind: "rejected",
-        candidateId: pending.candidateId,
-        sourceArtifactRootSha256: ROOT,
-        analyzerIdentity: "different-analyzer",
-        analyzerPolicyIdentity: "policy-1",
-        failureCode: "invalid_registration",
-        detail: "registration is invalid",
-      }),
-    ));
-    expect(Result.isFailure(mismatchedReplay)).toBe(true);
-    if (Result.isFailure(mismatchedReplay)) {
-      expect(mismatchedReplay.failure.reason).toBe("terminalMismatch");
-    }
-    const revisions = await fixture.persistence.query<{ count: string }>(
-      "select count(*)::text as count from fx_system_application_revision_v2",
-    );
-    expect(revisions.rows).toEqual([{ count: "0" }]);
-  });
+      expect(analyzed).toMatchObject({
+        status: "analyzed",
+        manifest: { sourceArtifact: { rootSha256: ROOT } },
+        receipt: { status: "analyzed" },
+        revision: { status: "inactive" },
+      });
 
-  it("settles an analyzed manifest into one inactive revision and detects corruption", async () => {
-    const fixture = await repositoryFixture();
-    const pending = await runEffect(fixture.repository.begin(beginInput()));
-    const analyzed = await runEffect(fixture.repository.settle(AUTHORITY, {
-      kind: "analyzed",
-      candidateId: pending.candidateId,
-      sourceArtifactRootSha256: ROOT,
-      analyzerIdentity: "analyzer-1",
-      analyzerPolicyIdentity: "policy-1",
-      canonicalManifest: manifestText(),
-    }));
-
-    expect(analyzed).toMatchObject({
-      status: "analyzed",
-      manifest: { sourceArtifact: { rootSha256: ROOT } },
-      receipt: { status: "analyzed" },
-      revision: { status: "inactive" },
-    });
-
-    const settledReplay = await runEffect(fixture.repository.settle(AUTHORITY, {
-      kind: "analyzed",
-      candidateId: pending.candidateId,
-      sourceArtifactRootSha256: ROOT,
-      analyzerIdentity: "analyzer-1",
-      analyzerPolicyIdentity: "policy-1",
-      canonicalManifest: manifestText(),
-    }));
-    expect(settledReplay).toEqual(analyzed);
-    expect(fixture.issued()).toBe(3);
-
-    const replay = await runEffect(
-      fixture.repository.inspect(AUTHORITY, pending.candidateId),
-    );
-    expect(replay).toEqual(analyzed);
-
-    await fixture.persistence.drizzle.update(fxSystemApplicationAnalysesV1).set({
-      receiptBytes: new TextEncoder().encode("{}"),
-    });
-    const corrupted = await runEffect(Effect.result(
-      fixture.repository.inspect(AUTHORITY, pending.candidateId),
-    ));
-    expect(Result.isFailure(corrupted)).toBe(true);
-    if (Result.isFailure(corrupted)) {
-      expect(corrupted.failure).toBeInstanceOf(ApplicationAnalysisPersistenceError);
-      expect(corrupted.failure.reason).toBe("storedState");
-    }
-  });
-
-  it("settles, replays, and inspects a relation-bearing manifest and fails closed", async () => {
-    const fixture = await repositoryFixture();
-    const pending = await runEffect(fixture.repository.begin(beginInput()));
-
-    const mismatched = await runEffect(Effect.result(
-      fixture.repository.settle(AUTHORITY, {
+      const settledReplay = await runEffect(fixture.repository.settle(AUTHORITY, {
         kind: "analyzed",
         candidateId: pending.candidateId,
         sourceArtifactRootSha256: ROOT,
         analyzerIdentity: "analyzer-1",
         analyzerPolicyIdentity: "policy-1",
-        canonicalManifest: relationManifestV2Text("d".repeat(64)),
-      }),
-    ));
-    expect(Result.isFailure(mismatched)).toBe(true);
-    if (Result.isFailure(mismatched)) {
-      expect(mismatched.failure).toMatchObject({
-        reason: "terminalMismatch",
-        retryable: false,
+        canonicalManifest: manifestText(),
+      }));
+      expect(settledReplay).toEqual(analyzed);
+      expect(fixture.issued()).toBe(3);
+
+      const replay = await runEffect(
+        fixture.repository.inspect(AUTHORITY, pending.candidateId),
+      );
+      expect(replay).toEqual(analyzed);
+
+      await fixture.persistence.drizzle.update(fxSystemApplicationAnalysesV1).set({
+        receiptBytes: new TextEncoder().encode("{}"),
       });
-    }
-    expect(await runEffect(
-      fixture.repository.inspect(AUTHORITY, pending.candidateId),
-    )).toEqual(pending);
+      const corrupted = await runEffect(Effect.result(
+        fixture.repository.inspect(AUTHORITY, pending.candidateId),
+      ));
+      expect(Result.isFailure(corrupted)).toBe(true);
+      if (Result.isFailure(corrupted)) {
+        expect(corrupted.failure).toBeInstanceOf(ApplicationAnalysisPersistenceError);
+        expect(corrupted.failure.reason).toBe("storedState");
+      }
+    });
+  });
 
-    const terminal = {
-      kind: "analyzed" as const,
-      candidateId: pending.candidateId,
-      sourceArtifactRootSha256: ROOT,
-      analyzerIdentity: "analyzer-1",
-      analyzerPolicyIdentity: "policy-1",
-      canonicalManifest: relationManifestV2Text(ROOT),
-    };
-    const analyzed = await runEffect(
-      fixture.repository.settle(AUTHORITY, terminal),
-    );
-    expect(analyzed).toMatchObject({
-      status: "analyzed",
-      manifest: {
-        version: 2,
-        schema: {
+  it("settles, replays, and inspects a relation-bearing manifest and fails closed", async () => {
+    return withTarget(async ({ persistence }) => {
+      const fixture = await repositoryFixture(persistence);
+      const pending = await runEffect(fixture.repository.begin(beginInput()));
+
+      const mismatched = await runEffect(Effect.result(
+        fixture.repository.settle(AUTHORITY, {
+          kind: "analyzed",
+          candidateId: pending.candidateId,
+          sourceArtifactRootSha256: ROOT,
+          analyzerIdentity: "analyzer-1",
+          analyzerPolicyIdentity: "policy-1",
+          canonicalManifest: relationManifestV2Text("d".repeat(64)),
+        }),
+      ));
+      expect(Result.isFailure(mismatched)).toBe(true);
+      if (Result.isFailure(mismatched)) {
+        expect(mismatched.failure).toMatchObject({
+          reason: "terminalMismatch",
+          retryable: false,
+        });
+      }
+      expect(await runEffect(
+        fixture.repository.inspect(AUTHORITY, pending.candidateId),
+      )).toEqual(pending);
+
+      const terminal = {
+        kind: "analyzed" as const,
+        candidateId: pending.candidateId,
+        sourceArtifactRootSha256: ROOT,
+        analyzerIdentity: "analyzer-1",
+        analyzerPolicyIdentity: "policy-1",
+        canonicalManifest: relationManifestV2Text(ROOT),
+      };
+      const analyzed = await runEffect(
+        fixture.repository.settle(AUTHORITY, terminal),
+      );
+      expect(analyzed).toMatchObject({
+        status: "analyzed",
+        manifest: {
           version: 2,
-          relations: [{
-            relationOrdinal: 1,
-            sourceTableOrdinal: 1,
-            targetTableOrdinal: 2,
-          }],
+          schema: {
+            version: 2,
+            relations: [{
+              relationOrdinal: 1,
+              sourceTableOrdinal: 1,
+              targetTableOrdinal: 2,
+            }],
+          },
         },
-      },
-      receipt: { status: "analyzed" },
-      revision: { status: "inactive" },
-    });
-    expect(await runEffect(
-      fixture.repository.settle(AUTHORITY, terminal),
-    )).toEqual(analyzed);
-    expect(await runEffect(
-      fixture.repository.inspect(AUTHORITY, pending.candidateId),
-    )).toEqual(analyzed);
+        receipt: { status: "analyzed" },
+        revision: { status: "inactive" },
+      });
+      expect(await runEffect(
+        fixture.repository.settle(AUTHORITY, terminal),
+      )).toEqual(analyzed);
+      expect(await runEffect(
+        fixture.repository.inspect(AUTHORITY, pending.candidateId),
+      )).toEqual(analyzed);
 
-    await fixture.persistence.drizzle.update(fxSystemApplicationAnalysesV1).set({
-      manifestBytes: new TextEncoder().encode("{}"),
+      await fixture.persistence.drizzle.update(fxSystemApplicationAnalysesV1).set({
+        manifestBytes: new TextEncoder().encode("{}"),
+      });
+      const corrupted = await runEffect(Effect.result(
+        fixture.repository.inspect(AUTHORITY, pending.candidateId),
+      ));
+      expect(Result.isFailure(corrupted)).toBe(true);
+      if (Result.isFailure(corrupted)) {
+        expect(corrupted.failure).toMatchObject({ reason: "storedState" });
+      }
     });
-    const corrupted = await runEffect(Effect.result(
-      fixture.repository.inspect(AUTHORITY, pending.candidateId),
-    ));
-    expect(Result.isFailure(corrupted)).toBe(true);
-    if (Result.isFailure(corrupted)) {
-      expect(corrupted.failure).toMatchObject({ reason: "storedState" });
-    }
   });
 
   it("rolls back settlement when revision identity issuance fails", async () => {
-    const fixture = await repositoryFixture({ failUuidOnceAt: 2 });
-    const pending = await runEffect(fixture.repository.begin(beginInput()));
-    const terminal = {
-      kind: "analyzed" as const,
-      candidateId: pending.candidateId,
-      sourceArtifactRootSha256: ROOT,
-      analyzerIdentity: "analyzer-1",
-      analyzerPolicyIdentity: "policy-1",
-      canonicalManifest: manifestText(),
-    };
+    return withTarget(async ({ persistence }) => {
+      const fixture = await repositoryFixture(persistence, { failUuidOnceAt: 2 });
+      const pending = await runEffect(fixture.repository.begin(beginInput()));
+      const terminal = {
+        kind: "analyzed" as const,
+        candidateId: pending.candidateId,
+        sourceArtifactRootSha256: ROOT,
+        analyzerIdentity: "analyzer-1",
+        analyzerPolicyIdentity: "policy-1",
+        canonicalManifest: manifestText(),
+      };
 
-    const failed = await runEffect(Effect.result(
-      fixture.repository.settle(AUTHORITY, terminal),
-    ));
-    expect(Result.isFailure(failed)).toBe(true);
-    if (Result.isFailure(failed)) {
-      expect(failed.failure).toMatchObject({
-        reason: "resourceFailure",
-        retryable: false,
+      const failed = await runEffect(Effect.result(
+        fixture.repository.settle(AUTHORITY, terminal),
+      ));
+      expect(Result.isFailure(failed)).toBe(true);
+      if (Result.isFailure(failed)) {
+        expect(failed.failure).toMatchObject({
+          reason: "resourceFailure",
+          retryable: false,
+        });
+      }
+      expect(await runEffect(
+        fixture.repository.inspect(AUTHORITY, pending.candidateId),
+      )).toEqual(pending);
+      expect((await fixture.persistence.query<{ count: string }>(
+        "select count(*)::text as count from fx_system_application_revision_v2",
+      )).rows).toEqual([{ count: "0" }]);
+
+      const retried = await runEffect(fixture.repository.settle(AUTHORITY, terminal));
+      expect(retried).toMatchObject({
+        status: "analyzed",
+        revision: { status: "inactive" },
       });
-    }
-    expect(await runEffect(
-      fixture.repository.inspect(AUTHORITY, pending.candidateId),
-    )).toEqual(pending);
-    expect((await fixture.persistence.query<{ count: string }>(
-      "select count(*)::text as count from fx_system_application_revision_v2",
-    )).rows).toEqual([{ count: "0" }]);
-
-    const retried = await runEffect(fixture.repository.settle(AUTHORITY, terminal));
-    expect(retried).toMatchObject({
-      status: "analyzed",
-      revision: { status: "inactive" },
     });
   });
 
   it("captures terminal input before asynchronous transaction work", async () => {
-    const fixture = await repositoryFixture();
-    const pending = await runEffect(fixture.repository.begin(beginInput()));
-    const transactionEntered = deferredValue<void>();
-    const releaseTransaction = deferredValue<void>();
-    const repository = makeApplicationAnalysisRepository(
-      gateTransactionCallback(
-        fixture.persistence.drizzle,
-        transactionEntered,
-        releaseTransaction,
-      ),
-    );
-    const terminal = {
-      kind: "rejected" as const,
-      candidateId: pending.candidateId,
-      sourceArtifactRootSha256: ROOT,
-      analyzerIdentity: "analyzer-1",
-      analyzerPolicyIdentity: "policy-1",
-      failureCode: "invalid_registration" as const,
-      detail: "captured detail",
-    };
-    const settlement = Effect.runPromise(repository.settle(AUTHORITY, terminal));
-    await transactionEntered.promise;
-    terminal.detail = "mutated detail";
-    releaseTransaction.resolve(undefined);
-
-    const rejected = await settlement;
-    expect(rejected).toMatchObject({
-      status: "rejected",
-      receipt: { detail: "captured detail" },
-    });
-  });
-
-  it("retains unexpected transaction rejection in an interruption cause", async () => {
-    const fixture = await repositoryFixture();
-    const transactionEntered = deferredValue<void>();
-    const settlement = deferredValue<never>();
-    const unexpected = new Error("unexpected interrupted settlement failure");
-    const database = new Proxy(fixture.persistence.drizzle, {
-      get(target, property, receiver) {
-        if (property !== "transaction") {
-          return Reflect.get(target, property, receiver);
-        }
-        return () => {
-          transactionEntered.resolve(undefined);
-          return settlement.promise;
-        };
-      },
-    });
-    const repository = makeApplicationAnalysisRepository(database);
-    const fiber = Effect.runFork(repository.begin(beginInput()));
-    await transactionEntered.promise;
-    const completion = runEffect(Fiber.await(fiber));
-    const interruption = runEffect(Fiber.interrupt(fiber));
-    await nextTask();
-    settlement.reject(unexpected);
-    await interruption;
-
-    const exit = await completion;
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      expect(Cause.hasInterrupts(exit.cause)).toBe(true);
-      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(false);
-      expect(Cause.pretty(exit.cause)).toContain(unexpected.message);
-    }
-  });
-
-  it("ignores only the correlated rollback sentinel during interruption", async () => {
-    const fixture = await repositoryFixture();
-    const rejectionEntered = deferredValue<void>();
-    const releaseRejection = deferredValue<void>();
-    const repository = makeApplicationAnalysisRepository(
-      gateTransactionRejection(
-        fixture.persistence.drizzle,
-        rejectionEntered,
-        releaseRejection,
-      ),
-      { randomUuid: () => { throw new Error("injected callback failure"); } },
-    );
-    const fiber = Effect.runFork(repository.begin(beginInput()));
-    await rejectionEntered.promise;
-    const completion = runEffect(Fiber.await(fiber));
-    const interruption = runEffect(Fiber.interrupt(fiber));
-    await nextTask();
-    releaseRejection.resolve(undefined);
-    await interruption;
-
-    const exit = await completion;
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
-    }
-  });
-
-  it("rejects a stale scope-clock fence without changing the pending row", async () => {
-    const fixture = await repositoryFixture();
-    const pending = await runEffect(fixture.repository.begin(beginInput()));
-    await fixture.persistence.query(
-      "update fx_system_scope_execution_authority set storage_generation_fence = 2 where scope_id = $1",
-      [AUTHORITY.scopeId],
-    );
-
-    const stale = await runEffect(Effect.result(
-      fixture.repository.inspect(AUTHORITY, pending.candidateId),
-    ));
-    expect(Result.isFailure(stale)).toBe(true);
-    if (Result.isFailure(stale)) {
-      expect(stale.failure).toMatchObject({
-        reason: "authorityChanged",
-        retryable: false,
-      });
-    }
-
-    const currentAuthority: ApplicationAnalysisAuthority = Object.freeze({
-      ...AUTHORITY,
-      storageGenerationFence: StorageGenerationFenceSchema.make(2n),
-    });
-    const freshCallerForStaleCandidate = await runEffect(Effect.result(
-      fixture.repository.settle(currentAuthority, {
-        kind: "rejected",
+    return withTarget(async ({ persistence }) => {
+      const fixture = await repositoryFixture(persistence);
+      const pending = await runEffect(fixture.repository.begin(beginInput()));
+      const transactionEntered = deferredValue<void>();
+      const releaseTransaction = deferredValue<void>();
+      const repository = makeApplicationAnalysisRepository(
+        gateTransactionCallback(
+          fixture.persistence.drizzle,
+          transactionEntered,
+          releaseTransaction,
+        ),
+      );
+      const terminal = {
+        kind: "rejected" as const,
         candidateId: pending.candidateId,
         sourceArtifactRootSha256: ROOT,
         analyzerIdentity: "analyzer-1",
         analyzerPolicyIdentity: "policy-1",
-        failureCode: "invalid_registration",
-        detail: "registration is invalid",
-      }),
-    ));
-    expect(Result.isFailure(freshCallerForStaleCandidate)).toBe(true);
-    if (Result.isFailure(freshCallerForStaleCandidate)) {
-      expect(freshCallerForStaleCandidate.failure).toMatchObject({
-        reason: "authorityChanged",
-        retryable: false,
+        failureCode: "invalid_registration" as const,
+        detail: "captured detail",
+      };
+      const settlement = Effect.runPromise(repository.settle(AUTHORITY, terminal));
+      await transactionEntered.promise;
+      terminal.detail = "mutated detail";
+      releaseTransaction.resolve(undefined);
+
+      const rejected = await settlement;
+      expect(rejected).toMatchObject({
+        status: "rejected",
+        receipt: { detail: "captured detail" },
       });
-    }
-    expect((await fixture.persistence.query<{ status: string }>(
-      "select status from fx_system_application_analysis_v1 where scope_id = $1",
-      [AUTHORITY.scopeId],
-    )).rows).toEqual([{ status: "pending" }]);
+    });
+  });
+
+  it("retains unexpected transaction rejection in an interruption cause", async () => {
+    return withTarget(async ({ persistence }) => {
+      const fixture = await repositoryFixture(persistence);
+      const transactionEntered = deferredValue<void>();
+      const settlement = deferredValue<never>();
+      const unexpected = new Error("unexpected interrupted settlement failure");
+      const database = new Proxy(fixture.persistence.drizzle, {
+        get(target, property, receiver) {
+          if (property !== "transaction") {
+            return Reflect.get(target, property, receiver);
+          }
+          return () => {
+            transactionEntered.resolve(undefined);
+            return settlement.promise;
+          };
+        },
+      });
+      const repository = makeApplicationAnalysisRepository(database);
+      const fiber = Effect.runFork(repository.begin(beginInput()));
+      await transactionEntered.promise;
+      const completion = runEffect(Fiber.await(fiber));
+      const interruption = runEffect(Fiber.interrupt(fiber));
+      await nextTask();
+      settlement.reject(unexpected);
+      await interruption;
+
+      const exit = await completion;
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasInterrupts(exit.cause)).toBe(true);
+        expect(Cause.hasInterruptsOnly(exit.cause)).toBe(false);
+        expect(Cause.pretty(exit.cause)).toContain(unexpected.message);
+      }
+    });
+  });
+
+  it("ignores only the correlated rollback sentinel during interruption", async () => {
+    return withTarget(async ({ persistence }) => {
+      const fixture = await repositoryFixture(persistence);
+      const rejectionEntered = deferredValue<void>();
+      const releaseRejection = deferredValue<void>();
+      const repository = makeApplicationAnalysisRepository(
+        gateTransactionRejection(
+          fixture.persistence.drizzle,
+          rejectionEntered,
+          releaseRejection,
+        ),
+        { randomUuid: () => { throw new Error("injected callback failure"); } },
+      );
+      const fiber = Effect.runFork(repository.begin(beginInput()));
+      await rejectionEntered.promise;
+      const completion = runEffect(Fiber.await(fiber));
+      const interruption = runEffect(Fiber.interrupt(fiber));
+      await nextTask();
+      releaseRejection.resolve(undefined);
+      await interruption;
+
+      const exit = await completion;
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+      }
+    });
+  });
+
+  it("rejects a stale scope-clock fence without changing the pending row", async () => {
+    return withTarget(async ({ persistence }) => {
+      const fixture = await repositoryFixture(persistence);
+      const pending = await runEffect(fixture.repository.begin(beginInput()));
+      await fixture.persistence.query(
+        "update fx_system_scope_execution_authority set storage_generation_fence = 2 where scope_id = $1",
+        [AUTHORITY.scopeId],
+      );
+
+      const stale = await runEffect(Effect.result(
+        fixture.repository.inspect(AUTHORITY, pending.candidateId),
+      ));
+      expect(Result.isFailure(stale)).toBe(true);
+      if (Result.isFailure(stale)) {
+        expect(stale.failure).toMatchObject({
+          reason: "authorityChanged",
+          retryable: false,
+        });
+      }
+
+      const currentAuthority: ApplicationAnalysisAuthority = Object.freeze({
+        ...AUTHORITY,
+        storageGenerationFence: StorageGenerationFenceSchema.make(2n),
+      });
+      const freshCallerForStaleCandidate = await runEffect(Effect.result(
+        fixture.repository.settle(currentAuthority, {
+          kind: "rejected",
+          candidateId: pending.candidateId,
+          sourceArtifactRootSha256: ROOT,
+          analyzerIdentity: "analyzer-1",
+          analyzerPolicyIdentity: "policy-1",
+          failureCode: "invalid_registration",
+          detail: "registration is invalid",
+        }),
+      ));
+      expect(Result.isFailure(freshCallerForStaleCandidate)).toBe(true);
+      if (Result.isFailure(freshCallerForStaleCandidate)) {
+        expect(freshCallerForStaleCandidate.failure).toMatchObject({
+          reason: "authorityChanged",
+          retryable: false,
+        });
+      }
+      expect((await fixture.persistence.query<{ status: string }>(
+        "select status from fx_system_application_analysis_v1 where scope_id = $1",
+        [AUTHORITY.scopeId],
+      )).rows).toEqual([{ status: "pending" }]);
+    });
   });
 });
 
@@ -503,9 +527,9 @@ function manifestText(): string {
 }
 
 async function repositoryFixture(
+  persistence: TestPersistence,
   options: { readonly failUuidOnceAt?: number } = {},
 ) {
-  const persistence = await createMigratedPGlitePersistence();
   await insertSessionTestScope(persistence);
   const uuids = [
     "10000000-0000-4000-8000-000000000001",

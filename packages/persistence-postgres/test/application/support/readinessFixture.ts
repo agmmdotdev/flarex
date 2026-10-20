@@ -339,6 +339,7 @@ export async function createFileScopedReadinessTargetFixture(): Promise<FileScop
         delete from fx_system_application_readiness_function_v1;
         delete from fx_system_application_readiness_v1;
         delete from fx_system_application_revision_schema_v1;
+        delete from fx_system_application_task_definition_v1;
         delete from fx_system_application_task_catalog_v1;
         delete from fx_system_application_function_v1;
         delete from fx_system_application_publication_v1;
