@@ -13,49 +13,55 @@ describe("Application readiness migration - PGlite", () => {
   it("upgrades atomically, preserves prior data, rolls back failure, and replays", async () => {
     const fixture = await makeApplicationReadinessMigrationFixture("pglite");
     try {
-      await writeApplicationReadinessJournalThrough(
-        fixture.currentJournal,
-        fixture.temporaryJournal,
-        57,
-      );
-      const persistence = await createPGlitePersistence({
-        migrationsFolder: fixture.migrationsFolder,
-      });
-      await persistence.migrate();
-      await persistence.insertDeploymentMetadata({
-        deploymentId: "deployment_before_application_readiness",
-        projectId: "project_before_application_readiness",
-      });
-      expect(await inventory(persistence)).toEqual({
-        deployments: 1,
-        receipts: 58,
-        tables: 0,
-      });
+      const db = newTestPGlite();
+      try {
+        await writeApplicationReadinessJournalThrough(
+          fixture.currentJournal,
+          fixture.temporaryJournal,
+          57,
+        );
+        const persistence = await createPGlitePersistence({
+          db,
+          migrationsFolder: fixture.migrationsFolder,
+        });
+        await persistence.migrate();
+        await persistence.insertDeploymentMetadata({
+          deploymentId: "deployment_before_application_readiness",
+          projectId: "project_before_application_readiness",
+        });
+        expect(await inventory(persistence)).toEqual({
+          deployments: 1,
+          receipts: 58,
+          tables: 0,
+        });
 
-      await writeApplicationReadinessJournalThrough(
-        fixture.currentJournal,
-        fixture.temporaryJournal,
-        58,
-      );
-      await injectApplicationReadinessMigrationFailure(fixture.migrationPath);
-      await expect(persistence.migrate()).rejects.toThrow();
-      expect(await inventory(persistence)).toEqual({
-        deployments: 1,
-        receipts: 58,
-        tables: 0,
-      });
+        await writeApplicationReadinessJournalThrough(
+          fixture.currentJournal,
+          fixture.temporaryJournal,
+          58,
+        );
+        await injectApplicationReadinessMigrationFailure(fixture.migrationPath);
+        await expect(persistence.migrate()).rejects.toThrow();
+        expect(await inventory(persistence)).toEqual({
+          deployments: 1,
+          receipts: 58,
+          tables: 0,
+        });
 
-      await restoreApplicationReadinessMigration(
-        fixture.migrationPath,
-        fixture.currentMigrationsFolder,
-      );
-      await expect(persistence.migrate()).resolves.toBeUndefined();
-      await expect(persistence.migrate()).resolves.toBeUndefined();
-      expect(await inventory(persistence)).toEqual({
-        deployments: 1,
-        receipts: 59,
-        tables: 4,
-      });
+        await restoreApplicationReadinessMigration(
+          fixture.migrationPath,
+          fixture.currentMigrationsFolder,
+        );
+        await expect(persistence.migrate()).resolves.toBeUndefined();
+        await expect(persistence.migrate()).resolves.toBeUndefined();
+        expect(await inventory(persistence)).toEqual({
+          deployments: 1,
+          receipts: 59,
+          tables: 4,
+        });
+      } finally {
+        await db.close();
+      }
     } finally {
       await fixture.cleanup();
     }
@@ -67,6 +73,11 @@ describe("Application readiness migration - PGlite", () => {
     );
     const db = newTestPGlite();
     try {
+      await writeApplicationReadinessJournalThrough(
+        fixture.currentJournal,
+        fixture.temporaryJournal,
+        58,
+      );
       await db.exec(
         `create schema fx_application_readiness; ` +
           `set search_path to fx_application_readiness`,
@@ -78,7 +89,7 @@ describe("Application readiness migration - PGlite", () => {
       await persistence.migrate();
       expect(await inventory(persistence)).toEqual({
         deployments: 0,
-        receipts: 81,
+        receipts: 59,
         tables: 4,
       });
       const constraints = await persistence.query<{ count: number }>(`

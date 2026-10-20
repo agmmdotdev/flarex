@@ -22,47 +22,53 @@ describe("Application activation migration - PGlite", () => {
   it("upgrades atomically, preserves prior data, rolls back failure, and replays", async () => {
     const fixture = await makeApplicationActivationMigrationFixture("pglite");
     try {
-      await writeApplicationActivationJournalThrough(
-        fixture.currentJournal,
-        fixture.temporaryJournal,
-        58,
-      );
-      const persistence = await createPGlitePersistence({
-        migrationsFolder: fixture.migrationsFolder,
-      });
-      await persistence.migrate();
-      await persistence.insertDeploymentMetadata({
-        deploymentId: "deployment_before_application_activation",
-        projectId: "project_before_application_activation",
-      });
-      expect(await inventory(persistence)).toEqual({
-        deployments: 1,
-        receipts: 59,
-        tables: 0,
-      });
-      await writeApplicationActivationJournalThrough(
-        fixture.currentJournal,
-        fixture.temporaryJournal,
-        59,
-      );
-      await injectApplicationActivationMigrationFailure(fixture.migrationPath);
-      await expect(persistence.migrate()).rejects.toThrow();
-      expect(await inventory(persistence)).toEqual({
-        deployments: 1,
-        receipts: 59,
-        tables: 0,
-      });
-      await restoreApplicationActivationMigration(
-        fixture.migrationPath,
-        fixture.currentMigrationsFolder,
-      );
-      await expect(persistence.migrate()).resolves.toBeUndefined();
-      await expect(persistence.migrate()).resolves.toBeUndefined();
-      expect(await inventory(persistence)).toEqual({
-        deployments: 1,
-        receipts: 60,
-        tables: 2,
-      });
+      const db = newTestPGlite();
+      try {
+        await writeApplicationActivationJournalThrough(
+          fixture.currentJournal,
+          fixture.temporaryJournal,
+          58,
+        );
+        const persistence = await createPGlitePersistence({
+          db,
+          migrationsFolder: fixture.migrationsFolder,
+        });
+        await persistence.migrate();
+        await persistence.insertDeploymentMetadata({
+          deploymentId: "deployment_before_application_activation",
+          projectId: "project_before_application_activation",
+        });
+        expect(await inventory(persistence)).toEqual({
+          deployments: 1,
+          receipts: 59,
+          tables: 0,
+        });
+        await writeApplicationActivationJournalThrough(
+          fixture.currentJournal,
+          fixture.temporaryJournal,
+          59,
+        );
+        await injectApplicationActivationMigrationFailure(fixture.migrationPath);
+        await expect(persistence.migrate()).rejects.toThrow();
+        expect(await inventory(persistence)).toEqual({
+          deployments: 1,
+          receipts: 59,
+          tables: 0,
+        });
+        await restoreApplicationActivationMigration(
+          fixture.migrationPath,
+          fixture.currentMigrationsFolder,
+        );
+        await expect(persistence.migrate()).resolves.toBeUndefined();
+        await expect(persistence.migrate()).resolves.toBeUndefined();
+        expect(await inventory(persistence)).toEqual({
+          deployments: 1,
+          receipts: 60,
+          tables: 2,
+        });
+      } finally {
+        await db.close();
+      }
     } finally {
       await fixture.cleanup();
     }
@@ -103,58 +109,64 @@ describe("Application activation migration - PGlite", () => {
       "populated-pglite",
     );
     try {
-      await writeApplicationActivationJournalThrough(
-        fixture.currentJournal,
-        fixture.temporaryJournal,
-        74,
-      );
-      const persistence = await createPGlitePersistence({
-        migrationsFolder: fixture.migrationsFolder,
-      });
-      await persistence.migrate();
-      for (const statement of legacyApplicationActivationCutoverSeedStatements()) {
-        await persistence.query(statement);
-      }
-      expect(await cutoverEvidence(persistence, "legacy")).toEqual(
-        expectedLegacyCutoverEvidence,
-      );
+      const db = newTestPGlite();
+      try {
+        await writeApplicationActivationJournalThrough(
+          fixture.currentJournal,
+          fixture.temporaryJournal,
+          74,
+        );
+        const persistence = await createPGlitePersistence({
+          db,
+          migrationsFolder: fixture.migrationsFolder,
+        });
+        await persistence.migrate();
+        for (const statement of legacyApplicationActivationCutoverSeedStatements()) {
+          await persistence.query(statement);
+        }
+        expect(await cutoverEvidence(persistence, "legacy")).toEqual(
+          expectedLegacyCutoverEvidence,
+        );
 
-      await writeApplicationActivationJournalThrough(
-        fixture.currentJournal,
-        fixture.temporaryJournal,
-        75,
-      );
-      await injectApplicationActivationMigrationFailure(fixture.migrationPath);
-      await expect(persistence.migrate()).rejects.toThrow();
-      expect(await cutoverEvidence(persistence, "legacy")).toEqual(
-        expectedLegacyCutoverEvidence,
-      );
-      expect(await cutoverInventory(persistence)).toEqual({
-        receipts: 75,
-        currentTables: 0,
-        legacyTables: 2,
-        currentForeignKeys: 0,
-      });
-      await restoreApplicationActivationMigration(
-        fixture.migrationPath,
-        fixture.currentMigrationsFolder,
-      );
-      await expect(persistence.migrate()).resolves.toBeUndefined();
-      await expect(persistence.migrate()).resolves.toBeUndefined();
-      expect(await cutoverEvidence(persistence, "current")).toEqual({
-        ...expectedLegacyCutoverEvidence,
-        readinessContractVersion: 1,
-        legacyReadinessSha256: LEGACY_ACTIVATION_CUTOVER_READINESS_SHA256,
-        relationWitnessesAbsent: true,
-      });
-      expect(await cutoverInventory(persistence)).toEqual({
-        receipts: 76,
-        currentTables: 2,
-        legacyTables: 0,
-        currentForeignKeys: 4,
-      });
-      for (const statement of invalidApplicationActivationWitnessStatements()) {
-        await expect(persistence.query(statement)).rejects.toThrow();
+        await writeApplicationActivationJournalThrough(
+          fixture.currentJournal,
+          fixture.temporaryJournal,
+          75,
+        );
+        await injectApplicationActivationMigrationFailure(fixture.migrationPath);
+        await expect(persistence.migrate()).rejects.toThrow();
+        expect(await cutoverEvidence(persistence, "legacy")).toEqual(
+          expectedLegacyCutoverEvidence,
+        );
+        expect(await cutoverInventory(persistence)).toEqual({
+          receipts: 75,
+          currentTables: 0,
+          legacyTables: 2,
+          currentForeignKeys: 0,
+        });
+        await restoreApplicationActivationMigration(
+          fixture.migrationPath,
+          fixture.currentMigrationsFolder,
+        );
+        await expect(persistence.migrate()).resolves.toBeUndefined();
+        await expect(persistence.migrate()).resolves.toBeUndefined();
+        expect(await cutoverEvidence(persistence, "current")).toEqual({
+          ...expectedLegacyCutoverEvidence,
+          readinessContractVersion: 1,
+          legacyReadinessSha256: LEGACY_ACTIVATION_CUTOVER_READINESS_SHA256,
+          relationWitnessesAbsent: true,
+        });
+        expect(await cutoverInventory(persistence)).toEqual({
+          receipts: 76,
+          currentTables: 2,
+          legacyTables: 0,
+          currentForeignKeys: 4,
+        });
+        for (const statement of invalidApplicationActivationWitnessStatements()) {
+          await expect(persistence.query(statement)).rejects.toThrow();
+        }
+      } finally {
+        await db.close();
       }
     } finally {
       await fixture.cleanup();
@@ -167,6 +179,11 @@ describe("Application activation migration - PGlite", () => {
     );
     const db = newTestPGlite();
     try {
+      await writeApplicationActivationJournalThrough(
+        fixture.currentJournal,
+        fixture.temporaryJournal,
+        75,
+      );
       await db.exec(
         "create schema fx_application_activation_cutover; set search_path to fx_application_activation_cutover",
       );
@@ -176,7 +193,7 @@ describe("Application activation migration - PGlite", () => {
       });
       await persistence.migrate();
       expect(await cutoverInventory(persistence)).toEqual({
-        receipts: 81,
+        receipts: 76,
         currentTables: 2,
         legacyTables: 0,
         currentForeignKeys: 4,
