@@ -74,15 +74,20 @@ retains the pinned add-action/find-last-step mechanics. Named conditions guard
 that finite order; parallel graph movement and persisted-transaction loading
 are not part of this profile.
 
-A composer returns `WorkflowResponse` or an authentic full staged step owned by
-its current definition. Direct returns must identify an actual regular step or
-child-workflow node; input, transform, property, hook-only, foreign and forged
-references remain refused. The SDK normalizes admitted direct returns through
-the existing response capture and result resolver, preserving undefined/null
-distinction, graph identity, available-node checks and synchronous construction.
-Exposed hooks continue to require the existing explicit response options. This
-supports the original native Price Preference deletion composer without
-rewriting its business callback or adding another execution path.
+A composer returns `WorkflowResponse`, an authentic full staged step owned by
+its current definition, or no value (`undefined`). Direct reference returns must
+identify an actual regular step or child-workflow node; input, transform,
+property, hook-only, foreign and forged references remain refused. The SDK
+normalizes admitted direct returns through the existing response capture and
+result resolver, preserving undefined/null distinction, graph identity,
+available-node checks and synchronous construction. An implicit void or explicit
+undefined composer retains every staged node and uses the same absent result as
+`WorkflowResponse(undefined)`. Authoring infers the callback's return before
+admitting void; runtime checks the actual value, so a callback typed as void
+cannot return an unrelated literal unnoticed. Bare null, scalar/object values
+and Promises remain refused. Exposed hooks continue to require the existing
+explicit response options. Native Price Preference deletion and Price List
+update therefore retain their original business callbacks and execution owner.
 
 Step inputs can compose typed references inside literal records, arrays and
 tuples, including optional results. The authoring type recursively describes
@@ -201,6 +206,12 @@ isolation, uncertain commit recovery, publication faults, shared bounds, durable
 restart after result expiry, stale claims, subscriber independence, corruption
 and retention. Actual competing claims and outside-transaction visibility are
 ordinary-role PostgreSQL proofs; PGlite is not a concurrency substitute.
+
+The [SDK resolution scenarios](../../packages/medusa-workflows-sdk/test/resolution.test.ts)
+cover inferred void/undefined authoring and refusal controls, retained staged
+effects and compensation capture, identical absent-result identity, child
+continuation, late failure and cancellation. Void construction adds no lifetime,
+budget, settlement or compensation execution path.
 
 Preserve native Product/Currency behavior and atomic/graph, publication, recovery,
 wake and migration regressions. Promotion/portable checks inspect the resulting

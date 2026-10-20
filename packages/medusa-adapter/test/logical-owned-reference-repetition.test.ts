@@ -1,46 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Effect, Result, Schema } from "effect";
-import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
+import { Effect, Schema } from "effect";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
 import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
-import { lowerDmlSchema } from "../src/schema/lower";
-import type { SchemaTable } from "../src/schema/model";
-import type { CommerceRelation } from "../src/query/relations";
-import { commerceDecoder } from "../src/value/decoder";
 import { replaceGraphRows } from "../src/write/replace";
-import type { GraphCatalog, GraphEntity, ReplacementProfile } from "../src/write/graph-model";
+import type { ReplacementProfile } from "../src/write/graph-model";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
+import { volume, decodeKey, profile, sourceKey, evidence, schema } from "./support/logical-volume-graph";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
-const table = (name: string, key: string, fields: readonly string[], foreignKeys: SchemaTable["foreignKeys"] = []): SchemaTable => ({
-  name, columns: [...[key, ...fields].map(name => ({ name, type: "text" as const, primaryKey: name === key, nullable: false, generated: false })),
-    ...["created_at", "updated_at", "deleted_at"].map(name => ({ name, type: "dateTime" as const, primaryKey: false, nullable: name === "deleted_at", generated: false }))],
-  indexes: fields.includes("volume_isbn") ? [{ name: "editions.owner", columns: ["volume_isbn"], unique: false }] : [], foreignKeys,
-});
-const volumes = table("volumes", "isbn", ["title"]), editions = table("editions", "serial", ["volume_isbn", "label"], [
-  { name: "editions.volume", columns: ["volume_isbn"], referencedTable: "volumes", referencedColumns: ["isbn"] },
-]);
-const volume: GraphEntity = { table: volumes, model: "Volume", keyColumn: "isbn", prefix: undefined },
-  edition: GraphEntity = { table: editions, model: "Edition", keyColumn: "serial", prefix: undefined };
-const decodeObject = commerceDecoder(Schema.JsonObject, "invalidInput"), decodeKey = commerceDecoder(Schema.String, "invalidInput");
-const catalog: GraphCatalog = { entities: [volume, edition], tables: [volumes, editions], writablePivots: [],
-  queryRelations: new Map([["volumes", new Map<string, CommerceRelation>([["editions", { name: "editions", sourcePrimaryKeys: ["isbn"],
-    targetTable: "editions", targetPrimaryKeys: ["serial"], join: { type: "hasMany", foreignKeys: ["volume_isbn"] } }]])]]),
-  decodeRow: (entity, input) => Result.gen(function* () {
-    const supplied = yield* decodeObject(input); return { supplied, key: yield* decodeKey(supplied[entity.keyColumn]) };
-  }), decodeReference: () => Result.fail(commerceError("unsupportedProfile")), decodeAssociation: () => Result.fail(commerceError("unsupportedProfile")) };
-const profile: ReplacementProfile = { catalog, operation: "update", repeatedOwnedReferences: "coalesceIdentical", replacementMembers: "active",
-  ordering: new Map(), allowedRelations: entity => entity === volume ? ["editions"] : [], ownedToOne: () => [], mutableForeignKeys: () => false,
-  admitSelection: () => Result.succeed(undefined), prepareProjection: () => Effect.void, toManyMode: () => Result.succeed("replace"),
-  validateLink: () => Effect.fail(commerceError("unsupportedProfile")), projectionPaths: () => ["editions"],
-  project: rows => Result.succeed(new Map([...rows].map(([name, members]) => [name, members.filter(row => row.deleted_at === null)]))) };
-const sourceKey = "medusa.neutral-owned-reference-repetition", evidence = { kind: "synthetic", sourceId: "neutral.owned-reference-repetition" };
-const schema = Result.getOrThrow(normalizeRelationalSchema(lowerDmlSchema([volumes, editions], "neutral-owned-reference-repetition")));
 const selected = defineCommerceCommand("neutralOwnedReferenceSelected", "write", Effect.fn(function* (ctx, input) {
   return (yield* replaceGraphRows(ctx, profile, volume, input, { relations: ["editions"] })).entities;
 }));
@@ -234,4 +206,5 @@ describe(`neutral owned reference repetition - ${driver}`, { concurrent: false }
       .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
     expect(await snapshot()).toEqual(before);
   }, 180_000);
+
 });

@@ -690,6 +690,18 @@ deduplication, complete DTOs and root-only inverse events remain native-owned.
 Existing resource limits remain unchanged. Historical inverse cleanup uses the
 shared resource bounds while protecting unrelated Pricing and stored Links.
 
+The [native Price List update](./preflight/153-native-price-list-update.md)
+root is implemented for connected bounded private execution. The selected
+Pricing-only profile uses list/update with graph
+access off. Its contract retains sparse union preimages, fresh replacement
+Rule IDs, all-history orphan deletion, unchanged root timestamps and updated
+actions for equal/ID-only upserts. Shared graph ownership supplies existing-root
+upsert and authenticated global child-deletion order; the portable SDK retains
+the original implicit-void composer. Null description reaches the native update
+and nonnullable DML refusal; the bound service and outer workflow retain sticky
+rollback-only behavior. Existing resource limits remain unchanged. The actual
+two-step root and retained callbacks have separate bounded execution proofs.
+
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
 The genuine creation step remains unchanged and returns complete native rows,

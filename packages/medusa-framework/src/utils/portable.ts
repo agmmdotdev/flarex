@@ -53,6 +53,7 @@ export { removeNullish } from "@medusajs/utils/common/remove-nullisih";
 export { isDate } from "@medusajs/utils/common/is-date";
 export { MathBN } from "@medusajs/utils/totals/math";
 export { PriceListType, PriceListStatus } from "@medusajs/utils/pricing/price-list";
+export { buildPriceListRules } from "@medusajs/utils/pricing/price-list-rules";
 export { PricingRuleOperator } from "@medusajs/utils/pricing/enums";
 
 export { BigNumber } from "@medusajs/utils/totals/big-number";

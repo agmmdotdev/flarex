@@ -32,6 +32,8 @@ import { NormalizedPriceList, NormalizedListPrice, NormalizedPriceListRule, Norm
   compilePriceListCreationContracts } from "./list-input";
 import { deletePricingPriceLists } from "./list-lifecycle";
 import { projectNativeRow } from "../../repository/result";
+import { compilePriceListUpdateContracts } from "./list-update-input";
+import { readPriceListUpdateRows, preparePriceListUpdateReplacement } from "./list-update-repository";
 
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
 const Rule = Schema.Struct({ id: Schema.optionalKey(PricingId), attribute: Schema.String, value: Schema.String,
@@ -96,7 +98,7 @@ const projectionPolicy: ProjectionPolicy = { ...scalarProjection, allowedPaths: 
 /** Pricing owns the finite nested creation policy; shared graph/read owners
  * retain traversal, scoped persistence and native mutation dispatch. */
 export type PricingRepositoryAdmission = "create" | "variant-updates" | "product-updates" | "price-preferences" |
-  "price-preference-updates" | "price-preference-deletions" | "price-list-creations" | "shipping-options" | "shipping-option-updates";
+  "price-preference-updates" | "price-preference-deletions" | "price-list-creations" | "price-list-updates" | "shipping-options" | "shipping-option-updates";
 export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], admission: PricingRepositoryAdmission = "create") {
   return Result.gen(function* () {
     const mutable = admission === "variant-updates" || admission === "product-updates", lifecycle = admission === "product-updates";
@@ -104,10 +106,16 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
     const preferences = admission === "price-preferences" || preferenceUpdates || preferenceDeletions;
     const shippingUpdates = admission === "shipping-option-updates", shipping = admission === "shipping-options" || shippingUpdates;
     const listCreations = admission === "price-list-creations";
+    const listUpdates = admission === "price-list-updates";
     if (preferences) {
       const prepared = yield* preparePricingPreferenceRepository(metadata, preferenceDeletions ? "deletions" : preferenceUpdates ? "updates" : "store");
       return { ...prepared, query: undefined, mutationQuery: undefined };
     }
+    const listUpdate = listUpdates ? yield* Result.gen(function* () {
+      const contracts = yield* compilePriceListUpdateContracts(metadata);
+      const replacement = yield* preparePriceListUpdateReplacement(contracts);
+      return { contracts, ...replacement };
+    }) : undefined;
     const entities: GraphEntity[] = [];
     for (const [name, model] of [["price_set", "PriceSet"], ["price", "Price"], ["price_rule", "PriceRule"],
       ["price_list", "PriceList"], ["price_list_rule", "PriceListRule"]] as const) {
@@ -227,7 +235,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       const mutationEvents: CommerceModuleEvents = { createEventSubscriber: events.createSubscriber, registerEventSubscriber: events.registerSubscriber,
         dispatchMutationEvent: (event, args, shared, subscriber) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
           if ((!events.isSubscribed(shared) && (subscriber === undefined || !events.ownsSubscriber(subscriber))) ||
-            !(mutable || shipping ? ["afterDelete", "afterUpdate"] : ["afterDelete"]).includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+            !(listUpdates ? ["afterCreate", "afterUpdate", "afterDelete"] : mutable || shipping ? ["afterDelete", "afterUpdate"] : ["afterDelete"]).includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
           yield* events.dispatch(event, args, shared, subscriber);
         }))),
       };
@@ -304,7 +312,8 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
           // Native entities keep exact decimal pairs until this public DTO edge.
           const serialized = yield* serializeGraph(value);
           const roots = Array.isArray(serialized) ? serialized : [serialized];
-          if (roots.some(row => isJsonObject(row) && Object.hasOwn(row, "price_list_rules")))
+          if (listUpdate !== undefined) yield* Effect.fromResult(listUpdate.contracts.decodeReadOutput(roots));
+          else if (roots.some(row => isJsonObject(row) && Object.hasOwn(row, "price_list_rules")))
             yield* Effect.fromResult(listContracts.decodeOutput(roots));
           return serialized as Output;
         }))),
@@ -340,7 +349,11 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       };
       const denied: DAL.RepositoryService = { ...repository, serialize: refuse, find: refuse, findAndCount: refuse, create: refuse, softDelete: refuse, restore: refuse, delete: refuse };
       const listRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
-        create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
+        create: listUpdates ? refuse : (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
+        find: listUpdate === undefined ? refuse : (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx,
+          readPriceListUpdateRows(ctx, listUpdate.contracts, input))),
+        upsertWithReplace: listUpdate === undefined ? refuse : (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx,
+          listUpdate.replace(ctx, input, config))),
         delete: listCreations ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
           const result = yield* deletePricingPriceLists(ctx, metadata, input);
           const ids: string[] = [];

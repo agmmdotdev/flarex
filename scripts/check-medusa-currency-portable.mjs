@@ -141,6 +141,8 @@ for (const entry of [
   "packages/medusa-adapter/src/workflows/product/batch.ts",
   "packages/medusa-adapter/src/workflows/product/deletion.ts",
   "packages/medusa-adapter/src/workflows/pricing/delete-price-preferences.ts",
+  "packages/medusa-adapter/src/workflows/pricing/update-price-lists.ts",
+  "packages/medusa-core-flows/src/price-list/workflows/update-price-lists.ts",
   "packages/medusa-adapter/src/workflows/pricing/create-price-lists.ts",
   "packages/medusa-core-flows/src/price-list/workflows/create-price-lists.ts",
   "packages/medusa-core-flows/src/pricing/workflows/delete-price-preferences.ts",

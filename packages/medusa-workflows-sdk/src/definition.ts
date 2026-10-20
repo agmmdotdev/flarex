@@ -194,6 +194,9 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
 export function createWorkflow<Input, const Output extends StepOutput<unknown>>(name: string,
   build: (input: Input) => Output,
 ): WorkflowDefinition<Resolved<Input>, Output, readonly []>;
+export function createWorkflow<Input, const Output>(name: string,
+  build: ((input: Input) => Output) & ([Output] extends [void] ? unknown : never),
+): WorkflowDefinition<Resolved<Input>, Output, readonly []>;
 export function createWorkflow<Input, Output, const Hooks extends readonly unknown[]>(name: string,
   build: (input: Input) => WorkflowResponse<Output, Hooks> | Output,
 ): WorkflowDefinition<Resolved<Input>, Output, Hooks> {
@@ -209,6 +212,10 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
     const built = build(proxify({ kind: "input", owner: context.owner }) as Input);
     assertSynchronous(built);
     if (built instanceof WorkflowResponse) response = built;
+    // Native side-effect composers may return no value. Normalize only literal
+    // undefined through ordinary response capture; every staged node remains
+    // subject to the same ownership, ordering, preparation and runtime checks.
+    else if (built === undefined) response = new WorkflowResponse<Output, Hooks>(built);
     else {
       const reference = referenceOf(built);
       if (reference?.kind !== "step" || reference.owner !== context.owner ||

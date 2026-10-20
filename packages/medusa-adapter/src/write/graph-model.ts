@@ -45,6 +45,11 @@ export interface ReplacementProfile {
   readonly catalog: GraphCatalog;
   /** Native update and upsertWithReplace differ on root writes and empty collections. */
   readonly operation: "upsertWithReplace" | "update";
+  /** A selected replacement may map already-active roots to the existing core
+   * upsert semantics. Every requested root must exist; this does not admit root
+   * insertion, historical-row reactivation or supplied managed timestamps.
+   * Owned children retain their ordinary insert/update behavior. */
+  readonly existingRootWrite?: "upsert";
   /** Opt into replacing explicit empty collections during update. Omission
    * always leaves a collection unchanged; the default ignores update empties. */
   readonly emptyCollections?: "replace";
@@ -65,6 +70,10 @@ export interface ReplacementProfile {
    * never admits supplied timestamps or mutable foreign keys. */
   readonly touchExistingRoot?: true;
   readonly ordering: ReadonlyMap<string, CommerceRelationOrder>;
+  /** Selected child deletion groups use one complete core-authenticated cohort
+   * in the table's declared ascending storage insertion order. Other tables
+   * retain planning order; dependency order between tables is unchanged. */
+  readonly orderedDeletionTables?: readonly string[];
   /** Complete deleted-child DTOs still need the accepting core's exact
    * same-root deletion proof; this policy never grants timestamp authority. */
   readonly allowReconstitution?: true;

@@ -547,6 +547,11 @@
       "types": "./dist/link/links.d.ts",
       "source": "./src/link/links.ts",
       "default": "./dist/link/links.js"
+    },
+    "./pricing/price-list-rules": {
+      "types": "./dist/pricing/price-list-rules.d.ts",
+      "source": "./src/pricing/price-list-rules.ts",
+      "default": "./dist/pricing/price-list-rules.js"
     }
   },
   "license": "MIT",
