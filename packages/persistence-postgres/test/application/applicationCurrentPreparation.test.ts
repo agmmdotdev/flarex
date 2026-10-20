@@ -1,5 +1,5 @@
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Scope, Tracer } from "effect";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
   isPreparedApplicationBinding,
   readApplicationBindingTargetProtection,
@@ -60,7 +60,8 @@ import {
   createApplicationNativeMutationPGliteFixtureWithPersistence,
   createApplicationNativeMutationPostgresFixture,
 } from "./applicationNativeMutationTestFixture";
-import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
+import { useFileScopedApplicationNativeMutationPersistence } from
+  "./applicationNativeMutationPGlitePersistence";
 import {
   createActivationServingFileScopedPostgresFixture,
   createCoLocatedReadInstallationFixture,
@@ -76,7 +77,7 @@ import { ExecutionDiagnostics } from "../../src/execution/diagnostics/operation"
 import {
   readCheckedApplicationActiveHead,
 } from "../../src/application/activeHead/identity";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { fxControlScopes, fxControlSchemaVersions, fxControlIndexDefinitions,
   fxControlSchemaVersionUniqueConstraintSets } from "../../src/database/schema";
 
@@ -175,24 +176,13 @@ async function verifyRequestedScopeRefusal(
   expect(constructions).toBe(0);
 }
 
+const withPersistence = useFileScopedApplicationNativeMutationPersistence();
+
 describe("full-proof finite preparation", { concurrent: false }, () => {
-  let control: Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
-  let target: Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
-  const cleanup: Array<() => Promise<void>> = [];
 
-  beforeAll(async () => {
-    control = await createMigratedPGlitePersistence(close => cleanup.push(close));
-    target = await createMigratedPGlitePersistence(close => cleanup.push(close));
-  }, 120_000);
+  beforeAll(async () => withPersistence(async () => {}), 120_000);
 
-  afterAll(async () => {
-    const settled = await Promise.allSettled(cleanup.map(close => close()));
-    const failures: unknown[] = settled.flatMap(result => result.status === "rejected" ? [result.reason] : []);
-    if (failures.length === 1) throw failures[0];
-    if (failures.length > 1) throw new AggregateError(failures, "Preparation fixture cleanup failed");
-  }, 120_000);
-
-  it("acquires fresh full-proof finite graphs while original attempts remain borrowed", async () => {
+  it("acquires fresh full-proof finite graphs while original attempts remain borrowed", async () => withPersistence(async ({ control, target }) => {
     const application = await createApplicationNativeMutationPGliteFixtureWithPersistence({
       runtimeHostIdentity: "flarex.test/current-scoped-full-proof", compatibilityDate: "2026-09-28",
     }, { control, target });
@@ -209,9 +199,9 @@ describe("full-proof finite preparation", { concurrent: false }, () => {
       await verifyScopedFreshFiniteGenerations(retained.use(slot => slot.acquireFreshFinitePreparation),
         () => application.moveHead(), () => constructions);
     } finally { await runEffect(retained.close); }
-  }, 180_000);
+  }), 180_000);
 
-  it("cancels fresh finite staging without losing the original borrow or gate", async () => {
+  it("cancels fresh finite staging without losing the original borrow or gate", async () => withPersistence(async ({ control, target }) => {
     const application = await createApplicationNativeMutationPGliteFixtureWithPersistence({
       runtimeHostIdentity: "flarex.test/current-scoped-cancellation", compatibilityDate: "2026-09-28",
       fixtureIdentity: { deploymentId: "deployment_current_preparation_cancellation",
@@ -256,7 +246,7 @@ describe("full-proof finite preparation", { concurrent: false }, () => {
       await runEffect(Scope.close(originalScope, Exit.succeed(undefined)));
       await runEffect(retained.close);
     }
-  }, 180_000);
+  }), 180_000);
 
 });
 
@@ -297,11 +287,11 @@ it.skipIf(postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONING_DATA
     } finally { await controlOwner.dispose(); }
   }, 240_000);
 
-it("retains fullProof construction while proving every actual command afresh", async () => {
-  const control = await createMigratedPGlitePersistence();
-  const target = await createMigratedPGlitePersistence();
+it("retains fullProof construction while proving every actual command afresh", async () => withPersistence(async ({ control, target }) => {
   const application = await createApplicationNativeMutationPGliteFixtureWithPersistence({
     runtimeHostIdentity: "flarex.test/current-full-proof", compatibilityDate: "2026-09-28",
+    fixtureIdentity: { deploymentId: "deployment_current_preparation_full_proof",
+      projectId: "project_current_preparation_full_proof", uuidOffset: 200 },
   }, { control, target });
   let constructions = 0;
   const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(target.drizzle),
@@ -345,18 +335,18 @@ it("retains fullProof construction while proving every actual command afresh", a
     // An unchanged authentic head does not make unprotected catalog contents
     // immutable. Corruption must refuse before business, then restoration may
     // reuse the exact original construction after complete fresh validation.
-    const schema = (await control.drizzle.select().from(fxControlSchemaVersions).limit(1))[0];
+    const schema = (await control.drizzle.select().from(fxControlSchemaVersions).where(eq(fxControlSchemaVersions.deploymentId, application.deploymentId)).limit(1))[0];
     if (schema === undefined) throw new Error("Missing original fullProof schema");
-    const index = (await control.drizzle.select().from(fxControlIndexDefinitions).limit(1))[0];
+    const index = (await control.drizzle.select().from(fxControlIndexDefinitions).where(eq(fxControlIndexDefinitions.deploymentId, application.deploymentId)).limit(1))[0];
     if (index === undefined) throw new Error("Missing original fullProof index definition");
     const beforeCorruption = businessCalls;
     await control.drizzle.update(fxControlSchemaVersions).set({
       manifestJson: sql`jsonb_set(${fxControlSchemaVersions.manifestJson}, '{retained_proof_corruption}', 'true'::jsonb)`,
-    }).where(eq(fxControlSchemaVersions.schemaVersionId, schema.schemaVersionId));
+    }).where(and(eq(fxControlSchemaVersions.deploymentId, application.deploymentId), eq(fxControlSchemaVersions.schemaVersionId, schema.schemaVersionId)));
     await control.drizzle.update(fxControlIndexDefinitions).set({
       physicalSpecBytes: sql`set_byte(${fxControlIndexDefinitions.physicalSpecBytes}, 0,
         (get_byte(${fxControlIndexDefinitions.physicalSpecBytes}, 0) + 1) % 256)`,
-    }).where(eq(fxControlIndexDefinitions.indexDefinitionId, index.indexDefinitionId));
+    }).where(and(eq(fxControlIndexDefinitions.deploymentId, application.deploymentId), eq(fxControlIndexDefinitions.indexDefinitionId, index.indexDefinitionId)));
     try {
       // Published schema refusal remains earlier than malformed physical
       // definitions when both facts are corrupt under the same original head.
@@ -366,7 +356,7 @@ it("retains fullProof construction while proving every actual command afresh", a
       expect(businessCalls).toBe(beforeCorruption);
       expect(constructions).toBe(1);
       await control.drizzle.update(fxControlSchemaVersions).set({ manifestJson: schema.manifestJson })
-        .where(eq(fxControlSchemaVersions.schemaVersionId, schema.schemaVersionId));
+        .where(and(eq(fxControlSchemaVersions.deploymentId, application.deploymentId), eq(fxControlSchemaVersions.schemaVersionId, schema.schemaVersionId)));
       expect(await runEffect(Effect.result(commandEffect()))).toMatchObject({
         _tag: "Failure", failure: { _tag: "AppIndexDefinitionCatalogCorruptionError" },
       });
@@ -374,15 +364,15 @@ it("retains fullProof construction while proving every actual command afresh", a
       expect(constructions).toBe(1);
     } finally {
       await control.drizzle.update(fxControlSchemaVersions).set({ manifestJson: schema.manifestJson })
-        .where(eq(fxControlSchemaVersions.schemaVersionId, schema.schemaVersionId));
+        .where(and(eq(fxControlSchemaVersions.deploymentId, application.deploymentId), eq(fxControlSchemaVersions.schemaVersionId, schema.schemaVersionId)));
       await control.drizzle.update(fxControlIndexDefinitions).set({ physicalSpecBytes: index.physicalSpecBytes })
-        .where(eq(fxControlIndexDefinitions.indexDefinitionId, index.indexDefinitionId));
+        .where(and(eq(fxControlIndexDefinitions.deploymentId, application.deploymentId), eq(fxControlIndexDefinitions.indexDefinitionId, index.indexDefinitionId)));
     }
     const uniqueSet = (await control.drizzle.select().from(fxControlSchemaVersionUniqueConstraintSets)
-      .where(eq(fxControlSchemaVersionUniqueConstraintSets.schemaVersionId, schema.schemaVersionId)).limit(1))[0];
+      .where(and(eq(fxControlSchemaVersionUniqueConstraintSets.deploymentId, application.deploymentId), eq(fxControlSchemaVersionUniqueConstraintSets.schemaVersionId, schema.schemaVersionId))).limit(1))[0];
     if (uniqueSet === undefined) throw new Error("Missing original fullProof unique closure");
     await control.drizzle.update(fxControlSchemaVersionUniqueConstraintSets).set({ definitionSetSha256: new Uint8Array(32) })
-      .where(eq(fxControlSchemaVersionUniqueConstraintSets.schemaVersionId, schema.schemaVersionId));
+      .where(and(eq(fxControlSchemaVersionUniqueConstraintSets.deploymentId, application.deploymentId), eq(fxControlSchemaVersionUniqueConstraintSets.schemaVersionId, schema.schemaVersionId)));
     try {
       expect(await runEffect(Effect.result(commandEffect()))).toMatchObject({
         _tag: "Failure", failure: { _tag: "AppUniqueConstraintSetClosureCorruptionV1Error" },
@@ -391,7 +381,7 @@ it("retains fullProof construction while proving every actual command afresh", a
       expect(constructions).toBe(1);
     } finally {
       await control.drizzle.update(fxControlSchemaVersionUniqueConstraintSets).set({ definitionSetSha256: uniqueSet.definitionSetSha256 })
-        .where(eq(fxControlSchemaVersionUniqueConstraintSets.schemaVersionId, schema.schemaVersionId));
+        .where(and(eq(fxControlSchemaVersionUniqueConstraintSets.deploymentId, application.deploymentId), eq(fxControlSchemaVersionUniqueConstraintSets.schemaVersionId, schema.schemaVersionId)));
     }
     const second = await command("ordinaryWrite");
     expect(second).toBe(first);
@@ -502,7 +492,7 @@ it("retains fullProof construction while proving every actual command afresh", a
     expect(isPreparedApplicationBinding(fresh)).toBe(false);
     expect(Result.isFailure(retained.readUsage())).toBe(true);
   } finally { await runEffect(retained.close); }
-}, 180_000);
+}), 180_000);
 
 it.skipIf(postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
   "uses the original managed guard for activated publication after candidate failure", async () => {
