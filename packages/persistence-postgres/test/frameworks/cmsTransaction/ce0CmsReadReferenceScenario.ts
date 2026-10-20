@@ -38,7 +38,8 @@ export async function ce0CmsReadReferenceScenario(
   session: RelationalSession,
 ) {
   const tested = await cmsExecutionMeasurementFixture(persistence, session);
-  const other = await cmsExecutionMeasurementFixture(persistence, session);
+  const other = await cmsExecutionMeasurementFixture(persistence, session, undefined,
+    { controlPersistence: tested.fixture.control });
   const before = await tested.inventory();
   const value = await runEffect(
     tested.host.run(tested.host.newRequestKey(), tested.insert, {

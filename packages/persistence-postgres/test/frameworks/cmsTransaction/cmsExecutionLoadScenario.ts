@@ -70,7 +70,9 @@ export async function cmsExecutionLoadScenario(
   const fixtures: Awaited<ReturnType<typeof cmsExecutionMeasurementFixture>>[] =
     [];
   for (let index = 0; index < configuration.scopes; index++) {
-    const tested = await cmsExecutionMeasurementFixture(persistence, session);
+    const firstFixture = fixtures[0];
+    const tested = await cmsExecutionMeasurementFixture(persistence, session, undefined,
+      firstFixture === undefined ? undefined : { controlPersistence: firstFixture.fixture.control });
     const before = await tested.inventory();
     const value = await runEffect(
       tested.host.run(tested.host.newRequestKey(), tested.insert, {

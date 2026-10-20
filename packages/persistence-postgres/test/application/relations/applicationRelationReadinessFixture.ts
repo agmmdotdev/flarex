@@ -118,7 +118,6 @@ import {
 import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGliteLocatedSplitScopeClockTarget,
-  createPGliteSplitScopeAuthorityProvisioner,
 } from "../../../src/database/pglite";
 import {
   isLocatedReadCommittedAttemptTargetV1,
@@ -162,10 +161,10 @@ import {
 } from "../../execution/session/support/attemptFixture";
 import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
 import type { ApplicationNativeMutationPersistence } from "../applicationNativeMutationTestFixture";
+import { createSplitScopeAuthorityProvisioner } from "../../../src/scope/splitScopeAuthorityProvisioning";
 import {
   createPostgresLocatedPointMutationSessionActivationTargetV1,
   createPostgresLocatedSplitScopeClockTarget,
-  createPostgresSplitScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
 } from "../../../src/database/postgres";
 const LOCATOR = Object.freeze({
@@ -431,7 +430,7 @@ export interface RelationReadinessFixtureOptions {
   readonly physicalLocator?: SplitScopePhysicalLocator;
   readonly sessionTargetOptions?: LocatedPointMutationSessionActivationTargetOptionsV1;
   readonly persistence?: PGliteFlarexPersistence | PostgresFlarexPersistence;
-  readonly controlPersistence?: PGliteFlarexPersistence | PostgresFlarexPersistence;
+  readonly controlPersistence?: ApplicationNativeMutationPersistence;
   readonly fixtureIdentity?: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
   readonly writePolicy?: boolean;
   readonly cmsIndexes?: boolean;
@@ -471,9 +470,7 @@ export async function relationReadinessFixture(
       },
       randomUuid: fixtureUuidSequence(1, 2),
     };
-  const provisioned = await ("pool" in controlResource
-    ? createPostgresSplitScopeAuthorityProvisioner(controlResource, provisionOptions)
-    : createPGliteSplitScopeAuthorityProvisioner(controlResource, provisionOptions)).ensure({
+  const provisioned = await createSplitScopeAuthorityProvisioner(control.drizzle, provisionOptions).ensure({
     deploymentId,
     projectId: options.fixtureIdentity?.projectId ?? `project_application_relation_fold_${fixtureOrdinal}`,
   });

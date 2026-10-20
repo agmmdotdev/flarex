@@ -40,8 +40,8 @@ const decodeMove = Schema.decodeUnknownResult(Schema.Struct({ firstId: Schema.St
 
 /** Actual active CMS core composition; setup and assertions are outside timing. */
 export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession,
-  hooks?: CmsHostTestHooks) {
-  const { fixture } = await cmsHostFixture(persistence);
+  hooks?: CmsHostTestHooks, fixtureOptions?: Parameters<typeof cmsHostFixture>[1]) {
+  const { fixture } = await cmsHostFixture(persistence, fixtureOptions);
   const scope = Result.getOrThrow(projectScopeIdUuidV1Result(fixture.authority.scopeId));
   let executions = 0;
   const prefixExecutions = new Map<string, number>();
