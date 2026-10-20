@@ -1,5 +1,5 @@
 import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
-import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { useFileScopedPGliteTaskDirectoryPersistence } from "./taskPGliteFixture";
 import {
   decodeTaskRetryJitterV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
@@ -17,7 +17,6 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
-  createPGlitePersistence,
   type PGliteFlarexPersistence,
 } from "../../src/database/pglite";
 import {
@@ -42,6 +41,7 @@ const MISSED_RUN_ID = "run_75000000-0000-4000-8000-000000000001";
 const retryJitter = Result.getOrThrow(decodeTaskRetryJitterV1(0.25));
 
 beforeAll(() => migratedPGliteDataDir(), 120_000);
+const withPersistence = useFileScopedPGliteTaskDirectoryPersistence();
 
 describe("DTE05-D fresh Queue scheduler resolution - PGlite", () => {
   it("publishes after commit and a later hint discovers work with no prior publication", async () => {
@@ -207,9 +207,7 @@ function makeResolver(
 async function withFixture(
   run: (persistence: PGliteFlarexPersistence) => Promise<void>,
 ): Promise<void> {
-  const raw = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
-  try {
-    const persistence = await createPGlitePersistence({ db: raw });
+  await withPersistence(async persistence => {
     await persistence.insertDeploymentMetadata({
       deploymentId: TASK_DEPLOYMENT_ID,
       projectId: "project_task_store_v1",
@@ -221,9 +219,7 @@ async function withFixture(
     });
     await seedTaskSystemRunAttemptStoreV1(persistence);
     await run(persistence);
-  } finally {
-    await raw.close();
-  }
+  });
 }
 
 function attemptUuidSequence(start: number): () => string {

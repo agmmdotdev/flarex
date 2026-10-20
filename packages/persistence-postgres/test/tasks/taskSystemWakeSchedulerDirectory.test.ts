@@ -1,6 +1,6 @@
 import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { fxSystemScopeExecutionAuthorities } from "../../src/database/schema";
-import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { useFileScopedPGliteTaskDirectoryPersistence } from "./taskPGliteFixture";
 import {
   decodeTaskRetryJitterV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
@@ -18,7 +18,6 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
-  createPGlitePersistence,
   type PGliteFlarexPersistence,
 } from "../../src/database/pglite";
 import type { ScopeMetadataRecord } from "../../src/scope/scopeMetadata";
@@ -46,6 +45,7 @@ const taskStorageGeneration =
   FlarexDbV1StorageGenerationSchema.make("flarexdb_v1");
 
 beforeAll(() => migratedPGliteDataDir(), 120_000);
+const withPersistence = useFileScopedPGliteTaskDirectoryPersistence();
 
 describe("DTE05-C2 trusted Task scheduler directory - PGlite", () => {
   it("discovers, freshly resolves, and reconstructs a real C1 scheduler", async () => {
@@ -330,13 +330,9 @@ async function withFixture(
     readonly persistence: PGliteFlarexPersistence;
   }>) => Promise<void>,
 ): Promise<void> {
-  const raw = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
-  try {
-    const persistence = await createPGlitePersistence({ db: raw });
+  await withPersistence(async persistence => {
     await run(Object.freeze({ persistence }));
-  } finally {
-    await raw.close();
-  }
+  });
 }
 
 async function insertIdleScope(

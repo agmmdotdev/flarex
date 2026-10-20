@@ -26,20 +26,46 @@ import { admitFrameworkSchemaArtifactEffect } from "../../src/installation/frame
 import { prepareFrameworkSchemaArtifactAdmission } from "../../src/installation/frameworkSchema/artifact/repository";
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture, useFileScopedFrameworkSchemaArtifactAdmissionPersistence } from
   "../installation/frameworkSchema/frameworkSchemaArtifactAdmissionTestSupport";
-import { useFileScopedPGliteTaskPersistence } from "../tasks/taskPGliteFixture";
-import { seedTaskSystemRunAttemptStoreV1 } from "../tasks/taskSystemRunAttemptStoreTestSupport";
+import { useFileScopedPGliteTaskPersistence, useFileScopedPGliteTaskDirectoryPersistence } from "../tasks/taskPGliteFixture";
+import { seedTaskSystemParentV1, seedTaskSystemRunAttemptStoreV1 } from "../tasks/taskSystemRunAttemptStoreTestSupport";
 
-describe("file-scoped PGlite Task fixture", () => {
-  const withPersistence = useFileScopedPGliteTaskPersistence();
+describe.each([
+  {
+    name: "Task",
+    usePersistence: useFileScopedPGliteTaskPersistence,
+    seed: seedTaskSystemRunAttemptStoreV1,
+    dependencyTableSql: `create table fixture_task_reset_ref (
+        scope_id text, run_id text,
+        foreign key (scope_id, run_id) references fx_system_durable_task_run_v1 (scope_id, run_id))`,
+    dependencyRowsSql: `insert into fixture_task_reset_ref
+        select scope_id, run_id from fx_system_durable_task_run_v1`,
+  },
+  {
+    name: "Task directory",
+    usePersistence: useFileScopedPGliteTaskDirectoryPersistence,
+    seed: async (persistence: PGliteFlarexPersistence) => {
+      const parent = await seedTaskSystemParentV1(persistence);
+      await seedTaskSystemRunAttemptStoreV1(persistence, { parent });
+    },
+    dependencyTableSql: `create table fixture_task_reset_ref (
+        scope_id text references fx_control_scope (id))`,
+    dependencyRowsSql: `insert into fixture_task_reset_ref
+        select id from fx_control_scope`,
+  },
+])("file-scoped PGlite $name fixture", ({ usePersistence, seed, dependencyTableSql, dependencyRowsSql }) => {
+  const withPersistence = usePersistence();
 
   it("resets Task seeds with constraints enabled and rebuilds after an unexpected dependant", async () => {
     let previous: PGliteFlarexPersistence | undefined;
     let baseline: Awaited<ReturnType<typeof seededRows>> = [];
+    let preResetSeeds: Awaited<ReturnType<typeof seededRows>> = [];
+    let populated: Awaited<ReturnType<typeof taskFixtureRows>> = [];
     await withPersistence(async persistence => {
       previous = persistence;
       baseline = await seededRows(persistence);
       expect(baseline).toHaveLength(5);
-      await seedTaskSystemRunAttemptStoreV1(persistence);
+      expect(await taskFixtureRows(persistence)).toEqual([]);
+      await seed(persistence);
     });
 
     await expect(withPersistence(async persistence => {
@@ -49,20 +75,26 @@ describe("file-scoped PGlite Task fixture", () => {
       expect(() => preparedHostTestRuntime(prior.drizzle)).toThrow("no open host runtime");
       expect(preparedHostTestRuntime(persistence.drizzle)).toBeDefined();
       expect(await seededRows(persistence)).toEqual(baseline);
-      await seedTaskSystemRunAttemptStoreV1(persistence);
-      await persistence.query(`create table fixture_task_reset_ref (
-        scope_id text, run_id text,
-        foreign key (scope_id, run_id) references fx_system_durable_task_run_v1 (scope_id, run_id))`);
-      await persistence.query(`insert into fixture_task_reset_ref
-        select scope_id, run_id from fx_system_durable_task_run_v1`);
+      expect(await taskFixtureRows(persistence)).toEqual([]);
+      await seed(persistence);
+      previous = persistence;
+      await persistence.query(dependencyTableSql);
+      await persistence.query(dependencyRowsSql);
       await persistence.query("delete from fx_system_retained_history_scheduler");
+      populated = await taskFixtureRows(persistence);
+      preResetSeeds = await seededRows(persistence);
+      expect(preResetSeeds).toHaveLength(4);
     })).rejects.toMatchObject({ code: "23503" });
+    if (previous === undefined) throw new Error("Missing failed Task fixture");
+    expect(await taskFixtureRows(previous)).toEqual(populated);
+    expect(await seededRows(previous)).toEqual(preResetSeeds);
 
     await withPersistence(async persistence => {
       expect(await seededRows(persistence)).toEqual(baseline);
+      expect(await taskFixtureRows(persistence)).toEqual([]);
       expect((await persistence.query("select to_regclass('fixture_task_reset_ref') as relation")).rows)
         .toEqual([{ relation: null }]);
-      await seedTaskSystemRunAttemptStoreV1(persistence);
+      await seed(persistence);
     });
   });
 });
@@ -432,6 +464,22 @@ describe.each(["roots", "graph"] as const)("file-scoped PGlite framework coordin
     });
   });
 });
+
+async function taskFixtureRows(persistence: PGliteFlarexPersistence) {
+  return (await persistence.query<{ kind: string; value: unknown }>(`
+    select 'definition' as kind, to_jsonb(seed) as value from fx_system_durable_task_definition_revision_v1 seed
+    union all select 'run', to_jsonb(seed) from fx_system_durable_task_run_v1 seed
+    union all select 'attempt', to_jsonb(seed) from fx_system_durable_task_attempt_identity_v1 seed
+    union all select 'effect', to_jsonb(seed) from fx_system_durable_task_requested_effect_v1 seed
+    union all select 'pending', to_jsonb(seed) from fx_system_durable_task_compute_pending_v1 seed
+    union all select 'authority', to_jsonb(seed) from fx_system_scope_execution_authority seed
+    union all select 'clock', to_jsonb(seed) from fx_system_scope_clock seed
+    union all select 'provisioning', to_jsonb(seed) from fx_control_scope_provisioning seed
+    union all select 'scope', to_jsonb(seed) from fx_control_scope seed
+    union all select 'deployment', to_jsonb(seed) from deployments seed
+    order by kind, value
+  `)).rows;
+}
 
 async function seededRows(persistence: PGliteFlarexPersistence) {
   return (await persistence.query<{ kind: string; value: unknown }>(`
