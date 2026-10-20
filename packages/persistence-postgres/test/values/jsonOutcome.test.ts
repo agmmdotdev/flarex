@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { copyFile } from "node:fs/promises";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
-import { afterAll, beforeAll, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { ScopeEpochUuidV1Schema, CommitSeqSchema } from "flarex-protocol/storage-authority";
@@ -51,15 +51,6 @@ it("rejects malformed scalar evidence even when database constraints were bypass
     { resultSha256ByteLength: 32 }, { resultExpiredAt: new Date(NaN) }, { resultExpiredAt: new Date(999) },
   ]) expect(await runEffectFailure(decode({ ...expired, ...invalid }))).toMatchObject({ reason: "expiredResultEvidenceInvalid" });
 });
-
-beforeAll(async () => {
-  if (native) {
-    const fixture = await createFileScopedPostgresFixture(); cleanup.push(fixture.dispose); persistence = fixture.persistence;
-  } else persistence = await createMigratedPGlitePersistence(close => cleanup.push(close));
-  await insertOutcomeScope(persistence);
-  await insertOutcomeHeader(persistence);
-}, 120000);
-afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
 
 it("owns canonical ordinary JSON, normalizes numbers, and preserves Application rejection", async () => {
   const input = { z: [-0, 1e30, 0.001], "$ne": { "မြန်မာ": true }, "$integer": "not-a-marker" };
@@ -117,44 +108,56 @@ it("domain-separates identities and keeps key order stable but arrays, values an
   }
 });
 
-it("verifies JSON replay, preserves expiration, and refuses wrong-family evidence before verification", async () => {
-  const lookup = outcomeLookup("json-result");
-  const result = await canonical({ "$ne": "x", "မြန်မာ": [0, false] });
-  await persistence.drizzle.insert(fxSystemIdempotency).values({
-    scopeUuid: lookup.scopeUuid, requestKey: lookup.requestKey,
-    identityAccessPolicySha256: lookup.expectedIdentityAccessPolicySha256,
-    functionPath: lookup.expectedFunctionPath, requestSha256: lookup.expectedRequestSha256,
-    epochUuid: ScopeEpochUuidV1Schema.make(OUTCOME_EPOCH_A), commitSeq: CommitSeqSchema.make(1n),
-    resultState: "available", resultEncoding: "json", resultValueCodecVersion: null,
-    resultSemanticBytes: result.semanticSizeBytes, resultBytes: result.canonicalBytes, resultSha256: digest(result.canonicalBytes),
-  });
-  const before = vi.fn();
-  const json = createCommittedJsonOutcomeResolver(persistence.drizzle);
-  expect(await runEffect(json.resolve(lookup))).toMatchObject({ kind: "available", successfulResult: { valueJson: result.valueJson } });
-  const app = createCommittedPointOutcomeResolverV1(persistence.drizzle, { beforeResultVerification: before,
-    observeQuery: query => expect(query.params).toContain("application-value"),
-  });
-  expect(await runEffectFailure(app.resolve(lookup))).toMatchObject({ mismatches: ["resultEncoding"] });
-  expect(before).not.toHaveBeenCalled();
-  await persistence.drizzle.update(fxSystemIdempotency).set({ resultState: "expired", resultValueCodecVersion: null,
-    resultSemanticBytes: null, resultBytes: null, resultSha256: null, resultExpiredAt: new Date(),
-  }).where(eq(fxSystemIdempotency.requestKey, lookup.requestKey));
-  expect(await runEffect(json.resolve(lookup))).toMatchObject({ kind: "expired" });
-  expect(await runEffectFailure(app.resolve(lookup))).toMatchObject({ mismatches: ["resultEncoding"] });
-  await insertCanonicalAvailableOutcome(persistence, { requestKey: "app-result" });
-  await insertCanonicalExpiredOutcome(persistence, { requestKey: "app-expired" });
-  const wrongJson = createCommittedJsonOutcomeResolver(persistence.drizzle, { beforeResultVerification: before });
-  for (const key of ["app-result", "app-expired"]) expect(await runEffectFailure(wrongJson.resolve(outcomeLookup(key)))).toMatchObject({ mismatches: ["resultEncoding"] });
-  expect(before).not.toHaveBeenCalled();
-});
+describe("current committed JSON outcomes", { concurrent: false }, () => {
+  beforeAll(async () => {
+    if (native) {
+      const fixture = await createFileScopedPostgresFixture(); cleanup.push(fixture.dispose); persistence = fixture.persistence;
+    } else persistence = await createMigratedPGlitePersistence(close => cleanup.push(close));
+    await insertOutcomeScope(persistence);
+    await insertOutcomeHeader(persistence);
+  }, 120000);
+  afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
 
-it("rejects contradictory encoding and stored canonical corruption rather than returning missing", async () => {
-  for (const update of ["result_encoding = 'unknown'", "result_encoding = 'json'", "result_value_codec_version = null", "result_encoding = null"]) {
-    await expect(persistence.query(`update fx_system_idempotency set ${update} where request_key = 'app-result'`)).rejects.toThrow();
-  }
-  await persistence.query("update fx_system_idempotency set result_encoding = 'json', result_value_codec_version = null, result_bytes = $1, result_semantic_bytes = 4, result_sha256 = $2 where request_key = 'app-result'", [Buffer.from("true"), new Uint8Array(32)]);
-  expect(await runEffectFailure(createCommittedJsonOutcomeResolver(persistence.drizzle).resolve(outcomeLookup("app-result")))).toMatchObject({ reason: "resultCanonicalEvidenceInvalid" });
-  await expect(persistence.query("update fx_system_idempotency set result_semantic_bytes = 5 where request_key = 'app-result'")).rejects.toThrow();
+  it("verifies JSON replay, preserves expiration, and refuses wrong-family evidence before verification", async () => {
+    const lookup = outcomeLookup("json-result");
+    const result = await canonical({ "$ne": "x", "မြန်မာ": [0, false] });
+    await persistence.drizzle.insert(fxSystemIdempotency).values({
+      scopeUuid: lookup.scopeUuid, requestKey: lookup.requestKey,
+      identityAccessPolicySha256: lookup.expectedIdentityAccessPolicySha256,
+      functionPath: lookup.expectedFunctionPath, requestSha256: lookup.expectedRequestSha256,
+      epochUuid: ScopeEpochUuidV1Schema.make(OUTCOME_EPOCH_A), commitSeq: CommitSeqSchema.make(1n),
+      resultState: "available", resultEncoding: "json", resultValueCodecVersion: null,
+      resultSemanticBytes: result.semanticSizeBytes, resultBytes: result.canonicalBytes, resultSha256: digest(result.canonicalBytes),
+    });
+    const before = vi.fn();
+    const json = createCommittedJsonOutcomeResolver(persistence.drizzle);
+    expect(await runEffect(json.resolve(lookup))).toMatchObject({ kind: "available", successfulResult: { valueJson: result.valueJson } });
+    const app = createCommittedPointOutcomeResolverV1(persistence.drizzle, { beforeResultVerification: before,
+      observeQuery: query => expect(query.params).toContain("application-value"),
+    });
+    expect(await runEffectFailure(app.resolve(lookup))).toMatchObject({ mismatches: ["resultEncoding"] });
+    expect(before).not.toHaveBeenCalled();
+    await persistence.drizzle.update(fxSystemIdempotency).set({ resultState: "expired", resultValueCodecVersion: null,
+      resultSemanticBytes: null, resultBytes: null, resultSha256: null, resultExpiredAt: new Date(),
+    }).where(eq(fxSystemIdempotency.requestKey, lookup.requestKey));
+    expect(await runEffect(json.resolve(lookup))).toMatchObject({ kind: "expired" });
+    expect(await runEffectFailure(app.resolve(lookup))).toMatchObject({ mismatches: ["resultEncoding"] });
+    await insertCanonicalAvailableOutcome(persistence, { requestKey: "app-result" });
+    await insertCanonicalExpiredOutcome(persistence, { requestKey: "app-expired" });
+    const wrongJson = createCommittedJsonOutcomeResolver(persistence.drizzle, { beforeResultVerification: before });
+    for (const key of ["app-result", "app-expired"]) expect(await runEffectFailure(wrongJson.resolve(outcomeLookup(key)))).toMatchObject({ mismatches: ["resultEncoding"] });
+    expect(before).not.toHaveBeenCalled();
+  });
+
+  it("rejects contradictory encoding and stored canonical corruption rather than returning missing", async () => {
+    await insertCanonicalAvailableOutcome(persistence, { requestKey: "corruption-app-result" });
+    for (const update of ["result_encoding = 'unknown'", "result_encoding = 'json'", "result_value_codec_version = null", "result_encoding = null"]) {
+      await expect(persistence.query(`update fx_system_idempotency set ${update} where request_key = 'corruption-app-result'`)).rejects.toThrow();
+    }
+    await persistence.query("update fx_system_idempotency set result_encoding = 'json', result_value_codec_version = null, result_bytes = $1, result_semantic_bytes = 4, result_sha256 = $2 where request_key = 'corruption-app-result'", [Buffer.from("true"), new Uint8Array(32)]);
+    expect(await runEffectFailure(createCommittedJsonOutcomeResolver(persistence.drizzle).resolve(outcomeLookup("corruption-app-result")))).toMatchObject({ reason: "resultCanonicalEvidenceInvalid" });
+    await expect(persistence.query("update fx_system_idempotency set result_semantic_bytes = 5 where request_key = 'corruption-app-result'")).rejects.toThrow();
+  });
 });
 
 it("backfills both retained and expired Application rows without changing evidence or identities", async () => {
