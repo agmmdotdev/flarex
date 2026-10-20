@@ -283,7 +283,7 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
   ))).rejects.toBeDefined();
   expect(await publicationState()).toEqual(beforeCompositionRefusal);
   // Existing enabled rows without certification cannot fall back to per-write progress.
-  await persistence.drizzle.update(fxSystemIndexBuildStates).set({ maintenanceActivationSequence: null, })
+  await persistence.drizzle.update(fxSystemIndexBuildStates).set({ maintenanceAuthorityKind: null, maintenanceActivationSequence: null, })
     .where(eq(fxSystemIndexBuildStates.indexDefinitionId, intrinsic.indexDefinitionId));
   try {
     expect(await runEffectFailure(publisher.publish(command))).toMatchObject({ reason: "definitionSetUnavailable" });
@@ -412,7 +412,7 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
     if (ordinal === 1) {
       // Pre-cutover active rows have a real sealed prefix but no fabricated certificate.
       // The following fresh activation must certify them through the normal owner.
-      await persistence.drizzle.update(fxSystemIndexBuildStates).set({ maintenanceActivationSequence: null, });
+      await persistence.drizzle.update(fxSystemIndexBuildStates).set({ maintenanceAuthorityKind: null, maintenanceActivationSequence: null, });
     }
   }
   const beforeReplayBuilds = await persistence.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId);
@@ -440,7 +440,7 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
   await guard("application_v1", [ordinary.tableId]);
   // A retained legacy catalog is authoritative even without an Application
   // publication row. Merely creating a new policy manifest cannot take it over.
-  const reused = await relationReadinessFixture({ persistence, writePolicy: true });
+  const reused = await relationReadinessFixture({ persistence, controlPersistence: fixture.control, writePolicy: true });
   const legacySchema = makeApplicationSchemaAuthorityPublisher({ db: reused.control.drizzle,
     runTransaction: run => reused.control.drizzle.transaction(run) });
   await runEffect(legacySchema.publish({ deploymentId: reused.deploymentId, manifest: {
