@@ -86,8 +86,9 @@ const LOCATOR = Object.freeze({
 let fixtureOrdinal = 0;
 
 describe("C08-B1 closed unique-set build foundation", { concurrent: false }, () => {
+  const withPersistence = useFileScopedUniqueSetPersistence();
+
   describe("reusable fixture", { concurrent: false }, () => {
-    const withPersistence = useFileScopedUniqueSetPersistence();
 
     it.each(["original","laterCompactFault","clockFailure"] as const)("preserves original post-lock clock and native getter order with %s", async fault => {
       return withPersistence(async persistence => {
@@ -1110,270 +1111,280 @@ describe("C08-B1 closed unique-set build foundation", { concurrent: false }, () 
       eligibilityInput(absent),
     ))).resolves.toEqual({ status: "not_required", tableIds: [] });
 
-    const lateBinding = await fixtureFor(await createMigratedPGlitePersistence(), "eligibility_late_binding");
-    const lateDefinitions = createAppUniqueConstraintDefinitionPortV1(
-      lateBinding.persistence.drizzle,
-    );
-    const latePort = createAppUniqueConstraintSetEligibilityPortV1(
-      ports(lateBinding),
-      lateDefinitions,
-    );
-    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
-      latePort,
-      eligibilityInput(lateBinding),
-    ))).resolves.toMatchObject({
-      status: "not_ready",
-      reason: "setNotClosed",
-      blocksAllTables: true,
-    });
-    await ensureBinding(
-      lateBinding,
-      await prepareBinding(lateBinding, "by_email", false),
-    );
-    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
-      latePort,
-      eligibilityInput(lateBinding),
-    ))).resolves.toMatchObject({
-      status: "not_ready",
-      reason: "setNotClosed",
-      blocksAllTables: true,
-      tableIds: [],
+    await withPersistence(async persistence => {
+      const lateBinding = await fixtureFor(persistence, "eligibility_late_binding");
+      const lateDefinitions = createAppUniqueConstraintDefinitionPortV1(
+        lateBinding.persistence.drizzle,
+      );
+      const latePort = createAppUniqueConstraintSetEligibilityPortV1(
+        ports(lateBinding),
+        lateDefinitions,
+      );
+      await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+        latePort,
+        eligibilityInput(lateBinding),
+      ))).resolves.toMatchObject({
+        status: "not_ready",
+        reason: "setNotClosed",
+        blocksAllTables: true,
+      });
+      await ensureBinding(
+        lateBinding,
+        await prepareBinding(lateBinding, "by_email", false),
+      );
+      await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+        latePort,
+        eligibilityInput(lateBinding),
+      ))).resolves.toMatchObject({
+        status: "not_ready",
+        reason: "setNotClosed",
+        blocksAllTables: true,
+        tableIds: [],
+      });
     });
 
-    const fixture = await fixtureFor(await createMigratedPGlitePersistence(), "eligibility");
-    await ensureBinding(
-      fixture,
-      await prepareBinding(fixture, "by_email", false),
-    );
-    const definitions = createAppUniqueConstraintDefinitionPortV1(
-      fixture.persistence.drizzle,
-    );
-    const port = createAppUniqueConstraintSetEligibilityPortV1(
-      ports(fixture),
-      definitions,
-    );
-    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
-      port,
-      eligibilityInput(fixture),
-    ))).resolves.toMatchObject({
-      status: "not_ready",
-      reason: "setNotClosed",
-      blocksAllTables: true,
-      tableIds: [],
-    });
-    await closeSet(fixture);
-    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
-      port,
-      eligibilityInput(fixture),
-    ))).resolves.toMatchObject({
-      status: "not_ready",
-      reason: "buildMissing",
-    });
-    await reconcile(fixture);
-    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
-      port,
-      eligibilityInput(fixture),
-    ))).resolves.toMatchObject({
-      status: "not_ready",
-      reason: "buildNotEnabled",
-      lifecycle: "declared",
-    });
-    await advanceBackfill(fixture, 16);
-    await advanceBackfill(fixture, 16);
-    await advanceBackfill(fixture, 16);
-    await advanceBackfill(fixture, 16);
-    const eligible = await runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
-      port,
-      eligibilityInput(fixture),
-    ));
-    expect(eligible).toMatchObject({
-      status: "eligible",
-      evidence: {
-        scopeId: fixture.scopeId,
-        schemaVersionId: fixture.schemaVersionId,
-        definitionCount: 1,
-        tableIds: [fixture.tableId],
-        storageGenerationFence: 1n,
-        epoch: fixture.epoch,
-      },
-    });
-    if (eligible.status !== "eligible") {
-      throw new Error("Expected exact unique-set eligibility evidence.");
-    }
-    expect(hasAppUniqueConstraintSetEligibilityEvidenceV1(
-      eligible.evidence,
-    )).toBe(true);
-    expect(eligible.evidence.definitionSetSha256Hex).toMatch(/^[0-9a-f]{64}$/u);
-    expect("definitionSetSha256" in eligible.evidence).toBe(false);
-    expect(hasAppUniqueConstraintSetEligibilityEvidenceV1({
-      ...eligible.evidence,
-    })).toBe(false);
-    const mutableInput = { ...eligibilityInput(fixture) };
-    let mutatedDuringRead = false;
-    const tracer = Tracer.make({ span(options) {
-      if (options.name === "AppUniqueConstraintSetClosure.readControl") {
-        Object.assign(mutableInput, eligibilityInput(absent));
-        mutatedDuringRead = true;
+    await withPersistence(async persistence => {
+      const fixture = await fixtureFor(persistence, "eligibility");
+      await ensureBinding(
+        fixture,
+        await prepareBinding(fixture, "by_email", false),
+      );
+      const definitions = createAppUniqueConstraintDefinitionPortV1(
+        fixture.persistence.drizzle,
+      );
+      const port = createAppUniqueConstraintSetEligibilityPortV1(
+        ports(fixture),
+        definitions,
+      );
+      await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+        port,
+        eligibilityInput(fixture),
+      ))).resolves.toMatchObject({
+        status: "not_ready",
+        reason: "setNotClosed",
+        blocksAllTables: true,
+        tableIds: [],
+      });
+      await closeSet(fixture);
+      await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+        port,
+        eligibilityInput(fixture),
+      ))).resolves.toMatchObject({
+        status: "not_ready",
+        reason: "buildMissing",
+      });
+      await reconcile(fixture);
+      await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+        port,
+        eligibilityInput(fixture),
+      ))).resolves.toMatchObject({
+        status: "not_ready",
+        reason: "buildNotEnabled",
+        lifecycle: "declared",
+      });
+      await advanceBackfill(fixture, 16);
+      await advanceBackfill(fixture, 16);
+      await advanceBackfill(fixture, 16);
+      await advanceBackfill(fixture, 16);
+      const eligible = await runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+        port,
+        eligibilityInput(fixture),
+      ));
+      expect(eligible).toMatchObject({
+        status: "eligible",
+        evidence: {
+          scopeId: fixture.scopeId,
+          schemaVersionId: fixture.schemaVersionId,
+          definitionCount: 1,
+          tableIds: [fixture.tableId],
+          storageGenerationFence: 1n,
+          epoch: fixture.epoch,
+        },
+      });
+      if (eligible.status !== "eligible") {
+        throw new Error("Expected exact unique-set eligibility evidence.");
       }
-      return new Tracer.NativeSpan(options);
-    } });
-    const plan = await runEffect(prepareAppUniqueConstraintSet(port, mutableInput)
-      .pipe(Effect.provideService(Tracer.Tracer, tracer)));
-    expect(mutatedDuringRead).toBe(true);
-    const emptyPlan = await runEffect(prepareAppUniqueConstraintSet(absentPort, eligibilityInput(absent)));
-    if (emptyPlan.status !== "prepared") throw new Error("Expected closed empty catalog plan");
-    if (plan.status !== "prepared") throw new Error("Expected closed catalog plan");
-    await fixture.persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
-      const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
-      const authority = { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId,
-        physicalLocator: LOCATOR, storageGeneration: clock.storageGeneration,
-        storageGenerationFence: clock.storageGenerationFence, epoch: clock.epoch,
-        lastCommitSeq: clock.lastCommitSeq };
-      expect(yield* Effect.flip(acceptPreparedAppUniqueConstraintSet(absentPort,
-        emptyPlan.preparation, tx, { ...authority, deploymentId: absent.deploymentId, scopeId: absent.scopeId }, clock)))
-        .toMatchObject({ reason: "scopeMismatch" });
-      expect(yield* acceptPreparedAppUniqueConstraintSet(port, plan.preparation, tx, authority, clock))
-        .toMatchObject({ status: "eligible" });
-      expect(yield* Effect.flip(acceptPreparedAppUniqueConstraintSet(port,
-        { ...plan.preparation }, tx, authority, clock))).toMatchObject({ reason: "invalidPort" });
-      expect(yield* Effect.flip(acceptPreparedAppUniqueConstraintSet(absentPort,
-        plan.preparation, tx, authority, clock))).toMatchObject({ reason: "invalidPort" });
-      expect(yield* Effect.flip(acceptPreparedAppUniqueConstraintSet(port,
-        plan.preparation, tx, { ...authority, scopeId: absent.scopeId }, clock)))
-        .toMatchObject({ reason: "scopeMismatch" });
-      expect(yield* Effect.flip(acceptPreparedAppUniqueConstraintSet(port,
-        plan.preparation, tx, authority, { ...clock, scopeId: absent.scopeId })))
-        .toMatchObject({ reason: "scopeMismatch" });
-    })));
-    const exactPorts = ports(fixture);
-    let controlDbReads = 0;
-    let authorityReads = 0;
-    const capturedPort = createAppUniqueConstraintSetEligibilityPortV1({
-      get controlDb() {
-        controlDbReads += 1;
-        return controlDbReads === 1
-          ? fixture.persistence.drizzle
-          : absent.persistence.drizzle;
-      },
-      get authority() {
-        authorityReads += 1;
-        return exactPorts.authority;
-      },
-    }, definitions);
-    expect(controlDbReads).toBe(1);
-    expect(authorityReads).toBe(1);
-    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
-      capturedPort,
-      eligibilityInput(fixture),
-    ))).resolves.toMatchObject({ status: "eligible" });
-    const mismatchedCatalogPort = createAppUniqueConstraintSetEligibilityPortV1(
-      ports(fixture),
-      absentDefinitions,
-    );
-    await expect(runEffectFailure(loadAppUniqueConstraintSetEligibilityV1Effect(
-      mismatchedCatalogPort,
-      eligibilityInput(fixture),
-    ))).resolves.toMatchObject({ reason: "invalidPort", retryable: false });
+      expect(hasAppUniqueConstraintSetEligibilityEvidenceV1(
+        eligible.evidence,
+      )).toBe(true);
+      expect(eligible.evidence.definitionSetSha256Hex).toMatch(/^[0-9a-f]{64}$/u);
+      expect("definitionSetSha256" in eligible.evidence).toBe(false);
+      expect(hasAppUniqueConstraintSetEligibilityEvidenceV1({
+        ...eligible.evidence,
+      })).toBe(false);
+      const mutableInput = { ...eligibilityInput(fixture) };
+      let mutatedDuringRead = false;
+      const tracer = Tracer.make({ span(options) {
+        if (options.name === "AppUniqueConstraintSetClosure.readControl") {
+          Object.assign(mutableInput, eligibilityInput(absent));
+          mutatedDuringRead = true;
+        }
+        return new Tracer.NativeSpan(options);
+      } });
+      const plan = await runEffect(prepareAppUniqueConstraintSet(port, mutableInput)
+        .pipe(Effect.provideService(Tracer.Tracer, tracer)));
+      expect(mutatedDuringRead).toBe(true);
+      const emptyPlan = await runEffect(prepareAppUniqueConstraintSet(absentPort, eligibilityInput(absent)));
+      if (emptyPlan.status !== "prepared") throw new Error("Expected closed empty catalog plan");
+      if (plan.status !== "prepared") throw new Error("Expected closed catalog plan");
+      await fixture.persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+        const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
+        const authority = { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId,
+          physicalLocator: LOCATOR, storageGeneration: clock.storageGeneration,
+          storageGenerationFence: clock.storageGenerationFence, epoch: clock.epoch,
+          lastCommitSeq: clock.lastCommitSeq };
+        expect(yield* Effect.flip(acceptPreparedAppUniqueConstraintSet(absentPort,
+          emptyPlan.preparation, tx, { ...authority, deploymentId: absent.deploymentId, scopeId: absent.scopeId }, clock)))
+          .toMatchObject({ reason: "scopeMismatch" });
+        expect(yield* acceptPreparedAppUniqueConstraintSet(port, plan.preparation, tx, authority, clock))
+          .toMatchObject({ status: "eligible" });
+        expect(yield* Effect.flip(acceptPreparedAppUniqueConstraintSet(port,
+          { ...plan.preparation }, tx, authority, clock))).toMatchObject({ reason: "invalidPort" });
+        expect(yield* Effect.flip(acceptPreparedAppUniqueConstraintSet(absentPort,
+          plan.preparation, tx, authority, clock))).toMatchObject({ reason: "invalidPort" });
+        expect(yield* Effect.flip(acceptPreparedAppUniqueConstraintSet(port,
+          plan.preparation, tx, { ...authority, scopeId: absent.scopeId }, clock)))
+          .toMatchObject({ reason: "scopeMismatch" });
+        expect(yield* Effect.flip(acceptPreparedAppUniqueConstraintSet(port,
+          plan.preparation, tx, authority, { ...clock, scopeId: absent.scopeId })))
+          .toMatchObject({ reason: "scopeMismatch" });
+      })));
+      const exactPorts = ports(fixture);
+      let controlDbReads = 0;
+      let authorityReads = 0;
+      const capturedPort = createAppUniqueConstraintSetEligibilityPortV1({
+        get controlDb() {
+          controlDbReads += 1;
+          return controlDbReads === 1
+            ? fixture.persistence.drizzle
+            : absent.persistence.drizzle;
+        },
+        get authority() {
+          authorityReads += 1;
+          return exactPorts.authority;
+        },
+      }, definitions);
+      expect(controlDbReads).toBe(1);
+      expect(authorityReads).toBe(1);
+      await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+        capturedPort,
+        eligibilityInput(fixture),
+      ))).resolves.toMatchObject({ status: "eligible" });
+      const mismatchedCatalogPort = createAppUniqueConstraintSetEligibilityPortV1(
+        ports(fixture),
+        absentDefinitions,
+      );
+      await expect(runEffectFailure(loadAppUniqueConstraintSetEligibilityV1Effect(
+        mismatchedCatalogPort,
+        eligibilityInput(fixture),
+      ))).resolves.toMatchObject({ reason: "invalidPort", retryable: false });
 
-    const nextEpoch = ReplacementScopeEpochV1Schema.make("epoch_73000000-0000-4000-8000-000000000001");
-    await fixture.persistence.query(
-      `update fx_system_scope_execution_authority
+      const nextEpoch = ReplacementScopeEpochV1Schema.make("epoch_73000000-0000-4000-8000-000000000001");
+      await fixture.persistence.query(
+        `update fx_system_scope_execution_authority
           set storage_generation_fence = 2, epoch = $2
         where scope_id = $1`,
-      [fixture.scopeId, nextEpoch],
-    );
-    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
-      port,
-      eligibilityInput(fixture),
-    ))).resolves.toMatchObject({
-      status: "not_ready",
-      reason: "buildStale",
+        [fixture.scopeId, nextEpoch],
+      );
+      await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+        port,
+        eligibilityInput(fixture),
+      ))).resolves.toMatchObject({
+        status: "not_ready",
+        reason: "buildStale",
+      });
+      const copiedPort = Object.freeze({ ...port });
+      await expect(runEffectFailure(loadAppUniqueConstraintSetEligibilityV1Effect(
+        copiedPort,
+        eligibilityInput(fixture),
+      ))).resolves.toMatchObject({ reason: "invalidPort", retryable: false });
     });
-    const copiedPort = Object.freeze({ ...port });
-    await expect(runEffectFailure(loadAppUniqueConstraintSetEligibilityV1Effect(
-      copiedPort,
-      eligibilityInput(fixture),
-    ))).resolves.toMatchObject({ reason: "invalidPort", retryable: false });
   }, 30_000);
 
   it("fails closed on missing and claim-only S11 ownership", async () => {
-    const missing = await closedFixture(await createMigratedPGlitePersistence(), "validation_missing");
-    const missingRow = rowId(8);
-    await appendLiveRow(missing, missingRow, 1n, null, {
-      tenantId: "tenant-a",
-      email: "missing@example.com",
-    });
-    await setClockCommit(missing, 1n);
-    await advanceToValidating(missing, 16);
-    await missing.persistence.query(
-      "delete from fx_app_unique_key where scope_uuid = $1::uuid",
-      [missing.scopeId.slice("scope_".length)],
-    );
-    const missingFailure = await runEffectFailure(
-      advanceAppUniqueConstraintSetBackfillV1Effect(
-        ports(missing),
-        { ...input(missing), pageSize: 16 },
-      ),
-    );
-    expect(missingFailure).toBeInstanceOf(
-      AppUniqueConstraintSetBuildStateV1Error,
-    );
-    expect(missingFailure).toMatchObject({
-      reason: "validationMismatch",
-      cause: { reason: "missingClaim" },
-    });
-    expect(await buildRows(missing)).toMatchObject([{
-      lifecycle: "validating",
+    await withPersistence(async persistence => {
+      const missing = await closedFixture(persistence, "validation_missing");
+      const missingRow = rowId(8);
+      await appendLiveRow(missing, missingRow, 1n, null, {
+        tenantId: "tenant-a",
+        email: "missing@example.com",
+      });
+      await setClockCommit(missing, 1n);
+      await advanceToValidating(missing, 16);
+      await missing.persistence.query(
+        "delete from fx_app_unique_key where scope_uuid = $1::uuid",
+        [missing.scopeId.slice("scope_".length)],
+      );
+      const missingFailure = await runEffectFailure(
+        advanceAppUniqueConstraintSetBackfillV1Effect(
+          ports(missing),
+          { ...input(missing), pageSize: 16 },
+        ),
+      );
+      expect(missingFailure).toBeInstanceOf(
+        AppUniqueConstraintSetBuildStateV1Error,
+      );
+      expect(missingFailure).toMatchObject({
+        reason: "validationMismatch",
+        cause: { reason: "missingClaim" },
+      });
+      expect(await buildRows(missing)).toMatchObject([{
+        lifecycle: "validating",
 
-      cursor_row_hex: null,
-    }]);
-
-    const claimOnly = await closedFixture(await createMigratedPGlitePersistence(), "validation_claim_only");
-    const claimOnlyRow = rowId(9);
-    await appendLiveRow(claimOnly, claimOnlyRow, 1n, null, {
-      tenantId: "tenant-a",
-      email: "claim-only@example.com",
+        cursor_row_hex: null,
+      }]);
     });
-    await setClockCommit(claimOnly, 1n);
-    await advanceToValidating(claimOnly, 16);
-    await expect(claimOnly.persistence.query("delete from fx_app_row_current where scope_uuid = $1::uuid", [claimOnly.scopeId.slice("scope_".length)])).rejects.toMatchObject({code: "23001", constraint: "fx_app_unique_key_row_identity_fk"});
 
+    await withPersistence(async persistence => {
+      const claimOnly = await closedFixture(persistence, "validation_claim_only");
+      const claimOnlyRow = rowId(9);
+      await appendLiveRow(claimOnly, claimOnlyRow, 1n, null, {
+        tenantId: "tenant-a",
+        email: "claim-only@example.com",
+      });
+      await setClockCommit(claimOnly, 1n);
+      await advanceToValidating(claimOnly, 16);
+      await expect(claimOnly.persistence.query("delete from fx_app_row_current where scope_uuid = $1::uuid", [claimOnly.scopeId.slice("scope_".length)])).rejects.toMatchObject({code: "23001", constraint: "fx_app_unique_key_row_identity_fk"});
+    });
   });
 
   it("rejects claim-only rows outside the definition locale and table", async () => {
-    const wrongLocale = await closedFixture(await createMigratedPGlitePersistence(), "validation_wrong_locale");
-    const localeRow = rowId(12);
-    await appendLiveRow(wrongLocale, localeRow, 1n, null, {
-      tenantId: "tenant-a",
-      email: "wrong-locale@example.com",
-    });
-    await setClockCommit(wrongLocale, 1n);
-    await advanceToValidating(wrongLocale, 16);
-    await wrongLocale.persistence.query(
-      "update fx_app_unique_key set locale_key = 'en'",
-    );
-    expect(await runEffectFailure(
-      advanceAppUniqueConstraintSetBackfillV1Effect(
-        ports(wrongLocale),
-        { ...input(wrongLocale), pageSize: 16 },
-      ),
-    )).toMatchObject({
-      _tag: "AppUniqueConstraintSetBuildStateV1Error",
-      reason: "validationMismatch",
-      cause: { reason: "claimIdentityMismatch" },
+    await withPersistence(async persistence => {
+      const wrongLocale = await closedFixture(persistence, "validation_wrong_locale");
+      const localeRow = rowId(12);
+      await appendLiveRow(wrongLocale, localeRow, 1n, null, {
+        tenantId: "tenant-a",
+        email: "wrong-locale@example.com",
+      });
+      await setClockCommit(wrongLocale, 1n);
+      await advanceToValidating(wrongLocale, 16);
+      await wrongLocale.persistence.query(
+        "update fx_app_unique_key set locale_key = 'en'",
+      );
+      expect(await runEffectFailure(
+        advanceAppUniqueConstraintSetBackfillV1Effect(
+          ports(wrongLocale),
+          { ...input(wrongLocale), pageSize: 16 },
+        ),
+      )).toMatchObject({
+        _tag: "AppUniqueConstraintSetBuildStateV1Error",
+        reason: "validationMismatch",
+        cause: { reason: "claimIdentityMismatch" },
+      });
     });
 
-    const wrongTable = await closedFixture(await createMigratedPGlitePersistence(), "validation_wrong_table");
-    const tableRow = rowId(13);
-    await appendLiveRow(wrongTable, tableRow, 1n, null, {
-      tenantId: "tenant-a",
-      email: "wrong-table@example.com",
-    });
-    await setClockCommit(wrongTable, 1n);
-    await advanceToValidating(wrongTable, 16);
-    const scopeUuid = wrongTable.scopeId.slice("scope_".length);
-    await wrongTable.persistence.query(
-      `insert into fx_app_row_rev
+    await withPersistence(async persistence => {
+      const wrongTable = await closedFixture(persistence, "validation_wrong_table");
+      const tableRow = rowId(13);
+      await appendLiveRow(wrongTable, tableRow, 1n, null, {
+        tenantId: "tenant-a",
+        email: "wrong-table@example.com",
+      });
+      await setClockCommit(wrongTable, 1n);
+      await advanceToValidating(wrongTable, 16);
+      const scopeUuid = wrongTable.scopeId.slice("scope_".length);
+      await wrongTable.persistence.query(
+        `insert into fx_app_row_rev
         (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
          write_epoch_uuid, schema_version_id, creation_time,
          value_codec_version, is_tombstone, value_bytes,
@@ -1384,67 +1395,72 @@ describe("C08-B1 closed unique-set build foundation", { concurrent: false }, () 
               value_sha256
          from fx_app_row_rev
         where scope_uuid = $1::uuid and row_id = decode($2, 'hex')`,
-      [scopeUuid, tableRow],
-    );
-    await wrongTable.persistence.query(`insert into fx_app_row_current (scope_uuid, table_id, row_id, commit_seq) select scope_uuid, table_id + 1, row_id, commit_seq from fx_app_row_current where scope_uuid = $1::uuid`, [scopeUuid]);
-    await wrongTable.persistence.query(
-      `update fx_app_unique_key set table_id = table_id + 1
+        [scopeUuid, tableRow],
+      );
+      await wrongTable.persistence.query(`insert into fx_app_row_current (scope_uuid, table_id, row_id, commit_seq) select scope_uuid, table_id + 1, row_id, commit_seq from fx_app_row_current where scope_uuid = $1::uuid`, [scopeUuid]);
+      await wrongTable.persistence.query(
+        `update fx_app_unique_key set table_id = table_id + 1
         where scope_uuid = $1::uuid and row_id = decode($2, 'hex')`,
-      [scopeUuid, tableRow],
-    );
-    expect(await runEffectFailure(
-      advanceAppUniqueConstraintSetBackfillV1Effect(
-        ports(wrongTable),
-        { ...input(wrongTable), pageSize: 16 },
-      ),
-    )).toMatchObject({
-      _tag: "AppUniqueConstraintSetBuildStateV1Error",
-      reason: "validationMismatch",
-      cause: { reason: "claimIdentityMismatch" },
+        [scopeUuid, tableRow],
+      );
+      expect(await runEffectFailure(
+        advanceAppUniqueConstraintSetBackfillV1Effect(
+          ports(wrongTable),
+          { ...input(wrongTable), pageSize: 16 },
+        ),
+      )).toMatchObject({
+        _tag: "AppUniqueConstraintSetBuildStateV1Error",
+        reason: "validationMismatch",
+        cause: { reason: "claimIdentityMismatch" },
+      });
     });
   });
 
   it("settles empty and sparse-omitted sets without minting claims", async () => {
-    const empty = await fixtureFor(await createMigratedPGlitePersistence(), "empty_backfill");
-    await closeSet(empty);
-    await reconcile(empty);
-    expect(await buildRows(empty)).toEqual([]);
-    await advanceBackfill(empty, 16);
-    await advanceBackfill(empty, 16);
-    await expect(advanceBackfill(empty, 16)).resolves.toMatchObject({
-      lifecycle: "enabled",
-      scanned: 0,
-      claimed: 0,
-    });
-    await expect(advanceBackfill(empty, 16)).resolves.toMatchObject({
-      lifecycle: "enabled",
-      scanned: 0,
+    await withPersistence(async persistence => {
+      const empty = await fixtureFor(persistence, "empty_backfill");
+      await closeSet(empty);
+      await reconcile(empty);
+      expect(await buildRows(empty)).toEqual([]);
+      await advanceBackfill(empty, 16);
+      await advanceBackfill(empty, 16);
+      await expect(advanceBackfill(empty, 16)).resolves.toMatchObject({
+        lifecycle: "enabled",
+        scanned: 0,
+        claimed: 0,
+      });
+      await expect(advanceBackfill(empty, 16)).resolves.toMatchObject({
+        lifecycle: "enabled",
+        scanned: 0,
+      });
     });
 
-    const sparse = await fixtureFor(await createMigratedPGlitePersistence(), "sparse_backfill");
-    await ensureBinding(
-      sparse,
-      await prepareBinding(sparse, "by_email", true),
-    );
-    await closeSet(sparse);
-    const sparseRow = rowId(6);
-    await appendDocument(sparse, sparseRow, 1n, null, {
-      tenantId: "tenant-a",
-    });
-    await setClockCommit(sparse, 1n);
-    await reconcile(sparse);
-    await advanceBackfill(sparse, 16);
-    await advanceBackfill(sparse, 16);
-    await expect(advanceBackfill(sparse, 16)).resolves.toMatchObject({
-      lifecycle: "validating",
-      scanned: 1,
-      omitted: 1,
-      claimed: 0,
-    });
-    expect(await uniqueClaims(sparse)).toEqual([]);
-    await expect(advanceBackfill(sparse, 16)).resolves.toMatchObject({
-      lifecycle: "enabled",
-      scanned: 1,
+    await withPersistence(async persistence => {
+      const sparse = await fixtureFor(persistence, "sparse_backfill");
+      await ensureBinding(
+        sparse,
+        await prepareBinding(sparse, "by_email", true),
+      );
+      await closeSet(sparse);
+      const sparseRow = rowId(6);
+      await appendDocument(sparse, sparseRow, 1n, null, {
+        tenantId: "tenant-a",
+      });
+      await setClockCommit(sparse, 1n);
+      await reconcile(sparse);
+      await advanceBackfill(sparse, 16);
+      await advanceBackfill(sparse, 16);
+      await expect(advanceBackfill(sparse, 16)).resolves.toMatchObject({
+        lifecycle: "validating",
+        scanned: 1,
+        omitted: 1,
+        claimed: 0,
+      });
+      expect(await uniqueClaims(sparse)).toEqual([]);
+      await expect(advanceBackfill(sparse, 16)).resolves.toMatchObject({
+        lifecycle: "enabled",
+        scanned: 1,
+      });
     });
   });
 });
