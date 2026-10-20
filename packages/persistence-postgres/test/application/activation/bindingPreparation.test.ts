@@ -4,18 +4,9 @@ import { eq, sql } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { CommitSeqSchema } from "flarex-protocol/storage-authority";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { type PGlite, type Transaction } from "@electric-sql/pglite";
 import { newTestPGlite } from "../../support/pgliteSearchExtensions";
-import {
-  createFileScopedPGliteFixture,
-  migratedPGliteDataDir,
-  resetControlScopeRowsInTransaction,
-  resetScopeAuthorityRowsInTransaction,
-} from "../../support/pgliteTestFixture";
-import {
-  useFileScopedPersistence,
-  type FileScopedPersistenceFixture,
-} from "../../support/fileScopedPersistenceFixture";
+import { migratedPGliteDataDir } from "../../support/pgliteTestFixture";
+import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
 import {
   claimApplicationExecutableActiveSelection,
   isApplicationBindingPreparation,
@@ -60,7 +51,11 @@ import {
   fxSystemApplicationReadinessFunctionsV1,
   fxSystemApplicationReadinessV1,
 } from "../../../src/database/schema";
-import { readinessFixture, type TestPersistence } from "../support/readinessFixture";
+import {
+  createFileScopedReadinessControlFixture,
+  createFileScopedReadinessTargetFixture,
+  readinessFixture,
+} from "../support/readinessFixture";
 import { prepareReadinessAuthorities, enablePhysicalBuilds } from "../support/readinessPreparation";
 import { createAdditionalApplicationRevision } from "../support/readinessPublication";
 
@@ -75,10 +70,10 @@ beforeAll(async () => {
 }, 120_000);
 
 describe("Application activation/bindingPreparation", { timeout: 30_000, concurrent: false }, () => {
-  const withControl = useFileScopedPersistence(createFileScopedBindingControlFixture);
+  const withControl = useFileScopedPersistence(createFileScopedReadinessControlFixture);
 
   describe("row-only targets", { concurrent: false }, () => {
-    const withTarget = useFileScopedPersistence(createFileScopedBindingTargetFixture);
+    const withTarget = useFileScopedPersistence(createFileScopedReadinessTargetFixture);
 
     it("captures standalone binding evidence once outside hashing and refreshes the current head per request", async () => {
       return withControl(async control => {
@@ -351,69 +346,3 @@ describe("Application activation/bindingPreparation", { timeout: 30_000, concurr
     });
   });
 });
-
-async function refuseMaintenanceObligations(transaction: Transaction): Promise<void> {
-  const obligations = await transaction.query<{ present: boolean }>(`
-    select exists(select 1 from fx_system_unique_maintenance_obligation)
-      or exists(select 1 from fx_system_index_maintenance_obligation) as present
-  `);
-  if (obligations.rows[0]?.present !== false) {
-    throw new Error("Application binding fixture cannot reset maintenance obligations");
-  }
-}
-
-async function createFileScopedBindingControlFixture(): Promise<FileScopedPersistenceFixture<TestPersistence>> {
-  return createFileScopedPGliteFixture(async db => () => db.transaction(async transaction => {
-    await refuseMaintenanceObligations(transaction);
-    await transaction.exec(`
-      delete from fx_control_application_schema_authority_v1;
-      delete from fx_control_schema_unique_constraint_set;
-      delete from fx_control_index_definition;
-      delete from fx_control_schema_version;
-      delete from fx_control_table;
-    `);
-    await resetControlScopeRowsInTransaction(transaction);
-  }));
-}
-
-async function createFileScopedBindingTargetFixture(): Promise<FileScopedPersistenceFixture<{
-  readonly driver: PGlite;
-  readonly persistence: TestPersistence;
-}>> {
-  let driver: PGlite | undefined;
-  const owner = await createFileScopedPGliteFixture(async db => {
-    driver = db;
-    return () => db.transaction(async transaction => {
-      await refuseMaintenanceObligations(transaction);
-      await transaction.exec(`
-        delete from fx_system_application_read_binding;
-        delete from fx_system_application_active_head;
-        delete from fx_system_application_activation;
-        delete from fx_system_application_readiness_function_v1;
-        delete from fx_system_application_readiness_v1;
-        delete from fx_system_application_revision_schema_v1;
-        delete from fx_system_application_task_catalog_v1;
-        delete from fx_system_application_function_v1;
-        delete from fx_system_application_publication_v1;
-        delete from fx_system_application_revision_v2;
-        delete from fx_system_application_analysis_v1;
-        delete from fx_system_application_candidate_v1;
-        delete from fx_system_app_schema_candidate_validation;
-        delete from fx_system_metadata_contract_observation;
-      `);
-      await resetScopeAuthorityRowsInTransaction(transaction);
-    });
-  });
-  if (driver === undefined) {
-    await owner.dispose();
-    throw new Error("Expected Application binding fixture driver");
-  }
-  const currentDriver = driver;
-  return {
-    get persistence() {
-      return { driver: currentDriver, persistence: owner.persistence };
-    },
-    reset: owner.reset,
-    dispose: owner.dispose,
-  };
-}
