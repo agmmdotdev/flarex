@@ -47,12 +47,28 @@ import { advanceAppUniqueConstraintSetBackfillV1Effect, loadAppUniqueConstraintS
 import { lockScopeClockForShareInTransactionEffect } from "../../src/scope/scopeClock";
 import {
   createApplicationNativeMutationPGliteFixture,
+  createApplicationNativeMutationPGliteFixtureWithPersistence,
 } from "../application/applicationNativeMutationTestFixture";
+import { useFileScopedApplicationNativeMutationPersistence } from
+  "../application/applicationNativeMutationPGlitePersistence";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 
-describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
-  it("keeps unique lifecycle query construction defects distinct from driver rejections", async () => {
-    const fixture = await createApplicationNativeMutationPGliteFixture({ runtimeHostIdentity: "flarex.test/unique-lifecycle-errors", compatibilityDate: "2026-08-18" });
+const withPersistence = useFileScopedApplicationNativeMutationPersistence();
+let fixtureOrdinal = 0;
+
+function nextFixtureIdentity() {
+  const ordinal = ++fixtureOrdinal;
+  return {
+    deploymentId: `deployment_physical_lifecycle_${ordinal}`,
+    projectId: `project_physical_lifecycle_${ordinal}`,
+    uuidOffset: ordinal * 100,
+  };
+}
+
+describe("M05-B1 physical-definition lifecycle", { timeout: 180_000, concurrent: false }, () => {
+  it("keeps unique lifecycle query construction defects distinct from driver rejections", async () => withPersistence(async persistence => {
+    const fixtureIdentity = nextFixtureIdentity();
+    const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({ runtimeHostIdentity: "flarex.test/unique-lifecycle-errors", compatibilityDate: "2026-08-18", fixtureIdentity }, persistence);
     const authority = await runEffect(resolveTrustedScopeAuthorityEffect(fixture.deploymentId, fixture.authorityPorts));
     for (const mode of ["construction", "rejection"] as const) {
       const sentinel = new Error(`unique lifecycle ${mode}`);
@@ -78,13 +94,15 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
         else expect(Result.getOrThrow(Cause.findFail(exit.cause)).error).toMatchObject({ _tag: "PhysicalDefinitionLifecyclePersistenceError", cause: sentinel });
       }
     }
-  });
+  }));
 
-  it("fences draining, exact replay, cancellation, rollback, and corruption", async () => {
-    const fixture = await createApplicationNativeMutationPGliteFixture({
+  it("fences draining, exact replay, cancellation, rollback, and corruption", async () => withPersistence(async persistence => {
+    const fixtureIdentity = nextFixtureIdentity();
+    const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
       runtimeHostIdentity: "flarex.test/m05-b1-runtime-host",
       compatibilityDate: "2026-08-18",
-    });
+      fixtureIdentity,
+    }, persistence);
     const definition = await fixture.control.query<{
       index_definition_id: number;
     }>(
@@ -313,13 +331,15 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
       .resolves.toBeInstanceOf(
         InvalidPreparedPhysicalDefinitionLifecycleSubjectError,
       );
-  });
+  }));
 
-  it("authenticates a unique-constraint definition and its current binding", async () => {
-    const fixture = await createApplicationNativeMutationPGliteFixture({
+  it("authenticates a unique-constraint definition and its current binding", async () => withPersistence(async persistence => {
+    const fixtureIdentity = nextFixtureIdentity();
+    const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
       runtimeHostIdentity: "flarex.test/m05-b1-unique-runtime-host",
       compatibilityDate: "2026-08-18",
-    });
+      fixtureIdentity,
+    }, persistence);
     const uniqueConstraintDefinitionId =
       decodeCatalogUniqueConstraintDefinitionId(9_001);
     const canonical = await canonicalizeAppUniqueConstraintPhysicalSpecV1({
@@ -476,6 +496,7 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
       await createApplicationNativeMutationPGliteFixture({
         runtimeHostIdentity: "flarex.test/m05-b2-foreign-control-runtime-host",
         compatibilityDate: "2026-08-18",
+        fixtureIdentity,
       });
     const foreignControlPort = createPhysicalDefinitionLifecyclePort({
       controlDb: foreignControlFixture.control.drizzle,
@@ -682,5 +703,5 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
     await expect(fixture.target.drizzle.transaction(tx => runEffectFailure(
       validatePhysicalDefinitionLifecycleReadinessCatalogEffect(port, readiness, tx),
     ))).resolves.toMatchObject({ reason: "storedStateInvalid" });
-  });
+  }));
 });
