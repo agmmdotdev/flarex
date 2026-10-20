@@ -1,4 +1,4 @@
-import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../../support/pgliteTestFixture";
+import { createMigratedPGlitePersistence, migratedPGliteDataDir, useFileScopedPGliteTransactionRecoveryPersistence } from "../../support/pgliteTestFixture";
 import { copyDrizzleMigrations } from "../../../src/testing/systemTestMigrationFiles";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -53,9 +53,16 @@ const sharedLocator = Object.freeze({
 
 describe("O08-B2b2b1 inert point-attempt discovery", () => {
   beforeAll(async () => { await migratedPGliteDataDir(); }, 120_000);
+  const withPersistence = useFileScopedPGliteTransactionRecoveryPersistence();
 
-  it("returns only frozen inert hints in the exact global order", async () => {
-    const persistence = await discoveryPersistence();
+  async function withDiscoveryPersistence(run: (persistence: PGliteFlarexPersistence) => Promise<void>): Promise<void> {
+    await withPersistence(async persistence => {
+      await installDiscoveryAuthority(persistence);
+      await run(persistence);
+    });
+  }
+
+  it("returns only frozen inert hints in the exact global order", async () => withDiscoveryPersistence(async persistence => {
     await persistence.insertScopeMetadata({
       scopeId: ScopeIdSchema.make("scope_87000000-0000-0000-0000-000000000003"),
       deploymentId: DISCOVERY_DEPLOYMENT_ID,
@@ -104,10 +111,9 @@ describe("O08-B2b2b1 inert point-attempt discovery", () => {
     expect(persistencePackage).not.toHaveProperty(
       "createPointMutationAttemptDiscoveryV1",
     );
-  });
+  }));
 
-  it("paginates a quiescent sweep without gaps or duplicates at 1 and 100", async () => {
-    const persistence = await discoveryPersistence();
+  it("paginates a quiescent sweep without gaps or duplicates at 1 and 100", async () => withDiscoveryPersistence(async persistence => {
     for (let sequence = 1; sequence <= 102; sequence += 1) {
       await insertDiscoveryCandidate(persistence, {
         sessionId: discoverySessionIdAt(100 + sequence),
@@ -155,10 +161,9 @@ describe("O08-B2b2b1 inert point-attempt discovery", () => {
       continuation = page.continuation ?? undefined;
     } while (continuation !== undefined);
     expect(oneAtATime).toEqual(allIds);
-  }, 30_000);
+  }), 30_000);
 
-  it("rejects malformed, mismatched, and future continuations before authority is widened", async () => {
-    const persistence = await discoveryPersistence();
+  it("rejects malformed, mismatched, and future continuations before authority is widened", async () => withDiscoveryPersistence(async persistence => {
     const repository = discovery(persistence);
     const malformed = await runEffectFailure(repository.discoverEffect({
       deploymentId: DISCOVERY_DEPLOYMENT_ID,
@@ -243,10 +248,9 @@ describe("O08-B2b2b1 inert point-attempt discovery", () => {
       },
     }));
     expect(future).toBeInstanceOf(PointMutationAttemptDiscoveryInputV1Error);
-  });
+  }));
 
-  it("defers eligibility after the original horizon to a fresh sweep", async () => {
-    const persistence = await discoveryPersistence();
+  it("defers eligibility after the original horizon to a fresh sweep", async () => withDiscoveryPersistence(async persistence => {
     await insertDiscoveryCandidate(persistence, {
       sessionId: discoverySessionIdAt(501),
       source: "finishingSession",
@@ -298,10 +302,9 @@ describe("O08-B2b2b1 inert point-attempt discovery", () => {
         sessionId: discoverySessionIdAt(503),
       }),
     }));
-  });
+  }));
 
-  it("binds continuation to authority and excludes old-generation sessions", async () => {
-    const persistence = await discoveryPersistence();
+  it("binds continuation to authority and excludes old-generation sessions", async () => withDiscoveryPersistence(async persistence => {
     for (const sequence of [551, 552]) {
       await insertDiscoveryCandidate(persistence, {
         sessionId: discoverySessionIdAt(sequence),
@@ -345,10 +348,9 @@ describe("O08-B2b2b1 inert point-attempt discovery", () => {
       limit: 10,
     }));
     expect(fresh.candidates).toEqual([]);
-  });
+  }));
 
-  it("rejects non-millisecond candidate ordering evidence", async () => {
-    const persistence = await discoveryPersistence();
+  it("rejects non-millisecond candidate ordering evidence", async () => withDiscoveryPersistence(async persistence => {
     const sessionId = discoverySessionIdAt(575);
     await insertDiscoveryCandidate(persistence, {
       sessionId,
@@ -372,42 +374,43 @@ describe("O08-B2b2b1 inert point-attempt discovery", () => {
       PointMutationAttemptDiscoveryCorruptionV1Error,
     );
     expect(failure).toMatchObject({ reason: "candidateInvalid" });
-  });
+  }));
 
   it("fails closed when one exact finishing selector retains any claim", async () => {
     for (const [sequence, claimExpiresAt] of [
       [601, "2025-01-01T00:00:00.000Z"],
       [602, "2099-01-01T00:00:00.000Z"],
     ] as const) {
-      const persistence = await discoveryPersistence();
-      const sessionId = discoverySessionIdAt(sequence);
-      await insertDiscoveryCandidate(persistence, {
-        sessionId,
-        source: "expiredClaim",
-        eligibleAt: "2025-01-01T00:00:00.000Z",
+      await withDiscoveryPersistence(async persistence => {
+        const sessionId = discoverySessionIdAt(sequence);
+        await insertDiscoveryCandidate(persistence, {
+          sessionId,
+          source: "expiredClaim",
+          eligibleAt: "2025-01-01T00:00:00.000Z",
+        });
+        await persistence.query(
+          `update fx_system_tx_session set lifecycle = 'finishing'
+         where scope_uuid = $1::uuid and session_id = $2::uuid`,
+          [DISCOVERY_SCOPE_UUID, sessionId],
+        );
+        await persistence.query(
+          `update fx_system_tx_execution_claim set claim_expires_at = $3::timestamptz
+         where scope_uuid = $1::uuid and session_id = $2::uuid`,
+          [DISCOVERY_SCOPE_UUID, sessionId, claimExpiresAt],
+        );
+        const failure = await runEffectFailure(
+          discovery(persistence).discoverEffect({
+            deploymentId: DISCOVERY_DEPLOYMENT_ID,
+            scopeId: DISCOVERY_SCOPE_ID,
+            limit: 10,
+          }),
+        );
+        expect(failure).toBeInstanceOf(
+          PointMutationAttemptDiscoveryCorruptionV1Error,
+        );
+        expect(failure).toMatchObject({ reason: "finishingClaimPresent" });
       });
-      await persistence.query(
-        `update fx_system_tx_session set lifecycle = 'finishing'
-         where scope_uuid = $1::uuid and session_id = $2::uuid`,
-        [DISCOVERY_SCOPE_UUID, sessionId],
-      );
-      await persistence.query(
-        `update fx_system_tx_execution_claim set claim_expires_at = $3::timestamptz
-         where scope_uuid = $1::uuid and session_id = $2::uuid`,
-        [DISCOVERY_SCOPE_UUID, sessionId, claimExpiresAt],
-      );
-      const failure = await runEffectFailure(
-        discovery(persistence).discoverEffect({
-          deploymentId: DISCOVERY_DEPLOYMENT_ID,
-          scopeId: DISCOVERY_SCOPE_ID,
-          limit: 10,
-        }),
-      );
-      expect(failure).toBeInstanceOf(
-        PointMutationAttemptDiscoveryCorruptionV1Error,
-      );
-      expect(failure).toMatchObject({ reason: "finishingClaimPresent" });
-    }
+}
   });
 
   it("installs exactly the two indexes and upgrades 0032 atomically", async () => {
@@ -470,10 +473,17 @@ describe("O08-B2b2b1 inert point-attempt discovery", () => {
 
   it("enforces the exact public limit contract", async () => {
     expect(MAX_POINT_MUTATION_ATTEMPT_DISCOVERY_LIMIT_V1).toBe(100);
-    const persistence = await discoveryPersistence();
+    const unavailableAuthority = async (): Promise<never> => {
+      throw new Error("Invalid discovery limits must not access authority.");
+    };
+    const repository = createPointMutationAttemptDiscoveryV1({
+      scopeMetadata: { getScopeMetadata: unavailableAuthority },
+      provisioningReceipts: { getScopeAuthorityProvisioningReceipt: unavailableAuthority },
+      scopeDiscoveryTargets: { resolve: unavailableAuthority },
+    });
     for (const limit of [0, 101]) {
       const failure = await runEffectFailure(
-        discovery(persistence).discoverEffect({
+        repository.discoverEffect({
           deploymentId: DISCOVERY_DEPLOYMENT_ID,
           scopeId: DISCOVERY_SCOPE_ID,
           limit,
@@ -502,12 +512,6 @@ function discovery(persistence: PGliteFlarexPersistence) {
         ),
     },
   });
-}
-
-async function discoveryPersistence(): Promise<PGliteFlarexPersistence> {
-  const persistence = await createMigratedPGlitePersistence();
-  await installDiscoveryAuthority(persistence);
-  return persistence;
 }
 
 async function installDiscoveryAuthority(

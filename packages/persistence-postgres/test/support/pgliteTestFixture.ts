@@ -90,6 +90,13 @@ export function useFileScopedPGliteTransactionSessionPersistence() {
   return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () => resetTransactionSessionRows(db)));
 }
 
+/** Recovery discovery owns sessions, leases, the complete journal subtree and
+ * control metadata. Journal children use their declared cascading foreign keys;
+ * unrelated dependants and persistent DDL still require independent fixtures. */
+export function useFileScopedPGliteTransactionRecoveryPersistence() {
+  return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () => resetTransactionRecoveryRows(db)));
+}
+
 /** Single-database scheduler cases only. Multi-database and persistent schema
  * corruption witnesses keep independent fixtures. */
 export function useFileScopedPGliteRedeliverySchedulerPersistence() {
@@ -148,12 +155,25 @@ async function resetStorageRows(db: PGlite): Promise<void> {
 }
 
 async function resetTransactionSessionRows(db: PGlite): Promise<void> {
-  await db.transaction(async transaction => {
-    await transaction.exec(`
+  await db.transaction(resetTransactionSessionRowsInTransaction);
+}
+
+async function resetTransactionSessionRowsInTransaction(transaction: Transaction): Promise<void> {
+  await transaction.exec(`
       delete from fx_system_snapshot_lease;
       delete from fx_system_tx_session;
     `);
-    await resetScopeClockRowsInTransaction(transaction);
+  await resetScopeClockRowsInTransaction(transaction);
+}
+
+async function resetTransactionRecoveryRows(db: PGlite): Promise<void> {
+  await db.transaction(async transaction => {
+    await transaction.exec(`
+      delete from fx_system_tx_execution_claim;
+      delete from fx_system_tx_journal;
+    `);
+    await resetTransactionSessionRowsInTransaction(transaction);
+    await resetControlScopeRowsInTransaction(transaction);
   });
 }
 
