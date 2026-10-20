@@ -30,16 +30,19 @@ import type { PostgresFlarexPersistence } from "../../src/database/postgres";
 import { cmsHostFixture } from "../frameworks/cmsTransaction/cmsHostFixture";
 import { relationReadinessFixture } from "./relations/applicationRelationReadinessFixture";
 import { policyManifestFixture } from "./ownership/applicationWritePolicyFixture";
-import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
+import { useFileScopedApplicationNativeMutationPersistence } from "./applicationNativeMutationPGlitePersistence";
 import { postgresUrl, useFileScopedPostgresPersistence } from "../support/postgresHelpers";
 import { runEffect } from "../support/effectTestRuntime";
 
 /** Preflight 67 refusal witness: removing a repeated preparation read requires
  * existing acceptance to detect changes to the input it would stop rereading. */
-async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, unique: boolean) {
+async function exercise(
+  persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
+  controlPersistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
+  unique: boolean,
+) {
   const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
   if (schemaName === undefined) throw new Error("Missing fixture schema");
-  const controlPersistence = "pool" in persistence ? persistence : await createMigratedPGlitePersistence();
   const { fixture, reference } = await cmsHostFixture(persistence, { controlPersistence,
     cmsFields: [{ name: "title", kind: "text", ...(unique ? { unique: true } : {}) }],
     physicalLocator: { kind: "database_per_scope", databaseKey: "application_relation_readiness_fold_target", schemaName } });
@@ -207,13 +210,17 @@ async function exerciseRelationCatalog(persistence: PGliteFlarexPersistence | Po
   expect(await resolve()).toEqual(expected);
 }
 
-it("restores empty and nonempty catalog sets with corruption refusal in PGlite", async () => {
-  await exerciseRelationCatalog(await createMigratedPGlitePersistence());
-}, 120_000);
+describe("PGlite", { concurrent: false }, () => {
+  const withPersistence = useFileScopedApplicationNativeMutationPersistence();
 
-it.each([false, true])("rejects changed preparation catalog inputs at acceptance in PGlite (unique=%s)", async unique => {
-  await exercise(await createMigratedPGlitePersistence(), unique);
-}, 240_000);
+  it("restores empty and nonempty catalog sets with corruption refusal in PGlite", async () => {
+    await withPersistence(persistence => exerciseRelationCatalog(persistence.target));
+  }, 120_000);
+
+  it.each([false, true])("rejects changed preparation catalog inputs at acceptance in PGlite (unique=%s)", async unique => {
+    await withPersistence(persistence => exercise(persistence.target, persistence.control, unique));
+  }, 240_000);
+});
 
 describe("PostgreSQL", { concurrent: false }, () => {
   const withPersistence = useFileScopedPostgresPersistence();
@@ -223,6 +230,6 @@ describe("PostgreSQL", { concurrent: false }, () => {
   }, 120_000);
 
   it.skipIf(postgresUrl === null).each([false, true])("rejects changed preparation catalog inputs at acceptance in PostgreSQL (unique=%s)", async unique => {
-    await withPersistence(persistence => exercise(persistence, unique));
+    await withPersistence(persistence => exercise(persistence, persistence, unique));
   }, 240_000);
 });
