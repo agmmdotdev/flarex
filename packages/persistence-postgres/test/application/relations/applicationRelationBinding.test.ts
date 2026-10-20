@@ -1,7 +1,10 @@
 import {
-  createMigratedPGlitePersistence,
+  createFileScopedPGliteFixture,
   migratedPGliteDataDir,
 } from "../../support/pgliteTestFixture";
+import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
+import type { PGliteFlarexPersistence as PGlitePersistence } from
+  "../../../src/database/pglite";
 import { webcrypto } from "node:crypto";
 import {
   ApplicationManifestSchemaBindingSha256HexSchema,
@@ -20,7 +23,7 @@ import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   locateApplicationRelationManifestBindingEffect,
@@ -47,9 +50,13 @@ beforeAll(() => {
 
 beforeAll(() => migratedPGliteDataDir(), 120_000);
 
+const withPersistence = useFileScopedPersistence(
+  () => createFileScopedPGliteFixture(async () => async () => {}),
+  false,
+);
+
 describe("Application relation binding", { concurrent: false }, () => {
-  it("publishes, replays, and reuses one bound schema across full manifests", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("publishes, replays, and reuses one bound schema across full manifests", async () => withPersistence(async persistence => {
     const deploymentId = "deployment_relation_binding_replay";
     await insertDeployment(persistence, deploymentId);
     const repository = repositoryFor(persistence);
@@ -112,7 +119,7 @@ describe("Application relation binding", { concurrent: false }, () => {
       }),
     );
     expect(absent).toBeNull();
-    await expectCounts(persistence, {
+    await expectCounts(persistence, deploymentId, {
       fx_control_schema_version: 1,
       fx_control_table: 2,
       fx_control_relation: 1,
@@ -121,10 +128,9 @@ describe("Application relation binding", { concurrent: false }, () => {
       fx_control_bound_application_schema: 1,
       fx_control_application_manifest_schema_binding: 2,
     });
-  });
+  }));
 
-  it("requires explicit exact physical reuse and keeps replacements alongside it", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("requires explicit exact physical reuse and keeps replacements alongside it", async () => withPersistence(async persistence => {
     const deploymentId = "deployment_relation_binding_evolution";
     await insertDeployment(persistence, deploymentId);
     const repository = repositoryFor(persistence);
@@ -238,17 +244,16 @@ describe("Application relation binding", { concurrent: false }, () => {
     expect(replaced.binding.relationBindings[0]?.edgeDefinitionId).not.toBe(
       first.binding.relationBindings[0]?.edgeDefinitionId,
     );
-    await expectCounts(persistence, {
+    await expectCounts(persistence, deploymentId, {
       fx_control_relation: 1,
       fx_control_edge_definition: 2,
       fx_control_schema_relation_binding: 3,
       fx_control_bound_application_schema: 3,
       fx_control_application_manifest_schema_binding: 3,
     });
-  });
+  }));
 
-  it("rolls back the base catalogs and relation projections as one unit", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("rolls back the base catalogs and relation projections as one unit", async () => withPersistence(async persistence => {
     const deploymentId = "deployment_relation_binding_rollback";
     await insertDeployment(persistence, deploymentId);
     const rollback = new Error("rollback after relation publication");
@@ -280,7 +285,7 @@ describe("Application relation binding", { concurrent: false }, () => {
         cause: rollback,
       });
     }
-    await expectCounts(persistence, {
+    await expectCounts(persistence, deploymentId, {
       fx_control_schema_version: 0,
       fx_control_table: 0,
       fx_control_relation: 0,
@@ -289,19 +294,10 @@ describe("Application relation binding", { concurrent: false }, () => {
       fx_control_bound_application_schema: 0,
       fx_control_application_manifest_schema_binding: 0,
     });
-  });
+  }));
 
   describe("Deployment-qualified relation evidence", { concurrent: false }, () => {
-    let persistence: PGlitePersistence;
-    let dispose: (() => Promise<void>) | undefined;
-
-    beforeAll(async () => {
-      persistence = await createMigratedPGlitePersistence(cleanup => { dispose = cleanup; });
-    }, 120_000);
-
-    afterAll(async () => { await dispose?.(); }, 120_000);
-
-    it("fails closed when retained application-schema collision evidence drifts", async () => {
+    it("fails closed when retained application-schema collision evidence drifts", async () => withPersistence(async persistence => {
       const deploymentId = "deployment_relation_binding_schema_evidence";
       await insertDeployment(persistence, deploymentId);
       const repository = repositoryFor(persistence);
@@ -325,9 +321,9 @@ describe("Application relation binding", { concurrent: false }, () => {
       if (Result.isFailure(replay)) {
         expect(replay.failure.reason).toBe("storedState");
       }
-    });
+    }));
 
-    it("fails closed when retained analyzed-manifest collision evidence drifts", async () => {
+    it("fails closed when retained analyzed-manifest collision evidence drifts", async () => withPersistence(async persistence => {
       const deploymentId = "deployment_relation_binding_manifest_evidence";
       await insertDeployment(persistence, deploymentId);
       const repository = repositoryFor(persistence);
@@ -370,9 +366,9 @@ describe("Application relation binding", { concurrent: false }, () => {
       if (Result.isFailure(replay)) {
         expect(replay.failure.reason).toBe("bindingConflict");
       }
-    });
+    }));
 
-    it("round-trips canonical negative zero through JSONB", async () => {
+    it("round-trips canonical negative zero through JSONB", async () => withPersistence(async persistence => {
       const deploymentId = "deployment_relation_binding_negative_zero";
       await insertDeployment(persistence, deploymentId);
       const repository = repositoryFor(persistence);
@@ -397,9 +393,9 @@ describe("Application relation binding", { concurrent: false }, () => {
       expect(replay.boundPublicationSha256).toBe(
         created.boundPublicationSha256,
       );
-    });
+    }));
 
-    it("rejects missing and self-referential preserved origins in SQL", async () => {
+    it("rejects missing and self-referential preserved origins in SQL", async () => withPersistence(async persistence => {
       const deploymentId = "deployment_relation_binding_origin_check";
       await insertDeployment(persistence, deploymentId);
       const repository = repositoryFor(persistence);
@@ -446,7 +442,7 @@ describe("Application relation binding", { concurrent: false }, () => {
         origin_relation_ordinal: null,
         physical_evolution: "new",
       }]);
-    });
+    }));
   });
 });
 
@@ -571,8 +567,6 @@ function manifestInput(
   })).manifest;
 }
 
-type PGlitePersistence = Awaited<ReturnType<typeof createMigratedPGlitePersistence>>;
-
 async function insertDeployment(
   persistence: PGlitePersistence,
   deploymentId: string,
@@ -594,11 +588,13 @@ function repositoryFor(
 
 async function expectCounts(
   persistence: PGlitePersistence,
+  deploymentId: string,
   expected: Readonly<Record<string, number>>,
 ): Promise<void> {
   for (const [table, count] of Object.entries(expected)) {
     const result = await persistence.query<{ count: string }>(
-      `select count(*)::text as count from ${table}`,
+      `select count(*)::text as count from ${table} where deployment_id = $1`,
+      [deploymentId],
     );
     expect(result.rows).toEqual([{ count: String(count) }]);
   }
