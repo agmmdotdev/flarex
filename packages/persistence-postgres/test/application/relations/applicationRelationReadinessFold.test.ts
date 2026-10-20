@@ -1,3 +1,4 @@
+import { useFileScopedApplicationNativeMutationPersistence } from "../applicationNativeMutationPGlitePersistence";
 import { postgresUrl, withTemporaryPostgresPersistence } from "../../support/postgresHelpers";
 import { PGlite } from "@electric-sql/pglite";
 import {
@@ -176,9 +177,11 @@ const taskSha256 = makeStandardApplicationTaskSha256V1(input =>
 
 let fixtureOrdinal = 0;
 
-describe("Application relation readiness fold", { timeout: 60_000 }, () => {
-  it("keeps relation readiness and activation on the chosen scope after a peer shop joins", async () => {
-    const fixture = await relationReadinessFixture({ writePolicy: true });
+const withPersistence = useFileScopedApplicationNativeMutationPersistence();
+
+describe("Application relation readiness fold", { concurrent: false, timeout: 60_000 }, () => {
+  it("keeps relation readiness and activation on the chosen scope after a peer shop joins", async () => withPersistence(async persistence => {
+    const fixture = await relationReadinessFixture({ persistence: persistence.target, controlPersistence: persistence.control, writePolicy: true });
     await prepareReadinessEvidence(fixture);
     const first = await runEffect(fixture.relationActivation.activate({
       revisionId: fixture.input.revisionId,
@@ -196,10 +199,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       .toMatchObject({ status: "ready", scopeId: fixture.input.scopeId });
     expect(await runEffect(fixture.relationActivation.readActive()))
       .toMatchObject({ expectedActiveHead: first.expectedActiveHead, basis: { authority: { scopeId: fixture.input.scopeId } } });
-  });
+  }));
 
-  it("retains scalar V3 policy identity through target publication and readiness", async () => {
-    const fixture = await relationReadinessFixture({ writePolicy: true });
+  it("retains scalar V3 policy identity through target publication and readiness", async () => withPersistence(async persistence => {
+    const fixture = await relationReadinessFixture({ persistence: persistence.target, controlPersistence: persistence.control, writePolicy: true });
     await prepareReadinessEvidence(fixture);
     const ready = await runEffect(fixture.fold.settle(fixture.input));
     expect(ready.status).toBe("ready");
@@ -226,7 +229,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     })));
     expect(isApplicationBindingReference(projection)).toBe(true);
     expect(projection.readiness).toMatchObject({ kind: "policy", relationCount: 0 });
-  });
+  }));
 
   it("classifies PostgreSQL lock contention as retryable", () => {
     expect(isRetryableSqlTransactionCause({ code: "55P03" })).toBe(true);
@@ -666,8 +669,8 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     });
   });
 
-  it("reads through staged insert, retarget, and delete overlays", async () => {
-    const ready = await readyExactRelationReadFixture();
+  it("reads through staged insert, retarget, and delete overlays", async () => withPersistence(async persistence => {
+    const ready = await readyExactRelationReadFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     const targetRowId = exactRelationCommitRowId(9_051);
     const sourceA = await applyExactRelationSourceCommit(
       ready,
@@ -791,10 +794,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     }
     expect(new Set(read.outcome.items.map(item => item.sourceDocumentId)))
       .toEqual(new Set([sourceC, inserted.outcome.documentId]));
-  });
+  }));
 
-  it("replaces a naturally conflicted running relation read and retries from the new snapshot", async () => {
-    const ready = await readyExactRelationReadFixture();
+  it("replaces a naturally conflicted running relation read and retries from the new snapshot", async () => withPersistence(async persistence => {
+    const ready = await readyExactRelationReadFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     const targetRowId = exactRelationCommitRowId(9_101);
     const firstSourceDocumentId = await applyExactRelationSourceCommit(
       ready,
@@ -1153,10 +1156,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       firstSourceDocumentId,
       secondSourceDocumentId,
     ]);
-  });
+  }));
 
-  it("rejects an impossible final relation mismatch before exposing a retry conflict", async () => {
-    const ready = await readyExactRelationReadFixture();
+  it("rejects an impossible final relation mismatch before exposing a retry conflict", async () => withPersistence(async persistence => {
+    const ready = await readyExactRelationReadFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     const targetRowId = exactRelationCommitRowId(9_201);
     const lowerTargetRowId = exactRelationCommitRowId(9_199);
     await applyExactRelationSourceCommit(
@@ -1479,10 +1482,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     expect(replacementSteps).not.toContain(
       "activeRelationSelectionValidated",
     );
-  });
+  }));
 
-  it("keeps relation A1 stale across relation B2 and same-revision A3", async () => {
-    const ready = await readyExactRelationReadFixture();
+  it("keeps relation A1 stale across relation B2 and same-revision A3", async () => withPersistence(async persistence => {
+    const ready = await readyExactRelationReadFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     const second = await prepareAdditionalRelationRevision(ready.fixture);
     expect(ready.active.basis.activationSequence).toBe(1n);
     const sealed = await prepareSealedRelationAttempt(ready);
@@ -1640,7 +1643,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
 
     const activations = await ready.fixture.persistence.drizzle.select().from(
       fxSystemApplicationActivations,
-    ).orderBy(asc(fxSystemApplicationActivations.activationSequence));
+    ).where(eq(fxSystemApplicationActivations.scopeId, ready.fixture.authority.scopeId)).orderBy(asc(fxSystemApplicationActivations.activationSequence));
     expect(activations.map(activation => ({
       activationSequence: activation.activationSequence,
       previousActivationSequence: activation.previousActivationSequence,
@@ -1673,7 +1676,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     ]).size).toBe(3);
     const heads = await ready.fixture.persistence.drizzle.select().from(
       fxSystemApplicationActiveHeads,
-    );
+    ).where(eq(fxSystemApplicationActiveHeads.scopeId, ready.fixture.authority.scopeId));
     expect(heads).toHaveLength(1);
     expect(heads[0]).toMatchObject({
       activationSequence: 3n,
@@ -1681,11 +1684,11 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       readinessContractVersion: 2,
       relationCount: ready.readiness.relationCount,
     });
-  });
+  }));
 
-  it("moves one active head from relation A1 through Legacy B2 to relation C3", async () => {
-    await exerciseActiveHeadTransition();
-  });
+  it("moves one active head from relation A1 through Legacy B2 to relation C3", async () => withPersistence(async persistence => {
+    await exerciseActiveHeadTransition({ persistence: persistence.target, controlPersistence: persistence.target });
+  }));
 
   it.skipIf(postgresUrl === null)("moves one active head from relation A1 through Legacy B2 to relation C3 (PostgreSQL)",
     () => withTemporaryPostgresPersistence(async persistence => {
@@ -1695,8 +1698,8 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       await exerciseActiveHeadTransition({ persistence });
     }), 60_000);
 
-  it("atomically folds two ordered relations, exactly replays, and stays outside legacy activation", async () => {
-    const fixture = await relationReadinessFixture();
+  it("atomically folds two ordered relations, exactly replays, and stays outside legacy activation", async () => withPersistence(async persistence => {
+    const fixture = await relationReadinessFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     await prepareReadinessEvidence(fixture);
 
     const first = await runEffect(fixture.fold.settle(fixture.input));
@@ -1787,20 +1790,23 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     const [roots, children, taskDefinitions] = await Promise.all([
       fixture.persistence.drizzle.select().from(
         fxSystemApplicationReadiness,
-      ),
+      ).where(eq(fxSystemApplicationReadiness.scopeId, fixture.authority.scopeId)),
       fixture.persistence.drizzle.select().from(
         fxSystemApplicationReadinessRelations,
-      ).orderBy(asc(fxSystemApplicationReadinessRelations.relationOrdinal)),
+      ).where(eq(fxSystemApplicationReadinessRelations.scopeId, fixture.authority.scopeId)).orderBy(asc(fxSystemApplicationReadinessRelations.relationOrdinal)),
       fixture.persistence.drizzle.select().from(
         fxSystemApplicationTaskDefinitions,
-      ),
+      ).where(eq(fxSystemApplicationTaskDefinitions.scopeId, fixture.authority.scopeId)),
     ]);
     expect(roots).toHaveLength(1);
-    expect(roots[0]).toMatchObject({
+    expect({
+      ...roots[0],
+      readinessBytes: encodeBytesToLowercaseHex(roots[0]?.readinessBytes ?? new Uint8Array()),
+    }).toMatchObject({
       readinessCodecVersion: 2,
       relationSetCodecVersion: 1,
       relationCount: 2,
-      readinessBytes: first.readinessBytes,
+      readinessBytes: encodeBytesToLowercaseHex(first.readinessBytes),
     });
     expect(encodeBytesToLowercaseHex(
       roots[0]?.relationSetReadinessSha256 ?? new Uint8Array(),
@@ -1859,25 +1865,25 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       await Promise.all([
         fixture.persistence.drizzle.select().from(
           fxControlApplicationSchemaAuthoritiesV1,
-        ),
+        ).where(eq(fxControlApplicationSchemaAuthoritiesV1.deploymentId, fixture.deploymentId)),
         fixture.persistence.drizzle.select().from(
           fxSystemApplicationPublicationsV1,
-        ),
+        ).where(eq(fxSystemApplicationPublicationsV1.scopeId, fixture.authority.scopeId)),
         fixture.persistence.drizzle.select().from(
           fxSystemApplicationTaskCatalogsV1,
-        ),
+        ).where(eq(fxSystemApplicationTaskCatalogsV1.scopeId, fixture.authority.scopeId)),
         fixture.persistence.drizzle.select().from(
           fxSystemApplicationTaskDefinitionsV1,
-        ),
+        ).where(eq(fxSystemApplicationTaskDefinitionsV1.scopeId, fixture.authority.scopeId)),
         fixture.persistence.drizzle.select().from(
           fxSystemApplicationReadinessV1,
-        ),
+        ).where(eq(fxSystemApplicationReadinessV1.scopeId, fixture.authority.scopeId)),
         fixture.persistence.drizzle.select().from(
           fxSystemApplicationActivations,
-        ),
+        ).where(eq(fxSystemApplicationActivations.scopeId, fixture.authority.scopeId)),
         fixture.persistence.drizzle.select().from(
           fxSystemApplicationActiveHeads,
-        ),
+        ).where(eq(fxSystemApplicationActiveHeads.scopeId, fixture.authority.scopeId)),
       ]);
     expect(legacySchemaAuthorities).toHaveLength(0);
     expect(legacyPublications).toHaveLength(0);
@@ -1886,10 +1892,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     expect(legacyReadiness).toHaveLength(0);
     expect(legacyActivations).toHaveLength(0);
     expect(legacyHeads).toHaveLength(0);
-  });
+  }));
 
-  it("cold-reconstructs, activates, validates, and serves one exact relation head", async () => {
-    const fixture = await relationReadinessFixture();
+  it("cold-reconstructs, activates, validates, and serves one exact relation head", async () => withPersistence(async persistence => {
+    const fixture = await relationReadinessFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     await prepareReadinessEvidence(fixture);
     const prepared = await runEffect(fixture.fold.settle(fixture.input));
     if (prepared.status !== "ready") {
@@ -2234,10 +2240,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     const [activations, heads] = await Promise.all([
       fixture.persistence.drizzle.select().from(
         fxSystemApplicationActivations,
-      ),
+      ).where(eq(fxSystemApplicationActivations.scopeId, fixture.authority.scopeId)),
       fixture.persistence.drizzle.select().from(
         fxSystemApplicationActiveHeads,
-      ),
+      ).where(eq(fxSystemApplicationActiveHeads.scopeId, fixture.authority.scopeId)),
     ]);
     expect(activations).toHaveLength(1);
     expect(activations[0]).toMatchObject({
@@ -2277,10 +2283,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       relationSetReadinessSha256: prepared.relationSetReadinessSha256,
       relationCount: 2,
     });
-  });
+  }));
 
-  it("reacquires an active relation selection after the commit frontier advances", async () => {
-    const ready = await readyExactRelationReadFixture();
+  it("reacquires an active relation selection after the commit frontier advances", async () => withPersistence(async persistence => {
+    const ready = await readyExactRelationReadFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     const beforeReplay = await relationActivationInventory(ready.fixture);
     await applyExactRelationSourceCommit(
       ready,
@@ -2355,10 +2361,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       selection: active.selection,
       relationId: ready.binding.relationId,
     }))).resolves.toBeDefined();
-  });
+  }));
 
-  it("rejects activation after an inactive relation builder restarts first", async () => {
-    const fixture = await relationReadinessFixture();
+  it("rejects activation after an inactive relation builder restarts first", async () => withPersistence(async persistence => {
+    const fixture = await relationReadinessFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     await prepareReadinessEvidence(fixture);
     const readiness = await runEffect(fixture.fold.settle(fixture.input));
     if (readiness.status !== "ready") {
@@ -2391,13 +2397,13 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       activations: 0,
       heads: 0,
     });
-  });
+  }));
 
-  it("rejects a stale selection before minting a relation read capability", async () => {
-    const ready = await readyExactRelationReadFixture();
+  it("rejects a stale selection before minting a relation read capability", async () => withPersistence(async persistence => {
+    const ready = await readyExactRelationReadFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     await ready.fixture.persistence.drizzle.delete(
       fxSystemApplicationActiveHeads,
-    );
+    ).where(eq(fxSystemApplicationActiveHeads.scopeId, ready.fixture.authority.scopeId));
     const failure = await runEffectFailure(ready.reads.prepare({
       deploymentId: ready.fixture.deploymentId,
       selection: ready.active.selection,
@@ -2408,10 +2414,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       operation: "validateSelection",
       reason: "concurrentHead",
     });
-  });
+  }));
 
-  it("rejects a stale relation capability before its first syscall writes evidence", async () => {
-    const ready = await readyExactRelationReadFixture();
+  it("rejects a stale relation capability before its first syscall writes evidence", async () => withPersistence(async persistence => {
+    const ready = await readyExactRelationReadFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     const randomUuid = uuidSequence(71, 72, 73);
     const activation = await activatePointMutationSession(
       createPointMutationSessionActivationPersistenceV1(
@@ -2451,7 +2457,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     );
     await ready.fixture.persistence.drizzle.delete(
       fxSystemApplicationActiveHeads,
-    );
+    ).where(eq(fxSystemApplicationActiveHeads.scopeId, ready.fixture.authority.scopeId));
 
     const failure = await runEffectFailure(
       store.runApplicationRelationIncomingReadEffect(relation, {
@@ -2471,10 +2477,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     });
     expect(await ready.fixture.persistence.drizzle.select().from(
       fxSystemTransactionJournalRelationIncomingDependencies,
-    )).toHaveLength(0);
+    ).where(eq(fxSystemTransactionJournalRelationIncomingDependencies.scopeUuid, projectScopeIdUuidV1(ready.fixture.authority.scopeId).scopeUuid))).toHaveLength(0);
     const roots = await ready.fixture.persistence.drizzle.select().from(
       fxSystemTransactionJournals,
-    );
+    ).where(eq(fxSystemTransactionJournals.scopeUuid, projectScopeIdUuidV1(ready.fixture.authority.scopeId).scopeUuid));
     expect(roots).toHaveLength(1);
     expect(roots[0]).toMatchObject({
       state: "open",
@@ -2482,10 +2488,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       relationReadSyscalls: 0,
       relationDependencyCount: 0,
     });
-  });
+  }));
 
-  it("rolls relation activation back atomically and rejects a conflicting request", async () => {
-    const fixture = await relationReadinessFixture();
+  it("rolls relation activation back atomically and rejects a conflicting request", async () => withPersistence(async persistence => {
+    const fixture = await relationReadinessFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     await prepareReadinessEvidence(fixture);
     const readiness = await runEffect(fixture.fold.settle(fixture.input));
     if (readiness.status !== "ready") {
@@ -2532,10 +2538,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       operation: "activate",
       reason: "alreadyActive",
     });
-  });
+  }));
 
-  it("fails closed on active root, child, and schema-binding corruption", async () => {
-    const candidateFixture = await readyExactRelationReadFixture();
+  it("fails closed on active root, child, and schema-binding corruption", async () => withPersistence(async persistence => {
+    const candidateFixture = await readyExactRelationReadFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     await candidateFixture.fixture.persistence.drizzle.update(
       fxSystemApplicationReadiness,
     ).set({
@@ -2552,7 +2558,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       reason: "conflictingReplay",
     });
 
-    const rootFixture = await readyExactRelationReadFixture();
+    const rootFixture = await readyExactRelationReadFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     await rootFixture.fixture.persistence.drizzle.update(
       fxSystemApplicationReadiness,
     ).set({ readinessBytes: new Uint8Array([0x7b]) }).where(eq(
@@ -2567,7 +2573,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       reason: "conflictingReplay",
     });
 
-    const childFixture = await readyExactRelationReadFixture();
+    const childFixture = await readyExactRelationReadFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     await childFixture.fixture.persistence.drizzle.delete(
       fxSystemApplicationReadinessRelations,
     ).where(and(
@@ -2585,7 +2591,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       reason: "storedState",
     });
 
-    const bindingFixture = await readyExactRelationReadFixture();
+    const bindingFixture = await readyExactRelationReadFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     await bindingFixture.fixture.persistence.drizzle.update(
       fxSystemApplicationRevisionSchemas,
     ).set({
@@ -2603,10 +2609,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       operation: "readReady",
       reason: "conflictingReplay",
     });
-  });
+  }));
 
-  it("reauthenticates historical physical relation receipts before selection", async () => {
-    const ready = await readyExactRelationReadFixture();
+  it("reauthenticates historical physical relation receipts before selection", async () => withPersistence(async persistence => {
+    const ready = await readyExactRelationReadFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     await applyExactRelationSourceCommit(
       ready,
       exactRelationCommitRowId(19_201),
@@ -2641,10 +2647,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
         reason: "receiptEvidence",
       });
     }
-  });
+  }));
 
-  it("reauthenticates historical semantic relation receipts before selection", async () => {
-    const ready = await readyExactRelationReadFixture({ semanticReuse: true });
+  it("reauthenticates historical semantic relation receipts before selection", async () => withPersistence(async persistence => {
+    const ready = await readyExactRelationReadFixture({ persistence: persistence.target, controlPersistence: persistence.target, semanticReuse: true });
     await applyExactRelationSourceCommit(
       ready,
       exactRelationCommitRowId(19_301),
@@ -2679,10 +2685,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
         reason: "semanticReceipt",
       });
     }
-  });
+  }));
 
-  it("authenticates a two-export publication before continuing to the candidate gate", async () => {
-    const fixture = await relationReadinessFixture({ includeFunction: true });
+  it("authenticates a two-export publication before continuing to the candidate gate", async () => withPersistence(async persistence => {
+    const fixture = await relationReadinessFixture({ persistence: persistence.target, controlPersistence: persistence.target, includeFunction: true });
 
     const result = await runEffect(fixture.fold.settle(fixture.input));
 
@@ -2693,18 +2699,18 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     });
     expect(await fixture.persistence.drizzle.select().from(
       fxSystemApplicationReadiness,
-    )).toHaveLength(0);
+    ).where(eq(fxSystemApplicationReadiness.scopeId, fixture.authority.scopeId))).toHaveLength(0);
     expect(await fixture.persistence.drizzle.select().from(
       fxSystemApplicationReadinessV1,
-    )).toHaveLength(0);
+    ).where(eq(fxSystemApplicationReadinessV1.scopeId, fixture.authority.scopeId))).toHaveLength(0);
     expect(fixture.legacyColdCalls()).toBe(0);
-  });
+  }));
 
-  it("bounds overfull persisted function sets before rejecting replay and fold", async () => {
-    const fixture = await relationReadinessFixture();
+  it("bounds overfull persisted function sets before rejecting replay and fold", async () => withPersistence(async persistence => {
+    const fixture = await relationReadinessFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     const storedPublications = await fixture.persistence.drizzle.select().from(
       fxSystemApplicationPublications,
-    );
+    ).where(eq(fxSystemApplicationPublications.scopeId, fixture.authority.scopeId));
     const storedPublication = storedPublications[0];
     if (storedPublication === undefined) {
       throw new Error("Expected a relation-aware Application publication.");
@@ -2740,13 +2746,13 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     if (Result.isFailure(fold)) {
       expect(fold.failure).toMatchObject({ reason: "storedState" });
     }
-  });
+  }));
 
-  it("bounds overfull persisted task sets before rejecting replay and fold", async () => {
-    const fixture = await relationReadinessFixture();
+  it("bounds overfull persisted task sets before rejecting replay and fold", async () => withPersistence(async persistence => {
+    const fixture = await relationReadinessFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     const catalogs = await fixture.persistence.drizzle.select().from(
       fxSystemApplicationTaskCatalogs,
-    );
+    ).where(eq(fxSystemApplicationTaskCatalogs.scopeId, fixture.authority.scopeId));
     const catalog = catalogs[0];
     if (catalog === undefined) {
       throw new Error("Expected a relation-aware Application task catalog.");
@@ -2781,10 +2787,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     if (Result.isFailure(fold)) {
       expect(fold.failure).toMatchObject({ reason: "storedState" });
     }
-  });
+  }));
 
-  it("rejects a relation-readiness port from a different authority composition", async () => {
-    const fixture = await relationReadinessFixture();
+  it("rejects a relation-readiness port from a different authority composition", async () => withPersistence(async persistence => {
+    const fixture = await relationReadinessFixture({ persistence: persistence.target, controlPersistence: persistence.target });
     const foreignAuthority = Object.freeze({ ...fixture.authorityPorts });
     const foreignRelations = createApplicationRelationReadinessPort(
       fixture.persistence.drizzle,
@@ -2808,7 +2814,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
         reason: "invalidComposition",
       });
     }
-  });
+  }));
 
   it("rolls back schema, root, and children when ordered child insertion fails", async () => {
     const fixture = await relationReadinessFixture();
@@ -2847,8 +2853,8 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     expect(children).toHaveLength(0);
   });
 
-  it("persists, replays, and digest-binds a semantic-reuse child", async () => {
-    const fixture = await relationReadinessFixture({ semanticReuse: true });
+  it("persists, replays, and digest-binds a semantic-reuse child", async () => withPersistence(async persistence => {
+    const fixture = await relationReadinessFixture({ persistence: persistence.target, controlPersistence: persistence.target, semanticReuse: true });
     await prepareReadinessEvidence(fixture);
 
     const first = await runEffect(fixture.fold.settle(fixture.input));
@@ -2866,7 +2872,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     });
     const children = await fixture.persistence.drizzle.select().from(
       fxSystemApplicationReadinessRelations,
-    );
+    ).where(eq(fxSystemApplicationReadinessRelations.scopeId, fixture.authority.scopeId));
     expect(children).toHaveLength(1);
     expect(children[0]).toMatchObject({
       relationOrdinal: 1,
@@ -2876,7 +2882,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     expect(children[0]?.semanticAttemptFence).not.toBeNull();
     const physicalRows = await fixture.persistence.drizzle.select().from(
       fxSystemEdgeDefinitionReadiness,
-    );
+    ).where(eq(fxSystemEdgeDefinitionReadiness.scopeId, fixture.authority.scopeId));
     const child = children[0];
     const physical = physicalRows[0];
     if (child === undefined || physical === undefined) {
@@ -2894,7 +2900,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
         child.relationOrdinal,
       ),
     ))).rejects.toThrow();
-  });
+  }));
 });
 
 async function exerciseActiveHeadTransition(options: Parameters<typeof readyExactRelationReadFixture>[0] = {}) {
@@ -3088,7 +3094,7 @@ async function exerciseActiveHeadTransition(options: Parameters<typeof readyExac
 
     const activations = await ready.fixture.persistence.drizzle.select().from(
       fxSystemApplicationActivations,
-    ).orderBy(asc(fxSystemApplicationActivations.activationSequence));
+    ).where(eq(fxSystemApplicationActivations.scopeId, ready.fixture.authority.scopeId)).orderBy(asc(fxSystemApplicationActivations.activationSequence));
     expect(activations.map(row => ({
       activationSequence: row.activationSequence,
       previousActivationSequence: row.previousActivationSequence,
@@ -3137,7 +3143,7 @@ async function exerciseActiveHeadTransition(options: Parameters<typeof readyExac
     ]).size).toBe(3);
     const finalHeads = await ready.fixture.persistence.drizzle.select().from(
       fxSystemApplicationActiveHeads,
-    );
+    ).where(eq(fxSystemApplicationActiveHeads.scopeId, ready.fixture.authority.scopeId));
     expect(finalHeads).toHaveLength(1);
     expect(finalHeads[0]).toMatchObject({
       activationSequence: 3n,

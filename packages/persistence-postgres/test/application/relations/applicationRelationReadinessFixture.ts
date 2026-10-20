@@ -189,16 +189,16 @@ export async function relationActivationInventory(
   const [roots, children, activations, heads] = await Promise.all([
     fixture.persistence.drizzle.select().from(
       fxSystemApplicationReadiness,
-    ),
+    ).where(eq(fxSystemApplicationReadiness.scopeId, fixture.authority.scopeId)),
     fixture.persistence.drizzle.select().from(
       fxSystemApplicationReadinessRelations,
-    ),
+    ).where(eq(fxSystemApplicationReadinessRelations.scopeId, fixture.authority.scopeId)),
     fixture.persistence.drizzle.select().from(
       fxSystemApplicationActivations,
-    ),
+    ).where(eq(fxSystemApplicationActivations.scopeId, fixture.authority.scopeId)),
     fixture.persistence.drizzle.select().from(
       fxSystemApplicationActiveHeads,
-    ),
+    ).where(eq(fxSystemApplicationActiveHeads.scopeId, fixture.authority.scopeId)),
   ]);
   return Object.freeze({
     roots: roots.length,
