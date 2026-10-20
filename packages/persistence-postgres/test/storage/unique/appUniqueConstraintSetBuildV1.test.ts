@@ -60,7 +60,12 @@ import {
   appendPreparedAppRowRevisionsInTransactionEffect,
   type AppRowTransaction,
 } from "../../../src/storage/documents/appRows";
-import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import {
+  createFileScopedPGliteFixture,
+  createMigratedPGlitePersistence,
+  resetScopeAuthorityRowsInTransaction,
+} from "../../support/pgliteTestFixture";
+import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
 import type { ScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
@@ -80,225 +85,1009 @@ const LOCATOR = Object.freeze({
 } as const satisfies ScopePhysicalLocator);
 let fixtureOrdinal = 0;
 
-describe("C08-B1 closed unique-set build foundation", () => {
-  it.each(["original","laterCompactFault","clockFailure"] as const)("preserves original post-lock clock and native getter order with %s", async fault => {
-    const fixture = await fixtureFor("returned_build_getter");
-    await ensureBinding(fixture, await prepareBinding(fixture, "by_email", false));
-    await ensureBinding(fixture, await prepareBinding(fixture, "by_tenant", false));
-    await closeSet(fixture);
-    await reconcile(fixture);
-    // Finite PostgreSQL dates outside the JavaScript Date range reach the
-    // native invalid-row route without violating the stored time constraint.
-    await fixture.persistence.query("update fx_system_unique_constraint_build set created_at='280000-01-01 00:00:00+00'::timestamptz,updated_at='280000-01-01 00:00:00+00'::timestamptz where scope_id=$1",[fixture.scopeId]);
-    const before = await buildRows(fixture);
-    const marker = new Error("native returned unique build getter");
-    const clockMarker = new Error("actual post-lock unique clock failure before compact syntax");
-    const observation = { selectedReads: 0, laterRowVisits: 0, statementsAfterRows: [] as string[] };
-    const runner = createDefaultLocatedReadCommittedTransactionRunnerV1(fixture.persistence.drizzle);
-    const target = createLocatedAppUniqueConstraintSetBuildTargetV1(fixture.persistence.drizzle, LOCATOR,
-      work => runner(tx => work(observeUniqueBuildReturnedRows(tx, marker, observation,{
-        laterCompactFault:fault==="laterCompactFault",captureSyntaxFault:fault==="clockFailure",
-        ...(fault==="clockFailure" ? {postLockClockFailure:clockMarker}:{}),
-      }))));
-    const exit = await runEffect(Effect.exit(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
-      eligibilityPort(fixture, target), eligibilityInput(fixture))));
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      expect(Cause.hasFails(exit.cause)).toBe(fault==="clockFailure");
-      if (fault==="clockFailure") {
-        expect(Cause.hasDies(exit.cause)).toBe(false);
-        expect(Result.getOrThrow(Cause.findError(exit.cause))).toMatchObject({_tag:"AppUniqueConstraintSetBuildIntegrationV1Error"});
-      } else expect(exit.cause.reasons.some(reason => Cause.isDieReason(reason) && reason.defect === marker)).toBe(true);
-    }
-    expect(observation.selectedReads).toBe(1);
-    expect(observation.laterRowVisits).toBe(0);
-    expect(observation.statementsAfterRows.every(statement => statement.includes("fx_system_scope_clock"))).toBe(true);
-    expect(await buildRows(fixture)).toEqual(before);
-  }, 30_000);
+describe("C08-B1 closed unique-set build foundation", { concurrent: false }, () => {
+  describe("reusable fixture", { concurrent: false }, () => {
+    const withPersistence = useFileScopedUniqueSetPersistence();
 
-  it.each([false, true])("builds conditional nullable keys with active duplicate = %s", async duplicate => {
-    const fixture = await fixtureFor(`conditional_${duplicate}`);
-    const spec = decodeAppUniqueConstraintPhysicalSpecV1({ kind: "appUniqueConstraint", specVersion: 1,
-      orderedFields: ["email"], sparse: false, nullsDistinct: true, predicate: { kind: "fieldIsNull", field: "deleted_at" },
-      localePolicy: { kind: "none" }, keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1, keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1 });
-    await ensureBinding(fixture, await prepareBinding(fixture, "by_email", false, spec));
-    await closeSet(fixture);
-    for (const [position, fields] of [
-      { email: "same", deleted_at: null }, { email: "same", deleted_at: duplicate ? null : "2026-01-01" },
-      { email: null, deleted_at: null }, { email: null, deleted_at: null },
-    ].entries()) await appendDocument(fixture, rowId(position + 1), 1n, null, { tenantId: "t", ...fields });
-    await setClockCommit(fixture, 1n);
-    await reconcile(fixture);
-    await advanceBackfill(fixture, 16);
-    await advanceBackfill(fixture, 16);
-    if (duplicate) {
-      await expect(advanceBackfill(fixture, 16)).rejects.toMatchObject({ _tag: "AppUniqueKeyConflictError" });
-      expect(await uniqueClaims(fixture)).toEqual([]);
-      expect(await buildRows(fixture)).toMatchObject([{ lifecycle: "backfilling", cursor_row_hex: null }]);
-    } else {
-      expect(await advanceBackfill(fixture, 16)).toMatchObject({ claimed: 1, omitted: 3 });
-      await advanceToEnabled(fixture, 16);
-      expect(await uniqueClaims(fixture)).toMatchObject([{ row_id_hex: rowId(1) }]);
-    }
-  });
-  it.each(["malformed", "getterDefect"] as const)("preserves %s driver wrapper failure semantics", async mode => {
-    const fixture = await closedFixture(`driver_${mode}`);
-    await reconcile(fixture);
-    await advanceBackfill(fixture, 1);
-    await advanceBackfill(fixture, 1);
-    const before = await buildRows(fixture);
-    const defect = new Error("driver wrapper getter defect");
-    const wrapper = mode === "malformed" ? { rows: null } : Object.defineProperty({}, "rows", { get() { throw defect; } });
-    const baseRunner = createDefaultLocatedReadCommittedTransactionRunnerV1(fixture.persistence.drizzle);
-    const target = createLocatedAppUniqueConstraintSetBuildTargetV1(fixture.persistence.drizzle, LOCATOR, work => baseRunner(tx => work(new Proxy(tx, {
-      get(transaction, property) {
-        if (property === "execute") return (...args: unknown[]) => {
-          const query = args[0];
-          if (query instanceof SQL && new PgDialect().sqlToQuery(query).sql.includes("select identity.row_id")) return Promise.resolve(wrapper);
-          return Reflect.apply(transaction.execute, transaction, args);
-        };
-        const member = Reflect.get(transaction, property, transaction);
-        return typeof member === "function" ? member.bind(transaction) : member;
-      },
-    }))));
-    const base = ports(fixture);
-    const exit = await runEffect(Effect.exit(advanceAppUniqueConstraintSetBackfillV1Effect({ ...base, authority: { ...base.authority, scopeClockTargets: { resolve: async () => target } } }, { ...input(fixture), pageSize: 1 })));
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      expect(Cause.hasDies(exit.cause)).toBe(mode === "getterDefect");
-      expect(Cause.hasFails(exit.cause)).toBe(mode === "malformed");
-      if (mode === "getterDefect") expect(Result.getOrThrow(Cause.findDie(exit.cause)).defect).toBe(defect);
-      else expect(Result.getOrThrow(Cause.findFail(exit.cause)).error).toMatchObject({ _tag: "AppUniqueConstraintSetBuildStateV1Error", reason: "storedStateInvalid" });
-    }
-    expect(await buildRows(fixture)).toEqual(before);
-    expect(await uniqueClaims(fixture)).toEqual([]);
-    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({ lifecycle: "validating" });
-  });
+    it.each(["original","laterCompactFault","clockFailure"] as const)("preserves original post-lock clock and native getter order with %s", async fault => {
+      return withPersistence(async persistence => {
+        const fixture = await fixtureFor(persistence, "returned_build_getter");
+        await ensureBinding(fixture, await prepareBinding(fixture, "by_email", false));
+        await ensureBinding(fixture, await prepareBinding(fixture, "by_tenant", false));
+        await closeSet(fixture);
+        await reconcile(fixture);
+        // Finite PostgreSQL dates outside the JavaScript Date range reach the
+        // native invalid-row route without violating the stored time constraint.
+        await fixture.persistence.query("update fx_system_unique_constraint_build set created_at='280000-01-01 00:00:00+00'::timestamptz,updated_at='280000-01-01 00:00:00+00'::timestamptz where scope_id=$1",[fixture.scopeId]);
+        const before = await buildRows(fixture);
+        const marker = new Error("native returned unique build getter");
+        const clockMarker = new Error("actual post-lock unique clock failure before compact syntax");
+        const observation = { selectedReads: 0, laterRowVisits: 0, statementsAfterRows: [] as string[] };
+        const runner = createDefaultLocatedReadCommittedTransactionRunnerV1(fixture.persistence.drizzle);
+        const target = createLocatedAppUniqueConstraintSetBuildTargetV1(fixture.persistence.drizzle, LOCATOR,
+          work => runner(tx => work(observeUniqueBuildReturnedRows(tx, marker, observation,{
+            laterCompactFault:fault==="laterCompactFault",captureSyntaxFault:fault==="clockFailure",
+            ...(fault==="clockFailure" ? {postLockClockFailure:clockMarker}:{}),
+          }))));
+        const exit = await runEffect(Effect.exit(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
+          eligibilityPort(fixture, target), eligibilityInput(fixture))));
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Cause.hasFails(exit.cause)).toBe(fault==="clockFailure");
+          if (fault==="clockFailure") {
+            expect(Cause.hasDies(exit.cause)).toBe(false);
+            expect(Result.getOrThrow(Cause.findError(exit.cause))).toMatchObject({_tag:"AppUniqueConstraintSetBuildIntegrationV1Error"});
+          } else expect(exit.cause.reasons.some(reason => Cause.isDieReason(reason) && reason.defect === marker)).toBe(true);
+        }
+        expect(observation.selectedReads).toBe(1);
+        expect(observation.laterRowVisits).toBe(0);
+        expect(observation.statementsAfterRows.every(statement => statement.includes("fx_system_scope_clock"))).toBe(true);
+        expect(await buildRows(fixture)).toEqual(before);
+      });
+    }, 30_000);
 
-  it("bounds inherited claim draining and recovers rollback plus a lost response", async () => {
-    const fixture = await closedFixture("inherited_claim_drain");
-    const persistence = fixture.persistence;
-    for (let n = 1; n <= 17; n += 1) await appendLiveRow(fixture, rowId(n), 1n, null, { tenantId: "tenant", email: `owner${n}@example.com` });
-    await setClockCommit(fixture, 1n);
-    await reconcile(fixture);
-    await advanceToEnabled(fixture, 16);
-    const claims = await persistence.query(`select *, xmin::text tuple_version from fx_app_unique_key order by row_id`);
-    expect(claims.rows).toHaveLength(17);
-    // Models 0097 replacing progress while preserving inherited stable claims.
-    await persistence.query("delete from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId]);
-    await reconcile(fixture);
-    await advanceBackfill(fixture, 16);
-    const before = await persistence.query("select * from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId]);
-    const buildPorts = ports(fixture);
-    const buildInput = input(fixture);
-    await expect(runEffect(advanceAppUniqueConstraintSetBackfillV1Effect(buildPorts, { ...buildInput, pageSize: 1 }, {
-      faultAfter: point => { if (point === "afterInitialClaimDrain") throw new Error("rollback initial drain"); },
-    }))).rejects.toMatchObject({ _tag: "AppUniqueConstraintSetBuildIntegrationV1Error" });
-    expect((await persistence.query("select * from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId])).rows).toEqual(before.rows);
-    expect((await persistence.query(`select *, xmin::text tuple_version from fx_app_unique_key order by row_id`)).rows).toEqual(claims.rows);
-    const baseRunner = createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle);
-    let drained = false;
-    const target = createLocatedAppUniqueConstraintSetBuildTargetV1(persistence.drizzle, LOCATOR, async work => {
-      const value = await baseRunner(work);
-      if (!drained) {
-        drained = true;
-        throw new LocatedReadCommittedTransactionFailureV1({ kind: "decisionUncertain", settlementCause: new Error("lost drain response") });
-      }
-      return value;
+    it.each([false, true])("builds conditional nullable keys with active duplicate = %s", async duplicate => {
+      return withPersistence(async persistence => {
+        const fixture = await fixtureFor(persistence, `conditional_${duplicate}`);
+        const spec = decodeAppUniqueConstraintPhysicalSpecV1({ kind: "appUniqueConstraint", specVersion: 1,
+          orderedFields: ["email"], sparse: false, nullsDistinct: true, predicate: { kind: "fieldIsNull", field: "deleted_at" },
+          localePolicy: { kind: "none" }, keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1, keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1 });
+        await ensureBinding(fixture, await prepareBinding(fixture, "by_email", false, spec));
+        await closeSet(fixture);
+        for (const [position, fields] of [
+          { email: "same", deleted_at: null }, { email: "same", deleted_at: duplicate ? null : "2026-01-01" },
+          { email: null, deleted_at: null }, { email: null, deleted_at: null },
+        ].entries()) await appendDocument(fixture, rowId(position + 1), 1n, null, { tenantId: "t", ...fields });
+        await setClockCommit(fixture, 1n);
+        await reconcile(fixture);
+        await advanceBackfill(fixture, 16);
+        await advanceBackfill(fixture, 16);
+        if (duplicate) {
+          await expect(advanceBackfill(fixture, 16)).rejects.toMatchObject({ _tag: "AppUniqueKeyConflictError" });
+          expect(await uniqueClaims(fixture)).toEqual([]);
+          expect(await buildRows(fixture)).toMatchObject([{ lifecycle: "backfilling", cursor_row_hex: null }]);
+        } else {
+          expect(await advanceBackfill(fixture, 16)).toMatchObject({ claimed: 1, omitted: 3 });
+          await advanceToEnabled(fixture, 16);
+          expect(await uniqueClaims(fixture)).toMatchObject([{ row_id_hex: rowId(1) }]);
+        }
+      });
     });
-    await expect(runEffect(advanceAppUniqueConstraintSetBackfillV1Effect({ ...buildPorts, authority: { ...buildPorts.authority, scopeClockTargets: { resolve: async () => target } } }, { ...buildInput, pageSize: 1 })))
-      .rejects.toMatchObject({ _tag: "AppUniqueConstraintSetBuildDecisionUncertainV1Error" });
-    expect((await persistence.query("select * from fx_app_unique_key")).rows).toHaveLength(1);
-    expect((await persistence.query("select lifecycle, covered_through_commit_seq from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId])).rows)
-      .toEqual([{ lifecycle: "building", covered_through_commit_seq: null }]);
-    await expect(advanceBackfill(fixture, 16)).resolves.toMatchObject({ lifecycle: "backfilling" });
-    expect((await persistence.query("select * from fx_app_unique_key")).rows).toHaveLength(0);
-    await advanceToEnabled(fixture, 16);
-    const rebuilt = await persistence.query("select constraint_id, encoded_key, row_id from fx_app_unique_key order by row_id");
-    expect(rebuilt.rows).toEqual(claims.rows.map(({ constraint_id, encoded_key, row_id }) => ({ constraint_id, encoded_key, row_id })));
-    // Repeated reconciliation must not accumulate an unrelated feed backlog.
-    for (const seq of [102, 203]) {
-      await setClockCommit(fixture, BigInt(seq));
-      await expect(advanceBackfill(fixture, 16)).resolves.toMatchObject({ lifecycle: "enabled", status: "replayed" });
-      expect((await persistence.query<{ coverage: string }>("select covered_through_commit_seq::text coverage from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId])).rows).toEqual([{ coverage: String(seq) }]);
-    }
-    await appendLiveRow(fixture, rowId(1), 204n, 1n, { tenantId: "tenant", email: "changed@example.com" });
-    await setClockCommit(fixture, 204n);
-    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({ lifecycle: "enabled" });
-    expect((await persistence.query("select encoded_key from fx_app_unique_key order by row_id")).rows[0]).not.toEqual({ encoded_key: rebuilt.rows[0]?.encoded_key });
-    expect((await persistence.query("select covered_through_commit_seq::text coverage from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId])).rows).toEqual([{ coverage: "204" }]);
 
-  }, 120_000);
-
-  it("observes executed key-share readiness SQL while retaining the planner update lock", async () => {
-    const fixture = await closedFixture("eligibility_lock_modes");
-    await reconcile(fixture);
-    await advanceBackfill(fixture, 16);
-    await advanceBackfill(fixture, 16);
-    await advanceBackfill(fixture, 16);
-    await advanceBackfill(fixture, 16);
-    const lockModes: string[] = [];
-    const target = createLocatedAppUniqueConstraintSetBuildTargetV1(
-      fixture.persistence.drizzle,
-      LOCATOR,
-      work => fixture.persistence.drizzle.transaction(tx =>
-        work(observeForLockModes(tx, lockModes))
-      ),
-    );
-    const observedPorts = {
-      ...ports(fixture),
-      authority: {
-        ...ports(fixture).authority,
-        scopeClockTargets: { resolve: async () => target },
-      },
-    } as const;
-    const definitions = createAppUniqueConstraintDefinitionPortV1(
-      fixture.persistence.drizzle,
-    );
-    const port = createAppUniqueConstraintSetEligibilityPortV1(
-      observedPorts,
-      definitions,
-    );
-
-    await expect(runEffect(
-      loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
-        port,
-        eligibilityInput(fixture),
-      ),
-    )).resolves.toMatchObject({ status: "eligible" });
-    expect(lockModes).toContain("key share");
-    expect(lockModes).not.toContain("share");
-    expect(lockModes).not.toContain("update");
-
-    lockModes.length = 0;
-    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
-      port,
-      eligibilityInput(fixture),
-    ))).resolves.toMatchObject({ status: "eligible" });
-    expect(lockModes).toContain("update");
-  });
-
-  it("reads an enabled unique set by exact scope after another shop joins its deployment", async () => {
-    const fixture = await closedFixture("eligibility_peer_scope");
-    await fixture.persistence.insertScopeMetadata({
-      deploymentId: fixture.deploymentId,
-      scopeId: ScopeIdSchema.make("scope_unique_eligibility_peer"),
-      physicalLocator: LOCATOR,
+    it.each(["malformed", "getterDefect"] as const)("preserves %s driver wrapper failure semantics", async mode => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, `driver_${mode}`);
+        await reconcile(fixture);
+        await advanceBackfill(fixture, 1);
+        await advanceBackfill(fixture, 1);
+        const before = await buildRows(fixture);
+        const defect = new Error("driver wrapper getter defect");
+        const wrapper = mode === "malformed" ? { rows: null } : Object.defineProperty({}, "rows", { get() { throw defect; } });
+        const baseRunner = createDefaultLocatedReadCommittedTransactionRunnerV1(fixture.persistence.drizzle);
+        const target = createLocatedAppUniqueConstraintSetBuildTargetV1(fixture.persistence.drizzle, LOCATOR, work => baseRunner(tx => work(new Proxy(tx, {
+          get(transaction, property) {
+            if (property === "execute") return (...args: unknown[]) => {
+              const query = args[0];
+              if (query instanceof SQL && new PgDialect().sqlToQuery(query).sql.includes("select identity.row_id")) return Promise.resolve(wrapper);
+              return Reflect.apply(transaction.execute, transaction, args);
+            };
+            const member = Reflect.get(transaction, property, transaction);
+            return typeof member === "function" ? member.bind(transaction) : member;
+          },
+        }))));
+        const base = ports(fixture);
+        const exit = await runEffect(Effect.exit(advanceAppUniqueConstraintSetBackfillV1Effect({ ...base, authority: { ...base.authority, scopeClockTargets: { resolve: async () => target } } }, { ...input(fixture), pageSize: 1 })));
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Cause.hasDies(exit.cause)).toBe(mode === "getterDefect");
+          expect(Cause.hasFails(exit.cause)).toBe(mode === "malformed");
+          if (mode === "getterDefect") expect(Result.getOrThrow(Cause.findDie(exit.cause)).defect).toBe(defect);
+          else expect(Result.getOrThrow(Cause.findFail(exit.cause)).error).toMatchObject({ _tag: "AppUniqueConstraintSetBuildStateV1Error", reason: "storedStateInvalid" });
+        }
+        expect(await buildRows(fixture)).toEqual(before);
+        expect(await uniqueClaims(fixture)).toEqual([]);
+        await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({ lifecycle: "validating" });
+      });
     });
-    await reconcile(fixture);
-    await advanceToEnabled(fixture, 16);
 
-    expect(await runEffect(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
-      eligibilityPort(fixture),
-      eligibilityInput(fixture),
-    ))).toMatchObject({
-      status: "eligible",
-      evidence: { scopeId: fixture.scopeId, definitionCount: 1 },
+    it("bounds inherited claim draining and recovers rollback plus a lost response", async () => {
+      return withPersistence(async borrowedPersistence => {
+        const fixture = await closedFixture(borrowedPersistence, "inherited_claim_drain");
+        const persistence = fixture.persistence;
+        for (let n = 1; n <= 17; n += 1) await appendLiveRow(fixture, rowId(n), 1n, null, { tenantId: "tenant", email: `owner${n}@example.com` });
+        await setClockCommit(fixture, 1n);
+        await reconcile(fixture);
+        await advanceToEnabled(fixture, 16);
+        const claims = await persistence.query(`select *, xmin::text tuple_version from fx_app_unique_key order by row_id`);
+        expect(claims.rows).toHaveLength(17);
+        // Models 0097 replacing progress while preserving inherited stable claims.
+        await persistence.query("delete from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId]);
+        await reconcile(fixture);
+        await advanceBackfill(fixture, 16);
+        const before = await persistence.query("select * from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId]);
+        const buildPorts = ports(fixture);
+        const buildInput = input(fixture);
+        await expect(runEffect(advanceAppUniqueConstraintSetBackfillV1Effect(buildPorts, { ...buildInput, pageSize: 1 }, {
+          faultAfter: point => { if (point === "afterInitialClaimDrain") throw new Error("rollback initial drain"); },
+        }))).rejects.toMatchObject({ _tag: "AppUniqueConstraintSetBuildIntegrationV1Error" });
+        expect((await persistence.query("select * from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId])).rows).toEqual(before.rows);
+        expect((await persistence.query(`select *, xmin::text tuple_version from fx_app_unique_key order by row_id`)).rows).toEqual(claims.rows);
+        const baseRunner = createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle);
+        let drained = false;
+        const target = createLocatedAppUniqueConstraintSetBuildTargetV1(persistence.drizzle, LOCATOR, async work => {
+          const value = await baseRunner(work);
+          if (!drained) {
+            drained = true;
+            throw new LocatedReadCommittedTransactionFailureV1({ kind: "decisionUncertain", settlementCause: new Error("lost drain response") });
+          }
+          return value;
+        });
+        await expect(runEffect(advanceAppUniqueConstraintSetBackfillV1Effect({ ...buildPorts, authority: { ...buildPorts.authority, scopeClockTargets: { resolve: async () => target } } }, { ...buildInput, pageSize: 1 })))
+          .rejects.toMatchObject({ _tag: "AppUniqueConstraintSetBuildDecisionUncertainV1Error" });
+        expect((await persistence.query("select * from fx_app_unique_key")).rows).toHaveLength(1);
+        expect((await persistence.query("select lifecycle, covered_through_commit_seq from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId])).rows)
+          .toEqual([{ lifecycle: "building", covered_through_commit_seq: null }]);
+        await expect(advanceBackfill(fixture, 16)).resolves.toMatchObject({ lifecycle: "backfilling" });
+        expect((await persistence.query("select * from fx_app_unique_key")).rows).toHaveLength(0);
+        await advanceToEnabled(fixture, 16);
+        const rebuilt = await persistence.query("select constraint_id, encoded_key, row_id from fx_app_unique_key order by row_id");
+        expect(rebuilt.rows).toEqual(claims.rows.map(({ constraint_id, encoded_key, row_id }) => ({ constraint_id, encoded_key, row_id })));
+        // Repeated reconciliation must not accumulate an unrelated feed backlog.
+        for (const seq of [102, 203]) {
+          await setClockCommit(fixture, BigInt(seq));
+          await expect(advanceBackfill(fixture, 16)).resolves.toMatchObject({ lifecycle: "enabled", status: "replayed" });
+          expect((await persistence.query<{ coverage: string }>("select covered_through_commit_seq::text coverage from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId])).rows).toEqual([{ coverage: String(seq) }]);
+        }
+        await appendLiveRow(fixture, rowId(1), 204n, 1n, { tenantId: "tenant", email: "changed@example.com" });
+        await setClockCommit(fixture, 204n);
+        await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({ lifecycle: "enabled" });
+        expect((await persistence.query("select encoded_key from fx_app_unique_key order by row_id")).rows[0]).not.toEqual({ encoded_key: rebuilt.rows[0]?.encoded_key });
+        expect((await persistence.query("select covered_through_commit_seq::text coverage from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId])).rows).toEqual([{ coverage: "204" }]);
+      });
+    }, 120_000);
+
+    it("observes executed key-share readiness SQL while retaining the planner update lock", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "eligibility_lock_modes");
+        await reconcile(fixture);
+        await advanceBackfill(fixture, 16);
+        await advanceBackfill(fixture, 16);
+        await advanceBackfill(fixture, 16);
+        await advanceBackfill(fixture, 16);
+        const lockModes: string[] = [];
+        const target = createLocatedAppUniqueConstraintSetBuildTargetV1(
+          fixture.persistence.drizzle,
+          LOCATOR,
+          work => fixture.persistence.drizzle.transaction(tx =>
+            work(observeForLockModes(tx, lockModes))
+          ),
+        );
+        const observedPorts = {
+          ...ports(fixture),
+          authority: {
+            ...ports(fixture).authority,
+            scopeClockTargets: { resolve: async () => target },
+          },
+        } as const;
+        const definitions = createAppUniqueConstraintDefinitionPortV1(
+          fixture.persistence.drizzle,
+        );
+        const port = createAppUniqueConstraintSetEligibilityPortV1(
+          observedPorts,
+          definitions,
+        );
+
+        await expect(runEffect(
+          loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
+            port,
+            eligibilityInput(fixture),
+          ),
+        )).resolves.toMatchObject({ status: "eligible" });
+        expect(lockModes).toContain("key share");
+        expect(lockModes).not.toContain("share");
+        expect(lockModes).not.toContain("update");
+
+        lockModes.length = 0;
+        await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+          port,
+          eligibilityInput(fixture),
+        ))).resolves.toMatchObject({ status: "eligible" });
+        expect(lockModes).toContain("update");
+      });
+    });
+
+    it("reads an enabled unique set by exact scope after another shop joins its deployment", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "eligibility_peer_scope");
+        await fixture.persistence.insertScopeMetadata({
+          deploymentId: fixture.deploymentId,
+          scopeId: ScopeIdSchema.make("scope_unique_eligibility_peer"),
+          physicalLocator: LOCATOR,
+        });
+        await reconcile(fixture);
+        await advanceToEnabled(fixture, 16);
+
+        expect(await runEffect(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
+          eligibilityPort(fixture),
+          eligibilityInput(fixture),
+        ))).toMatchObject({
+          status: "eligible",
+          evidence: { scopeId: fixture.scopeId, definitionCount: 1 },
+        });
+      });
+    });
+
+    it("batches uncovered unique definitions across independent tables in each fresh inspection", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await fixtureFor(persistence, "multi_table_frontier", ["users", "projects"]);
+        const secondTableId = fixture.tableIds[1];
+        if (secondTableId === undefined) throw new Error("Missing second unique-set table");
+        await ensureBinding(fixture, await prepareBinding(fixture, "by_email", false));
+        await ensureBinding(fixture, await prepareBinding(fixture, "by_tenant", false));
+        await ensureBinding(fixture, await prepareBinding(fixture, "by_email", false, undefined, secondTableId));
+        await closeSet(fixture);
+        await reconcile(fixture);
+        await fixture.persistence.query(
+          `update fx_system_unique_constraint_build
+              set lifecycle = 'enabled', covered_through_commit_seq = 0
+            where scope_id = $1 and unique_constraint_definition_id in
+              (select unique_constraint_definition_id from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
+          [fixture.scopeId, fixture.schemaVersionId],
+        );
+        const members = (await fixture.persistence.query<{ table_id: number }>(
+          `select definition.table_id from fx_control_schema_version_unique_constraint_binding binding
+           join fx_control_unique_constraint_definition definition on
+             definition.deployment_id = binding.deployment_id and
+             definition.unique_constraint_definition_id = binding.unique_constraint_definition_id
+           where binding.schema_version_id = $1 order by binding.unique_constraint_definition_id`,
+          [fixture.schemaVersionId],
+        )).rows;
+        expect(members.map(member => member.table_id)).toEqual([fixture.tableId, fixture.tableId, secondTableId]);
+
+        let frontierQueries = 0;
+        let corruptSecondFrontier = false;
+        let failFrontierQuery = false;
+        const target = createLocatedAppUniqueConstraintSetBuildTargetV1(
+          fixture.persistence.drizzle, LOCATOR,
+          work => fixture.persistence.drizzle.transaction(tx => work(new Proxy(tx, {
+            get(transaction, property) {
+              const member = Reflect.get(transaction, property, transaction);
+              if (property !== "execute" || typeof member !== "function") return member;
+              return async (...args: ReadonlyArray<unknown>) => {
+                frontierQueries += 1;
+                if (failFrontierQuery) throw new Error("Later frontier query must not run");
+                const result: unknown = await Reflect.apply(member, transaction, args);
+                if (!corruptSecondFrontier) return result;
+                const driver = result as { readonly rows: ReadonlyArray<Readonly<Record<string, unknown>>> };
+                return { ...driver, rows: driver.rows.map((row, ordinal) =>
+                  ordinal === 1 ? { ...row, commitSeqText: "malformed" } : row) };
+              };
+            },
+          }))),
+        );
+        const port = eligibilityPort(fixture, target);
+        const inspect = () => runEffect(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
+          port, eligibilityInput(fixture)));
+        expect(await inspect()).toMatchObject({ status: "eligible", evidence: { definitionCount: 3 } });
+        expect(frontierQueries).toBe(0);
+
+        await appendDocument(fixture, rowId(71), 1n, null, { tenantId: "tenant-a", email: "one@example.com" });
+        await setClockCommit(fixture, 1n);
+        frontierQueries = 0;
+        corruptSecondFrontier = true;
+        // The first uncovered definition wins even if a later table's driver value is malformed.
+        expect(await inspect()).toMatchObject({ status: "not_ready", reason: "buildStale" });
+        expect(frontierQueries).toBe(1);
+        corruptSecondFrontier = false;
+
+        await fixture.persistence.query(
+          `update fx_system_unique_constraint_build set covered_through_commit_seq = 1
+           where scope_id = $1 and unique_constraint_definition_id in
+             (select unique_constraint_definition_id from fx_control_unique_constraint_definition
+              where deployment_id = $2 and table_id = $3)`,
+          [fixture.scopeId, fixture.deploymentId, fixture.tableId],
+        );
+        frontierQueries = 0;
+        expect(await inspect()).toMatchObject({ status: "eligible", evidence: { definitionCount: 3 } });
+        expect(frontierQueries).toBe(1);
+
+        await appendDocument(fixture, rowId(72), 2n, null,
+          { tenantId: "tenant-b", email: "two@example.com" }, secondTableId);
+        await setClockCommit(fixture, 2n);
+        frontierQueries = 0;
+        expect(await inspect()).toMatchObject({ status: "not_ready", reason: "buildStale" });
+        expect(frontierQueries).toBe(1);
+
+        await fixture.persistence.query(
+          `delete from fx_system_unique_constraint_build where scope_id = $1 and
+           unique_constraint_definition_id = (select min(unique_constraint_definition_id)
+             from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
+          [fixture.scopeId, fixture.schemaVersionId],
+        );
+        frontierQueries = 0;
+        failFrontierQuery = true;
+        expect(await inspect()).toMatchObject({ status: "not_ready", reason: "buildMissing" });
+        expect(frontierQueries).toBe(0);
+      });
+    }, 30_000);
+
+    it("closes the exact set, replays it, and refuses late bindings", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await fixtureFor(persistence, "closure");
+        const first = await prepareBinding(fixture, "by_email", false);
+        await ensureBinding(fixture, first);
+        const late = await prepareBinding(fixture, "by_tenant_email", true);
+
+        const preparedClosure = await runEffect(
+          prepareAppUniqueConstraintSetClosureV1Effect(
+            fixture.persistence.drizzle,
+            closureInput(fixture),
+          ),
+        );
+        const closed = await fixture.persistence.drizzle.transaction((tx) =>
+          runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(
+            tx,
+            preparedClosure,
+          ))
+        );
+        expect(closed).toMatchObject({
+          status: "closed",
+          closure: { definitionCount: 1 },
+          members: [{ uniqueConstraintDefinitionId: 1 }],
+        });
+
+        const replayPrepared = await runEffect(
+          prepareAppUniqueConstraintSetClosureV1Effect(
+            fixture.persistence.drizzle,
+            closureInput(fixture),
+          ),
+        );
+        await expect(fixture.persistence.drizzle.transaction((tx) =>
+          runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(
+            tx,
+            replayPrepared,
+          ))
+        )).resolves.toMatchObject({ status: "replayed" });
+
+        await expect(ensureBinding(fixture, late)).rejects.toBeInstanceOf(
+          AppSchemaVersionUniqueConstraintSetClosedError,
+        );
+        await expect(ensureBinding(
+          fixture,
+          await prepareBinding(fixture, "by_email", false),
+        )).resolves.toMatchObject({ bindingStatus: "existing" });
+        expect(await bindingCount(fixture)).toBe(1);
+      });
+    });
+
+    it("rejects a set changed after preparation and rolls back closure", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await fixtureFor(persistence, "changed");
+        await ensureBinding(
+          fixture,
+          await prepareBinding(fixture, "by_email", false),
+        );
+        const prepared = await runEffect(
+          prepareAppUniqueConstraintSetClosureV1Effect(
+            fixture.persistence.drizzle,
+            closureInput(fixture),
+          ),
+        );
+        await ensureBinding(
+          fixture,
+          await prepareBinding(fixture, "by_tenant_email", true),
+        );
+        await expect(fixture.persistence.drizzle.transaction((tx) =>
+          runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(tx, prepared))
+        )).rejects.toBeInstanceOf(AppUniqueConstraintSetChangedV1Error);
+        expect(await closureCount(fixture)).toBe(0);
+
+        const exact = await runEffect(prepareAppUniqueConstraintSetClosureV1Effect(
+          fixture.persistence.drizzle,
+          closureInput(fixture),
+        ));
+        await expect(fixture.persistence.drizzle.transaction(async (tx) => {
+          await runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(tx, exact));
+          tx.rollback();
+        })).rejects.toBeDefined();
+        expect(await closureCount(fixture)).toBe(0);
+      });
+    });
+
+    it("declares one fenced target build, replays, and redeclares stale authority", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "build");
+        const created = await reconcile(fixture);
+        expect(created).toMatchObject({
+          status: "reconciled",
+          disposition: "created",
+          definitionCount: 1,
+          definitionBuilds: [{startCommitSeq: 0n,
+          attemptFence: 1n}],
+        });
+        await expect(reconcile(fixture)).resolves.toMatchObject({
+          disposition: "replayed",
+          definitionBuilds: [{attemptFence: 1n}],
+        });
+
+        await fixture.persistence.query(
+          `update fx_system_unique_constraint_build
+              set lifecycle = 'backfilling', cursor_row_id = decode('00112233445566778899aabbccddeeff', 'hex')
+            where scope_id = $1 and unique_constraint_definition_id in (select unique_constraint_definition_id from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
+          [fixture.scopeId, fixture.schemaVersionId],
+        );
+        await expect(reconcile(fixture)).resolves.toMatchObject({
+          disposition: "replayed",
+          definitionBuilds: [{attemptFence: 1n}],
+        });
+        expect(await buildRows(fixture)).toMatchObject([{
+          lifecycle: "backfilling",
+
+          cursor_row_hex: "00112233445566778899aabbccddeeff",
+        }]);
+
+        const nextEpoch = ReplacementScopeEpochV1Schema.make("epoch_73000000-0000-4000-8000-000000000002");
+        await fixture.persistence.query(
+          `with authority as (
+             update fx_system_scope_execution_authority set storage_generation_fence = 2, epoch = $2
+             where scope_id = $1 returning scope_id
+           ) update fx_system_scope_clock set last_commit_seq = 7
+             where scope_id in (select scope_id from authority)`,
+          [fixture.scopeId, nextEpoch],
+        );
+        await expect(reconcile(fixture)).resolves.toMatchObject({
+          disposition: "redeclared",
+          definitionBuilds: [{startCommitSeq: 7n,
+          attemptFence: 2n}],
+        });
+        expect(await buildRows(fixture)).toMatchObject([{
+          storage_generation_fence: "2",
+          epoch: nextEpoch,
+          lifecycle: "declared",
+          attempt_fence: "2",
+
+          cursor_row_hex: null,
+        }]);
+      });
+    });
+
+    it("rejects a physical build beyond the scope directory ceiling at the scope directory ceiling", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "build_directory_ceiling");
+        await seedPhysicalBuildDirectory(fixture, MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE);
+        const failure = await runEffectFailure(
+          reconcileAppUniqueConstraintSetBuildV1Effect(
+            ports(fixture),
+            input(fixture),
+          ),
+        );
+        expect(failure).toBeInstanceOf(
+          AppUniqueConstraintSetBuildDirectoryV1Error,
+        );
+        expect(failure).toMatchObject({
+          _tag: "AppUniqueConstraintSetBuildDirectoryV1Error",
+          reason: "tooManyBuildRows",
+          maximumBuilds: MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
+        });
+        expect(await buildRows(fixture)).toEqual([]);
+        expect(await buildDirectoryCount(fixture)).toBe(
+          MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
+        );
+      });
+    });
+
+    it("rolls back an injected target fault and resumes deterministically", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "rollback");
+        const failure = await runEffectFailure(
+          reconcileAppUniqueConstraintSetBuildV1Effect(
+            ports(fixture),
+            input(fixture),
+            { faultAfter: () => { throw new Error("injected unique build fault"); } },
+          ),
+        );
+        expect(failure).toBeInstanceOf(
+          AppUniqueConstraintSetBuildIntegrationV1Error,
+        );
+        expect(await buildRows(fixture)).toEqual([]);
+        await expect(reconcile(fixture)).resolves.toMatchObject({
+          disposition: "created",
+        });
+      });
+    });
+
+    it("reclaims each non-enabled workspace lifecycle and rebuilds cleanly", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "workspace_lifecycles");
+        const port = eligibilityPort(fixture);
+        const lifecycles = [
+          "declared",
+          "building",
+          "backfilling",
+          "validating",
+        ] as const;
+
+        for (const lifecycle of lifecycles) {
+          await reconcile(fixture);
+          await fixture.persistence.query(
+            `update fx_system_unique_constraint_build
+                set lifecycle = $3, cursor_row_id = null
+              where scope_id = $1 and unique_constraint_definition_id in (select unique_constraint_definition_id from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
+            [fixture.scopeId, fixture.schemaVersionId, lifecycle],
+          );
+          await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
+            status: "reclaimed",
+            disposition: "deleted",
+            deletedDefinitionIds: [1],
+          });
+          expect(await buildRows(fixture)).toEqual([]);
+          expect(await closureCount(fixture)).toBe(1);
+          expect(await bindingCount(fixture)).toBe(1);
+        }
+
+        await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
+          disposition: "already_absent",
+        });
+        await expect(reconcile(fixture)).resolves.toMatchObject({
+          disposition: "created",
+        });
+      });
+    });
+
+    it("refuses enabled workspaces and structurally copied ports", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "workspace_refusal");
+        await reconcile(fixture);
+        await fixture.persistence.query(
+          `update fx_system_unique_constraint_build
+              set lifecycle = 'enabled', covered_through_commit_seq = 0
+            where scope_id = $1 and unique_constraint_definition_id in (select unique_constraint_definition_id from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
+          [fixture.scopeId, fixture.schemaVersionId],
+        );
+        const port = eligibilityPort(fixture);
+        await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({disposition: "retained", retainedDefinitionIds: [1]});
+        expect(await buildRows(fixture)).toMatchObject([{ lifecycle: "enabled" }]);
+
+        const copiedPort = Object.freeze({ ...port });
+        const copiedFailure = await runEffectFailure(reclaim(fixture, copiedPort));
+        expect(copiedFailure).toBeInstanceOf(
+          AppUniqueConstraintSetBuildReclamationError,
+        );
+        expect(copiedFailure).toMatchObject({ reason: "invalidPort" });
+      });
+    });
+
+    it("rolls back reclamation faults without losing the workspace", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "workspace_rollback");
+        await reconcile(fixture);
+        const port = eligibilityPort(fixture);
+        const failure = await runEffectFailure(
+          reclaimSupersededAppUniqueConstraintSetBuildEffect(
+            port,
+            input(fixture),
+            {
+              faultAfter: (point) => {
+                if (point === "afterWorkspaceDelete") {
+                  throw new Error("injected workspace reclamation rollback");
+                }
+              },
+            },
+          ),
+        );
+        expect(failure).toBeInstanceOf(
+          AppUniqueConstraintSetBuildIntegrationV1Error,
+        );
+        expect(await buildRows(fixture)).toMatchObject([{ lifecycle: "declared" }]);
+        await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
+          disposition: "deleted",
+        });
+      });
+    });
+
+    it("observes committed reclamation after a lost transaction response", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "workspace_uncertain");
+        await reconcile(fixture);
+        const baseRunner = createDefaultLocatedReadCommittedTransactionRunnerV1(
+          fixture.persistence.drizzle,
+        );
+        let injected = false;
+        let transactionCount = 0;
+        const target = createLocatedAppUniqueConstraintSetBuildTargetV1(
+          fixture.persistence.drizzle,
+          LOCATOR,
+          async (work) => {
+            const value = await baseRunner(work);
+            transactionCount += 1;
+            if (!injected && transactionCount === 2) {
+              injected = true;
+              throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+                kind: "decisionUncertain",
+                settlementCause: new Error("lost reclamation response"),
+              }));
+            }
+            return value;
+          },
+        );
+        const port = eligibilityPort(fixture, target);
+        await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
+          disposition: "replayedAfterUncertainCompletion",
+        });
+        expect(injected).toBe(true);
+        expect(await buildRows(fixture)).toEqual([]);
+      });
+    });
+
+    it("retains claims and immutable definition authority when reclaiming progress", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "workspace_authority_retention");
+        await appendLiveRow(
+          fixture,
+          rowId(21),
+          1n,
+          null,
+          { tenantId: "tenant-a", email: "retained@example.com" },
+        );
+        await setClockCommit(fixture, 1n);
+        await reconcile(fixture);
+        await advanceBackfill(fixture, 1);
+        await advanceBackfill(fixture, 1);
+        const backfilled = await advanceBackfill(fixture, 1);
+        expect(backfilled.claimed).toBe(1);
+        const claimsBefore = await uniqueClaims(fixture);
+        const port = eligibilityPort(fixture);
+
+        await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
+          disposition: "deleted",
+        });
+        expect(await uniqueClaims(fixture)).toEqual(claimsBefore);
+        expect(await closureCount(fixture)).toBe(1);
+        expect(await bindingCount(fixture)).toBe(1);
+        await expect(reconcile(fixture)).resolves.toMatchObject({
+          disposition: "created",
+        });
+        await advanceToEnabled(fixture, 1);
+        expect(await uniqueClaims(fixture)).toEqual(claimsBefore);
+      });
+    });
+
+    it("refuses a stale build authority without deleting its workspace", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "workspace_stale_authority");
+        await reconcile(fixture);
+        const nextEpoch = ReplacementScopeEpochV1Schema.make("epoch_73000000-0000-4000-8000-000000000003");
+        await fixture.persistence.query(
+          `with authority as (
+             update fx_system_scope_execution_authority set storage_generation_fence = 2, epoch = $2
+             where scope_id = $1 returning scope_id
+           ) update fx_system_scope_clock set last_commit_seq = 7
+             where scope_id in (select scope_id from authority)`,
+          [fixture.scopeId, nextEpoch],
+        );
+        const failure = await runEffectFailure(
+          reclaim(fixture, eligibilityPort(fixture)),
+        );
+        expect(failure).toBeInstanceOf(
+          AppUniqueConstraintSetBuildStaleAuthorityV1Error,
+        );
+        expect(await buildRows(fixture)).toMatchObject([{ lifecycle: "declared" }]);
+      });
+    });
+
+    it("releases one exact directory slot without weakening the ceiling", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "workspace_capacity");
+        await reconcile(fixture);
+        await seedPhysicalBuildDirectory(fixture, MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE - 1);
+        expect(await buildDirectoryCount(fixture)).toBe(
+          MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
+        );
+        const port = eligibilityPort(fixture);
+        await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
+          disposition: "deleted",
+        });
+        expect(await buildDirectoryCount(fixture)).toBe(
+          MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE - 1,
+        );
+        await expect(reconcile(fixture)).resolves.toMatchObject({
+          disposition: "created",
+        });
+        expect(await buildDirectoryCount(fixture)).toBe(
+          MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
+        );
+      });
+    });
+
+    it("returns absent until the control set is closed", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await fixtureFor(persistence, "absent");
+        await expect(reconcile(fixture)).resolves.toEqual({
+          status: "absent",
+          reason: "setNotClosed",
+          deploymentId: fixture.deploymentId,
+          scopeId: fixture.scopeId,
+          schemaVersionId: fixture.schemaVersionId,
+        });
+      });
+    });
+
+    it("reads and verifies the durable closure against current bindings", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "read");
+        const located = await runEffect(readAppUniqueConstraintSetClosureV1Effect(
+          fixture.persistence.drizzle,
+          fixture.deploymentId,
+          fixture.schemaVersionId,
+        ));
+        expect(located).toMatchObject({
+          closure: { definitionCount: 1 },
+          members: [{ logicalUniqueConstraintId: 1 }],
+        });
+      });
+    });
+
+    it("backfills bounded pages, follows current rows, and validates to enabled", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "backfill");
+        const rowA = rowId(1);
+        const rowB = rowId(2);
+        await appendLiveRow(fixture, rowA, 1n, null, {
+          tenantId: "tenant-a",
+          email: "a@example.com",
+        });
+        await appendLiveRow(fixture, rowB, 1n, null, {
+          tenantId: "tenant-a",
+          email: "old@example.com",
+        });
+        await setClockCommit(fixture, 1n);
+        await reconcile(fixture);
+        await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+          lifecycle: "building",
+          scanned: 0,
+        });
+        await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+          lifecycle: "backfilling",
+          scanned: 0,
+        });
+        const first = await advanceBackfill(fixture, 1);
+        expect(first).toMatchObject({
+          lifecycle: "backfilling",
+          scanned: 1,
+          claimed: 1,
+        });
+
+        await appendLiveRow(fixture, rowB, 2n, 1n, {
+          tenantId: "tenant-a",
+          email: "new@example.com",
+        });
+        await setClockCommit(fixture, 2n);
+        const second = await advanceBackfill(fixture, 1);
+        expect(second).toMatchObject({
+          lifecycle: "validating",
+          scanned: 1,
+          claimed: 0,
+          replayed: 1,
+          cursorRowId: null,
+        });
+        expect(await uniqueClaims(fixture)).toMatchObject([
+          { row_id_hex: rowA },
+          { row_id_hex: rowB },
+        ]);
+        await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+          status: "advanced",
+          lifecycle: "validating",
+          scanned: 1,
+          cursorRowId: rowA,
+        });
+        await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+          status: "advanced",
+          lifecycle: "enabled",
+          scanned: 1,
+          cursorRowId: null,
+        });
+      });
+    });
+
+    it("replays exact claims after a cold cursor restart", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "replay");
+        const rowA = rowId(3);
+        await appendLiveRow(fixture, rowA, 1n, null, {
+          tenantId: "tenant-a",
+          email: "replay@example.com",
+        });
+        await setClockCommit(fixture, 1n);
+        await reconcile(fixture);
+        await advanceBackfill(fixture, 1);
+        await advanceBackfill(fixture, 1);
+        await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+          lifecycle: "validating",
+          claimed: 1,
+        });
+        await fixture.persistence.query(
+          `update fx_system_unique_constraint_build
+              set lifecycle = 'backfilling', cursor_row_id = null
+            where scope_id = $1 and unique_constraint_definition_id in (select unique_constraint_definition_id from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
+          [fixture.scopeId, fixture.schemaVersionId],
+        );
+        await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+          lifecycle: "validating",
+          claimed: 0,
+          replayed: 1,
+        });
+        expect(await uniqueClaims(fixture)).toHaveLength(1);
+      });
+    });
+
+    it("rolls back the whole page on a duplicate key or injected post-claim fault", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "conflict");
+        const rowA = rowId(4);
+        const rowB = rowId(5);
+        for (const row of [rowA, rowB]) {
+          await appendLiveRow(fixture, row, 1n, null, {
+            tenantId: "tenant-a",
+            email: "duplicate@example.com",
+          });
+        }
+        await setClockCommit(fixture, 1n);
+        await reconcile(fixture);
+        await advanceBackfill(fixture, 16);
+        await advanceBackfill(fixture, 16);
+        await expect(advanceBackfill(fixture, 16)).rejects.toMatchObject({
+          _tag: "AppUniqueKeyConflictError",
+        });
+        expect(await uniqueClaims(fixture)).toEqual([]);
+        expect(await buildRows(fixture)).toMatchObject([{
+          lifecycle: "backfilling",
+
+          cursor_row_hex: null,
+        }]);
+
+        await appendLiveRow(fixture, rowB, 2n, 1n, {
+          tenantId: "tenant-a",
+          email: "distinct@example.com",
+        });
+        await setClockCommit(fixture, 2n);
+        const failure = await runEffectFailure(
+          advanceAppUniqueConstraintSetBackfillV1Effect(
+            ports(fixture),
+            { ...input(fixture), pageSize: 16 },
+            {
+              faultAfter: (point) => {
+                if (point === "afterBackfillClaim") throw new Error("fault");
+              },
+            },
+          ),
+        );
+        expect(failure).toBeInstanceOf(
+          AppUniqueConstraintSetBuildIntegrationV1Error,
+        );
+        expect(await uniqueClaims(fixture)).toEqual([]);
+        await expect(advanceBackfill(fixture, 16)).resolves.toMatchObject({
+          lifecycle: "validating",
+          claimed: 1,
+          replayed: 1,
+          omitted: 0,
+        });
+      });
+    });
+
+    it("authenticates current scope authority while preserving a pre-rotation row epoch", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "epoch_rotation");
+        const oldEpochRow = rowId(7);
+        await appendLiveRow(fixture, oldEpochRow, 1n, null, {
+          tenantId: "tenant-a",
+          email: "old-epoch@example.com",
+        });
+        await fixture.persistence.query(
+          `with authority as (
+             update fx_system_scope_execution_authority set epoch = $2
+             where scope_id = $1 returning scope_id
+           ) update fx_system_scope_clock set last_commit_seq = 1
+             where scope_id in (select scope_id from authority)`,
+          [
+            fixture.scopeId,
+            ScopeEpochSchema.make(
+              "epoch_76000000-0000-4000-8000-000000000001",
+            ),
+          ],
+        );
+        await reconcile(fixture);
+        await advanceBackfill(fixture, 16);
+        await advanceBackfill(fixture, 16);
+        await expect(advanceBackfill(fixture, 16)).resolves.toMatchObject({
+          lifecycle: "validating",
+          claimed: 1,
+        });
+        const lineage = await fixture.persistence.query<{
+          same_parent_epoch: boolean;
+          differs_from_current_epoch: boolean;
+        }>(
+          `select
+             current_row.commit_seq = revision.commit_seq same_parent_epoch,
+             revision.write_epoch_uuid <> authority.epoch_uuid differs_from_current_epoch
+           from fx_app_unique_key claim
+           inner join fx_app_row_current current_row on current_row.scope_uuid = claim.scope_uuid and current_row.table_id = claim.table_id and current_row.row_id = claim.row_id
+           inner join fx_app_row_rev revision
+             on revision.scope_uuid = claim.scope_uuid
+            and revision.table_id = claim.table_id
+            and revision.row_id = claim.row_id
+            and revision.commit_seq = current_row.commit_seq
+           inner join fx_system_scope_clock clock on clock.scope_uuid = claim.scope_uuid
+           inner join fx_system_scope_execution_authority authority on authority.scope_id = clock.scope_id`,
+        );
+        expect(lineage.rows).toEqual([{
+          same_parent_epoch: true,
+          differs_from_current_epoch: true,
+        }]);
+      });
+    });
+
+    it("rolls back validation progress and enable faults before deterministic replay", async () => {
+      return withPersistence(async persistence => {
+        const fixture = await closedFixture(persistence, "validation_rollback");
+        for (const [value, email] of [[10, "a@example.com"], [11, "b@example.com"]] as const) {
+          await appendLiveRow(fixture, rowId(value), 1n, null, {
+            tenantId: "tenant-a",
+            email,
+          });
+        }
+        await setClockCommit(fixture, 1n);
+        await advanceToValidating(fixture, 16);
+        const rowFault = await runEffectFailure(
+          advanceAppUniqueConstraintSetBackfillV1Effect(
+            ports(fixture),
+            { ...input(fixture), pageSize: 1 },
+            {
+              faultAfter: (point) => {
+                if (point === "afterValidationRow") throw new Error("row fault");
+              },
+            },
+          ),
+        );
+        expect(rowFault).toBeInstanceOf(
+          AppUniqueConstraintSetBuildIntegrationV1Error,
+        );
+        expect(await buildRows(fixture)).toMatchObject([{
+          lifecycle: "validating",
+          cursor_row_hex: null,
+        }]);
+
+        await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+          lifecycle: "validating",
+          cursorRowId: rowId(10),
+        });
+        const enableFault = await runEffectFailure(
+          advanceAppUniqueConstraintSetBackfillV1Effect(
+            ports(fixture),
+            { ...input(fixture), pageSize: 1 },
+            {
+              faultAfter: (point) => {
+                if (point === "beforeEnable") throw new Error("enable fault");
+              },
+            },
+          ),
+        );
+        expect(enableFault).toBeInstanceOf(
+          AppUniqueConstraintSetBuildIntegrationV1Error,
+        );
+        expect(await buildRows(fixture)).toMatchObject([{
+          lifecycle: "validating",
+          cursor_row_hex: rowId(10),
+        }]);
+        await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+          lifecycle: "enabled",
+          cursorRowId: null,
+        });
+      });
     });
   });
 
   it("mints exact eligibility only for the current enabled closed set", async () => {
-    const absent = await fixtureFor("eligibility_absent");
+    const absent = await fixtureFor(await createMigratedPGlitePersistence(), "eligibility_absent");
     const absentDefinitions = createAppUniqueConstraintDefinitionPortV1(
       absent.persistence.drizzle,
     );
@@ -321,7 +1110,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
       eligibilityInput(absent),
     ))).resolves.toEqual({ status: "not_required", tableIds: [] });
 
-    const lateBinding = await fixtureFor("eligibility_late_binding");
+    const lateBinding = await fixtureFor(await createMigratedPGlitePersistence(), "eligibility_late_binding");
     const lateDefinitions = createAppUniqueConstraintDefinitionPortV1(
       lateBinding.persistence.drizzle,
     );
@@ -351,7 +1140,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
       tableIds: [],
     });
 
-    const fixture = await fixtureFor("eligibility");
+    const fixture = await fixtureFor(await createMigratedPGlitePersistence(), "eligibility");
     await ensureBinding(
       fixture,
       await prepareBinding(fixture, "by_email", false),
@@ -507,679 +1296,8 @@ describe("C08-B1 closed unique-set build foundation", () => {
     ))).resolves.toMatchObject({ reason: "invalidPort", retryable: false });
   }, 30_000);
 
-  it("batches uncovered unique definitions across independent tables in each fresh inspection", async () => {
-    const fixture = await fixtureFor("multi_table_frontier", ["users", "projects"]);
-    const secondTableId = fixture.tableIds[1];
-    if (secondTableId === undefined) throw new Error("Missing second unique-set table");
-    await ensureBinding(fixture, await prepareBinding(fixture, "by_email", false));
-    await ensureBinding(fixture, await prepareBinding(fixture, "by_tenant", false));
-    await ensureBinding(fixture, await prepareBinding(fixture, "by_email", false, undefined, secondTableId));
-    await closeSet(fixture);
-    await reconcile(fixture);
-    await fixture.persistence.query(
-      `update fx_system_unique_constraint_build
-          set lifecycle = 'enabled', covered_through_commit_seq = 0
-        where scope_id = $1 and unique_constraint_definition_id in
-          (select unique_constraint_definition_id from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
-      [fixture.scopeId, fixture.schemaVersionId],
-    );
-    const members = (await fixture.persistence.query<{ table_id: number }>(
-      `select definition.table_id from fx_control_schema_version_unique_constraint_binding binding
-       join fx_control_unique_constraint_definition definition on
-         definition.deployment_id = binding.deployment_id and
-         definition.unique_constraint_definition_id = binding.unique_constraint_definition_id
-       where binding.schema_version_id = $1 order by binding.unique_constraint_definition_id`,
-      [fixture.schemaVersionId],
-    )).rows;
-    expect(members.map(member => member.table_id)).toEqual([fixture.tableId, fixture.tableId, secondTableId]);
-
-    let frontierQueries = 0;
-    let corruptSecondFrontier = false;
-    let failFrontierQuery = false;
-    const target = createLocatedAppUniqueConstraintSetBuildTargetV1(
-      fixture.persistence.drizzle, LOCATOR,
-      work => fixture.persistence.drizzle.transaction(tx => work(new Proxy(tx, {
-        get(transaction, property) {
-          const member = Reflect.get(transaction, property, transaction);
-          if (property !== "execute" || typeof member !== "function") return member;
-          return async (...args: ReadonlyArray<unknown>) => {
-            frontierQueries += 1;
-            if (failFrontierQuery) throw new Error("Later frontier query must not run");
-            const result: unknown = await Reflect.apply(member, transaction, args);
-            if (!corruptSecondFrontier) return result;
-            const driver = result as { readonly rows: ReadonlyArray<Readonly<Record<string, unknown>>> };
-            return { ...driver, rows: driver.rows.map((row, ordinal) =>
-              ordinal === 1 ? { ...row, commitSeqText: "malformed" } : row) };
-          };
-        },
-      }))),
-    );
-    const port = eligibilityPort(fixture, target);
-    const inspect = () => runEffect(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
-      port, eligibilityInput(fixture)));
-    expect(await inspect()).toMatchObject({ status: "eligible", evidence: { definitionCount: 3 } });
-    expect(frontierQueries).toBe(0);
-
-    await appendDocument(fixture, rowId(71), 1n, null, { tenantId: "tenant-a", email: "one@example.com" });
-    await setClockCommit(fixture, 1n);
-    frontierQueries = 0;
-    corruptSecondFrontier = true;
-    // The first uncovered definition wins even if a later table's driver value is malformed.
-    expect(await inspect()).toMatchObject({ status: "not_ready", reason: "buildStale" });
-    expect(frontierQueries).toBe(1);
-    corruptSecondFrontier = false;
-
-    await fixture.persistence.query(
-      `update fx_system_unique_constraint_build set covered_through_commit_seq = 1
-       where scope_id = $1 and unique_constraint_definition_id in
-         (select unique_constraint_definition_id from fx_control_unique_constraint_definition
-          where deployment_id = $2 and table_id = $3)`,
-      [fixture.scopeId, fixture.deploymentId, fixture.tableId],
-    );
-    frontierQueries = 0;
-    expect(await inspect()).toMatchObject({ status: "eligible", evidence: { definitionCount: 3 } });
-    expect(frontierQueries).toBe(1);
-
-    await appendDocument(fixture, rowId(72), 2n, null,
-      { tenantId: "tenant-b", email: "two@example.com" }, secondTableId);
-    await setClockCommit(fixture, 2n);
-    frontierQueries = 0;
-    expect(await inspect()).toMatchObject({ status: "not_ready", reason: "buildStale" });
-    expect(frontierQueries).toBe(1);
-
-    await fixture.persistence.query(
-      `delete from fx_system_unique_constraint_build where scope_id = $1 and
-       unique_constraint_definition_id = (select min(unique_constraint_definition_id)
-         from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
-      [fixture.scopeId, fixture.schemaVersionId],
-    );
-    frontierQueries = 0;
-    failFrontierQuery = true;
-    expect(await inspect()).toMatchObject({ status: "not_ready", reason: "buildMissing" });
-    expect(frontierQueries).toBe(0);
-  }, 30_000);
-
-  it("closes the exact set, replays it, and refuses late bindings", async () => {
-    const fixture = await fixtureFor("closure");
-    const first = await prepareBinding(fixture, "by_email", false);
-    await ensureBinding(fixture, first);
-    const late = await prepareBinding(fixture, "by_tenant_email", true);
-
-    const preparedClosure = await runEffect(
-      prepareAppUniqueConstraintSetClosureV1Effect(
-        fixture.persistence.drizzle,
-        closureInput(fixture),
-      ),
-    );
-    const closed = await fixture.persistence.drizzle.transaction((tx) =>
-      runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(
-        tx,
-        preparedClosure,
-      ))
-    );
-    expect(closed).toMatchObject({
-      status: "closed",
-      closure: { definitionCount: 1 },
-      members: [{ uniqueConstraintDefinitionId: 1 }],
-    });
-
-    const replayPrepared = await runEffect(
-      prepareAppUniqueConstraintSetClosureV1Effect(
-        fixture.persistence.drizzle,
-        closureInput(fixture),
-      ),
-    );
-    await expect(fixture.persistence.drizzle.transaction((tx) =>
-      runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(
-        tx,
-        replayPrepared,
-      ))
-    )).resolves.toMatchObject({ status: "replayed" });
-
-    await expect(ensureBinding(fixture, late)).rejects.toBeInstanceOf(
-      AppSchemaVersionUniqueConstraintSetClosedError,
-    );
-    await expect(ensureBinding(
-      fixture,
-      await prepareBinding(fixture, "by_email", false),
-    )).resolves.toMatchObject({ bindingStatus: "existing" });
-    expect(await bindingCount(fixture)).toBe(1);
-  });
-
-  it("rejects a set changed after preparation and rolls back closure", async () => {
-    const fixture = await fixtureFor("changed");
-    await ensureBinding(
-      fixture,
-      await prepareBinding(fixture, "by_email", false),
-    );
-    const prepared = await runEffect(
-      prepareAppUniqueConstraintSetClosureV1Effect(
-        fixture.persistence.drizzle,
-        closureInput(fixture),
-      ),
-    );
-    await ensureBinding(
-      fixture,
-      await prepareBinding(fixture, "by_tenant_email", true),
-    );
-    await expect(fixture.persistence.drizzle.transaction((tx) =>
-      runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(tx, prepared))
-    )).rejects.toBeInstanceOf(AppUniqueConstraintSetChangedV1Error);
-    expect(await closureCount(fixture)).toBe(0);
-
-    const exact = await runEffect(prepareAppUniqueConstraintSetClosureV1Effect(
-      fixture.persistence.drizzle,
-      closureInput(fixture),
-    ));
-    await expect(fixture.persistence.drizzle.transaction(async (tx) => {
-      await runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(tx, exact));
-      tx.rollback();
-    })).rejects.toBeDefined();
-    expect(await closureCount(fixture)).toBe(0);
-  });
-
-  it("declares one fenced target build, replays, and redeclares stale authority", async () => {
-    const fixture = await closedFixture("build");
-    const created = await reconcile(fixture);
-    expect(created).toMatchObject({
-      status: "reconciled",
-      disposition: "created",
-      definitionCount: 1,
-      definitionBuilds: [{startCommitSeq: 0n,
-      attemptFence: 1n}],
-    });
-    await expect(reconcile(fixture)).resolves.toMatchObject({
-      disposition: "replayed",
-      definitionBuilds: [{attemptFence: 1n}],
-    });
-
-    await fixture.persistence.query(
-      `update fx_system_unique_constraint_build
-          set lifecycle = 'backfilling', cursor_row_id = decode('00112233445566778899aabbccddeeff', 'hex')
-        where scope_id = $1 and unique_constraint_definition_id in (select unique_constraint_definition_id from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
-      [fixture.scopeId, fixture.schemaVersionId],
-    );
-    await expect(reconcile(fixture)).resolves.toMatchObject({
-      disposition: "replayed",
-      definitionBuilds: [{attemptFence: 1n}],
-    });
-    expect(await buildRows(fixture)).toMatchObject([{
-      lifecycle: "backfilling",
-
-      cursor_row_hex: "00112233445566778899aabbccddeeff",
-    }]);
-
-    const nextEpoch = ReplacementScopeEpochV1Schema.make("epoch_73000000-0000-4000-8000-000000000002");
-    await fixture.persistence.query(
-      `with authority as (
-         update fx_system_scope_execution_authority set storage_generation_fence = 2, epoch = $2
-         where scope_id = $1 returning scope_id
-       ) update fx_system_scope_clock set last_commit_seq = 7
-         where scope_id in (select scope_id from authority)`,
-      [fixture.scopeId, nextEpoch],
-    );
-    await expect(reconcile(fixture)).resolves.toMatchObject({
-      disposition: "redeclared",
-      definitionBuilds: [{startCommitSeq: 7n,
-      attemptFence: 2n}],
-    });
-    expect(await buildRows(fixture)).toMatchObject([{
-      storage_generation_fence: "2",
-      epoch: nextEpoch,
-      lifecycle: "declared",
-      attempt_fence: "2",
-
-      cursor_row_hex: null,
-    }]);
-  });
-
-  it("rejects a physical build beyond the scope directory ceiling at the scope directory ceiling", async () => {
-    const fixture = await closedFixture("build_directory_ceiling");
-    await seedPhysicalBuildDirectory(fixture, MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE);
-    const failure = await runEffectFailure(
-      reconcileAppUniqueConstraintSetBuildV1Effect(
-        ports(fixture),
-        input(fixture),
-      ),
-    );
-    expect(failure).toBeInstanceOf(
-      AppUniqueConstraintSetBuildDirectoryV1Error,
-    );
-    expect(failure).toMatchObject({
-      _tag: "AppUniqueConstraintSetBuildDirectoryV1Error",
-      reason: "tooManyBuildRows",
-      maximumBuilds: MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
-    });
-    expect(await buildRows(fixture)).toEqual([]);
-    expect(await buildDirectoryCount(fixture)).toBe(
-      MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
-    );
-  });
-
-  it("rolls back an injected target fault and resumes deterministically", async () => {
-    const fixture = await closedFixture("rollback");
-    const failure = await runEffectFailure(
-      reconcileAppUniqueConstraintSetBuildV1Effect(
-        ports(fixture),
-        input(fixture),
-        { faultAfter: () => { throw new Error("injected unique build fault"); } },
-      ),
-    );
-    expect(failure).toBeInstanceOf(
-      AppUniqueConstraintSetBuildIntegrationV1Error,
-    );
-    expect(await buildRows(fixture)).toEqual([]);
-    await expect(reconcile(fixture)).resolves.toMatchObject({
-      disposition: "created",
-    });
-  });
-
-  it("reclaims each non-enabled workspace lifecycle and rebuilds cleanly", async () => {
-    const fixture = await closedFixture("workspace_lifecycles");
-    const port = eligibilityPort(fixture);
-    const lifecycles = [
-      "declared",
-      "building",
-      "backfilling",
-      "validating",
-    ] as const;
-
-    for (const lifecycle of lifecycles) {
-      await reconcile(fixture);
-      await fixture.persistence.query(
-        `update fx_system_unique_constraint_build
-            set lifecycle = $3, cursor_row_id = null
-          where scope_id = $1 and unique_constraint_definition_id in (select unique_constraint_definition_id from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
-        [fixture.scopeId, fixture.schemaVersionId, lifecycle],
-      );
-      await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
-        status: "reclaimed",
-        disposition: "deleted",
-        deletedDefinitionIds: [1],
-      });
-      expect(await buildRows(fixture)).toEqual([]);
-      expect(await closureCount(fixture)).toBe(1);
-      expect(await bindingCount(fixture)).toBe(1);
-    }
-
-    await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
-      disposition: "already_absent",
-    });
-    await expect(reconcile(fixture)).resolves.toMatchObject({
-      disposition: "created",
-    });
-  });
-
-  it("refuses enabled workspaces and structurally copied ports", async () => {
-    const fixture = await closedFixture("workspace_refusal");
-    await reconcile(fixture);
-    await fixture.persistence.query(
-      `update fx_system_unique_constraint_build
-          set lifecycle = 'enabled', covered_through_commit_seq = 0
-        where scope_id = $1 and unique_constraint_definition_id in (select unique_constraint_definition_id from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
-      [fixture.scopeId, fixture.schemaVersionId],
-    );
-    const port = eligibilityPort(fixture);
-    await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({disposition: "retained", retainedDefinitionIds: [1]});
-    expect(await buildRows(fixture)).toMatchObject([{ lifecycle: "enabled" }]);
-
-    const copiedPort = Object.freeze({ ...port });
-    const copiedFailure = await runEffectFailure(reclaim(fixture, copiedPort));
-    expect(copiedFailure).toBeInstanceOf(
-      AppUniqueConstraintSetBuildReclamationError,
-    );
-    expect(copiedFailure).toMatchObject({ reason: "invalidPort" });
-  });
-
-  it("rolls back reclamation faults without losing the workspace", async () => {
-    const fixture = await closedFixture("workspace_rollback");
-    await reconcile(fixture);
-    const port = eligibilityPort(fixture);
-    const failure = await runEffectFailure(
-      reclaimSupersededAppUniqueConstraintSetBuildEffect(
-        port,
-        input(fixture),
-        {
-          faultAfter: (point) => {
-            if (point === "afterWorkspaceDelete") {
-              throw new Error("injected workspace reclamation rollback");
-            }
-          },
-        },
-      ),
-    );
-    expect(failure).toBeInstanceOf(
-      AppUniqueConstraintSetBuildIntegrationV1Error,
-    );
-    expect(await buildRows(fixture)).toMatchObject([{ lifecycle: "declared" }]);
-    await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
-      disposition: "deleted",
-    });
-  });
-
-  it("observes committed reclamation after a lost transaction response", async () => {
-    const fixture = await closedFixture("workspace_uncertain");
-    await reconcile(fixture);
-    const baseRunner = createDefaultLocatedReadCommittedTransactionRunnerV1(
-      fixture.persistence.drizzle,
-    );
-    let injected = false;
-    let transactionCount = 0;
-    const target = createLocatedAppUniqueConstraintSetBuildTargetV1(
-      fixture.persistence.drizzle,
-      LOCATOR,
-      async (work) => {
-        const value = await baseRunner(work);
-        transactionCount += 1;
-        if (!injected && transactionCount === 2) {
-          injected = true;
-          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
-            kind: "decisionUncertain",
-            settlementCause: new Error("lost reclamation response"),
-          }));
-        }
-        return value;
-      },
-    );
-    const port = eligibilityPort(fixture, target);
-    await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
-      disposition: "replayedAfterUncertainCompletion",
-    });
-    expect(injected).toBe(true);
-    expect(await buildRows(fixture)).toEqual([]);
-  });
-
-  it("retains claims and immutable definition authority when reclaiming progress", async () => {
-    const fixture = await closedFixture("workspace_authority_retention");
-    await appendLiveRow(
-      fixture,
-      rowId(21),
-      1n,
-      null,
-      { tenantId: "tenant-a", email: "retained@example.com" },
-    );
-    await setClockCommit(fixture, 1n);
-    await reconcile(fixture);
-    await advanceBackfill(fixture, 1);
-    await advanceBackfill(fixture, 1);
-    const backfilled = await advanceBackfill(fixture, 1);
-    expect(backfilled.claimed).toBe(1);
-    const claimsBefore = await uniqueClaims(fixture);
-    const port = eligibilityPort(fixture);
-
-    await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
-      disposition: "deleted",
-    });
-    expect(await uniqueClaims(fixture)).toEqual(claimsBefore);
-    expect(await closureCount(fixture)).toBe(1);
-    expect(await bindingCount(fixture)).toBe(1);
-    await expect(reconcile(fixture)).resolves.toMatchObject({
-      disposition: "created",
-    });
-    await advanceToEnabled(fixture, 1);
-    expect(await uniqueClaims(fixture)).toEqual(claimsBefore);
-  });
-
-  it("refuses a stale build authority without deleting its workspace", async () => {
-    const fixture = await closedFixture("workspace_stale_authority");
-    await reconcile(fixture);
-    const nextEpoch = ReplacementScopeEpochV1Schema.make("epoch_73000000-0000-4000-8000-000000000003");
-    await fixture.persistence.query(
-      `with authority as (
-         update fx_system_scope_execution_authority set storage_generation_fence = 2, epoch = $2
-         where scope_id = $1 returning scope_id
-       ) update fx_system_scope_clock set last_commit_seq = 7
-         where scope_id in (select scope_id from authority)`,
-      [fixture.scopeId, nextEpoch],
-    );
-    const failure = await runEffectFailure(
-      reclaim(fixture, eligibilityPort(fixture)),
-    );
-    expect(failure).toBeInstanceOf(
-      AppUniqueConstraintSetBuildStaleAuthorityV1Error,
-    );
-    expect(await buildRows(fixture)).toMatchObject([{ lifecycle: "declared" }]);
-  });
-
-  it("releases one exact directory slot without weakening the ceiling", async () => {
-    const fixture = await closedFixture("workspace_capacity");
-    await reconcile(fixture);
-    await seedPhysicalBuildDirectory(fixture, MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE - 1);
-    expect(await buildDirectoryCount(fixture)).toBe(
-      MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
-    );
-    const port = eligibilityPort(fixture);
-    await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
-      disposition: "deleted",
-    });
-    expect(await buildDirectoryCount(fixture)).toBe(
-      MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE - 1,
-    );
-    await expect(reconcile(fixture)).resolves.toMatchObject({
-      disposition: "created",
-    });
-    expect(await buildDirectoryCount(fixture)).toBe(
-      MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
-    );
-  });
-
-  it("returns absent until the control set is closed", async () => {
-    const fixture = await fixtureFor("absent");
-    await expect(reconcile(fixture)).resolves.toEqual({
-      status: "absent",
-      reason: "setNotClosed",
-      deploymentId: fixture.deploymentId,
-      scopeId: fixture.scopeId,
-      schemaVersionId: fixture.schemaVersionId,
-    });
-  });
-
-  it("reads and verifies the durable closure against current bindings", async () => {
-    const fixture = await closedFixture("read");
-    const located = await runEffect(readAppUniqueConstraintSetClosureV1Effect(
-      fixture.persistence.drizzle,
-      fixture.deploymentId,
-      fixture.schemaVersionId,
-    ));
-    expect(located).toMatchObject({
-      closure: { definitionCount: 1 },
-      members: [{ logicalUniqueConstraintId: 1 }],
-    });
-  });
-
-  it("backfills bounded pages, follows current rows, and validates to enabled", async () => {
-    const fixture = await closedFixture("backfill");
-    const rowA = rowId(1);
-    const rowB = rowId(2);
-    await appendLiveRow(fixture, rowA, 1n, null, {
-      tenantId: "tenant-a",
-      email: "a@example.com",
-    });
-    await appendLiveRow(fixture, rowB, 1n, null, {
-      tenantId: "tenant-a",
-      email: "old@example.com",
-    });
-    await setClockCommit(fixture, 1n);
-    await reconcile(fixture);
-    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
-      lifecycle: "building",
-      scanned: 0,
-    });
-    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
-      lifecycle: "backfilling",
-      scanned: 0,
-    });
-    const first = await advanceBackfill(fixture, 1);
-    expect(first).toMatchObject({
-      lifecycle: "backfilling",
-      scanned: 1,
-      claimed: 1,
-    });
-
-    await appendLiveRow(fixture, rowB, 2n, 1n, {
-      tenantId: "tenant-a",
-      email: "new@example.com",
-    });
-    await setClockCommit(fixture, 2n);
-    const second = await advanceBackfill(fixture, 1);
-    expect(second).toMatchObject({
-      lifecycle: "validating",
-      scanned: 1,
-      claimed: 0,
-      replayed: 1,
-      cursorRowId: null,
-    });
-    expect(await uniqueClaims(fixture)).toMatchObject([
-      { row_id_hex: rowA },
-      { row_id_hex: rowB },
-    ]);
-    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
-      status: "advanced",
-      lifecycle: "validating",
-      scanned: 1,
-      cursorRowId: rowA,
-    });
-    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
-      status: "advanced",
-      lifecycle: "enabled",
-      scanned: 1,
-      cursorRowId: null,
-    });
-  });
-
-  it("replays exact claims after a cold cursor restart", async () => {
-    const fixture = await closedFixture("replay");
-    const rowA = rowId(3);
-    await appendLiveRow(fixture, rowA, 1n, null, {
-      tenantId: "tenant-a",
-      email: "replay@example.com",
-    });
-    await setClockCommit(fixture, 1n);
-    await reconcile(fixture);
-    await advanceBackfill(fixture, 1);
-    await advanceBackfill(fixture, 1);
-    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
-      lifecycle: "validating",
-      claimed: 1,
-    });
-    await fixture.persistence.query(
-      `update fx_system_unique_constraint_build
-          set lifecycle = 'backfilling', cursor_row_id = null
-        where scope_id = $1 and unique_constraint_definition_id in (select unique_constraint_definition_id from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
-      [fixture.scopeId, fixture.schemaVersionId],
-    );
-    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
-      lifecycle: "validating",
-      claimed: 0,
-      replayed: 1,
-    });
-    expect(await uniqueClaims(fixture)).toHaveLength(1);
-  });
-
-  it("rolls back the whole page on a duplicate key or injected post-claim fault", async () => {
-    const fixture = await closedFixture("conflict");
-    const rowA = rowId(4);
-    const rowB = rowId(5);
-    for (const row of [rowA, rowB]) {
-      await appendLiveRow(fixture, row, 1n, null, {
-        tenantId: "tenant-a",
-        email: "duplicate@example.com",
-      });
-    }
-    await setClockCommit(fixture, 1n);
-    await reconcile(fixture);
-    await advanceBackfill(fixture, 16);
-    await advanceBackfill(fixture, 16);
-    await expect(advanceBackfill(fixture, 16)).rejects.toMatchObject({
-      _tag: "AppUniqueKeyConflictError",
-    });
-    expect(await uniqueClaims(fixture)).toEqual([]);
-    expect(await buildRows(fixture)).toMatchObject([{
-      lifecycle: "backfilling",
-
-      cursor_row_hex: null,
-    }]);
-
-    await appendLiveRow(fixture, rowB, 2n, 1n, {
-      tenantId: "tenant-a",
-      email: "distinct@example.com",
-    });
-    await setClockCommit(fixture, 2n);
-    const failure = await runEffectFailure(
-      advanceAppUniqueConstraintSetBackfillV1Effect(
-        ports(fixture),
-        { ...input(fixture), pageSize: 16 },
-        {
-          faultAfter: (point) => {
-            if (point === "afterBackfillClaim") throw new Error("fault");
-          },
-        },
-      ),
-    );
-    expect(failure).toBeInstanceOf(
-      AppUniqueConstraintSetBuildIntegrationV1Error,
-    );
-    expect(await uniqueClaims(fixture)).toEqual([]);
-    await expect(advanceBackfill(fixture, 16)).resolves.toMatchObject({
-      lifecycle: "validating",
-      claimed: 1,
-      replayed: 1,
-      omitted: 0,
-    });
-  });
-
-  it("authenticates current scope authority while preserving a pre-rotation row epoch", async () => {
-    const fixture = await closedFixture("epoch_rotation");
-    const oldEpochRow = rowId(7);
-    await appendLiveRow(fixture, oldEpochRow, 1n, null, {
-      tenantId: "tenant-a",
-      email: "old-epoch@example.com",
-    });
-    await fixture.persistence.query(
-      `with authority as (
-         update fx_system_scope_execution_authority set epoch = $2
-         where scope_id = $1 returning scope_id
-       ) update fx_system_scope_clock set last_commit_seq = 1
-         where scope_id in (select scope_id from authority)`,
-      [
-        fixture.scopeId,
-        ScopeEpochSchema.make(
-          "epoch_76000000-0000-4000-8000-000000000001",
-        ),
-      ],
-    );
-    await reconcile(fixture);
-    await advanceBackfill(fixture, 16);
-    await advanceBackfill(fixture, 16);
-    await expect(advanceBackfill(fixture, 16)).resolves.toMatchObject({
-      lifecycle: "validating",
-      claimed: 1,
-    });
-    const lineage = await fixture.persistence.query<{
-      same_parent_epoch: boolean;
-      differs_from_current_epoch: boolean;
-    }>(
-      `select
-         current_row.commit_seq = revision.commit_seq same_parent_epoch,
-         revision.write_epoch_uuid <> authority.epoch_uuid differs_from_current_epoch
-       from fx_app_unique_key claim
-       inner join fx_app_row_current current_row on current_row.scope_uuid = claim.scope_uuid and current_row.table_id = claim.table_id and current_row.row_id = claim.row_id
-       inner join fx_app_row_rev revision
-         on revision.scope_uuid = claim.scope_uuid
-        and revision.table_id = claim.table_id
-        and revision.row_id = claim.row_id
-        and revision.commit_seq = current_row.commit_seq
-       inner join fx_system_scope_clock clock on clock.scope_uuid = claim.scope_uuid
-       inner join fx_system_scope_execution_authority authority on authority.scope_id = clock.scope_id`,
-    );
-    expect(lineage.rows).toEqual([{
-      same_parent_epoch: true,
-      differs_from_current_epoch: true,
-    }]);
-  });
-
   it("fails closed on missing and claim-only S11 ownership", async () => {
-    const missing = await closedFixture("validation_missing");
+    const missing = await closedFixture(await createMigratedPGlitePersistence(), "validation_missing");
     const missingRow = rowId(8);
     await appendLiveRow(missing, missingRow, 1n, null, {
       tenantId: "tenant-a",
@@ -1210,7 +1328,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
       cursor_row_hex: null,
     }]);
 
-    const claimOnly = await closedFixture("validation_claim_only");
+    const claimOnly = await closedFixture(await createMigratedPGlitePersistence(), "validation_claim_only");
     const claimOnlyRow = rowId(9);
     await appendLiveRow(claimOnly, claimOnlyRow, 1n, null, {
       tenantId: "tenant-a",
@@ -1223,7 +1341,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
   });
 
   it("rejects claim-only rows outside the definition locale and table", async () => {
-    const wrongLocale = await closedFixture("validation_wrong_locale");
+    const wrongLocale = await closedFixture(await createMigratedPGlitePersistence(), "validation_wrong_locale");
     const localeRow = rowId(12);
     await appendLiveRow(wrongLocale, localeRow, 1n, null, {
       tenantId: "tenant-a",
@@ -1245,7 +1363,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
       cause: { reason: "claimIdentityMismatch" },
     });
 
-    const wrongTable = await closedFixture("validation_wrong_table");
+    const wrongTable = await closedFixture(await createMigratedPGlitePersistence(), "validation_wrong_table");
     const tableRow = rowId(13);
     await appendLiveRow(wrongTable, tableRow, 1n, null, {
       tenantId: "tenant-a",
@@ -1286,65 +1404,8 @@ describe("C08-B1 closed unique-set build foundation", () => {
     });
   });
 
-  it("rolls back validation progress and enable faults before deterministic replay", async () => {
-    const fixture = await closedFixture("validation_rollback");
-    for (const [value, email] of [[10, "a@example.com"], [11, "b@example.com"]] as const) {
-      await appendLiveRow(fixture, rowId(value), 1n, null, {
-        tenantId: "tenant-a",
-        email,
-      });
-    }
-    await setClockCommit(fixture, 1n);
-    await advanceToValidating(fixture, 16);
-    const rowFault = await runEffectFailure(
-      advanceAppUniqueConstraintSetBackfillV1Effect(
-        ports(fixture),
-        { ...input(fixture), pageSize: 1 },
-        {
-          faultAfter: (point) => {
-            if (point === "afterValidationRow") throw new Error("row fault");
-          },
-        },
-      ),
-    );
-    expect(rowFault).toBeInstanceOf(
-      AppUniqueConstraintSetBuildIntegrationV1Error,
-    );
-    expect(await buildRows(fixture)).toMatchObject([{
-      lifecycle: "validating",
-      cursor_row_hex: null,
-    }]);
-
-    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
-      lifecycle: "validating",
-      cursorRowId: rowId(10),
-    });
-    const enableFault = await runEffectFailure(
-      advanceAppUniqueConstraintSetBackfillV1Effect(
-        ports(fixture),
-        { ...input(fixture), pageSize: 1 },
-        {
-          faultAfter: (point) => {
-            if (point === "beforeEnable") throw new Error("enable fault");
-          },
-        },
-      ),
-    );
-    expect(enableFault).toBeInstanceOf(
-      AppUniqueConstraintSetBuildIntegrationV1Error,
-    );
-    expect(await buildRows(fixture)).toMatchObject([{
-      lifecycle: "validating",
-      cursor_row_hex: rowId(10),
-    }]);
-    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
-      lifecycle: "enabled",
-      cursorRowId: null,
-    });
-  });
-
   it("settles empty and sparse-omitted sets without minting claims", async () => {
-    const empty = await fixtureFor("empty_backfill");
+    const empty = await fixtureFor(await createMigratedPGlitePersistence(), "empty_backfill");
     await closeSet(empty);
     await reconcile(empty);
     expect(await buildRows(empty)).toEqual([]);
@@ -1360,7 +1421,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
       scanned: 0,
     });
 
-    const sparse = await fixtureFor("sparse_backfill");
+    const sparse = await fixtureFor(await createMigratedPGlitePersistence(), "sparse_backfill");
     await ensureBinding(
       sparse,
       await prepareBinding(sparse, "by_email", true),
@@ -1438,8 +1499,40 @@ interface Fixture {
   >;
 }
 
-async function fixtureFor(suffix: string, tableNames: ReadonlyArray<string> = ["users"]): Promise<Fixture> {
-  const persistence = await createMigratedPGlitePersistence();
+function useFileScopedUniqueSetPersistence() {
+  return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () =>
+    db.transaction(async transaction => {
+      // These immutable obligations outlive their build rows and have no scope FK.
+      // They make this fixture ineligible for reuse; never erase durable work.
+      const obligations = await transaction.query<{ present: boolean }>(`
+        select exists (select 1 from fx_system_unique_maintenance_obligation)
+          or exists (select 1 from fx_system_index_maintenance_obligation) as present
+      `);
+      if (obligations.rows[0]?.present !== false) {
+        throw new Error("Unique-set fixture cannot reset maintenance obligations");
+      }
+      // The supported row families and the authority/clock pair leave together.
+      // All guards and foreign keys remain enabled; unexpected dependants reject.
+      await transaction.exec(`
+        delete from fx_app_unique_key;
+        delete from fx_system_unique_constraint_build;
+        delete from fx_system_commit_app_row_change;
+        delete from fx_system_commit;
+        delete from fx_app_row_current;
+        delete from fx_app_row_rev;
+        delete from fx_control_schema_version_unique_constraint_binding;
+        delete from fx_control_schema_unique_constraint_set;
+        delete from fx_control_unique_constraint_definition;
+        delete from fx_control_unique_constraint;
+        delete from fx_control_index_definition;
+        delete from fx_control_schema_version;
+        delete from fx_control_table;
+      `);
+      await resetScopeAuthorityRowsInTransaction(transaction);
+    })));
+}
+
+async function fixtureFor(persistence: Persistence, suffix: string, tableNames: ReadonlyArray<string> = ["users"]): Promise<Fixture> {
   fixtureOrdinal += 1;
   const fixtureSuffix = fixtureOrdinal.toString(16).padStart(12, "0");
   const deploymentId = `deployment_unique_set_${suffix}`;
@@ -1493,8 +1586,8 @@ async function fixtureFor(suffix: string, tableNames: ReadonlyArray<string> = ["
   });
 }
 
-async function closedFixture(suffix: string): Promise<Fixture> {
-  const fixture = await fixtureFor(suffix);
+async function closedFixture(persistence: Persistence, suffix: string): Promise<Fixture> {
+  const fixture = await fixtureFor(persistence, suffix);
   await ensureBinding(
     fixture,
     await prepareBinding(fixture, "by_email", false),

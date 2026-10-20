@@ -162,10 +162,12 @@ async function resetControlScopeRows(db: PGlite): Promise<void> {
 }
 
 async function resetScopeAuthorityRows(db: PGlite): Promise<void> {
-  await db.transaction(async transaction => {
-    await resetScopeClockRowsInTransaction(transaction);
-    await resetControlScopeRowsInTransaction(transaction);
-  });
+  await db.transaction(resetScopeAuthorityRowsInTransaction);
+}
+
+export async function resetScopeAuthorityRowsInTransaction(transaction: Transaction): Promise<void> {
+  await resetScopeClockRowsInTransaction(transaction);
+  await resetControlScopeRowsInTransaction(transaction);
 }
 
 async function resetControlScopeRowsInTransaction(transaction: Transaction): Promise<void> {
