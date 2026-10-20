@@ -26,7 +26,7 @@ import type { LogicalCommerceLifecycleObservation, LogicalCommerceMutation,
   LogicalCommerceObservedRow, LogicalCommerceSetNull,
   LogicalCommerceReferenceReplacement, LogicalCommerceActivity } from "../commerceTransaction/logicalParticipant";
 import type { Json } from "flarex-protocol/json";
-import { LogicalReconstitutionPolicy, LogicalSetNullPolicy } from "../../storage/documents/logicalDocuments/model";
+import { LogicalReconstitutionPolicy, LogicalPreservingDeletionUpsertPolicy, LogicalSetNullPolicy } from "../../storage/documents/logicalDocuments/model";
 
 export interface LogicalCommerceCallObservation {
   readonly commandName: string;
@@ -76,11 +76,13 @@ interface AtomicCommerceParticipantBase {
   readonly reconstitution?: LogicalReconstitutionPolicy;
   /** Explicit logical conflict merge, retaining omitted deletion fields and
    * refreshing managed update time. Receipt validation is mandatory. */
-  readonly allowPreservingDeletionUpsert?: true;
+  readonly allowPreservingDeletionUpsert?: LogicalPreservingDeletionUpsertPolicy;
   /** Restore also updates already-active rows; logical receipt validation is mandatory. */
   readonly allowActiveRestoreUpdate?: true;
   /** Complete indexed selections may order by protected physical insertion generation. */
   readonly allowStorageInsertionOrder?: true;
+  /** Complete recorded preimage replay; per-call receipt validation is required. */
+  readonly allowRecordedRowReplay?: true;
   readonly derivedIdEvent?: CommerceDerivedIdEvent;
   readonly events?: ParticipantEventSelection;
 }
@@ -93,16 +95,17 @@ export type AtomicCommerceParticipantInput = AtomicCommerceParticipantBase & (
 export const isCommerceDefinitionName = (name: string) => /^[a-z][a-zA-Z0-9_-]{0,63}$/.test(name) && name !== "initialize";
 
 function captureParticipant(member: AtomicCommerceParticipantInput, logicalPublication: "mixed" | undefined,
-  reconstitution: LogicalReconstitutionPolicy | undefined, allowPreservingDeletionUpsert: true | undefined, allowActiveRestoreUpdate: true | undefined, allowStorageInsertionOrder: true | undefined,
-  setNullPolicy: LogicalSetNullPolicy | undefined, detachDeletedReferences: true | undefined) {
+  reconstitution: LogicalReconstitutionPolicy | undefined, allowPreservingDeletionUpsert: LogicalPreservingDeletionUpsertPolicy | undefined, allowActiveRestoreUpdate: true | undefined, allowStorageInsertionOrder: true | undefined,
+  setNullPolicy: LogicalSetNullPolicy | undefined, detachDeletedReferences: true | undefined,
+  allowRecordedRowReplay: true | undefined) {
   const logicalStorage = member.logicalStorage;
-  if ((logicalPublication !== undefined || detachDeletedReferences === true || setNullPolicy !== undefined || reconstitution !== undefined || allowPreservingDeletionUpsert === true || allowActiveRestoreUpdate === true || allowStorageInsertionOrder === true) && logicalStorage === undefined)
+  if ((logicalPublication !== undefined || detachDeletedReferences === true || setNullPolicy !== undefined || reconstitution !== undefined || allowPreservingDeletionUpsert !== undefined || allowActiveRestoreUpdate === true || allowStorageInsertionOrder === true || allowRecordedRowReplay === true) && logicalStorage === undefined)
     return Result.fail(commerceError("unsupportedProfile"));
   const derived = member.derivedIdEvent;
   return Result.succeed(Object.freeze({ factoryInput: member, participant: member.participant,
     commands: Object.freeze([...member.commands]), validate: member.validate, validateLogical: member.validateLogical,
     validateLogicalCall: member.validateLogicalCall,
-    detachDeletedReferences, setNullPolicy: setNullPolicy === undefined ? undefined : Object.freeze({ ...setNullPolicy }), allowReferenceReplacement: member.allowReferenceReplacement, reconstitution, allowPreservingDeletionUpsert, allowActiveRestoreUpdate, allowStorageInsertionOrder,
+    detachDeletedReferences, setNullPolicy: setNullPolicy === undefined ? undefined : Object.freeze({ ...setNullPolicy }), allowReferenceReplacement: member.allowReferenceReplacement, reconstitution, allowPreservingDeletionUpsert, allowActiveRestoreUpdate, allowStorageInsertionOrder, allowRecordedRowReplay,
     derivedIdEvent: derived === undefined ? undefined : Object.freeze({ contract: derived.contract }),
     events: captureParticipantEvents(member.events),
     ...(logicalStorage === undefined
@@ -115,9 +118,10 @@ function captureParticipant(member: AtomicCommerceParticipantInput, logicalPubli
 export type CapturedAtomicCommerceParticipants = readonly Result.Result.Success<ReturnType<typeof captureParticipant>>[];
 const decodeLogicalPublication = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal("mixed")));
 const decodeReconstitution = Schema.decodeUnknownResult(Schema.UndefinedOr(LogicalReconstitutionPolicy));
-const decodePreservingDeletionUpsert = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal(true)));
+const decodePreservingDeletionUpsert = Schema.decodeUnknownResult(Schema.UndefinedOr(LogicalPreservingDeletionUpsertPolicy));
 const decodeActiveRestoreUpdate = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal(true)));
 const decodeStorageInsertionOrder = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal(true)));
+const decodeRecordedRowReplay = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal(true)));
 const decodeDeletedReferenceDetachment = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal(true)));
 const decodeSetNullPolicy = Schema.decodeUnknownResult(Schema.UndefinedOr(LogicalSetNullPolicy), { onExcessProperty: "error" });
 const preparedLogicalMembers = new WeakMap<object, Readonly<{ factory: AtomicCommerceParticipantInput;
@@ -141,11 +145,13 @@ export function captureAtomicCommerceParticipants(input: readonly AtomicCommerce
         .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
       const storageInsertionOrder = yield* decodeStorageInsertionOrder(member.allowStorageInsertionOrder)
         .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
+      const recordedRowReplay = yield* decodeRecordedRowReplay(member.allowRecordedRowReplay)
+        .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
       const setNullPolicy = yield* decodeSetNullPolicy(member.setNullPolicy)
         .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
       const detachDeletedReferences = yield* decodeDeletedReferenceDetachment(member.detachDeletedReferences)
         .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
-      captured.push(yield* captureParticipant(member, publication, reconstitution, preservingDeletionUpsert, activeRestoreUpdate, storageInsertionOrder, setNullPolicy, detachDeletedReferences));
+      captured.push(yield* captureParticipant(member, publication, reconstitution, preservingDeletionUpsert, activeRestoreUpdate, storageInsertionOrder, setNullPolicy, detachDeletedReferences, recordedRowReplay));
     }
     return Object.freeze(captured);
   });
@@ -184,7 +190,7 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
       commandNames: [...commandNames].toSorted(compareUtf16Strings), validate: member.validate,
       validateLogical: member.validateLogical, validateLogicalCall: member.validateLogicalCall, detachDeletedReferences: member.detachDeletedReferences, setNullPolicy: member.setNullPolicy,
       allowReferenceReplacement: member.allowReferenceReplacement, reconstitution: member.reconstitution,
-      allowPreservingDeletionUpsert: member.allowPreservingDeletionUpsert, allowActiveRestoreUpdate: member.allowActiveRestoreUpdate, allowStorageInsertionOrder: member.allowStorageInsertionOrder, derivedIdEvent, events };
+      allowPreservingDeletionUpsert: member.allowPreservingDeletionUpsert, allowActiveRestoreUpdate: member.allowActiveRestoreUpdate, allowStorageInsertionOrder: member.allowStorageInsertionOrder, allowRecordedRowReplay: member.allowRecordedRowReplay, derivedIdEvent, events };
     if (member.kind === "logical") {
       const validated = member.validateLogical !== undefined || member.validateLogicalCall !== undefined;
       if (location === undefined || member.validate !== undefined ||
@@ -192,9 +198,10 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
         || (member.detachDeletedReferences === true && member.validateLogicalCall === undefined)
         || (member.setNullPolicy !== undefined && !validated)
         || (member.reconstitution !== undefined && !validated)
-        || (member.allowPreservingDeletionUpsert === true && !validated)
+        || (member.allowPreservingDeletionUpsert !== undefined && !validated)
         || (member.allowActiveRestoreUpdate === true && !validated)
         || (member.allowStorageInsertionOrder === true && !validated)
+        || (member.allowRecordedRowReplay === true && member.validateLogicalCall === undefined)
         || (member.allowReferenceReplacement === true && (!validated ||
           derivedIdEvent === undefined || events === undefined ||
           !events.contracts.includes(derivedIdEvent.contract))) ||
@@ -241,7 +248,7 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     if (member.profile === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
     const descriptor = yield* requireCommerceProfile(member.profile);
     if (member.validateLogical !== undefined || member.validateLogicalCall !== undefined || member.detachDeletedReferences === true || member.setNullPolicy !== undefined ||
-      member.allowReferenceReplacement === true || member.reconstitution !== undefined || member.allowPreservingDeletionUpsert === true || member.allowActiveRestoreUpdate === true || member.allowStorageInsertionOrder === true || derivedIdEvent !== undefined)
+      member.allowReferenceReplacement === true || member.reconstitution !== undefined || member.allowPreservingDeletionUpsert !== undefined || member.allowActiveRestoreUpdate === true || member.allowStorageInsertionOrder === true || member.allowRecordedRowReplay === true || derivedIdEvent !== undefined)
       return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (descriptor.localOnly !== (member.validate !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (!sameBindingValue({ ...descriptor.artifact.identity }, reference.installation.artifact))

@@ -54,9 +54,15 @@ export const NormalizedPriceListPrice = Schema.Struct({ id: Schema.optionalKey(P
 export const EncodedPriceListPrice = Schema.Struct({ ...NormalizedPriceListPrice.fields,
   raw_amount: Schema.optionalKey(ExactNumericRaw), raw_min_quantity: Schema.optionalKey(Schema.NullOr(ExactNumericRaw)),
   raw_max_quantity: Schema.optionalKey(Schema.NullOr(ExactNumericRaw)) });
+/** Native update normalization retains sparse scalar updates for explicit IDs. */
+export const NormalizedPriceListPriceUpdate = Schema.Struct({ ...NormalizedPriceListPrice.fields,
+  id: Schema.optionalKey(Text), currency_code: Schema.optionalKey(Schema.NullOr(Text)), amount: Schema.optionalKey(Numeric) });
+export const EncodedPriceListPriceUpdate = Schema.Struct({ ...EncodedPriceListPrice.fields,
+  currency_code: NormalizedPriceListPriceUpdate.fields.currency_code, amount: NormalizedPriceListPriceUpdate.fields.amount });
 // A declared empty raw rules record survives native normalization as an
 // undeclared DML field. Preserve the existing typed refusal at this boundary.
 export const decodeNormalizedPriceListPrice = commerceDecoder(NormalizedPriceListPrice, "invalidInput");
+export const decodeNormalizedPriceListPriceUpdate = commerceDecoder(NormalizedPriceListPriceUpdate, "invalidInput");
 const decodeCandidateEnvelope = commerceDecoder(Schema.Struct({ where: Schema.Unknown, options: Schema.Struct({
   populate: Schema.Tuple([Schema.Literal("price_rules")]), orderBy: Schema.Struct({ id: Schema.Literal("ASC") }),
 }) }), "unsupportedProfile");
@@ -81,7 +87,7 @@ const decodeCandidateWhereShape = commerceDecoder(Schema.Union([
   Schema.Struct({ price_list_id: Membership, $or: Schema.Array(Constraint).check(Schema.isMaxLength(8)) }),
   Schema.Struct({ price_list_id: Schema.Tuple([]) }),
 ]), "unsupportedProfile");
-const candidateWhere: WherePolicy = { decode: decodeWhere, fields: new Map<string, ScalarFilter>([
+export const priceListPriceCandidateWhere: WherePolicy = { decode: decodeWhere, fields: new Map<string, ScalarFilter>([
   ...["id", "price_list_id", "price_set_id", "currency_code"].map(column => [column, { column, decode: decodeText }] as const),
   ...["min_quantity", "max_quantity"].map(column => [column, quantityFilter(column)] as const),
 ]), logical: { decodeBranches: commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(8)), "unsupportedProfile"),
@@ -146,7 +152,7 @@ export function compilePriceListPriceCreationContracts(metadata: Effect.Success<
     });
     const compileNativeCandidatePlan = (input: unknown) => Result.gen(function* () {
       const envelope = yield* captureCommerceInput(input).pipe(Result.flatMap(decodeCandidateEnvelope));
-      const where = yield* decodeCandidateWhereShape(envelope.where), predicate = yield* compileWhere(where, candidateWhere);
+      const where = yield* decodeCandidateWhereShape(envelope.where), predicate = yield* compileWhere(where, priceListPriceCandidateWhere);
       const constraints = "$or" in where ? where.$or : "price_set_id" in where ? [where] : [];
       const setPredicate = { kind: "and", children: [
         { kind: "in", column: "id", values: [...new Set(constraints.map(row => row.price_set_id))] },

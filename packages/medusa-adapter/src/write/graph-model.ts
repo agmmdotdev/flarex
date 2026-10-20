@@ -45,12 +45,20 @@ export interface ReplacementProfile {
   readonly catalog: GraphCatalog;
   /** Native update and upsertWithReplace differ on root writes and empty collections. */
   readonly operation: "upsertWithReplace" | "update";
+  /** A closed compensation profile may replay complete recorded preimages.
+   * The accepting core authenticates each exact row under its source/table
+   * history. This option grants no caller-supplied clock or history lookup. */
+  readonly recordedRowReplay?: true;
   /** A selected replacement may map already-active roots to the existing core
    * upsert semantics. `upsert` requires every root to exist; `upsertOrInsert`
    * admits missing roots through ordinary insertion. Neither admits historical
    * root reactivation or supplied managed timestamps. Owned children retain
    * their ordinary insert/update behavior. */
   readonly existingRootWrite?: "upsert" | "upsertOrInsert";
+  /** Selected native root upserts retain the complete existing managed state,
+   * including a historical tombstone. Missing roots keep ordinary insertion;
+   * owned-child history and managed-field guards remain unchanged. */
+  readonly preserveExistingManagedFields?: true;
   /** Selected native replacement attempts an upsert for every supplied active
    * owned has-many child, including equal values. The exact existing owner and
    * managed preimage remain protected; missing children use ordinary insertion.

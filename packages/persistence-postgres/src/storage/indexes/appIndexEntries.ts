@@ -9,7 +9,7 @@ import { defineNativeMetadataRead } from "../../database/physicalSession/drizzle
 import type { PointCommitPublicationObservation } from "../../commit/point/observation";
 import { bytesEqualFullScan, isUint8Array, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { eq, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, lte, sql, type SQL } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 import { observeDrizzleRawQuery } from "../../database/drizzleQueryObservation";
 import { type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
@@ -64,6 +64,7 @@ import { applicationDomainFailureDetail, buildAppIndexBatchStatement, applicatio
   applicationIndexTransitionByteArray } from "../materialization/domainApplication";
 import type { IndexBuildStateRecord } from "./indexBuildStates";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
+import { MAX_BOUNDED_APP_ROW_READ_IDENTITIES, MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES } from "../documents/appRows";
 import {
   isLocatedAppIndexDefinitionV1,
   type LocatedAppIndexDefinitionV1,
@@ -1006,6 +1007,73 @@ export const scanCurrentAppIndexInTransactionEffect = Effect.fnUntraced(function
     observer,
   );
 }, work => observeExecution("AppIndexEntries.scanCurrentInTransaction", work));
+
+export class AppIndexRetainedReadLimitError extends Error {
+  readonly _tag = "AppIndexRetainedReadLimitError" as const;
+  constructor(readonly limit: "entries" | "identities" | "keyBytes") {
+    super(`Retained app-index read exceeds ${limit}.`);
+    this.name = "AppIndexRetainedReadLimitError";
+  }
+}
+
+export interface ReadRetainedAppIndexCandidatesV1Input {
+  readonly scopeId: ScopeId;
+  readonly definition: LocatedAppIndexDefinitionV1;
+  readonly bounds: OrderedIndexBoundsV1;
+  readonly maximumCommitSeq: CommitSeq;
+  readonly maximumEntries: number;
+  readonly maximumIdentities: number;
+  readonly maximumTotalKeyBytes: number;
+}
+
+/** Complete retained positions for an authenticated bounded key range. A
+ * deleted position remains a candidate; this read grants no replay authority. */
+export const readRetainedAppIndexCandidatesInTransactionEffect = Effect.fn("AppIndexEntries.readRetainedCandidates")(
+  function* (tx: AppIndexEntryTransaction, input: ReadRetainedAppIndexCandidatesV1Input): Effect.fn.Return<
+    readonly AppIndexEntryRevisionV1[], ReadAppIndexRangeV1Error | AppIndexRetainedReadLimitError
+  > {
+    if (!Number.isSafeInteger(input.maximumIdentities) || input.maximumIdentities < 1 || input.maximumIdentities > MAX_BOUNDED_APP_ROW_READ_IDENTITIES ||
+      !Number.isSafeInteger(input.maximumTotalKeyBytes) || input.maximumTotalKeyBytes < 0 || input.maximumTotalKeyBytes > MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES)
+      return yield* Effect.fail(new InvalidAppIndexEntryInputError("invalidLimit"));
+    const decoded = yield* decodeRangeReadEffect(tx, { scopeId: input.scopeId, definition: input.definition,
+      bounds: input.bounds, limit: input.maximumEntries });
+    const maximumCommitSeq = yield* Effect.fromResult(decodeReadFieldResult(
+      decodeCommitSeqResult(input.maximumCommitSeq), "invalidSnapshotCommitSeq"));
+    const entries = fxAppIndexEntryRevisions;
+    const predicates = [eq(entries.scopeUuid, decoded.scopeUuid), eq(entries.indexDefinitionId, decoded.indexDefinitionId),
+      lte(entries.commitSeq, maximumCommitSeq)];
+    if (decoded.bounds.startInclusive !== undefined) predicates.push(sql`${entries.encodedKey} >= ${decoded.bounds.startInclusive}`);
+    if (decoded.bounds.endExclusive !== undefined) predicates.push(sql`${entries.encodedKey} < ${decoded.bounds.endExclusive}`);
+    // Limit the physical directory before computing byte totals or transferring
+    // keys. Lookahead detects overflow, rather than returning a partial proof.
+    const directory = tx.select().from(entries).where(and(...predicates))
+      .orderBy(asc(entries.encodedKey), asc(entries.rowId), desc(entries.commitSeq)).limit(input.maximumEntries + 1).as("retained_index_directory");
+    const withinBudget = sql<boolean>`sum(octet_length(${directory.encodedKey})) over () <= ${input.maximumTotalKeyBytes}`;
+    const query = tx.select({ tableIdText: sql<string>`${directory.tableId}::text`,
+      keyCodecVersionText: sql<string>`${directory.keyCodecVersion}::text`, physicalSpecSha256: directory.physicalSpecSha256,
+      encodedKeyBytes: sql`case when ${withinBudget} then ${directory.encodedKey} else null end`,
+      keySha256: directory.keySha256, rowIdBytes: directory.rowId, commitSeqText: sql<string>`${directory.commitSeq}::text`,
+      isTombstone: directory.isTombstone, withinBudget,
+    }).from(directory).orderBy(asc(directory.encodedKey), asc(directory.rowId), desc(directory.commitSeq));
+    const rows = yield* Effect.uninterruptible(Effect.tryPromise({ try: () => query,
+      catch: cause => new AppIndexEntryReadPersistenceError("scanRetained", cause) }));
+    if (rows.length > input.maximumEntries) return yield* Effect.fail(new AppIndexRetainedReadLimitError("entries"));
+    const output: AppIndexEntryRevisionV1[] = [], identities = new Set<string>();
+    for (const row of rows) {
+      if (!row.withinBudget) return yield* Effect.fail(new AppIndexRetainedReadLimitError("keyBytes"));
+      const stored = yield* decodeStoredMembershipEffect(row).pipe(Effect.mapError(cause => corruption("retained membership does not decode", cause)));
+      const captured = yield* Effect.fromResult(captureRangeRowResult(decoded.physicalSpec, decoded.physicalSpecSha256, stored));
+      if (captured.tableId !== input.definition.access.tableId || captured.commitSeq > maximumCommitSeq ||
+        decoded.bounds.startInclusive !== undefined && compareBytes(captured.keyBytes, decoded.bounds.startInclusive) < 0 ||
+        decoded.bounds.endExclusive !== undefined && compareBytes(captured.keyBytes, decoded.bounds.endExclusive) >= 0)
+        return yield* Effect.fail(corruption("retained membership selection differs"));
+      const frame = yield* decodeCapturedRangeRowEffect(decoded, captured);
+      identities.add(frame.rowId);
+      if (identities.size > input.maximumIdentities) return yield* Effect.fail(new AppIndexRetainedReadLimitError("identities"));
+      output.push(Object.freeze({ ...frame, kind: captured.isTombstone ? "tombstone" : "live" }));
+    }
+    return Object.freeze(output);
+  });
 
 const decodePageBatchEnvelopeEffect = Schema.decodeUnknownEffect(Schema.Struct({
   ordinal: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)), present: Schema.NullOr(Schema.Boolean),

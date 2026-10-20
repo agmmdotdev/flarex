@@ -6,7 +6,7 @@ import { closeExactAttemptScopeClockObservation, exactScopeWriteClockObservation
   readFiniteExecutionAuthorityObservation, requireFiniteExecutionAuthorityObservation,
   readProtectedScopeReadIdentity, requireProtectedScopeReadIdentity, lockScopeClockForUpdateInTransactionEffect } from "../../scope/scopeClock";
 import type { PointCommitPublicationObservation } from "../../commit/point/observation";
-import { and, desc, eq, getTableColumns, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { observeDrizzleQuery, observeDrizzleRawQuery } from "../../database/drizzleQueryObservation";
 import { rowsFromDriverExecuteResult } from "../../database/driverExecuteResult";
@@ -243,6 +243,7 @@ export type InvalidAppRowReadInputIssue =
   | Readonly<{ readonly reason: "invalidScopeId"; readonly cause: unknown }>
   | Readonly<{ readonly reason: "invalidTableId"; readonly cause: unknown }>
   | Readonly<{ readonly reason: "invalidRowId"; readonly cause: unknown }>
+  | Readonly<{ readonly reason: "invalidSchemaVersionId"; readonly cause: unknown }>
   | Readonly<{ readonly reason: "rowLimitExceeded"; readonly cause: unknown }>
   | Readonly<{
       readonly reason: "invalidSnapshotCommitSeq";
@@ -268,6 +269,7 @@ export class AppRowReadPersistenceError extends Error {
     readonly operation:
       | "readScopeAuthority"
       | "readSnapshotRevision"
+      | "readRetainedRevisions"
       | "readCurrentPointer"
       | "readCurrentRevision"
       | "readPublicationFact"
@@ -923,6 +925,63 @@ export const readCurrentAppRowInTransactionEffect = Effect.fn(
 
 export const MAX_BOUNDED_APP_ROW_READ_IDENTITIES = 256;
 export const MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES = 1_048_576;
+
+export class AppRowRetainedReadLimitError extends Error {
+  readonly _tag = "AppRowRetainedReadLimitError" as const;
+  constructor(readonly limit: "revisions" | "valueBytes") {
+    super(`Retained app-row read exceeds ${limit}.`);
+    this.name = "AppRowRetainedReadLimitError";
+  }
+}
+
+export interface ReadRetainedAppRowRevisionsV1Input extends AppRowIdentityV1 {
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly maximumCommitSeq: CommitSeq;
+  readonly maximumRevisions: number;
+  readonly maximumDocumentBytes: number;
+  readonly maximumTotalValueBytes: number;
+}
+
+/** Actual retained frames for one physical identity. Bodies are withheld in
+ * SQL on overflow; the existing revision/canonical decoder owns every result. */
+export const readRetainedAppRowRevisionsInTransactionEffect = Effect.fn("AppRows.readRetainedRevisions")(
+  function* (tx: AppRowTransaction, input: ReadRetainedAppRowRevisionsV1Input): Effect.fn.Return<
+    readonly AppRowRevisionV1[], ReadAppRowError | AppRowRetainedReadLimitError
+  > {
+    yield* requireCurrentReadLimits({ maximumIdentities: input.maximumRevisions,
+      maximumDocumentBytes: input.maximumDocumentBytes, maximumTotalValueBytes: input.maximumTotalValueBytes });
+    if (input.maximumRevisions < 1) return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: input.maximumRevisions }));
+    const decoded = yield* Effect.fromResult(decodeReadIdentityResult(input));
+    const identity = decoded.identity;
+    const schemaVersionId = yield* Effect.fromResult(decodeReadFieldResult(
+      decodeCatalogSchemaVersionIdResult(input.schemaVersionId), "invalidSchemaVersionId"));
+    const maximumCommitSeq = yield* Effect.fromResult(decodeReadFieldResult(
+      decodeCommitSeqResult(input.maximumCommitSeq), "invalidSnapshotCommitSeq"));
+    const scopeUuid = yield* requireScopeUuidInTransactionEffect(tx, decoded);
+    const revisions = fxAppRowRevisions;
+    const directory = tx.select().from(revisions).where(and(eq(revisions.scopeUuid, scopeUuid), eq(revisions.tableId, identity.tableId),
+      eq(revisions.rowId, appRowIdHexV1ToBytes(identity.rowId)), eq(revisions.schemaVersionId, schemaVersionId),
+      lte(revisions.commitSeq, maximumCommitSeq))).orderBy(desc(revisions.commitSeq)).limit(input.maximumRevisions + 1).as("retained_row_directory");
+    const size = sql<number>`coalesce(octet_length(${directory.valueBytes}), 0)`;
+    const withinBudget = sql<boolean>`${size} <= ${input.maximumDocumentBytes} and sum(${size}) over () <= ${input.maximumTotalValueBytes}`;
+    const query = tx.select({ scopeUuid: directory.scopeUuid, tableId: directory.tableId, rowId: directory.rowId, commitSeq: directory.commitSeq,
+      prevCommitSeq: directory.prevCommitSeq, writeEpochUuid: directory.writeEpochUuid, schemaVersionId: directory.schemaVersionId,
+      creationTime: directory.creationTime, valueCodecVersion: directory.valueCodecVersion, isTombstone: directory.isTombstone,
+      insertionCommitSeq: directory.insertionCommitSeq, insertionAttemptOrdinal: directory.insertionAttemptOrdinal,
+      valueSha256: directory.valueSha256, valueBytes: sql`case when ${withinBudget} then ${directory.valueBytes} else null end`, withinBudget,
+    }).from(directory).orderBy(desc(directory.commitSeq));
+    const rows = yield* Effect.uninterruptible(Effect.tryPromise({ try: () => query,
+      catch: cause => new AppRowReadPersistenceError("readRetainedRevisions", cause) }));
+    if (rows.length > input.maximumRevisions) return yield* Effect.fail(new AppRowRetainedReadLimitError("revisions"));
+    const output: AppRowRevisionV1[] = [];
+    for (const row of rows) {
+      if (!row.withinBudget) return yield* Effect.fail(new AppRowRetainedReadLimitError("valueBytes"));
+      if (row.scopeUuid !== scopeUuid || row.tableId !== identity.tableId || row.schemaVersionId !== schemaVersionId || row.commitSeq > maximumCommitSeq)
+        return yield* Effect.fail(new AppRowStorageCorruptionError(identity, "retained revision selection differs"));
+      output.push(yield* decodeRevisionRowEffect(identity, row));
+    }
+    return Object.freeze(output);
+  });
 
 export type CurrentAppRowReadLimits = Readonly<{ maximumIdentities: number;
   maximumDocumentBytes: number; maximumTotalValueBytes: number }>;

@@ -12,12 +12,13 @@ import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
 import { replaceGraphRows } from "../../write/replace";
 import type { GraphCatalog, GraphEntity, ReplacementProfile } from "../../write/graph-model";
-import { NormalizedPriceListPriceRule, EncodedPriceListPrice,
-  decodeNormalizedPriceListPrice, type PriceListPriceCreationContracts } from "./price-list-price-input";
+import { NormalizedPriceListPriceRule, EncodedPriceListPrice, EncodedPriceListPriceUpdate,
+  decodeNormalizedPriceListPrice, decodeNormalizedPriceListPriceUpdate, type PriceListPriceCreationContracts } from "./price-list-price-input";
 
 const decodeReplacement = commerceDecoder(Schema.Struct({ input: Schema.Array(Schema.Unknown).check(Schema.isMaxLength(8)),
   config: Schema.Struct({ relations: Schema.Tuple([Schema.Literal("price_rules")]) }) }), "invalidInput");
 const decodeEncoded = commerceDecoder(EncodedPriceListPrice, "invalidInput");
+const decodeEncodedUpdate = commerceDecoder(EncodedPriceListPriceUpdate, "invalidInput");
 const decodeRule = commerceDecoder(NormalizedPriceListPriceRule, "invalidInput");
 type Identity = (supplied: string | undefined, ordinal: number) => Result.Result<string, CommerceTransactionError>;
 
@@ -27,13 +28,13 @@ type Identity = (supplied: string | undefined, ordinal: number) => Result.Result
  * native first-write/last-relation/raw-response planning. */
 export const planPriceListPriceWrite = Effect.fn("PricingLists.planPriceWrite")(function* (
   contracts: PriceListPriceCreationContracts, input: unknown, config: unknown,
-  resources: CommerceCommandContext["resources"], priceIdentity: Identity, ruleIdentity: Identity,
+  resources: CommerceCommandContext["resources"], priceIdentity: Identity, ruleIdentity: Identity, mode: "creation" | "update" = "creation",
 ) {
   const args = yield* Effect.fromResult(captureCommerceInput({ input, config }, resources).pipe(Result.flatMap(decodeReplacement)));
   const numeric = contracts.tables.price.columns.filter(column => column.type === "bigNumber");
   const sources: JsonObject[] = [], scalarRows = new WeakMap<JsonObject, JsonObject & { id: string }>();
   for (const [index, inputRow] of args.input.entries()) {
-    const source = yield* Effect.fromResult(decodeNormalizedPriceListPrice(inputRow));
+    const source = yield* Effect.fromResult((mode === "update" ? decodeNormalizedPriceListPriceUpdate : decodeNormalizedPriceListPrice)(inputRow));
     const { price_rules: _children, ...scalar } = source;
     const encoded = yield* captureExactNumericRow(scalar, numeric);
     const entity = { ...encoded, id: yield* Effect.fromResult(priceIdentity(source.id, index)) };
@@ -49,7 +50,7 @@ export const planPriceListPriceWrite = Effect.fn("PricingLists.planPriceWrite")(
   const relationRows = new Map<string, JsonObject[]>(), relationResults: { index: number; entities: JsonObject[] | undefined }[] = [];
   let childOrdinal = 0;
   for (const relation of relationPlan) {
-    const source = yield* Effect.fromResult(decodeNormalizedPriceListPrice(relation.entity));
+    const source = yield* Effect.fromResult((mode === "update" ? decodeNormalizedPriceListPriceUpdate : decodeNormalizedPriceListPrice)(relation.entity));
     const children: JsonObject[] = [];
     for (const child of source.price_rules ?? []) children.push({ ...child,
       id: yield* Effect.fromResult(ruleIdentity(child.id, childOrdinal++)), price_id: relation.entity.id });
@@ -107,7 +108,7 @@ export const readPriceListPriceCandidates = Effect.fn("PricingLists.readPriceCan
 /** Actual native batch helpers retain first scalar writes, last relation input,
  * and every sparse response position. Shared graph planning never sees repeated
  * roots or obtains a waiver for its existing duplicate/owner guards. */
-export function preparePriceListPriceReplacement(contracts: PriceListPriceCreationContracts) {
+export function preparePriceListPriceReplacement(contracts: PriceListPriceCreationContracts, mode: "creation" | "update" = "creation") {
   return Result.gen(function* () {
     const entities: GraphEntity[] = [];
     for (const [table, model] of [[contracts.tables.set, "PriceSet"], [contracts.tables.list, "PriceList"],
@@ -121,15 +122,16 @@ export function preparePriceListPriceReplacement(contracts: PriceListPriceCreati
     const numeric = contracts.tables.price.columns.filter(column => column.type === "bigNumber");
     const catalog: GraphCatalog = { entities, tables: entities.map(entity => entity.table), writablePivots: [], queryRelations: contracts.relations,
       decodeRow: (entity, input) => Result.gen(function* () {
-        const supplied = entity === root ? yield* decodeEncoded(input) : entity === rule ? yield* decodeRule(input)
+        const supplied = entity === root ? yield* (mode === "update" ? decodeEncodedUpdate : decodeEncoded)(input) : entity === rule ? yield* decodeRule(input)
           : yield* Result.fail(commerceError("unsupportedProfile"));
         return { supplied, key: supplied.id };
       }), decodeReference: () => Result.fail(commerceError("unsupportedProfile")), decodeAssociation: () => Result.fail(commerceError("unsupportedProfile")) };
     const profile: ReplacementProfile = { catalog, operation: "upsertWithReplace", existingRootWrite: "upsertOrInsert", ownedChildWrite: "upsert",
+      ...(mode === "update" ? { preserveExistingManagedFields: true as const } : {}),
       foreignKeyVisibility: (entity, column) => entity === root && column === "price_set_id" ? "existing" : "active",
       orderedDeletionTables: [rule.table.name], ordering: new Map<string, CommerceRelationOrder>([[root.table.name, "id"], [contracts.tables.set.name, "id"],
         [contracts.tables.list.name, "id"], [rule.table.name, { kind: "storageInsertion", direction: "asc" }]]),
-      allowedRelations: entity => entity === root ? ["price_rules"] : [], ownedToOne: () => [], mutableForeignKeys: () => false,
+      allowedRelations: entity => entity === root ? ["price_rules"] : [], ownedToOne: () => [], mutableForeignKeys: entity => mode === "update" && entity === root,
       admitSelection: (table, rows) => Result.gen(function* () {
         for (const row of rows) {
           if (table === root.table) yield* contracts.decodePriceRow(projectNativeRow(row));
@@ -146,7 +148,7 @@ export function preparePriceListPriceReplacement(contracts: PriceListPriceCreati
     };
     const replace = Effect.fn("PricingLists.replacePrices")(function* (ctx: CommerceCommandContext, input: unknown, config: unknown) {
       const { args, batch, requested, relationResults } = yield* planPriceListPriceWrite(contracts, input, config, ctx.resources,
-        supplied => Result.succeed(generateEntityId(supplied, root.prefix)), supplied => Result.succeed(generateEntityId(supplied, rule.prefix)));
+        supplied => Result.succeed(generateEntityId(supplied, root.prefix)), supplied => Result.succeed(generateEntityId(supplied, rule.prefix)), mode);
       const result = yield* replaceGraphRows(ctx, profile, root, requested, args.config);
       for (const [index, value] of result.entities.entries()) {
         const supplied = requested[index];

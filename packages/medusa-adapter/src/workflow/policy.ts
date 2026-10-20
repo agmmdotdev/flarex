@@ -76,6 +76,8 @@ export const storeUpdateResources = Object.freeze({ ...defaultCommerceResources,
 export const priceListDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Four native Price List Price entries with eight Prices and sixteen Rules. */
 export const priceListPriceCreationResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
+/** Native Price List Price updates and their complete retained graph inverse. */
+export const priceListPriceUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Complete ServiceZone lifecycle graph and its genuine retained raw-ID inverse. */
 export const serviceZoneDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 256, eventMessages: 128 });
 /** Native ServiceZone geographic update; measured admission is selected independently. */

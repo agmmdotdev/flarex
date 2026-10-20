@@ -79,6 +79,10 @@ function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
     const managed = logicalManagedUpdatedColumns(table, capabilities);
     const deletions = capabilities.flatMap(capability => capability.kind === "softDelete" && belongsTo(table, capability.deletedAtColumn)
       ? [capability.deletedAtColumn.columnId] : []);
+    const managedColumns = capabilities.flatMap(capability =>
+      capability.kind === "managedTimestamps" && belongsTo(table, capability.createdAtColumn)
+        ? [capability.createdAtColumn.columnId, capability.updatedAtColumn.columnId]
+        : capability.kind === "softDelete" && belongsTo(table, capability.deletedAtColumn) ? [capability.deletedAtColumn.columnId] : []);
     const columnsByName = new Map<string, typeof table.columns[number]>(table.columns.map(column => [column.identity.columnId, column]));
     const suppliedRows = new WeakSet<JsonObject>();
     const validateInput = (input: JsonObject) => Result.gen(function* () {
@@ -123,7 +127,7 @@ function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
       normalizedRows.set(captured.value, normalize);
       return captured.value;
     });
-    return Object.freeze({ keyColumns, normalize, validate, validateInput,
+    return Object.freeze({ keyColumns, managedColumns: Object.freeze(managedColumns), normalize, validate, validateInput,
       deletedAt: deletions.length === 1 ? deletions[0] : undefined });
   });
 }
@@ -523,7 +527,7 @@ export function bindPreparedLogicalRelationalRows<Failure>(mechanics: PreparedLo
   if (!issuedTableMechanics.has(mechanics)) return Result.fail(error("invalidAuthority"));
   const project = (cause: LogicalRelationalMechanicsError) => error(cause.reason, cause.cause);
   return mechanics.rows.pipe(Result.mapError(project), Result.map(rows => Object.freeze({
-    keyColumns: rows.keyColumns, deletedAt: rows.deletedAt,
+    keyColumns: rows.keyColumns, deletedAt: rows.deletedAt, managedColumns: rows.managedColumns,
     normalize: (...args: Parameters<typeof rows.normalize>) => rows.normalize(...args).pipe(Result.mapError(project)),
     validate: (...args: Parameters<typeof rows.validate>) => rows.validate(...args).pipe(Result.mapError(project)),
     validateInput: (...args: Parameters<typeof rows.validateInput>) => rows.validateInput(...args).pipe(Result.mapError(project)),

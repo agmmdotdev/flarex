@@ -1,6 +1,6 @@
 import { Effect, Result, Schema } from "effect";
 import { commerceCommandIdentity, type CommerceCommand, type LogicalCommerceCallValidation, type LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, LogicalReconstitutionPolicy, LogicalSetNullPolicy, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, LogicalReconstitutionPolicy, type LogicalPreservingDeletionUpsertPolicy, LogicalSetNullPolicy, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceModuleDescription } from "../module/definition";
 import type { GraphModuleDefinition } from "../local-graph/model";
 import { prepareLocalGraph } from "../local-graph/query";
@@ -61,9 +61,10 @@ export interface WorkflowLogicalPolicy {
   readonly detachDeletedReferences?: true;
   readonly setNullPolicy?: LogicalSetNullPolicy;
   readonly reconstitution?: LogicalReconstitutionPolicy;
-  readonly allowPreservingDeletionUpsert?: true;
+  readonly allowPreservingDeletionUpsert?: LogicalPreservingDeletionUpsertPolicy;
   readonly allowActiveRestoreUpdate?: true;
   readonly allowStorageInsertionOrder?: true;
+  readonly allowRecordedRowReplay?: true;
   readonly referenceReplacement?: Readonly<{
     commands: readonly CommerceCommand[];
     eventName: string;
@@ -110,9 +111,10 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
     if (supplied !== undefined && (typeof supplied.capture !== "function" || typeof supplied.validateLogicalCall !== "function" ||
       supplied.validateLogical !== undefined && typeof supplied.validateLogical !== "function" ||
       supplied.detachDeletedReferences !== undefined && supplied.detachDeletedReferences !== true ||
-      supplied.allowPreservingDeletionUpsert !== undefined && supplied.allowPreservingDeletionUpsert !== true ||
+      supplied.allowPreservingDeletionUpsert !== undefined && supplied.allowPreservingDeletionUpsert !== true && supplied.allowPreservingDeletionUpsert !== "preserveTimestamps" ||
       supplied.allowActiveRestoreUpdate !== undefined && supplied.allowActiveRestoreUpdate !== true ||
-      supplied.allowStorageInsertionOrder !== undefined && supplied.allowStorageInsertionOrder !== true)) return yield* Result.fail(commerceError("unsupportedProfile"));
+      supplied.allowStorageInsertionOrder !== undefined && supplied.allowStorageInsertionOrder !== true ||
+      supplied.allowRecordedRowReplay !== undefined && supplied.allowRecordedRowReplay !== true)) return yield* Result.fail(commerceError("unsupportedProfile"));
     const setNullPolicy = supplied?.setNullPolicy === undefined ? undefined : yield* captureCommerceInput(supplied.setNullPolicy)
       .pipe(Result.flatMap(commerceDecoder(LogicalSetNullPolicy, "unsupportedProfile")));
     const reconstitution = supplied?.reconstitution === undefined ? undefined : yield* captureCommerceInput(supplied.reconstitution)
@@ -143,6 +145,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
       ...(supplied.allowPreservingDeletionUpsert === undefined ? {} : { allowPreservingDeletionUpsert: supplied.allowPreservingDeletionUpsert }),
       ...(supplied.allowActiveRestoreUpdate === undefined ? {} : { allowActiveRestoreUpdate: supplied.allowActiveRestoreUpdate }),
       ...(supplied.allowStorageInsertionOrder === undefined ? {} : { allowStorageInsertionOrder: supplied.allowStorageInsertionOrder }),
+      ...(supplied.allowRecordedRowReplay === undefined ? {} : { allowRecordedRowReplay: supplied.allowRecordedRowReplay }),
       ...(replacement === undefined ? {} : { referenceReplacement: Object.freeze({
         commands: Object.freeze([...replacement.commands]), eventName: replacement.eventName, eventLimit: replacement.eventLimit,
         metadata: yield* captureCommerceInput(replacement.metadata),

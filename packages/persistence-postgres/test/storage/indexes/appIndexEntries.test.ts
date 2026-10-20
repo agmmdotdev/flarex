@@ -6,6 +6,7 @@ import { lockInstallationForCurrentTransaction, closeInstallationAdmission } fro
 import { verifyIndexBatches } from "./indexBatchScenario";
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import { verifyMembershipReadPreparation } from "./indexMembershipReadScenario";
+import { verifyRetainedHistoryReads } from "./retainedHistoryReadScenario";
 import { verifyDemandVectorFreshness } from "../documents/logicalDependencyValidationScenario";
 import {
   canonicalizeAppDocumentV1,
@@ -99,6 +100,18 @@ let locatedDefinition: LocatedAppIndexDefinitionV1;
 
 describe("S10 app-index revision and current storage", { concurrent: false }, () => {
   const withPersistence = useFileScopedIndexPersistence();
+
+  it("reads complete bounded retained positions and canonical revisions after physical deletion", async () => {
+    await withPersistence(async borrowedPersistence => {
+      const persistence = await indexPersistence(borrowedPersistence);
+      await persistence.drizzle.transaction(async tx => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try { await verifyRetainedHistoryReads(tx, { identity: { scopeId, tableId, rowId: rowA }, otherRowId: rowB,
+          definition: locatedDefinition, epoch, schemaVersionId, creationTime }); }
+        finally { closeInstallationAdmission(tx); }
+      });
+    });
+  });
 
   it("retains genuine frozen catalog specifications and authenticates raw publication digests", async () => {
     return withPersistence(async borrowedPersistence => {

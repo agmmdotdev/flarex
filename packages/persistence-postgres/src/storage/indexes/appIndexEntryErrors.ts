@@ -108,7 +108,7 @@ export class AppIndexEntryReadPersistenceError extends Error {
   readonly _tag = "AppIndexEntryReadPersistenceError" as const;
 
   constructor(
-    readonly operation: "readScopeAuthority" | "scanSnapshot" | "scanCurrent",
+    readonly operation: "readScopeAuthority" | "scanSnapshot" | "scanCurrent" | "scanRetained",
     readonly cause: unknown,
   ) {
     super(`App-index entry ${operation} query failed.`, { cause });

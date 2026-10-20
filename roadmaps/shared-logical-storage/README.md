@@ -100,6 +100,11 @@ reuse of complete physically deleted preimages within a trusted live logical
 root. Ordinary creation and persisted-history restoration keep their separate
 boundaries; native Store update retains its connected admission gate.
 
+[Recorded framework row replay](./69-recorded-row-replay.md) owns the explicitly
+selected complete-preimage compensation capability implemented for Medusa
+Price List Price update. Committed tombstones stay retired; restoration keeps
+native IDs and recorded fields through fresh internal insertion.
+
 [Executed relational read evidence](./64-executed-relational-read-evidence.md)
 owns the authorized in-memory activity correction exposed by native Shipping
 Profile deletion: successful empty selections retain their actual query and

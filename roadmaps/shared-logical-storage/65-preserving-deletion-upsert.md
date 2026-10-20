@@ -39,7 +39,8 @@ forged clock or local row-store emulation.
 
 The trusted logical participant explicitly selects
 `allowPreservingDeletionUpsert: true` and supplies logical call or aggregate
-receipt validation. Capture accepts only that literal optional selection.
+receipt validation. Capture also accepts the explicit `"preserveTimestamps"`
+selection for native business merges that retain existing managed fields.
 Physical participants refuse it. Selected participant names enter the prepared
 execution identity, preventing reuse of outcomes under a profile that omits the
 selection. Profiles without the selection retain their existing identity and
@@ -49,7 +50,12 @@ The operation uses the admitted table, source key, scoped candidate view and
 existing row normalization. For an existing row, supplied fields merge into its
 physical preimage; omitted deletion and creation fields remain intact, while
 managed update columns use the accepting transaction timestamp. Explicitly
-supplied deletion fields keep their normal table-value semantics. For a missing
+supplied deletion fields keep their normal table-value semantics under `true`.
+The `"preserveTimestamps"` selection keeps all existing capability-declared
+creation, update and deletion fields. Supplied managed values must equal the
+actual existing preimage; a missing row cannot supply managed values and uses
+the ordinary server defaults. This selection enters a distinct execution
+identity while existing `true` profile identities remain unchanged. For a missing
 row, existing defaults and complete required-field checks apply. It does not
 authenticate a prior deletion or reconstruct committed history; the separate
 [same-root reconstitution](./63-same-root-row-reconstitution.md) contract remains

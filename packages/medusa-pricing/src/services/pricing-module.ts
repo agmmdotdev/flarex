@@ -16,6 +16,10 @@ import type {
   PricingContext,
   PricingFilters,
   PricingRepositoryService,
+  PriceListPriceSnapshotPrice,
+  PriceListPriceSnapshotRule,
+  PriceListPriceUpdateCompensation,
+  PriceListPriceUpdateSnapshot,
   PricingTypes,
   UpsertPricePreferenceDTO,
   UpsertPriceSetDTO,
@@ -1013,6 +1017,75 @@ export default class PricingModuleService
     }
   }
 
+  /** Private-fork preimages for the named Price List Price update workflow.
+   * Forward matching remains in updatePriceListPrices_ and normalizePrices. */
+  @InjectManager()
+  async snapshotPriceListPricesForUpdate(
+    data: PricingTypes.UpdatePriceListPricesDTO[],
+    @MedusaContext() sharedContext: Context = {}
+  ): Promise<PriceListPriceUpdateSnapshot> {
+    const prices = data.flatMap(entry => entry.prices)
+    if (!prices.length) return { prices: [] }
+
+    const candidates = buildPreNormalizationPriceConstraintsFromData(
+      prices,
+      data.map(entry => entry.price_list_id)
+    )
+    const suppliedIds = prices.flatMap(price => price.id ? [price.id] : [])
+    const where = suppliedIds.length
+      ? { $or: [candidates, { id: suppliedIds }] }
+      : candidates
+    const entities = await this.priceService_.list(
+      where,
+      { withDeleted: true },
+      sharedContext
+    )
+    const roots = await this.baseRepository_.serialize<
+      Omit<PriceListPriceSnapshotPrice, "price_rules">[]
+    >(entities)
+    const rules = roots.length
+      ? await this.priceRuleService_.list(
+          { price_id: roots.map(price => price.id) },
+          { withDeleted: true },
+          sharedContext
+        )
+      : []
+    const serializedRules = await this.baseRepository_.serialize<
+      PriceListPriceSnapshotRule[]
+    >(rules)
+    // Keep only the model's persisted fields. Relation aliases must not survive
+    // as live ORM objects or override their scalar foreign keys on replay.
+    return structuredClone({ prices: roots.map(price => ({
+      id: price.id, title: price.title, currency_code: price.currency_code,
+      amount: price.amount, raw_amount: price.raw_amount,
+      min_quantity: price.min_quantity, raw_min_quantity: price.raw_min_quantity,
+      max_quantity: price.max_quantity, raw_max_quantity: price.raw_max_quantity,
+      rules_count: price.rules_count, price_set_id: price.price_set_id,
+      price_list_id: price.price_list_id, created_at: price.created_at,
+      updated_at: price.updated_at, deleted_at: price.deleted_at,
+      price_rules: serializedRules.filter(rule => rule.price_id === price.id).map(rule => ({
+        id: rule.id, price_id: rule.price_id, attribute: rule.attribute,
+        value: rule.value, operator: rule.operator, priority: rule.priority,
+        created_at: rule.created_at, updated_at: rule.updated_at,
+        deleted_at: rule.deleted_at,
+      })),
+    })) })
+  }
+
+  /** Private-fork inverse: never re-normalize the retained identities/rules. */
+  @InjectManager()
+  @EmitEvents()
+  async restorePriceListPrices(
+    data: PriceListPriceUpdateCompensation,
+    @MedusaContext() sharedContext: Context = {}
+  ): Promise<void> {
+    try {
+      await this.restorePriceListPrices_(data, sharedContext)
+    } finally {
+      this.pricingRepository_.clearAvailableAttributes?.()
+    }
+  }
+
   @InjectManager()
   @EmitEvents()
   async removePrices(
@@ -1526,6 +1599,30 @@ export default class PricingModuleService
     @MedusaContext() sharedContext: Context = {}
   ): Promise<void> {
     await this.priceService_.delete(ids, sharedContext)
+  }
+
+  @InjectTransactionManager()
+  protected async restorePriceListPrices_(
+    data: PriceListPriceUpdateCompensation,
+    @MedusaContext() sharedContext: Context = {}
+  ): Promise<void> {
+    if (data.createdPriceIds.length) {
+      await this.priceService_.delete(data.createdPriceIds, sharedContext)
+    }
+    if (data.before.length) {
+      // Native BigNumber accepts its own raw representation, retaining precision
+      // rather than rounding through the public numeric getter on compensation.
+      const before = data.before.map(price => ({ ...price,
+        amount: price.raw_amount,
+        min_quantity: price.raw_min_quantity,
+        max_quantity: price.raw_max_quantity,
+      }))
+      await this.priceService_.upsertWithReplace(
+        before,
+        { relations: ["price_rules"] },
+        sharedContext
+      )
+    }
   }
 
   @InjectTransactionManager()

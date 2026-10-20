@@ -17,6 +17,7 @@ import { validatePriceListReadReceipt } from "./list-update-receipt";
 import { decodeAddPriceListPrices, decodePriceListPriceRead, decodePriceListPriceRemovalIds,
   type PriceListPriceCreationContracts } from "./price-list-price-input";
 import { planPriceListPriceWrite } from "./price-list-price-repository";
+import { decodeUpdatePriceListPrices, type PriceListPriceUpdateContracts, type UpdatePriceListPricesInput } from "./price-list-price-update-input";
 
 type Call = Parameters<LogicalCallReceiptValidation>[0];
 type Activity = Parameters<LogicalCallReceiptValidation>[1];
@@ -33,7 +34,7 @@ function rowDecoder(contracts: PriceListPriceCreationContracts, table: string) {
     : table === "price_list" ? contracts.decodeListRow : table === "price_set" ? contracts.decodeSetRow : undefined;
 }
 
-const initialRows = Effect.fn("PricingLists.priceReceiptInitialRows")(function* (contracts: PriceListPriceCreationContracts, activity: Activity) {
+export const initialPriceListPriceReceiptRows = Effect.fn("PricingLists.priceReceiptInitialRows")(function* (contracts: PriceListPriceCreationContracts, activity: Activity) {
   const rows = new Map<string, Row>();
   const decode = (table: string, value: JsonObject) => Result.gen(function* () {
     const decoder = rowDecoder(contracts, table);
@@ -73,7 +74,7 @@ const validateRemoval = Effect.fn("PricingLists.validatePriceRemoval")(function*
       return yield* Effect.fail(mismatch());
     return;
   }
-  const rows = yield* initialRows(contracts, activity), roots: string[] = [], children: Row[] = [];
+  const rows = yield* initialPriceListPriceReceiptRows(contracts, activity), roots: string[] = [], children: Row[] = [];
   for (const [key, row] of rows) {
     if (key.startsWith("price:")) { if (!ids.includes(row.id)) return yield* Effect.fail(mismatch()); }
     else if (key.startsWith("price_rule:")) {
@@ -107,24 +108,19 @@ const validateRemoval = Effect.fn("PricingLists.validatePriceRemoval")(function*
   }
 });
 
-const validateAddition = Effect.fn("PricingLists.validatePriceAddition")(function* (
-  contracts: PriceListPriceCreationContracts, call: Call, activity: Activity,
+export const validatePriceListPriceWriteReceipt = Effect.fn("PricingLists.validatePriceAddition")(function* (
+  contracts: PriceListPriceCreationContracts, call: Call, activity: Activity, update?: PriceListPriceUpdateContracts,
 ) {
   const mismatch = () => commerceError("receiptMismatch");
-  const input = yield* Effect.fromResult(decodeAddPriceListPrices(call.input)), output = yield* Effect.fromResult(contracts.decodeOutput(call.result));
-  const initial = yield* initialRows(contracts, activity), consumedReads = new Set<number>();
+  const input = update === undefined ? yield* Effect.fromResult(decodeAddPriceListPrices(call.input))
+    : yield* Effect.fromResult(decodeUpdatePriceListPrices(call.input));
+  const output = yield* Effect.fromResult(contracts.decodeOutput(call.result));
+  const initial = yield* initialPriceListPriceReceiptRows(contracts, activity), consumedReads = new Set<number>();
   const consumeRead = Effect.fn(function* (table: string, query: JsonObject, expected?: readonly Row[], unique = true,
     source: ReadonlyMap<string, Row> = initial) {
     const matching = activity.relationalReads.map((read, index) => ({ read, index })).filter(({ read, index }) =>
       !consumedReads.has(index) && read.table === table && jsonEqual(read.query, query));
-    if (matching.length === 0 || unique && matching.length !== 1) {
-      const available = activity.relationalReads.map((read, index) => ({ read, index })).filter(({ read, index }) =>
-        !consumedReads.has(index) && read.table === table);
-      return yield* Effect.fail(commerceError("receiptMismatch", { phase: "price-read-correlation", table, wanted: query, unique,
-        matching: matching.map(value => value.index), remaining: available.slice(0, 16).map(({ read, index }) => ({ index,
-          query: read.query, total: read.total, returned: read.returned, orderedIdentities: read.orderedIdentities ?? null })),
-        omitted: Math.max(0, available.length - 16) }));
-    }
+    if (matching.length === 0 || unique && matching.length !== 1) return yield* Effect.fail(mismatch());
     const selected = matching[0]; if (!selected) return yield* Effect.fail(mismatch());
     consumedReads.add(selected.index);
     if (selected.read.total !== selected.read.returned) return yield* Effect.fail(mismatch());
@@ -138,7 +134,8 @@ const validateAddition = Effect.fn("PricingLists.validatePriceAddition")(functio
       for (const { id } of ids) { const row = source.get(table + ":" + id); if (!row) return yield* Effect.fail(mismatch()); rows.push(row); }
       return rows;
     }
-    return [...expected ?? []];
+    if (expected === undefined) return yield* Effect.fail(mismatch());
+    return [...expected];
   });
   const listIds = input.map(row => row.price_list_id), setIds = [...new Set(input.flatMap(row => row.prices.map(price => price.price_set_id)))];
   const listPlan = yield* Effect.fromResult(contracts.listReadContracts.compileReadPlan({ filters: { id: listIds }, config: {} }));
@@ -146,18 +143,30 @@ const validateAddition = Effect.fn("PricingLists.validatePriceAddition")(functio
     .map(([, row]) => row), {});
   yield* consumeRead("price_list", listPlan.rootQuery, lists);
   const nativeWhere: unknown = yield* Effect.try({ try: () => Reflect.apply(buildPreNormalizationPriceConstraintsFromData, undefined,
-    [input.flatMap(row => row.prices), listIds]), catch: cause => commerceError("receiptMismatch", cause) });
+    [input.flatMap<(typeof UpdatePriceListPricesInput.Type)[number]["prices"][number]>(row => row.prices), listIds]), catch: cause => commerceError("receiptMismatch", cause) });
   const nativeQuery: unknown = yield* Effect.try({ try: () => Reflect.apply(buildQuery, undefined,
     [nativeWhere, { relations: ["price_rules"], order: { id: "ASC" } }]), catch: cause => commerceError("receiptMismatch", cause) });
-  const plan = yield* Effect.fromResult(contracts.compileNativeCandidatePlan(nativeQuery));
-  const sets = orderNativeIdRows([...initial].filter(([key, row]) => key.startsWith("price_set:") && setIds.includes(row.id) && row.deleted_at === null)
-    .map(([, row]) => row), {});
-  yield* consumeRead("price_set", plan.setQuery, sets);
-  const candidates = yield* consumeRead("price", plan.rootQuery({ kind: "in", column: "price_set_id", values: sets.map(row => row.id) }));
+  const plan = update === undefined ? yield* Effect.fromResult(contracts.compileNativeCandidatePlan(nativeQuery))
+    : yield* Effect.fromResult(update.compilePriceReadPlan(nativeQuery));
+  let candidates: Row[];
+  if ("setQuery" in plan) {
+    const sets = orderNativeIdRows([...initial].filter(([key, row]) => key.startsWith("price_set:") && setIds.includes(row.id) && row.deleted_at === null)
+      .map(([, row]) => row), {});
+    yield* consumeRead("price_set", plan.setQuery, sets);
+    candidates = yield* consumeRead("price", plan.rootQuery({ kind: "in", column: "price_set_id", values: sets.map(row => row.id) }));
+  } else candidates = yield* consumeRead("price", plan.rootQuery);
   const candidateIds = new Set(candidates.map(row => row.id));
-  const ruleQuery = plan.ruleQuery([...candidateIds]), rules = orderNativeIdRows([...initial].filter(([key, row]) =>
-    key.startsWith("price_rule:") && typeof row.price_id === "string" && candidateIds.has(row.price_id) && row.deleted_at === null).map(([, row]) => row), {});
-  if (ruleQuery !== undefined) yield* consumeRead("price_rule", ruleQuery, rules);
+  const ruleQuery = plan.ruleQuery([...candidateIds]), expectedRules = [...initial].filter(([key, row]) =>
+    key.startsWith("price_rule:") && typeof row.price_id === "string" && candidateIds.has(row.price_id) && row.deleted_at === null).map(([, row]) => row);
+  let rules = orderNativeIdRows(expectedRules, {});
+  if (ruleQuery !== undefined) {
+    if (update === undefined) yield* consumeRead("price_rule", ruleQuery, rules);
+    else {
+      rules = yield* consumeRead("price_rule", ruleQuery);
+      if (rules.length !== expectedRules.length || expectedRules.some(row => !rules.some(selected => selected.id === row.id)))
+        return yield* Effect.fail(mismatch());
+    }
+  }
   const graph = assembleCommerceRelations("price", new Map([["price", candidates], ["price_rule", rules]]), ["price_rules"], contracts.relations);
   const candidateDTOs = yield* projectExactNumericColumns(graph, contracts.tables.price.columns.filter(column => column.type === "bigNumber"));
   const normalized: unknown[] = [];
@@ -171,13 +180,14 @@ const validateAddition = Effect.fn("PricingLists.validatePriceAddition")(functio
   const staged = yield* planPriceListPriceWrite(contracts, normalized, { relations: ["price_rules"] }, defaultCommerceResources,
     (supplied, index) => {
       const id = output[index]?.id;
-      return id === undefined || supplied !== undefined && supplied !== id || supplied === undefined && initial.has("price:" + id)
+      const explicit = update === undefined ? supplied !== undefined : !!supplied;
+      return id === undefined || explicit && supplied !== id || !explicit && initial.has("price:" + id)
         ? Result.fail(mismatch()) : Result.succeed(id);
     }, supplied => {
       if (supplied !== undefined) return Result.succeed(supplied);
       const id = createdRules[generatedRule++]?.after?.id;
       return typeof id === "string" && !initial.has("price_rule:" + id) ? Result.succeed(id) : Result.fail(mismatch());
-    });
+    }, update === undefined ? "creation" : "update");
   if (normalized.length !== output.length || generatedRule !== createdRules.length) return yield* Effect.fail(mismatch());
   const wantedRoots = new Map(staged.unique.map(row => [row.id, row])), wantedRules = new Map<string, JsonObject>();
   for (const children of staged.relationRows.values()) for (const row of children) {
@@ -198,16 +208,16 @@ const validateAddition = Effect.fn("PricingLists.validatePriceAddition")(functio
       deleted.push(row); continue;
     }
     const expected = change.table === "price" ? wantedRoots.get(row.id) : wantedRules.get(row.id);
-    if (!expected || row.deleted_at !== null) return yield* Effect.fail(mismatch());
+    if (!expected || (update !== undefined && change.table === "price"
+      ? row.deleted_at !== (initial.get(key)?.deleted_at ?? null) : row.deleted_at !== null)) return yield* Effect.fail(mismatch());
     for (const [field, value] of Object.entries(expected)) if (field !== "price_rules" && (row[field] === undefined || !jsonEqual(row[field], value)))
-      return yield* Effect.fail(commerceError("receiptMismatch", { phase: "price-scalar-correlation", table: change.table,
-        id: row.id, field, expected: value, actual: row[field] ?? null, absent: row[field] === undefined }));
+      return yield* Effect.fail(mismatch());
     const before = initial.get(key);
     if (change.operation === "insert") {
       if (before || change.before !== null || typeof row.created_at !== "string" || row.created_at !== row.updated_at) return yield* Effect.fail(mismatch());
       const group = inserted.get(change.table) ?? []; group.push(row.id); inserted.set(change.table, group);
     } else if (change.operation === "patch") {
-      if (!before || before.deleted_at !== null || change.before === null || !jsonEqual(projectNativeRow(change.before), before) ||
+      if (!before || ((update === undefined || change.table !== "price") && before.deleted_at !== null) || change.before === null || !jsonEqual(projectNativeRow(change.before), before) ||
         row.created_at !== before.created_at || row.updated_at !== before.updated_at ||
         !jsonEqual(change.before._id ?? null, change.after?._id ?? null) || !jsonEqual(change.before._creationTime ?? null, change.after?._creationTime ?? null))
         return yield* Effect.fail(mismatch());
@@ -305,7 +315,7 @@ export function pricingListPriceCreationPolicy(contracts: PriceListPriceCreation
     if (call.mode !== "write" || activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length)
       return yield* Effect.fail(commerceError("receiptMismatch"));
     if (call.commandName === "pricingRemovePriceListPrices") return yield* validateRemoval(contracts, call, activity);
-    if (call.commandName === "pricingAddPriceListPrices") return yield* validateAddition(contracts, call, activity);
+    if (call.commandName === "pricingAddPriceListPrices") return yield* validatePriceListPriceWriteReceipt(contracts, call, activity);
     return yield* Effect.fail(commerceError("receiptMismatch"));
   }, Effect.mapError((cause: ReturnType<typeof commerceError>) => cause.reason === "receiptMismatch" ? cause : commerceError("receiptMismatch", cause)));
   return { capture, validateLogicalCall, allowStorageInsertionOrder: true as const };

@@ -16,6 +16,7 @@ import type {
 } from "flarex-protocol/catalog";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { CommitSeq } from "flarex-protocol/storage-authority";
+import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import type {
   BoundedRequestContext,
@@ -43,6 +44,9 @@ export const LogicalSetNullPolicy = Schema.Struct({ managedUpdate: Schema.Litera
 /** Exact same-root deleted-row reuse selects its managed update-time behavior. */
 export const LogicalReconstitutionPolicy = Schema.Literals(["advanceUpdatedAt", "preserveTimestamps"]);
 export type LogicalReconstitutionPolicy = typeof LogicalReconstitutionPolicy.Type;
+/** Conflict merges choose native managed-field behavior explicitly. */
+export const LogicalPreservingDeletionUpsertPolicy = Schema.Union([Schema.Literal(true), Schema.Literal("preserveTimestamps")]);
+export type LogicalPreservingDeletionUpsertPolicy = typeof LogicalPreservingDeletionUpsertPolicy.Type;
 export type LogicalSetNullPolicy = typeof LogicalSetNullPolicy.Type;
 
 export type LogicalDocumentFailureReason = "invalidInput" | "invalidAuthority" | "closed" | "limitExceeded"
@@ -76,6 +80,9 @@ export interface LogicalRelationalStore<Failure> {
   /** Explicit trusted admission only. Exact complete preimages must have been
    * physically deleted in this live root; no persisted-history reconstruction. */
   readonly reconstitute?: (context: BoundedRequestContext, rows: unknown) => Effect.Effect<readonly JsonObject[], Failure>;
+  /** Trusted framework compensation only. Complete rows must match recorded
+   * preimages in this exact source; supplied managed values alone grant no authority. */
+  readonly replay?: (context: BoundedRequestContext, rows: unknown) => Effect.Effect<readonly JsonObject[], Failure>;
 }
 
 export interface LogicalDocumentWrite {
@@ -183,9 +190,10 @@ export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
   readonly tables: readonly LogicalDocumentTable[];
   readonly relationalCapabilities?: readonly RelationalPersistenceCapability[];
   readonly reconstitution?: LogicalReconstitutionPolicy;
-  readonly allowPreservingDeletionUpsert?: true;
+  readonly allowPreservingDeletionUpsert?: LogicalPreservingDeletionUpsertPolicy;
   readonly allowActiveRestoreUpdate?: true;
   readonly allowStorageInsertionOrder?: true;
+  readonly recordedRowReplay?: Readonly<{ schemaVersionId: CatalogSchemaVersionId }>;
   readonly detachDeletedReferences?: true;
   readonly searchDefinitions?: readonly LogicalSearchDefinition[];
   readonly lifetime: BoundedRequestLifetime<Failure>;

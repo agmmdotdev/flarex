@@ -34,6 +34,12 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
   if ((profile.existingRootWrite !== undefined || profile.ownedChildWrite !== undefined) &&
     (creation || profile.operation !== "upsertWithReplace"))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
+  if (profile.recordedRowReplay === true && (creation || profile.operation !== "upsertWithReplace" ||
+    profile.existingRootWrite !== undefined || profile.ownedChildWrite !== undefined || profile.allowReconstitution !== undefined ||
+    profile.preserveExistingManagedFields !== undefined))
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
+  if (profile.preserveExistingManagedFields === true && profile.existingRootWrite === undefined)
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
   const supplied = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
   const inputs = yield* Effect.fromResult(graphArray(supplied));
   const settings = yield* Effect.fromResult(captureCommerceInput(config));
@@ -45,6 +51,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
   const reconstitutions = new Map<string, Map<string, JsonObject>>();
   const updates = new Map<string, Map<string, JsonObject>>();
   const upserts = new Map<string, Map<string, JsonObject>>();
+  const preservingManagedRoots = new Map<string, Map<string, JsonObject>>();
   const deletes = new Map<string, Map<string, JsonObject>>();
   const visited = new Set<string>();
   const repeatedReferences = new Map<string, { readonly owner: JsonObject; readonly row: JsonObject }>();
@@ -152,14 +159,17 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
     visited.add(token);
     const rows = yield* load(target.table, target.keyColumn, [id]);
     const existing = rows.find(value => value[target.keyColumn] === id);
-    if (existing?.deleted_at != null || (creation && root && existing !== undefined)) return yield* Effect.fail(commerceError("invalidInput"));
+    if ((profile.recordedRowReplay !== true && !(root && profile.preserveExistingManagedFields === true) && existing?.deleted_at != null) ||
+      (creation && root && existing !== undefined)) return yield* Effect.fail(commerceError("invalidInput"));
     if (root && profile.existingRootWrite === "upsert" && existing === undefined)
       return yield* Effect.fail(commerceError("invalidInput"));
-    if (Object.entries(owner).some(([name, value]) => (row[name] !== undefined && row[name] !== value) || (existing !== undefined && existing[name] !== value)))
+    if (Object.entries(owner).some(([name, value]) => (row[name] !== undefined && row[name] !== value) ||
+      (profile.recordedRowReplay !== true && existing !== undefined && existing[name] !== value)))
       return yield* Effect.fail(commerceError("invalidInput"));
     const preservingUpsert = existing !== undefined && (root ? profile.existingRootWrite !== undefined
       : Object.keys(owner).length > 0 && profile.ownedChildWrite === "upsert");
     if (existing !== undefined && preservingUpsert) put(upserts, target.table, existing);
+    if (existing !== undefined && root && profile.preserveExistingManagedFields === true) put(preservingManagedRoots, target.table, existing);
     const scalar: Record<string, Json> = { ...Object.fromEntries(Object.entries(row).filter(([name]) => target.table.columns.some(column => column.name === name))), ...owner, [target.keyColumn]: id };
     const reconstitution = existing === undefined && !root && profile.allowReconstitution === true &&
       ["created_at", "updated_at", "deleted_at"].some(name => scalar[name] !== undefined);
@@ -172,7 +182,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       managedUpdateChanged = suppliedTime.getTime() !== storedTime.getTime();
     }
     for (const name of ["created_at", "updated_at", "deleted_at"]) {
-      if (reconstitution) continue;
+      if (reconstitution || profile.recordedRowReplay === true) continue;
       if (!(name === "updated_at" && managedChildUpdateTime) && scalar[name] !== undefined &&
         (existing === undefined || scalar[name] !== existing[name])) return yield* Effect.fail(commerceError("invalidInput"));
       delete scalar[name];
@@ -212,7 +222,7 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       }
       const rootTouch = !creation && profile.operation === "update" && profile.touchExistingRoot === true;
       const update = root ? profile.operation === "upsertWithReplace" || rootTouch || Object.keys(scalar).some(name => name !== target.keyColumn)
-        : preservingUpsert || touch || managedUpdateChanged || hasChangedFields(existing, scalar, [target.keyColumn]);
+        : profile.recordedRowReplay === true || preservingUpsert || touch || managedUpdateChanged || hasChangedFields(existing, scalar, [target.keyColumn]);
       if (update) put(updates, target.table, scalar);
     } else put(reconstitution ? reconstitutions : inserts, target.table, scalar);
     const next = { ...existing, ...scalar };
@@ -373,6 +383,10 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
       const reconstitute = store.reconstitute;
       if (reconstitute === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
       written = yield* reconstitute(ctx.manager, rows);
+    } else if (profile.recordedRowReplay === true) {
+      const replay = store.replay;
+      if (replay === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+      written = yield* replay(ctx.manager, rows);
     } else {
       const selectedUpserts = upserts.get(table.name);
       if (operation === "update" && selectedUpserts !== undefined) {
@@ -380,9 +394,10 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
         // root table and unselected child policies keep ordinary managed
         // updates; existing owner proofs precede any owned-child selection.
         // Keep original row order when a table contains both kinds of write.
-        const batches: Array<{ mode: "update" | "upsert"; rows: JsonObject[] }> = [];
+        const batches: Array<{ mode: "update" | "upsert" | "upsertPreservingDeletion"; rows: JsonObject[] }> = [];
         for (const row of rows) {
-          const mode = selectedUpserts.has(identity(table, row)) ? "upsert" : "update";
+          const mode = preservingManagedRoots.get(table.name)?.has(identity(table, row)) ? "upsertPreservingDeletion"
+            : selectedUpserts.has(identity(table, row)) ? "upsert" : "update";
           const previous = batches.at(-1);
           if (previous?.mode === mode) previous.rows.push(row);
           else batches.push({ mode, rows: [row] });

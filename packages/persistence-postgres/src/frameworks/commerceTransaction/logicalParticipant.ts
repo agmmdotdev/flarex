@@ -9,7 +9,7 @@ import type { BoundedRequestContext, BoundedRequestLifetime } from "../../execut
 import { requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../../storage/documents/logicalDocuments/relationalAdmission";
 import { requireLogicalRelationalReadAdmission, type LogicalRelationalReadAdmission } from "../../storage/documents/logicalDocuments/relationalAdmission";
 import { makeLogicalDocumentWorkingSet, type LogicalDocumentChanges, type LogicalDocumentActivity } from "../../storage/documents/logicalDocuments/workingSet";
-import { LogicalReconstitutionPolicy, LogicalSetNullPolicy, type LogicalStorageReadReadiness } from "../../storage/documents/logicalDocuments/model";
+import { LogicalReconstitutionPolicy, type LogicalPreservingDeletionUpsertPolicy, LogicalSetNullPolicy, type LogicalStorageReadReadiness } from "../../storage/documents/logicalDocuments/model";
 import type { CommerceSetNullSelection, CommerceReferenceReplacement, CommerceDeletedReferenceSelection } from "./commands";
 import { bindPreparedLogicalRelationalRows, detachLogicalRelationalActivityJson } from "../../storage/documents/logicalDocuments/relationalRows";
 import { commerceError, logicalCommerceError, type CommerceTransactionError } from "./model";
@@ -112,8 +112,8 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
   admission: LogicalRelationalAdmission, tx: FlarexMetadataTransaction,
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, initialContext: BoundedRequestContext, id: string,
   allowReferenceReplacement = false, selectedResources?: CommerceResources, logicalPublication?: "mixed",
-  reconstitution: LogicalReconstitutionPolicy | undefined = undefined, allowPreservingDeletionUpsert = false, allowActiveRestoreUpdate = false, allowStorageInsertionOrder = false,
-  setNullPolicy?: LogicalSetNullPolicy, detachDeletedReferences = false,
+  reconstitution: LogicalReconstitutionPolicy | undefined = undefined, allowPreservingDeletionUpsert: LogicalPreservingDeletionUpsertPolicy | undefined = undefined, allowActiveRestoreUpdate = false, allowStorageInsertionOrder = false,
+  setNullPolicy?: LogicalSetNullPolicy, detachDeletedReferences = false, allowRecordedRowReplay = false,
 ) {
   const selectedReconstitution = yield* decodeReconstitution(reconstitution)
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
@@ -136,9 +136,10 @@ export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
   const working = yield* makeLogicalDocumentWorkingSet({ tx, scopeId: state.authority.scopeId, clock: state.clock, lifetime,
     ...(detachDeletedReferences ? { detachDeletedReferences: true as const } : {}),
     ...(selectedReconstitution === undefined ? {} : { reconstitution: selectedReconstitution }),
-    ...(allowPreservingDeletionUpsert ? { allowPreservingDeletionUpsert: true as const } : {}),
+    ...(allowPreservingDeletionUpsert === undefined ? {} : { allowPreservingDeletionUpsert }),
     ...(allowActiveRestoreUpdate ? { allowActiveRestoreUpdate: true as const } : {}),
     ...(allowStorageInsertionOrder ? { allowStorageInsertionOrder: true as const } : {}),
+    ...(allowRecordedRowReplay ? { recordedRowReplay: { schemaVersionId: state.schemaVersionId } } : {}),
     tables: readReadiness.kind === "queryRequired" ? readReadiness.mechanics.tables :
       state.writeMechanics.tables,
     ...(readReadiness.kind === "queryRequired" ? (

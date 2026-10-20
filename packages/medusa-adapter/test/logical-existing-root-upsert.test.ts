@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { appRowIdHexV1FromBytes, decodeAppDocumentIdentityV1 } from "flarex-protocol/app-document-id";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
 import { commerceError, isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -15,11 +15,16 @@ import type { ReplacementProfile } from "../src/write/graph-model";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
 import { volumes, editions, volume, decodeKey, profile, sourceKey, evidence, schema } from "./support/logical-volume-graph";
+import { projectNativeRow } from "../src/repository/result";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
 const preservingProfile: ReplacementProfile = { ...profile, operation: "upsertWithReplace", existingRootWrite: "upsert" };
 const mixedProfile: ReplacementProfile = { ...preservingProfile, existingRootWrite: "upsertOrInsert", ownedChildWrite: "upsert" };
+const managedRootProfile: ReplacementProfile = { ...mixedProfile, preserveExistingManagedFields: true };
+const { replacementMembers: _replayActive, ...replayBase } = profile;
+const replayProfile: ReplacementProfile = { ...replayBase, operation: "upsertWithReplace", recordedRowReplay: true,
+  foreignKeyVisibility: () => "existing", mutableForeignKeys: () => true, project: rows => Result.succeed(rows) };
 const editionRoot = profile.catalog.entities.find(entity => entity.table.name === editions.name);
 if (editionRoot === undefined) throw new Error("Missing neutral Edition entity");
 const activeReferenceProfile: ReplacementProfile = { ...mixedProfile, projectionPaths: () => [] };
@@ -53,6 +58,58 @@ const mixedWrite = defineCommerceCommand("neutralMixedRootUpsert", "write", Effe
 const mixedLate = defineCommerceCommand("neutralMixedRootUpsertLateFailure", "write", Effect.fn(function* (ctx, input) {
   yield* replaceGraphRows(ctx, mixedProfile, volume, input, { relations: ["editions"] });
   return yield* ctx.refuse(commerceError("invalidInput"));
+}));
+const managedRootWrite = defineCommerceCommand("neutralManagedRootUpsert", "write", Effect.fn(function* (ctx, input) {
+  const graph = yield* replaceGraphRows(ctx, managedRootProfile, volume, input, { relations: ["editions"] });
+  return { entities: graph.entities, performedActions: { created: { ...graph.performedActions.created },
+    updated: { ...graph.performedActions.updated }, deleted: { ...graph.performedActions.deleted } } };
+}));
+const managedRootLate = defineCommerceCommand("neutralManagedRootUpsertLate", "write", Effect.fn(function* (ctx, input) {
+  yield* replaceGraphRows(ctx, managedRootProfile, volume, input, { relations: ["editions"] });
+  return yield* ctx.refuse(commerceError("invalidInput"));
+}));
+const managedRootHistorySeed = defineCommerceCommand("neutralManagedRootHistorySeed", "write", Effect.fn(function* (ctx, input) {
+  const prefix = yield* Effect.fromResult(decodeKey(input)), stamp = "2020-01-02T03:04:05.000Z";
+  yield* (yield* ctx.table("editions")).write(ctx.manager, "insert", [
+    { serial: prefix + "-history", volume_isbn: prefix + "-own", label: "Historical child",
+      created_at: stamp, updated_at: stamp, deleted_at: stamp },
+  ]);
+  return null;
+}));
+const managedRootRead = defineCommerceCommand("neutralManagedRootRead", "read", Effect.fn(function* (ctx, input) {
+  const prefix = yield* Effect.fromResult(decodeKey(input)), ids = [prefix + "-own", prefix + "-past", prefix + "-fresh"];
+  return [...yield* (yield* ctx.table("volumes")).find(ctx.manager, { take: ctx.resources.queryRows,
+    order: { column: "isbn", direction: "asc" }, predicate: { kind: "in", column: "isbn", values: ids } }),
+  ...yield* (yield* ctx.table("editions")).find(ctx.manager, { take: ctx.resources.queryRows,
+    order: { column: "serial", direction: "asc" }, predicate: { kind: "in", column: "volume_isbn", values: ids } })];
+}));
+const replayWrite = defineCommerceCommand("neutralRecordedGraphReplay", "write", Effect.fn(function* (ctx, input) {
+  return (yield* replaceGraphRows(ctx, replayProfile, volume, input, { relations: ["editions"] })).entities;
+}));
+const replayLate = defineCommerceCommand("neutralRecordedGraphReplayLate", "write", Effect.fn(function* (ctx, input) {
+  yield* replaceGraphRows(ctx, replayProfile, volume, input, { relations: ["editions"] });
+  return yield* ctx.refuse(commerceError("invalidInput"));
+}));
+const replayRemove = defineCommerceCommand("neutralRecordedGraphRemove", "write", Effect.fn(function* (ctx, input) {
+  const prefix = yield* Effect.fromResult(decodeKey(input));
+  const children = yield* ctx.table("editions");
+  const rows = yield* children.find(ctx.manager, { take: ctx.resources.queryRows,
+    order: { column: "serial", direction: "asc" }, predicate: { kind: "in", column: "volume_isbn", values: [prefix + "-own"] } });
+  yield* children.delete(ctx.manager, rows.map(row => ({ serial: row.serial })));
+  yield* (yield* ctx.table("volumes")).delete(ctx.manager, [{ isbn: prefix + "-own" }]);
+  return null;
+}));
+const replaySeed = defineCommerceCommand("neutralRecordedGraphSeed", "write", Effect.fn(function* (ctx, input) {
+  const prefix = yield* Effect.fromResult(decodeKey(input)), stamp = "2019-04-03T02:01:00.000Z";
+  yield* (yield* ctx.table("volumes")).write(ctx.manager, "insert", [
+    { isbn: prefix + "-own", title: "Original", created_at: stamp, updated_at: stamp, deleted_at: null },
+    { isbn: prefix + "-outside", title: "Unrelated", created_at: stamp, updated_at: stamp, deleted_at: null },
+  ]);
+  yield* (yield* ctx.table("editions")).write(ctx.manager, "insert", [
+    { serial: prefix + "-active", volume_isbn: prefix + "-own", label: "Original active", created_at: stamp, updated_at: stamp, deleted_at: null },
+    { serial: prefix + "-history", volume_isbn: prefix + "-own", label: "Original history", created_at: stamp, updated_at: stamp, deleted_at: stamp },
+  ]);
+  return null;
 }));
 const historicalReferenceWrite = defineCommerceCommand("neutralHistoricalForeignReference", "write", Effect.fn(function* (ctx, input) {
   return (yield* replaceGraphRows(ctx, historicalReferenceProfile, editionRoot, input, { relations: [] })).entities;
@@ -95,9 +152,54 @@ const preservingRoot = defineAtomicCommerceCommand("neutralExistingRootUpsertRoo
 const preservingLateRoot = defineAtomicCommerceCommand("neutralExistingRootUpsertLateRoot", (ctx, input) => ctx.call(preservingParticipant, preservingLate, input));
 const mixedRoot = defineAtomicCommerceCommand("neutralMixedRootUpsertRoot", (ctx, input) => ctx.call(preservingParticipant, mixedWrite, input));
 const mixedLateRoot = defineAtomicCommerceCommand("neutralMixedRootUpsertLateRoot", (ctx, input) => ctx.call(preservingParticipant, mixedLate, input));
+const managedRoot = defineAtomicCommerceCommand("neutralManagedRootUpsertRoot", (ctx, input) => ctx.call(preservingParticipant, managedRootWrite, input));
+const managedLateRoot = defineAtomicCommerceCommand("neutralManagedRootUpsertLateRoot", (ctx, input) => ctx.call(preservingParticipant, managedRootLate, input));
+const replayRoot = defineAtomicCommerceCommand("neutralRecordedGraphReplayRoot", (ctx, input) => ctx.call(preservingParticipant, replayWrite, input));
+const replayLateRoot = defineAtomicCommerceCommand("neutralRecordedGraphReplayLateRoot", (ctx, input) => ctx.call(preservingParticipant, replayLate, input));
+const replayReceipt: LogicalCommerceCallValidation = Effect.fn("NeutralRecordedGraphReplay.validate")((call, activity) => Effect.sync(() => {
+  expect(call.events).toEqual([]); expect(activity.lifecycle).toEqual([]);
+  expect(activity.setNull).toEqual([]); expect(activity.referenceReplacements).toEqual([]);
+  expect(Array.isArray(call.input)).toBe(true);
+  if (!Array.isArray(call.input)) throw new Error("Expected neutral graph rows");
+  const expected = new Map<string, JsonObject>();
+  for (const row of call.input) {
+    if (!isJsonObject(row) || !Array.isArray(row.editions)) throw new Error("Expected complete neutral graph");
+    const { editions: children, ...scalar } = row;
+    expected.set("volumes:" + row.isbn, scalar);
+    for (const child of children) {
+      if (!isJsonObject(child)) throw new Error("Expected complete Edition");
+      expected.set("editions:" + child.serial, child);
+    }
+  }
+  expect(activity.mutations).toHaveLength(expected.size);
+  for (const mutation of activity.mutations) {
+    expect(mutation.operation === "insert" || mutation.operation === "replace").toBe(true);
+    if (mutation.after === null) throw new Error("Expected replayed row");
+    const key = mutation.table + ":" + (mutation.after.isbn ?? mutation.after.serial);
+    expect(projectNativeRow(mutation.after)).toEqual(expected.get(key)); expected.delete(key);
+  }
+  expect(expected.size).toBe(0);
+}));
 const orderedRoot = defineAtomicCommerceCommand("neutralOrderedChildDeletionRoot", (ctx, input) => ctx.call(preservingParticipant, orderedWrite, input));
 const orderedLateRoot = defineAtomicCommerceCommand("neutralOrderedChildDeletionLateRoot", (ctx, input) => ctx.call(preservingParticipant, orderedLate, input));
 const preservingReceipts: LogicalCommerceMutation[] = [];
+const managedRootReceipts: LogicalCommerceMutation[] = [];
+const validateManagedRoot: LogicalCommerceCallValidation = Effect.fn("NeutralManagedRoot.validate")((call, activity) => Effect.sync(() => {
+  expect(call.events).toEqual([]); expect(activity.lifecycle).toEqual([]);
+  expect(activity.setNull).toEqual([]); expect(activity.referenceReplacements).toEqual([]);
+  for (const mutation of activity.mutations) {
+    expect(mutation.operation === "insert" || mutation.operation === "patch").toBe(true);
+    if (mutation.operation === "patch") {
+      expect(mutation.before).not.toBeNull(); expect(mutation.after).not.toBeNull();
+      for (const field of ["created_at", "updated_at", "deleted_at", "_id", "_creationTime"])
+        expect(mutation.after?.[field]).toEqual(mutation.before?.[field]);
+    } else {
+      expect(mutation.before).toBeNull(); expect(mutation.after?.created_at).toBe(mutation.after?.updated_at);
+      expect(mutation.after?.deleted_at).toBeNull();
+    }
+  }
+  managedRootReceipts.push(...activity.mutations);
+}));
 const orderedDeletionReads: Parameters<LogicalCommerceCallValidation>[1]["relationalReads"][number][] = [];
 const validatePreserving: LogicalCommerceCallValidation = Effect.fn("NeutralExistingRootUpsert.validate")((
   call: Parameters<LogicalCommerceCallValidation>[0], activity: Parameters<LogicalCommerceCallValidation>[1],
@@ -141,10 +243,20 @@ const read = defineCommerceCommand("neutralExistingRootUpsertRead", "read", Effe
   }
   return output;
 }));
+const replayRead = defineCommerceCommand("neutralRecordedGraphRead", "read", Effect.fn(function* (ctx, input) {
+  const prefix = yield* Effect.fromResult(decodeKey(input)), ids = [prefix + "-own", prefix + "-outside"];
+  return [...yield* (yield* ctx.table("volumes")).find(ctx.manager, { take: ctx.resources.queryRows,
+    order: { column: "isbn", direction: "asc" }, predicate: { kind: "in", column: "isbn", values: ids } }),
+  ...yield* (yield* ctx.table("editions")).find(ctx.manager, { take: ctx.resources.queryRows,
+    order: { column: "serial", direction: "asc" }, predicate: { kind: "in", column: "volume_isbn", values: ids } })];
+}));
 const commands = [preservingSeed, preservingWrite, preservingLate, mixedWrite, mixedLate, historicalReferenceWrite, activeReferenceWrite,
-  orderedSeed, orderedWrite, orderedLate, read];
+  orderedSeed, orderedWrite, orderedLate, replayWrite, replayLate, replaySeed, replayRemove, replayRead, read,
+  managedRootWrite, managedRootLate, managedRootHistorySeed, managedRootRead];
 let fixture: Awaited<ReturnType<typeof logicalCurrencyFixture>>, host: Effect.Success<ReturnType<typeof makeCommerceHost>>;
 let preservingHost: Effect.Success<ReturnType<typeof makeAtomicCommerceHost>>;
+let replayHost: Effect.Success<ReturnType<typeof makeAtomicCommerceHost>>;
+let managedRootHost: Effect.Success<ReturnType<typeof makeAtomicCommerceHost>>;
 const run = (command: typeof preservingWrite, input: Json) => Effect.runPromise(host.run(host.newRequestKey(), command, input));
 const decodeReadRows = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject));
 const rows = async () => decodeReadRows(await Effect.runPromise(host.read(read, null)));
@@ -166,6 +278,15 @@ describe(`neutral existing-root upsert and ordered child deletion - ${driver}`, 
         allowStorageInsertionOrder: true, validateLogicalCall: validatePreserving }],
       commands: [preservingRoot, preservingLateRoot, mixedRoot, mixedLateRoot, orderedRoot, orderedLateRoot] }));
     cleanup.push(() => Effect.runPromise(preservingHost.close));
+    replayHost = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
+      participants: [{ participant: preservingParticipant, logicalStorage, commands: [replayWrite, replayLate],
+        allowRecordedRowReplay: true, validateLogicalCall: replayReceipt }], commands: [replayRoot, replayLateRoot] }));
+    cleanup.push(() => Effect.runPromise(replayHost.close));
+    managedRootHost = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
+      participants: [{ participant: preservingParticipant, logicalStorage, commands: [managedRootWrite, managedRootLate],
+        allowPreservingDeletionUpsert: "preserveTimestamps", validateLogicalCall: validateManagedRoot }],
+      commands: [managedRoot, managedLateRoot] }));
+    cleanup.push(() => Effect.runPromise(managedRootHost.close));
   }, 180_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
@@ -404,6 +525,49 @@ describe(`neutral existing-root upsert and ordered child deletion - ${driver}`, 
     expect(await logicalCurrencyInventory(fixture)).toEqual(settled);
   }, 180_000);
 
+  it("replays complete recorded root and active/historical owned children without authored clocks", async () => {
+    const prefix = "recorded-graph156"; await run(replaySeed, prefix);
+    const before = decodeReadRows(await Effect.runPromise(host.read(replayRead, prefix))).map(projectNativeRow);
+    const root = before.find(row => row.isbn === prefix + "-own");
+    if (!root || typeof root.isbn !== "string") throw new Error("Missing recorded Volume");
+    const snapshot = [{ ...root, editions: before.filter(row => row.volume_isbn === root.isbn) }];
+    await run(preservingWrite, [{ isbn: root.isbn, title: "Changed", editions: [{ serial: prefix + "-active", label: "Changed" }] }]);
+    const pending = await logicalCurrencyInventory(fixture);
+    expect(await Effect.runPromise(Effect.result(replayHost.run(replayHost.newRequestKey(), replayLateRoot, snapshot))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+    expect(await logicalCurrencyInventory(fixture)).toEqual(pending);
+    await Effect.runPromise(replayHost.run(replayHost.newRequestKey(), replayRoot, snapshot));
+    expect(decodeReadRows(await Effect.runPromise(host.read(replayRead, prefix))).map(projectNativeRow)).toEqual(before);
+  }, 180_000);
+
+  it("replays the same complete graph after physical deletion using recorded history", async () => {
+    const prefix = "recorded-missing156"; await run(replaySeed, prefix);
+    const before = decodeReadRows(await Effect.runPromise(host.read(replayRead, prefix))).map(projectNativeRow);
+    const root = before.find(row => row.isbn === prefix + "-own");
+    if (!root) throw new Error("Missing recorded Volume");
+    const snapshot = [{ ...root, editions: before.filter(row => row.volume_isbn === root.isbn) }];
+    await run(replayRemove, prefix);
+    expect(decodeReadRows(await Effect.runPromise(host.read(replayRead, prefix))).some(row => row.isbn === root.isbn)).toBe(false);
+    await Effect.runPromise(replayHost.run(replayHost.newRequestKey(), replayRoot, snapshot));
+    expect(decodeReadRows(await Effect.runPromise(host.read(replayRead, prefix))).map(projectNativeRow)).toEqual(before);
+  }, 180_000);
+
+  it("rejects unrecorded clocks and the same graph without the selected core replay capability", async () => {
+    const prefix = "recorded-refusal156"; await run(replaySeed, prefix);
+    const before = decodeReadRows(await Effect.runPromise(host.read(replayRead, prefix))).map(projectNativeRow);
+    const root = before.find(row => row.isbn === prefix + "-own");
+    if (!root) throw new Error("Missing recorded Volume");
+    const snapshot = [{ ...root, editions: before.filter(row => row.volume_isbn === root.isbn) }];
+    const inventory = await logicalCurrencyInventory(fixture);
+    const forged = [{ ...snapshot[0], updated_at: "1997-01-01T00:00:00.000Z" }];
+    expect(await Effect.runPromise(Effect.result(replayHost.run(replayHost.newRequestKey(), replayRoot, forged))))
+      .toMatchObject({ _tag: "Failure" });
+    expect(await logicalCurrencyInventory(fixture)).toEqual(inventory);
+    expect(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), replayWrite, snapshot))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(await logicalCurrencyInventory(fixture)).toEqual(inventory);
+  }, 180_000);
+
   it("rolls back ordered history deletion and reverse root updates on late refusal", async () => {
     const prefix = "ordered-delete-late153"; await run(orderedSeed, prefix);
     const request = ["d", "c", "b", "a"].map(isbn => ({ isbn: prefix + "-" + isbn, title: "Pending", editions: [] }));
@@ -412,5 +576,53 @@ describe(`neutral existing-root upsert and ordered child deletion - ${driver}`, 
       .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
     expect(preservingReceipts).toHaveLength(receiptCount); expect(orderedDeletionReads).toHaveLength(readCount);
     expect(await logicalCurrencyInventory(fixture)).toEqual(before);
+  }, 180_000);
+
+  it("preserves historical root managed fields while patching business data beside fresh and active graph members", async () => {
+    const prefix = "managed-root-history156"; await run(preservingSeed, prefix); await run(managedRootHistorySeed, prefix);
+    const before = decodeReadRows(await Effect.runPromise(host.read(managedRootRead, prefix))), receiptStart = managedRootReceipts.length;
+    const oldRoot = before.find(row => row.isbn === prefix + "-past"), oldChild = before.find(row => row.serial === prefix + "-kept");
+    if (!oldRoot || typeof oldRoot.deleted_at !== "string" || !oldChild) throw new Error("Missing neutral historical root/active child");
+    const request = [{ isbn: prefix + "-past", title: "Historical business change" },
+      { isbn: prefix + "-own", title: "Active business change", editions: [{ serial: prefix + "-kept", label: "Child business change" }] },
+      { isbn: prefix + "-fresh", title: "Fresh" }];
+    const key = managedRootHost.newRequestKey(), result = await Effect.runPromise(managedRootHost.run(key, managedRoot, request));
+    expect(result).toMatchObject({ performedActions: { created: { Volume: [{ isbn: prefix + "-fresh" }] },
+      updated: { Volume: [{ isbn: prefix + "-past" }, { isbn: prefix + "-own" }], Edition: [{ serial: prefix + "-kept" }] }, deleted: {} } });
+    const after = decodeReadRows(await Effect.runPromise(host.read(managedRootRead, prefix)));
+    expect(after.find(row => row.isbn === prefix + "-past")).toEqual({ ...oldRoot, title: "Historical business change" });
+    expect(after.find(row => row.serial === prefix + "-kept")).toEqual({ ...oldChild, label: "Child business change" });
+    expect(after.find(row => row.serial === prefix + "-history")).toEqual(before.find(row => row.serial === prefix + "-history"));
+    const fresh = after.find(row => row.isbn === prefix + "-fresh");
+    expect(fresh?.deleted_at).toBeNull(); expect(fresh?.created_at).toBe(fresh?.updated_at); expect(fresh?.created_at).not.toBe(oldRoot.created_at);
+    expect(managedRootReceipts.slice(receiptStart).map(mutation => [mutation.table, mutation.operation]))
+      .toEqual([["volumes", "insert"], ["volumes", "patch"], ["volumes", "patch"], ["editions", "patch"]]);
+    const settled = await logicalCurrencyInventory(fixture), receipts = managedRootReceipts.length;
+    expect(await Effect.runPromise(managedRootHost.run(key, managedRoot, request))).toEqual(result);
+    expect(await logicalCurrencyInventory(fixture)).toEqual(settled); expect(managedRootReceipts).toHaveLength(receipts);
+  }, 180_000);
+
+  it.each(["historical-child", "authored-root-clock", "authored-fresh-history"] as const)(
+    "keeps the selected managed-root mode scoped against %s", async mode => {
+      const prefix = "managed-root-refused156-" + mode; await run(preservingSeed, prefix); await run(managedRootHistorySeed, prefix);
+      const before = await logicalCurrencyInventory(fixture), receipts = managedRootReceipts.length;
+      const invalid = mode === "historical-child" ? { isbn: prefix + "-own", editions: [{ serial: prefix + "-history", label: "Forbidden" }] }
+        : mode === "authored-root-clock" ? { isbn: prefix + "-past", updated_at: "2099-01-01T00:00:00.000Z" }
+        : { isbn: prefix + "-fresh", title: "Forbidden", deleted_at: "2020-01-02T03:04:05.000Z" };
+      expect(await Effect.runPromise(Effect.result(managedRootHost.run(managedRootHost.newRequestKey(), managedRoot, [invalid]))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+      expect(await logicalCurrencyInventory(fixture)).toEqual(before); expect(managedRootReceipts).toHaveLength(receipts);
+    }, 180_000);
+
+  it("requires selected core authority and rolls back a staged historical-root business patch on late refusal", async () => {
+    const prefix = "managed-root-authority156"; await run(preservingSeed, prefix);
+    const before = await logicalCurrencyInventory(fixture), receipts = managedRootReceipts.length;
+    const request = [{ isbn: prefix + "-past", title: "Pending business change" }];
+    expect(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), managedRootWrite, request))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+    expect(await logicalCurrencyInventory(fixture)).toEqual(before);
+    expect(await Effect.runPromise(Effect.result(managedRootHost.run(managedRootHost.newRequestKey(), managedLateRoot, request))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+    expect(await logicalCurrencyInventory(fixture)).toEqual(before); expect(managedRootReceipts).toHaveLength(receipts);
   }, 180_000);
 });

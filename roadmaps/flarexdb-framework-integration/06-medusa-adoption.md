@@ -726,9 +726,23 @@ all-history Rule cleanup and root-only deletion events. This profile alone
 selects the approved storage-insertion-ordered deletion cohort. Its named
 128-call allowance retains 64 events and all other default limits. Empty Rule
 records retain the private invalid-input refusal and rollback boundary. General
-Price List Price update, removal and batch roots remain separate admissions;
+Price List Price removal and batch roots remain separate admissions;
 the unchanged native baselines remain separate from the approved portable
 contract. Hosted activation, external delivery and arbitrary scale remain gated.
+
+The [Price List Price update](./preflight/156-native-price-list-price-update.md)
+root and private adapter implement the same bounded List/Price/Rule input graph.
+The approved native correction captures complete Price/Rule preimages, restores
+original native IDs and managed content, and removes only genuinely created
+Prices on cancellation. Repeated committed replacement and compensation preserve
+retired Application identities through the shared recorded-row replay owner.
+This profile selects approved storage-insertion order for active candidate Rules;
+native matching, input order and ID-ordered snapshot history retain their owners.
+Its named 128-call allowance includes the retained inverse, with 64 events and
+all other limits unchanged. Original native defects remain separate witnesses.
+Standalone concurrent native execution, unbounded history and hosted delivery
+remain outside this admission; ordinary PostgreSQL timeout reliability remains
+unproven.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

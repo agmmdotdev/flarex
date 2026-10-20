@@ -24,9 +24,11 @@ import { issueRelationalSession, makePostgresRelationalSession, type RelationalS
 import { runEffectTransaction } from "../../persistence-postgres/src/database/effectTransaction";
 import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 
+import { logicalRecordedReplayScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalRecordedReplayScenario";
 import { logicalReconstitutionScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalReconstitutionScenario";
 import { logicalRelationalReadEvidenceScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalRelationalReadEvidenceScenario";
 import { logicalPreservingDeletionUpsertScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalPreservingDeletionUpsertScenario";
+import { logicalPreservingManagedUpsertScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalPreservingManagedUpsertScenario";
 import { logicalActiveRestoreUpdateScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalActiveRestoreUpdateScenario";
 import { logicalInsertionClockScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalInsertionClockScenario";
 import { logicalInsertionOrderScenario } from "../../persistence-postgres/test/frameworks/commerceTransaction/logicalInsertionOrderScenario";
@@ -59,17 +61,17 @@ const schema = Result.getOrThrow(normalizeRelationalSchema({
 }));
 const sourceInput = { sourceKey: "medusa.folio-fixture", writeProfile: "medusa.folio-fixture", schema,
   evidence: { kind: "synthetic", sourceId: "folio-fixture" } };
-const proofs = { reconstitution: logicalReconstitutionScenario, readEvidence: logicalRelationalReadEvidenceScenario,
-  preservingUpsert: logicalPreservingDeletionUpsertScenario, activeRestore: logicalActiveRestoreUpdateScenario };
+const proofs = { recordedReplay: logicalRecordedReplayScenario, reconstitution: logicalReconstitutionScenario, readEvidence: logicalRelationalReadEvidenceScenario,
+  preservingUpsert: logicalPreservingDeletionUpsertScenario, preservingManagedUpsert: logicalPreservingManagedUpsertScenario, activeRestore: logicalActiveRestoreUpdateScenario };
 type Proof = keyof typeof proofs | "preserveTimestamps" | "insertionClock" | "insertionSources" | "insertionLifecycle" | "insertionMetadata" | "insertionRace";
 describe("neutral committed-row reconstitution, relational selection and lifecycle-preserving upsert", () => {
-  it.each<Proof>(["reconstitution", "preserveTimestamps", "readEvidence", "preservingUpsert", "activeRestore", "insertionClock", "insertionSources", "insertionLifecycle", "insertionMetadata"])("runs the neutral proof (%s) on PGlite", async proof => {
+  it.each<Proof>(["recordedReplay", "reconstitution", "preserveTimestamps", "readEvidence", "preservingUpsert", "preservingManagedUpsert", "activeRestore", "insertionClock", "insertionSources", "insertionLifecycle", "insertionMetadata"])("runs the neutral proof (%s) on PGlite", async proof => {
     const control = await createMigratedPGlitePersistence();
     const target = await createMigratedPGlitePersistence();
     const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence(options, { control, target });
     await Effect.runPromise(witness(fixture, makePGliteFrameworkSchemaArtifactAdmissionFixture(control).controlSessionStarter, undefined, proof));
   });
-  it.skipIf(postgresUrl === null).each<Proof>(["reconstitution", "preserveTimestamps", "readEvidence", "preservingUpsert", "activeRestore", "insertionClock", "insertionSources", "insertionLifecycle", "insertionMetadata", "insertionRace"])("runs the neutral proof (%s) with an ordinary PostgreSQL role", async proof => {
+  it.skipIf(postgresUrl === null).each<Proof>(["recordedReplay", "reconstitution", "preserveTimestamps", "readEvidence", "preservingUpsert", "preservingManagedUpsert", "activeRestore", "insertionClock", "insertionSources", "insertionLifecycle", "insertionMetadata", "insertionRace"])("runs the neutral proof (%s) with an ordinary PostgreSQL role", async proof => {
     await withTemporaryPostgresPersistencePair(async (control, target) => {
       const roles = await target.query<{ rolsuper: boolean; rolcreatedb: boolean; rolcreaterole: boolean }>(
         "select rolsuper, rolcreatedb, rolcreaterole from pg_roles where rolname = current_user");

@@ -11,4 +11,4 @@ export { isJsonObject } from "flarex-protocol/json";
 export { captureCommerceResources, defaultCommerceResources, logicalCommerceBatchResources, type CommerceResources } from "./resources";
 
 export type { StorageInsertionOrder } from "../../storage/documents/logicalDocuments/relationalQuery";
-export { LogicalSetNullPolicy, LogicalReconstitutionPolicy } from "../../storage/documents/logicalDocuments/model";
+export { LogicalSetNullPolicy, LogicalReconstitutionPolicy, LogicalPreservingDeletionUpsertPolicy } from "../../storage/documents/logicalDocuments/model";

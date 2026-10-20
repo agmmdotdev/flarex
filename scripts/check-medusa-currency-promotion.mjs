@@ -1,10 +1,11 @@
 // @ts-check
-import { verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder, verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
+import { verifyPriceListPriceUpdatePolicySelection, verifyPriceListPriceUpdateSelection, verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder, verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
 import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyReturnFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 import { deliverySourcePairs, verifyFulfillmentDeliveryCallbacks, verifyNativeSkipStepResponseType } from "./check-medusa-delivery-source.mjs";
 import { verifyPricingNormalizationExtraction, verifyPricingCandidateConstraintExport } from "./check-medusa-pricing-normalization.mjs";
 import { verifyNativeJsonAssignment } from "./check-medusa-json-assignment-source.mjs";
 import { pricingRepositoryNormalizationSource, verifyNativePriceListPriceNormalization, verifyPriceListPriceCreationCallbacks, verifyPriceListPriceCreationSelection } from "./check-medusa-price-list-prices-source.mjs";
+import { verifyNativePriceListPriceUpdate, stripNativePriceListPriceUpdatePricingExtension } from "./check-medusa-price-list-price-update-source.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -288,6 +289,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, "packages/medusa-core-flows/src/price-list/steps/create-price-list-prices.ts"), "utf8"));
   verifyPriceListPriceCreationSelection(readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/pricing/create-price-list-prices.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/src/workflow/policy.ts"), "utf8"));
+  verifyPriceListPriceUpdatePolicySelection(readFileSync(path.join(root, "packages/medusa-adapter/src/modules/pricing/price-list-price-update-receipt.ts"), "utf8"));
+  verifyPriceListPriceUpdateSelection(readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/pricing/update-price-list-prices.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-adapter/src/workflow/policy.ts"), "utf8"));
   verifyPriceListDeleteSelection(
     readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/pricing/delete-price-lists.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/src/workflow/policy.ts"), "utf8"));
@@ -372,8 +376,15 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, "packages/medusa-adapter/src/modules/pricing/repository.ts"), "utf8"),
   );
   const pricingSource = readFileSync(path.join(root, sourcePrefix + "packages/modules/pricing/src/services/pricing-module.ts"), "utf8");
+  const pricingTarget = readFileSync(path.join(root, "packages/medusa-pricing/src/services/pricing-module.ts"), "utf8");
+  verifyNativePriceListPriceUpdate({ pricing: pricingTarget,
+    step: readFileSync(path.join(root, "packages/medusa-core-flows/src/price-list/steps/update-price-list-prices.ts"), "utf8"),
+    workflow: readFileSync(path.join(root, "packages/medusa-core-flows/src/price-list/workflows/update-price-list-prices.ts"), "utf8"),
+    types: readFileSync(path.join(root, "packages/medusa-types/src/pricing/price-list-price-update.ts"), "utf8"),
+    index: readFileSync(path.join(root, "packages/medusa-types/src/pricing/index.ts"), "utf8"),
+  });
   verifyModuleTypeFork(pricingSource, verifyPricingNormalizationExtraction(pricingSource,
-    readFileSync(path.join(root, "packages/medusa-pricing/src/services/pricing-module.ts"), "utf8"),
+    stripNativePriceListPriceUpdatePricingExtension(pricingTarget),
     readFileSync(path.join(root, "packages/medusa-pricing/src/normalization.ts"), "utf8")));
   verifyShippingProfileCreateTests(
     readFileSync(path.join(root, sourcePrefix + "packages/modules/fulfillment/integration-tests/__tests__/fulfillment-module-service/shipping-profile.spec.ts"), "utf8"),
@@ -619,6 +630,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   const priceListRuleBuilderTarget = "packages/medusa-utils/src/pricing/price-list-rules.ts";
   const priceListRuleBuilderSource = sourcePrefix + "packages/core/utils/src/pricing/builders.ts";
   const priceListPriceSources = ["price-list/workflows/create-price-list-prices.ts", "price-list/steps/create-price-list-prices.ts"];
+  const priceListPriceUpdateSources = ["price-list/workflows/update-price-list-prices.ts", "price-list/steps/update-price-list-prices.ts"];
   for (const file of promotion.files) {
     const normalizationPair = file.source === pricingRepositoryNormalizationSource[1] &&
       (file.target === pricingRepositoryNormalizationSource[0] && file.classification === "nativeRepositoryFork" ||
@@ -628,6 +640,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     const priceListPricePair = priceListPriceSources.find(relative => file.target === "packages/medusa-core-flows/src/" + relative || file.source === sourcePrefix + "packages/core/core-flows/src/" + relative);
     if (priceListPricePair !== undefined && (file.target !== "packages/medusa-core-flows/src/" + priceListPricePair || file.source !== sourcePrefix + "packages/core/core-flows/src/" + priceListPricePair || file.classification !== "workflowFork"))
       throw new Error("PriceList Price creation outside its exact pinned source pair");
+    const priceListPriceUpdatePair = priceListPriceUpdateSources.find(relative => file.target === "packages/medusa-core-flows/src/" + relative || file.source === sourcePrefix + "packages/core/core-flows/src/" + relative);
+    if (priceListPriceUpdatePair !== undefined && (file.target !== "packages/medusa-core-flows/src/" + priceListPriceUpdatePair || file.source !== sourcePrefix + "packages/core/core-flows/src/" + priceListPriceUpdatePair || file.classification !== "workflowFork"))
+      throw new Error("PriceList Price update outside its exact pinned source pair");
     // Bind both directions: neither a selected target nor its native source
     // can be relabeled, redirected, or reused as a different extraction.
     const priceListDeletePair = priceListDeleteSources.find(([target, source]) => file.target === target || file.source === source);
@@ -713,6 +728,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     if (file.classification === "regionServiceFork" && file.target !== "packages/medusa-region/src/services/region-module.ts")
       throw new Error("Region service adaptation outside its selected native service");
     for (const [target, source] of [
+      ["packages/medusa-types/src/pricing/index.ts", "packages/core/types/src/pricing/index.ts"],
       ["packages/medusa-drizzle/src/filter-value.ts", "packages/database/drizzle/src/repository.ts"],
       ["packages/medusa-orchestration/src/joiner-field-alias.ts", "packages/core/orchestration/src/joiner/remote-joiner.ts"],
       ["packages/medusa-region/src/static-manifest.ts", "packages/modules/region/src/static-manifest.ts"],

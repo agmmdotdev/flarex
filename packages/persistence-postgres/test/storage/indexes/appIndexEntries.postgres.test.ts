@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import { verifyIndexBatches } from "./indexBatchScenario";
 import { verifyMembershipReadPreparation } from "./indexMembershipReadScenario";
+import { verifyRetainedHistoryReads } from "./retainedHistoryReadScenario";
 import { verifyDemandVectorFreshness } from "../documents/logicalDependencyValidationScenario";
 import { consumeLogicalIndexRanges, readLogicalIndexRange, sameLogicalIndexMembership } from "../../../src/storage/documents/logicalDocuments/indexReads";
 import { closeExactAttemptScopeClockObservation, lockScopeClockRowsForOrdinaryWriteInTransactionEffect } from "../../../src/scope/scopeClock";
@@ -88,6 +89,17 @@ const deploymentId = "deployment_s10_postgres";
 let locatedDefinition: LocatedAppIndexDefinitionV1;
 
 describePostgres("real PostgreSQL S10 app-index storage", () => {
+  it("reads complete bounded retained positions and canonical revisions after physical deletion", async () => {
+    await withPersistence(async persistence => {
+      await insertClock(persistence);
+      await persistence.drizzle.transaction(async tx => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try { await verifyRetainedHistoryReads(tx, { identity: { scopeId, tableId, rowId: rowA }, otherRowId: rowB,
+          definition: locatedDefinition, epoch, schemaVersionId, creationTime }); }
+        finally { closeInstallationAdmission(tx); }
+      });
+    });
+  });
   it("retains genuine frozen catalog specifications and authenticates raw publication digests", async () => {
     await withPersistence(async persistence => {
       await insertClock(persistence);

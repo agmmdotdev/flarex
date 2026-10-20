@@ -21,7 +21,7 @@ import type { CommitSeq } from "flarex-protocol/storage-authority";
 import { isJsonArray, isJsonObject, jsonEqual, type Json, type JsonObject } from "flarex-protocol/json";
 import { relationalReverseIndexes } from "flarex-protocol/internal/relational-schema";
 import { canonicalizeFlarexValueV1Effect, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
-import { consumeBoundedAppRowsAtSnapshotInTransactionEffect, consumeCapturedAppRowsAtSnapshotEffect, readAppRowAtSnapshotInTransactionEffect, readBoundedCurrentAppRowsInTransactionEffect, MAX_BOUNDED_APP_ROW_READ_IDENTITIES,
+import { consumeBoundedAppRowsAtSnapshotInTransactionEffect, consumeCapturedAppRowsAtSnapshotEffect, readAppRowAtSnapshotInTransactionEffect, readBoundedCurrentAppRowsInTransactionEffect, readRetainedAppRowRevisionsInTransactionEffect, AppRowRetainedReadLimitError, MAX_BOUNDED_APP_ROW_READ_IDENTITIES,
   MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES,
   InvalidAppRowReadInputError, AppRowReadPersistenceError,
   type AppRowReadResultV1, type AppRowRevisionV1, type ReadAppRowError } from "../appRows";
@@ -47,6 +47,7 @@ import { readLogicalSearchRange, type LogicalSearchMember, type LogicalSearchRea
 import { readLogicalJsonContainsRange } from "./jsonContains";
 import { selectLogicalJsonSearchDefinition, type LogicalSearchDefinition } from "./searchEntries";
 import { decodeCapturedAppIndexSnapshotPageEffect,
+  readRetainedAppIndexCandidatesInTransactionEffect, AppIndexRetainedReadLimitError,
   MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, type AppIndexRangeCursorV1, type AppIndexRangePageV1 } from "../../indexes/appIndexEntries";
 import { decodeLogicalFindQuery, isLogicalRange, selectLogicalIndex, selectLogicalPageIndex, prepareLogicalQueryPredicate, logicalWhereValues, logicalSelectionWhere, selectLogicalUniqueValues, selectLogicalIndexValues, type LogicalSelectionValues, type LogicalWhere } from "./query";
 import { prepareLogicalRelationalRead, logicalRelationalSelectionValues, type LogicalRelationalReadDemand } from "./relationalQuery";
@@ -75,7 +76,7 @@ import { captureHostPreparationLifetime, PreparedHostRuntimeError } from "../../
 import type { LogicalDocumentTable, PreparedLogicalDocumentReadMechanics, PreparedLogicalDocumentWriteMechanics,
   LogicalDocumentFailure } from "./model";
 import { requirePreparedLogicalReadMetadata, type PreparedLogicalReadMetadata } from "../logicalReadMetadata";
-const decodeRelationalChange = Schema.decodeUnknownResult(Schema.Literals(["insert", "upsert", "update", "upsertPreservingDeletion", "delete", "softDelete", "restore", "reconstitute"]));
+const decodeRelationalChange = Schema.decodeUnknownResult(Schema.Literals(["insert", "upsert", "update", "upsertPreservingDeletion", "delete", "softDelete", "restore", "reconstitute", "replay"]));
 const uniqueReadKey = (definition: LocatedAppUniqueConstraintDefinitionV1, projected: LoweredCanonicalAppUniqueConstraintV1) =>
   projected.kind === "claim"
     ? JSON.stringify([definition.uniqueConstraintDefinitionId, projected.localeKey, projected.encodedKey])
@@ -2124,18 +2125,107 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       sum: yield* Effect.fromResult(sumLogicalRows(result.docs, query.sum, error)),
     }) });
   }))));
+  /** Business authorization belongs to the closed trusted framework callback.
+   * This owner proves complete row bytes and managed fields against actual
+   * records and the current dependency. A committed tombstone authenticates
+   * native values but never grants reuse of its retired internal identity. */
+  const recordedReplayCandidate = (table: LogicalDocumentTable, inputRow: JsonObject,
+    identity: Record<string, string>, keyColumns: readonly string[], selected: PendingDocument | undefined) => Effect.gen(function* () {
+    const replayPolicy = state.recordedRowReplay;
+    if (replayPolicy === undefined || table.relationalMechanics === undefined || state.tx === undefined || state.snapshotCommitSeq !== undefined)
+      return yield* Effect.fail(error("invalidAuthority"));
+    const mechanics = table.relationalMechanics;
+    let proven = false, matched = selected;
+    const recordProof = (candidate: PendingDocument) => {
+      // Committed retired rows prove values, never a reusable destination.
+      const destination = selected ?? (candidate.current !== null || candidate.attempts.length > 0 ? candidate : undefined);
+      if (destination !== undefined && matched !== undefined && matched !== destination) return Result.fail(error("invalidInput"));
+      if (destination !== undefined) matched = destination;
+      proven = true;
+      return Result.succeed(undefined);
+    };
+    const accept = (candidate: PendingDocument, document: CanonicalFlarexValueV1) => Effect.gen(function* () {
+      if (candidate.tableId !== table.tableId) return;
+      const native = yield* Effect.fromResult(nativeLogicalRelationalCanonicalRow(mechanics, document, limits.documentBytes, error));
+      if (!keyColumns.every(column => native[column] === identity[column]) || !jsonEqual(native, inputRow)) return;
+      if (candidate.current !== null) {
+        const current = yield* Effect.fromResult(nativeLogicalRelationalCanonicalRow(mechanics, candidate.current, limits.documentBytes, error));
+        if (!keyColumns.every(column => current[column] === identity[column])) return yield* Effect.fail(error("invalidInput"));
+      }
+      yield* Effect.fromResult(recordProof(candidate));
+    });
+    for (const candidate of rows.values()) {
+      if (candidate.tableId !== table.tableId) continue;
+      if (candidate.current !== null) yield* accept(candidate, candidate.current);
+      if (candidate.deletedValue !== undefined) yield* accept(candidate, candidate.deletedValue);
+      if (candidate.base?.kind === "live") yield* accept(candidate, candidate.base.document);
+      for (const ordinal of candidate.attempts) {
+        const attempt = attempts[ordinal];
+        if (attempt?.before != null) yield* accept(candidate, attempt.before);
+        if (attempt?.after != null) yield* accept(candidate, attempt.after);
+      }
+    }
+    if (proven) return matched;
+    const values = logicalWhereValues(identity);
+    const definitions = yield* selectedIndexValuesFor(table, values, { columns: keyColumns });
+    const selection = yield* Effect.fromResult(selectLogicalIndexValues(definitions, table.tableId, values, error, { columns: keyColumns }));
+    if (Option.isNone(selection)) return yield* Effect.fail(error("invalidAuthority"));
+    const { definition, bounds } = selection.value;
+    const demand: LogicalStorageReadDemand = { kind: "index", tableId: table.tableId, indexDefinitionId: definition.indexDefinitionId };
+    const entries = yield* runRead(tx => requireReadDemand(tx, demand).pipe(Effect.andThen(
+      readRetainedAppIndexCandidatesInTransactionEffect(tx, { scopeId: state.scopeId, definition, bounds,
+        maximumCommitSeq: state.clock.lastCommitSeq, maximumEntries: Math.min(callIdentityLimit, MAX_APP_INDEX_RANGE_PAGE_SIZE_V1),
+          maximumIdentities: Math.min(callIdentityLimit, MAX_BOUNDED_APP_ROW_READ_IDENTITIES),
+        maximumTotalKeyBytes: Math.min(MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES, lifetime.remainingBytes()) }).pipe(
+          Effect.mapError(cause => cause instanceof AppIndexRetainedReadLimitError ? error("limitExceeded", cause) :
+            error(logicalIndexReadFailureReason(cause), cause))))), demand);
+    for (const entry of entries) yield* charge(128 + entry.encodedKey.length / 2);
+    const candidateIds = new Set(entries.map(entry => entry.rowId));
+    for (const rowId of candidateIds) {
+      const rowDemand: LogicalStorageReadDemand = { kind: "rows", tableId: table.tableId };
+      const revisions = yield* runRead(tx => requireReadDemand(tx, rowDemand).pipe(Effect.andThen(
+        readRetainedAppRowRevisionsInTransactionEffect(tx, { scopeId: state.scopeId, tableId: table.tableId, rowId,
+          schemaVersionId: replayPolicy.schemaVersionId, maximumCommitSeq: state.clock.lastCommitSeq,
+          maximumRevisions: Math.min(callIdentityLimit, MAX_BOUNDED_APP_ROW_READ_IDENTITIES), maximumDocumentBytes: limits.documentBytes,
+          maximumTotalValueBytes: Math.min(MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES, lifetime.remainingBytes()) }).pipe(
+            Effect.mapError(cause => cause instanceof AppRowRetainedReadLimitError ? error("limitExceeded", cause) : currentRowFailure(cause))))), rowDemand);
+      for (const revision of revisions) {
+        yield* charge(128 + (revision.kind === "live" ? revision.document.canonicalBytes.byteLength : 0));
+        if (revision.kind !== "live") continue;
+        const native = yield* Effect.fromResult(nativeLogicalRelationalCanonicalRow(mechanics, revision.document, limits.documentBytes, error));
+        if (!jsonEqual(native, inputRow)) continue;
+        const encoded = yield* Effect.fromResult(lowerIndex(definition, revision.document, revision.creationTime, "storedCorruption"));
+        if (encoded === null || !entries.some(entry => entry.rowId === rowId && entry.encodedKey === encoded && entry.kind === "live"))
+          return yield* Effect.fail(error("storedCorruption"));
+        const located = yield* locate(appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId }), table.logicalName);
+        const candidate = located.pending;
+        if (candidate === undefined || candidate.creationTime !== revision.creationTime)
+          return yield* Effect.fail(error("storedCorruption"));
+        if (candidate.current !== null) {
+          const current = yield* Effect.fromResult(nativeLogicalRelationalCanonicalRow(mechanics, candidate.current, limits.documentBytes, error));
+          if (!keyColumns.every(column => current[column] === identity[column])) return yield* Effect.fail(error("invalidInput"));
+        }
+        yield* Effect.fromResult(recordProof(candidate));
+      }
+    }
+    if (!proven) return yield* Effect.fail(error("invalidInput"));
+    return matched;
+  });
   const relationalChange = (context: BoundedRequestContext,
-    id: PresentedTransactionId, tableName: string, operation: "insert" | "upsert" | "update" | "upsertPreservingDeletion" | "delete" | "softDelete" | "restore" | "reconstitute", input: unknown) => observeExecution("LogicalDocuments.relationalChange", Effect.suspend(() => runOperation(context, id, "write", Effect.gen(function* () {
+    id: PresentedTransactionId, tableName: string, operation: "insert" | "upsert" | "update" | "upsertPreservingDeletion" | "delete" | "softDelete" | "restore" | "reconstitute" | "replay", input: unknown) => observeExecution("LogicalDocuments.relationalChange", Effect.suspend(() => runOperation(context, id, "write", Effect.gen(function* () {
       yield* Effect.fromResult(decodeRelationalChange(operation).pipe(Result.mapError(cause => error("invalidInput", cause))));
       if (operation === "reconstitute" && state.reconstitution === undefined)
         return yield* Effect.fail(error("invalidAuthority"));
-      if (operation === "upsertPreservingDeletion" && state.allowPreservingDeletionUpsert !== true)
+      if (operation === "replay" && state.recordedRowReplay === undefined)
+        return yield* Effect.fail(error("invalidAuthority"));
+      if (operation === "upsertPreservingDeletion" && state.allowPreservingDeletionUpsert === undefined)
         return yield* Effect.fail(error("invalidAuthority"));
       const table = yield* tableForName(tableName);
       if (table.relational === undefined || state.relationalCapabilities === undefined) return yield* Effect.fail(error("invalidAuthority"));
       if (table.relationalMechanics === undefined || !hasPreparedLogicalRelationalTableMechanics(table.relationalMechanics, table.relational))
         return yield* Effect.fail(error("invalidAuthority"));
       const relationalMechanics = table.relationalMechanics;
+      const relationalDefinition = table.relational;
       const policy = yield* Effect.fromResult(bindPreparedLogicalRelationalRows(relationalMechanics, error));
       const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), error));
       yield* charge(captured.bytes);
@@ -2149,6 +2239,11 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
             typeof item === "string" && singleKey !== undefined ? { [singleKey]: item } : item : item;
           if (!isJsonObject(row)) return yield* Result.fail(error("invalidInput"));
           yield* policy.validateInput(row);
+          if (operation === "replay") {
+            if (Object.keys(row).length !== relationalDefinition.columns.length)
+              return yield* Result.fail(error("invalidInput"));
+            yield* policy.validate(row, "documentInvalid");
+          }
           if ((operation === "delete" || operation === "softDelete" || operation === "restore") &&
             (Object.keys(row).length !== policy.keyColumns.length || Object.keys(row).some(name => !policy.keyColumns.some(column => column === name))))
             return yield* Result.fail(error("invalidInput"));
@@ -2198,6 +2293,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
             pending = candidate;
           }
           let deletedPreimage: JsonObject | undefined;
+          if (operation === "replay") {
+            pending = yield* recordedReplayCandidate(table, inputRow, identity, policy.keyColumns, pending);
+          }
           if (operation === "reconstitute") {
             if (pending !== undefined) return yield* Effect.fail(error("uniqueConflict"));
             // Only this root's authenticated pending deletions can grant reuse
@@ -2241,6 +2339,13 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
           }
           const applyChange = Effect.gen(function* () {
             let supplied = inputRow;
+            const preserveManaged = operation === "upsertPreservingDeletion" && state.allowPreservingDeletionUpsert === "preserveTimestamps";
+            if (preserveManaged) for (const column of policy.managedColumns) {
+              // This capability authorizes a business merge, never caller-owned
+              // timestamps or deletion state. New rows use ordinary defaults.
+              if (Object.hasOwn(inputRow, column) && (previous === null || inputRow[column] !== previous[column]))
+                return yield* Effect.fail(error("invalidInput"));
+            }
             // Native relational upsert reactivates a soft-deleted row on key
             // conflict. Keep that behavior with the shared logical row owner.
             if (operation === "upsert" && previous !== null && policy.deletedAt !== undefined)
@@ -2251,11 +2356,11 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
             }
             // The existing upsert contract reactivates without advancing time.
             // The explicitly admitted preserving-deletion merge instead keeps
-            // omitted deletion fields and advances time, even for an ID alone.
+            // omitted deletion fields and selects its managed-time policy.
             // Exact deleted-row reconstitution may retain both proven stamps;
             // ordinary updates and lifecycle transitions still advance time.
             const fields = yield* Effect.fromResult(policy.normalize(supplied, previous,
-              yield* transactionTime, operation === "upsert" ||
+              yield* transactionTime, operation === "upsert" || operation === "replay" || preserveManaged ||
                 operation === "reconstitute" && state.reconstitution === "preserveTimestamps" ? "preserve" : "advance"));
             const afterWrite = (written: JsonObject) => Effect.gen(function* () {
               const { _id: _internalId, _creationTime: _internalTime, ...native } = written;
@@ -2269,7 +2374,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
             const prepareDocument = (selected: PendingDocument) => canonicalizeLogicalRelationalRow(relationalMechanics, fields,
               selected.documentId, selected.creationTime).pipe(Effect.mapError(cause => error(cause.reason, cause.cause)));
             return yield* (pending === undefined ? withInsertedRecord(tableName, fields, afterWrite, prepareDocument) :
-              withWrittenDocument(pending, fields, operation === "reconstitute" ? "insert" : "patch", afterWrite, prepareDocument));
+              withWrittenDocument(pending, fields, operation === "reconstitute" || operation === "replay" && pending.current === null ? "insert" : operation === "replay" ? "replace" : "patch", afterWrite, prepareDocument));
           });
           return yield* (transactionTimeLoaded ? applyChange : withStorageFrontier({ kind: "rows", tableId: table.tableId },
             { tableId: table.tableId }, applyChange));
@@ -2693,6 +2798,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         lifecycle: (context, operation, keys) => relationalChange(context, id, tableName, operation, keys),
         ...(state.reconstitution === undefined ? {} : {
           reconstitute: (context: BoundedRequestContext, inputRows: unknown) => relationalChange(context, id, tableName, "reconstitute", inputRows),
+        }),
+        ...(state.recordedRowReplay === undefined ? {} : {
+          replay: (context: BoundedRequestContext, inputRows: unknown) => relationalChange(context, id, tableName, "replay", inputRows),
         }),
       } satisfies LogicalRelationalStore<Failure>);
     }))));

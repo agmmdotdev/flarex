@@ -214,9 +214,10 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
       ...(member.detachDeletedReferences === true ? { detachDeletedReferences: true } : {}),
       ...(member.setNullPolicy === undefined ? {} : { setNullPolicy: member.setNullPolicy }),
       ...(member.reconstitution === undefined ? {} : { reconstitution: member.reconstitution }),
-      ...(member.allowPreservingDeletionUpsert === true ? { allowPreservingDeletionUpsert: true } : {}),
+      ...(member.allowPreservingDeletionUpsert === undefined ? {} : { allowPreservingDeletionUpsert: member.allowPreservingDeletionUpsert }),
       ...(member.allowActiveRestoreUpdate === true ? { allowActiveRestoreUpdate: true } : {}),
       ...(member.allowStorageInsertionOrder === true ? { allowStorageInsertionOrder: true } : {}),
+      ...(member.allowRecordedRowReplay === true ? { allowRecordedRowReplay: true } : {}),
       events: Result.isSuccess(member.events) ? { contracts: member.events.success?.contracts.length ?? 0 } : null,
       ...(member.kind === "logical" ? {
         logical: Result.isSuccess(member.logical) ? { schemaVersionId: member.logical.success.schemaVersionId,
@@ -303,8 +304,14 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     ...(members.some(member => member.allowPreservingDeletionUpsert === true) ? {
       preservingDeletionUpsert: members.filter(member => member.allowPreservingDeletionUpsert === true).map(member => member.name),
     } : {}),
+    ...(members.some(member => member.allowPreservingDeletionUpsert === "preserveTimestamps") ? {
+      preservingDeletionUpsertTimestamps: members.filter(member => member.allowPreservingDeletionUpsert === "preserveTimestamps").map(member => member.name),
+    } : {}),
     ...(members.some(member => member.allowStorageInsertionOrder === true) ? {
       storageInsertionOrder: members.filter(member => member.allowStorageInsertionOrder === true).map(member => member.name),
+    } : {}),
+    ...(members.some(member => member.allowRecordedRowReplay === true) ? {
+      recordedRowReplay: members.filter(member => member.allowRecordedRowReplay === true).map(member => member.name),
     } : {}),
     ...(members.some(member => member.allowActiveRestoreUpdate === true) ? {
       activeRestoreUpdate: members.filter(member => member.allowActiveRestoreUpdate === true).map(member => member.name),

@@ -26,7 +26,7 @@ type Capture = (input: unknown) => ReturnType<typeof decodeEvent>;
 
 export const validatePriceListReadReceipt = Effect.fn("PricingLists.validateRead")(function* (
   contracts: PriceListUpdateContracts, call: Call, activity: Activity,
-  commandName: "pricingListUpdateRead" | "pricingPriceListPriceRead" = "pricingListUpdateRead",
+  commandName: "pricingListUpdateRead" | "pricingPriceListPriceRead" | "pricingListPriceUpdateRead" = "pricingListUpdateRead",
 ) {
   const mismatch = () => commerceError("receiptMismatch");
   if (call.mode !== "read" || call.commandName !== commandName || call.events.length || activity.mutations.length ||

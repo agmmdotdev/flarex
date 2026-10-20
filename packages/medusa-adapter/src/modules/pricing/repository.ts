@@ -38,6 +38,8 @@ import { compilePriceListDeletionContracts } from "./list-deletion-input";
 import { priceListLifecycleMethods } from "./list-deletion-repository";
 import { compilePriceListPriceCreationContracts, decodePriceListPricePhysicalSelection } from "./price-list-price-input";
 import { preparePriceListPriceReplacement, readPriceListPriceCandidates } from "./price-list-price-repository";
+import { compilePriceListPriceUpdateContracts } from "./price-list-price-update-input";
+import { readPriceListPriceUpdateRows, readPriceListPriceSnapshotRules, preparePriceListPriceReplay } from "./price-list-price-update-repository";
 
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
 const Rule = Schema.Struct({ id: Schema.optionalKey(PricingId), attribute: Schema.String, value: Schema.String,
@@ -102,7 +104,7 @@ const projectionPolicy: ProjectionPolicy = { ...scalarProjection, allowedPaths: 
 /** Pricing owns the finite nested creation policy; shared graph/read owners
  * retain traversal, scoped persistence and native mutation dispatch. */
 export type PricingRepositoryAdmission = "create" | "variant-updates" | "product-updates" | "price-preferences" |
-  "price-preference-updates" | "price-preference-deletions" | "price-list-creations" | "price-list-updates" | "price-list-deletions" | "price-list-price-creations" | "shipping-options" | "shipping-option-updates";
+  "price-preference-updates" | "price-preference-deletions" | "price-list-creations" | "price-list-updates" | "price-list-deletions" | "price-list-price-creations" | "price-list-price-updates" | "shipping-options" | "shipping-option-updates";
 export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], admission: PricingRepositoryAdmission = "create") {
   return Result.gen(function* () {
     const mutable = admission === "variant-updates" || admission === "product-updates", lifecycle = admission === "product-updates";
@@ -113,6 +115,9 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
     const listUpdates = admission === "price-list-updates";
     const listDeletions = admission === "price-list-deletions";
     const listPriceCreations = admission === "price-list-price-creations";
+    const listPriceUpdates = admission === "price-list-price-updates";
+    const listPriceUpdateContracts = listPriceUpdates ? yield* compilePriceListPriceUpdateContracts(metadata) : undefined;
+    const listPriceReplay = listPriceUpdateContracts === undefined ? undefined : yield* preparePriceListPriceReplay(listPriceUpdateContracts);
     const listDeletionContracts = listDeletions ? yield* compilePriceListDeletionContracts(metadata) : undefined;
     if (preferences) {
       const prepared = yield* preparePricingPreferenceRepository(metadata, preferenceDeletions ? "deletions" : preferenceUpdates ? "updates" : "store");
@@ -123,9 +128,9 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       const replacement = yield* preparePriceListUpdateReplacement(contracts);
       return { contracts, ...replacement };
     }) : undefined;
-    const listPrice = listPriceCreations ? yield* Result.gen(function* () {
-      const contracts = yield* compilePriceListPriceCreationContracts(metadata);
-      const replacement = yield* preparePriceListPriceReplacement(contracts);
+    const listPrice = listPriceCreations || listPriceUpdates ? yield* Result.gen(function* () {
+      const contracts = listPriceUpdateContracts ?? (yield* compilePriceListPriceCreationContracts(metadata));
+      const replacement = yield* preparePriceListPriceReplacement(contracts, listPriceUpdates ? "update" : "creation");
       return { contracts, ...replacement };
     }) : undefined;
     const entities: GraphEntity[] = [];
@@ -247,7 +252,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       const mutationEvents: CommerceModuleEvents = { createEventSubscriber: events.createSubscriber, registerEventSubscriber: events.registerSubscriber,
         dispatchMutationEvent: (event, args, shared, subscriber) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
           if ((!events.isSubscribed(shared) && (subscriber === undefined || !events.ownsSubscriber(subscriber))) ||
-            !(listUpdates || listPriceCreations ? ["afterCreate", "afterUpdate", "afterDelete"] : mutable || shipping || listDeletions ? ["afterDelete", "afterUpdate"] : ["afterDelete"]).includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+            !(listUpdates || listPriceCreations || listPriceUpdates ? ["afterCreate", "afterUpdate", "afterDelete"] : mutable || shipping || listDeletions ? ["afterDelete", "afterUpdate"] : ["afterDelete"]).includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
           yield* events.dispatch(event, args, shared, subscriber);
         }))),
       };
@@ -363,7 +368,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       const listLifecycle = listDeletionContracts === undefined ? undefined : priceListLifecycleMethods(listDeletionContracts, bridge, events);
       const listRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
         ...(listLifecycle === undefined ? {} : listLifecycle),
-        create: listUpdates || listDeletions || listPriceCreations ? refuse : (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
+        create: listUpdates || listDeletions || listPriceCreations || listPriceUpdates ? refuse : (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
         find: listPrice !== undefined ? (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx,
           readPriceListUpdateRows(ctx, listPrice.contracts.listReadContracts, captured))) : listUpdate === undefined ? refuse :
           (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, readPriceListUpdateRows(ctx, listUpdate.contracts, input))),
@@ -392,14 +397,24 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
           return [...yield* Effect.fromResult(decodeTaxRules(rows))];
       });
       const ruleRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
-        find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findTaxRules(ctx, input))),
+        find: listPriceUpdateContracts === undefined ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findTaxRules(ctx, input)))
+          : (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx,
+            readPriceListPriceSnapshotRules(ctx, listPriceUpdateContracts, captured))),
       };
       const mutationRepositories = mutations?.bind(bridge, events, { ...denied, serialize: repository.serialize }, createGraph, findTaxRules);
       const listPriceRepository: DAL.RepositoryService | undefined = listPrice === undefined ? undefined : {
         ...denied, serialize: repository.serialize,
         find: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx,
-          readPriceListPriceCandidates(ctx, listPrice.contracts, captured))),
-        upsertWithReplace: (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, listPrice.replace(ctx, input, config))),
+          listPriceUpdateContracts === undefined ? readPriceListPriceCandidates(ctx, listPrice.contracts, captured)
+            : readPriceListPriceUpdateRows(ctx, listPriceUpdateContracts, captured))),
+        upsertWithReplace: (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+          const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
+          // The private native inverse supplies complete persisted roots. This
+          // dispatch grants no authority: core proves exact recorded rows.
+          if (listPriceReplay !== undefined && Array.isArray(captured) && captured.some(row => isJsonObject(row) && Object.hasOwn(row, "created_at")))
+            return yield* listPriceReplay.replay(ctx, captured, config);
+          return yield* listPrice.replace(ctx, captured, config);
+        }))),
         delete: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
           const selected = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources).pipe(Result.flatMap(decodePriceListPricePhysicalSelection)));
           return yield* deletePricingPriceRows(ctx, listPrice.root, listPrice.rule, selected, ctx.resources.queryRows, "storageInsertion");
