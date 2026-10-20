@@ -4,7 +4,7 @@ import { payloadPostsCollection, payloadScalarFields } from "../../../../payload
 import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
 import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
 import { readAppUniqueConstraintSetClosureV1Effect } from "../../../src/storage/unique/appUniqueConstraintSetClosureV1";
-import { prepareReadinessEvidence, relationReadinessFixture } from "../../application/relations/applicationRelationReadinessFixture";
+import { prepareReadinessEvidence, relationReadinessFixture, type RelationReadinessFixtureOptions } from "../../application/relations/applicationRelationReadinessFixture";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { fxControlSchemaVersionUniqueConstraintBindings } from "../../../src/database/schema";
 import { prepareAppUniqueConstraintDefinitionBindingV1Effect, ensureAppUniqueConstraintDefinitionBindingV1InTransaction } from "../../../src/storage/unique/appUniqueConstraintDefinitions";
@@ -16,13 +16,21 @@ export const payloadUniqueAdmissionCases = ["missing", "extra", "wrongField", "s
 /** Retains the missing-readiness witness and covers exact set agreement. */
 export async function payloadUniqueAdmissionGapScenario(
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
-  mode: typeof payloadUniqueAdmissionCases[number] = "missing",
+  mode: typeof payloadUniqueAdmissionCases[number],
+  input: Required<Pick<RelationReadinessFixtureOptions, "controlPersistence" | "fixtureIdentity">>,
 ) {
   expect(payloadPostsCollection().fields).toContainEqual({
     name: "title", type: "text", required: true, unique: true,
   });
+  if (persistence !== input.controlPersistence) {
+    await persistence.insertDeploymentMetadata({
+      deploymentId: input.fixtureIdentity.deploymentId,
+      projectId: input.fixtureIdentity.projectId,
+    });
+  }
   const fixture = await relationReadinessFixture({
-    persistence, writePolicy: true, bindingAdmission: true,
+    persistence, controlPersistence: input.controlPersistence, fixtureIdentity: input.fixtureIdentity,
+    writePolicy: true, bindingAdmission: true,
     cmsIndexes: mode !== "maximumFieldName", cmsFields: mode === "maximumFieldName"
       ? [{ name: "x".repeat(64), kind: "text", unique: true }]
       : mode === "none" ? payloadScalarFields.map(field => ({ name: field.name, kind: field.kind })) : payloadScalarFields,
