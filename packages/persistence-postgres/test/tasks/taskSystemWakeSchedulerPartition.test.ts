@@ -1,7 +1,6 @@
 import { migratedPGliteDataDir } from "../support/pgliteTestFixture";
 import { fxSystemScopeExecutionAuthorities } from "../../src/database/schema";
-import { PGlite } from "@electric-sql/pglite";
-import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { useFileScopedPGliteTaskPersistence } from "./taskPGliteFixture";
 import {
   decodeTaskRetryJitterV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
@@ -18,7 +17,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
-  createPGlitePersistence,
+  type PGliteFlarexPersistence,
 } from "../../src/database/pglite";
 import {
   TaskSystemRunReadStaleScopeAuthorityError,
@@ -52,6 +51,7 @@ const staleScopeEpoch = ScopeEpochSchema.make(
 );
 
 beforeAll(() => migratedPGliteDataDir(), 120_000);
+const withPersistence = useFileScopedPGliteTaskPersistence();
 
 describe("DTE05-C1 located-scope scheduler composition - PGlite", () => {
   it("runs bounded Drizzle pages through the real lifecycle and resumes exactly", async () => {
@@ -175,16 +175,12 @@ function attemptUuidSequence(): () => string {
 async function withFixture(
   run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
 ): Promise<void> {
-  const raw = newTestPGlite({ loadDataDir: await migratedPGliteDataDir() });
-  try {
-    await run(await makeFixture(raw));
-  } finally {
-    await raw.close();
-  }
+  await withPersistence(async persistence => {
+    await run(await makeFixture(persistence));
+  });
 }
 
-async function makeFixture(raw: PGlite) {
-  const persistence = await createPGlitePersistence({ db: raw });
+async function makeFixture(persistence: PGliteFlarexPersistence) {
   await seedTaskSystemRunAttemptStoreV1(persistence);
   const target = createPGliteLocatedTaskSystemRunAttemptTargetV1(
     persistence,
@@ -195,7 +191,7 @@ async function makeFixture(raw: PGlite) {
 }
 
 async function taskCounts(
-  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  persistence: PGliteFlarexPersistence,
 ) {
   const [[runs], [attempts], [effects]] = await Promise.all([
     persistence.drizzle.select({ count: count() }).from(

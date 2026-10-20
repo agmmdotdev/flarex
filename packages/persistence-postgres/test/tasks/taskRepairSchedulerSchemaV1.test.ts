@@ -1,7 +1,7 @@
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
-  createMigratedPGlitePersistence,
+  useFileScopedPGliteTaskRepairSchedulerPersistence,
   migratedPGliteDataDir,
 } from "../support/pgliteTestFixture";
 
@@ -10,6 +10,7 @@ import { createPGlitePersistence } from "../../src/database/pglite";
 beforeAll(() => migratedPGliteDataDir(), 120_000);
 
 describe("DTE05-E2A Task repair scheduler schema", () => {
+  const withPersistence = useFileScopedPGliteTaskRepairSchedulerPersistence();
   it("migrates idempotently to exactly one inert idle row", async () => {
     const db = newTestPGlite();
     const persistence = await createPGlitePersistence({ db });
@@ -60,8 +61,7 @@ describe("DTE05-E2A Task repair scheduler schema", () => {
     }
   });
 
-  it("accepts one complete claimed checkpoint shape", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("accepts one complete claimed checkpoint shape", async () => withPersistence(async persistence => {
     await expect(persistence.query(`
         update fx_system_durable_task_repair_scheduler_v1
         set
@@ -77,9 +77,9 @@ describe("DTE05-E2A Task repair scheduler schema", () => {
           updated_at = now()
         where scheduler_key = 'durable_task_repair_v1'
     `)).resolves.toBeDefined();
-  });
+  }));
 
-  it("rejects invalid key, fence, claim, continuation, and timestamp shapes", async () => {
+  it("rejects invalid key, fence, claim, continuation, and timestamp shapes", async () => withPersistence(async persistence => {
     const invalidStatements = [
       `insert into fx_system_durable_task_repair_scheduler_v1
         (scheduler_key, scheduler_state, run_fence, checkpoint_sequence)
@@ -120,10 +120,9 @@ describe("DTE05-E2A Task repair scheduler schema", () => {
        set updated_at = created_at - interval '1 millisecond'`,
     ];
 
-    const persistence = await createMigratedPGlitePersistence();
     // Each rejected autocommit statement rolls back its own attempted change.
     for (const statement of invalidStatements) {
       await expect(persistence.query(statement)).rejects.toThrow();
     }
-  });
+  }));
 });
