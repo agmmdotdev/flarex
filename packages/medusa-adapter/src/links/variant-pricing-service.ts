@@ -2,7 +2,7 @@ import { Effect, Result, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
 import type { FindConfig } from "@medusajs/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, commerceLimits, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureVariantPricingLinkMetadata } from "../composition/product-variant-pricing-schema";
 import { prepareLinkService } from "./service";
 import { linkLogicalEventPolicy } from "./events";
@@ -25,10 +25,19 @@ const decodeLinks = commerceDecoder(Schema.Union([Pair, Batch]), "invalidInput")
 const decodeRestore = commerceDecoder(Restore, "invalidInput");
 const decodeArguments = commerceDecoder(Schema.Tuple([Batch]), "invalidInput");
 const decodeCreated = commerceDecoder(Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Id, variant_id: Id, price_set_id: Id }), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(4)), "storedCorruption");
-const decodeRead = commerceDecoder(Schema.Struct({ filters: Schema.optionalKey(Schema.Struct({ variant_id: Schema.optionalKey(Ids), price_set_id: Schema.optionalKey(Ids), id: Schema.optionalKey(Ids) })),
+const readInput = Schema.Struct({ filters: Schema.optionalKey(Schema.Struct({ variant_id: Schema.optionalKey(Ids), price_set_id: Schema.optionalKey(Ids), id: Schema.optionalKey(Ids) })),
   config: Schema.optionalKey(Schema.Struct({ select: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMinLength(1))), relations: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(0))),
     skip: Schema.optionalKey(QueryOffset), take: Schema.optionalKey(QueryLimit), order: Schema.optionalKey(Schema.Struct({ variant_id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) })), withDeleted: Schema.optionalKey(Schema.Boolean) })),
-}), "invalidInput");
+});
+// Native Price List validation queries arbitrary variant strings, including "".
+// Keep that selector admission separate from stored IDs and Link mutations.
+const nativeVariantRead = Schema.Struct({ filters: Schema.Struct({
+  variant_id: Schema.Array(Schema.String.check(Schema.isMaxLength(256))).check(Schema.isMaxLength(4)) }),
+  config: Schema.Struct({ select: Schema.Tuple([Schema.Literal("variant_id"), Schema.Literal("price_set_id")]),
+    relations: Schema.Array(Schema.Never), skip: Schema.Literal(0), take: Schema.Literal(commerceLimits.catalogRows),
+    order: Schema.Struct({ variant_id: Schema.Literal("ASC") }) }),
+});
+const decodeRead = commerceDecoder(Schema.Union([readInput, nativeVariantRead]), "invalidInput");
 export const prepareVariantPricingLink = Effect.fn("VariantPricingLink.prepare")(function* () {
   const native = yield* prepareLinkService(yield* captureVariantPricingLinkMetadata());
   const use = (ctx: CommerceCommandContext, work: (scope: {

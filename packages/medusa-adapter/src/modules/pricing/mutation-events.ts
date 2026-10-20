@@ -18,8 +18,8 @@ function matchesStoredScalars(actual: JsonObject, expected: JsonObject) {
 /** Native Pricing replacements authenticate operation-local base-price and
  * rule mutations. Physical cascade cleanup has no separate native rule event. */
 export function pricingLogicalMutationEventPolicy(preferences: ReturnType<typeof pricingPreferencePolicy>,
-  options: Readonly<{ priceListPriceRules?: true; scalarPriceSetUpdate?: true }> = {}) {
-  const creation = pricingLogicalCreateEventPolicy(preferences, options);
+  options: Readonly<{ scalarPriceSetUpdate?: true }> = {}) {
+  const creation = pricingLogicalCreateEventPolicy(preferences);
   const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(Modules.PRICING), object: Schema.String,

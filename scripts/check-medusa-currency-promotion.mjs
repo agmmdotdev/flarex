@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
+import { verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
 import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyReturnFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 import { deliverySourcePairs, verifyFulfillmentDeliveryCallbacks, verifyNativeSkipStepResponseType } from "./check-medusa-delivery-source.mjs";
 import { verifyPricingNormalizationExtraction } from "./check-medusa-pricing-normalization.mjs";
@@ -273,6 +273,13 @@ function inventory(root, relative) {
 export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync(path.join(root, manifestPath), "utf8"))) {
   assertPromotion(supplied);
   verifyNativeJsonAssignment(root);
+  verifyPriceListCreateCallbacks(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/price-list/workflows/create-price-lists.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/price-list/workflows/create-price-lists.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/price-list/steps/create-price-lists.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/price-list/steps/create-price-lists.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/price-list/steps/validate-variant-price-links.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/price-list/steps/validate-variant-price-links.ts"), "utf8"));
   verifyPricePreferenceDeleteCallbacks(
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/pricing/workflows/delete-price-preferences.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/pricing/workflows/delete-price-preferences.ts"), "utf8"),
@@ -652,7 +659,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       ["packages/medusa-pricing/src/normalization.ts", "packages/modules/pricing/src/services/pricing-module.ts"],
     ]) if (file.target === target && (file.classification !== "selectedExportFacade" || file.source !== sourcePrefix + source))
       throw new Error("Shipping Option extraction outside its exact pinned source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "storeTypeFork", "storeCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -671,6 +678,11 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     ].includes(file.target))) {
       throw new Error("Workflow fork adaptation outside its approved source closure");
     }
+    if (["packages/medusa-core-flows/src/price-list/workflows/create-price-lists.ts",
+      "packages/medusa-core-flows/src/price-list/steps/create-price-lists.ts",
+      "packages/medusa-core-flows/src/price-list/steps/validate-variant-price-links.ts"].includes(file.target)
+      && (file.classification !== "workflowFork" || file.source !== sourcePrefix + "packages/core/core-flows/src/" + file.target.slice("packages/medusa-core-flows/src/".length)))
+      throw new Error("PriceList creation outside its exact pinned source pair");
     if (["packages/medusa-core-flows/src/pricing/workflows/delete-price-preferences.ts",
       "packages/medusa-core-flows/src/pricing/steps/delete-price-preferences.ts"].includes(file.target)
       && (file.classification !== "workflowFork" || file.source !== sourcePrefix + "packages/core/core-flows/src/" + file.target.slice("packages/medusa-core-flows/src/".length)))
@@ -718,6 +730,13 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       "packages/medusa-types/src/sales-channel/service.ts",
       "packages/medusa-sales-channel/src/services/sales-channel-module.ts",
     ].includes(file.target)) throw new Error("Sales Channel type adaptation outside its approved source files");
+    const priceListTypes = ["pricing/common/money-amount.ts", "pricing/common/price-list.ts", "pricing/workflows.ts"];
+    if (file.classification === "priceListCreationTypeFork" && !priceListTypes.some(relative =>
+      file.target === "packages/medusa-types/src/" + relative && file.source === sourcePrefix + "packages/core/types/src/" + relative))
+      throw new Error("PriceList creation type adaptation outside its approved source files");
+    if (priceListTypes.some(relative => file.target === "packages/medusa-types/src/" + relative)
+      && (file.classification !== "priceListCreationTypeFork" || file.source !== sourcePrefix + "packages/core/types/src/" + file.target.slice("packages/medusa-types/src/".length)))
+      throw new Error("PriceList creation type adaptation outside its exact pinned source pair");
     if (file.classification === "storeCreationTypeFork" && ![["packages/medusa-types/src/store/mutations/store.ts","packages/core/types/src/store/mutations/store.ts"],["packages/medusa-types/src/pricing/common/price-preference.ts","packages/core/types/src/pricing/common/price-preference.ts"],["packages/medusa-types/src/workflow/pricing/index.ts","packages/core/types/src/workflow/pricing/index.ts"]].some(([target, source]) => file.target === target && file.source === sourcePrefix + source))
       throw new Error("Store creation type adaptation outside its approved source files");
     if (file.classification === "shippingProfileWorkflowTypeFork" && (file.target !== "packages/medusa-types/src/workflow/fulfillment/shipping-profiles.ts" || file.source !== "third_party/medusa/upstream/packages/core/types/src/workflow/fulfillment/shipping-profiles.ts"))
@@ -757,6 +776,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       }
       if (file.classification === "storeCreationTypeFork")
         verifyStoreCreationTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (file.classification === "priceListCreationTypeFork")
+        verifyPriceListCreationTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.classification === "shippingProfileWorkflowTypeFork")
         verifyShippingProfileWorkflowTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "storeTypeFork")
@@ -895,6 +916,42 @@ export function verifyStoreCreationTypeFork(source, target, file) {
       "  is_tax_inclusive?: boolean | undefined\n}\n\nexport interface UpdatePricePreferencesWorkflowInput");
   } else throw new Error("Store creation type adaptation outside its approved source files");
   if (expected !== target.replace(/\r\n/g, "\n")) throw new Error("Changed native Store creation erased type seam");
+}
+
+/** Only native152's actual undefined boundary values may extend these exact
+ * declarations. Required PriceSet identity and every other type remain pinned.
+ * @param {string} source @param {string} target @param {string} file */
+export function verifyPriceListCreationTypeFork(source, target, file) {
+  verifyModuleTypeFork(source, target);
+  const failure = "Changed native PriceList creation erased type seam";
+  /** @type {string} */
+  let declaration;
+  /** @type {Array<[string,string]>} */
+  let replacements;
+  if (file === "packages/medusa-types/src/pricing/common/money-amount.ts") {
+    declaration = "CreateMoneyAmountDTO";
+    replacements = [["min_quantity?: BigNumberInput | null", "min_quantity?: BigNumberInput | null | undefined"],
+      ["max_quantity?: BigNumberInput | null", "max_quantity?: BigNumberInput | null | undefined"]];
+  } else if (file === "packages/medusa-types/src/pricing/common/price-list.ts") {
+    declaration = "CreatePriceListPriceDTO";
+    replacements = [["rules?: CreatePriceListPriceRules", "rules?: CreatePriceListPriceRules | undefined"]];
+  } else if (file === "packages/medusa-types/src/pricing/workflows.ts") {
+    declaration = "CreatePriceListsWorkflowStepDTO";
+    replacements = [["variant_price_map: Record<string, string>", "variant_price_map: Record<string, string> | undefined"]];
+  } else throw new Error("PriceList creation type adaptation outside its approved source files");
+  const normalized = source.replaceAll("\r\n", "\n");
+  const parsed = ts.createSourceFile("price-list-types.ts", normalized, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const matches = parsed.statements.filter(node => ts.isInterfaceDeclaration(node) && node.name.text === declaration);
+  const selected = matches[0];
+  if (matches.length !== 1 || selected === undefined) throw new Error(failure);
+  const start = selected.getStart(parsed), end = selected.end;
+  let body = normalized.slice(start, end);
+  for (const [before, after] of replacements) {
+    if (body.split(before).length !== 2) throw new Error(failure + ": missing native declaration anchor");
+    body = body.replace(before, after);
+  }
+  const expected = normalized.slice(0, start) + body + normalized.slice(end);
+  if (expected !== target.replaceAll("\r\n", "\n")) throw new Error(failure);
 }
 
 /** The existing native Admin route and update step accept metadata. Correct only

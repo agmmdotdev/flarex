@@ -150,7 +150,10 @@
     },
     "./pricing/update-price-preferences": "./src/pricing/workflows/update-price-preferences.ts",
     "./pricing/delete-price-preferences": "./src/pricing/workflows/delete-price-preferences.ts",
-    "./pricing/delete-price-preferences-step": "./src/pricing/steps/delete-price-preferences.ts"
+    "./pricing/delete-price-preferences-step": "./src/pricing/steps/delete-price-preferences.ts",
+    "./price-list/create-price-lists": "./src/price-list/workflows/create-price-lists.ts",
+    "./price-list/create-price-lists-step": "./src/price-list/steps/create-price-lists.ts",
+    "./price-list/validate-variant-price-links-step": "./src/price-list/steps/validate-variant-price-links.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

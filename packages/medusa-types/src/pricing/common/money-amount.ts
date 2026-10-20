@@ -73,11 +73,11 @@ export interface CreateMoneyAmountDTO {
   /**
    * The minimum quantity required to be purchased for this money amount to be applied.
    */
-  min_quantity?: BigNumberInput | null
+  min_quantity?: BigNumberInput | null | undefined
   /**
    * The maximum quantity required to be purchased for this money amount to be applied.
    */
-  max_quantity?: BigNumberInput | null
+  max_quantity?: BigNumberInput | null | undefined
 }
 
 /**

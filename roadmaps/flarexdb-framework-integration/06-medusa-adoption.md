@@ -682,6 +682,14 @@ deletion/restoration calls, including empty inputs. The original compensation
 can restore previously deleted requested rows; that native behavior remains
 explicit rather than being silently corrected in the adapter.
 
+The [native Price List creation](./preflight/152-native-price-list-creation.md)
+root is implemented for connected bounded private execution. The
+connected branch includes stored Variant–PriceSet validation, complete Pricing
+graphs and retained physical deletion. Original defaults, generic rules,
+deduplication, complete DTOs and root-only inverse events remain native-owned.
+Existing resource limits remain unchanged. Historical inverse cleanup uses the
+shared resource bounds while protecting unrelated Pricing and stored Links.
+
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
 The genuine creation step remains unchanged and returns complete native rows,

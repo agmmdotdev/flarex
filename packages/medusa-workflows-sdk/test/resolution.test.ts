@@ -3,6 +3,7 @@ import { Cause, Deferred, Effect, Exit, Fiber, Result } from "effect";
 import { createHook, createStep, createWorkflow, isPreparedWorkflow, StepResponse, transform, when, WorkflowResponse, type WorkflowData } from "../src/index";
 import { executeWorkflow, type WorkflowExecutionPort } from "../src/runtime";
 import { proxify, referenceOf } from "../src/references";
+import type { StepFunction, StepOutput } from "../src/model";
 
 /** SDK-owned Promise test bridge; typed failures, defects and interruption keep
  * Effect's normal runtime semantics, with full outcomes asserted through Exit. */
@@ -18,6 +19,61 @@ const port: WorkflowExecutionPort<Error> = {
 };
 
 describe("prepared workflow resolution", () => {
+  it("composes nested optional typed references while preserving native omission and literal slots", async () => {
+    type OptionalMap = Record<string, string> | undefined;
+    type Input = { members: { selected: OptionalMap; literal: undefined; nullable: null };
+      positional: readonly [OptionalMap, undefined, null]; rows: readonly { selected: OptionalMap; number: number }[] };
+    const seen: Input[] = [];
+    const map = createStep("nested-optional-map", (present: boolean) => new StepResponse<OptionalMap>(present ? { key: "value" } : undefined));
+    const number = createStep("nested-optional-number", () => new StepResponse(7));
+    const nullable = createStep("nested-optional-null", () => new StepResponse(null));
+    const receive = createStep("nested-optional-receiver", (value: Input) => { seen.push(value); return new StepResponse(value); });
+    expectTypeOf<typeof receive>().toEqualTypeOf<StepFunction<Input, Input>>();
+    const flow = createWorkflow("nested-optional-input", (present: WorkflowData<boolean>) => {
+      const selected = map(present), scalar = number(undefined), empty = nullable(undefined);
+      return new WorkflowResponse(receive({ members: { selected, literal: undefined, nullable: empty },
+        positional: [selected, undefined, null], rows: [{ selected, number: scalar }, { selected: undefined, number: 3 }] }));
+    });
+    const prepared = Result.getOrThrow(flow.prepare());
+    const present = { members: { selected: { key: "value" }, literal: undefined, nullable: null },
+      positional: [{ key: "value" }, undefined, null], rows: [{ selected: { key: "value" }, number: 7 }, { selected: undefined, number: 3 }] };
+    const absent = { members: { literal: undefined, nullable: null }, positional: [undefined, undefined, null],
+      rows: [{ number: 7 }, { selected: undefined, number: 3 }] };
+    expect(await runEffect(executeWorkflow(prepared, true, port))).toEqual(present);
+    expect(await runEffect(executeWorkflow(prepared, false, port))).toEqual(absent);
+    expect(seen).toEqual([present, absent]);
+    expect(Object.hasOwn(Object(seen[1]?.members), "selected")).toBe(false);
+    expect(Object.hasOwn(Object(seen[1]?.members), "literal")).toBe(true);
+    expect(Object.hasOwn(Object(seen[1]?.positional), 0)).toBe(true);
+    expect(Object.hasOwn(Object(seen[1]?.rows[1]), "selected")).toBe(true);
+  });
+
+  it("keeps nested authoring reference types, tuple positions and Date/function leaves exact", () => {
+    type Input = { map: Record<string, string> | undefined; rows: readonly { value: string }[];
+      tuple: readonly [string, number]; date: Date; callback: (value: string) => number };
+    const check = (consume: StepFunction<Input, boolean>, map: StepOutput<Record<string, string> | undefined>,
+      text: StepOutput<string>, number: StepOutput<number>, wrongMap: WorkflowData<Record<string, number>>,
+      voidReference: WorkflowData<undefined>, date: Date, callback: (value: string) => number) => {
+      const result = consume({ map, rows: [{ value: text }], tuple: [text, number], date, callback });
+      expectTypeOf(result).toEqualTypeOf<StepOutput<boolean>>();
+      // @ts-expect-error An optional map does not admit a numeric reference.
+      consume({ map: number, rows: [], tuple: ["a", 1], date, callback });
+      // @ts-expect-error An incompatible map reference cannot masquerade as a literal record.
+      consume({ map: wrongMap, rows: [], tuple: ["a", 1], date, callback });
+      // @ts-expect-error Array members retain the receiver's scalar type.
+      consume({ map: undefined, rows: [{ value: number }], tuple: ["a", 1], date, callback });
+      // @ts-expect-error Tuple positions retain their independent types.
+      consume({ map: undefined, rows: [], tuple: [number, text], date, callback });
+      // @ts-expect-error An undefined reference is not a string reference.
+      consume({ map: undefined, rows: [{ value: voidReference }], tuple: ["a", 1], date, callback });
+      // @ts-expect-error Dates remain atomic values rather than mapped method bags.
+      consume({ map: undefined, rows: [], tuple: ["a", 1], date: { toISOString: () => "date" }, callback });
+      // @ts-expect-error Function parameter and return contracts remain intact.
+      consume({ map: undefined, rows: [], tuple: ["a", 1], date, callback: (value: number) => String(value) });
+    };
+    expectTypeOf(check).toBeFunction();
+  });
+
   it("resolves authentic bare staged-step returns through the existing response path", async () => {
     const captures: unknown[] = [], order: string[] = [];
     const deleted = createStep("native-bare-void", (ids: readonly string[]) => {

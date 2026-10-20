@@ -11,10 +11,15 @@ import { captureWorkflowInput } from "./value";
 
 const Name = Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPattern(/^[A-Za-z][A-Za-z0-9_]*$/));
 const Fields = Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isLengthBetween(1, 256));
+const VariantPriceSetIds = Schema.Array(Schema.String.check(Schema.isMaxLength(256))).check(
+  Schema.isMaxLength(8), Schema.makeFilter(ids => new Set(ids).size <= 4));
 const decodeRemote = commerceDecoder(Schema.Union([
   Schema.Struct({ entryPoint: Name, fields: Fields,
     variables: Schema.Struct({ id: Schema.Array(Schema.UndefinedOr(Schema.String)).check(Schema.isMaxLength(commerceLimits.catalogRows)) }) }),
   Schema.Struct({ service: Name, fields: Fields, variables: Schema.Struct({ filters: Schema.JsonObject }) }),
+  Schema.Struct({ entryPoint: Schema.Literal("product_variant_price_set"),
+    fields: Schema.Tuple([Schema.Literal("variant_id"), Schema.Literal("price_set_id")]),
+    variables: Schema.Struct({ variant_id: VariantPriceSetIds }) }),
 ]), "unsupportedProfile");
 const decodeSingleton = commerceDecoder(Schema.Tuple([
   Schema.Struct({ entryPoint: Schema.Literals(["stock_location", "fulfillment"]), fields: Fields, variables: Schema.Struct({ id: Schema.String }) }),
@@ -51,7 +56,12 @@ export function bindWorkflowQuery(graph: PreparedLocalGraph, context: AtomicComm
     const input = yield* checkedCommerceValue(context, () => captureWorkflowInput(args[0]).pipe(Result.flatMap(decodeRemote)));
     const result = yield* "entryPoint" in input
       ? query.native({ entity: input.entryPoint, fields: input.fields,
-        filters: { id: input.variables.id.map(value => coerceFilterValue("id", value)) }, pagination: { take: commerceLimits.catalogRows } })
+        // RemoteJoiner.fetchData deduplicates IDs in first occurrence order.
+        // The captured public call keeps its raw duplicates and empty strings;
+        // this named ABI still reads the genuine stored Link graph, even [].
+        filters: "variant_id" in input.variables ? { variant_id: [...new Set(input.variables.variant_id)] }
+          : { id: input.variables.id.map(value => coerceFilterValue("id", value)) },
+        pagination: { take: commerceLimits.catalogRows } })
       : query.service({ service: input.service, fields: input.fields, filters: input.variables.filters, pagination: { take: commerceLimits.catalogRows } });
     if (result.metadata.count > commerceLimits.catalogRows) return yield* context.refuse(commerceError("unsupportedProfile"));
     if (result.data.length !== result.metadata.count) return yield* context.refuse(commerceError("storedCorruption"));

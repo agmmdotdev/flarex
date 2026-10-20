@@ -25,9 +25,13 @@ import { calculateLogicalPrices } from "./calculation";
 import { readCommerceRelationRows, assembleCommerceRelations } from "../../query/relations";
 import { preparePricingMutations } from "./mutation-repository";
 import { softDeletePricingPriceSets } from "./lifecycle";
-import { preparePricingPreferenceRepository, type PricingPreferenceRepositoryMode } from "./preference-repository";
+import { preparePricingPreferenceRepository } from "./preference-repository";
 import { ShippingNormalizedSet, ShippingNormalizedPrice, ShippingNormalizedRule } from "./shipping-input";
 import { changeShippingPriceSets } from "./shipping-lifecycle";
+import { NormalizedPriceList, NormalizedListPrice, NormalizedPriceListRule, NormalizedListPriceRule,
+  compilePriceListCreationContracts } from "./list-input";
+import { deletePricingPriceLists } from "./list-lifecycle";
+import { projectNativeRow } from "../../repository/result";
 
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
 const Rule = Schema.Struct({ id: Schema.optionalKey(PricingId), attribute: Schema.String, value: Schema.String,
@@ -38,19 +42,6 @@ const Price = Schema.Struct({ id: Schema.optionalKey(PricingId), title: Schema.o
   min_quantity: Schema.optionalKey(Schema.NullOr(Numeric)), max_quantity: Schema.optionalKey(Schema.NullOr(Numeric)),
   rules_count: Schema.optionalKey(Schema.Literals([0, 1])), price_rules: Schema.optionalKey(Schema.Array(Rule).check(Schema.isMaxLength(1))),
 });
-const ListPrice = Schema.Struct({ id: Schema.optionalKey(PricingId), title: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  price_set_id: PricingId, price_list_id: Schema.optionalKey(PricingId), currency_code: Schema.String, amount: Numeric,
-  min_quantity: Schema.optionalKey(Schema.NullOr(Numeric)), max_quantity: Schema.optionalKey(Schema.NullOr(Numeric)),
-  rules_count: Schema.optionalKey(Schema.Literals([0, 1])), price_rules: Schema.optionalKey(Schema.Array(Rule).check(Schema.isMaxLength(1))),
-});
-const ListRule = Schema.Struct({ id: Schema.optionalKey(PricingId), attribute: Schema.String, value: Schema.Json });
-const List = Schema.Struct({ id: Schema.optionalKey(PricingId), title: Schema.String, description: Schema.String,
-  status: Schema.optionalKey(Schema.Literals(["draft", "active"])), type: Schema.optionalKey(Schema.Literals(["sale", "override"])),
-  starts_at: Schema.optionalKey(Schema.NullOr(Schema.String)), ends_at: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  rules_count: Schema.optionalKey(Schema.Number),
-  prices: Schema.optionalKey(Schema.Array(ListPrice).check(Schema.isMaxLength(2))),
-  price_list_rules: Schema.optionalKey(Schema.Array(ListRule).check(Schema.isMaxLength(2))),
-});
 const SetInput = Schema.Struct({ id: Schema.optionalKey(PricingId), prices: Schema.Array(Price).check(Schema.isMaxLength(2)) });
 const decodeSet = commerceDecoder(SetInput, "unsupportedProfile");
 const decodeShippingSet = commerceDecoder(ShippingNormalizedSet, "unsupportedProfile");
@@ -58,9 +49,10 @@ const decodeShippingPrice = commerceDecoder(ShippingNormalizedPrice, "unsupporte
 const decodeShippingRule = commerceDecoder(ShippingNormalizedRule, "unsupportedProfile");
 const decodePrice = commerceDecoder(Price, "unsupportedProfile");
 const decodeRule = commerceDecoder(Rule, "unsupportedProfile");
-const decodeList = commerceDecoder(List, "unsupportedProfile");
-const decodeListPrice = commerceDecoder(ListPrice, "unsupportedProfile");
-const decodeListRule = commerceDecoder(ListRule, "unsupportedProfile");
+const decodeList = commerceDecoder(NormalizedPriceList, "unsupportedProfile");
+const decodeListPrice = commerceDecoder(NormalizedListPrice, "unsupportedProfile");
+const decodeListRule = commerceDecoder(NormalizedPriceListRule, "unsupportedProfile");
+const decodeListPriceRule = commerceDecoder(NormalizedListPriceRule, "unsupportedProfile");
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const decodeStoredRows = commerceDecoder(Schema.Array(Schema.JsonObject), "storedCorruption");
 const decodeSerialized = commerceDecoder(Schema.Union([Schema.JsonObject, Schema.Array(Schema.JsonObject)]), "storedCorruption");
@@ -103,10 +95,17 @@ const projectionPolicy: ProjectionPolicy = { ...scalarProjection, allowedPaths: 
 
 /** Pricing owns the finite nested creation policy; shared graph/read owners
  * retain traversal, scoped persistence and native mutation dispatch. */
-export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], mutable = false, lifecycle = false, preferences = false, shipping = false, shippingUpdates = false, preferenceMode: PricingPreferenceRepositoryMode = "store") {
+export type PricingRepositoryAdmission = "create" | "variant-updates" | "product-updates" | "price-preferences" |
+  "price-preference-updates" | "price-preference-deletions" | "price-list-creations" | "shipping-options" | "shipping-option-updates";
+export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], admission: PricingRepositoryAdmission = "create") {
   return Result.gen(function* () {
+    const mutable = admission === "variant-updates" || admission === "product-updates", lifecycle = admission === "product-updates";
+    const preferenceUpdates = admission === "price-preference-updates", preferenceDeletions = admission === "price-preference-deletions";
+    const preferences = admission === "price-preferences" || preferenceUpdates || preferenceDeletions;
+    const shippingUpdates = admission === "shipping-option-updates", shipping = admission === "shipping-options" || shippingUpdates;
+    const listCreations = admission === "price-list-creations";
     if (preferences) {
-      const prepared = yield* preparePricingPreferenceRepository(metadata, preferenceMode);
+      const prepared = yield* preparePricingPreferenceRepository(metadata, preferenceDeletions ? "deletions" : preferenceUpdates ? "updates" : "store");
       return { ...prepared, query: undefined, mutationQuery: undefined };
     }
     const entities: GraphEntity[] = [];
@@ -120,6 +119,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
     const [set, price, rule, list, listRule] = entities;
     if (!set || !price || !rule || !list || !listRule) return yield* Result.fail(commerceError("unsupportedProfile"));
     const preference = yield* preparePricingPreferenceRepository(metadata);
+    const listContracts = yield* compilePriceListCreationContracts(metadata);
     const setTable = metadata.tables.find(table => table.name === set.table.name);
     const priceTable = metadata.tables.find(table => table.name === price.table.name);
     if (!setTable || !priceTable) return yield* Result.fail(commerceError("unsupportedProfile"));
@@ -175,11 +175,15 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       }
       return Array.isArray(value) ? output.every((row, index) => row === value[index]) ? value : output : output[0]!;
     });
-    const listCatalog: GraphCatalog = { entities: [list, price, listRule, ...(lifecycle ? [rule] : [])],
-      tables: [list.table, price.table, listRule.table, ...(lifecycle ? [rule.table] : [])], writablePivots: [], queryRelations: relations,
+    const listRelations = new Map(relations);
+    listRelations.set(list.table.name, new Map([["prices", listPrices], ["price_list_rules", listRules]]));
+    // The original ORM emits afterCreate in this dependency order, retaining
+    // input order within each model. The shared graph bridge preserves it.
+    const listCatalog: GraphCatalog = { entities: [list, listRule, price, rule],
+      tables: [list.table, listRule.table, price.table, rule.table], writablePivots: [], queryRelations: listRelations,
       decodeRow: (entity, input) => Result.gen(function* () {
         const supplied = entity === list ? yield* decodeList(input) : entity === price ? yield* decodeListPrice(input)
-          : entity === rule ? yield* decodeRule(input) : yield* decodeListRule(input);
+          : entity === rule ? yield* decodeListPriceRule(input) : yield* decodeListRule(input);
         return { supplied, key: supplied.id };
       }),
       decodeReference: () => Result.fail(commerceError("unsupportedProfile")),
@@ -188,10 +192,10 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
     const listCreation: CreationProfile = { catalog: listCatalog, root: { entity: list,
       omitRelations: ["prices", "price_list_rules"], steps: [
         { kind: "children", name: "prices", foreignKey: listPriceForeignKey,
-          node: { entity: price, omitRelations: lifecycle ? ["price_rules"] : [], steps: lifecycle ? [
+          node: { entity: price, omitRelations: ["price_rules"], steps: [
             { kind: "children", name: "price_rules", foreignKey: ruleForeignKey,
               node: { entity: rule, omitRelations: [], steps: [] } },
-          ] : [] } },
+          ] } },
         { kind: "children", name: "price_list_rules", foreignKey: listRuleForeignKey,
           node: { entity: listRule, omitRelations: [], steps: [] } },
       ] }, rowLimitDetail: (maximum, attempted, tables) => ({ maximum, attempted, tables }) };
@@ -284,6 +288,9 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
           .map(row => ({ modelName: entity.model, entity: { ...row } }))), shared);
         if (profile.root.entity === price) return assembleCommerceRelations(price.table.name, inserted, ["price_rules"],
           catalog.queryRelations).map(row => ({ ...row, ...(row.price_list_id === null ? { price_list: null } : {}) }));
+        if (profile.root.entity === list) return assembleCommerceRelations(list.table.name,
+          new Map([...inserted].map(([table, rows]) => [table, rows.map(projectNativeRow)])),
+          ["prices", "prices.price_rules", "price_list_rules"], listCatalog.queryRelations);
         return [...inserted.get(profile.root.entity.table.name) ?? []];
       });
       const repository: DAL.RepositoryService = {
@@ -295,7 +302,11 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
           // SAFETY: the native DAL generic also covers partial projections;
           // graph rows and selected scalar values were validated above.
           // Native entities keep exact decimal pairs until this public DTO edge.
-          return (yield* serializeGraph(value)) as Output;
+          const serialized = yield* serializeGraph(value);
+          const roots = Array.isArray(serialized) ? serialized : [serialized];
+          if (roots.some(row => isJsonObject(row) && Object.hasOwn(row, "price_list_rules")))
+            yield* Effect.fromResult(listContracts.decodeOutput(roots));
+          return serialized as Output;
         }))),
         find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, find(ctx, input, false)).pipe(Effect.map(value => value.rows))),
         findAndCount: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
@@ -330,6 +341,15 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       const denied: DAL.RepositoryService = { ...repository, serialize: refuse, find: refuse, findAndCount: refuse, create: refuse, softDelete: refuse, restore: refuse, delete: refuse };
       const listRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
         create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
+        delete: listCreations ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+          const result = yield* deletePricingPriceLists(ctx, metadata, input);
+          const ids: string[] = [];
+          for (const row of result.roots) {
+            if (typeof row.id !== "string") return yield* ctx.refuse(commerceError("storedCorruption"));
+            ids.push(row.id);
+          }
+          return ids;
+        }))) : refuse,
       };
       const findTaxRules = Effect.fn("PricingRepository.findTaxRules")(function* (ctx: CommerceCommandContext, input: unknown) {
           const query = yield* Effect.fromResult(decodeRuleFind(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));

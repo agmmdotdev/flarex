@@ -9,7 +9,13 @@ export type WorkflowData<T> = [T] extends [never] ? { readonly [dataBrand]: T }
 export type StepOutput<Output> = WorkflowData<Output> & {
   readonly config: (options: { readonly name: string }) => StepOutput<Output>;
 };
-export interface StepFunction<Input, Output> { (input: Input | WorkflowData<Input>): StepOutput<Output> }
+/** Definition inputs may place typed references at any resolved data member.
+ * Branded references must match that member's value type; they cannot enter
+ * through an otherwise structurally compatible literal record or array. */
+type WorkflowInput<T> = WorkflowData<T> | (T extends Date | ((...args: never[]) => unknown) ? T
+  : T extends readonly unknown[] ? { [Key in keyof T]: WorkflowInput<T[Key]> } & { readonly [dataBrand]?: never }
+  : T extends object ? { [Key in keyof T]: WorkflowInput<T[Key]> } & { readonly [dataBrand]?: never } : T);
+export interface StepFunction<Input, Output> { (input: WorkflowInput<Input>): StepOutput<Output> }
 export type Resolved<T> = T extends { readonly [dataBrand]: infer Value } ? Value : T extends Date | ((...args: never[]) => unknown) ? T : T extends readonly unknown[]
   ? { [Key in keyof T]: Resolved<T[Key]> } : T extends object ? { [Key in keyof T]: Resolved<T[Key]> } : T;
 /** Narrow, trusted resource view. The adapter authenticates every resolved method. */

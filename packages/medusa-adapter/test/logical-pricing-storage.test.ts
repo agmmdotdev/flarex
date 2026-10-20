@@ -328,7 +328,7 @@ describe("native Pricing on shared logical storage", () => {
         const service = container.resolve<IPricingModuleService>(Modules.PRICING);
         const normalized = data.map(list => {
           const { prices, rules, ...rest } = list;
-          return { ...rest, prices: prices.map(price => ({ ...price })),
+          return { ...rest, prices: (prices ?? []).map(price => ({ ...price })),
             ...(rules === undefined ? {} : { rules: Object.fromEntries(Object.entries(rules)
               .map(([key, values]) => [key, [...values]])) }) };
         });

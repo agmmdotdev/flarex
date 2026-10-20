@@ -12,7 +12,8 @@ import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "..
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { pricingLogicalProductUpdateEventPolicy } from "../../src/modules/pricing/lifecycle-events";
+import { pricingListCreationPolicy } from "../../src/modules/pricing/list-creation-receipt";
+import { compilePriceListCreationContracts } from "../../src/modules/pricing/list-input";
 import { workflowModuleDefinition } from "../../src/workflow/module";
 
 export interface LogicalPricingHostFixture {
@@ -51,7 +52,9 @@ export async function seedLogicalPricingLists(fixture: LogicalCurrencyFixture, p
 }> {
   if (workflowModuleDefinition(pricing.runtime.workflow)?.source.profile !== "pricing-product-updates")
     throw new Error("PriceList rule seeding requires the Product-update Pricing profile");
-  const participant = defineAtomicCommerceParticipant("pricing"), policy = pricingLogicalProductUpdateEventPolicy(await preparePricingPreferencePolicy());
+  const { frame } = await Effect.runPromise(capturePricingMetadata());
+  const participant = defineAtomicCommerceParticipant("pricing"), policy = pricingListCreationPolicy(
+    Result.getOrThrow(compilePriceListCreationContracts(frame)));
   const names = ["pricing.price-list.created", "pricing.price.created", "pricing.price-list-rule.created", "pricing.price-rule.created"];
   const contracts = names.map(name => ({ name, token: defineCommerceEventContract({ name, revision: "a".repeat(64), internal: true, decode: policy.capture }) }));
   const command = defineAtomicCommerceCommand("pricingListSeed", (ctx, data) => ctx.call(participant, pricing.runtime.createList, data));

@@ -39,7 +39,7 @@ const refused = async (call: Receipt, activity: Activity) =>
 beforeAll(async () => {
   const { frame } = await Effect.runPromise(capturePricingMetadata());
   contracts = Result.getOrThrow(compileShippingPricingMutationContracts(frame));
-  prepared = Result.getOrThrow(preparePricingRepository(frame, false, false, false, true, true));
+  prepared = Result.getOrThrow(preparePricingRepository(frame, "shipping-option-updates"));
   policy = pricingShippingOptionPolicy(await preparePricingPreferencePolicy(), Result.getOrThrow(compileShippingPricingOutput(frame)), contracts, prepared);
 });
 

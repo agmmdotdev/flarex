@@ -84,6 +84,13 @@ Exposed hooks continue to require the existing explicit response options. This
 supports the original native Price Preference deletion composer without
 rewriting its business callback or adding another execution path.
 
+Step inputs can compose typed references inside literal records, arrays and
+tuples, including optional results. The authoring type recursively describes
+those existing runtime shapes, preserves Date/function leaves and refuses
+incompatible branded references. Executed undefined-result omission, literal
+undefined and null retain their existing resolution semantics; this type
+contract adds no runtime capture, resource or settlement capability.
+
 Each definition owns authentic deferred references and an immutable captured
 graph. Literal capture rejects cycles, accessors, custom prototypes, sparse
 arrays and excessive depth/node counts without invoking getters. The prepared
