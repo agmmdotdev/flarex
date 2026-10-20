@@ -23,7 +23,7 @@ import { captureProtectedMetadataEpoch, closeProtectedMetadataFinalGuardScope, f
   openProtectedMetadataFinalGuardScope } from "../../src/execution/preparation/preparedMetadataEpoch";
 import { insertInitialScopeClockInTransactionResult } from "../../src/scope/scopeClockInitialization";
 import { runEffect } from "../support/effectTestRuntime";
-import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
+import { createFileScopedPGliteFixture } from "../support/pgliteTestFixture";
 import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture, postgresUrl } from "../support/postgresHelpers";
 import { useFileScopedPersistence } from "../support/fileScopedPersistenceFixture";
 import { preparedHostTestRuntime } from "../execution/preparation/preparedHostRuntimeTestSupport";
@@ -73,8 +73,12 @@ function required<A>(value: Option.Option<A>): A {
 }
 
 describe("full selected binding evidence and preparation", () => {
-  it("selects a replacement candidate after the earlier NONE head observation", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  const withPersistence = useFileScopedPersistence(
+    () => createFileScopedPGliteFixture(async () => async () => {}),
+    false,
+  );
+
+  it("selects a replacement candidate after the earlier NONE head observation", async () => withPersistence(async persistence => {
     const selected = await seed(persistence, 1, 1, "replacement");
     await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
       const early = required(yield* readBindingHead(tx, selected.location, "none"));
@@ -97,10 +101,9 @@ describe("full selected binding evidence and preparation", () => {
       expect(current.candidate.sha256).not.toBe(early.frame.candidateSha256);
       expect(current.candidate.frame).toEqual(nextFrame);
     })));
-  }, 180_000);
+  }), 180_000);
 
-  it("keeps the explicit no-role profile fully authenticated and detached", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  it("keeps the explicit no-role profile fully authenticated and detached", async () => withPersistence(async persistence => {
       const selected = await seed(persistence, 1, 1, "control");
       await persistence.drizzle.transaction(tx => runEffect(Effect.sync(() => {
         // SAFETY: nominal forgery witness. The repository must refuse without
@@ -137,7 +140,7 @@ describe("full selected binding evidence and preparation", () => {
       await persistence.drizzle.update(fxSystemDataBindingHeads).set({ canonicalBytes: corrupt })
         .where(eq(fxSystemDataBindingHeads.scopeId, selected.location.scopeId));
       await expect(read()).rejects.toMatchObject({ reason: "storedCorruption" });
-  }, 180_000);
+  }), 180_000);
 
   describe("PostgreSQL", { concurrent: false }, () => {
     const withOwner = useFileScopedPersistence(async () => {
