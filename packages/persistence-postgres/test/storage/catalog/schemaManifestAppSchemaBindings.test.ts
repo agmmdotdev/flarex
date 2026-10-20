@@ -435,7 +435,6 @@ describe("schema manifest app-schema bindings", { concurrent: false }, () => {
   });
 
   it("waits for a combined-plan logical-index read before interruption completes", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_app_schema_interruption";
     await insertDeployment(persistence, deploymentId);
     const plan = await prepareSchemaManifestAppSchemaBindingsV1(

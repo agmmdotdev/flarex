@@ -252,7 +252,6 @@ describe("table-only app definitions artifact compatibility", { concurrent: fals
   });
 
   it("waits for the transaction owner to settle before interruption completes", async () => {
-    const persistence = await createMigratedPGlitePersistence();
     const deploymentId = "deployment_table_artifact_interruption";
     await insertDeployment(persistence, deploymentId);
     const entered = deferredValue<void>();
