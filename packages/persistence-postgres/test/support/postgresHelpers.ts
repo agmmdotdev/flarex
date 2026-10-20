@@ -284,13 +284,16 @@ export async function withTemporaryPostgresPersistence(
 
 /**
  * Reuses one migrated schema for the tests in a Vitest file. Successful tests
- * reset all application tables with TRUNCATE; a failed test marks the fixture
+ * renew their prepared runtime and reset SQL rows unless retainRows is enabled
+ * for read-only cases or cases with independent scopes. A failed test marks the fixture
  * for a full schema rebuild before the next test so failures cannot poison the
  * rest of the file. Callback settlement and reset finish before another
  * callback or test can borrow the fixture, even if its caller timed out.
  */
-export function useFileScopedPostgresPersistence(): WithFileScopedPostgresPersistence {
-  return useFileScopedPersistence(createFileScopedPostgresFixture, postgresUrl !== null);
+export function useFileScopedPostgresPersistence(
+  options: Parameters<typeof createFileScopedPostgresFixture>[0] = {},
+): WithFileScopedPostgresPersistence {
+  return useFileScopedPersistence(() => createFileScopedPostgresFixture(options), postgresUrl !== null);
 }
 
 /** Row-only scheduler cases retain the exact migrated singleton rows, rather
@@ -536,15 +539,16 @@ export interface FileScopedPostgresFixture extends FileScopedPersistenceFixture<
 }
 
 export async function createFileScopedPostgresFixture(
-  journal: Readonly<{ sameSchema?: boolean; tableName?: string }> = {},
+  options: Readonly<{ sameSchema?: boolean; tableName?: string; retainRows?: boolean }> = {},
   maintenanceSession: Readonly<{ standardConformingStrings?: "off"; immutableCatalog?: FlarexMetadataDatabase }> = {},
   transport: "ordinary" | "finiteCapture" = "ordinary",
   postgresEndpoints?: PostgresFixtureEndpoints,
 ): Promise<FileScopedPostgresFixture> {
+  const retainRows = options.retainRows === true;
   const connectionString = postgresEndpoints?.connectionString ?? requiredPostgresUrl();
   const schemaName = temporaryIdentifier("flarex_file_test");
-  const migrationsSchema = journal.sameSchema === true ? schemaName : temporaryIdentifier("flarex_file_migrations");
-  const migrationsTable = journal.tableName ?? "__drizzle_migrations";
+  const migrationsSchema = options.sameSchema === true ? schemaName : temporaryIdentifier("flarex_file_migrations");
+  const migrationsTable = options.tableName ?? "__drizzle_migrations";
   const adminPool = new Pool({ connectionString });
   let persistence: PostgresFlarexPersistence | undefined;
   let migrationMs = 0;
@@ -612,44 +616,46 @@ export async function createFileScopedPostgresFixture(
         );
       }
       await closePreparedHostTestRuntime(migratedPersistence.drizzle);
-      const tables = await migratedPersistence.query<{ tablename: string }>(
-        `
+      if (!retainRows) {
+        const tables = await migratedPersistence.query<{ tablename: string }>(
+          `
           select tablename
           from pg_catalog.pg_tables
           where schemaname = $1 and tablename not in
             ('fx_system_installation','fx_system_installation_runtime', $2)
           order by tablename
         `,
-        [schemaName, migrationsSchema === schemaName ? migrationsTable : ""],
-      );
-      if (tables.rows.length === 0) {
-        throw new Error("File-scoped Postgres fixture found no migrated tables.");
-      }
-      const qualifiedTables = tables.rows.map(({ tablename }) =>
-        `${quoteIdentifier(schemaName)}.${quoteIdentifier(tablename)}`
-      );
-      // Administrative teardown of this exact disposable schema. Runtime roles
-      // cannot disable these guards or truncate installed migration evidence.
-      const guarded = await migratedPersistence.query<{ tablename: string }>(`
+          [schemaName, migrationsSchema === schemaName ? migrationsTable : ""],
+        );
+        if (tables.rows.length === 0) {
+          throw new Error("File-scoped Postgres fixture found no migrated tables.");
+        }
+        const qualifiedTables = tables.rows.map(({ tablename }) =>
+          `${quoteIdentifier(schemaName)}.${quoteIdentifier(tablename)}`
+        );
+        // Administrative teardown of this exact disposable schema. Runtime roles
+        // cannot disable these guards or truncate installed migration evidence.
+        const guarded = await migratedPersistence.query<{ tablename: string }>(`
         select c.relname as tablename from pg_catalog.pg_trigger t
         join pg_catalog.pg_class c on c.oid = t.tgrelid
         join pg_catalog.pg_namespace n on n.oid = c.relnamespace
         where n.nspname = $1 and t.tgname = 'fx_framework_history_no_truncate'
         order by c.relname
       `, [schemaName]);
-      await migratedPersistence.drizzle.transaction(async transaction => {
-        for (const { tablename } of guarded.rows) {
-          await transaction.execute(sql.raw(`alter table ${quoteIdentifier(schemaName)}.${quoteIdentifier(tablename)} disable trigger fx_framework_history_no_truncate`));
-        }
-        await transaction.execute(sql.raw(`truncate table ${qualifiedTables.join(", ")} restart identity cascade`));
-        await transaction.execute(sql.raw(`insert into ${quoteIdentifier(schemaName)}.fx_system_prepared_metadata_epoch
+        await migratedPersistence.drizzle.transaction(async transaction => {
+          for (const { tablename } of guarded.rows) {
+            await transaction.execute(sql.raw(`alter table ${quoteIdentifier(schemaName)}.${quoteIdentifier(tablename)} disable trigger fx_framework_history_no_truncate`));
+          }
+          await transaction.execute(sql.raw(`truncate table ${qualifiedTables.join(", ")} restart identity cascade`));
+          await transaction.execute(sql.raw(`insert into ${quoteIdentifier(schemaName)}.fx_system_prepared_metadata_epoch
           (singleton_id, database_name, namespace_oid, incarnation, generation)
           select 1, current_database(), n.oid::bigint, gen_random_uuid(), 1
           from pg_catalog.pg_namespace n where n.nspname = '${schemaName}'`));
-        for (const { tablename } of guarded.rows) {
-          await transaction.execute(sql.raw(`alter table ${quoteIdentifier(schemaName)}.${quoteIdentifier(tablename)} enable trigger fx_framework_history_no_truncate`));
-        }
-      });
+          for (const { tablename } of guarded.rows) {
+            await transaction.execute(sql.raw(`alter table ${quoteIdentifier(schemaName)}.${quoteIdentifier(tablename)} enable trigger fx_framework_history_no_truncate`));
+          }
+        });
+      }
       await openPreparedHostTestRuntime(migratedPersistence.drizzle);
     },
     async dispose(): Promise<void> {

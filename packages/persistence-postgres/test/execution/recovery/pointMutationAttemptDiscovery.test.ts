@@ -1,4 +1,4 @@
-import { createMigratedPGlitePersistence, migratedPGliteDataDir, useFileScopedPGliteTransactionRecoveryPersistence } from "../../support/pgliteTestFixture";
+import { migratedPGliteDataDir, useFileScopedPGliteTransactionRecoveryPersistence } from "../../support/pgliteTestFixture";
 import { copyDrizzleMigrations } from "../../../src/testing/systemTestMigrationFiles";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -414,10 +414,11 @@ describe("O08-B2b2b1 inert point-attempt discovery", () => {
   });
 
   it("installs exactly the two indexes and upgrades 0032 atomically", async () => {
-    const installed = await createMigratedPGlitePersistence();
-    await expect(readDiscoveryIndexes(installed)).resolves.toEqual(
-      expectedDiscoveryIndexes(),
-    );
+    await withPersistence(async installed => {
+      await expect(readDiscoveryIndexes(installed)).resolves.toEqual(
+        expectedDiscoveryIndexes(),
+      );
+    });
 
     const fixture = await migrationFixture();
     const db = newTestPGlite();
