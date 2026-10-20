@@ -177,12 +177,12 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
   const uniqueIdentity = and(eq(fxSystemUniqueConstraintBuilds.scopeId, uniqueBuild.scopeId),
     eq(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId, uniqueBuild.uniqueConstraintDefinitionId));
   await expect(persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceActivationSequence: (uniqueBuild.maintenanceActivationSequence ?? 0n) + 1n }).where(uniqueIdentity)).rejects.toBeDefined();
-  await persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceActivationSequence: null }).where(uniqueIdentity);
+  await persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceActivationSequence: null, maintenanceAuthorityKind: null }).where(uniqueIdentity);
   try {
     expect(Exit.isFailure(await runEffect(Effect.exit(host.run(host.newRequestKey(), create, { title: "uncertified" }))))).toBe(true);
     expect(await inventory()).toEqual(initial);
   } finally {
-    await persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceActivationSequence: uniqueBuild.maintenanceActivationSequence }).where(uniqueIdentity);
+    await persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceActivationSequence: uniqueBuild.maintenanceActivationSequence, maintenanceAuthorityKind: uniqueBuild.maintenanceAuthorityKind }).where(uniqueIdentity);
     callbacks = 0;
   }
   await assertCmsParticipantAdmission(input);
