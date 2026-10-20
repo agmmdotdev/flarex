@@ -16,19 +16,31 @@ import { runPhysicalDefinitionRetirementStepEffect } from
   "../../src/installation/physicalDefinitionRetirementCoordinator";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import {
-  createApplicationNativeMutationPGliteFixture,
+  createApplicationNativeMutationPGliteFixtureWithPersistence,
 } from "../application/applicationNativeMutationTestFixture";
+import { useFileScopedApplicationNativeMutationPersistence } from
+  "../application/applicationNativeMutationPGlitePersistence";
 import { installRetireableUniqueConstraintDefinition } from
   "./physicalDefinitionRetirementCoordinatorSupport";
 
+const withPersistence = useFileScopedApplicationNativeMutationPersistence();
+let fixtureOrdinal = 0;
+
 describe("M05-B4 physical-definition retirement coordinator", {
   timeout: 180_000,
+  concurrent: false,
 }, () => {
-  it("takes one manual step and cold-replays authority before finalization", async () => {
-    const fixture = await createApplicationNativeMutationPGliteFixture({
+  it("takes one manual step and cold-replays authority before finalization", async () => withPersistence(async persistence => {
+    const ordinal = ++fixtureOrdinal;
+    const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
       runtimeHostIdentity: "flarex.test/m05-b4-runtime-host",
       compatibilityDate: "2026-08-22",
-    });
+      fixtureIdentity: {
+        deploymentId: `deployment_retirement_coordinator_${ordinal}`,
+        projectId: `project_retirement_coordinator_${ordinal}`,
+        uuidOffset: ordinal * 100,
+      },
+    }, persistence);
     const logicalUniqueConstraintId = 9_201;
     const uniqueConstraintDefinitionId =
       decodeCatalogUniqueConstraintDefinitionId(9_201);
@@ -154,13 +166,19 @@ describe("M05-B4 physical-definition retirement coordinator", {
       disposition: "replayed",
       lifecycle: { lifecycle: "retired", transitionFence: 2n },
     });
-  });
+  }));
 
-  it("begins a new draining step from persisted active state", async () => {
-    const fixture = await createApplicationNativeMutationPGliteFixture({
+  it("begins a new draining step from persisted active state", async () => withPersistence(async persistence => {
+    const ordinal = ++fixtureOrdinal;
+    const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
       runtimeHostIdentity: "flarex.test/m05-b4-persisted-active-runtime-host",
       compatibilityDate: "2026-08-22",
-    });
+      fixtureIdentity: {
+        deploymentId: `deployment_retirement_coordinator_${ordinal}`,
+        projectId: `project_retirement_coordinator_${ordinal}`,
+        uuidOffset: ordinal * 100,
+      },
+    }, persistence);
     const definition = await fixture.control.query<{
       index_definition_id: number;
     }>(
@@ -207,5 +225,5 @@ describe("M05-B4 physical-definition retirement coordinator", {
       disposition: "transitioned",
       lifecycle: { lifecycle: "draining", transitionFence: 3n },
     });
-  });
+  }));
 });
