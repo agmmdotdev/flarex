@@ -9,6 +9,8 @@ import {
 } from "../../../src/execution/finiteAttemptAnchor";
 import { captureFiniteMetadataReservation } from "../../../src/execution/finiteMetadataReservation";
 import { finiteApplicationMetadataScenario } from "../../application/finiteApplicationMetadataScenario";
+import { createFileScopedReadinessControlFixture } from "../../application/support/readinessFixture";
+import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
 import { createMigratedPGlitePersistence, migratedPGliteDataDir } from "../../support/pgliteTestFixture";
 import { captureSessionStorage, expectSessionPayloadScrubbed } from "./support/terminalStorageScenario";
 import type { PGlite } from "@electric-sql/pglite";
@@ -75,7 +77,8 @@ type RootAttemptTerminalizationExport = Extract<
   "createPointMutationSessionAttemptTerminalizationPersistenceV1"
 >;
 
-describe("O03-B exact point-mutation attempt authority", () => {
+describe("O03-B exact point-mutation attempt authority", { concurrent: false }, () => {
+  const withControl = useFileScopedPersistence(createFileScopedReadinessControlFixture, false);
   let driver: PGlite;
 
   let persistence: PGliteFlarexPersistence;
@@ -597,131 +600,145 @@ describe("O03-B exact point-mutation attempt authority", () => {
 
 
   it("reports an out-of-JS-range stored finite terminal date as typed corruption without writes", async () => {
-    const persistence = await createMigratedPGlitePersistence(undefined, "finiteCapture");
-    await finiteApplicationMetadataScenario(persistence, { afterMetadata: async entry => {
-      const anchor = entry.context.anchor;
-      expect(anchor.executionProfile).toBe("finiteRoot");
-      const terminalization = createPointMutationSessionAttemptTerminalizationPersistenceV1(entry.sessionAuthority);
-      const input = { selector: selectorFromAnchor(anchor), executionClaim: entry.context.executionClaim,
-        expectedSnapshotToken: anchor.snapshotToken };
-      const terminalized = await runEffect(terminalization.abortEffect(input));
-      expect(terminalized).toMatchObject({ status: "terminalized", terminal: { lifecycle: "aborted" } });
-      // Deliberate stored-state fault: PostgreSQL accepts this finite timestamp,
-      // but the real Drizzle timestamp decoder cannot represent it as a JS Date.
-      await persistence.drizzle.update(fxSystemTransactionSessions).set({
-        updatedAt: sql`'290000-01-01 00:00:00+00'::timestamptz`,
-      }).where(eq(fxSystemTransactionSessions.sessionId, anchor.sessionId));
-      const [storedTimestamp] = await persistence.drizzle.select({
-        nativeFinite: sql<boolean>`isfinite(${fxSystemTransactionSessions.updatedAt})`,
-        exactTimestamp: sql<boolean>`${fxSystemTransactionSessions.updatedAt} = '290000-01-01 00:00:00+00'::timestamptz`,
-        updatedAt: fxSystemTransactionSessions.updatedAt,
-      }).from(fxSystemTransactionSessions)
-        .where(eq(fxSystemTransactionSessions.sessionId, anchor.sessionId));
-      if (storedTimestamp === undefined) throw new Error("Missing actual finite terminal timestamp");
-      expect(storedTimestamp.nativeFinite).toBe(true);
-      expect(storedTimestamp.exactTimestamp).toBe(true);
-      expect(Number.isNaN(storedTimestamp.updatedAt.getTime())).toBe(true);
-      const beforeSession = await persistence.drizzle.select({
-        stored: sql<string>`to_jsonb(${fxSystemTransactionSessions})::text`,
-      }).from(fxSystemTransactionSessions)
-        .where(eq(fxSystemTransactionSessions.sessionId, anchor.sessionId));
-      expect(beforeSession).toHaveLength(1);
-      const beforeClock = await persistence.getScopeClock(anchor.scopeId);
-      if (beforeClock === null) throw new Error("Missing actual finite terminal scope clock");
-      const beforeAuthority = await persistence.drizzle.select().from(fxSystemScopeExecutionAuthorities)
-        .where(eq(fxSystemScopeExecutionAuthorities.scopeId, anchor.scopeId));
-      expect(beforeAuthority).toHaveLength(1);
-      for (const table of [fxSystemSnapshotLeases, fxSystemTransactionJournals, fxSystemTransactionExecutionClaims])
-        expect(await persistence.drizzle.select().from(table).where(eq(table.sessionId, anchor.sessionId))).toEqual([]);
-      const exit = await Effect.runPromiseExit(terminalization.abortEffect(input));
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        expect(exit.cause.reasons).toHaveLength(1);
-        const failures = exit.cause.reasons.filter(Cause.isFailReason);
-        expect(failures).toHaveLength(1);
-        expect(failures[0]?.error).toBeInstanceOf(PointMutationSessionAuthorityCorruptionV1Error);
-        expect(failures[0]?.error).toMatchObject({
-          _tag: "PointMutationSessionAuthorityCorruptionV1Error",
-          issue: "sessionRecordInvalid",
-        });
-        expect(exit.cause.reasons.filter(Cause.isDieReason)).toHaveLength(0);
-        expect(exit.cause.reasons.filter(Cause.isInterruptReason)).toHaveLength(0);
+    return withControl(async control => {
+      let disposeTarget: (() => Promise<void>) | undefined;
+      const persistence = await createMigratedPGlitePersistence(cleanup => { disposeTarget = cleanup; }, "finiteCapture");
+      try {
+        await finiteApplicationMetadataScenario(persistence, { controlPersistence: control, afterMetadata: async entry => {
+          const anchor = entry.context.anchor;
+          expect(anchor.executionProfile).toBe("finiteRoot");
+          const terminalization = createPointMutationSessionAttemptTerminalizationPersistenceV1(entry.sessionAuthority);
+          const input = { selector: selectorFromAnchor(anchor), executionClaim: entry.context.executionClaim,
+            expectedSnapshotToken: anchor.snapshotToken };
+          const terminalized = await runEffect(terminalization.abortEffect(input));
+          expect(terminalized).toMatchObject({ status: "terminalized", terminal: { lifecycle: "aborted" } });
+          // Deliberate stored-state fault: PostgreSQL accepts this finite timestamp,
+          // but the real Drizzle timestamp decoder cannot represent it as a JS Date.
+          await persistence.drizzle.update(fxSystemTransactionSessions).set({
+            updatedAt: sql`'290000-01-01 00:00:00+00'::timestamptz`,
+          }).where(eq(fxSystemTransactionSessions.sessionId, anchor.sessionId));
+          const [storedTimestamp] = await persistence.drizzle.select({
+            nativeFinite: sql<boolean>`isfinite(${fxSystemTransactionSessions.updatedAt})`,
+            exactTimestamp: sql<boolean>`${fxSystemTransactionSessions.updatedAt} = '290000-01-01 00:00:00+00'::timestamptz`,
+            updatedAt: fxSystemTransactionSessions.updatedAt,
+          }).from(fxSystemTransactionSessions)
+            .where(eq(fxSystemTransactionSessions.sessionId, anchor.sessionId));
+          if (storedTimestamp === undefined) throw new Error("Missing actual finite terminal timestamp");
+          expect(storedTimestamp.nativeFinite).toBe(true);
+          expect(storedTimestamp.exactTimestamp).toBe(true);
+          expect(Number.isNaN(storedTimestamp.updatedAt.getTime())).toBe(true);
+          const beforeSession = await persistence.drizzle.select({
+            stored: sql<string>`to_jsonb(${fxSystemTransactionSessions})::text`,
+          }).from(fxSystemTransactionSessions)
+            .where(eq(fxSystemTransactionSessions.sessionId, anchor.sessionId));
+          expect(beforeSession).toHaveLength(1);
+          const beforeClock = await persistence.getScopeClock(anchor.scopeId);
+          if (beforeClock === null) throw new Error("Missing actual finite terminal scope clock");
+          const beforeAuthority = await persistence.drizzle.select().from(fxSystemScopeExecutionAuthorities)
+            .where(eq(fxSystemScopeExecutionAuthorities.scopeId, anchor.scopeId));
+          expect(beforeAuthority).toHaveLength(1);
+          for (const table of [fxSystemSnapshotLeases, fxSystemTransactionJournals, fxSystemTransactionExecutionClaims])
+            expect(await persistence.drizzle.select().from(table).where(eq(table.sessionId, anchor.sessionId))).toEqual([]);
+          const exit = await Effect.runPromiseExit(terminalization.abortEffect(input));
+          expect(Exit.isFailure(exit)).toBe(true);
+          if (Exit.isFailure(exit)) {
+            expect(exit.cause.reasons).toHaveLength(1);
+            const failures = exit.cause.reasons.filter(Cause.isFailReason);
+            expect(failures).toHaveLength(1);
+            expect(failures[0]?.error).toBeInstanceOf(PointMutationSessionAuthorityCorruptionV1Error);
+            expect(failures[0]?.error).toMatchObject({
+              _tag: "PointMutationSessionAuthorityCorruptionV1Error",
+              issue: "sessionRecordInvalid",
+            });
+            expect(exit.cause.reasons.filter(Cause.isDieReason)).toHaveLength(0);
+            expect(exit.cause.reasons.filter(Cause.isInterruptReason)).toHaveLength(0);
+          }
+          expect(await persistence.drizzle.select({
+            stored: sql<string>`to_jsonb(${fxSystemTransactionSessions})::text`,
+          }).from(fxSystemTransactionSessions)
+            .where(eq(fxSystemTransactionSessions.sessionId, anchor.sessionId))).toEqual(beforeSession);
+          expect(await persistence.getScopeClock(anchor.scopeId)).toEqual(beforeClock);
+          expect(await persistence.drizzle.select().from(fxSystemScopeExecutionAuthorities)
+            .where(eq(fxSystemScopeExecutionAuthorities.scopeId, anchor.scopeId))).toEqual(beforeAuthority);
+          for (const table of [fxSystemSnapshotLeases, fxSystemTransactionJournals, fxSystemTransactionExecutionClaims])
+            expect(await persistence.drizzle.select().from(table).where(eq(table.sessionId, anchor.sessionId))).toEqual([]);
+        } });
+      } finally {
+        await disposeTarget?.();
       }
-      expect(await persistence.drizzle.select({
-        stored: sql<string>`to_jsonb(${fxSystemTransactionSessions})::text`,
-      }).from(fxSystemTransactionSessions)
-        .where(eq(fxSystemTransactionSessions.sessionId, anchor.sessionId))).toEqual(beforeSession);
-      expect(await persistence.getScopeClock(anchor.scopeId)).toEqual(beforeClock);
-      expect(await persistence.drizzle.select().from(fxSystemScopeExecutionAuthorities)
-        .where(eq(fxSystemScopeExecutionAuthorities.scopeId, anchor.scopeId))).toEqual(beforeAuthority);
-      for (const table of [fxSystemSnapshotLeases, fxSystemTransactionJournals, fxSystemTransactionExecutionClaims])
-        expect(await persistence.drizzle.select().from(table).where(eq(table.sessionId, anchor.sessionId))).toEqual([]);
-    } });
+    });
   }, 120_000);
 
   for (const operation of ["abort", "expire"] as const) {
     it(`releases a revoked finite reservation through exact ${operation} cleanup`, async () => {
-      const persistence = await createMigratedPGlitePersistence(undefined, "finiteCapture");
-      await finiteApplicationMetadataScenario(persistence, { afterMetadata: async entry => {
-        const anchor = entry.context.anchor;
-        const reservation = entry.context.finiteAttempt.reservation;
-        if (reservation === null) throw new Error("Missing actual confirmed finite metadata reservation");
-        const retainedReservation = await runEffect(captureFiniteMetadataReservation(reservation));
-        const finiteAnchor = await runEffect(captureFiniteAttemptAnchor({ snapshotToken: anchor.snapshotToken, reservation: retainedReservation }));
-        await runEffect(readFiniteAttemptAnchorRow(entry.context.session, finiteAnchor));
-        const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(anchor.deploymentId, entry.authorityPorts));
-        if (!(CAPTURE_FINITE_STORAGE in located.target)) throw new Error("Missing genuine finite storage owner");
-        const input = { selector: selectorFromAnchor(anchor), preliminaryAuthority: located.authority,
-          executionClaim: entry.context.executionClaim, finiteAnchor,
-          finiteApplicationReadDemand: entry.finiteApplicationReadDemand };
-        const before = await captureSessionStorage(persistence, anchor);
-        expect(before.executionProfile).toBe("finiteRoot");
-        expect(before.finiteAttemptBytes?.byteLength).toBeGreaterThan(0);
-        expect(before.finiteAttemptSha256?.byteLength).toBe(32);
-        expect(before.finiteLeaseExpiresAt).not.toBeNull();
-        const beforeClock = await persistence.getScopeClock(anchor.scopeId);
-        if (beforeClock === null) throw new Error("Missing actual finite scope clock");
-        const beforeAuthority = (await persistence.drizzle.select().from(fxSystemScopeExecutionAuthorities)
-          .where(eq(fxSystemScopeExecutionAuthorities.scopeId, anchor.scopeId)))[0];
-        if (beforeAuthority === undefined) throw new Error("Missing actual finite execution authority");
-        await persistence.drizzle.transaction(tx => runEffect(
-          advanceScopeAuthorizationRevocationEpochInTransactionEffect(tx, anchor.scopeId)));
-        let callbacks = 0;
-        const refusal = await runFailure(captureFiniteStorageEffect(located.target, input,
-          { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { callbacks += 1; }))));
-        expect(refusal).toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "authorizationRevocationEpochChanged" });
-        expect(callbacks).toBe(0);
-        expect(await captureSessionStorage(persistence, anchor)).toEqual(before);
-        if (operation === "expire") await persistence.drizzle.update(fxSystemTransactionSessions).set({
-          finiteClaimedAt: sql`clock_timestamp() - interval '3 minutes'`,
-          finiteClaimExpiresAt: sql`clock_timestamp() - interval '2 minutes'`,
-          finiteLeaseExpiresAt: sql`clock_timestamp() - interval '1 minute'`,
-        }).where(eq(fxSystemTransactionSessions.sessionId, anchor.sessionId));
-        const beforeTerminal = await captureSessionStorage(persistence, anchor);
-        const terminalization = createPointMutationSessionAttemptTerminalizationPersistenceV1(entry.sessionAuthority);
-        const result = operation === "abort"
-          ? await abortPointMutationSessionAttempt(terminalization, { selector: selectorFromAnchor(anchor),
-              executionClaim: entry.context.executionClaim, expectedSnapshotToken: anchor.snapshotToken })
-          : await expirePointMutationSessionAttempt(terminalization, selectorFromAnchor(anchor));
-        expect(result).toMatchObject({ status: "terminalized",
-          terminal: { lifecycle: operation === "abort" ? "aborted" : "expired" } });
-        const terminal = await captureSessionStorage(persistence, anchor);
-        // Finite terminal evidence retains its embedded anchor and lease/claim
-        // scalars. The terminal lifecycle releases their execution authority.
-        expectSessionPayloadScrubbed(beforeTerminal, terminal);
-        expect(terminal.finiteAttemptBytes).toEqual(before.finiteAttemptBytes);
-        expect(terminal.finiteAttemptSha256).toEqual(before.finiteAttemptSha256);
-        for (const table of [fxSystemSnapshotLeases, fxSystemTransactionJournals, fxSystemTransactionExecutionClaims])
-          expect(await persistence.drizzle.select().from(table).where(eq(table.sessionId, anchor.sessionId))).toEqual([]);
-        const loader = createPointMutationSessionAttemptLoadPersistenceV1(entry.sessionAuthority);
-        expect(await runFailure(loader.loadEffect(selectorFromAnchor(anchor)))).toMatchObject({
-          _tag: "PointMutationSessionAttemptLoadV1Error", issue: { reason: "attemptNotRunning" },
-        });
-        const afterAuthority = (await persistence.drizzle.select().from(fxSystemScopeExecutionAuthorities)
-          .where(eq(fxSystemScopeExecutionAuthorities.scopeId, anchor.scopeId)))[0];
-        expect(afterAuthority?.authorizationRevocationEpoch).toBe(beforeAuthority.authorizationRevocationEpoch + 1n);
-        expect((await persistence.getScopeClock(anchor.scopeId))?.lastCommitSeq).toBe(beforeClock.lastCommitSeq);
-      } });
+      return withControl(async control => {
+        let disposeTarget: (() => Promise<void>) | undefined;
+        const persistence = await createMigratedPGlitePersistence(cleanup => { disposeTarget = cleanup; }, "finiteCapture");
+        try {
+          await finiteApplicationMetadataScenario(persistence, { controlPersistence: control, afterMetadata: async entry => {
+            const anchor = entry.context.anchor;
+            const reservation = entry.context.finiteAttempt.reservation;
+            if (reservation === null) throw new Error("Missing actual confirmed finite metadata reservation");
+            const retainedReservation = await runEffect(captureFiniteMetadataReservation(reservation));
+            const finiteAnchor = await runEffect(captureFiniteAttemptAnchor({ snapshotToken: anchor.snapshotToken, reservation: retainedReservation }));
+            await runEffect(readFiniteAttemptAnchorRow(entry.context.session, finiteAnchor));
+            const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(anchor.deploymentId, entry.authorityPorts));
+            if (!(CAPTURE_FINITE_STORAGE in located.target)) throw new Error("Missing genuine finite storage owner");
+            const input = { selector: selectorFromAnchor(anchor), preliminaryAuthority: located.authority,
+              executionClaim: entry.context.executionClaim, finiteAnchor,
+              finiteApplicationReadDemand: entry.finiteApplicationReadDemand };
+            const before = await captureSessionStorage(persistence, anchor);
+            expect(before.executionProfile).toBe("finiteRoot");
+            expect(before.finiteAttemptBytes?.byteLength).toBeGreaterThan(0);
+            expect(before.finiteAttemptSha256?.byteLength).toBe(32);
+            expect(before.finiteLeaseExpiresAt).not.toBeNull();
+            const beforeClock = await persistence.getScopeClock(anchor.scopeId);
+            if (beforeClock === null) throw new Error("Missing actual finite scope clock");
+            const beforeAuthority = (await persistence.drizzle.select().from(fxSystemScopeExecutionAuthorities)
+              .where(eq(fxSystemScopeExecutionAuthorities.scopeId, anchor.scopeId)))[0];
+            if (beforeAuthority === undefined) throw new Error("Missing actual finite execution authority");
+            await persistence.drizzle.transaction(tx => runEffect(
+              advanceScopeAuthorizationRevocationEpochInTransactionEffect(tx, anchor.scopeId)));
+            let callbacks = 0;
+            const refusal = await runFailure(captureFiniteStorageEffect(located.target, input,
+              { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { callbacks += 1; }))));
+            expect(refusal).toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "authorizationRevocationEpochChanged" });
+            expect(callbacks).toBe(0);
+            expect(await captureSessionStorage(persistence, anchor)).toEqual(before);
+            if (operation === "expire") await persistence.drizzle.update(fxSystemTransactionSessions).set({
+              finiteClaimedAt: sql`clock_timestamp() - interval '3 minutes'`,
+              finiteClaimExpiresAt: sql`clock_timestamp() - interval '2 minutes'`,
+              finiteLeaseExpiresAt: sql`clock_timestamp() - interval '1 minute'`,
+            }).where(eq(fxSystemTransactionSessions.sessionId, anchor.sessionId));
+            const beforeTerminal = await captureSessionStorage(persistence, anchor);
+            const terminalization = createPointMutationSessionAttemptTerminalizationPersistenceV1(entry.sessionAuthority);
+            const result = operation === "abort"
+              ? await abortPointMutationSessionAttempt(terminalization, { selector: selectorFromAnchor(anchor),
+                  executionClaim: entry.context.executionClaim, expectedSnapshotToken: anchor.snapshotToken })
+              : await expirePointMutationSessionAttempt(terminalization, selectorFromAnchor(anchor));
+            expect(result).toMatchObject({ status: "terminalized",
+              terminal: { lifecycle: operation === "abort" ? "aborted" : "expired" } });
+            const terminal = await captureSessionStorage(persistence, anchor);
+            // Finite terminal evidence retains its embedded anchor and lease/claim
+            // scalars. The terminal lifecycle releases their execution authority.
+            expectSessionPayloadScrubbed(beforeTerminal, terminal);
+            expect(terminal.finiteAttemptBytes).toEqual(before.finiteAttemptBytes);
+            expect(terminal.finiteAttemptSha256).toEqual(before.finiteAttemptSha256);
+            for (const table of [fxSystemSnapshotLeases, fxSystemTransactionJournals, fxSystemTransactionExecutionClaims])
+              expect(await persistence.drizzle.select().from(table).where(eq(table.sessionId, anchor.sessionId))).toEqual([]);
+            const loader = createPointMutationSessionAttemptLoadPersistenceV1(entry.sessionAuthority);
+            expect(await runFailure(loader.loadEffect(selectorFromAnchor(anchor)))).toMatchObject({
+              _tag: "PointMutationSessionAttemptLoadV1Error", issue: { reason: "attemptNotRunning" },
+            });
+            const afterAuthority = (await persistence.drizzle.select().from(fxSystemScopeExecutionAuthorities)
+              .where(eq(fxSystemScopeExecutionAuthorities.scopeId, anchor.scopeId)))[0];
+            expect(afterAuthority?.authorizationRevocationEpoch).toBe(beforeAuthority.authorizationRevocationEpoch + 1n);
+            expect((await persistence.getScopeClock(anchor.scopeId))?.lastCommitSeq).toBe(beforeClock.lastCommitSeq);
+          } });
+        } finally {
+          await disposeTarget?.();
+        }
+      });
     });
   }
 
