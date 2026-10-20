@@ -11,7 +11,7 @@ import {
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import { makeStandardApplicationTaskSha256V1 } from
   "@flarex/standard-application-definition/internal/task-definition-v1";
-import { Result } from "effect";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { makeApplicationTaskReadStore } from
@@ -39,6 +39,22 @@ const COMPATIBILITY_DATE = "2026-08-30";
 const sha256 = makeStandardApplicationTaskSha256V1(input =>
   globalThis.crypto.subtle.digest("SHA-256", input)
 );
+
+const decodeExplainResponse = Schema.decodeUnknownSync(
+  Schema.Array(Schema.Struct({ Plan: Schema.Unknown })),
+);
+const decodePlanNode = Schema.decodeUnknownSync(Schema.Struct({
+  "Node Type": Schema.String,
+  "Relation Name": Schema.optional(Schema.String),
+  "Index Name": Schema.optional(Schema.String),
+  "Index Cond": Schema.optional(Schema.String),
+  Plans: Schema.optional(Schema.Array(Schema.Unknown)),
+}));
+
+function planNodes(value: unknown): readonly ReturnType<typeof decodePlanNode>[] {
+  const node = decodePlanNode(value);
+  return [node, ...(node.Plans ?? []).flatMap(planNodes)];
+}
 
 describePostgres("DTE07 located Task attempt-history store - PostgreSQL", {
   timeout: 300_000,
@@ -128,8 +144,29 @@ describePostgres("DTE07 located Task attempt-history store - PostgreSQL", {
       const client = await target.pool.connect();
       try {
         await client.query("set enable_seqscan = off");
-        const plan = await client.query<{ "QUERY PLAN": string }>(`
-          explain (costs off)
+        const ordinalIndex = await client.query<{
+          unique: boolean; valid: boolean; ready: boolean;
+          method: string; keys: readonly string[];
+        }>(`
+          select i.indisunique as unique, i.indisvalid as valid,
+                 i.indisready as ready, am.amname as method,
+                 array(select pg_get_indexdef(i.indexrelid, ordinal, true)
+                       from generate_series(1, i.indnkeyatts) ordinal) as keys
+          from pg_index i
+          join pg_class c on c.oid = i.indexrelid
+          join pg_am am on am.oid = c.relam
+          where i.indexrelid = 'fx_task_attempt_identity_v1_ordinal_unique'::regclass
+            and i.indrelid = 'fx_system_durable_task_attempt_identity_v1'::regclass
+        `);
+        expect(ordinalIndex.rows).toEqual([{
+          unique: true, valid: true, ready: true, method: "btree",
+          keys: ["scope_id", "run_id", "attempt_number"],
+        }]);
+
+        const plan = await client.query<{
+          "QUERY PLAN": unknown;
+        }>(`
+          explain (costs off, format json)
           select r.run_version, a.attempt_id, a.attempt_number,
                  a.accepted_run_version
           from fx_system_durable_task_run_v1 r
@@ -140,8 +177,20 @@ describePostgres("DTE07 located Task attempt-history store - PostgreSQL", {
           order by a.attempt_number asc
           limit 251
         `, [located.authority.scopeId, receipt.runId]);
-        const text = plan.rows.map(row => row["QUERY PLAN"]).join("\n");
-        expect(text).toContain("fx_task_attempt_identity_v1_ordinal_unique");
+        // Either scoped unique index bounds this join to at most 250 attempts;
+        // the one-row fixture does not determine the planner's index choice.
+        const attemptScans = plan.rows.flatMap(row => decodeExplainResponse(row["QUERY PLAN"])
+          .flatMap(entry => planNodes(entry.Plan)))
+          .filter(node => node["Relation Name"] === "fx_system_durable_task_attempt_identity_v1");
+        expect(attemptScans).toHaveLength(1);
+        expect(attemptScans[0]).toMatchObject({
+          "Node Type": expect.stringMatching(/^Index (Only )?Scan$/),
+          "Index Name": expect.stringMatching(/^fx_task_attempt_identity_v1_(ordinal|fence)_unique$/),
+        });
+        expect(attemptScans[0]?.["Index Cond"])
+          .toContain(`(scope_id = '${located.authority.scopeId}'::text)`);
+        expect(attemptScans[0]?.["Index Cond"])
+          .toContain(`(run_id = '${receipt.runId}'::text)`);
 
         const eventPlan = await client.query<{ "QUERY PLAN": string }>(`
           explain (costs off)

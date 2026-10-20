@@ -20,7 +20,7 @@ import {
   ReplacementScopeIdV1Schema,
   ScopeEpochSchema,
 } from "flarex-protocol/storage-authority";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Cause, Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -45,8 +45,12 @@ import {
 } from "../../../src/database/locatedTransactionIdentity";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
-  createApplicationNativeMutationPGliteFixture,
+  createApplicationNativeMutationPGliteFixtureWithPersistence,
 } from "../applicationNativeMutationTestFixture";
+import {
+  useFileScopedApplicationNativeMutationPersistence,
+  type ApplicationNativeMutationPersistencePair,
+} from "../applicationNativeMutationPGlitePersistence";
 
 const RUN_UUID_A = "73000000-0000-4000-8000-000000000001";
 const RUN_UUID_B = "73000000-0000-4000-8000-000000000002";
@@ -63,8 +67,10 @@ const leaseDurationMs = Result.getOrThrow(decodeTaskDurationMsV1(30_000));
 const immediateRetryThresholdMs = Result.getOrThrow(
   decodeTaskDurationMsV1(5_000),
 );
+let fixtureOrdinal = 0;
+const withPersistence = useFileScopedApplicationNativeMutationPersistence();
 
-describe("DTE07 located Application Task-run list store - PGlite", () => {
+describe("DTE07 located Application Task-run list store - PGlite", { concurrent: false }, () => {
   it("uses deterministic bounded keyset pages and excludes newer inserts", async () => {
     await withFixture(async fixture => {
       await createRuns(fixture, [RUN_UUID_A, RUN_UUID_B, RUN_UUID_C]);
@@ -73,7 +79,10 @@ describe("DTE07 located Application Task-run list store - PGlite", () => {
         runId: fxSystemDurableTaskRunsV1.runId,
         generation: fxSystemDurableTaskRunsV1.definitionGeneration,
         createdAtMs: fxSystemDurableTaskRunsV1.createdAtMs,
-      }).from(fxSystemDurableTaskRunsV1);
+      }).from(fxSystemDurableTaskRunsV1).where(eq(
+        fxSystemDurableTaskRunsV1.scopeId,
+        fixture.located.authority.scopeId,
+      ));
       expect(seeded).toHaveLength(3);
 
       const store = makeApplicationTaskRunListStore(fixture.located);
@@ -152,11 +161,17 @@ describe("DTE07 located Application Task-run list store - PGlite", () => {
           '{aggregate,ready,eligibleAtMs}',
           '"invalid"'::jsonb
         )`,
-      }).where(sql`${fxSystemDurableTaskRunsV1.runId} = ${`run_${RUN_UUID_A}`}`);
+      }).where(and(
+        eq(fxSystemDurableTaskRunsV1.scopeId, fixture.located.authority.scopeId),
+        sql`${fxSystemDurableTaskRunsV1.runId} = ${`run_${RUN_UUID_A}`}`,
+      ));
       const [corrupted] = await fixture.persistence.drizzle.select({
         eligibleAtMs: sql<unknown>`${fxSystemDurableTaskRunsV1.aggregateJson}
           #> '{aggregate,ready,eligibleAtMs}'`,
-      }).from(fxSystemDurableTaskRunsV1);
+      }).from(fxSystemDurableTaskRunsV1).where(eq(
+        fxSystemDurableTaskRunsV1.scopeId,
+        fixture.located.authority.scopeId,
+      ));
       expect(corrupted?.eligibleAtMs).toBe("invalid");
       const store = makeApplicationTaskRunListStore(fixture.located);
       await expect(runEffectFailure(store.listRuns({
@@ -179,7 +194,10 @@ describe("DTE07 located Application Task-run list store - PGlite", () => {
           '{codec}',
           '"unsupported.task-run-codec"'::jsonb
         )`,
-      });
+      }).where(eq(
+        fxSystemDurableTaskRunsV1.scopeId,
+        fixture.located.authority.scopeId,
+      ));
       const store = makeApplicationTaskRunListStore(fixture.located);
       await expect(runEffectFailure(store.listRuns({
         pageSize: 1,
@@ -499,15 +517,23 @@ describe("DTE07 located Application Task-run list store - PGlite", () => {
 async function withFixture(
   run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
 ): Promise<void> {
-  await run(await makeFixture());
+  await withPersistence(async persistence => {
+    await run(await makeFixture(persistence));
+  });
 }
 
-async function makeFixture() {
-  const fixture = await createApplicationNativeMutationPGliteFixture({
+async function makeFixture(persistence: ApplicationNativeMutationPersistencePair) {
+  fixtureOrdinal += 1;
+  const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
     runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
     compatibilityDate: COMPATIBILITY_DATE,
     includeTask: true,
-  });
+    fixtureIdentity: {
+      deploymentId: `deployment_task_run_list_${fixtureOrdinal}`,
+      projectId: `project_task_run_list_${fixtureOrdinal}`,
+      uuidOffset: fixtureOrdinal * 100,
+    },
+  }, persistence);
   const selected = await runEffect(selectApplicationTask(
     fixture.active.selection,
     "tasks.users.task",
@@ -651,7 +677,10 @@ async function setCreatedAt(
       '{aggregate,ready,eligibleAtMs}',
       ${JSON.stringify(CREATED_AT_MS)}::jsonb
     )`,
-  }).where(sql`${fxSystemDurableTaskRunsV1.runId} in (
+  }).where(and(
+    eq(fxSystemDurableTaskRunsV1.scopeId, fixture.located.authority.scopeId),
+    sql`${fxSystemDurableTaskRunsV1.runId} in (
     ${sql.join(runUuids.map(uuid => sql`${`run_${uuid}`}`), sql`, `)}
-  )`);
+  )`,
+  ));
 }

@@ -30,7 +30,11 @@ import { fxSystemScopeExecutionAuthorities } from "../../../src/database/schema"
 import { makeApplicationTaskSystemRunAttemptStoreV1 } from
   "../../../src/tasks/taskSystemRunAttemptStoreV1";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
-import { createApplicationNativeMutationPGliteFixture } from
+import {
+  type ApplicationNativeMutationPersistencePair,
+  useFileScopedApplicationNativeMutationPersistence,
+} from "../applicationNativeMutationPGlitePersistence";
+import { createApplicationNativeMutationPGliteFixtureWithPersistence } from
   "../applicationNativeMutationTestFixture";
 
 const RUN_UUID = "75000000-0000-4000-8000-000000000001";
@@ -45,8 +49,10 @@ const leaseDurationMs = Result.getOrThrow(decodeTaskDurationMsV1(30_000));
 const immediateRetryThresholdMs = Result.getOrThrow(
   decodeTaskDurationMsV1(5_000),
 );
+const withPersistence = useFileScopedApplicationNativeMutationPersistence();
+let fixtureOrdinal = 0;
 
-describe("DTE07 located Application Task attempt-history store - PGlite", () => {
+describe("DTE07 located Application Task attempt-history store - PGlite", { concurrent: false }, () => {
   it("reads immutable attempt admissions in ascending attempt order", async () => {
     await withFixture(async fixture => {
       const runId = await createRun(fixture);
@@ -212,15 +218,23 @@ describe("DTE07 located Application Task attempt-history store - PGlite", () => 
 async function withFixture(
   run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
 ): Promise<void> {
-  await run(await makeFixture());
+  await withPersistence(async persistence => {
+    await run(await makeFixture(persistence));
+  });
 }
 
-async function makeFixture() {
-  const fixture = await createApplicationNativeMutationPGliteFixture({
+async function makeFixture(persistence: ApplicationNativeMutationPersistencePair) {
+  const ordinal = ++fixtureOrdinal;
+  const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
     runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
     compatibilityDate: COMPATIBILITY_DATE,
     includeTask: true,
-  });
+    fixtureIdentity: {
+      deploymentId: `deployment_task_attempt_history_${ordinal}`,
+      projectId: `project_task_attempt_history_${ordinal}`,
+      uuidOffset: ordinal * 100,
+    },
+  }, persistence);
   const selected = await runEffect(selectApplicationTask(
     fixture.active.selection,
     "tasks.users.task",
