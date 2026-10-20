@@ -72,6 +72,8 @@ export const inventoryStockingResources = Object.freeze({ ...defaultCommerceReso
 export const storeCreationResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Existing four-Store replacement graph and original-input Pricing branch. */
 export const storeUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
+/** Four native Price List lifecycle roots and their retained callbacks. */
+export const priceListDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Complete ServiceZone lifecycle graph and its genuine retained raw-ID inverse. */
 export const serviceZoneDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 256, eventMessages: 128 });
 /** Native ServiceZone geographic update; measured admission is selected independently. */

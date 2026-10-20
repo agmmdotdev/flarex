@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder, verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
+import { verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder, verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
 import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyReturnFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 import { deliverySourcePairs, verifyFulfillmentDeliveryCallbacks, verifyNativeSkipStepResponseType } from "./check-medusa-delivery-source.mjs";
 import { verifyPricingNormalizationExtraction } from "./check-medusa-pricing-normalization.mjs";
@@ -273,6 +273,14 @@ function inventory(root, relative) {
 export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync(path.join(root, manifestPath), "utf8"))) {
   assertPromotion(supplied);
   verifyNativeJsonAssignment(root);
+  verifyPriceListDeleteSelection(
+    readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/pricing/delete-price-lists.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-adapter/src/workflow/policy.ts"), "utf8"));
+  verifyPriceListDeleteCallbacks(
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/price-list/workflows/delete-price-lists.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/price-list/workflows/delete-price-lists.ts"), "utf8"),
+    readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/price-list/steps/delete-price-lists.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-core-flows/src/price-list/steps/delete-price-lists.ts"), "utf8"));
   verifyPriceListUpdateCallbacks(
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/price-list/workflows/update-price-lists.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/price-list/workflows/update-price-lists.ts"), "utf8"),
@@ -588,6 +596,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     ["packages/medusa-utils/src/fulfillment/provider.ts", "packages/core/utils/src/fulfillment/provider.ts"],
     ["packages/medusa-utils/src/link/links.ts", "packages/core/utils/src/link/links.ts"],
   ]);
+  const priceListDeleteSources = ["price-list/workflows/delete-price-lists.ts", "price-list/steps/delete-price-lists.ts"].map(relative =>
+    ["packages/medusa-core-flows/src/" + relative, sourcePrefix + "packages/core/core-flows/src/" + relative]);
   const priceListUpdateSources = ["price-list/workflows/update-price-lists.ts", "price-list/steps/update-price-lists.ts",
     "price-list/steps/validate-price-lists.ts"].map(relative => ["packages/medusa-core-flows/src/" + relative,
       sourcePrefix + "packages/core/core-flows/src/" + relative]);
@@ -596,6 +606,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   for (const file of promotion.files) {
     // Bind both directions: neither a selected target nor its native source
     // can be relabeled, redirected, or reused as a different extraction.
+    const priceListDeletePair = priceListDeleteSources.find(([target, source]) => file.target === target || file.source === source);
+    if (priceListDeletePair !== undefined && (file.target !== priceListDeletePair[0] || file.source !== priceListDeletePair[1] ||
+      file.classification !== "workflowFork")) throw new Error("PriceList deletion outside its exact pinned source pair");
     const priceListUpdatePair = priceListUpdateSources.find(([target, source]) => file.target === target || file.source === source);
     if (priceListUpdatePair !== undefined && (file.target !== priceListUpdatePair[0] || file.source !== priceListUpdatePair[1] ||
       file.classification !== "workflowFork")) throw new Error("PriceList update outside its exact pinned source pair");

@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "faabf0457ccb8cc8eabb2718847050c7b41443402186e249d6019b00b53c75f4"
+      "targetSha256": "a8b8a897328fbb6cbf88f181e281160f12052b25ea48393a53e8dea2163e44eb"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -3375,7 +3375,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/policy.ts",
       "classification": "authored",
-      "targetSha256": "f8207f67847d8f51ab691824044eff64239b7c585cb32d25e346d86db4affe2d"
+      "targetSha256": "f25f5c6ff9a915128bce84a969dda29a950a592067675f365ebc073828e00af6"
     },
     {
       "target": "packages/medusa-adapter/src/links/product-shipping-profile-schema.ts",
@@ -4142,7 +4142,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/pricing/repository.ts",
       "classification": "authored",
-      "targetSha256": "df07059dbd68bea4e0ee4d05a90c971b4ba63f3c33779def2de0b16816fa0454"
+      "targetSha256": "3257095bed327d99f453eaa3c2dc4be2e8363e38f80f99ba8275e7a049644002"
     },
     {
       "target": "packages/medusa-adapter/src/modules/pricing/schema.ts",
@@ -4152,7 +4152,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/pricing/service.ts",
       "classification": "authored",
-      "targetSha256": "91a9e32be410596e73cc1b522c668395fca1af4329d64dc39379f4cfb9feb961"
+      "targetSha256": "87c691ef0ec00adf260f3fd343646e5ec82840e4425c370e291ac182f4af81cc"
     },
     {
       "target": "packages/medusa-adapter/src/composition/product-variant-pricing-schema.ts",
@@ -11512,6 +11512,65 @@
       "source": "third_party/medusa/upstream/packages/core/utils/src/pricing/builders.ts",
       "sourceSha256": "7880514f3538e2dd95dc579dd3d4a3c1e2faf13b672b693b2f90a4791e9a992d",
       "targetSha256": "1fc2011ad2cd3ad35d58b4f47790cceba9df73c68e1625306b712fe1eca97d18"
+    },
+    {
+      "target": "packages/medusa-adapter/src/links/price-list-deletion.ts",
+      "classification": "authored",
+      "targetSha256": "61f51b6bc28ac76b49e3cf74b9830d4998b450ab4c885dd6a469a6829652d16a"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/pricing/list-deletion-input.ts",
+      "classification": "authored",
+      "targetSha256": "81edddf8e8a4644b102362a88cfcd3e14d87f5a690257095c132b9a950eb727a"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/pricing/list-deletion-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "22e384c3934ac6e93a512f30fdcc2edff2b04da74099d5ecee4a3271913626bc"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/pricing/list-deletion-repository.ts",
+      "classification": "authored",
+      "targetSha256": "82bd65ac529c441cdecbda8d6f3d145715a7c8f48747fb5b217b727694bcf514"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/pricing/delete-price-lists.ts",
+      "classification": "authored",
+      "targetSha256": "ab82413cb87d57a1594b44fe0325c06b3c07ba08a86cc1fa04cdcd7b0503b898"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-price-list-delete-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "8361a81cf4ee94b281a10e901bbd41d22fd2e5889f90a92fec2703223e08dafe"
+    },
+    {
+      "target": "packages/medusa-adapter/test/pricing-list-deletion-receipts.test.ts",
+      "classification": "authored",
+      "targetSha256": "7cdca144c70aee123a08c5e569449893e4523d7a33f4575167b284a916076ab6"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-price-list-delete-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "5c42a700e5d32a20f01bc2b3a8b2e5c70f6fc1d3ad3bafe6d7fb9fd7adf70792"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/price-list/workflows/delete-price-lists.ts",
+      "classification": "workflowFork",
+      "targetSha256": "71baf14528c66e92045e5a84c473b191e1c724c0fb92bc2f66adc6e6c40879ce",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/price-list/workflows/delete-price-lists.ts",
+      "sourceSha256": "65e5c9ad8dac7fde1819b502e341592e58d41418fcfb74dd159e6eb4e5f507be"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/price-list/steps/delete-price-lists.ts",
+      "classification": "workflowFork",
+      "targetSha256": "5da60d7a391997df7e269c56ddaae408aa7873a0e9171417e9aa033df6e5b4c5",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/price-list/steps/delete-price-lists.ts",
+      "sourceSha256": "53c4919ee0c80332f7a34c35bffd00528c0c890e4b9f6cb758fb47818b385d26"
+    },
+    {
+      "target": "packages/medusa-adapter/test/price-list-deletion-contracts.test.ts",
+      "classification": "authored",
+      "targetSha256": "d13c9b2b1b1ba3b3fa5f0634373c651dfbf77d286c03d244418b4f434382d7b1"
     }
   ],
   "dependencies": {
@@ -12057,7 +12116,9 @@
         "./price-list/validate-variant-price-links-step",
         "./price-list/update-price-lists",
         "./price-list/update-price-lists-step",
-        "./price-list/validate-price-lists-step"
+        "./price-list/validate-price-lists-step",
+        "./price-list/delete-price-lists",
+        "./price-list/delete-price-lists-step"
       ]
     },
     {

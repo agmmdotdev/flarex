@@ -702,6 +702,18 @@ and nonnullable DML refusal; the bound service and outer workflow retain sticky
 rollback-only behavior. Existing resource limits remain unchanged. The actual
 two-step root and retained callbacks have separate bounded execution proofs.
 
+The [native Price List deletion](./preflight/154-native-price-list-deletion.md)
+root and private adapter admit zero to four raw IDs through Pricing soft
+deletion/restoration and the required empty-family native Link calls. The bounded
+contract preserves historical-descendant restamping, complete unmapped ListRule
+objects, raw-ID restoration, original retained callbacks and zero restore events.
+It uses the approved Price List → Price → List Rule → Price Rule group order and
+a named 128-call allowance through the existing identity-bound API. Events remain
+limited to 64; all other limits and profiles remain unchanged. Native MikroORM
+flushes interleave those families; the unchanged native baseline remains separate
+from this portable contract. Shared publication preserves the actual emitted
+sequence.
+
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
 The genuine creation step remains unchanged and returns complete native rows,

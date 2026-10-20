@@ -86,8 +86,9 @@ undefined composer retains every staged node and uses the same absent result as
 admitting void; runtime checks the actual value, so a callback typed as void
 cannot return an unrelated literal unnoticed. Bare null, scalar/object values
 and Promises remain refused. Exposed hooks continue to require the existing
-explicit response options. Native Price Preference deletion and Price List
-update therefore retain their original business callbacks and execution owner.
+explicit response options. Native Price Preference deletion, Price List update
+and Price List deletion therefore retain their original business callbacks and
+execution owner.
 
 Step inputs can compose typed references inside literal records, arrays and
 tuples, including optional results. The authoring type recursively describes

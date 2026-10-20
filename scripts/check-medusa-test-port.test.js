@@ -3,7 +3,121 @@ import { describe, expect, it } from "vitest";
 import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyCsvNormalizerTests,
   verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
 import { readFileSync } from "node:fs";
-import { verifyPriceListCreateCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder } from "./check-medusa-test-port.mjs";
+import { verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListCreateCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder } from "./check-medusa-test-port.mjs";
+
+describe("PriceList deletion named resource selection", () => {
+  const facade = readFileSync("packages/medusa-adapter/src/workflows/pricing/delete-price-lists.ts", "utf8").replaceAll("\r\n", "\n");
+  const policy = readFileSync("packages/medusa-adapter/src/workflow/policy.ts", "utf8").replaceAll("\r\n", "\n");
+  it("binds the approved calls-only allowance after exact module authentication", () => {
+    expect(() => verifyPriceListDeleteSelection(facade, policy)).not.toThrow();
+  });
+  it("compares typed and runtime structure independently of source line layout", () => {
+    const changed = facade.replace('requestCallLimit: priceListDeletionResources.calls, workflow:',
+      'requestCallLimit: priceListDeletionResources.calls,\n      workflow:');
+    const changedPolicy = policy.replace('export const priceListDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });',
+      'export const priceListDeletionResources = Object.freeze({\n  ...defaultCommerceResources,\n  calls: 128\n});');
+    expect(changed).not.toBe(facade); expect(changedPolicy).not.toBe(policy);
+    expect(() => verifyPriceListDeleteSelection(changed, changedPolicy)).not.toThrow();
+  });
+  it.each([
+    ['readonly revision: string;', 'readonly revision: unknown;'],
+    ['readonly subscribers: AtomicCommerceEvents["subscribers"];', 'readonly subscribers?: AtomicCommerceEvents["subscribers"];'],
+    ['readonly link: Links;', 'readonly link: Links; readonly requestCallLimit?: number;'],
+  ])("retains the complete public type contract: %s", (before, after) => {
+    const changed = facade.replace(before, after); expect(changed).not.toBe(facade);
+    expect(() => verifyPriceListDeleteSelection(changed, policy)).toThrow("Changed PriceList deletion resource selection");
+  });
+  it("keeps existing runtime-only Pricing comparisons unchanged", () => {
+    const native = readFileSync("third_party/medusa/upstream/packages/core/types/src/pricing/service.ts", "utf8");
+    const selected = readFileSync("packages/medusa-adapter/src/modules/pricing/service.ts", "utf8");
+    const repository = readFileSync("packages/medusa-adapter/src/modules/pricing/repository.ts", "utf8");
+    const typesOnly = selected.replace('(ctx: CommerceCommandContext, owner: CommercePromiseOwner)', '(ctx: unknown, owner: unknown)');
+    expect(typesOnly).not.toBe(selected);
+    expect(() => verifyPricingWorkflowSelection(native, typesOnly, repository)).not.toThrow();
+    const changed = typesOnly.replace('new PricingModuleService(container, { scope: "internal" })', 'new OtherPricingModuleService(container, { scope: "internal" })');
+    expect(changed).not.toBe(typesOnly);
+    expect(() => verifyPricingWorkflowSelection(native, changed, repository)).toThrow("Unadmitted native Pricing workflow selection");
+  });
+  it.each([
+    ["caller call limit", '["execution", "pricing", "link", "revision", "subscribers"]', '["execution", "pricing", "link", "revision", "subscribers", "requestCallLimit"]'],
+    ["caller policy", '["execution", "pricing", "link", "revision", "subscribers"]', '["execution", "pricing", "link", "revision", "subscribers", "logicalResources"]'],
+    ["profile identity", 'definition.source.profile !== "pricing-price-list-deletions"', 'definition.source.profile !== "pricing-price-list-updates"'],
+    ["native module identity", 'definition?.source.name !== "flarex-pricing-local"', 'false'],
+    ["unequal installed allowance", 'installed.pricing.logicalResources !== undefined && !jsonEqual(installed.pricing.logicalResources, priceListDeletionResources)', 'false'],
+    ["participant default", 'logicalResources: priceListDeletionResources', 'logicalResources: undefined'],
+    ["caller participant allowance", 'logicalResources: priceListDeletionResources', 'logicalResources: installed.pricing.logicalResources'],
+    ["caller call allowance", 'requestCallLimit: priceListDeletionResources.calls', 'requestCallLimit: options.requestCallLimit'],
+    ["different calls", 'requestCallLimit: priceListDeletionResources.calls', 'requestCallLimit: 256'],
+    ["caller spread", 'execution: options.execution, revision: options.revision', '...options, execution: options.execution, revision: options.revision'],
+    ["graph overgrant", 'graph: false', 'graph: true'],
+    ["method overgrant", 'methods: ["softDeletePriceLists", "restorePriceLists"]', 'methods: ["softDeletePriceLists", "restorePriceLists", "deletePriceLists"]'],
+    ["other policy owner", 'from "../../workflow/policy"', 'from "../../workflow/other-policy"'],
+  ])("rejects %s", (_label, before, after) => {
+    const changed = facade.replace(before, after); expect(changed).not.toBe(facade);
+    expect(() => verifyPriceListDeleteSelection(changed, policy)).toThrow("Changed PriceList deletion resource selection");
+  });
+  it.each([
+    ["calls", 'calls: 128', 'calls: 256'],
+    ["event limit", '...defaultCommerceResources, calls: 128', '...defaultCommerceResources, calls: 128, eventMessages: 128'],
+    ["query limit", '...defaultCommerceResources, calls: 128', '...defaultCommerceResources, calls: 128, queryRows: 512'],
+    ["default resource owner", '...defaultCommerceResources, calls: 128', '...otherResources, calls: 128'],
+    ["unfrozen resource", 'Object.freeze({ ...defaultCommerceResources, calls: 128 })', '({ ...defaultCommerceResources, calls: 128 })'],
+  ])("rejects named policy %s mutation", (_label, before, after) => {
+    const named = 'export const priceListDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });';
+    expect(policy).toContain(named);
+    const changed = policy.replace(named, named.replace(before, after)); expect(changed).not.toBe(policy);
+    expect(() => verifyPriceListDeleteSelection(facade, changed)).toThrow("Changed PriceList deletion resource selection");
+  });
+  it("requires the unchanged core defaults and immutable exported selection", () => {
+    for (const changed of [policy.replace('export const priceListDeletionResources', 'export let priceListDeletionResources'),
+      policy.replace('from "@flarex/persistence-postgres/internal/commerce-values"', 'from "./other-values"')]) {
+      expect(changed).not.toBe(policy);
+      expect(() => verifyPriceListDeleteSelection(facade, changed)).toThrow("Changed PriceList deletion resource selection");
+    }
+    const changed = facade.replace('export const prepareDeletePriceListsWorkflow', 'export let prepareDeletePriceListsWorkflow');
+    expect(changed).not.toBe(facade);
+    expect(() => verifyPriceListDeleteSelection(changed, policy)).toThrow("Changed PriceList deletion resource selection");
+  });
+});
+
+describe("native PriceList deletion callback provenance", () => {
+  const paths = ["price-list/workflows/delete-price-lists.ts", "price-list/steps/delete-price-lists.ts"];
+  const originals = paths.map(file => readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/" + file, "utf8"));
+  const targets = paths.map(file => readFileSync("packages/medusa-core-flows/src/" + file, "utf8"));
+  /** @param {string[]} values */
+  const verify = values => verifyPriceListDeleteCallbacks(originals[0], values[0], originals[1], values[1]);
+  it("admits the complete native root and raw-ID retained callbacks", () => {
+    expect(() => verify(targets)).not.toThrow();
+  });
+  it.each([
+    [0, "input.ids", "[]"],
+    [0, "WorkflowData<DeletePriceListsWorkflowInput>) =>", "WorkflowData<DeletePriceListsWorkflowInput>): WorkflowData<void> =>"],
+    [0, "return deletedPriceLists", "return undefined"],
+    [0, "price_list_id: input.ids", "price_list_id: []"],
+    [0, 'from "../steps/delete-price-lists"', 'from "../steps"'],
+    [1, 'compensation: "transactionCovered"', 'compensation: "noCompensation"'],
+    [1, "softDeletePriceLists(ids)", "deletePriceLists(ids)"],
+    [1, "softDeletePriceLists(ids)", "softDeletePriceLists([...new Set(ids)])"],
+    [1, "new StepResponse(void 0, ids)", "new StepResponse(void 0, [])"],
+    [1, "if (!idsToRestore?.length)", "if (true)"],
+    [1, "restorePriceLists(idsToRestore)", "restorePriceLists([])"],
+  ])("rejects native callback mutation %s: %s", (index, before, after) => {
+    const values = targets.slice(), selected = Number(index);
+    values[selected] = values[selected].replace(String(before), String(after));
+    expect(values[selected]).not.toBe(targets[selected]);
+    expect(() => verify(values)).toThrow("Changed native PriceList deletion callback behavior");
+  });
+  it("rejects an added empty forward guard and extra runtime statements", () => {
+    const values = targets.slice();
+    values[1] = values[1].replace("await pricingModule.softDeletePriceLists(ids)", "if (!ids.length) return\n    await pricingModule.softDeletePriceLists(ids)");
+    expect(values[1]).not.toBe(targets[1]);
+    expect(() => verify(values)).toThrow();
+    for (const index of [0, 1]) {
+      const extra = targets.slice(); extra[index] += "\nglobalThis.changedDeletion = true;\n";
+      expect(() => verify(extra)).toThrow();
+    }
+  });
+});
 
 describe("native PriceList update callback provenance", () => {
   const paths = ["price-list/workflows/update-price-lists.ts", "price-list/steps/update-price-lists.ts",
@@ -270,12 +384,12 @@ describe("maintained Medusa test ports", () => {
     const selected = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/service.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const repository = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/repository.ts", import.meta.url), "utf8");
     expect(() => verifyPricingWorkflowSelection(original, selected, repository)).not.toThrow();
-    for (const method of ["softDeletePricePreferences", "restorePricePreferences", "deletePriceLists", "listPriceLists", "updatePriceLists"]) {
+    for (const method of ["softDeletePricePreferences", "restorePricePreferences", "deletePriceLists", "softDeletePriceLists", "restorePriceLists", "listPriceLists", "updatePriceLists"]) {
       const changed = original.replace(new RegExp("\\b" + method + "(?=\\s*[<(])", "g"), method + "Unadmitted");
       expect(changed).not.toBe(original);
       expect(() => verifyPricingWorkflowSelection(changed, selected, repository)).toThrow("Missing native Pricing admitted methods");
     }
-    const methods = 'methods: { ...(listUpdates ? { listPriceLists: listPriceListsForUpdate, updatePriceLists } : {}), ...(listCreations ? { createPriceLists, deletePriceLists } : {}), ...(shippingUpdates ? { updatePriceSets: updateShippingPriceSets, listPrices: listShippingPrices,\n        listPriceRules: listShippingPriceRules, createPriceRules: createShippingPriceRules } : {}),\n        ...(preferences && !preferenceUpdates && !preferenceDeletions ? { createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),\n        ...(preferenceUpdates ? { listPricePreferences: listUpdatePricePreferences, updatePricePreferences, upsertPricePreferences: upsertUpdatePricePreferences } : {}),\n        ...(preferenceDeletions ? { softDeletePricePreferences, restorePricePreferences } : {}),\n        ...(!preferences && !shippingUpdates && !listCreations && !listUpdates ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}), ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {}) }';
+    const methods = 'methods: { ...(listDeletions ? { softDeletePriceLists, restorePriceLists } : {}), ...(listUpdates ? { listPriceLists: listPriceListsForUpdate, updatePriceLists } : {}), ...(listCreations ? { createPriceLists, deletePriceLists } : {}), ...(shippingUpdates ? { updatePriceSets: updateShippingPriceSets, listPrices: listShippingPrices,\n        listPriceRules: listShippingPriceRules, createPriceRules: createShippingPriceRules } : {}),\n        ...(preferences && !preferenceUpdates && !preferenceDeletions ? { createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),\n        ...(preferenceUpdates ? { listPricePreferences: listUpdatePricePreferences, updatePricePreferences, upsertPricePreferences: upsertUpdatePricePreferences } : {}),\n        ...(preferenceDeletions ? { softDeletePricePreferences, restorePricePreferences } : {}),\n        ...(!preferences && !shippingUpdates && !listCreations && !listUpdates && !listDeletions ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}), ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {}) }';
     expect(selected).toContain(methods);
     expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: {}'), repository)).toThrow();
     expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceSets, createPriceLists, createPricePreferences, calculatePrices }'), repository)).toThrow();
@@ -309,7 +423,7 @@ describe("maintained Medusa test ports", () => {
       selected.replace('...(preferences && !preferenceUpdates && !preferenceDeletions ? { createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences } : {})',
         '...(preferences ? { listPricePreferences, upsertPricePreferences, deletePricePreferences } : {})'),
       selected.replace('preferences ? [createPreference, preferenceList, preferenceUpsert, preferenceDelete]', 'preferences ? [preferenceList, preferenceUpsert, preferenceDelete]'),
-      selected.replace('createPricePreferences: shipping || preferenceUpdates || preferenceDeletions || listCreations || listUpdates ? binding.refuse : native.createPricePreferences.bind(native)',
+      selected.replace('createPricePreferences: shipping || preferenceUpdates || preferenceDeletions || listCreations || listUpdates || listDeletions ? binding.refuse : native.createPricePreferences.bind(native)',
         'createPricePreferences: preferences || shipping ? binding.refuse : native.createPricePreferences.bind(native)'),
       selected.replace('listPricePreferences: listUpdatePricePreferences', 'listPricePreferences'),
       selected.replace('upsertPricePreferences: upsertUpdatePricePreferences', 'upsertPricePreferences'),
@@ -331,14 +445,14 @@ describe("maintained Medusa test ports", () => {
         'restorePricePreferences: preferenceDeletions ? native.softDeletePricePreferences.bind(native) : binding.refuse'),
       selected.replace('listPricePreferences: preferences && !preferenceDeletions ?', 'listPricePreferences: preferences ?'),
       selected.replace('upsertPricePreferences: preferences && !preferenceDeletions ?', 'upsertPricePreferences: preferences ?'),
-      selected.replace('createPricePreferences: shipping || preferenceUpdates || preferenceDeletions || listCreations || listUpdates ?',
+      selected.replace('createPricePreferences: shipping || preferenceUpdates || preferenceDeletions || listCreations || listUpdates || listDeletions ?',
         'createPricePreferences: shipping || preferenceUpdates ?'),
       selected.replace('deletePricePreferences: preferences && !preferenceUpdates && !preferenceDeletions ?',
         'deletePricePreferences: preferences && !preferenceUpdates ?'),
       selected.replace('preferenceDeletions ? "pricing-price-preference-deletions"', 'preferenceDeletions ? "pricing-price-preference-updates"'),
       selected.replace('preferenceUpdates ? [preferenceUpdateList, preferenceUpdate, preferenceUpdateUpsert]',
         'preferenceUpdates ? [preferenceUpdateList, preferenceUpdate, preferenceUpdateUpsert, preferenceDelete]'),
-      selected.replace('preferences || listCreations || listUpdates ? { aliases: [], reads: [] }', 'preferences && !preferenceUpdates ? { aliases: [], reads: [] }'),
+      selected.replace('preferences || listCreations || listUpdates || listDeletions ? { aliases: [], reads: [] }', 'preferences && !preferenceUpdates ? { aliases: [], reads: [] }'),
       selected.replace('preferences ? preferencePolicy : lifecycle ?', 'preferences && !preferenceUpdates ? preferencePolicy : lifecycle ?'),
       selected.replace('preferenceUpdates ? "pricing-price-preference-updates"', 'preferenceUpdates ? "pricing-price-preferences"'),
       selected.replace('lifecycle = admission === "product-updates"', 'lifecycle = true'),
@@ -365,7 +479,7 @@ describe("maintained Medusa test ports", () => {
       selected.replace('if (shipping && !shippingUpdates) shippingLifecycleServices.set', 'if (lifecycle || shipping) shippingLifecycleServices.set'),
       selected.replace('shipping ? pricingShippingOptionPolicy(preferencePolicy, shippingOutput, shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined)', 'shipping ? pricingLogicalProductUpdateEventPolicy()'),
       selected.replace('const shippingUpdates = admission === "shipping-option-updates"', 'const shippingUpdates = shipping'),
-      selected.replace('...(!preferences && !shippingUpdates && !listCreations && !listUpdates ?', '...(!preferences ?'),
+      selected.replace('...(!preferences && !shippingUpdates && !listCreations && !listUpdates && !listDeletions ?', '...(!preferences ?'),
       selected.replace('createPriceRules: createShippingPriceRules } : {})', 'createPriceRules: createShippingPriceRules, deletePriceSets } : {})'),
       selected.replace('updatePriceSets: updateShippingPriceSets', 'updatePriceSets'),
       selected.replace('[shippingUpdate, shippingListPrices, shippingListRules, shippingCreateRules, list, count, retrieve]', '[shippingUpdate, shippingListPrices, shippingListRules, shippingCreateRules, create, list, count, retrieve]'),
@@ -376,7 +490,7 @@ describe("maintained Medusa test ports", () => {
       selected.replace('listCreations ? [createList, deleteList]', 'listCreations ? [createList, deleteList, create]'),
       selected.replace('listCreations ? [createList, deleteList]', 'listCreations ? [createList, deleteList, list]'),
       selected.replace('...(listCreations ? { createPriceLists, deletePriceLists } : {})', '...(listCreations ? { createPriceLists, deletePriceLists, upsertPriceSets } : {})'),
-      selected.replace('listCreations || listUpdates ? model === PriceList ? bound.listRepository : bound.denied', 'listCreations ? bound.repository'),
+      selected.replace('listCreations || listUpdates || listDeletions ? model === PriceList ? bound.listRepository : bound.denied', 'listCreations ? bound.repository'),
       selected.replace('deletePriceLists: listCreations ? native.deletePriceLists.bind(native) : binding.refuse', 'deletePriceLists: native.deletePriceLists.bind(native)'),
       selected.replace('yield* compilePriceListCreationContracts(metadata.frame)', 'yield* compilePriceListCreationContracts(otherFrame)'),
       selected.replace('output: listContracts.decodeOutput', 'output: preferenceContracts.decodeOutput'),
@@ -391,11 +505,11 @@ describe("maintained Medusa test ports", () => {
       ['const listUpdates = admission === "price-list-updates"', 'const listUpdates = true'],
       ['compilePriceListUpdateContracts(metadata)', 'compilePriceListUpdateContracts(otherFrame)'],
       ['preparePriceListUpdateReplacement(contracts)', 'preparePriceListUpdateReplacement(otherContracts)'],
-      ['create: listUpdates ? refuse :', 'create: false ? refuse :'],
+      ['create: listUpdates || listDeletions ? refuse :', 'create: false ? refuse :'],
       ['find: listUpdate === undefined ? refuse :', 'find: undefined === undefined ? refuse :'],
       ['readPriceListUpdateRows(ctx, listUpdate.contracts, input)', 'readPriceListUpdateRows(ctx, otherContracts, input)'],
       ['listUpdate.replace(ctx, input, config)', 'listUpdate.replace(ctx, input, {})'],
-      ['"price-list-creations" | "price-list-updates" | "shipping-options"', '"price-list-creations" | "price-list-updates" | "unbounded" | "shipping-options"'],
+      ['"price-list-creations" | "price-list-updates" | "price-list-deletions" | "shipping-options"', '"price-list-creations" | "price-list-updates" | "unbounded" | "shipping-options"'],
       ['preferenceDeletions ? "deletions" : preferenceUpdates ? "updates" : "store"', 'preferenceDeletions ? "updates" : preferenceUpdates ? "deletions" : "store"'],
       ['delete: listCreations ?', 'delete: !preferences ?'],
       ['deletePricingPriceLists(ctx, metadata, input)', 'softDeletePricingPriceSets(ctx, metadata, input)'],

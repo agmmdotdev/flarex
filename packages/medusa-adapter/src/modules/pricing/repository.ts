@@ -34,6 +34,8 @@ import { deletePricingPriceLists } from "./list-lifecycle";
 import { projectNativeRow } from "../../repository/result";
 import { compilePriceListUpdateContracts } from "./list-update-input";
 import { readPriceListUpdateRows, preparePriceListUpdateReplacement } from "./list-update-repository";
+import { compilePriceListDeletionContracts } from "./list-deletion-input";
+import { priceListLifecycleMethods } from "./list-deletion-repository";
 
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
 const Rule = Schema.Struct({ id: Schema.optionalKey(PricingId), attribute: Schema.String, value: Schema.String,
@@ -98,7 +100,7 @@ const projectionPolicy: ProjectionPolicy = { ...scalarProjection, allowedPaths: 
 /** Pricing owns the finite nested creation policy; shared graph/read owners
  * retain traversal, scoped persistence and native mutation dispatch. */
 export type PricingRepositoryAdmission = "create" | "variant-updates" | "product-updates" | "price-preferences" |
-  "price-preference-updates" | "price-preference-deletions" | "price-list-creations" | "price-list-updates" | "shipping-options" | "shipping-option-updates";
+  "price-preference-updates" | "price-preference-deletions" | "price-list-creations" | "price-list-updates" | "price-list-deletions" | "shipping-options" | "shipping-option-updates";
 export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"], admission: PricingRepositoryAdmission = "create") {
   return Result.gen(function* () {
     const mutable = admission === "variant-updates" || admission === "product-updates", lifecycle = admission === "product-updates";
@@ -107,6 +109,8 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
     const shippingUpdates = admission === "shipping-option-updates", shipping = admission === "shipping-options" || shippingUpdates;
     const listCreations = admission === "price-list-creations";
     const listUpdates = admission === "price-list-updates";
+    const listDeletions = admission === "price-list-deletions";
+    const listDeletionContracts = listDeletions ? yield* compilePriceListDeletionContracts(metadata) : undefined;
     if (preferences) {
       const prepared = yield* preparePricingPreferenceRepository(metadata, preferenceDeletions ? "deletions" : preferenceUpdates ? "updates" : "store");
       return { ...prepared, query: undefined, mutationQuery: undefined };
@@ -235,7 +239,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       const mutationEvents: CommerceModuleEvents = { createEventSubscriber: events.createSubscriber, registerEventSubscriber: events.registerSubscriber,
         dispatchMutationEvent: (event, args, shared, subscriber) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
           if ((!events.isSubscribed(shared) && (subscriber === undefined || !events.ownsSubscriber(subscriber))) ||
-            !(listUpdates ? ["afterCreate", "afterUpdate", "afterDelete"] : mutable || shipping ? ["afterDelete", "afterUpdate"] : ["afterDelete"]).includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+            !(listUpdates ? ["afterCreate", "afterUpdate", "afterDelete"] : mutable || shipping || listDeletions ? ["afterDelete", "afterUpdate"] : ["afterDelete"]).includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
           yield* events.dispatch(event, args, shared, subscriber);
         }))),
       };
@@ -348,8 +352,10 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         }))) : refuse,
       };
       const denied: DAL.RepositoryService = { ...repository, serialize: refuse, find: refuse, findAndCount: refuse, create: refuse, softDelete: refuse, restore: refuse, delete: refuse };
+      const listLifecycle = listDeletionContracts === undefined ? undefined : priceListLifecycleMethods(listDeletionContracts, bridge, events);
       const listRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
-        create: listUpdates ? refuse : (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
+        ...(listLifecycle === undefined ? {} : listLifecycle),
+        create: listUpdates || listDeletions ? refuse : (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
         find: listUpdate === undefined ? refuse : (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx,
           readPriceListUpdateRows(ctx, listUpdate.contracts, input))),
         upsertWithReplace: listUpdate === undefined ? refuse : (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx,
