@@ -3,6 +3,11 @@
   "version": "2.13.4",
   "private": true,
   "exports": {
+    "./common/deep-flat-map": {
+      "types": "./dist/common/deep-flat-map.d.ts",
+      "source": "./src/common/deep-flat-map.ts",
+      "default": "./dist/common/deep-flat-map.js"
+    },
     "./dal/json-assignment": {
       "types": "./dist/dal/json-assignment.d.ts",
       "source": "./src/dal/json-assignment.ts",

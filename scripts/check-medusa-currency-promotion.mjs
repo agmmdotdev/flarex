@@ -8,6 +8,8 @@ import { pricingRepositoryNormalizationSource, verifyNativePriceListPriceNormali
 import { verifyNativePriceListPriceUpdate, stripNativePriceListPriceUpdatePricingExtension } from "./check-medusa-price-list-price-update-source.mjs";
 import { variantItemPricingSourcePairs, verifyVariantItemPricingSource } from "./check-medusa-variant-item-pricing-source.mjs";
 import { cartPrerequisiteSourcePairs, verifyCartPrerequisiteSourceSelection, verifyPaymentJoinerFork } from "./check-medusa-cart-prerequisite-source.mjs";
+import { inventoryConfirmationSourcePairs, inventoryAvailabilitySourcePair, verifyInventoryConfirmationSourceSelection,
+  verifyInventoryConfirmationFork, verifyNativeInventoryAvailabilityExtraction, verifyInventoryConfirmationPreparationTest } from "./check-medusa-inventory-confirmation-source.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -361,6 +363,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, "packages/medusa-core-flows/src/sales-channel/steps/detach-products-from-sales-channels.ts"), "utf8"));
   const promotion = supplied;
   verifyCartPrerequisiteSourceSelection(promotion.files);
+  verifyInventoryConfirmationSourceSelection(promotion.files);
   const sums = readFileSync(path.join(root, "third_party/medusa/SOURCE_SHA256SUMS"));
   if (sha256(sums) !== "d20d4f16843cd4844b2f1c4807a5787488e0f08bc068bba9641926984f183017") {
     throw new Error("Changed pinned Medusa source manifest");
@@ -772,7 +775,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       throw new Error("Shipping Option extraction outside its exact pinned source pair");
     if (file.classification === "paymentJoinerFork" && !cartPrerequisiteSourcePairs.some(pair => pair.target === file.target && pair.classification === "paymentJoinerFork"))
       throw new Error("Payment joiner adaptation outside its selected native source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "authored"].includes(file.classification)) {
+    if (file.classification === "inventoryConfirmationFork" && !inventoryConfirmationSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
+      throw new Error("Inventory confirmation adaptation outside its selected native source pair");
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "inventoryConfirmationFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -885,6 +890,13 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
         verifyModuleTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "paymentJoinerFork")
         verifyPaymentJoinerFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
+      const inventoryConfirmationPair = inventoryConfirmationSourcePairs.find(pair => pair.target === file.target);
+      if (inventoryConfirmationPair?.classification === "inventoryConfirmationFork" || inventoryConfirmationPair?.target === "packages/medusa-utils/src/common/deep-flat-map.ts")
+        verifyInventoryConfirmationFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (inventoryConfirmationPair?.classification === "testPort")
+        verifyInventoryConfirmationPreparationTest(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
+      if (file.target === inventoryAvailabilitySourcePair.target)
+        verifyNativeInventoryAvailabilityExtraction(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "inventoryServiceFork")
         verifyInventoryReservationRestoreFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"),
           readFileSync(path.join(root, "packages/medusa-inventory/src/utils/inventory-level-quantity.ts"), "utf8"));
@@ -903,7 +915,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
         verifyModuleTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.target === "packages/medusa-region/src/static-manifest.ts")
         verifyRegionManifestFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
-      if (file.classification === "testPort" || file.classification === "testFixturePort") {
+      // The exact Inventory preparation pair above authenticates its complete
+      // typed program and relocated imports at the adapter's normal test path.
+      if ((file.classification === "testPort" || file.classification === "testFixturePort") && inventoryConfirmationPair?.classification !== "testPort") {
         if (!file.target.endsWith(".ts") || !(file.classification === "testPort" ? file.target.includes("/__tests__/") : file.target.includes("/integration-tests/__fixtures__/"))) throw new Error("Invalid test-port target");
         verifyTestPort(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), {
           currencyTimeout: file.target === "packages/medusa-currency/integration-tests/__tests__/currency-module-service.spec.ts",

@@ -798,6 +798,19 @@ Product creation reliability gate; independent native setup roots for this
 read fixture do not resolve it. Arbitrary Cart writes, hosted activation and
 scale remain outside this slice.
 
+The [Inventory confirmation branch](./preflight/160-native-cart-creation-workflow.md#implemented-inventory-confirmation-branch)
+is implemented as a private bounded read capability. It composes the genuine
+Variant/item pricing child and `confirmVariantInventoryWorkflow`, preserving
+full native quantity precision and read-only confirmation under the existing
+queued transaction owner. Its named 256-call child profile reuses 159's
+nine-logical-participant allowance and retains the default 64-event ceiling.
+The source/configuration and native arithmetic loading closure is independent
+of the prepared Cart context branch. Acceptance is complete on PGlite and
+ordinary-role PostgreSQL. The native method-error
+identity diagnostic gap and complete Cart gates remain explicit in the preflight.
+This capability admits no Cart writes, Country-ordering decision or resource
+allowance for the complete Cart root.
+
 The [native Cart creation preflight](./preflight/160-native-cart-creation-workflow.md)
 records the next connected objective. Its selected original-native cohort is
 characterized, including genuine local SystemTax, the fresh Cart's empty
@@ -807,7 +820,8 @@ corrections require explicit native business decisions and native inverse proofs
 The connected Cart, Customer, Tax, Promotion and complete Cart Link graph still
 need adapter owners. Complete capacity, remaining call-detail coverage and
 conditional provider/Locking lifecycles must be proved before choosing a
-profile. No Cart write or resource extension is admitted yet. The connected
+profile. No Cart write or resource extension for the complete Cart root is
+admitted yet. The connected
 [Promise/Cause preservation correction](./preflight/161-native-promise-cause-preservation.md)
 is implemented at the existing failure/lifetime owners; it does not repair
 native Cart business compensation or establish Cart admission.

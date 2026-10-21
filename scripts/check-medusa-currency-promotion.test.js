@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyPriceListCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
 import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
+import { verifyInventoryConfirmationPreparationTest } from "./check-medusa-inventory-confirmation-source.mjs";
 
 const root = process.cwd();
 const promotion = verifyCurrencyPromotion(root);
@@ -1298,10 +1299,14 @@ describe("exact Currency promotion", () => {
 
   it("retains the executable original compatibility scenarios and assertions", () => {
     const tests = promotion.files.filter((file) => file.classification === "testPort");
-    expect(tests).toHaveLength(21);
+    expect(tests).toHaveLength(22);
     for (const file of tests) {
       const original = file.source;
       if (!original) throw new Error("Missing original test source");
+      if (file.target === "packages/medusa-adapter/test/native-confirm-inventory-preparation.test.ts") {
+        expect(() => verifyInventoryConfirmationPreparationTest(readFileSync(original, "utf8"), readFileSync(file.target, "utf8"))).not.toThrow();
+        continue;
+      }
       expect(() => verifyTestPort(readFileSync(original, "utf8"), readFileSync(file.target, "utf8"), {
         currencyTimeout: file.target.endsWith("currency-module-service.spec.ts"),
         salesChannelTimeout: file.target.endsWith("sales-channel-module.spec.ts"),

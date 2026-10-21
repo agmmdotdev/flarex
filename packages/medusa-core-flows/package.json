@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./cart/confirm-inventory-step": "./src/cart/steps/confirm-inventory.ts",
+    "./cart/prepare-confirm-inventory-input": "./src/cart/utils/prepare-confirm-inventory-input.ts",
+    "./cart/confirm-variant-inventory": "./src/cart/workflows/confirm-variant-inventory.ts",
     "./cart/variant-pricing-fields": "./src/cart/utils/fields.ts",
     "./shipping-profile/delete-shipping-profile": "./src/shipping-profile/workflows/delete-shipping-profile.ts",
     "./shipping-profile/delete-shipping-profile-step": "./src/shipping-profile/steps/delete-shipping-profile.ts",

@@ -4,6 +4,11 @@
   "private": true,
   "license": "MIT",
   "exports": {
+    "./inventory-level-availability": {
+      "types": "./dist/utils/inventory-level-availability.d.ts",
+      "source": "./src/utils/inventory-level-availability.ts",
+      "default": "./dist/utils/inventory-level-availability.js"
+    },
     "./models": {
       "types": "./dist/models/index.d.ts",
       "source": "./src/models/index.ts",

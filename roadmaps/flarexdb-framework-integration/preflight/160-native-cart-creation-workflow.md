@@ -33,7 +33,64 @@ The executing reference is Medusa 2.13.4, commit
 `third_party/medusa/upstream/packages/core/core-flows/src/cart/workflows/create-carts.ts`.
 The accepted Medusa boundary, shared logical storage and existing workflow
 transaction owners remain authoritative. This plan admits no Cart writes or
-new resource allowance. Product export and chunked file import remain deferred.
+resource allowance for the complete Cart root. Selected child profiles remain
+separate. Product export and chunked file import remain deferred.
+
+## Implemented Inventory confirmation branch
+
+The private bounded read capability composes the genuine Variant/item pricing
+child with `confirmVariantInventoryWorkflow`. The complete checked Variant graph supplies
+rich Inventory Links, active Levels, Stock Locations and Channel membership.
+The original cart items, rather than the calculated line-item output, supply
+confirmation quantities. Variant IDs are derived from those same input items.
+
+The named Inventory confirmation capability invokes the executing native
+module and Level service. Its repository translates the native active
+Item/Location selection through the existing logical query owner, validates
+complete DML rows and raw numeric companions, and delegates aggregation to the
+exact extracted native availability arithmetic. Call-local receipts bind both
+read cohorts and the returned boolean. Writes and events remain denied.
+The graph and confirmation commands share one Inventory participant and storage
+binding under the existing queued transaction owner.
+
+Native confirmation compares the full arithmetic quantity. Its argument
+conversion therefore preserves native decimal precision independently of the
+existing 20-digit storage encoder; it does not round through a JavaScript
+number or persisted raw companion. Only the composed native resource converts
+genuine native arithmetic objects before the existing JSON command boundary.
+
+The branch preserves native empty/unmanaged returns, Channel guards, linked backorders,
+the shared Location union, preference for individually covering Locations,
+summation across selected Locations and independent duplicate-line checks.
+Incoming quantities do not contribute. Empty Location lists return native zero
+before Item retrieval. Genuine Reservation creation must establish reserved
+demand in fixtures: native Level creation/update discards a supplied
+`reserved_quantity` input.
+
+The bounded graph has at most four distinct Items and unique Variant/Item
+pairs. Its distinct maximum is four Variants, eight rich Links, sixteen Levels,
+four Locations, four Channels and eight Channel/Location Links. Four repeated
+cart lines for one Variant linked to all four Items make sixteen confirmations.
+Two selected Variants linked to all four Items combine eight selected Links
+with sixteen confirmations across four original lines and Pricing contexts.
+Original native characterization confirms both shapes, decimal boundaries and
+the read-only forward/cancellation behavior. Standalone confirmation of a
+deleted linked Item rejects with `not_found`; it is not zero availability.
+In the connected branch, native line-item pricing runs first. Its
+`requires_shipping` scan can throw on an omitted Inventory target, or
+short-circuit on an earlier shipping Item before reaching that target. Preserve
+this evaluation order rather than substituting a confirmation error.
+The saved native observer retains that error's data and the SDK error identity,
+but does not establish the method rejection object's identity across that edge.
+The implemented branch selects a named 256-call profile through the existing
+identity-bound host API. It reuses 159's nine-logical-participant allowance;
+events retain the default 64-message limit and other resource limits remain
+unchanged. The original 64-call refusal remains a separate witness. Its exact
+source/configuration closure and default native arithmetic loading are
+independent of the prepared Cart context branch. The bounded capability has
+PGlite and ordinary-role PostgreSQL acceptance.
+This branch admits no Cart writes, Country-ordering choice or resource
+allowance for the complete Cart root.
 
 ## Connected native closure
 
@@ -48,7 +105,7 @@ Cart value. Do not assume that value equals a subsequent persisted Cart read.
 | Owner | Existing reuse and required work |
 | --- | --- |
 | Product and Pricing | Reuse 159's genuine native calculation and complete graph. |
-| Inventory | Reuse stored owners; admit native confirmation, its Location projection, Channel and required/available quantity checks, and backorder behavior. |
+| Inventory | Reuse the implemented bounded confirmation child, its Location projection, Channel and required/available quantity checks, and native backorder behavior. Complete Cart-root composition remains separate. |
 | Store, Sales Channel and Region | Extend named reads for default-channel selection, native channel retrieval, wildcard fields and Countries. |
 | Cart | Add its nine native models, persistence, line items, tax lines, adjustments, totals and raw decimal presentation. |
 | Customer | Add the native owner, guest/account/email selection, creation and genuine compensating deletion. |

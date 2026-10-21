@@ -53,6 +53,8 @@ export const productVariantPricingResources = Object.freeze({ ...defaultCommerce
 export const variantItemPricingParticipantLimit = 9;
 /** Complete bounded read graph and four native Pricing contexts. */
 export const variantItemPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
+/** Complete native Pricing graph followed by sixteen Inventory confirmations. */
+export const variantInventoryConfirmationResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
 /** Complete finite Variant graph, including Inventory children and both Link families. */
 export const productVariantInventoryResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
 /** Existing-variant edits with native base-price replacement and Link dismissal. */
