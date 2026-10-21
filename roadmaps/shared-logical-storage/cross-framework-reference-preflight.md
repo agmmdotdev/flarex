@@ -192,6 +192,50 @@ the private trusted-principal fixture does not establish them for public callers
 
 ## Reads, Authorization And Pending State
 
+### Implemented Private Point-Read Profile
+
+The [connected authorized-read scenarios](../../packages/flarex-backend/test/mixedMutationPayloadReferenceReads.workerd.test.ts)
+select a bounded trusted-host grant for one Payload collection and explicit
+source/target IDs. The shared private read guard authenticates the native source,
+method, finite attempt scope and signed grant's principal digest before lending
+the native operation. These grants are trusted composition input, never
+application arguments or evidence supplied by a picker.
+The canonical grant, native code revision and Payload content identity are bound
+into the admitted participant profile revision. Existing source-bundle and receipt
+checks therefore keep replay attached to the exact selection; a differently
+pinned grant cannot borrow the original admission.
+
+Payload executes its real Local API read access with `overrideAccess: false`.
+The selected native point-ID predicate receives a request-local opaque token;
+request arguments cannot supply user/context/access overrides. Its compiler-owned
+configuration and native field/result handling remain intact. Product reads use
+the existing native `retrieve` operation behind the explicit target-ID grant.
+The connected profile admits only these two read methods, not discovery or CMS/
+commerce mutations. The article's authorized scalar reference and the separately
+authorized Product result are not a population bridge or a copied Product record.
+
+Both reads retain the finite root's normal snapshot and exact dependencies.
+Application consumption may publish through the existing outer owner; a changed
+source or target must conflict before that publication and retry from a fresh
+root. Native identities resolve in the admitted shop even when two shops on the
+same storage use the same Product key.
+
+Hidden, missing, soft-deleted, foreign and forged-input reads produce the same
+opaque Worker boundary failure. Native causes remain with the trusted RPC owner.
+An admitted read failure poisons the root, including when application code catches
+the rejection; this profile does not convert denial into a successful null result.
+Pre-admission method refusal invokes no native mutation. Trusted fixture/default
+profiles retain their separate contracts; this is not universal authorization for
+all application database reads or a public serving capability.
+
+The grant is a fixed selection for the attempt. Dynamic permission revocation,
+authorization races on save, general assignment/retention permissions, native
+access predicate trees, drafts/versions, pending new-Product construction,
+authorized reverse traversal and general query/reactive composition remain gated.
+No public API syntax is selected here.
+
+### Remaining Read And Composition Contract
+
 Use bounded explicit point reads for forward resolution and the installed
 leading-reference index for reverse membership. Reverse reads have deterministic
 keyset continuation, scope/schema-bound cursors and separate per-page and total
@@ -227,8 +271,8 @@ outcome. No SQL transaction spans untrusted execution or remote work.
 
 | Gate | Connected outcome and exit criteria |
 | --- | --- |
-| CXR1: policy and authenticated endpoints | Retention/hard-delete policy and exact nullable identity admission are implemented for the selected private profile. Exact principal/read outcomes and the full supported/refused profile matrix remain gated. Missing, wrong-owner, wrong-table and unsupported definitions must refuse before capability issuance. No Medusa edit occurs before the ownership checkpoint. |
-| CXR2: article-to-product mutation and reads | The first private native mutation/explicit point-read vertical uses one finite root and shared lifecycle enforcement. Selected distinct-connection scope-lock races and record-mutation failure/retry/recovery are covered below. Authorized reverse reads, full permission checks, pending new-Product construction and permission/binding-change races remain pending. Preserve standalone endpoint-write safety and existing Payload-to-Payload/delete-preference behavior. This vertical does not close the broader gate. |
+| CXR1: policy and authenticated endpoints | Retention/hard-delete policy and exact nullable identity admission are implemented for the selected private profile. The bounded private point-read grant checks real scope/principal/source/method admission and opaque read refusals. General principal permissions and the full supported/refused profile matrix remain gated. Missing, wrong-owner, wrong-table and unsupported definitions must refuse before capability issuance. No Medusa edit occurs before the ownership checkpoint. |
+| CXR2: article-to-product mutation and reads | The private native mutation and authorized explicit point-read verticals use one finite root and shared lifecycle/dependency owners. Selected distinct-connection scope-lock races and record-mutation failure/retry/recovery are covered. Authorized reverse reads, general assignment/retention permissions, pending new-Product construction and permission/binding-change races remain pending. Preserve standalone endpoint-write safety and existing Payload-to-Payload/delete-preference behavior. This vertical does not close the broader gate. |
 | CXR3: three-owner and opposite-direction proof | Add a real compiler-admitted Medusa-owned extension referencing Payload or Application, through its owner's native operation path. Choose the extension with the Medusa owner; no fixture-only field or direct generic patch of commerce rows. Prove Application-owned references/consumption and all relevant target transitions with explicitly selected source-lifecycle rules. Native rich Link behavior remains separately characterized. |
 | CXR4: dependency activation and recovery | Refuse incompatible endpoint/policy candidates without changing active authority/data. Prove fresh binding/build/readiness, stale capability refusal, admitted rebinding, recovery and concurrent-write safeguards. General populated-data conversions and ownership transfers remain deferred. |
 

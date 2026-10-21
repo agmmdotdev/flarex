@@ -1,4 +1,5 @@
 /** Trusted execution consumer surface; construction and issuer state stay private. */
+export { preparePrivateParticipantReadAccess, PrivateReadPrincipal, PrivateReadIds, PrivateReadAccessError } from "./privateReadAccess";
 export type {
   SessionJournalPointOperationKindV1,
   SessionJournalIndexedQueryOperationV1,

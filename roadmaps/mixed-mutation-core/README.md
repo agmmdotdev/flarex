@@ -34,7 +34,9 @@ retained edges, keeps references across soft deletion and restricts hard deletio
 including already soft-deleted targets. Selected ordinary-role PostgreSQL
 barriers cover assignment/clear versus native Product deletion in both lock
 orders; connected failure/cancellation/retry and lost-COMMIT recovery retain
-the same owner boundaries. General authorized reverse traversal,
+the same owner boundaries. A bounded private point-read profile binds native
+Payload access and Product reads to the admitted scope/principal and trusted ID
+grants, retaining exact dependencies and opaque RPC refusals. General authorized reverse traversal,
 new-Product pending construction and the broader cross-framework proof remain
 pending. This selects no public API syntax or additional mixed operation allowlist.
 

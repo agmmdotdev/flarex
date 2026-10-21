@@ -15,10 +15,14 @@ interface PayloadNativeInstrumentation extends PayloadOperationInstrumentation {
   readonly hooks: NonNullable<CollectionConfig["hooks"]>;
   readonly access?: NonNullable<CollectionConfig["access"]>;
 }
+/** Source-private policy selected by the bounded reference-read constructor. */
+interface PayloadNativeReadAccess {
+  readonly read: NonNullable<NonNullable<CollectionConfig["access"]>["read"]>;
+}
 
 /** Multiple profiles coexist; Scope owns each instance, not a singleton Context. */
 export const makePayloadNative = Effect.fn("PayloadAdapter.makeNative")(function* (
-  compiled: RuntimeConfiguration, instrumentation?: PayloadNativeInstrumentation,
+  compiled: RuntimeConfiguration, instrumentation?: PayloadNativeInstrumentation, readAccess?: PayloadNativeReadAccess,
 ) {
   const profile = compiled.configuration.profile;
   const parentScope = yield* Effect.scope;
@@ -31,6 +35,11 @@ export const makePayloadNative = Effect.fn("PayloadAdapter.makeNative")(function
   if (instrumentation !== undefined) for (const collection of native) {
     collection.hooks = instrumentation.hooks;
     if (instrumentation.access !== undefined) collection.access = instrumentation.access;
+  }
+  if (readAccess !== undefined) {
+    if (instrumentation !== undefined) return yield* Effect.fail(cmsError("unsupportedProfile"));
+    for (const collection of native) collection.access = { create: () => false, update: () => false,
+      delete: () => false, read: readAccess.read };
   }
   const config = yield* buildPayloadConfiguration(native, bridge);
   const slugs = config.collections.map(collection => collection.slug).toSorted();

@@ -30,7 +30,9 @@ import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
 import { requirePointMutationArgumentSemanticSizeV1 } from
   "flarex-protocol/point-mutation-start";
-import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
+import { projectScopeIdUuidV1, type ScopeId } from "flarex-protocol/storage-authority";
+import { preparePrivateParticipantReadAccess } from "@flarex/persistence-postgres/internal/session-journal";
+import type { PointMutationJournalRpcSessionV1 } from "../../../src/mutation/journal/pointMutationJournalRpc";
 import { decodeCanonicalFlarexValueEvidenceV1, normalizeFlarexValueV1 } from "flarex-protocol/value";
 import { decodeAppDocumentIdentityV1, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import { fxAppRowRevisions } from "../../../../persistence-postgres/src/database/schema";
@@ -175,7 +177,7 @@ import { prepareLogicalDocumentSourceAdmission } from
   "@flarex/persistence-postgres/internal/logical-document-admission";
 import { compilePayloadCollections } from "@flarex/payload-adapter/internal/collections";
 import type { LogicalSchemaExtension } from "flarex-protocol/internal/logical-schema-candidate";
-import { makePayloadRuntime, type PayloadAttemptRuntime } from "@flarex/payload-adapter/internal/runtime";
+import { makePayloadRuntime, makePayloadReferenceReadRuntime, type PayloadAttemptRuntime } from "@flarex/payload-adapter/internal/runtime";
 import { projectPayloadParticipantFailure } from "@flarex/payload-adapter/internal/participant";
 import {
   mixedPayloadPostsCollections,
@@ -245,6 +247,9 @@ export interface MixedMutationProductFixtureHooks {
   readonly beforeProductClose?: (method: string, borrowed: Effect.Success<ReturnType<typeof makeBorrowedLogicalAttempt>>) =>
     Effect.Effect<void, CommerceTransactionError>;
   readonly afterPayloadBeforeAck?: (method: string, result: Json) => Effect.Effect<void, CmsTransactionError>;
+  /** The connected host supplies its actual opaque RPC boundary for access proofs. */
+  readonly makeReadRpcSession?: (journal: PointMutationOccBoundJournalV1) => PointMutationJournalRpcSessionV1;
+  readonly onExecutionResponse?: (response: unknown) => void;
   readonly afterStoreAckBeforeBridgeReply?: (method: string, result: Json) => void;
   readonly observeWorkflowSql?: (sql: string) => Promise<void> | void;
   readonly observeSql?: (phase: string, sql: string) => Promise<void> | void;
@@ -318,7 +323,8 @@ export interface MixedMutationProductFixture {
   readonly activateCompetingFiniteRequest: (suffix: string) => Effect.Effect<AuthenticatedFiniteInitialEntry["activation"], import("../../../src/mutation/session/pointMutationSessionActivation").ApplicationPointMutationFiniteStartError | PreparedHostRuntimeError>;
   /** A distinct genuine attempt over this fixture's retained context and seed. */
   readonly openCompetingFiniteFixture: (suffix: string,
-    options?: Pick<MixedMutationProductFixtureHooks, "finiteGrantLifetimeMilliseconds">) => Promise<MixedMutationProductFixture>;
+    options?: Pick<MixedMutationProductFixtureHooks, "finiteGrantLifetimeMilliseconds"> &
+      Readonly<{ privateReferenceRead?: PrivateReferenceReadFixtureSelection }>) => Promise<MixedMutationProductFixture>;
   readonly prepared: Effect.Success<ReturnType<typeof prepareLogicalRelationalAdmission>>;
   readonly binding: Effect.Success<ReturnType<typeof preparePrivateProductAttempt>>;
   readonly productProfileRevision: string;
@@ -411,6 +417,8 @@ export interface MixedMutationProductFixture {
   readonly close: () => Promise<void>;
 }
 
+type PrivateReferenceReadFixtureSelection = Readonly<{ articleIds: readonly string[]; productIds: readonly string[];
+  scopeId?: ScopeId; principalDigest?: string }>;
 type MixedMutationProductFixtureInput = Readonly<{
   executionHost?: MixedMutationExecutionHost | undefined;
   postgresEndpoints?: PostgresFixtureEndpoints;
@@ -422,6 +430,7 @@ type MixedMutationProductFixtureInput = Readonly<{
   payloadCollections?: unknown;
   extensions?: readonly LogicalSchemaExtension[];
   payloadPreferences?: true;
+  privateReferenceRead?: PrivateReferenceReadFixtureSelection;
   applicationSource?: (seed: ProductSeed["seed"], payloadParticipant: string | undefined) => string;
 }> & (Readonly<{ workflow: true; payloadProfile: MixedPayloadProfileKind;
   workflowIds?: Readonly<{ variantId: string; priceSetId: string }> }> |
@@ -1032,8 +1041,8 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     revision, store, pgTarget } = context;
   const { sourceCatalog, prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections } = graph;
   const { seed, baseline } = seedGraph;
-  const payloadMethods = ["payload-create", "payload-update", "payload-findByID",
-    ...(payloadPreferences === undefined ? [] : ["payload-delete"])];
+  const payloadMethods = input.privateReferenceRead === undefined ? ["payload-create", "payload-update", "payload-findByID",
+    ...(payloadPreferences === undefined ? [] : ["payload-delete"])] : ["payload-findByID"];
   const provideDiagnostic = <A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
     performance?.diagnostics === undefined ? withExecutionDiagnosticDefaults(work) : performance.diagnostics.provide(work);
   const runEffect = async <A, E>(work: Effect.Effect<A, E>): Promise<A> => {
@@ -1118,6 +1127,28 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     const payloadRuntimeHistory: MixedPayloadConformanceRuntime[] = [];
     const payloadRuntimes = new WeakMap<SessionJournalAttempt, PayloadAttemptRuntime>();
     const payloadScopes = new Set<Scope.Scope>();
+    const read = input.privateReferenceRead;
+    const referencePrincipal = read === undefined ? undefined : {
+      scopeId: read.scopeId ?? application.authority.scopeId,
+      principalDigest: read.principalDigest ?? Buffer.from(activationInput.evidence.identityAccessPolicySha256).toString("hex"),
+    };
+    let referencePayload: Effect.Success<ReturnType<typeof makePayloadReferenceReadRuntime>> | undefined;
+    let referenceProduct: Effect.Success<ReturnType<typeof preparePrivateParticipantReadAccess>> | undefined;
+    if (read !== undefined && referencePrincipal !== undefined) {
+      if (input.payloadProfile !== "ordinary" || input.workflow === true || compiledPayload === undefined ||
+        selectedPayload === undefined || payloadProfileRevision === undefined)
+        throw new Error("Private reference reads require the selected ordinary profile");
+      const nativeScope = await runEffect(Scope.make());
+      cleanup.push(() => runEffect(Scope.close(nativeScope, Exit.void)));
+      referencePayload = await runEffect(Scope.provide(nativeScope)(makePayloadReferenceReadRuntime(compiledPayload, {
+        principal: referencePrincipal, participant: selectedPayload.profile.participant, nativeProfileRevision: payloadProfileRevision,
+        collection: "articles", ids: read.articleIds })));
+      referenceProduct = await runEffect(preparePrivateParticipantReadAccess({ principal: referencePrincipal,
+        participant: "medusa.product", sourceKey: "medusa.product", nativeProfileRevision: revision,
+        method: "retrieve", ids: read.productIds }));
+    }
+    const productReadRevision = referenceProduct?.profileRevision ?? revision;
+    const payloadReadRevision = referencePayload?.profileRevision ?? payloadProfileRevision;
     const ensurePayloadRuntime = Effect.fn("MixedFixture.ensurePayloadRuntime")(function* (attemptHandle: SessionJournalAttempt) {
       const existing = payloadRuntimes.get(attemptHandle);
       if (existing !== undefined) return existing;
@@ -1125,7 +1156,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
         return yield* Effect.fail(new CmsTransactionError({ reason: "invalidAuthority" }));
       const scope = yield* Scope.make();
       const construction: Effect.Effect<MixedPayloadConformanceRuntime | PayloadAttemptRuntime,
-        CmsTransactionError, Scope.Scope> = retainedPayload.makeAttempt(attemptHandle);
+        CmsTransactionError, Scope.Scope> = (referencePayload ?? retainedPayload).makeAttempt(attemptHandle);
       const constructed = yield* Scope.provide(scope)(construction).pipe(
         Effect.onError(() => Scope.close(scope, Exit.succeed(undefined))));
       const runtime = "runtime" in constructed ? constructed.runtime : constructed;
@@ -1153,7 +1184,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     })));
     const makeJournalParticipants = (currentGraph: typeof graph): readonly PointMutationJournalAdmittedParticipantV1[] => {
       const { prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections } = currentGraph;
-      return [{
+      const participants: readonly PointMutationJournalAdmittedParticipantV1[] = [{
         participant: "medusa.product",
         admission: { participant: "medusa.product",
           operationMethods: ["update", "retrieve", "listByHandle"],
@@ -1279,6 +1310,16 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
             }),
             Effect.mapError(mapProductInvocationFailure)),
       }])];
+      if (referenceProduct === undefined || referencePayload === undefined) return participants;
+      const productGrant = referenceProduct;
+      return participants.map(participant => {
+        const method = participant.participant === "medusa.product" ? "retrieve" : "payload-findByID";
+        return { ...participant, admission: { ...participant.admission, operationMethods: [method],
+          profileRevision: participant.participant === "medusa.product" ? productReadRevision : referencePayload.profileRevision,
+          sources: participant.admission.sources.map(source => ({ ...source, methods: [method] })) },
+          borrow: participant.participant !== "medusa.product" ? participant.borrow : borrowedInput =>
+            productGrant.bind(participant.borrow)(borrowedInput) };
+      });
     };
     const makeJournal = (currentGraph: typeof graph) => createPointMutationJournalV1(
       journalStore, executionClaims.admission, syscallValidator, makeJournalParticipants(currentGraph), "finiteRoot");
@@ -1349,7 +1390,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     let updateRequest: Parameters<NonNullable<BoundJournal["runAdmittedOperation"]>>[0] | undefined;
     const admittedRequests = new Map<string, Parameters<NonNullable<BoundJournal["runAdmittedOperation"]>>[0]>();
     const bridgeFailures: string[] = [];
-    const makeBridge = (runtimeJournal: PointMutationOccBoundJournalV1) => {
+    const makeBridge = (runtimeJournal: PointMutationOccBoundJournalV1, rpc?: PointMutationJournalRpcSessionV1) => {
       const tableHandles = new Map<string, Effect.Success<ReturnType<typeof bound.resolvePointTable>>>();
       return async (messageInput: unknown): Promise<unknown> => {
       try {
@@ -1399,7 +1440,8 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
           if (encoded.operation.operation === "update") updateRequest = admittedInput;
           const runtimeAdmitted = runtimeJournal.runAdmittedOperation;
           if (runtimeAdmitted === undefined) throw new Error("Missing runtime admitted participant");
-          const runParticipant = () => runEffect(runtimeAdmitted(admittedInput));
+          const runParticipant = () => rpc === undefined ? runEffect(runtimeAdmitted(admittedInput)) :
+            rpc.target.runAdmittedFrameworkOperation(admittedInput.syscallSequence, message.frame);
           const admittedValue = await tracePhase(`${encoded.operation.participant}:${encoded.operation.operation}`, runParticipant);
           value = admittedValue;
           input.hooks?.afterStoreAckBeforeBridgeReply?.(encoded.operation.operation, admittedValue);
@@ -1414,7 +1456,10 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
   async function runExecution(source?: string,
     runnerInput?: PointMutationOccRuntimeNeutralRunnerInputV1): Promise<unknown> {
     runnerInput ??= authenticatedInitialEntry.runnerInput;
-    const bridge = makeBridge(runnerInput?.journal ?? bound);
+    const runtimeJournal = runnerInput?.journal ?? bound;
+    const rpc = input.privateReferenceRead === undefined ? undefined : input.hooks?.makeReadRpcSession?.(runtimeJournal);
+    if (input.privateReferenceRead !== undefined && rpc === undefined) throw new Error("Private read proof requires the real RPC boundary");
+    const bridge = makeBridge(runtimeJournal, rpc);
     const executionTime = runnerInput?.context.executionTime ?? Date.UTC(2026, 6, 24);
     const argumentsJson = runnerInput?.argumentsJson ?? activationInput.evidence.validatedArgsJson;
     const normalizedArguments = normalizeFlarexValueV1(argumentsJson);
@@ -1506,7 +1551,12 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     const execution = await execute({
       source: applicationSource, request, executionModule, executionTime,
       bridge, trace: performance?.trace, onReady: performance?.onWorkerReady,
+    }).finally(async () => {
+      if (rpc === undefined) return;
+      const closed = await runEffectExit(rpc.closeAndDrain);
+      if (Exit.isFailure(closed)) bridgeFailures.push(`Trusted RPC close: ${inspect(closed.cause, { depth: 10 })}`);
     });
+    input.hooks?.onExecutionResponse?.(execution);
     if (typeof execution === "object" && execution !== null && "kind" in execution &&
       execution.kind === "error") {
       const failure = new Error(`Native runtime failed: ${JSON.stringify(execution)}\n${bridgeFailures.join("\n")}`);
@@ -1528,12 +1578,12 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     ...(payloadAuthority === undefined ? [] : [payloadAuthority]), ...workflowAuthorities]);
   const logicalOperationProfiles = Object.freeze([{
     participant: "medusa.product", operationMethods: ["update", "retrieve", "listByHandle"],
-    profileRevision: revision, sources: [participantAuthority],
+    profileRevision: productReadRevision, sources: [participantAuthority],
   }, ...(payloadAuthority === undefined || selectedPayload === undefined ||
     payloadProfileRevision === undefined ? [] : [{
     participant: selectedPayload.profile.participant,
     operationMethods: payloadMethods,
-    profileRevision: payloadProfileRevision, sources: [payloadAuthority],
+    profileRevision: payloadReadRevision!, sources: [payloadAuthority],
   }]), ...(workflowBinding === undefined ? [] : [{
     participant: "medusa.workflow", operationMethods: ["run"],
     profileRevision: workflowBinding.profileRevision, sources: workflowAuthorities,
@@ -1976,9 +2026,11 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
         activated => Effect.succeed(inspectActivatedPointMutationSessionV1(activated)));
     })),
     openCompetingFiniteFixture: (suffix, options) => createMixedMutationAttemptFixture({ ...input, suffix,
-      ...(options === undefined ? {} : { hooks: { ...input.hooks, ...options } }),
+      ...(options?.finiteGrantLifetimeMilliseconds === undefined ? {} : { hooks: { ...input.hooks,
+        finiteGrantLifetimeMilliseconds: options.finiteGrantLifetimeMilliseconds } }),
+      ...(options?.privateReferenceRead === undefined ? {} : { privateReferenceRead: options.privateReferenceRead }),
     }, context, seedGraph, false),
-    productProfileRevision: revision,
+    productProfileRevision: productReadRevision,
     ...(workflowBinding === undefined ? {} : { workflowBinding }),
     schemaVersionId, logicalSchemaVersionId,
     eventPolicy, eventGroup, store, executionClaims, journal, attempt, bound, runAdmitted, selector,
