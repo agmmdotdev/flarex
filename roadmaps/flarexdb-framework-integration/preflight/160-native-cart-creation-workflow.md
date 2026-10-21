@@ -4,8 +4,8 @@
 
 Status: the selected original-native cohort is characterized after the bounded
 [Variant and item pricing workflow](./159-native-variant-item-price-calculation.md).
-The module-owner plan is prepared. Native compensation corrections remain
-proposals requiring an explicit business decision. Maximum-graph evidence,
+The module-owner plan is prepared. Native compensation and Promotion helper
+corrections remain proposals requiring an explicit business decision. Maximum-graph evidence,
 remaining call-detail coverage, native inverse concurrency/ownership proofs,
 resource measurement and adapter admission remain pending.
 
@@ -93,6 +93,49 @@ Verify the actual nested SDK context: acquire/release steps can skip before
 Locking resolution when a parent idempotency key exists. Record actual
 translation flags, hook registrations and optional Caching resolution. Do not
 remove these paths from the native fixture to simplify the dependency graph.
+
+## Promotion prefilter compatibility boundary
+
+The direct original-native service characterization separates automatic
+candidate selection, the subsequent active-Promotion query and final action
+calculation. Candidate IDs and final action membership are different contracts.
+For example, `ne` can retain a candidate that final Rule evaluation rejects.
+
+The native internal-service default orders the prefilter by its sole primary
+key, `id ASC`. Neither this call nor the active-Promotion call supplies a row
+limit. The latter explicitly orders by Application Method value descending;
+the current cohort does not establish a portable tie policy. Complete bounded
+selection must refuse overflow rather than silently return a page. Selection
+receipts must authenticate actual returned identities, not every observed row.
+
+| Native behavior | Required portable disposition |
+| --- | --- |
+| With more than ten context attributes, the helper consults all active Rule attributes before pruning context. | Preserve that catalogue separately from the selected automatic or finally active Promotion cohort. |
+| Raw global, target and buy joins do not filter deleted Rule/Value history. | Ordinary active-only relation population is insufficient; preserve actual pivot membership and historical rows. |
+| Equality compares original text; numeric operators cast stored text in PostgreSQL. | Keep lexical spellings distinct for equality and lexical guards; PostgreSQL owns numeric precision, accepted spellings and cast errors. |
+| Active status and campaign filtering follow automatic candidate selection. | Do not restrict the earlier candidate cohort to final active results. |
+| Explicit `prevent_auto_promotions` skips automatic selection while supplied codes still execute. | Preserve native branch selection and final action evaluation. |
+
+Retained attributes with empty value arrays can generate malformed `AND ()`
+and a native `42601` error. Context strings such as `Infinity`, `-Infinity` and
+an overflowing exponent become nonfinite numeric thresholds and produce the
+native `invalid_data` error that the `infinity` column does not exist. Stored
+invalid numeric text and an oversized stored exponent separately preserve
+`22P02` and `22003`. Omitted item arrays can instead fail final native context
+validation after candidate selection has succeeded; that is not a SQL failure.
+
+The separate helper proposal filters nonfinite context thresholds and uses
+`FALSE` for an empty generated disjunction. It leaves stored Rule casts, lexical
+matching and all other clauses unchanged. These changes alter native failures
+and require an explicit business decision; the original helper remains intact.
+
+The [shared numeric-cast predicate](../../shared-logical-storage/68-postgres-relational-predicates.md)
+provides complete-Boolean PostgreSQL evaluation through the existing trusted
+capture owner. It does not establish equivalence between native correlated
+`UNION`/`NOT EXISTS` joins and separate indexed Rule/Value reads. Error reachability
+for off-cohort or already-excluded parents, multiple Values per Rule, genuine
+Cart metadata reachability and downstream ordering still require their focused
+native witnesses before choosing the persistence seam or admitting Promotion.
 
 ## Confirmed native behavior
 
@@ -234,9 +277,28 @@ timestamps and complete matching content do not by themselves rule out physical
 ID reuse or an exact intervening replacement. Generation authorization and its
 supported lifetime must be established at the actual owner before implementing
 the proposed inverse; a copied preimage or value-history proof is insufficient.
-The existing scope-exclusive transaction, complete indexed reference checks and
-authenticated retained-row replay are reuse candidates. Source inspection has
-not established a need for another core transaction or generation API.
+The existing trusted per-call activity preserves canonical mutation before/after
+values and observed rows, including the internal `_id`. Ordinary insertion
+allocates a fresh internal identity; updates, soft deletion and restoration
+retain it. That evidence can distinguish physical deletion followed by identical
+native values, but native relational results deliberately omit the internal
+fields. No current bridge authenticates an earlier workflow occurrence's
+insertion identity to its retained native compensator. A map keyed only by
+native IDs or a caller-supplied JSON `_id` does not establish that ownership.
+
+Retained-row replay authenticates historical values and can intentionally
+restore them into a fresh destination. It does not prove that the destination
+is the original insertion. Scope exclusion and complete indexed reference
+checks retain their separate roles; neither proves continuity since the forward
+operation. The framework-owned receipt bridge must establish scope, occurrence,
+retry and lifetime bindings before those existing mechanisms can authorize an
+inverse. A new core transaction or generation API is not yet demonstrated
+necessary. Native ORM ownership still requires its own proof.
+
+Internal insertion identity alone also does not detect every intervening Link
+update: conflict upsert can replace native Link content while retaining the
+logical insertion. The proposed Link inverse must prove its resulting
+generation and supersession rules separately from physical-recreation checks.
 
 ## Implementation sequence after the native decision
 
