@@ -346,6 +346,14 @@ capabilities for these proofs; test fixtures may not emulate missing admission.
 
 ## Early Cross-Framework Proof
 
+The [private reference preflight](./cross-framework-reference-preflight.md)
+proposes the backend sequence: an optional Payload article-to-Product reference
+with Application participation, then a real Medusa-originating extension and
+dependency activation/recovery proof. Its retained-reference soft-delete policy
+requires a shared-owner correction and remains proposed. Existing reference
+primitives do not establish this capability. Public API design and the other
+session's Medusa implementation are outside this documentation slice.
+
 The [unified developer-contract proposal](../flarexdb-framework-integration/preflight/unified-application-cms-commerce-developer-contract.md)
 uses an editorial article, commerce product and Application campaign to explain
 the desired connected backend experience. Explicit CMS/commerce operations do

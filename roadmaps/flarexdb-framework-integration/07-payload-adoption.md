@@ -37,9 +37,16 @@ validation and outer-only settlement replace the fixed `posts` restriction.
 The [optional-one mixed relationship slice](../mixed-mutation-core/payload-relationships-attempt-preflight.md)
 adds compiler-owned cross-collection references and native depth-one population
 against that pending root. Shared publication enforces final target liveness
-and indexed restrict-on-delete. Borrowed delete/preference cleanup, find/count,
-many/joins, cross-framework references and public syntax retain separate gates;
-the direct Local API profile remains distinct.
+and indexed restrict-on-delete. The [native mixed delete/preference slice](../mixed-mutation-core/payload-delete-preferences-preflight.md)
+now connects delete and exact cleanup to finite outer publication. Borrowed
+find/count, many/joins, cross-framework references and public syntax retain
+separate gates; the direct Local API profile remains distinct.
+
+The [private cross-framework reference preflight](../shared-logical-storage/cross-framework-reference-preflight.md)
+proposes optional article-to-Product identity admission, explicit private
+composition and shared lifecycle/integrity work. Its policy and implementation
+remain pending; native Payload population does not yet resolve commerce targets.
+It does not design public APIs or expand the other session's Medusa scope.
 
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)
 is a required shared-storage integration gate: use real Payload Local API calls

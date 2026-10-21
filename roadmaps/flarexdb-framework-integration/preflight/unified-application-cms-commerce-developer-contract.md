@@ -29,6 +29,10 @@ outside this proposal. The active Medusa integration keeps its existing scope.
   generated references, typing and developer facades.
 - [The shared-storage roadmap](../../shared-logical-storage/README.md#early-cross-framework-proof)
   owns the required connected proof and remaining storage gates.
+- [The private reference preflight](../../shared-logical-storage/cross-framework-reference-preflight.md)
+  proposes backend endpoint/lifecycle, authorization and proof sequencing. Its
+  retained-reference policy is unimplemented and remains proposed; public API
+  design stays deferred.
 
 Code and decisive tests determine implementation status. Examples in this
 proposal do not override those sources or freeze public syntax.
@@ -252,7 +256,9 @@ of making generic application patches stand in for domain operations.
 
 1. Specify one bounded private connected scenario: a Payload article selects an
    admitted Medusa product and Application campaign logic consumes the connected
-   result. Define principals, scope, visibility, errors and deletion policy before
+   result. The [backend preflight](../../shared-logical-storage/cross-framework-reference-preflight.md)
+   now records that proposed scope and its owner corrections; principals,
+   visibility/error outcomes and lifecycle selection must be resolved before
    enabling the relationship. Complete the owning shared-storage proof in both
    directions, including a reference originating in an admitted Medusa extension;
    article-to-product alone does not close that gate.
