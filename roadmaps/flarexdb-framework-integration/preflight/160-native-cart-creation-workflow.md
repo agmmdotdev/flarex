@@ -2,11 +2,12 @@
 
 ## Status and authority
 
-Status: original-native characterization in progress after the bounded
+Status: the selected original-native cohort is characterized after the bounded
 [Variant and item pricing workflow](./159-native-variant-item-price-calculation.md).
-Initial empty and populated SystemTax cases have complete result and stored-state
-evidence. The broader native matrix, complete event capture, capacity measurements
-and adapter admission remain pending.
+The module-owner plan is prepared. Native compensation corrections remain
+proposals requiring an explicit business decision. Maximum-graph evidence,
+remaining call-detail coverage, concurrency proofs, resource measurement and
+adapter admission remain pending.
 
 The executing reference is Medusa 2.13.4, commit
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, recorded by
@@ -64,17 +65,18 @@ Characterize these connected cases:
   including concurrent payment refresh and event emission.
 
 SystemTax is an actual local native provider; configured external providers may
-perform remote effects. Fresh Cart creation appears to leave
-`payment_collection` absent, but its skipped payment/session calls need an
-executable witness. A reachable provider/session path must retain its genuine
-behavior or remain explicitly outside the admitted profile.
+perform remote effects. Characterized fresh Cart creation leaves
+`payment_collection` absent and skips Payment service calls while still running
+the real payment-refresh child and Cart-PaymentCollection graph. This does not
+establish arbitrary Payment support. A reachable provider/session path must
+retain its genuine behavior or remain explicitly outside the admitted profile.
 
 Verify the actual nested SDK context: acquire/release steps can skip before
 Locking resolution when a parent idempotency key exists. Record actual
 translation flags, hook registrations and optional Caching resolution. Do not
 remove these paths from the native fixture to simplify the dependency graph.
 
-## Confirmed initial native behavior
+## Confirmed native behavior
 
 The genuine empty root selects Store/Region/Channel defaults, creates the native
 US address, reaches both empty tax-line setters, computes automatic promotions
@@ -87,16 +89,93 @@ witness, that value has an empty `items` array while a subsequent stored Cart
 contains its line item and computed totals. Preserve that distinction; a final
 Cart reread is not an equivalent native return contract.
 
-Initial genuine cancellation also exposes native residuals: an active Cart
+Genuine cancellation exposes native residuals: an active Cart
 address remains after Cart removal, and promotion cases retain an active
 Cart-Promotion Link pointing at the removed Cart. Preserve those original
-witnesses and trace the native owners before proposing a business correction.
+witnesses separately from any corrected candidate.
 Atomic outer rollback does not establish retained native inverse correctness.
 
-The initial observer's omitted Tax API and saturated generic detail capture do
-not establish complete method/event parity or a Flarex call allowance. Required
-results, Promotion decisions and complete emitted/delivered events need explicit
-bounded evidence before admission.
+Defaults do not always create an Address: multiple or absent selected Countries
+leave that path empty. Native Customer selection applies primary-key ascending
+ordering; a shared email does not imply an account-preference rule. An explicit
+account can remain unchanged while the Cart uses a supplied email override.
+The guest-selection path filters `has_account: false`, and compensation removes
+only the Customer actually created by that invocation.
+
+Native `failed` state alone does not mean compensation failed. The Inventory
+refusal can remove a newly created guest and restore setup while the throwing
+child has no retained StepResponse. Preserve actual child state, errors and rows
+rather than inventing a retained inverse for that child. Missing-price native
+defects retain the failure classification owned by the Promise/Cause boundary.
+
+The stronger bounded capture covers selected root/child values, genuine Query,
+Pricing, Tax and Promotion decisions, emitted and delivered events, and selected
+retained leaf inputs. Generic method details can still saturate; this does not
+establish every call's argument/result parity or a Flarex allowance. Complete
+the remaining targeted call-detail and maximum-graph evidence before admission.
+No post-Promotion calculated total is established by a Cart read that preceded
+the adjustment writes.
+
+Native events can be delivered before root failure: ungrouped Customer creation
+and compensation events remain observable. Grouped `cart.created` and Link
+events may be cleared instead of released after a late hook fails. Preserve the
+actual native calls and distinguish that delivery behavior from the accepted
+atomic profile's committed event authority.
+
+## Proposed native inverse corrections
+
+These business changes are unapproved. Preserve the original native residual
+witnesses and separately bind every correction candidate to its source.
+
+1. **Cart-owned Address cleanup.** Retain exact created Cart and newly created
+   inline Address identities. One native Cart transaction removes owned Carts
+   and only their still-owned, unshared Addresses; reused or superseded identities
+   and references from active or soft-deleted Carts remain protected. The proposed
+   PostgreSQL mechanism locks exact Cart/Address rows in a fixed order with strong
+   row locks, then checks both Address reference columns in a fresh statement.
+   Existing FK cooperation, actual isolation, both writer orders, rollback and
+   retry must be proved. The adapter must implement the semantic operation through
+   its trusted logical/reference owner, without adapter SQL or a second lifetime.
+2. **Cart-Promotion preimage compensation.** Preserve native forward validation,
+   selection and create/upsert behavior, including existing-pair ID replacement.
+   Capture complete prior and resulting identities/content/membership at the
+   real Link owner's write serialization point, including absent-pair creation.
+   A prior read alone cannot establish that preimage. Include original managed
+   timestamps through a scoped native restoration operation; ordinary forward
+   timestamp hooks retain their behavior. The inverse restores the original
+   preimage only while its resulting generation remains current; exact
+   already-restored state is an
+   idempotent result, while another generation causes a protected conflict.
+   Genuinely created Links use native soft-delete/history behavior. Collect only
+   events corresponding to actual mutations, preserve native scalar/batched ID
+   payloads, and preserve event-failure limits.
+   Present-row locks and absent-pair races, existing ADD, REPLACE, supersession,
+   retries and native event sequences require separate genuine witnesses.
+
+A workflow-level precheck followed by independent deletes is insufficient for
+Address safety or partial-inverse recovery. Pair-only Link dismissal cannot
+protect a later generation. No generic DAL redesign, create-if-absent forward
+change, arbitrary-writer guarantee or concurrency success is established here.
+
+## Implementation sequence after the native decision
+
+1. Prove the scoped inverse contracts at the genuine native owners before
+   applying business corrections. Retain typed failures, conflicts, complete
+   Causes, rollback and uncertain post-commit event outcomes.
+2. Promote the pinned Cart, Customer, Tax, Promotion and conditional Payment
+   module closure and native totals/provider helpers. Keep repositories,
+   commands, inputs, receipts and services in the organized module owners.
+3. Extend named Region/Country, Store, Sales Channel and Inventory confirmation
+   reads; bind actual Cart-Promotion and Cart-PaymentCollection Links and readonly
+   native graph metadata. Reuse the existing DML/read/write/receipt owners and
+   Variant/item pricing graph; do not fabricate empty business results.
+4. Compose the original root and its five children under the existing outer
+   transaction. Prove trusted local hooks, genuine SystemTax and the empty Payment
+   branch. Translation, remote providers, arbitrary hooks and provider/session
+   work retain separate lifecycle gates rather than being silently skipped.
+5. Measure the complete forward and retained-inverse graph, select authenticated
+   bounds, validate both database lanes and affected consumers, run types/builds,
+   provenance/portability/lint and both required reviews, then commit the slice.
 
 ## Admission and implementation gates
 
@@ -111,11 +190,10 @@ held database transaction. Establish a genuine local execution profile from
 the native witness, or address that lifecycle at its owner; do not silently
 split the root or introduce another settlement lifetime.
 
-The recorded native Promise/Cause classification issue in
-[workflow host composition](../../workflow-foundations/11-workflow-host-composition.md)
-remains a separate connected-owner correction. Preserve typed native domain
-errors, defects, interruption and complete Causes; changing only an outer
-catch or inventing compensation does not resolve it.
+The [Promise/Cause boundary](./161-native-promise-cause-preservation.md) is now
+implemented at its existing owners. Reuse its typed native failures, defects,
+interruption and complete authenticated Causes. It does not repair native Cart
+business compensation or establish Cart admission.
 
 After the native baseline, implement the complete admitted closure, then
 validate PGlite and ordinary-role PostgreSQL separately, affected owner and
