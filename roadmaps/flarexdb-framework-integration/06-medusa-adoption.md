@@ -798,6 +798,13 @@ Product creation reliability gate; independent native setup roots for this
 read fixture do not resolve it. Arbitrary Cart writes, hosted activation and
 scale remain outside this slice.
 
+The [native Cart creation preflight](./preflight/160-native-cart-creation-workflow.md)
+records the next connected objective. Its original-native executable witness
+is pending; Cart, Customer, Tax, Promotion and the complete Cart Link graph
+need genuine owners before adapter admission. Native local-provider behavior,
+conditional payment/Locking resolution and complete capacity must be proved
+before choosing a profile. No Cart write or resource extension is admitted yet.
+
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
 The genuine creation step remains unchanged and returns complete native rows,
