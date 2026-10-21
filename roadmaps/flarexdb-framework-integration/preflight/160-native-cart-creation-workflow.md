@@ -101,6 +101,19 @@ candidate selection, the subsequent active-Promotion query and final action
 calculation. Candidate IDs and final action membership are different contracts.
 For example, `ne` can retain a candidate that final Rule evaluation rejects.
 
+Multiple Values retain the native quantifiers. `eq` and `in` reject a Rule when
+none of its stored Values overlaps the context text. Numeric exclusion can
+instead reject a Rule because one Value fails even when another can satisfy the
+comparison: stored Values `1` and `4` with context `2` exclude the ruled Promotion
+for each of `gt`, `gte`, `lt` and `lte`, across global, target and buy families.
+Do not replace that prefilter with an any-matching-Value test or infer a final
+matcher result for a Promotion removed before action calculation.
+
+Conversely, stored Value `1` with context values `1` and `2` survives the
+prefilter for `eq`, `in` and `ne` in those families. The characterized final
+calculation applies the ruled Promotion for `in` but produces only the unruled
+Promotion's action for `eq` and `ne`. Preserve the separate native stages.
+
 The native internal-service default orders the prefilter by its sole primary
 key, `id ASC`. Neither this call nor the active-Promotion call supplies a row
 limit. The latter explicitly orders by Application Method value descending;
@@ -117,9 +130,12 @@ receipts must authenticate actual returned identities, not every observed row.
 | Explicit `prevent_auto_promotions` skips automatic selection while supplied codes still execute. | Preserve native branch selection and final action evaluation. |
 
 Retained attributes with empty value arrays can generate malformed `AND ()`
-and a native `42601` error. Context strings such as `Infinity`, `-Infinity` and
-an overflowing exponent become nonfinite numeric thresholds and produce the
-native `invalid_data` error that the `infinity` column does not exist. Stored
+and a native `42601` error in each Rule family when no other attribute supplies
+a condition. An empty buy attribute alongside populated item attributes can
+instead retain valid SQL and reach final actions. Context strings such as
+`Infinity`, `-Infinity` and an overflowing exponent become nonfinite numeric
+thresholds and produce the native `invalid_data` error that the `infinity` column
+does not exist. Stored
 invalid numeric text and an oversized stored exponent separately preserve
 `22P02` and `22003`. Omitted item arrays can instead fail final native context
 validation after candidate selection has succeeded; that is not a SQL failure.
@@ -132,10 +148,44 @@ and require an explicit business decision; the original helper remains intact.
 The [shared numeric-cast predicate](../../shared-logical-storage/68-postgres-relational-predicates.md)
 provides complete-Boolean PostgreSQL evaluation through the existing trusted
 capture owner. It does not establish equivalence between native correlated
-`UNION`/`NOT EXISTS` joins and separate indexed Rule/Value reads. Error reachability
-for off-cohort or already-excluded parents, multiple Values per Rule, genuine
-Cart metadata reachability and downstream ordering still require their focused
-native witnesses before choosing the persistence seam or admitting Promotion.
+`UNION`/`NOT EXISTS` joins and separate indexed Rule/Value reads.
+
+The original automatic-prefilter query raises `22P02` for invalid numeric Rule
+text belonging to a manual Promotion, a deleted Promotion or a deleted Rule.
+A cohort containing draft and inactive automatic Promotions also fails at that
+stage; it does not distinguish each status independently. An active detached
+Rule with no global pivot also causes that failure while another valid global
+pivot exists. A missing global attribute does not necessarily suppress an invalid
+target Rule's cast. Restricting reads to selected roots, or even all linked Rules, would
+therefore suppress observed native failures. Conversely, native `gte` and `lte`
+lexical guards can avoid the cast when the invalid text matches a context value
+and another context value supplies a numeric threshold. Unconditional numeric
+validation would introduce failures absent from those native cases.
+
+These outcomes do not establish a portable global evaluation cohort or a fixed
+PostgreSQL expression order. With only a manual Promotion and its invalid Rule,
+the automatic and active lists complete without candidates and action calculation
+succeeds. With an unruled automatic Promotion, a detached invalid Rule raises
+`22P02` even when every global, target and buy pivot table is empty. An
+unrelated manual Promotion's valid global membership does not remove that
+failure. Neither an empty selected Rule graph nor empty pivot families justify
+skipping native error evaluation.
+
+PostgreSQL's
+[expression evaluation rules](https://www.postgresql.org/docs/18/sql-expressions.html#SYNTAX-EXPRESS-EVAL)
+permit Boolean predicate reorganization and do not specify subexpression order.
+The characterized outer-root and empty-family cases do not establish every
+physical plan or competing-error order. A new join representation alone would
+not prove error equivalence across different physical plans. Any deterministic
+native evaluation policy that changes these
+failures requires its own explicit compatibility decision; the finite-threshold
+and empty-disjunction proposals do not authorize that change.
+
+The genuine Cart root reaches the nonfinite-context failure through ordinary
+JSON metadata: `"2"` completes creation, whereas `"Infinity"` and `"1e309"`
+fail during Promotion refresh. The SDK can fulfill its Promise while recording
+the failed root and compensation; Promise fulfillment
+alone does not establish native workflow success.
 
 ## Confirmed native behavior
 
