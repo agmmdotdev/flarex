@@ -162,7 +162,9 @@
     "./price-list/delete-price-lists": "./src/price-list/workflows/delete-price-lists.ts",
     "./price-list/delete-price-lists-step": "./src/price-list/steps/delete-price-lists.ts",
     "./price-list/update-price-list-prices": "./src/price-list/workflows/update-price-list-prices.ts",
-    "./price-list/update-price-list-prices-step": "./src/price-list/steps/update-price-list-prices.ts"
+    "./price-list/update-price-list-prices-step": "./src/price-list/steps/update-price-list-prices.ts",
+    "./price-list/remove-price-list-prices": "./src/price-list/workflows/remove-price-list-prices.ts",
+    "./price-list/remove-price-list-prices-step": "./src/price-list/steps/remove-price-list-prices.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

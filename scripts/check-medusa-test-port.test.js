@@ -415,12 +415,12 @@ describe("maintained Medusa test ports", () => {
     const original = readFileSync(new URL("../third_party/medusa/upstream/packages/core/types/src/pricing/service.ts", import.meta.url), "utf8");
     const selected = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/service.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const repository = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/repository.ts", import.meta.url), "utf8");
-    const methods = 'methods: { ...(listPriceUpdates ? { listPriceLists: listPriceListsForPriceUpdate, snapshotPriceListPricesForUpdate, updatePriceListPrices, restorePriceListPrices } : {}), ...(listPriceCreations ? { listPriceLists: listPriceListsForPriceCreation, addPriceListPrices, removePrices } : {}), ...(listDeletions ? { softDeletePriceLists, restorePriceLists } : {}), ...(listUpdates ? { listPriceLists: listPriceListsForUpdate, updatePriceLists } : {}), ...(listCreations ? { createPriceLists, deletePriceLists } : {}), ...(shippingUpdates ? { updatePriceSets: updateShippingPriceSets, listPrices: listShippingPrices,\n        listPriceRules: listShippingPriceRules, createPriceRules: createShippingPriceRules } : {}),\n        ...(preferences && !preferenceUpdates && !preferenceDeletions ? { createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),\n        ...(preferenceUpdates ? { listPricePreferences: listUpdatePricePreferences, updatePricePreferences, upsertPricePreferences: upsertUpdatePricePreferences } : {}),\n        ...(preferenceDeletions ? { softDeletePricePreferences, restorePricePreferences } : {}),\n        ...(!preferences && !shippingUpdates && !listCreations && !listUpdates && !listDeletions && !listPrices ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}), ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {}) }';
+    const methods = 'methods: { ...(listPriceRemovals ? { listPrices: listPricesForRemoval, softDeletePrices: softDeletePricesForRemoval, restorePrices: restorePricesForRemoval } : {}), ...(listPriceUpdates ? { listPriceLists: listPriceListsForPriceUpdate, snapshotPriceListPricesForUpdate, updatePriceListPrices, restorePriceListPrices } : {}), ...(listPriceCreations ? { listPriceLists: listPriceListsForPriceCreation, addPriceListPrices, removePrices } : {}), ...(listDeletions ? { softDeletePriceLists, restorePriceLists } : {}), ...(listUpdates ? { listPriceLists: listPriceListsForUpdate, updatePriceLists } : {}), ...(listCreations ? { createPriceLists, deletePriceLists } : {}), ...(shippingUpdates ? { updatePriceSets: updateShippingPriceSets, listPrices: listShippingPrices,\n        listPriceRules: listShippingPriceRules, createPriceRules: createShippingPriceRules } : {}),\n        ...(preferences && !preferenceUpdates && !preferenceDeletions ? { createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),\n        ...(preferenceUpdates ? { listPricePreferences: listUpdatePricePreferences, updatePricePreferences, upsertPricePreferences: upsertUpdatePricePreferences } : {}),\n        ...(preferenceDeletions ? { softDeletePricePreferences, restorePricePreferences } : {}),\n        ...(!preferences && !shippingUpdates && !listCreations && !listUpdates && !listDeletions && !listPrices ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}), ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {}) }';
     it("preserves the complete native selection and exact public method anchor", () => {
       expect(() => verifyPricingWorkflowSelection(original, selected, repository)).not.toThrow();
       expect(selected).toContain(methods);
     });
-    it.each(["softDeletePricePreferences", "restorePricePreferences", "deletePriceLists", "softDeletePriceLists", "restorePriceLists", "listPriceLists", "updatePriceLists", "addPriceListPrices", "removePrices", "updatePriceListPrices"])("rejects missing native method %s", method => {
+    it.each(["softDeletePricePreferences", "restorePricePreferences", "deletePriceLists", "softDeletePriceLists", "restorePriceLists", "listPriceLists", "updatePriceLists", "addPriceListPrices", "removePrices", "updatePriceListPrices", "listPrices", "softDeletePrices", "restorePrices"])("rejects missing native method %s", method => {
       const changed = original.replace(new RegExp("\\b" + method + "(?=\\s*[<(])", "g"), method + "Unadmitted");
       expect(changed).not.toBe(original);
       expect(() => verifyPricingWorkflowSelection(changed, selected, repository)).toThrow("Missing native Pricing admitted methods");
@@ -436,6 +436,29 @@ describe("maintained Medusa test ports", () => {
         `${methods}, ${override}`), repository)).toThrow();
     });
     it.each([
+      selected.replace('const listPriceRemovals = admission === "price-list-price-removals"', 'const listPriceRemovals = listPriceUpdates'),
+      selected.replace('listPriceRemovals ? "pricing-price-list-price-removals"', 'listPriceRemovals ? "pricing-price-list-price-updates"'),
+      selected.replace('[priceRemovalRead, priceRemovalSoftDelete, priceRemovalRestore]', '[priceRemovalRead, priceRemovalSoftDelete, priceRemovalRestore, removeListPrices]'),
+      selected.replace('[priceRemovalRead, priceRemovalSoftDelete, priceRemovalRestore]', '[priceRemovalRead, priceRemovalSoftDelete]'),
+      selected.replace('listPrices: listPricesForRemoval, softDeletePrices: softDeletePricesForRemoval, restorePrices: restorePricesForRemoval', 'listPrices: listPricesForRemoval, softDeletePrices: softDeletePricesForRemoval, restorePrices: restorePricesForRemoval, removePrices'),
+      selected.replace('listPriceRemovals ? pricingPriceListPriceRemovalPolicy(listPriceRemovalContracts)', 'listPriceRemovals ? pricingListPriceUpdatePolicy(listPriceUpdateContracts)'),
+      selected.replace('compilePriceListPriceRemovalContracts(metadata.frame)', 'compilePriceListPriceRemovalContracts(otherFrame)'),
+      selected.replace('listPriceRemovals ? model === Price ? bound.priceRepository : bound.denied', 'listPriceRemovals ? model === Price ? bound.priceRepository : bound.listRepository'),
+      selected.replace('softDeletePrices: listPriceRemovals ? native.softDeletePrices.bind(native)', 'softDeletePrices: listPriceRemovals ? native.removePrices.bind(native)'),
+      selected.replace('restorePrices: listPriceRemovals ? native.restorePrices.bind(native)', 'restorePrices: listPriceRemovals ? native.restorePriceListPrices.bind(native)'),
+      selected.replace('listPrices: shippingUpdates || listPriceRemovals ?', 'listPrices: shippingUpdates ?'),
+      selected.replace('commands.read("pricingListPricesForRemovalWorkflow"', 'commands.write("pricingListPricesForRemovalWorkflow"'),
+      selected.replace('commands.write("pricingPriceSoftDeleteForRemovalWorkflow"', 'commands.write("pricingRemovePriceListPrices"'),
+      selected.replace('commands.write("pricingPriceRestoreForRemovalWorkflow"', 'commands.read("pricingPriceRestoreForRemovalWorkflow"'),
+      selected.replace('Reflect.apply(service.softDeletePrices, service, [[...ids], {}, context])', 'Reflect.apply(service.softDeletePrices, service, [[...ids], {}, {}])'),
+      selected.replace('Reflect.apply(service.restorePrices, service, [[...ids], {}, context])', 'Reflect.apply(service.restorePrices, service, [[...ids], context])'),
+      selected.replace('output: listPriceRemovalContracts.decodeReadOutput', 'output: listPriceContracts.decodeOutput'),
+      selected.replace('command: priceRemovalSoftDelete,', 'command: removeListPrices,'),
+      selected.replace('moduleEvents: ["price", "price_rule"].flatMap', 'moduleEvents: ["price", "price_rule", "price_list"].flatMap'),
+      selected.replace('command: priceRemovalRestore,\n      arguments: decodePriceListPriceRemovalLifecycleArguments, encode: ([ids]) => ids, output: listPriceRemovalContracts.decodeOutput',
+        'command: priceRemovalRestore,\n      arguments: decodePriceListPriceRemovalLifecycleArguments, encode: ([ids]) => ids, output: listPriceRemovalContracts.decodeOutput, moduleEvents: priceCreationEvents'),
+      selected.replace('from "./price-list-price-removal-input"', 'from "./price-list-price-input"'),
+      selected.replace('from "./price-list-price-removal-receipt"', 'from "./price-list-price-update-receipt"'),
       selected.replace('const listPriceUpdates = admission === "price-list-price-updates"', 'const listPriceUpdates = listPriceCreations'),
       selected.replace('const listPrices = listPriceCreations || listPriceUpdates', 'const listPrices = listPriceCreations'),
       selected.replace('listPriceUpdates ? "pricing-price-list-price-updates"', 'listPriceUpdates ? "pricing-price-list-price-creations"'),
@@ -461,7 +484,7 @@ describe("maintained Medusa test ports", () => {
       selected.replace('listUpdates ? { listPriceLists: listPriceListsForUpdate, updatePriceLists }', 'listUpdates ? { listPriceLists: listPriceListsForUpdate, updatePriceLists, deletePriceLists }'),
       selected.replace('listUpdates ? pricingListUpdatePolicy(listUpdateContracts)', 'listUpdates ? pricingListCreationPolicy(listContracts)'),
       selected.replace('compilePriceListUpdateContracts(metadata.frame)', 'compilePriceListUpdateContracts(otherFrame)'),
-      selected.replace('listPriceLists: listUpdates || listPrices ? native.listPriceLists.bind(native)', 'listPriceLists: listUpdates ? native.listPriceSets.bind(native)'),
+      selected.replace('listPriceLists: listUpdates || listPriceCreations || listPriceUpdates ? native.listPriceLists.bind(native)', 'listPriceLists: listUpdates ? native.listPriceSets.bind(native)'),
       selected.replace('updatePriceLists: listUpdates ? native.updatePriceLists.bind(native)', 'updatePriceLists: listUpdates ? native.upsertPriceSets.bind(native)'),
       selected.replace('command: listUpdateRead, arguments: listUpdateReadArguments', 'command: list, arguments: listUpdateReadArguments'),
       selected.replace('output: listUpdateContracts.decodeReadOutput', 'output: listUpdateContracts.decodeUpdateOutput'),
@@ -554,6 +577,15 @@ describe("maintained Medusa test ports", () => {
       expect(() => verifyPricingWorkflowSelection(original, changed, repository)).toThrow();
     });
     it.each([
+      ['const listPriceRemovals = admission === "price-list-price-removals"', 'const listPriceRemovals = true'],
+      ['listPriceRemovals ? yield* compilePriceListPriceRemovalContracts(metadata)', 'listPriceRemovals ? yield* compilePriceListPriceRemovalContracts(otherFrame)'],
+      ['...priceListPriceRemovalLifecycleMethods(listPriceRemovalContracts, bridge, events)', '...priceListLifecycleMethods(listDeletionContracts, bridge, events)'],
+      ['readPriceListPriceRemovalRows(ctx, listPriceRemovalContracts, captured)', 'readPriceListPriceCandidates(ctx, listPrice.contracts, captured)'],
+      ['priceRepository: priceRemovalRepository ?? listPriceRepository', 'priceRepository: listPriceRepository'],
+      ['mutable || shipping || listDeletions || listPriceRemovals ? ["afterDelete", "afterUpdate"]', 'mutable || shipping || listDeletions || listPriceRemovals ? ["afterCreate", "afterDelete", "afterUpdate"]'],
+      ['from "./price-list-price-removal-input"', 'from "./price-list-price-input"'],
+      ['from "./price-list-price-removal-repository"', 'from "./price-list-price-repository"'],
+      ['from "./price-list-price-removal-lifecycle"', 'from "./price-list-lifecycle"'],
       ['listUpdates || listPriceCreations || listPriceUpdates ? ["afterCreate", "afterUpdate", "afterDelete"]', 'listUpdates || listPriceCreations ? ["afterCreate", "afterUpdate", "afterDelete"]'],
       ['!events.isSubscribed(shared) && (subscriber === undefined || !events.ownsSubscriber(subscriber))', '!events.isSubscribed(shared) && subscriber === undefined'],
       ['const listPriceUpdates = admission === "price-list-price-updates"', 'const listPriceUpdates = true'],
@@ -567,18 +599,18 @@ describe("maintained Medusa test ports", () => {
       ['Object.hasOwn(row, "created_at")', 'Object.hasOwn(row, "id")'],
       ['listPriceReplay.replay(ctx, captured, config)', 'listPriceReplay.replay(ctx, captured, {})'],
       ['listPrice.replace(ctx, captured, config)', 'listPrice.replace(ctx, input, config)'],
-      ['priceRepository: listPriceRepository ?? mutationRepositories?.priceRepository ?? denied', 'priceRepository: mutationRepositories?.priceRepository ?? denied'],
+      ['priceRepository: priceRemovalRepository ?? listPriceRepository ?? mutationRepositories?.priceRepository ?? denied', 'priceRepository: mutationRepositories?.priceRepository ?? denied'],
       ['ruleRepository: mutationRepositories?.ruleRepository ?? ruleRepository', 'ruleRepository: denied'],
       ['from "./price-list-price-update-input"', 'from "./price-list-price-input"'],
       ['from "./price-list-price-update-repository"', 'from "./price-list-price-repository"'],
       ['const listUpdates = admission === "price-list-updates"', 'const listUpdates = true'],
       ['compilePriceListUpdateContracts(metadata)', 'compilePriceListUpdateContracts(otherFrame)'],
       ['preparePriceListUpdateReplacement(contracts)', 'preparePriceListUpdateReplacement(otherContracts)'],
-      ['create: listUpdates || listDeletions || listPriceCreations || listPriceUpdates ? refuse :', 'create: false ? refuse :'],
+      ['create: listUpdates || listDeletions || listPriceCreations || listPriceUpdates || listPriceRemovals ? refuse :', 'create: false ? refuse :'],
       ['readPriceListUpdateRows(ctx, listPrice.contracts.listReadContracts, captured))) : listUpdate === undefined ? refuse :', 'readPriceListUpdateRows(ctx, listPrice.contracts.listReadContracts, captured))) : undefined === undefined ? refuse :'],
       ['readPriceListUpdateRows(ctx, listUpdate.contracts, input)', 'readPriceListUpdateRows(ctx, otherContracts, input)'],
       ['listUpdate.replace(ctx, input, config)', 'listUpdate.replace(ctx, input, {})'],
-      ['"price-list-creations" | "price-list-updates" | "price-list-deletions" | "price-list-price-creations" | "price-list-price-updates" | "shipping-options"', '"price-list-creations" | "price-list-updates" | "unbounded" | "shipping-options"'],
+      ['"price-list-creations" | "price-list-updates" | "price-list-deletions" | "price-list-price-creations" | "price-list-price-updates" | "price-list-price-removals" | "shipping-options"', '"price-list-creations" | "price-list-updates" | "unbounded" | "shipping-options"'],
       ['preferenceDeletions ? "deletions" : preferenceUpdates ? "updates" : "store"', 'preferenceDeletions ? "updates" : preferenceUpdates ? "deletions" : "store"'],
       ['delete: listCreations ?', 'delete: !preferences ?'],
       ['deletePricingPriceLists(ctx, metadata, input)', 'softDeletePricingPriceSets(ctx, metadata, input)'],

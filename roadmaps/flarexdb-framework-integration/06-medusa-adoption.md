@@ -725,10 +725,20 @@ existing Price IDs retain their destructive physical inverse, including complete
 all-history Rule cleanup and root-only deletion events. This profile alone
 selects the approved storage-insertion-ordered deletion cohort. Its named
 128-call allowance retains 64 events and all other default limits. Empty Rule
-records retain the private invalid-input refusal and rollback boundary. General
-Price List Price removal and batch roots remain separate admissions;
-the unchanged native baselines remain separate from the approved portable
+records retain the private invalid-input refusal and rollback boundary.
+The unchanged native baselines remain separate from the approved portable
 contract. Hosted activation, external delivery and arbitrary scale remain gated.
+
+The [native Price List Price removal](./preflight/157-native-price-list-price-removal.md)
+root and private adapter admit zero to eight raw Price selectors with default
+64-call and 64-event limits. Native reads require active PriceSets and mask
+historical nullable Lists without changing stored foreign keys. Current-graph
+restoration includes Rule history, preserves active descendant clocks and emits
+no module events. The approved portable order emits Prices by ID, then Rules by
+parent Price ID and Rule ID. Pricing is the sole commerce resource; stored Links
+remain untouched. The existing 156 late-active-Rule setup refusal is preserved
+separately from native evidence and canonical mixed-history restoration.
+Batch, hosted activation, external delivery and arbitrary scale remain gated.
 
 The [Price List Price update](./preflight/156-native-price-list-price-update.md)
 root and private adapter implement the same bounded List/Price/Rule input graph.

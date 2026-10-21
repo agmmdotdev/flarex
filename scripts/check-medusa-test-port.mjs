@@ -663,7 +663,7 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
   if (declaration === undefined || !ts.isInterfaceDeclaration(declaration)) throw new Error("Missing native Pricing interface");
   const methods = new Set(declaration.members.filter(ts.isMethodSignature).map(member => member.name.getText(contract)));
   if (["createPriceSets", "createPriceLists", "addPriceListPrices", "removePrices", "updatePriceListPrices", "deletePriceLists", "softDeletePriceLists", "restorePriceLists", "listPriceLists", "updatePriceLists", "createPricePreferences", "listPricePreferences", "updatePricePreferences", "upsertPricePreferences", "deletePricePreferences", "softDeletePricePreferences", "restorePricePreferences", "deletePriceSets",
-    "updatePriceSets", "listPrices", "listPriceRules", "createPriceRules"]
+    "updatePriceSets", "listPrices", "softDeletePrices", "restorePrices", "listPriceRules", "createPriceRules"]
     .some(method => !methods.has(method))) throw new Error("Missing native Pricing admitted methods");
   const adapter = ts.createSourceFile("adapter.ts", target, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
   /** @type {ts.CallExpression[]} */
@@ -700,6 +700,8 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
   const shippingCaptures = [];
   /** @type {Map<string, ts.VariableDeclaration[]>} */
   const listOwners = new Map(["listPriceUpdates", "listPrices", "listPriceUpdateContracts", "listPriceUpdateRead", "listPriceSnapshot", "listPriceUpdate", "listPriceRestore", "listPriceListsForPriceUpdate", "updateListPriceArguments", "restoreListPriceArguments", "snapshotPriceListPricesForUpdate", "updatePriceListPrices", "restorePriceListPrices", "listPriceCreations", "listPriceContracts", "listPriceRead", "addListPrices", "removeListPrices", "listPriceReadArguments", "listPriceListsForPriceCreation", "priceCreationEvents", "addPriceListPrices", "removePrices", "listDeletions", "listDeletionContracts", "listSoftDelete", "listRestore", "softDeletePriceLists", "restorePriceLists", "listUpdates", "listUpdateContracts", "listUpdateRead", "listUpdate", "listUpdateReadArguments", "decodeListUpdateArguments", "listPriceListsForUpdate", "updatePriceLists", "listCreations", "listContracts", "existingPolicy", "policy", "bind", "createList", "deleteList", "createPriceLists", "deletePriceLists", "decodeCreateListArguments"].map(name => [name, []]));
+  for (const name of ["listPriceRemovals", "listPriceRemovalContracts", "priceRemovalRead", "priceRemovalSoftDelete", "priceRemovalRestore",
+    "listPricesForRemoval", "softDeletePricesForRemoval", "restorePricesForRemoval"]) listOwners.set(name, []);
   /** @param {ts.Node} node */
   const visit = node => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) listOwners.get(node.name.text)?.push(node);
@@ -735,6 +737,7 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
     ? input.properties.filter(ts.isPropertyAssignment).filter(property => property.name.getText(adapter) === "methods") : [];
   const initializer = selected[0]?.initializer;
   const expectedMethods = `const methods = {
+    ...(listPriceRemovals ? { listPrices: listPricesForRemoval, softDeletePrices: softDeletePricesForRemoval, restorePrices: restorePricesForRemoval } : {}),
     ...(listPriceUpdates ? { listPriceLists: listPriceListsForPriceUpdate, snapshotPriceListPricesForUpdate, updatePriceListPrices, restorePriceListPrices } : {}),
     ...(listPriceCreations ? { listPriceLists: listPriceListsForPriceCreation, addPriceListPrices, removePrices } : {}),
     ...(listDeletions ? { softDeletePriceLists, restorePriceLists } : {}),
@@ -776,7 +779,7 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
       deletePriceLists: listCreations ? native.deletePriceLists.bind(native) : binding.refuse,
       softDeletePriceLists: listDeletions ? native.softDeletePriceLists.bind(native) : binding.refuse,
       restorePriceLists: listDeletions ? native.restorePriceLists.bind(native) : binding.refuse,
-      listPriceLists: listUpdates || listPrices ? native.listPriceLists.bind(native) : binding.refuse,
+      listPriceLists: listUpdates || listPriceCreations || listPriceUpdates ? native.listPriceLists.bind(native) : binding.refuse,
       snapshotPriceListPricesForUpdate: listPriceUpdates ? native.snapshotPriceListPricesForUpdate.bind(native) : binding.refuse,
       updatePriceListPrices: listPriceUpdates ? native.updatePriceListPrices.bind(native) : binding.refuse,
       restorePriceListPrices: listPriceUpdates ? native.restorePriceListPrices.bind(native) : binding.refuse,
@@ -790,7 +793,9 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
       calculatePrices: preferences || shipping || listCreations || listUpdates || listDeletions || listPrices ? binding.refuse : native.calculatePrices.bind(native),
       upsertPriceSets: mutable ? native.upsertPriceSets.bind(native) : binding.refuse,
       updatePriceSets: mutable || shippingUpdates ? native.updatePriceSets.bind(native) : binding.refuse,
-      listPrices: shippingUpdates ? native.listPrices.bind(native) : binding.refuse,
+      listPrices: shippingUpdates || listPriceRemovals ? native.listPrices.bind(native) : binding.refuse,
+      softDeletePrices: listPriceRemovals ? native.softDeletePrices.bind(native) : binding.refuse,
+      restorePrices: listPriceRemovals ? native.restorePrices.bind(native) : binding.refuse,
       listPriceRules: shippingUpdates ? native.listPriceRules.bind(native) : binding.refuse,
       createPriceRules: shippingUpdates ? native.createPriceRules.bind(native) : binding.refuse,
       softDeletePriceSets: lifecycle || shipping ? native.softDeletePriceSets.bind(native) : binding.refuse,
@@ -826,9 +831,9 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
     profiles.length !== 1 || profile === undefined || !ts.isObjectLiteralExpression(profile) ||
     profile.properties.some(property => (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) || !ts.isIdentifier(property.name)) ||
     profileNames.length !== 1 || profileNames[0]?.initializer.getText(adapter).replace(/\s/g, "") !==
-      'listPriceUpdates?"pricing-price-list-price-updates":listPriceCreations?"pricing-price-list-price-creations":listDeletions?"pricing-price-list-deletions":listUpdates?"pricing-price-list-updates":listCreations?"pricing-price-list-creations":shippingUpdates?"pricing-shipping-option-updates":shipping?"pricing-shipping-options":preferenceDeletions?"pricing-price-preference-deletions":preferenceUpdates?"pricing-price-preference-updates":preferences?"pricing-price-preferences":lifecycle?"pricing-product-updates":mutable?"pricing-variant-updates":"pricing-base-prices"' ||
+      'listPriceRemovals?"pricing-price-list-price-removals":listPriceUpdates?"pricing-price-list-price-updates":listPriceCreations?"pricing-price-list-price-creations":listDeletions?"pricing-price-list-deletions":listUpdates?"pricing-price-list-updates":listCreations?"pricing-price-list-creations":shippingUpdates?"pricing-shipping-option-updates":shipping?"pricing-shipping-options":preferenceDeletions?"pricing-price-preference-deletions":preferenceUpdates?"pricing-price-preference-updates":preferences?"pricing-price-preferences":lifecycle?"pricing-product-updates":mutable?"pricing-variant-updates":"pricing-base-prices"' ||
     admitted.length !== 1 || admitted[0]?.initializer?.getText(adapter).replace(/\s/g, "") !==
-      'listPriceUpdates?[listPriceUpdateRead,listPriceSnapshot,listPriceUpdate,listPriceRestore]:listPriceCreations?[listPriceRead,addListPrices,removeListPrices]:listDeletions?[listSoftDelete,listRestore]:listUpdates?[listUpdateRead,listUpdate]:listCreations?[createList,deleteList]:preferenceDeletions?[preferenceSoftDelete,preferenceRestore]:preferenceUpdates?[preferenceUpdateList,preferenceUpdate,preferenceUpdateUpsert]:shippingUpdates?[shippingUpdate,shippingListPrices,shippingListRules,shippingCreateRules,list,count,retrieve]:shipping?[create,list,count,retrieve,softDeletePriceSetsCommand,restorePriceSetsCommand,deletePriceSetsCommand]:preferences?[createPreference,preferenceList,preferenceUpsert,preferenceDelete]:[create,createList,createPreference,list,count,retrieve,calculate,...(mutable?[upsert,update]:[]),...(lifecycle?[softDeletePriceSetsCommand]:[])]' ||
+      'listPriceRemovals?[priceRemovalRead,priceRemovalSoftDelete,priceRemovalRestore]:listPriceUpdates?[listPriceUpdateRead,listPriceSnapshot,listPriceUpdate,listPriceRestore]:listPriceCreations?[listPriceRead,addListPrices,removeListPrices]:listDeletions?[listSoftDelete,listRestore]:listUpdates?[listUpdateRead,listUpdate]:listCreations?[createList,deleteList]:preferenceDeletions?[preferenceSoftDelete,preferenceRestore]:preferenceUpdates?[preferenceUpdateList,preferenceUpdate,preferenceUpdateUpsert]:shippingUpdates?[shippingUpdate,shippingListPrices,shippingListRules,shippingCreateRules,list,count,retrieve]:shipping?[create,list,count,retrieve,softDeletePriceSetsCommand,restorePriceSetsCommand,deletePriceSetsCommand]:preferences?[createPreference,preferenceList,preferenceUpsert,preferenceDelete]:[create,createList,createPreference,list,count,retrieve,calculate,...(mutable?[upsert,update]:[]),...(lifecycle?[softDeletePriceSetsCommand]:[])]' ||
     graphs.length !== 1 || graph === undefined || !ts.isConditionalExpression(graph) ||
     graph.condition.getText(adapter).replace(/\s/g, "") !== "preferences||listCreations||listUpdates||listDeletions||listPrices" || graph.whenTrue.getText(adapter).replace(/\s/g, "") !== '{aliases:[],reads:[]}' ||
     policies.length !== 1 || policyProperties.length !== 2 || policySpread === undefined || !ts.isSpreadAssignment(policySpread) ||
@@ -842,8 +847,26 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
   // profile selection; standalone creation does not widen either read grammar.
   const repository = ts.createSourceFile("repository.ts", repositorySource, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
   const expectedListOwners = new Map([
+    ["listPriceRemovals", 'admission === "price-list-price-removals"'],
+    ["listPriceRemovalContracts", 'yield* compilePriceListPriceRemovalContracts(metadata.frame)'],
+    ["priceRemovalRead", `commands.read("pricingListPricesForRemovalWorkflow", prepare(decodePriceListPriceRemovalRead),
+      ({ service, context }, data): Promise<unknown> => Reflect.apply(service.listPrices, service,
+        [structuredClone(data.filters), structuredClone(data.config), context]))`],
+    ["priceRemovalSoftDelete", `commands.write("pricingPriceSoftDeleteForRemovalWorkflow", prepare(decodePriceListPriceRemovalIds),
+      ({ service, context }, ids): Promise<unknown> => Reflect.apply(service.softDeletePrices, service, [[...ids], {}, context]))`],
+    ["priceRemovalRestore", `commands.write("pricingPriceRestoreForRemovalWorkflow", prepare(decodePriceListPriceRemovalIds),
+      ({ service, context }, ids): Promise<unknown> => Reflect.apply(service.restorePrices, service, [[...ids], {}, context]))`],
+    ["listPricesForRemoval", `yield* defineWorkflowMethod({ command: priceRemovalRead,
+      arguments: commerceDecoder(Schema.Tuple([PriceListPriceRemovalReadInput.fields.filters, PriceListPriceRemovalReadInput.fields.config]), "invalidInput"),
+      encode: ([filters, config]) => ({ filters, config }), output: listPriceRemovalContracts.decodeReadOutput })`],
+    ["softDeletePricesForRemoval", `yield* defineWorkflowMethod({ command: priceRemovalSoftDelete,
+      arguments: decodePriceListPriceRemovalLifecycleArguments, encode: ([ids]) => ids, output: listPriceRemovalContracts.decodeOutput,
+      moduleEvents: ["price", "price_rule"].flatMap(objectName => ["deleted", "updated"].map(action =>
+        buildModuleResourceEventName({ prefix: Modules.PRICING, objectName, action }))) })`],
+    ["restorePricesForRemoval", `yield* defineWorkflowMethod({ command: priceRemovalRestore,
+      arguments: decodePriceListPriceRemovalLifecycleArguments, encode: ([ids]) => ids, output: listPriceRemovalContracts.decodeOutput })`],
     ["listPriceUpdates", 'admission === "price-list-price-updates"'],
-    ["listPrices", 'listPriceCreations || listPriceUpdates'],
+    ["listPrices", 'listPriceCreations || listPriceUpdates || listPriceRemovals'],
     ["listPriceUpdateContracts", 'yield* compilePriceListPriceUpdateContracts(metadata.frame)'],
     ["listPriceUpdateRead", `commands.read("pricingListPriceUpdateRead", prepare(decodePriceListPriceRead),
       ({ service, context }, data): Promise<unknown> => Reflect.apply(service.listPriceLists, service,
@@ -929,7 +952,7 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
     ["listContracts", 'yield* compilePriceListCreationContracts(metadata.frame)'],
     ["decodeCreateListArguments", 'commerceDecoder(Schema.Tuple([PriceListsInput]), "invalidInput")'],
     ["existingPolicy", 'shipping ? pricingShippingOptionPolicy(preferencePolicy, shippingOutput, shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined) : preferences ? preferencePolicy : lifecycle ? pricingLogicalProductUpdateEventPolicy(preferencePolicy) : mutable ? pricingLogicalMutationEventPolicy(preferencePolicy) : pricingLogicalCreateEventPolicy(preferencePolicy)'],
-    ["policy", 'listPriceUpdates ? pricingListPriceUpdatePolicy(listPriceUpdateContracts) : listPriceCreations ? pricingListPriceCreationPolicy(listPriceContracts) : listDeletions ? pricingListDeletionPolicy(listDeletionContracts) : listUpdates ? pricingListUpdatePolicy(listUpdateContracts) : listCreations ? pricingListCreationPolicy(listContracts) : !preferences && !shipping ? pricingListCreationPolicy(listContracts, existingPolicy) : existingPolicy'],
+    ["policy", 'listPriceRemovals ? pricingPriceListPriceRemovalPolicy(listPriceRemovalContracts) : listPriceUpdates ? pricingListPriceUpdatePolicy(listPriceUpdateContracts) : listPriceCreations ? pricingListPriceCreationPolicy(listPriceContracts) : listDeletions ? pricingListDeletionPolicy(listDeletionContracts) : listUpdates ? pricingListUpdatePolicy(listUpdateContracts) : listCreations ? pricingListCreationPolicy(listContracts) : !preferences && !shipping ? pricingListCreationPolicy(listContracts, existingPolicy) : existingPolicy'],
     ["createList", `commands.write("pricingCreateList", prepare(decodePriceListCreate),
       ({ service, context }, data): Promise<unknown> => Reflect.apply(service.createPriceLists, service, [structuredClone(data), context]))`],
     ["deleteList", `commands.write("pricingDeleteList", prepare(decodePriceListDeletionIds), async ({ service, context }, ids) => {
@@ -949,6 +972,7 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
         capture: message => bound.bridge.current().captureLocalEvent(message), check: work => bound.bridge.checked(ctx, work), refuse: bound.refuse });
       return { baseRepository: bound.repository, repository: (model: typeof Price | typeof PriceSet | typeof PriceRule | typeof PriceList | typeof PriceListRule | typeof PricePreference) =>
         preferences ? model === PricePreference ? bound.preferenceRepository : bound.denied :
+        listPriceRemovals ? model === Price ? bound.priceRepository : bound.denied :
         listPrices ? model === PriceList ? bound.listRepository : model === Price ? bound.priceRepository : listPriceUpdates && model === PriceRule ? bound.ruleRepository : bound.denied :
         listCreations || listUpdates || listDeletions ? model === PriceList ? bound.listRepository : bound.denied :
         model === PriceSet ? bound.repository : model === Price ? bound.priceRepository : model === PriceList ? bound.listRepository : model === PriceRule ? bound.ruleRepository :
@@ -965,6 +989,12 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
     [adapter, "./price-list-price-update-receipt", 'import { pricingListPriceUpdatePolicy } from "./price-list-price-update-receipt";'],
     [repository, "./price-list-price-update-input", 'import { compilePriceListPriceUpdateContracts } from "./price-list-price-update-input";'],
     [repository, "./price-list-price-update-repository", 'import { readPriceListPriceUpdateRows, readPriceListPriceSnapshotRules, preparePriceListPriceReplay } from "./price-list-price-update-repository";'],
+    [adapter, "./price-list-price-removal-input", `import { compilePriceListPriceRemovalContracts, PriceListPriceRemovalReadInput, decodePriceListPriceRemovalRead,
+      decodePriceListPriceRemovalLifecycleArguments } from "./price-list-price-removal-input";`],
+    [adapter, "./price-list-price-removal-receipt", 'import { pricingPriceListPriceRemovalPolicy } from "./price-list-price-removal-receipt";'],
+    [repository, "./price-list-price-removal-input", 'import { compilePriceListPriceRemovalContracts } from "./price-list-price-removal-input";'],
+    [repository, "./price-list-price-removal-repository", 'import { readPriceListPriceRemovalRows } from "./price-list-price-removal-repository";'],
+    [repository, "./price-list-price-removal-lifecycle", 'import { priceListPriceRemovalLifecycleMethods } from "./price-list-price-removal-lifecycle";'],
   ];
   for (const [file, path, expected] of updateImports) {
     const imports = file.statements.filter(ts.isImportDeclaration).filter(node => ts.isStringLiteral(node.moduleSpecifier) && node.moduleSpecifier.text === path);
@@ -974,6 +1004,7 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
   }
   /** @type {Map<string, ts.VariableDeclaration[]>} */
   const repositoryOwners = new Map(["mutationEvents", "listPriceUpdates", "listPriceUpdateContracts", "listPriceReplay", "ruleRepository", "listPriceCreations", "listPrice", "listPriceRepository", "listDeletions", "listDeletionContracts", "listLifecycle", "mutable", "lifecycle", "preferenceUpdates", "preferenceDeletions", "preferences", "shippingUpdates", "shipping", "listCreations", "listUpdates", "listUpdate", "listRepository"].map(name => [name, []]));
+  for (const name of ["listPriceRemovals", "listPriceRemovalContracts", "priceRemovalRepository"]) repositoryOwners.set(name, []);
   /** @type {ts.CallExpression[]} */
   const preferenceRepositories = [];
   /** @type {ts.ObjectLiteralExpression[]} */
@@ -991,10 +1022,18 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
     ["mutationEvents", `{ createEventSubscriber: events.createSubscriber, registerEventSubscriber: events.registerSubscriber,
       dispatchMutationEvent: (event, args, shared, subscriber) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
         if ((!events.isSubscribed(shared) && (subscriber === undefined || !events.ownsSubscriber(subscriber))) ||
-          !(listUpdates || listPriceCreations || listPriceUpdates ? ["afterCreate", "afterUpdate", "afterDelete"] : mutable || shipping || listDeletions ? ["afterDelete", "afterUpdate"] : ["afterDelete"]).includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+          !(listUpdates || listPriceCreations || listPriceUpdates ? ["afterCreate", "afterUpdate", "afterDelete"] : mutable || shipping || listDeletions || listPriceRemovals ? ["afterDelete", "afterUpdate"] : ["afterDelete"]).includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
         yield* events.dispatch(event, args, shared, subscriber);
       }))) }`],
     ["listPriceUpdates", 'admission === "price-list-price-updates"'],
+    ["listPriceRemovals", 'admission === "price-list-price-removals"'],
+    ["listPriceRemovalContracts", 'listPriceRemovals ? yield* compilePriceListPriceRemovalContracts(metadata) : undefined'],
+    ["priceRemovalRepository", `listPriceRemovalContracts === undefined ? undefined : {
+      ...denied, serialize: repository.serialize,
+      ...priceListPriceRemovalLifecycleMethods(listPriceRemovalContracts, bridge, events),
+      find: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx,
+        readPriceListPriceRemovalRows(ctx, listPriceRemovalContracts, captured))),
+    }`],
     ["listPriceUpdateContracts", 'listPriceUpdates ? yield* compilePriceListPriceUpdateContracts(metadata) : undefined'],
     ["listPriceReplay", 'listPriceUpdateContracts === undefined ? undefined : yield* preparePriceListPriceReplay(listPriceUpdateContracts)'],
     ["ruleRepository", `{ ...denied, serialize: repository.serialize,
@@ -1038,7 +1077,7 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
     }) : undefined`],
     ["listRepository", `{ ...denied, serialize: repository.serialize,
       ...(listLifecycle === undefined ? {} : listLifecycle),
-      create: listUpdates || listDeletions || listPriceCreations || listPriceUpdates ? refuse : (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
+      create: listUpdates || listDeletions || listPriceCreations || listPriceUpdates || listPriceRemovals ? refuse : (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
       find: listPrice !== undefined ? (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx,
         readPriceListUpdateRows(ctx, listPrice.contracts.listReadContracts, captured))) : listUpdate === undefined ? refuse :
         (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, readPriceListUpdateRows(ctx, listUpdate.contracts, input))),
@@ -1067,17 +1106,17 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
       nativeWorkflowProgram("const owner = " + expected, "Invalid Pricing selection");
   }) || bindingReturns.length !== 1 || bindingReturn === undefined || nativeWorkflowProgram("const binding = " + bindingReturn.getText(repository), "Invalid Pricing selection") !==
     nativeWorkflowProgram(`const binding = { repository, denied, listRepository, ruleRepository: mutationRepositories?.ruleRepository ?? ruleRepository,
-      priceRepository: listPriceRepository ?? mutationRepositories?.priceRepository ?? denied, preferenceRepository, mutationEvents, bridge, refuse, calculatePrices };`, "Invalid Pricing selection") ||
+      priceRepository: priceRemovalRepository ?? listPriceRepository ?? mutationRepositories?.priceRepository ?? denied, preferenceRepository, mutationEvents, bridge, refuse, calculatePrices };`, "Invalid Pricing selection") ||
     preferenceRepositories.length !== 2 || preferenceRepositories[0]?.arguments.map(argument => argument.getText(repository).replace(/\s/g, "")).join(",") !==
     'metadata,preferenceDeletions?"deletions":preferenceUpdates?"updates":"store"' ||
     preferenceRepositories[1]?.arguments.map(argument => argument.getText(repository)).join(",") !== "metadata" ||
     repositoryAdmission.length !== 1 || admissionDeclaration.type.getText(repository).replace(/\s/g, "") !==
-    '"create"|"variant-updates"|"product-updates"|"price-preferences"|"price-preference-updates"|"price-preference-deletions"|"price-list-creations"|"price-list-updates"|"price-list-deletions"|"price-list-price-creations"|"price-list-price-updates"|"shipping-options"|"shipping-option-updates"' ||
+    '"create"|"variant-updates"|"product-updates"|"price-preferences"|"price-preference-updates"|"price-preference-deletions"|"price-list-creations"|"price-list-updates"|"price-list-deletions"|"price-list-price-creations"|"price-list-price-updates"|"price-list-price-removals"|"shipping-options"|"shipping-option-updates"' ||
     repositoryFactory.length !== 1 || factoryDeclaration.parameters.length !== 2 ||
     factoryDeclaration.parameters[1]?.getText(repository) !== 'admission: PricingRepositoryAdmission = "create"' ||
     adapter.statements.some(node => (ts.isTypeAliasDeclaration(node) || ts.isInterfaceDeclaration(node)) && node.name.text === "PricingRepositoryAdmission") ||
     admissionGuard === undefined || nativeWorkflowProgram(admissionGuard.getText(adapter), "Invalid Pricing selection") !== nativeWorkflowProgram(
-      'if (admission !== "create" && admission !== "variant-updates" && admission !== "product-updates" && admission !== "price-preferences" && admission !== "price-preference-updates" && admission !== "price-preference-deletions" && admission !== "price-list-creations" && admission !== "price-list-updates" && admission !== "price-list-deletions" && admission !== "price-list-price-creations" && admission !== "price-list-price-updates" && admission !== "shipping-options" && admission !== "shipping-option-updates") return yield* Effect.fail(commerceError("unsupportedProfile"));', "Invalid Pricing selection") ||
+      'if (admission !== "create" && admission !== "variant-updates" && admission !== "product-updates" && admission !== "price-preferences" && admission !== "price-preference-updates" && admission !== "price-preference-deletions" && admission !== "price-list-creations" && admission !== "price-list-updates" && admission !== "price-list-deletions" && admission !== "price-list-price-creations" && admission !== "price-list-price-updates" && admission !== "price-list-price-removals" && admission !== "shipping-options" && admission !== "shipping-option-updates") return yield* Effect.fail(commerceError("unsupportedProfile"));', "Invalid Pricing selection") ||
     profile.properties.length !== 3 || profile.properties[1]?.getText(adapter) !== "capabilities: []" || profile.properties[2]?.getText(adapter) !== "bind" ||
     nativeWorkflowProgram("const graph = " + graph.getText(adapter), "Invalid Pricing selection") !== nativeWorkflowProgram(`const graph = preferences || listCreations || listUpdates || listDeletions || listPrices ? { aliases: [], reads: [] } : {
       aliases: yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : joiner.alias === undefined ? [] : [joiner.alias]).filter(alias => alias.entity === "PriceSet") }),
