@@ -97,3 +97,12 @@ export * as RegionTypes from "./region/index";
 export * from "./region/index";
 export * from "./fulfillment/index";
 export { RemoteQueryFunction } from "./modules-sdk/remote-query";
+
+export type { CartDTO, CartLineItemDTO, LineItemAdjustmentDTO, LineItemTaxLineDTO } from "./cart/common";
+export type { CreateCartCreateLineItemDTO } from "./cart/workflows";
+export type { UpdateLineItemDTO, UpdateLineItemWithSelectorDTO } from "./cart/mutations";
+export type { CustomerDTO } from "./customer/common";
+export type { CreateOrderAdjustmentDTO, CreateOrderLineItemTaxLineDTO } from "./order/mutations";
+export type { ProductDTO, ProductVariantDTO } from "./product/index";
+export type * as OrderWorkflow from "./workflow/order/items";
+export type { QueryGraphFunction } from "./modules-sdk/remote-query";

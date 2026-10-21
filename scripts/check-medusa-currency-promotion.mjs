@@ -6,6 +6,7 @@ import { verifyPricingNormalizationExtraction, verifyPricingCandidateConstraintE
 import { verifyNativeJsonAssignment } from "./check-medusa-json-assignment-source.mjs";
 import { pricingRepositoryNormalizationSource, verifyNativePriceListPriceNormalization, verifyPriceListPriceCreationCallbacks, verifyPriceListPriceCreationSelection, verifyPriceListPriceRemovalCallbacks, verifyPriceListPriceRemovalSelection, priceListPriceBatchSourcePair, verifyPriceListPriceBatchCallbacks, verifyPriceListPriceBatchSelection, verifyPriceListPriceBatchService } from "./check-medusa-price-list-prices-source.mjs";
 import { verifyNativePriceListPriceUpdate, stripNativePriceListPriceUpdatePricingExtension } from "./check-medusa-price-list-price-update-source.mjs";
+import { variantItemPricingSourcePairs, verifyVariantItemPricingSource } from "./check-medusa-variant-item-pricing-source.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -301,6 +302,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyPriceListPriceBatchSelection(readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/pricing/batch-price-list-prices.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/src/workflow/policy.ts"), "utf8"));
   verifyPriceListPriceBatchService(readFileSync(path.join(root, "packages/medusa-adapter/src/modules/pricing/price-list-price-batch-service.ts"), "utf8"));
+  verifyVariantItemPricingSource(root);
   verifyPriceListPriceUpdatePolicySelection(readFileSync(path.join(root, "packages/medusa-adapter/src/modules/pricing/price-list-price-update-receipt.ts"), "utf8"));
   verifyPriceListPriceUpdateSelection(readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/pricing/update-price-list-prices.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/src/workflow/policy.ts"), "utf8"));
@@ -645,6 +647,13 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   const priceListPriceUpdateSources = ["price-list/workflows/update-price-list-prices.ts", "price-list/steps/update-price-list-prices.ts"];
   const priceListPriceRemovalSources = ["price-list/workflows/remove-price-list-prices.ts", "price-list/steps/remove-price-list-prices.ts"];
   for (const file of promotion.files) {
+    const variantPricingPair = variantItemPricingSourcePairs.find(pair => file.target === pair.target || file.source === pair.source);
+    if (variantPricingPair !== undefined && (file.target !== variantPricingPair.target || file.source !== variantPricingPair.source ||
+      file.classification !== (file.target.endsWith("/cart/utils/fields.ts") || file.target.endsWith("/common/filter-object-by-keys.ts")
+        ? "unchanged" : file.target.includes("/medusa-core-flows/") ? "workflowFork" : "variantItemPricingFork")))
+      throw new Error("Variant Item pricing outside its exact pinned source pair");
+    if (file.classification === "variantItemPricingFork" && variantPricingPair === undefined)
+      throw new Error("Variant Item pricing fork outside its exact pinned source pair");
     const normalizationPair = file.source === pricingRepositoryNormalizationSource[1] &&
       (file.target === pricingRepositoryNormalizationSource[0] && file.classification === "nativeRepositoryFork" ||
         file.target === "packages/medusa-utils/src/dal/upsert-planning.ts" && file.classification === "selectedExportFacade");
@@ -754,7 +763,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       ["packages/medusa-pricing/src/normalization.ts", "packages/modules/pricing/src/services/pricing-module.ts"],
     ]) if (file.target === target && (file.classification !== "selectedExportFacade" || file.source !== sourcePrefix + source))
       throw new Error("Shipping Option extraction outside its exact pinned source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {

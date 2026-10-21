@@ -22,7 +22,7 @@ const decodeOperationScheduling = Schema.decodeUnknownEffect(Schema.UndefinedOr(
 const decodeExecutionIsolation = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("scopeExclusive")));
 const decodeLogicalPublication = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal("mixed")));
 
-export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestCallLimit" | "requestByteLimit" | "requestEventLimit" | "requestCommandMs" | "executionIsolation" | "operationScheduling" | "borrowedOperationScheduling" | "taskControlCommands">;
+export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestParticipantLimit" | "requestCallLimit" | "requestByteLimit" | "requestEventLimit" | "requestCommandMs" | "executionIsolation" | "operationScheduling" | "borrowedOperationScheduling" | "taskControlCommands">;
 /** The trusted database host closes its own database/session/authority inputs.
  * Only preparation data crosses this portable adapter boundary. */
 export interface AtomicWorkflowExecution<Host extends AtomicCommerceHost = AtomicCommerceHost> {
@@ -96,6 +96,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
   readonly revision: string;
   readonly subscribers?: AtomicCommerceEvents["subscribers"];
   /** Trusted composition only; the atomic owner validates the request budget. */
+  readonly requestParticipantLimit?: number;
   readonly requestCallLimit?: number;
   readonly requestByteLimit?: number;
   readonly requestEventLimit?: number;
@@ -236,6 +237,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
       graph: member.graph ? { aliases: definition.graph.aliases, reads: graphIdentities,
         ...(definition.graph.remotePaths === undefined ? {} : { remotePaths: definition.graph.remotePaths }),
         ...(definition.graph.linkEndpoints === undefined ? {} : { linkEndpoints: definition.graph.linkEndpoints }),
+        ...(definition.graph.directPaths === undefined ? {} : { directPaths: definition.graph.directPaths }),
         ...(definition.graph.services === undefined ? {} : { services: definition.graph.services }),
       } : null,
     });
@@ -299,6 +301,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
     ...(requestEventLimit === undefined ? {} : { requestEventLimit }),
     ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
     ...(options.requestCommandMs === undefined ? {} : { requestCommandMs: options.requestCommandMs }),
+    ...(options.requestParticipantLimit === undefined ? {} : { requestParticipantLimit: options.requestParticipantLimit }),
     ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }), ...(events === undefined ? {} : { events }) };
   return Object.freeze({ composition, command, decodeInput, decodeStoredOutput,
     run: (ctx: AtomicCommerceContext, value: Json) => Effect.fromResult(captureCommerceInput(value)).pipe(
@@ -313,6 +316,7 @@ interface WorkflowHostInput<Resources, Input extends Json, Output extends Json, 
   readonly workflow: AtomicWorkflowDefinition<Resources, Input, Output, EncodedInput>;
   readonly revision: string;
   readonly subscribers?: AtomicCommerceEvents["subscribers"];
+  readonly requestParticipantLimit?: number;
   readonly requestCallLimit?: number;
   readonly requestByteLimit?: number;
   readonly requestEventLimit?: number;
@@ -329,6 +333,7 @@ const prepareBoundWorkflowHost = Effect.fn("Workflow.prepareBoundHost")(function
   const prepared = yield* prepareWorkflowComposition({ identityAndAccessPolicy: execution.identityAndAccessPolicy,
     modules: options.modules, workflow: options.workflow, revision: options.revision,
     ...(options.subscribers === undefined ? {} : { subscribers: options.subscribers }),
+    ...(options.requestParticipantLimit === undefined ? {} : { requestParticipantLimit: options.requestParticipantLimit }),
     ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }),
     ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
     ...(options.requestEventLimit === undefined ? {} : { requestEventLimit: options.requestEventLimit }),

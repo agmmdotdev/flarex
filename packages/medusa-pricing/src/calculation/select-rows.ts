@@ -1,5 +1,15 @@
-import { isPresent, MathBN } from "@medusajs/framework/utils/portable"
+import { isPresent, MathBN, MedusaError } from "@medusajs/framework/utils/portable"
 import type { CalculatedPriceSetDTO } from "@medusajs/framework/types"
+
+/** Original PricingRepository required-currency guard, before candidate reads. */
+export function validatePricingCurrencyCode(currencyCode: unknown): void {
+  if (!currencyCode) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      `Method calculatePrices requires currency_code in the pricing context`
+    )
+  }
+}
 
 /** The row set supplied by a storage adapter is complete for the selected
  * PriceSet IDs, or the adapter must refuse before calling this function. */
@@ -32,7 +42,7 @@ export interface PricingSelectionRows {
   }>[]
 }
 
-type ContextValue = string | number | readonly (string | number)[]
+type ContextValue = string | number | boolean | readonly (string | number | boolean)[]
 
 /** PostgreSQL jsonb containment used by the pinned PriceListRule predicate.
  * The single scalar-in-array case is intentional PostgreSQL behavior. */

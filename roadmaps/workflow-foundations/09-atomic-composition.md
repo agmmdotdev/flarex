@@ -23,6 +23,15 @@ admission to one through eight explicitly selected participants as an authentica
 subset of the active commerce binding. Individual authority checks, whole-binding
 replay evidence and the existing settlement owner remain unchanged.
 
+The default remains eight participants. The trusted host may explicitly select
+`requestParticipantLimit` up to nine for an entirely logical composition; a
+selection above eight refuses every physical participant, including a smaller
+mixed cohort. This selection is included in preparation accounting and atomic
+policy identity only when supplied. Physical installation/profile bindings and
+relational fact directories retain their existing eight-member ceiling. The
+[Variant/item pricing root](../flarexdb-framework-integration/preflight/159-native-variant-item-price-calculation.md)
+uses nine genuine logical owners; its separate call allowance does not alter event or byte limits.
+
 The approved [shared-installation correction](../flarexdb-framework-integration/preflight/55-shared-installation-atomic-commerce.md)
 separates physical installation preparation/acceptance from logical participant
 authority. It is complete: disjoint profiles may
@@ -113,7 +122,7 @@ The source island remains reference-only until promotion gates pass.
 | [Commerce host](../../packages/persistence-postgres/src/frameworks/commerceTransaction/host.ts) | Executes SQL in a bounded relational session, takes the scope clock lock before services run, and recovers retained outcomes. This is not native journal execution. |
 | [Commerce publication](../../packages/persistence-postgres/src/frameworks/commerceTransaction/publication.ts) | Authenticated contribution consumption is already separate from finalization. Reuse it instead of adding another publisher. |
 | [Composite host](../../packages/persistence-postgres/src/frameworks/crossDomainCommand/host.ts) and [actual assertions](../../packages/medusa-adapter/test/currency-announcement.test.ts) | A fixed Currency/CMS/Application command has one physical owner, pending reads, combined facts, retained replay, late-failure rollback and physical-failure assertions. This does not establish a generic two-commerce-module host or application API. |
-| [Binding model](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/model.ts) and [atomic admission](../../packages/persistence-postgres/src/frameworks/atomicCommerce/admission.ts) | The current unversioned binding model admits bounded installation coverage and direct profile membership. The atomic host selects at most eight logical participants, sharing physical admission only for exact installation references and disjoint profiles. Standalone hosts retain their own profile selection. |
+| [Binding model](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/model.ts) and [atomic admission](../../packages/persistence-postgres/src/frameworks/atomicCommerce/admission.ts) | The current unversioned binding model admits bounded installation coverage and direct profile membership. The atomic host defaults to eight logical participants and admits an explicit identity-bound allowance of nine for entirely logical compositions, sharing physical admission only for exact installation references and disjoint profiles. Standalone hosts retain their own profile selection. |
 | [Relational fact reader](../../packages/persistence-postgres/src/commit/publication/relationalFacts.ts) | Validates every fact against a caller-supplied directory of original captured installation layouts before returning a participant projection. Active bindings do not reinterpret old commits. |
 | [Module definition](../../packages/medusa-adapter/src/module/definition.ts) | Checked definitions and fresh scoped services already exist. Preparation stays separate from request authority. |
 | [Read execution](../../packages/medusa-adapter/src/query/read.ts) and [catalog](../../packages/medusa-adapter/src/query/catalog.ts) | Relation filtering, root selection, population, count and projection are reusable semantics; they do not produce native relational OCC dependencies. |

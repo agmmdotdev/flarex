@@ -1,22 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { Effect, Exit } from "effect";
+import { Cause, Effect, Exit } from "effect";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { CommitSeqSchema } from "flarex-protocol/storage-authority";
 import { compilePayloadCollections } from "../../payload-adapter/src/collections";
 import { prepareLogicalApplicationSourceAdmission } from "../../persistence-postgres/src/storage/documents/logicalDocuments/applicationAdmission";
 import { prepareLogicalDocumentSourceAdmission } from "../../persistence-postgres/src/storage/documents/logicalDocuments/documentAdmission";
 import { prepareLogicalRelationalAdmission } from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalAdmission";
-import { makeSourceApplicationInsertParticipant, applicationCommandError } from
+import { makeSourceApplicationInsertParticipant, ApplicationCommandError, applicationCommandError } from
   "../../persistence-postgres/src/storage/materialization/insertParticipant";
 import { makeSourceCmsDocuments, consumeSourceCmsDocumentClosure } from "../../persistence-postgres/src/frameworks/cmsTransaction/documents";
-import { cmsError, cmsLimits } from "../../persistence-postgres/src/frameworks/cmsTransaction/model";
+import { CmsTransactionError, cmsError, cmsLimits } from "../../persistence-postgres/src/frameworks/cmsTransaction/model";
 import { makeLogicalCommerceParticipant, consumeLogicalCommerceClosure } from
   "../../persistence-postgres/src/frameworks/commerceTransaction/logicalParticipant";
-import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
+import { CommerceTransactionError, commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { makeCommerceCommandContext } from "../../persistence-postgres/src/frameworks/commerceTransaction/context";
 import { getCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
-import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
+import { makeBoundedRequestLifetime, projectBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { prepareJointLogicalMaterialization } from "../../persistence-postgres/src/frameworks/crossDomainCommand/materialization";
+import { compositeError, type CompositeFailure } from "../../persistence-postgres/src/frameworks/crossDomainCommand/model";
 import { runEffectTransaction } from "../../persistence-postgres/src/database/effectTransaction";
 import { runDrizzleStatementEffect } from "../../persistence-postgres/src/database/drizzleStatementEffect";
 import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/database/metadataTransaction";
@@ -56,6 +57,7 @@ describe("joint selected logical sources", () => {
         const located = yield* resolveLocatedTrustedScopeAuthorityEffect(fixture.deploymentId,
           fixture.application.authorityPorts);
         let lowered = false;
+        const deliberateRollback = new Error("Deliberate joint lowering rollback");
         const rolledBack = yield* Effect.exit(runEffectTransaction(work => db.transaction(work),
           "Joint logical source rollback", (tx: FlarexMetadataTransaction) => Effect.scoped(Effect.gen(function* () {
             const snapshot = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId);
@@ -63,54 +65,62 @@ describe("joint selected logical sources", () => {
               application => prepared.payload.withAdmission(active.selection, tx, located.authority, snapshot,
                 payload => prepared.currency.withAdmission(active.selection, tx, located.authority, snapshot,
                   currency => Effect.scoped(Effect.gen(function* () {
-                    const appLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(applicationCommandError,
-                      cmsLimits, {}, {}, "joint-application", "write"), value => value.close);
-                    const cmsLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(cmsError,
-                      cmsLimits, {}, {}, "joint-payload", "write"), value => value.close);
-                    const commerceLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError,
-                      cmsLimits, {}, {}, "joint-currency", "write"), value => value.close);
+                    const transactionId = "joint-logical";
+                    const rootLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(
+                      (reason, cause): CompositeFailure => compositeError(reason, cause), cmsLimits, {}, {}, transactionId, "write"), value => value.close);
+                    const appLifetime = projectBoundedRequestLifetime(rootLifetime, error => error instanceof ApplicationCommandError
+                      ? error : applicationCommandError("rollbackOnly", error));
+                    const cmsLifetime = projectBoundedRequestLifetime(rootLifetime, error => error instanceof CmsTransactionError
+                      ? error : cmsError("rollbackOnly", error));
+                    const commerceLifetime = projectBoundedRequestLifetime(rootLifetime, error => error instanceof CommerceTransactionError
+                      ? error : commerceError("rollbackOnly", error));
                     const app = yield* makeSourceApplicationInsertParticipant(application, tx, appLifetime,
-                      "joint-application", "users");
+                      transactionId, "users");
                     const cms = yield* makeSourceCmsDocuments(payload, tx, cmsLifetime,
                       AppCreationTimeV1Schema.make(1));
                     const commerce = yield* makeLogicalCommerceParticipant(currency, tx, commerceLifetime,
-                      commerceLifetime.context, "joint-currency");
+                      commerceLifetime.context, transactionId);
                     const appId = yield* app.insert(appLifetime.context, { name: "Joint application" });
-                    const payloadRow = yield* cms.documents.insert(cmsLifetime.context, "joint-payload", "news",
+                    const payloadRow = yield* cms.documents.insert(cmsLifetime.context, transactionId, "news",
                       { title: "Joint payload", createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z" });
                     const native = getCommerceCommand(currencyAnnouncementWrite);
                     if (native === undefined) throw new Error("Missing native Currency command");
                     const currencyRow = yield* native.run(makeCommerceCommandContext(commerceLifetime, commerce,
-                      "joint-currency", commerceLifetime.context,
+                      transactionId, commerceLifetime.context,
                       () => Effect.fail(commerceError("invalidAuthority")),
                       () => Effect.fail(commerceError("unadmittedEvent"))),
                     { code: "zzz", name: "Joint currency", symbol: "Z", symbol_native: "Z" });
                     expect(currencyRow).toMatchObject({ code: "zzz" });
                     expect(payloadRow).toMatchObject({ title: "Joint payload" });
                     expect(typeof appId).toBe("string");
-                    yield* appLifetime.seal;
-                    yield* cmsLifetime.seal;
-                    yield* commerceLifetime.seal;
+                    yield* rootLifetime.seal;
                     const appChanges = yield* app.consume(yield* app.close());
-                    const payloadChanges = yield* consumeSourceCmsDocumentClosure(yield* cms.close(), payload, tx, cmsLifetime);
+                    const { changes: payloadChanges, preferenceIntents } = yield* consumeSourceCmsDocumentClosure(yield* cms.close(), payload, tx, cmsLifetime);
+                    expect(preferenceIntents).toEqual([]);
                     const currencyChanges = (yield* consumeLogicalCommerceClosure(yield* commerce.close(), commerceLifetime)).changes;
                     const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, located.authority.scopeId);
                     const jointInput = { tx, clock, application, payload, currency,
                       applicationChanges: appChanges, payloadChanges, currencyChanges, options: {} };
                     const delta = yield* prepareJointLogicalMaterialization(jointInput);
                     expect(delta.changes).toHaveLength(3);
+                    expect(delta.changes.flatMap(row => row.insertionOrder?.kind === "pending" ? [row.insertionOrder.attemptOrdinal] : [])
+                      .toSorted((left, right) => left - right)).toEqual([0, 1]);
                     yield* prepared.application.withAdmission(active.selection, tx, located.authority, snapshot,
                       replacement => Effect.sync(() => { jointInput.application = replacement; }));
                     yield* delta.lower(CommitSeqSchema.make(clock.lastCommitSeq + 1n));
-                    lowered = true;
                     expect((yield* runDrizzleStatementEffect(tx.select().from(fxAppRowCurrent), cause =>
                       new Error("Joint row read", { cause }))).length)
                       .toBe(before.rows.length + 3);
-                    return yield* Effect.fail(new Error("Deliberate joint lowering rollback"));
+                    lowered = true;
+                    return yield* Effect.fail(deliberateRollback);
                   })))));
           })), cause => new Error("Joint logical transaction", { cause })));
-        expect(lowered).toBe(true);
+        expect(lowered, Exit.isFailure(rolledBack) ? Cause.pretty(rolledBack.cause) : "Unexpected successful settlement").toBe(true);
         expect(Exit.isFailure(rolledBack)).toBe(true);
+        if (Exit.isFailure(rolledBack)) {
+          expect(rolledBack.cause.reasons).toHaveLength(1);
+          expect(rolledBack.cause.reasons.find(Cause.isFailReason)?.error).toBe(deliberateRollback);
+        }
         })());
         expect(await logicalCurrencyInventory(fixture)).toEqual(before);
       } finally {

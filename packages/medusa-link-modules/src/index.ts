@@ -10,3 +10,4 @@ export { LocationFulfillmentSet } from "./definitions/fulfillment-set-location";
 
 export { LocationFulfillmentProvider } from "./definitions/fulfillment-provider-location";
 export { ShippingOptionPriceSet } from "./definitions/shipping-option-price-set";
+export { InventoryLevelStockLocation } from "./definitions/readonly/inventory-level-stock-location";

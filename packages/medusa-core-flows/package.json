@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./cart/variant-pricing-fields": "./src/cart/utils/fields.ts",
     "./shipping-profile/delete-shipping-profile": "./src/shipping-profile/workflows/delete-shipping-profile.ts",
     "./shipping-profile/delete-shipping-profile-step": "./src/shipping-profile/steps/delete-shipping-profile.ts",
     "./inventory/update-inventory-levels": "./src/inventory/workflows/update-inventory-levels.ts",
@@ -165,7 +166,9 @@
     "./price-list/update-price-list-prices-step": "./src/price-list/steps/update-price-list-prices.ts",
     "./price-list/remove-price-list-prices": "./src/price-list/workflows/remove-price-list-prices.ts",
     "./price-list/remove-price-list-prices-step": "./src/price-list/steps/remove-price-list-prices.ts",
-    "./price-list/batch-price-list-prices": "./src/price-list/workflows/batch-price-list-prices.ts"
+    "./price-list/batch-price-list-prices": "./src/price-list/workflows/batch-price-list-prices.ts",
+    "./cart/get-variants-and-items-with-prices": "./src/cart/workflows/get-variants-and-items-with-prices.ts",
+    "./cart/get-variant-price-sets-step": "./src/cart/steps/get-variant-price-sets.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

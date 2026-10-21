@@ -70,3 +70,6 @@ export { AbstractFulfillmentProviderService } from "@medusajs/utils/fulfillment/
 
 export { ShippingOptionWorkflowEvents } from "@medusajs/utils/core-flows/events";
 export { LINKS } from "@medusajs/utils/link/links";
+
+export { filterObjectByKeys } from "@medusajs/utils/common/filter-object-by-keys";
+export { simpleHash } from "@medusajs/utils/common/simple-hash";

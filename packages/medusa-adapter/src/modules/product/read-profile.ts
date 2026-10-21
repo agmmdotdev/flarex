@@ -47,6 +47,12 @@ export const publicProductProjection: ProjectionPolicy = { ...scalarProjection,
     ["tags", retainedProjection], ["images", ownedProjection], ["options", productOptionProjection], ["variants", productVariantProjection]]),
 };
 export const internalProductProjection: ProjectionPolicy = { ...publicProductProjection, keys: "retain" };
+// Variant reads reuse Product's local to-one relationships without admitting
+// the Product root's other traversal capabilities through this parent path.
+const variantProductProjection: ProjectionPolicy = { ...retainedProjection,
+  selectableRelations: ["collection", "type"],
+  nested: new Map([["collection", retainedProjection], ["type", retainedProjection]]),
+};
 
 export interface RelatedReadProfile {
   readonly projection: ProjectionPolicy;
@@ -61,9 +67,9 @@ export function productRelatedReadProfiles(entities: Pick<ProductRuntimeMetadata
     { entity: entities.tag, fields: ["value"], paths: ["products", "products.collection"], projection: inverseProjection },
     { entity: entities.collection, fields: ["title", "handle"], paths: ["products"], projection: collectionProjection },
     { entity: entities.option, fields: ["title"], paths: ["product", "values"], projection: parentProjection },
-    { entity: entities.variant, fields: ["title"], paths: ["product", "product.images", "images", "options"],
+    { entity: entities.variant, fields: ["title"], paths: ["product", "product.images", "product.type", "product.collection", "images", "options"],
       projection: { ...parentProjection, selectableRelations: ["product", "options"],
-        nested: new Map([...parentProjection.nested, ["options", nestedProjection]]) } },
+        nested: new Map([["product", variantProductProjection], ["options", nestedProjection]]) } },
     { entity: entities.category, fields: [], paths: ["products"], projection: scalarProjection },
     { entity: entities.assignment, fields: [], paths: [], projection: scalarProjection },
     { entity: entities.image, fields: [], paths: ["variants"], projection: scalarProjection },

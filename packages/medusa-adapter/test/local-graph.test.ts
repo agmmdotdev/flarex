@@ -31,6 +31,34 @@ beforeAll(async () => {
 });
 
 describe("native local Graph Query contract", () => {
+  it("omits only selected native presentation fields while retaining stored-field completeness", async () => {
+    const command = defineGraphReadCommand("nativePresentationRead", () => Effect.succeed([[], 0]));
+    const optionalFields = ["requires_shipping", "is_discountable", "variant_option_values"];
+    const read = { model: "Variant", command,
+      table: { name: "variant", columns: ["id", "title"], primaryKeys: ["id"], foreignKeys: [], companions: {} },
+      paths: [], orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false,
+      nativeFields: true as const, optionalFields, decode: decodeGraphCount };
+    const module = { aliases: [{ name: "variant", model: "Variant" }], reads: [read] };
+    const graph = Result.getOrThrow(prepareLocalGraph([{ participant, module }]));
+    optionalFields.push("secret");
+    const calls: Json[] = [];
+    const request = query("variant", ["id", "title", "requires_shipping", "is_discountable", "variant_option_values"]);
+    expect((await runEffect(graph.bind(context([[{ id: "v", title: "Variant", is_discountable: null, secret: "hidden" }], 1], calls)).graph(request))).data)
+      .toEqual([{ id: "v", title: "Variant", is_discountable: null }]);
+    expect(calls[0]).toMatchObject({ config: { select: ["id", "title"] } });
+    expect(await runEffectFailure(graph.bind(context([[{ id: "v" }], 1])).graph(request)))
+      .toMatchObject({ reason: "storedCorruption" });
+    const refused: Json[] = [];
+    expect(await runEffectFailure(graph.bind(context([[], 0], refused)).graph(query("variant", ["secret"]))))
+      .toMatchObject({ reason: "unsupportedProfile" });
+    expect(refused).toEqual([]);
+    const { nativeFields: _nativeFields, ...withoutNativeFields } = read;
+    for (const changed of [withoutNativeFields, { ...read, optionalFields: ["id"] },
+      { ...read, optionalFields: ["nested.value"] }, { ...read, optionalFields: ["display", "display"] }]) {
+      expect(Result.isFailure(prepareLocalGraph([{ participant, module: { ...module, reads: [changed] } }]))).toBe(true);
+    }
+  });
+
   it("derives scalar ordering from a checked natural key and refuses composite scalar admission", () => {
     const aliases = [{ name: "measurements", model: "Measurement" }];
     const command = defineGraphReadCommand("measurementCount", () => Effect.succeed([[], 0]));
@@ -79,6 +107,25 @@ describe("native local Graph Query contract", () => {
     const category = await runEffect(prepared.bind(context([{ payload: [{ id: "c", name: "root", category_children: [] }], omitted: [["0", "parent_category"]] }, 1]))
       .graph(query("product_category", ["name", "parent_category.id", "category_children.id"])));
     expect(category.data).toStrictEqual([{ name: "root", category_children: [] }]);
+  });
+
+  it.each(["variant", "variants"])("plans %s parent Type and Collection using Product's checked read capabilities", async entity => {
+    const calls: Json[] = [];
+    const rows: Json = [[{ id: "v", title: "Small", product_id: "p", product: {
+      id: "p", title: "Shirt", type: { id: "t", value: "Apparel" }, collection: { id: "c", title: "Summer" },
+    } }], 1];
+    expect(await runEffect(prepared.bind(context(rows, calls)).graph(query(entity, [
+      "title", "product.title", "product.type.id", "product.type.value", "product.collection.title",
+    ])))).toEqual({ data: [{ title: "Small", product: {
+      title: "Shirt", type: { id: "t", value: "Apparel" }, collection: { title: "Summer" },
+    } }], metadata: { count: 1, skip: 0, take: 2 } });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ config: { relations: ["product", "product.type", "product.collection"] } });
+    const refusedCalls: Json[] = [];
+    for (const field of ["product.tags.id", "product.shipping_profile.id", "product.type.products.id"])
+      expect(await runEffectFailure(prepared.bind(context([[], 0], refusedCalls)).graph(query(entity, [field]))))
+        .toMatchObject({ reason: "unsupportedProfile" });
+    expect(refusedCalls).toEqual([]);
   });
 
   it("uses admitted stable ordering and bounded zero-sized pages", async () => {

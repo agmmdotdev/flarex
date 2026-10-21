@@ -18,6 +18,7 @@ export const GraphRemotePathSelectionSchema = Schema.Struct({
 export const GraphRemotePathSchema = Schema.Struct({ ...GraphRemotePathSelectionSchema.fields,
   sourceModel: Name, sourceKey: Name, linkModel: Name, sourceColumn: Name,
   targetColumn: Name, targetModel: Name, targetKey: Name,
+  many: Schema.optionalKey(Schema.Literal(false)),
 });
 /** Native Link metadata selects read-only paths with explicit complete-set bounds. */
 export type GraphRemotePathSelection = typeof GraphRemotePathSelectionSchema.Type;
@@ -27,8 +28,8 @@ const Rest = [Schema.Record(Schema.String, Schema.Json)] as const;
 const Endpoint = Schema.StructWithRest(Schema.Struct({ serviceName: Schema.String, entity: Name,
   primaryKey: Name, foreignKey: Name, alias: Name }), Rest);
 const Extension = Schema.StructWithRest(Schema.Struct({ entity: Schema.optionalKey(Name), serviceName: Schema.String,
-  fieldAlias: Schema.Record(Schema.String, Schema.Union([Schema.String,
-    Schema.StructWithRest(Schema.Struct({ path: Schema.String, isList: Schema.optionalKey(Schema.Boolean) }), Rest)])),
+  fieldAlias: Schema.optionalKey(Schema.Record(Schema.String, Schema.Union([Schema.String,
+    Schema.StructWithRest(Schema.Struct({ path: Schema.String, isList: Schema.optionalKey(Schema.Boolean) }), Rest)]))),
   relationship: Schema.StructWithRest(Schema.Struct({ primaryKey: Name, foreignKey: Name, alias: Name, isList: Schema.optionalKey(Schema.Boolean) }), Rest),
 }), Rest);
 const decodeJoinerSchema = Schema.StructWithRest(Schema.Struct({ isLink: Schema.Literal(true), serviceName: Name,
@@ -100,11 +101,11 @@ export function nativeLinkGraphPaths(joiner: ModuleJoinerConfig, selections: rea
         const targets = native.relationships.filter(relation => relation.alias === pieces?.[1]);
         const target = targets[0];
         if (pieces.length !== 2 || extensions.length !== 1 || extension === undefined || targets.length !== 1 || target === undefined ||
-          alias.isList !== true && extension.relationship.isList !== true ||
           source.foreignKey !== extension.relationship.primaryKey || source.primaryKey !== extension.relationship.foreignKey)
           return yield* Result.fail(commerceError("unsupportedProfile"));
         resolved = { sourceModel: current, sourceKey: source.primaryKey, linkModel,
-          sourceColumn: source.foreignKey, targetColumn: target.foreignKey, targetModel: target.entity, targetKey: target.primaryKey };
+          sourceColumn: source.foreignKey, targetColumn: target.foreignKey, targetModel: target.entity, targetKey: target.primaryKey,
+          ...(alias.isList === true || extension.relationship.isList === true ? {} : { many: false as const }) };
         current = target.entity;
       }
       if (resolved === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));

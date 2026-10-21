@@ -21,6 +21,7 @@ export interface ProjectionNode {
   /** Native graph masks require every selected scalar; existing DAL projections
    * keep their established optional-field behavior unless explicitly selected. */
   readonly requireFields?: boolean;
+  readonly optionalFields?: readonly string[];
   readonly children: readonly { readonly name: string; readonly many: boolean; readonly optional?: boolean; readonly node: ProjectionNode }[];
   readonly nullRelations: readonly { readonly name: string; readonly keys: readonly string[] }[];
 }
@@ -48,6 +49,7 @@ export function retainReadProjection(projection: ReadProjection): ReadProjection
     return Object.freeze({
       fields,
       ...(node.requireFields === undefined ? {} : { requireFields: node.requireFields }),
+      ...(node.optionalFields === undefined ? {} : { optionalFields: Object.freeze([...node.optionalFields]) }),
       children: Object.freeze(node.children.map(child => Object.freeze({ ...child, node: retainNode(child.node) }))),
       nullRelations: Object.freeze(node.nullRelations.map(relation => Object.freeze({ ...relation, keys: Object.freeze([...relation.keys]) }))),
     });
@@ -121,7 +123,7 @@ export function projectRows(rows: readonly JsonObject[], node: ProjectionNode): 
   return Result.gen(function* () {
     const output: JsonObject[] = [];
     for (const row of rows) {
-      if (node.requireFields === true && [...node.fields].some(field => !Object.hasOwn(row, field))) return yield* Result.fail(commerceError("storedCorruption"));
+      if (node.requireFields === true && [...node.fields].some(field => !Object.hasOwn(row, field) && !node.optionalFields?.includes(field))) return yield* Result.fail(commerceError("storedCorruption"));
       const projected = projectRowFields(row, node.fields);
       for (const child of node.children) {
         const value = row[child.name];

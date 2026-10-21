@@ -30,7 +30,8 @@ import { moduleAliases, scalarGraphDefinition } from "../../local-graph/module";
 import { inventoryCreateEventPolicy } from "./events";
 import { ScalarId, ScalarIdRead, scalarIdWhere } from "../../repository/scalar-id-read";
 import { InventoryLevelsInput, InventoryLevelsOutput } from "./level-input";
-import { prepareInventoryQuantityRepository, inventoryQuantityProjection } from "./quantity-repository";
+import { prepareInventoryQuantityRepository, inventoryQuantityProjection, inventoryLevelWhere } from "./quantity-repository";
+import { InventoryVariantPriceCalculationItemRead, InventoryVariantPriceCalculationLevelRead } from "./variant-price-calculation-read";
 import { Adjustments, ReservationCreates, ReservationUpdates, ReservationIds, ReservationRead, ReservationOutput } from "./reservation-input";
 import { inventoryStockEventPolicy } from "./stock-events";
 import { InventoryDeletionSelection, InventoryDeletionConfig, decodeInventoryDeletionInput, inventoryItemLifecycle } from "./deletion-lifecycle";
@@ -44,20 +45,16 @@ const decodeCreate = commerceDecoder(Schema.Union([InventoryItemInput, Items]), 
 const decodeRead = commerceDecoder(ScalarIdRead, "invalidInput");
 export const InventoryItemsOutput = Schema.Array(Schema.StructWithRest(Schema.Struct({ id: InventoryId }), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(4));
 
-const makeBasicInventoryCommands = Effect.fn("InventoryAdapter.commands")(function* (admission: "items" | "levels" | "stock" | "product-deletions" | "product-batches" = "items") {
-  if (!["items", "levels", "stock", "product-deletions", "product-batches"].includes(admission)) return yield* Effect.fail(commerceError("unsupportedProfile"));
+type BasicInventoryAdmission = "items" | "levels" | "stock" | "product-deletions" | "product-batches";
+const prepareInventoryCommandModule = Effect.fn("InventoryAdapter.prepareCommandModule")(function* (admission: BasicInventoryAdmission | "variant-price-calculation") {
+  if (!["items", "levels", "stock", "product-deletions", "product-batches", "variant-price-calculation"].includes(admission)) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const metadata = yield* captureInventoryMetadata();
-  const stock = admission === "stock", deletion = admission === "product-deletions" || admission === "product-batches";
+  const stock = admission === "stock", deletion = admission === "product-deletions" || admission === "product-batches", variantPricing = admission === "variant-price-calculation";
   const admitsLevels = admission === "levels" || stock;
   const levelInput = admitsLevels ? InventoryLevelsInput : EmptyLevels;
   const decodeLevels = commerceDecoder(levelInput, "unsupportedProfile");
   const deletionContracts = deletion ? yield* Effect.fromResult(compileInventoryDeletionContracts(metadata.frame.tables)) : undefined;
   const policy = () => deletionContracts !== undefined ? inventoryDeletionEventPolicy(deletionContracts) : stock ? inventoryStockEventPolicy() : inventoryCreateEventPolicy(admission === "levels");
-  const decodeAdjust = commerceDecoder(stock ? Adjustments : Schema.Never, "unsupportedProfile");
-  const decodeReserve = commerceDecoder(stock ? ReservationCreates : Schema.Never, "unsupportedProfile");
-  const decodeUpdateReservation = commerceDecoder(stock ? ReservationUpdates : Schema.Never, "unsupportedProfile");
-  const decodeRelease = commerceDecoder(stock ? ReservationIds : Schema.Never, "unsupportedProfile");
-  const decodeReservationsRead = commerceDecoder(stock ? ReservationRead : Schema.Never, "unsupportedProfile");
   return yield* Effect.fromResult(Result.gen(function* () {
     const item = metadata.frame.tables.find(table => table.name === "inventory_item");
     const level = metadata.frame.tables.find(table => table.name === "inventory_level");
@@ -65,10 +62,13 @@ const makeBasicInventoryCommands = Effect.fn("InventoryAdapter.commands")(functi
     if (!item || !level || !reservation) return yield* Result.fail(commerceError("unsupportedProfile"));
     const prepared = yield* prepareScalarRepository(item, "InventoryItem", scalarIdWhere,
       deletion ? undefined : inventoryQuantityProjection([...level.columns, ...reservation.columns]));
-    const levels = yield* prepareInventoryQuantityRepository(level, "InventoryLevel", stock ? "stock-mutations" : "read-only");
+    const levels = yield* variantPricing
+      ? prepareScalarRepository(level, "InventoryLevel", inventoryLevelWhere, inventoryQuantityProjection(level.columns))
+      : prepareInventoryQuantityRepository(level, "InventoryLevel", stock ? "stock-mutations" : "read-only");
     const reservations = yield* prepareInventoryQuantityRepository(reservation, "ReservationItem", stock ? "stock-mutations" : "read-only");
     const bind = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const bound = prepared.bind(ctx, owner);
+      const denied = deniedCommerceRepository(bound.repository, bound.refuse);
       const find = inventoryDeletionFind(bound);
       const itemRepository: DAL.RepositoryService = deletion ? { ...bound.repository,
         find: (input, shared) => bound.bridge.execute(shared, current => bound.bridge.checked(current,
@@ -84,11 +84,12 @@ const makeBasicInventoryCommands = Effect.fn("InventoryAdapter.commands")(functi
           yield* bound.events.cascades(result.cascades, shared, row => ({ entity: row, originalEntity: { deleted_at: null } }));
           return [result.roots, result.cascades] satisfies [object[], Record<string, unknown[]>];
         }))),
-      } : bound.repository;
+      } : variantPricing ? { ...denied, serialize: bound.repository.serialize, find: bound.repository.find,
+        findAndCount: bound.repository.findAndCount } : bound.repository;
       const levelBound = levels.bind(ctx, owner, bound.events);
       const reservationBound = reservations.bind(ctx, owner, bound.events);
-      const denied = deniedCommerceRepository(bound.repository, bound.refuse);
-      const levelRepository = { ...(stock ? levelBound.repository : denied), create: (input: unknown, shared?: Context) =>
+      const levelRepository = { ...(stock ? levelBound.repository : variantPricing ? { ...denied, serialize: levelBound.repository.serialize,
+        find: levelBound.repository.find, findAndCount: levelBound.repository.findAndCount } : denied), create: variantPricing ? bound.refuse : (input: unknown, shared?: Context) =>
         captureCommerceInput(input, ctx.resources).pipe(Result.flatMap(decodeLevels), Result.match({
           onFailure: error => owner.run(ctx.refuse(error)),
           onSuccess: rows => levelBound.repository.create([...rows], shared),
@@ -101,7 +102,7 @@ const makeBasicInventoryCommands = Effect.fn("InventoryAdapter.commands")(functi
         events: bound.mutationEvents, eventBus, levelRepository, refuse: bound.refuse };
     };
     const module = yield* defineCommerceModule({ name: "flarex-inventory-local", models: [InventoryItem, InventoryLevel, ReservationItem],
-      profile: { name: admission === "product-batches" ? "inventory-product-batches" : deletion ? "inventory-product-deletions" : stock ? "inventory-stock-mutations" : admission === "levels" ? "inventory-stock-levels" : "inventory-variant-items", capabilities: [], bind },
+      profile: { name: variantPricing ? "inventory-variant-price-calculation" : admission === "product-batches" ? "inventory-product-batches" : deletion ? "inventory-product-deletions" : stock ? "inventory-stock-mutations" : admission === "levels" ? "inventory-stock-levels" : "inventory-variant-items", capabilities: [], bind },
       extensions: { inventoryLevelService: { mode: "replace", create: ({ binding, persistence }) => {
         const container = { inventoryLevelRepository: binding.levelRepository, modulePersistenceAdapter: persistence };
         return new InventoryLevelService(container);
@@ -119,9 +120,24 @@ const makeBasicInventoryCommands = Effect.fn("InventoryAdapter.commands")(functi
           softDeleteReservationItems: stock ? native.softDeleteReservationItems.bind(native) : binding.refuse,
           softDeleteInventoryItems: deletion ? native.softDeleteInventoryItems.bind(native) : binding.refuse,
           listReservationItems: stock ? native.listReservationItems.bind(native) : binding.refuse,
-          listAndCountInventoryItems: native.listAndCountInventoryItems.bind(native) }, context };
+          listAndCountInventoryItems: native.listAndCountInventoryItems.bind(native),
+          listAndCountInventoryLevels: native.listAndCountInventoryLevels.bind(native) }, context };
       },
     }).pipe(Result.mapError(error => commerceError("unsupportedProfile", error)));
+    return { metadata, prepared, levels, module, policy, admitsLevels, levelInput, deletion };
+  }));
+});
+
+const makeBasicInventoryCommands = Effect.fn("InventoryAdapter.commands")(function* (admission: BasicInventoryAdmission = "items") {
+  const { metadata, prepared, module, policy, admitsLevels, levelInput, deletion } = yield* prepareInventoryCommandModule(admission);
+  const stock = admission === "stock";
+  const decodeLevels = commerceDecoder(levelInput, "unsupportedProfile");
+  const decodeAdjust = commerceDecoder(stock ? Adjustments : Schema.Never, "unsupportedProfile");
+  const decodeReserve = commerceDecoder(stock ? ReservationCreates : Schema.Never, "unsupportedProfile");
+  const decodeUpdateReservation = commerceDecoder(stock ? ReservationUpdates : Schema.Never, "unsupportedProfile");
+  const decodeRelease = commerceDecoder(stock ? ReservationIds : Schema.Never, "unsupportedProfile");
+  const decodeReservationsRead = commerceDecoder(stock ? ReservationRead : Schema.Never, "unsupportedProfile");
+  return yield* Effect.fromResult(Result.gen(function* () {
     const commands = commerceServiceCommands(module.use);
     const prepare = commerceCommandPreparation("Inventory.prepare");
     const create = commands.write("inventoryCreate", prepare(decodeCreate), ({ service, context }, items) =>
@@ -189,7 +205,30 @@ const makeBasicInventoryCommands = Effect.fn("InventoryAdapter.commands")(functi
   }));
 });
 
+const makeInventoryVariantPriceCalculationCommands = Effect.fn("InventoryAdapter.variantPriceCalculationCommands")(function* () {
+  const { prepared, levels, module, policy } = yield* prepareInventoryCommandModule("variant-price-calculation");
+  return yield* Effect.fromResult(Result.gen(function* () {
+    const commands = commerceServiceCommands(module.use), prepare = commerceCommandPreparation("InventoryVariantPriceCalculation.prepare");
+    const count = commands.read("inventoryCountForVariantPriceCalculation", prepare(commerceDecoder(InventoryVariantPriceCalculationItemRead, "unsupportedProfile")),
+      ({ service, context }, args) => service.listAndCountInventoryItems(args.filters, args.config as FindConfig<InventoryTypes.InventoryItemDTO> | undefined, context));
+    const countLevels = commands.read("inventoryLevelCountForVariantPriceCalculation", prepare(commerceDecoder(InventoryVariantPriceCalculationLevelRead, "unsupportedProfile")),
+      ({ service, context }, args) => service.listAndCountInventoryLevels(args.filters, args.config as FindConfig<InventoryTypes.InventoryLevelDTO> | undefined, context));
+    const joiner = inventoryStaticResources.joinerConfig;
+    if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const aliases = yield* moduleAliases(joiner);
+    const items = yield* scalarGraphDefinition(aliases.filter(alias => alias.model === "InventoryItem"), "InventoryItem", count, prepared.table);
+    const inventoryLevels = yield* scalarGraphDefinition(aliases.filter(alias => alias.model === "InventoryLevel"), "InventoryLevel", countLevels, levels.table);
+    const graph = { aliases: [...items.aliases, ...inventoryLevels.aliases],
+      reads: [...items.reads, ...inventoryLevels.reads].map(read => ({ ...read, selectedFieldsOnly: true as const })) };
+    const admitted = [count, countLevels];
+    const workflow = yield* defineWorkflowModule({ name: Modules.INVENTORY, source: module.description, methods: {}, graph,
+      logical: { ...policy(), commands: admitted } });
+    return { count, countLevels, commands: admitted, graph, workflow, withService: module.use, logicalEventPolicy: policy };
+  }));
+});
+
 export function makeLocalInventoryCommands(admission: "level-creations"): ReturnType<typeof makeInventoryLevelCreationCommands>;
+export function makeLocalInventoryCommands(admission: "variant-price-calculation"): ReturnType<typeof makeInventoryVariantPriceCalculationCommands>;
 export function makeLocalInventoryCommands(admission: "item-creations"): ReturnType<typeof makeInventoryItemCreationCommands>;
 export function makeLocalInventoryCommands(admission: "level-batches"): ReturnType<typeof makeInventoryLevelBatchCommands>;
 export function makeLocalInventoryCommands(admission: "item-deletions"): ReturnType<typeof makeInventoryItemDeletionCommands>;
@@ -197,8 +236,9 @@ export function makeLocalInventoryCommands(admission: "item-updates"): ReturnTyp
 export function makeLocalInventoryCommands(admission: "level-updates"): ReturnType<typeof makeInventoryLevelUpdateCommands>;
 export function makeLocalInventoryCommands(admission: "level-deletions"): ReturnType<typeof makeInventoryLevelDeletionCommands>;
 export function makeLocalInventoryCommands(admission?: "items" | "levels" | "stock" | "product-deletions" | "product-batches"): ReturnType<typeof makeBasicInventoryCommands>;
-export function makeLocalInventoryCommands(admission: "items" | "levels" | "stock" | "product-deletions" | "product-batches" | "item-updates" | "level-updates" | "level-deletions" | "item-deletions" | "level-batches" | "item-creations" | "level-creations" = "items") {
-  return admission === "level-creations" ? makeInventoryLevelCreationCommands()
+export function makeLocalInventoryCommands(admission: "items" | "levels" | "stock" | "product-deletions" | "product-batches" | "item-updates" | "level-updates" | "level-deletions" | "item-deletions" | "level-batches" | "item-creations" | "level-creations" | "variant-price-calculation" = "items") {
+  return admission === "variant-price-calculation" ? makeInventoryVariantPriceCalculationCommands()
+    : admission === "level-creations" ? makeInventoryLevelCreationCommands()
     : admission === "item-creations" ? makeInventoryItemCreationCommands()
     : admission === "level-batches" ? makeInventoryLevelBatchCommands()
     : admission === "item-deletions" ? makeInventoryItemDeletionCommands()

@@ -97,8 +97,9 @@ export const isCommerceDefinitionName = (name: string) => /^[a-z][a-zA-Z0-9_-]{0
 function captureParticipant(member: AtomicCommerceParticipantInput, logicalPublication: "mixed" | undefined,
   reconstitution: LogicalReconstitutionPolicy | undefined, allowPreservingDeletionUpsert: LogicalPreservingDeletionUpsertPolicy | undefined, allowActiveRestoreUpdate: true | undefined, allowStorageInsertionOrder: true | undefined,
   setNullPolicy: LogicalSetNullPolicy | undefined, detachDeletedReferences: true | undefined,
-  allowRecordedRowReplay: true | undefined) {
+  allowRecordedRowReplay: true | undefined, logicalOnly: boolean) {
   const logicalStorage = member.logicalStorage;
+  if (logicalOnly && logicalStorage === undefined) return Result.fail(commerceError("unsupportedProfile"));
   if ((logicalPublication !== undefined || detachDeletedReferences === true || setNullPolicy !== undefined || reconstitution !== undefined || allowPreservingDeletionUpsert !== undefined || allowActiveRestoreUpdate === true || allowStorageInsertionOrder === true || allowRecordedRowReplay === true) && logicalStorage === undefined)
     return Result.fail(commerceError("unsupportedProfile"));
   const derived = member.derivedIdEvent;
@@ -124,15 +125,19 @@ const decodeStorageInsertionOrder = Schema.decodeUnknownResult(Schema.UndefinedO
 const decodeRecordedRowReplay = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal(true)));
 const decodeDeletedReferenceDetachment = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal(true)));
 const decodeSetNullPolicy = Schema.decodeUnknownResult(Schema.UndefinedOr(LogicalSetNullPolicy), { onExcessProperty: "error" });
+const decodeParticipantLimit = Schema.decodeUnknownResult(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 9 })));
 const preparedLogicalMembers = new WeakMap<object, Readonly<{ factory: AtomicCommerceParticipantInput;
   commands: readonly CommerceCommand[]; lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>> }>>();
 
 /** The host takes ownership of every caller selection before any preparation
  * can yield to authority or catalog I/O. */
-export function captureAtomicCommerceParticipants(input: readonly AtomicCommerceParticipantInput[]): Result.Result<CapturedAtomicCommerceParticipants, ReturnType<typeof commerceError>> {
-  if (!Array.isArray(input) || input.length < 1 || input.length > MAX_COMMERCE_BINDINGS)
-    return Result.fail(commerceError("unsupportedProfile"));
+export function captureAtomicCommerceParticipants(input: readonly AtomicCommerceParticipantInput[],
+  requestParticipantLimit: unknown = undefined): Result.Result<CapturedAtomicCommerceParticipants, ReturnType<typeof commerceError>> {
   return Result.gen(function* () {
+    const limit = yield* decodeParticipantLimit(requestParticipantLimit === undefined ? MAX_COMMERCE_BINDINGS : requestParticipantLimit)
+      .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
+    if (!Array.isArray(input) || input.length < 1 || input.length > limit)
+      return yield* Result.fail(commerceError("unsupportedProfile"));
     const captured = [];
     for (const member of input) {
       const publication = yield* decodeLogicalPublication(member.logicalPublication)
@@ -151,7 +156,8 @@ export function captureAtomicCommerceParticipants(input: readonly AtomicCommerce
         .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
       const detachDeletedReferences = yield* decodeDeletedReferenceDetachment(member.detachDeletedReferences)
         .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
-      captured.push(yield* captureParticipant(member, publication, reconstitution, preservingDeletionUpsert, activeRestoreUpdate, storageInsertionOrder, setNullPolicy, detachDeletedReferences, recordedRowReplay));
+      captured.push(yield* captureParticipant(member, publication, reconstitution, preservingDeletionUpsert, activeRestoreUpdate,
+        storageInsertionOrder, setNullPolicy, detachDeletedReferences, recordedRowReplay, limit > MAX_COMMERCE_BINDINGS));
     }
     return Object.freeze(captured);
   });

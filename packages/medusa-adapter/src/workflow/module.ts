@@ -5,6 +5,7 @@ import type { CommerceModuleDescription } from "../module/definition";
 import type { GraphModuleDefinition } from "../local-graph/model";
 import { prepareLocalGraph } from "../local-graph/query";
 import { decodeGraphRemotePaths, decodeGraphLinkEndpoints } from "../local-graph/links";
+import { decodeGraphDirectPaths } from "../local-graph/direct-paths";
 import { defineAtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { captureCommerceInput } from "../value/input";
 import { commerceDecoder } from "../value/decoder";
@@ -81,8 +82,11 @@ const modules = new WeakMap<object, ModuleDefinition>();
 const Table = Schema.Struct({ name: Schema.String, columns: Schema.Array(Schema.String), primaryKeys: Schema.Array(Schema.String),
   foreignKeys: Schema.Array(Schema.String), companions: Schema.Record(Schema.String, Schema.String) });
 const decodeGraphMetadata = commerceDecoder(Schema.Struct({ table: Table,
-  paths: Schema.Array(Schema.Struct({ path: Schema.String, table: Table, many: Schema.Boolean, optional: Schema.optionalKey(Schema.Boolean), sourceFields: Schema.optionalKey(Schema.Array(Schema.String)) })),
+  paths: Schema.Array(Schema.Struct({ path: Schema.String, table: Table, many: Schema.Boolean, optional: Schema.optionalKey(Schema.Boolean),
+    sourceFields: Schema.optionalKey(Schema.Array(Schema.String)), targetFields: Schema.optionalKey(Schema.Array(Schema.String)),
+    nativeFields: Schema.optionalKey(Schema.Literal(true)) })),
   orderable: Schema.Array(Schema.String), uniqueOrder: Schema.Array(Schema.String),
+  optionalFields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(16))),
 }), "unsupportedProfile");
 const decodeAliases = commerceDecoder(Schema.Array(Schema.Struct({ name: Schema.String, model: Schema.String })), "unsupportedProfile");
 
@@ -158,7 +162,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
       yield* prepareLocalGraph([{ participant: defineAtomicCommerceParticipant(definition.name),
         module: { aliases: graph.aliases, reads: graph.reads } }]);
     } else if (graph.remotePaths !== undefined && graph.remotePaths.length !== 0 || graph.services !== undefined && graph.services.length !== 0 ||
-      graph.linkEndpoints !== undefined && graph.linkEndpoints.length !== 0) {
+      graph.linkEndpoints !== undefined && graph.linkEndpoints.length !== 0 || graph.directPaths !== undefined && graph.directPaths.length !== 0) {
       return yield* Result.fail(commerceError("unsupportedProfile"));
     }
     const token = Object.freeze({ name: definition.name, methods: selected });
@@ -178,18 +182,23 @@ function captureGraphDefinition(input: GraphModuleDefinition) {
     const reads = [];
     for (const source of yield* captureWorkflowArray(definition.reads)) {
       const read = yield* captureWorkflowRecord(source);
-      const metadata = yield* captureCommerceInput({ table: read.table, paths: read.paths, orderable: read.orderable, uniqueOrder: read.uniqueOrder }).pipe(Result.flatMap(decodeGraphMetadata));
+      const metadata = yield* captureCommerceInput({ table: read.table, paths: read.paths, orderable: read.orderable, uniqueOrder: read.uniqueOrder,
+        optionalFields: read.optionalFields }).pipe(Result.flatMap(decodeGraphMetadata));
       if (typeof read.model !== "string" || typeof read.decode !== "function" || typeof read.multipleOrder !== "boolean" ||
         read.allowOrFilters !== undefined && read.allowOrFilters !== true ||
-        read.selectedFieldsOnly !== undefined && read.selectedFieldsOnly !== true) return yield* Result.fail(commerceError("unsupportedProfile"));
-      reads.push(Object.freeze({ ...read, ...metadata }));
+        read.selectedFieldsOnly !== undefined && read.selectedFieldsOnly !== true ||
+        read.nativeFields !== undefined && read.nativeFields !== true) return yield* Result.fail(commerceError("unsupportedProfile"));
+      reads.push(Object.freeze({ ...read, ...metadata,
+        ...(metadata.optionalFields === undefined ? {} : { optionalFields: Object.freeze([...metadata.optionalFields]) }) }));
     }
     const remotePaths = definition.remotePaths === undefined ? undefined : yield* captureCommerceInput(definition.remotePaths).pipe(Result.flatMap(decodeGraphRemotePaths));
     const linkEndpoints = definition.linkEndpoints === undefined ? undefined : yield* captureCommerceInput(definition.linkEndpoints).pipe(Result.flatMap(decodeGraphLinkEndpoints));
+    const directPaths = definition.directPaths === undefined ? undefined : yield* captureCommerceInput(definition.directPaths).pipe(Result.flatMap(decodeGraphDirectPaths));
     return Object.freeze({ aliases, reads: Object.freeze(reads),
       ...(services === undefined ? {} : { services }),
       ...(remotePaths === undefined ? {} : { remotePaths: Object.freeze(remotePaths.map(path => Object.freeze(path))) }),
       ...(linkEndpoints === undefined ? {} : { linkEndpoints: Object.freeze(linkEndpoints.map(path => Object.freeze(path))) }),
+      ...(directPaths === undefined ? {} : { directPaths: Object.freeze(directPaths.map(path => Object.freeze(path))) }),
     });
   });
 }

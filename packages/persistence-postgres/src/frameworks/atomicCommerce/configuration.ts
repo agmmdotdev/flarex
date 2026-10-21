@@ -48,6 +48,10 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 
 export interface AtomicCommerceHostInput<Failure> extends CommerceHostConfiguration<Failure> {
   readonly participants: readonly AtomicCommerceParticipantInput[];
+  /** Trusted root participant allowance, identity-bound when explicit. Omission
+   * retains eight; nine requires exclusively logical participants. Physical
+   * installation/profile binding limits remain unchanged. */
+  readonly requestParticipantLimit?: number;
   readonly commands: readonly AtomicCommerceCommand[];
   readonly events?: AtomicCommerceEvents;
   /** Trusted root selection, capped by installed physical participant profiles. Omission selects 64
@@ -118,6 +122,7 @@ export interface CapturedAtomicCommerceConfiguration<Failure> extends Omit<Comme
   readonly eventInput: ReturnType<typeof captureAtomicCommerceEvents> | undefined;
   readonly policy: Result.Result.Success<ReturnType<typeof captureCommerceJsonData>>;
   readonly selectedCallLimit: number | undefined;
+  readonly selectedParticipantLimit: number | undefined;
   readonly selectedByteLimit: number | undefined;
   readonly selectedEventLimit: number | undefined;
   readonly selectedCommandMs: number | undefined;
@@ -146,7 +151,8 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
   )
     return yield* Effect.fail(commerceError("invalidAuthority"));
   // No authority lookup or schema preparation may read caller-owned selection.
-  const participantInput = captureAtomicCommerceParticipants(input.participants);
+  const selectedParticipantLimit = input.requestParticipantLimit;
+  const participantInput = captureAtomicCommerceParticipants(input.participants, selectedParticipantLimit);
   const eventInput = input.events === undefined ? undefined : captureAtomicCommerceEvents(input.events);
   const selectedCommands = [...input.commands];
   const selectedControlCommands = input.taskControlCommands === undefined ? undefined : [...input.taskControlCommands];
@@ -205,6 +211,7 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
   yield* chargeHostPreparation({ names: [...names], policy: policy.value,
     requestSelection: { selectedCallLimit: selectedCallLimit ?? null, selectedByteLimit: selectedByteLimit ?? null,
       selectedEventLimit: selectedEventLimit ?? null, selectedCommandMs: selectedCommandMs ?? null, executionIsolation: executionIsolation ?? null,
+      ...(selectedParticipantLimit === undefined ? {} : { selectedParticipantLimit }),
       ...(operationScheduling === undefined ? {} : { operationScheduling }),
     ...(borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling }),
       ...(taskBindingSha256 === undefined ? {} : { taskBindingSha256 }),
@@ -232,7 +239,7 @@ export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.capt
     } : null }).pipe(Effect.mapError(projectCommerceRequestFailure));
   return Object.freeze({ database, session, target, deploymentId, scopeId, application, authority, allowed,
     names: Object.freeze([...names]), capturedMembers, eventInput, policy,
-    selectedCallLimit, selectedByteLimit, selectedEventLimit, selectedCommandMs, callLimit, byteLimit, eventLimit, commandMs, executionIsolation, operationScheduling, borrowedOperationScheduling, taskBindingSha256,
+    selectedCallLimit, selectedParticipantLimit, selectedByteLimit, selectedEventLimit, selectedCommandMs, callLimit, byteLimit, eventLimit, commandMs, executionIsolation, operationScheduling, borrowedOperationScheduling, taskBindingSha256,
     taskControlAllowed, taskControlNames: taskControlNames === undefined ? undefined : Object.freeze(taskControlNames) });
 });
 
@@ -242,7 +249,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
   currentAuthority: TrustedScopeAuthority,
 ): Effect.fn.Return<PreparedAtomicCommerceConfiguration<Failure>, CommerceTransactionError> {
   const { database, session, target, deploymentId, scopeId, application, authority, allowed, names,
-    capturedMembers, eventInput, policy, selectedCallLimit, selectedByteLimit, selectedEventLimit, selectedCommandMs,
+    capturedMembers, eventInput, policy, selectedCallLimit, selectedParticipantLimit, selectedByteLimit, selectedEventLimit, selectedCommandMs,
     callLimit, byteLimit, eventLimit, commandMs, executionIsolation, operationScheduling, borrowedOperationScheduling, taskBindingSha256, taskControlAllowed, taskControlNames } = captured;
   if (currentAuthority.deploymentId !== deploymentId || currentAuthority.scopeId !== scopeId)
     return yield* Effect.fail(commerceError("invalidAuthority"));
@@ -278,6 +285,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     events: eventPolicy?.identity ?? null,
     participantEvents: eventPolicy === undefined ? [] : participantEvents,
     requestCallLimit: selectedCallLimit === undefined ? null : callLimit,
+    ...(selectedParticipantLimit === undefined ? {} : { requestParticipantLimit: selectedParticipantLimit }),
     ...(selectedByteLimit === undefined ? {} : { requestByteLimit: byteLimit }),
     ...(members.some(member => member.kind === "logical" && member.selectedResources !== undefined) ? {
       logicalResources: members.flatMap(member => member.kind === "logical" && member.selectedResources !== undefined

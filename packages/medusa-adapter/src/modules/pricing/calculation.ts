@@ -1,12 +1,14 @@
-import { Effect, Schema } from "effect";
-import { selectCalculatedPriceRows, type PricingSelectionRows } from "@medusajs/pricing/calculation";
+import { Effect, Result, Schema } from "effect";
+import { selectCalculatedPriceRows, validatePricingCurrencyCode, type PricingSelectionRows } from "@medusajs/pricing/calculation";
+import { MedusaError } from "@medusajs/framework/utils/portable";
+import { flattenObjectToKeyValuePairs } from "@medusajs/utils/common/flatten-object-to-key-value-pairs";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { readCommerceRelationRows } from "../../query/relations";
 import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
 import { PricingId } from "./input";
-import { decodeExactNumeric, encodeExactNumeric } from "../../value/exact-numeric";
+import { decodeExactNumeric, encodeExactNumeric, ExactNumericRaw } from "../../value/exact-numeric";
 
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
 const ContextValue = Numeric;
@@ -15,6 +17,44 @@ const Input = Schema.Struct({
   pricingContext: Schema.Struct({ context: Schema.optionalKey(Schema.Record(Schema.String, ContextValue)) }),
 });
 export const decodePricingCalculation = commerceDecoder(Input, "invalidInput");
+/** The native Variant/item callback passes its complete JSON context. The
+ * existing scalar calculation profile keeps its separate narrow contract. */
+export const VariantItemPricingCalculationInput = Schema.Struct({
+  filters: Input.fields.filters,
+  pricingContext: Schema.Struct({ context: Schema.optionalKey(Schema.JsonObject) }),
+});
+export const decodeVariantItemPricingCalculation = commerceDecoder(VariantItemPricingCalculationInput, "invalidInput");
+const FlatContextPrimitive = Schema.Union([Schema.String, Schema.Number.check(Schema.isFinite()), Schema.Boolean]);
+const decodeFlatVariantItemPricingContext = commerceDecoder(Schema.Record(Schema.String,
+  Schema.Union([FlatContextPrimitive, Schema.Array(FlatContextPrimitive)])), "invalidInput");
+/** The pinned utility owns nested/array/null normalization. Bound the resulting
+ * non-control attributes before native candidate matching or indexed reads. */
+export function prepareVariantItemPricingContext(context: typeof Schema.JsonObject.Type) {
+  return Result.gen(function* () {
+    const flattened = yield* decodeFlatVariantItemPricingContext(flattenObjectToKeyValuePairs(context));
+    if (Object.keys(flattened).filter(key => key !== "currency_code" && key !== "quantity").length > 10)
+      return yield* Result.fail(commerceError("limitExceeded"));
+    return flattened;
+  });
+}
+const CalculatedPrice = Schema.Struct({
+  id: Schema.NullOr(PricingId), price_list_id: Schema.NullOr(PricingId),
+  price_list_type: Schema.NullOr(Schema.Literals(["sale", "override"])),
+  min_quantity: Schema.NullOr(Schema.Number.check(Schema.isFinite())),
+  max_quantity: Schema.NullOr(Schema.Number.check(Schema.isFinite())),
+});
+/** Validate every field returned by the native service before a workflow can
+ * select amounts or attach the DTO to a Variant. Native DTO numbers may round
+ * exact raw amounts, so their representation is not reinterpreted here. */
+export const VariantItemPricingCalculationOutput = Schema.Array(Schema.Struct({
+  id: PricingId,
+  is_calculated_price_price_list: Schema.Boolean, is_calculated_price_tax_inclusive: Schema.Boolean,
+  calculated_amount: Schema.NullOr(Schema.Number.check(Schema.isFinite())),
+  raw_calculated_amount: Schema.NullOr(ExactNumericRaw),
+  is_original_price_price_list: Schema.Boolean, is_original_price_tax_inclusive: Schema.Boolean,
+  original_amount: Schema.NullOr(Schema.Number.check(Schema.isFinite())), raw_original_amount: Schema.NullOr(ExactNumericRaw),
+  currency_code: Schema.NullOr(Schema.String), calculated_price: CalculatedPrice, original_price: CalculatedPrice,
+})).check(Schema.isMaxLength(16));
 const NullableText = Schema.NullOr(Schema.String);
 const RawAmount = Schema.StructWithRest(Schema.Struct({ value: Numeric }), [Schema.Record(Schema.String, Schema.Json)]);
 const PriceRow = Schema.StructWithRest(Schema.Struct({
@@ -43,12 +83,22 @@ const decodeListRules = commerceDecoder(Schema.Array(ListRuleRow), "storedCorrup
 /** Every stage is a complete core-owned indexed selection. Exceeding the
  * selected resource bound refuses instead of dropping a candidate. */
 export const calculateLogicalPrices = Effect.fn("Pricing.calculateLogical")(function* (
-  ctx: CommerceCommandContext, input: unknown,
+  ctx: CommerceCommandContext, input: unknown, profile: "scalar" | "variant-item-pricing" = "scalar",
 ) {
+  if (profile !== "scalar" && profile !== "variant-item-pricing") return yield* ctx.refuse(commerceError("unsupportedProfile"));
   const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
-  const parsed = yield* Effect.fromResult(decodePricingCalculation(captured));
-  const values = parsed.pricingContext.context ?? {};
-  if (Object.keys(values).length > 10) return yield* ctx.refuse(commerceError("limitExceeded"));
+  const { filters, values } = yield* profile === "variant-item-pricing" ? Effect.gen(function* () {
+    const parsed = yield* Effect.fromResult(decodeVariantItemPricingCalculation(captured));
+    yield* Effect.try({
+      try: () => validatePricingCurrencyCode(parsed.pricingContext.context?.currency_code),
+      catch: cause => cause,
+    }).pipe(Effect.catch(cause => cause instanceof MedusaError
+      ? Effect.fail(commerceError("adapterFailure", cause)) : Effect.die(cause)));
+    const values = yield* Effect.fromResult(prepareVariantItemPricingContext(parsed.pricingContext.context ?? {}));
+    return { filters: parsed.filters, values };
+  }) : Effect.fromResult(decodePricingCalculation(captured)
+    .pipe(Result.map(parsed => ({ filters: parsed.filters, values: parsed.pricingContext.context ?? {} }))));
+  if (profile === "scalar" && Object.keys(values).length > 10) return yield* ctx.refuse(commerceError("limitExceeded"));
   const currency = values.currency_code;
   if (typeof currency !== "string" || currency.length === 0)
     return yield* ctx.refuse(commerceError("invalidInput"));
@@ -57,7 +107,7 @@ export const calculateLogicalPrices = Effect.fn("Pricing.calculateLogical")(func
     return yield* ctx.refuse(commerceError("invalidInput"));
   if (quantity !== undefined) yield* encodeExactNumeric(quantity);
   const context = Object.fromEntries(Object.entries(values).filter(([key]) => key !== "quantity" && key !== "currency_code"));
-  const ids = [...new Set(parsed.filters.id)];
+  const ids = [...new Set(filters.id)];
   if (ids.length === 0) return [];
   const active = (column: string, keys: readonly string[]): Json => ({ kind: "and", children: [
     { kind: "in", column, values: [...keys] }, { kind: "isNull", column: "deleted_at" },

@@ -4,6 +4,7 @@ import type { CommerceTransactionError, Json, JsonObject } from "@flarex/persist
 import type { ReadTable } from "../query/catalog";
 import type { GraphReadCommand } from "./commands";
 import type { GraphRemotePath, GraphLinkEndpoint } from "./links";
+import type { GraphDirectPath } from "./direct-paths";
 export type { GraphRemotePath, GraphRemotePathSelection } from "./links";
 
 export interface GraphRelationPath {
@@ -14,6 +15,11 @@ export interface GraphRelationPath {
   readonly optional?: boolean;
   /** Source join columns from the module's checked relationship catalog. */
   readonly sourceFields?: readonly string[];
+  /** Native joins retain the actual target join columns, which need not be
+   * the row's primary key (for example a rich Link's parent foreign key). */
+  readonly targetFields?: readonly string[];
+  /** Native graph forwarding retains this selected edge's actual join keys. */
+  readonly nativeFields?: true;
 }
 
 interface GraphReadMetadata {
@@ -31,6 +37,11 @@ interface GraphReadMetadata {
   /** Fetch and authenticate numeric companions, then return exactly the native
    * requested fields. Existing profiles retain companion projection. */
   readonly selectedFieldsOnly?: true;
+  /** Selected native Query profiles retain their actual hydration join keys. */
+  readonly nativeFields?: true;
+  /** Explicit nonpersistent presentation names. Missing values stay omitted;
+   * persisted columns still require complete read evidence. */
+  readonly optionalFields?: readonly string[];
 }
 /** Counted graph pages and native list selections are different capabilities.
  * A list result never supplies metadata for a counted page or Link traversal. */
@@ -49,6 +60,7 @@ export interface GraphModuleDefinition {
   readonly reads: readonly GraphReadDefinition[];
   readonly remotePaths?: readonly GraphRemotePath[];
   readonly linkEndpoints?: readonly GraphLinkEndpoint[];
+  readonly directPaths?: readonly GraphDirectPath[];
 }
 
 export type LocalGraphResult = {

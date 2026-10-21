@@ -119,7 +119,7 @@ export interface CapturedAtomicCommerceEvents {
   readonly derivedIdValidation: AtomicCommerceEvents["derivedIdValidation"];
 }
 export function captureAtomicCommerceEvents(input: AtomicCommerceEvents): Result.Result<CapturedAtomicCommerceEvents, CommerceTransactionError> {
-  if (!Array.isArray(input.contracts) || input.contracts.length < 1 || input.contracts.length > commitEventLimits.messages)
+  if (!Array.isArray(input.contracts) || input.contracts.length > commitEventLimits.messages)
     return Result.fail(commerceError("invalidAuthority"));
   const definitions = Object.freeze([...input.contracts].map(token => Object.freeze({ token, definition: contracts.get(token) })));
   return capturePrivateJsonData(input.subscribers, commitEventLimits.bytes, commerceError).pipe(Result.map(subscriberInput =>
@@ -132,7 +132,8 @@ export const prepareAtomicCommerceEvents = Effect.fn("AtomicEvents.prepare")(fun
   const producerRevision = yield* decodeRevision(input.producerRevision).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
   const subscribers = yield* decodeSubscribers(input.subscribers).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
   const validate = input.validate;
-  if (definitions.length < 1 || definitions.length > commitEventLimits.messages || new Set(subscribers.map(value => value.id)).size !== subscribers.length) return yield* Effect.fail(commerceError("invalidAuthority"));
+  if (definitions.length > commitEventLimits.messages || new Set(subscribers.map(value => value.id)).size !== subscribers.length) return yield* Effect.fail(commerceError("invalidAuthority"));
+  // A read-only root may retain its validator without admitting any event token.
   const allowed = new Map<CommerceEventContract, EventContract>();
   const names = new Set<string>();
   for (const { token, definition } of definitions) {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { selectCalculatedPriceRows, type PricingSelectionRows } from "@medusajs/pricing/calculation";
+import { Result } from "effect";
+import { prepareVariantItemPricingContext } from "../src/modules/pricing/calculation";
 
 const now = new Date("2026-09-26T10:00:00.000Z");
 const price = (id: string, amount: string, list: string | null = null, rules = 0): PricingSelectionRows["prices"][number] => ({
@@ -79,5 +81,31 @@ describe("pinned Pricing row selection over complete indexed candidates", () => 
       .toEqual(["base"]);
     expect(selectCalculatedPriceRows(["set"], "usd", undefined, { tier: "" }, now, rows).map(row => row.id))
       .toEqual(["base"]);
+  });
+
+  it("retains the native159 boolean Price Rule outcomes without dropping false", () => {
+    const rows: PricingSelectionRows = { prices: [price("base", "10"), price("false-price", "6", null, 1), price("true-price", "5", null, 1)],
+      lists: [], listRules: [], priceRules: [
+        { price_id: "false-price", attribute: "is_custom_price", operator: "eq", value: "false", deleted_at: null },
+        { price_id: "true-price", attribute: "is_custom_price", operator: "eq", value: "true", deleted_at: null },
+      ] };
+    expect(selectCalculatedPriceRows(["set"], "usd", 1, { is_custom_price: false }, now, rows).map(row => [row.id, row.amount]))
+      .toEqual([["false-price", "6"], ["base", "10"]]);
+    expect(selectCalculatedPriceRows(["set"], "usd", 1, { is_custom_price: true }, now, rows).map(row => [row.id, row.amount]))
+      .toEqual([["true-price", "5"], ["base", "10"]]);
+  });
+
+  it("matches the native159 array Price Rule and flattened nested customer List Rule cohorts", () => {
+    const arrayRows: PricingSelectionRows = { prices: [price("base", "10"), price("array-price", "4", null, 1)],
+      lists: [], listRules: [], priceRules: [{ price_id: "array-price", attribute: "custom_segment159", operator: "eq", value: "vip159", deleted_at: null }] };
+    expect(selectCalculatedPriceRows(["set"], "usd", 1, { custom_segment159: ["vip159", "other159"] }, now, arrayRows)
+      .map(row => row.amount)).toEqual(["4", "10"]);
+    const nestedRows: PricingSelectionRows = { prices: [price("base", "10"), price("nested-sale", "7", "nested-list")],
+      lists: [{ ...list("nested-list", "sale"), rules_count: 1 }], priceRules: [],
+      listRules: [{ price_list_id: "nested-list", attribute: "customer.groups.id", value: ["cg159"], deleted_at: null }] };
+    const matching = Result.getOrThrow(prepareVariantItemPricingContext({ customer: { groups: [{ id: "cg159" }, { id: "cg159-other" }] } }));
+    const absent = Result.getOrThrow(prepareVariantItemPricingContext({ customer: { groups: [{ id: "cg159-no-match" }] } }));
+    expect(selectCalculatedPriceRows(["set"], "usd", 1, matching, now, nestedRows).map(row => row.amount)).toEqual(["7", "10"]);
+    expect(selectCalculatedPriceRows(["set"], "usd", 1, absent, now, nestedRows).map(row => row.amount)).toEqual(["10"]);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Cause, Effect, Exit, Result } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { getTableName, sql } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
@@ -54,16 +54,16 @@ describe("native Currency on the selected shared logical schema", () => {
       const original = await Effect.runPromise(configured.withCurrent(readAdmittedDataBinding));
       const query = { filters: { code: "usd" }, config: { select: ["code", "name"] } };
       const before = await Effect.runPromise(fixture.host.read(currencyCommands.list, query));
-      const durableBefore = await logicalCurrencyInventory(fixture);
       let unbound = false;
       try {
         const candidate = await Effect.runPromise(unconfigured.prepare({ ...original.frame, logicalSchema: null }));
         await Effect.runPromise(unconfigured.activate(dataBindingActivationRequest(original.frame.application.scopeId,
           original.frame.application.storageGeneration, "pglite-logical-unbind", candidate.sha256, original.head)));
         unbound = true;
+        const unboundBefore = await logicalCurrencyInventory(fixture);
         await expect(Effect.runPromise(fixture.host.read(currencyCommands.list, query)))
           .rejects.toMatchObject({ reason: "bindingChanged" });
-        expect(await logicalCurrencyInventory(fixture)).toEqual(durableBefore);
+        expect(await logicalCurrencyInventory(fixture)).toEqual(unboundBefore);
       } finally {
         if (unbound) {
           const current = await Effect.runPromise(unconfigured.withCurrent(readAdmittedDataBinding));
@@ -220,7 +220,8 @@ describe("native Currency on the selected shared logical schema", () => {
                     { title: "Payload-owned", createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z" });
                   expect((yield* working.documents.get(lifetime.context, id, String(row._id)))?.title).toBe("Payload-owned");
                   yield* lifetime.seal;
-                  const closed = yield* consumeSourceCmsDocumentClosure(yield* working.close(), admission, tx, lifetime);
+                  const { changes: closed, preferenceIntents } = yield* consumeSourceCmsDocumentClosure(yield* working.close(), admission, tx, lifetime);
+                  expect(preferenceIntents).toEqual([]);
                   const contribution = yield* validateSourceCmsDocumentContribution(admission, tx, closed);
                   expect(contribution.changes).toEqual(closed.changes);
                   const delta = yield* prepareSourceCmsDocumentDelta(admission, tx, clock, closed, sourceTemplate);
@@ -359,21 +360,46 @@ describe("native Currency on the selected shared logical schema", () => {
       }
     }, 180_000);
 
-    it.skipIf(driver === "postgres" && postgresUrl === null)(`refuses Payload relationships without an edge owner on ${driver}`, async () => {
+    it.skipIf(driver === "postgres" && postgresUrl === null)(`prepares Payload relationships and refuses unadmitted incoming reads on ${driver}`, async () => {
       const cleanup: Array<() => Promise<void>> = [];
       try {
         const collections = [{ slug: "news", fields: [
           { name: "title", type: "text", required: true },
-          { name: "related", type: "relationship", relationTo: "news" },
+          { name: "relatedPost", type: "relationship", relationTo: "news" },
         ] }] as const;
         const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { payloadCollections: collections });
         const compiled = await Effect.runPromise(compilePayloadCollections(collections));
-        const refusal = await Effect.runPromise(Effect.result(prepareLogicalDocumentSourceAdmission(
+        const prepared = await Effect.runPromise(prepareLogicalDocumentSourceAdmission(
           { controlDb: fixture.control.drizzle, authority: fixture.application.authorityPorts },
           fixture.application.uniqueConstraintEligibility,
           { deploymentId: fixture.deploymentId, scopeId: fixture.application.authority.scopeId,
-            schemaVersionId: fixture.schemaVersionId }, compiled.sourceContract, { kind: "standalone" })));
-        expect(refusal).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+            schemaVersionId: fixture.schemaVersionId }, compiled.sourceContract, { kind: "standalone" }));
+        expect(typeof prepared.withAdmission).toBe("function");
+        const create = defineCmsCommand({ name: "createRelationshipReadTarget", mode: "write", run: (ctx, args) =>
+          ctx.documents.insert(ctx.context, ctx.transactionId, "news", args) });
+        const incoming = defineCmsCommand({ name: "unadmittedSourceIncomingRead", mode: "read", run: Effect.fn(function* (ctx, args) {
+          if (typeof args !== "string") return yield* Effect.fail(cmsError("invalidInput"));
+          yield* ctx.relations.incoming(ctx.context, ctx.transactionId, "relatedPost", args, 8);
+          return null;
+        }) });
+        const host = await Effect.runPromise(makeCmsHost({ hostRuntime: preparedHostTestRuntime(fixture.persistence.drizzle),
+          database: fixture.persistence.drizzle, controlDatabase: fixture.control.drizzle, session: fixture.session,
+          deploymentId: fixture.deploymentId, scopeId: fixture.application.authority.scopeId,
+          authority: fixture.application.authorityPorts, application: fixture.application.activation,
+          commands: [create, incoming], identityAndAccessPolicy: { profile: "logical-source-incoming-refusal" },
+          materialization: {},
+          expectedContentIdentity: compiled.contentIdentity,
+          logicalStorage: { ports: { controlDb: fixture.control.drizzle, authority: fixture.application.authorityPorts },
+            unique: fixture.application.uniqueConstraintEligibility, schemaVersionId: fixture.schemaVersionId,
+            source: compiled.sourceContract } }));
+        cleanup.push(() => Effect.runPromise(host.close));
+        const created = await Effect.runPromise(host.run(host.newRequestKey(), create,
+          { title: "Existing incoming-read target", createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z" }));
+        const target = Schema.decodeUnknownSync(Schema.Struct({ _id: Schema.String }))(created);
+        const beforeRead = await logicalCurrencyInventory(fixture);
+        expect(await Effect.runPromise(Effect.result(host.read(incoming, target._id))))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+        expect(await logicalCurrencyInventory(fixture)).toEqual(beforeRead);
       } finally {
         const failures: unknown[] = [];
         for (const close of cleanup.reverse()) await close().catch(cause => { failures.push(cause); });

@@ -7,7 +7,8 @@ import { makeReadCatalog } from "../query/catalog";
 import { isGraphReadCommand } from "./commands";
 import { planGraphFields, type GraphFieldPlan } from "./fields";
 import type { GraphParticipant, GraphReadDefinition, GraphReadSelection, LocalGraphQuery, PreparedLocalGraph } from "./model";
-import { populateGraphRemotePaths, prepareGraphRemotePaths, prepareGraphLinkEndpoints } from "./remote-paths";
+import { populateGraphRemotePaths, prepareGraphRemotePaths, prepareGraphLinkEndpoints, validateGraphPathPrefixes } from "./remote-paths";
+import { prepareGraphDirectPaths } from "./direct-paths";
 
 const queryFields = {
   fields: Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isLengthBetween(1, 256)),
@@ -78,6 +79,10 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
           || input.result !== undefined && input.result !== "count" && input.result !== "list"
           || input.allowOrFilters !== undefined && input.allowOrFilters !== true
           || input.selectedFieldsOnly !== undefined && input.selectedFieldsOnly !== true
+          || input.nativeFields !== undefined && input.nativeFields !== true
+          || input.optionalFields !== undefined && (input.nativeFields !== true || input.optionalFields.length > 16 ||
+            new Set(input.optionalFields).size !== input.optionalFields.length || input.optionalFields.some(field =>
+              !/^[a-z][a-z0-9_]*$/.test(field) || input.table.columns.includes(field)))
           || input.table.primaryKeys.length === 0 || input.table.primaryKeys.length > 16
           || new Set(input.table.primaryKeys).size !== input.table.primaryKeys.length) return yield* Result.fail(commerceError("unsupportedProfile"));
         // Reuse the read catalog's owned metadata snapshots; its relation map is
@@ -87,9 +92,11 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         const paths = [];
         const names = new Set<string>();
         for (const relation of input.paths) {
-          if (names.has(relation.path) || relation.path.split(".").some(part => !/^[a-z][a-z0-9_]*$/.test(part))) return yield* Result.fail(commerceError("unsupportedProfile"));
+          if (names.has(relation.path) || relation.path.split(".").some(part => !/^[a-z][a-z0-9_]*$/.test(part)) ||
+            relation.nativeFields !== undefined && relation.nativeFields !== true) return yield* Result.fail(commerceError("unsupportedProfile"));
           names.add(relation.path);
           paths.push(Object.freeze({ ...relation, table: yield* catalog.table(relation.table.name),
+            ...(relation.targetFields === undefined ? {} : { targetFields: Object.freeze([...relation.targetFields]) }),
             ...(relation.sourceFields === undefined ? {} : { sourceFields: Object.freeze([...relation.sourceFields]) }) }));
         }
         if ([...names].some(path => path.includes(".") && !names.has(path.slice(0, path.lastIndexOf("."))))) return yield* Result.fail(commerceError("unsupportedProfile"));
@@ -101,12 +108,19 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
             relation.sourceFields.some(column => !parent.columns.includes(column) || !parent.foreignKeys.includes(column) && !parent.primaryKeys.includes(column)))
             return yield* Result.fail(commerceError("unsupportedProfile"));
         }
+        for (const relation of paths) if (relation.targetFields !== undefined &&
+          (relation.targetFields.length === 0 || relation.targetFields.length > 16 ||
+            new Set(relation.targetFields).size !== relation.targetFields.length ||
+            relation.targetFields.some(column => !relation.table.columns.includes(column) ||
+              !relation.table.primaryKeys.includes(column) && !relation.table.foreignKeys.includes(column))))
+          return yield* Result.fail(commerceError("unsupportedProfile"));
         const table = yield* catalog.table(input.table.name);
         const identity = table.primaryKeys[0];
         if (identity === undefined || !input.orderable.includes(identity)
           || (table.primaryKeys.length === 1 && !input.uniqueOrder.includes(identity))
           || input.orderable.some(field => !table.columns.includes(field)) || input.uniqueOrder.some(field => !input.orderable.includes(field))) return yield* Result.fail(commerceError("unsupportedProfile"));
         const read = Object.freeze({ ...input, table, paths: Object.freeze(paths),
+          ...(input.optionalFields === undefined ? {} : { optionalFields: Object.freeze([...input.optionalFields]) }),
           orderable: Object.freeze([...input.orderable]), uniqueOrder: Object.freeze([...input.uniqueOrder]) });
         models.set(read.model, read);
         const existing = allModels.get(read.model) ?? [];
@@ -131,13 +145,23 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
     if (entries.size === 0) return yield* Result.fail(commerceError("unsupportedProfile"));
     const remotePaths = yield* prepareGraphRemotePaths(participants, allModels);
     const linkEndpoints = yield* prepareGraphLinkEndpoints(participants, allModels);
+    const directPaths = yield* prepareGraphDirectPaths(participants, allModels);
+    yield* validateGraphPathPrefixes(remotePaths, directPaths, allModels);
     for (const catalog of [entries, services]) for (const [alias, entry] of catalog) {
       const paths = remotePaths.get(entry.read.model);
       const endpoints = linkEndpoints.get(entry.read.model);
-      if (paths === undefined && endpoints === undefined) continue;
-      if ([...endpoints?.keys() ?? []].some(path => paths?.has(path))) return yield* Result.fail(commerceError("unsupportedProfile"));
-      catalog.set(alias, { ...entry, read: Object.freeze({ ...entry.read, paths: Object.freeze([...entry.read.paths,
-        ...[...paths?.values() ?? []].map(path => Object.freeze({ path: path.path, table: path.target.read.table, many: true, sourceFields: Object.freeze([path.sourceKey]) })),
+      const direct = directPaths.get(entry.read.model);
+      if (paths === undefined && endpoints === undefined && direct === undefined) continue;
+      if ([...endpoints?.keys() ?? []].some(path => paths?.has(path) || direct?.has(path))) return yield* Result.fail(commerceError("unsupportedProfile"));
+      const nativePrefixes = [...paths?.keys() ?? [], ...direct?.keys() ?? []];
+      catalog.set(alias, { ...entry, read: Object.freeze({ ...entry.read, paths: Object.freeze([
+        ...entry.read.paths.map(path => entry.read.nativeFields === true && !path.many && nativePrefixes.some(prefix => prefix.startsWith(path.path + "."))
+          ? Object.freeze({ ...path, nativeFields: true as const }) : path),
+        ...[...paths?.values() ?? []].map(path => Object.freeze({ path: path.path, table: path.target.read.table,
+          many: path.many !== false, optional: path.many === false, nativeFields: true as const, sourceFields: Object.freeze([path.sourceKey]) })),
+        ...[...direct?.values() ?? []].map(path => Object.freeze({ path: path.path, table: path.target.read.table,
+          many: path.many, optional: !path.many, ...(path.nativeFields === true ? { nativeFields: true as const } : {}),
+          sourceFields: Object.freeze([path.sourceKey]), targetFields: Object.freeze([path.targetKey]) })),
         ...[...endpoints?.values() ?? []].flatMap(endpoint => [
           Object.freeze({ path: endpoint.path, table: endpoint.target.read.table, many: false, sourceFields: Object.freeze([endpoint.sourceKey]) }),
           ...endpoint.target.read.paths.map(path => Object.freeze({ ...path, path: endpoint.path + "." + path.path })),
@@ -154,12 +178,14 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         const skip = args.pagination.skip ?? 0, take = args.pagination.take;
         const remote = remotePaths.get(entry.read.model);
         const endpoints = linkEndpoints.get(entry.read.model);
-        const isRemote = (path: string) => remote?.has(path) === true || [...endpoints?.keys() ?? []].some(prefix => path === prefix || path.startsWith(prefix + "."));
+        const direct = directPaths.get(entry.read.model);
+        const isRemote = (path: string) => remote?.has(path) === true || direct?.has(path) === true || [...endpoints?.keys() ?? []].some(prefix => path === prefix || path.startsWith(prefix + "."));
         const selectedRemote = fields.relations.filter(isRemote);
         const relations = fields.relations.filter(path => !isRemote(path));
         const select = selectedRemote.length !== 0 && relations.length === 0
           ? [...new Set([...fields.node.fields, ...entry.read.table.primaryKeys,
-            ...selectedRemote.flatMap(path => remote?.get(path)?.sourceKey ?? endpoints?.get(path)?.sourceKey ?? [])])] : fields.select;
+            ...selectedRemote.flatMap(path => remote?.get(path)?.sourceKey ?? direct?.get(path)?.sourceKey ?? endpoints?.get(path)?.sourceKey ?? [])])]
+            .filter(field => entry.read.table.columns.includes(field)) : fields.select;
         const value = yield* context.call(entry.participant, entry.read.command, {
           filters: args.filters ?? {}, config: { select, relations, order, skip, take },
         });
@@ -167,13 +193,13 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         if (rows.length > take || rows.length !== Math.min(take, Math.max(0, count - skip)))
           return yield* context.refuse(commerceError("storedCorruption"));
         const populated = selectedRemote.length === 0 ? rows
-          : yield* populateGraphRemotePaths(context, rows, fields.node, remote ?? new Map(), endpoints);
+          : yield* populateGraphRemotePaths(context, rows, fields.node, remote ?? new Map(), endpoints, direct);
         return yield* checkedCommerceValue(context, () => graphResult(populated, count, fields, skip, take));
       });
       const list = Effect.fn("LocalGraph.list")(function* (input: unknown) {
         const { args, entry, fields, order } = yield* checkedCommerceValue(context, () => Result.gen(function* () {
           const captured = yield* capturePrivateJsonData(input, commerceLimits.commandBytes, commerceError), args = yield* decodeListInput(captured.value), entry = entries.get(args.entity);
-          if (entry === undefined || entry.read.result !== "list" || remotePaths.has(entry.read.model) || linkEndpoints.has(entry.read.model) ||
+          if (entry === undefined || entry.read.result !== "list" || remotePaths.has(entry.read.model) || linkEndpoints.has(entry.read.model) || directPaths.has(entry.read.model) ||
             !nativeFilters(args.filters, entry.read.allowOrFilters === true)) return yield* Result.fail(commerceError("unsupportedProfile"));
           return { args, entry, fields: yield* planGraphFields(entry.read, args.fields, false), order: yield* graphOrder(entry.read, undefined) };
         }));

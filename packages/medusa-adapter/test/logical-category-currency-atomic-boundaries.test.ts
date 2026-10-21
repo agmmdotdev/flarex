@@ -89,6 +89,9 @@ describe("mixed Category/Currency atomic boundaries on logical Currency", () => 
           variants: [{ title: "Graph small", options: { Size: "S" } }] },
         policy: product.runtime.logicalPolicy,
         entities: [catalog.product, catalog.image, catalog.option, catalog.value, catalog.variant] },
+      { command: product.runtime.commands.create,
+        value: { title: "Graph plain", handle: "graph-plain", variants: [{ title: "Graph plain variant" }] },
+        policy: product.runtime.logicalPolicy, entities: [catalog.product, catalog.variant] },
     ];
     for (const [index, fixtureRow] of fixtures.entries()) {
       const revision = createHash("sha256").update(`logical-mixed-graph-${index}`).digest("hex");
@@ -125,6 +128,13 @@ describe("mixed Category/Currency atomic boundaries on logical Currency", () => 
       { entity: "product_collection", fields: ["title", "products.title"], filters: { id: "graph-collection" }, expected: { title: "Graph collection", products: [{ title: "Graph shirt" }] } },
       { entity: "product_option", fields: ["title", "values.value", "product.title"], filters: { title: "Size" }, expected: { title: "Size", values: [{ value: "S" }], product: { title: "Graph shirt" } } },
       { entity: "variant", fields: ["title", "options.value", "product.images.url"], filters: { title: "Graph small" }, expected: { title: "Graph small", options: [{ value: "S" }], product: { images: [{ url: "graph.png" }] } } },
+      { entity: "variant", fields: ["title", "product.title", "product.type.id", "product.type.value", "product.collection.title"],
+        filters: { title: "Graph small" }, expected: { title: "Graph small", product: { title: "Graph shirt",
+          type: { id: "graph-type", value: "Graph type" }, collection: { title: "Graph collection" } } } },
+      { entity: "variants", fields: ["title", "product.type.value", "product.collection.title"], filters: { title: "Graph small" },
+        expected: { title: "Graph small", product: { type: { value: "Graph type" }, collection: { title: "Graph collection" } } } },
+      { entity: "variant", fields: ["title", "product.type.value", "product.collection.title"], filters: { title: "Graph plain variant" },
+        expected: { title: "Graph plain variant", product: { type: null, collection: null } } },
     ];
     for (const { entity, fields, filters, expected } of cases) {
       const result = await runEffect(host.run(host.newRequestKey(), graph, { entity, fields, filters, pagination: { take: 2 } }));

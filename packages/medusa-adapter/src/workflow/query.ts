@@ -1,6 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import { coerceFilterValue } from "@medusajs/drizzle/filter-value";
 import { MedusaError } from "@medusajs/framework/utils/portable";
+import { prepareWorkflowGraphQuery, WorkflowGraphCacheOptions, WorkflowGraphQuery } from "@medusajs/core-flows/common/use-query-graph";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, commerceLimits } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { PreparedLocalGraph } from "../local-graph/model";
@@ -24,6 +25,9 @@ const decodeRemote = commerceDecoder(Schema.Union([
 const decodeSingleton = commerceDecoder(Schema.Tuple([
   Schema.Struct({ entryPoint: Schema.Literals(["stock_location", "fulfillment"]), fields: Fields, variables: Schema.Struct({ id: Schema.String }) }),
   Schema.Struct({ throwIfKeyNotFound: Schema.Literal(true), throwIfRelationNotFound: Schema.optionalKey(Schema.Undefined) }),
+]), "unsupportedProfile");
+const decodeGraphArguments = commerceDecoder(Schema.Union([
+  Schema.Tuple([WorkflowGraphQuery]), Schema.Tuple([WorkflowGraphQuery, WorkflowGraphCacheOptions]),
 ]), "unsupportedProfile");
 
 /** Selected native callable ABIs over the same authenticated graph. This
@@ -67,7 +71,13 @@ export function bindWorkflowQuery(graph: PreparedLocalGraph, context: AtomicComm
     if (result.data.length !== result.metadata.count) return yield* context.refuse(commerceError("storedCorruption"));
     return result.data;
   }));
-  return Object.freeze(Object.assign(remote, { maxPageSize: commerceLimits.catalogRows,
-    graph: (...args: unknown[]) => owner.run(args.length === 1 ? query.graph(args[0]) : context.refuse(commerceError("unsupportedProfile"))),
+  const nativeGraph = (...args: unknown[]) => owner.run(Effect.gen(function* () {
+    const [input] = yield* checkedCommerceValue(context, () => captureWorkflowInput(args).pipe(Result.flatMap(decodeGraphArguments)));
+    const plan = yield* checkedCommerceValue(context, () => prepareWorkflowGraphQuery(input, commerceLimits.catalogRows)
+      .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause))));
+    const result = yield* query.graph(plan.query);
+    yield* checkedCommerceValue(context, () => plan.validate(result).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause))));
+    return result;
   }));
+  return Object.freeze(Object.assign(remote, { maxPageSize: commerceLimits.catalogRows, graph: nativeGraph }));
 }

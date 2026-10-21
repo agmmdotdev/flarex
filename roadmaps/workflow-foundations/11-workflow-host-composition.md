@@ -15,6 +15,11 @@ to one through eight selected participants. Command limits, transaction ownershi
 and recovery contracts remain in force. This adds no Task, suspension, remote effect, lock, relational OCC,
 schema, commerce module or public application API.
 
+The default participant allowance remains eight. The host forwards the trusted,
+identity-bound [logical participant selection](./09-atomic-composition.md) for
+the complete nine-owner Variant/item pricing graph; this grants no additional
+module methods, physical bindings, transaction lifetimes or resource budgets.
+
 [Product-tag deletion](./13-product-tag-deletion.md) uses the same host with
 Product soft deletion, graph and events selected. The native runner maps only a
 top-level missing return value to null before strict capture/output validation.
@@ -160,6 +165,12 @@ existing command path; live managers/services are never cached across requests.
   before a callback can catch the rejection. Trusted decoder defects also poison
   pending work while retaining their defect channel. Existing participant calls
   bypass this adapter check and preserve their already-owned full Cause.
+- Native Promise rejection classification remains a separate boundary gap:
+  the workflow runtime and service bridge wrap arbitrary native rejections as
+  `adapterFailure`. Native dereference errors retain their original cause, but
+  this does not establish defect classification through the complete host.
+  Correct the existing Promise/Cause owner after a dedicated native SDK error
+  and compensation preflight; leaf-level `Effect.die` is not whole-host proof.
 - Root call/byte/deadline limits, cancellation, draining/joining and escaped-method
   closure remain with the existing runtime. Finalization also covers resource
   construction. Resources cannot grant raw SQL, managers or delivery authority.
@@ -168,8 +179,10 @@ existing command path; live managers/services are never cached across requests.
   results and deletion IDs with captured inputs of successful calls. Shared
   event handling captures batches, checks names/group and
   dispatches admitted contracts, preserving event order and subscriber policy.
-- Event-free hosts have no event bus, contracts or subscribers. The durable
-  Product binding uses capture/validation directly, without a dummy local
+- Hosts without an event policy have no event bus, contracts or subscribers.
+  A selected empty policy may retain native EventBus lifecycle and subscriber
+  identity while admitting no business event contracts. The durable Product
+  binding uses capture/validation directly, without a dummy local
   destination. The standalone local-event profile retains delivery for its
   supported callers.
 - Trusted bundle revision covers workflow, hook, decoder and adapter code.

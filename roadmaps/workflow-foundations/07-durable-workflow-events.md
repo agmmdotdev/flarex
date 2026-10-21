@@ -15,6 +15,11 @@ the participant and root policies and binds that association into replay identit
 Mixed-operation parents retain actual module event names. Event envelopes,
 storage, publication and delivery retain their existing owners.
 
+A selected policy may contain no event contracts for a read-only root. Its
+producer, subscribers and empty token set remain identity-bound, and closure
+still runs its validator. An empty allowed set grants no emission, cancellation
+or delivery authority; omission of the policy remains a distinct selection.
+
 This adds durable intent and a private recoverable delivery pump to the first
 real workflow, using the existing commit owner. It does not activate a
 production event provider, general subscriber API, Task workflow or second

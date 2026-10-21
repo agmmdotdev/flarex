@@ -557,6 +557,11 @@
       "types": "./dist/pricing/price-list-rules.d.ts",
       "source": "./src/pricing/price-list-rules.ts",
       "default": "./dist/pricing/price-list-rules.js"
+    },
+    "./common/filter-object-by-keys": {
+      "types": "./dist/common/filter-object-by-keys.d.ts",
+      "source": "./src/common/filter-object-by-keys.ts",
+      "default": "./dist/common/filter-object-by-keys.js"
     }
   },
   "license": "MIT",

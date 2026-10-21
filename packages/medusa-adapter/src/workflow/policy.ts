@@ -49,6 +49,10 @@ export const stockLocationDeletionCommandMs = 30_000;
 /** Native Rule batch and retained callbacks share one scoped allowance. */
 export const shippingOptionRuleBatchResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 export const productVariantPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
+/** Six native read services and three stored-Link owners, all logical. */
+export const variantItemPricingParticipantLimit = 9;
+/** Complete bounded read graph and four native Pricing contexts. */
+export const variantItemPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
 /** Complete finite Variant graph, including Inventory children and both Link families. */
 export const productVariantInventoryResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
 /** Existing-variant edits with native base-price replacement and Link dismissal. */

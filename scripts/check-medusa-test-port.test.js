@@ -415,12 +415,12 @@ describe("maintained Medusa test ports", () => {
     const original = readFileSync(new URL("../third_party/medusa/upstream/packages/core/types/src/pricing/service.ts", import.meta.url), "utf8");
     const selected = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/service.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const repository = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/repository.ts", import.meta.url), "utf8");
-    const methods = 'methods: { ...(listPriceRemovals ? { listPrices: listPricesForRemoval, softDeletePrices: softDeletePricesForRemoval, restorePrices: restorePricesForRemoval } : {}), ...(listPriceUpdates ? { listPriceLists: listPriceListsForPriceUpdate, snapshotPriceListPricesForUpdate, updatePriceListPrices, restorePriceListPrices } : {}), ...(listPriceCreations ? { listPriceLists: listPriceListsForPriceCreation, addPriceListPrices, removePrices } : {}), ...(listDeletions ? { softDeletePriceLists, restorePriceLists } : {}), ...(listUpdates ? { listPriceLists: listPriceListsForUpdate, updatePriceLists } : {}), ...(listCreations ? { createPriceLists, deletePriceLists } : {}), ...(shippingUpdates ? { updatePriceSets: updateShippingPriceSets, listPrices: listShippingPrices,\n        listPriceRules: listShippingPriceRules, createPriceRules: createShippingPriceRules } : {}),\n        ...(preferences && !preferenceUpdates && !preferenceDeletions ? { createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),\n        ...(preferenceUpdates ? { listPricePreferences: listUpdatePricePreferences, updatePricePreferences, upsertPricePreferences: upsertUpdatePricePreferences } : {}),\n        ...(preferenceDeletions ? { softDeletePricePreferences, restorePricePreferences } : {}),\n        ...(!preferences && !shippingUpdates && !listCreations && !listUpdates && !listDeletions && !listPrices ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}), ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {}) }';
+    const methods = 'methods: { ...(variantItemPricing ? { calculatePrices } : {}), ...(listPriceRemovals ? { listPrices: listPricesForRemoval, softDeletePrices: softDeletePricesForRemoval, restorePrices: restorePricesForRemoval } : {}), ...(listPriceUpdates ? { listPriceLists: listPriceListsForPriceUpdate, snapshotPriceListPricesForUpdate, updatePriceListPrices, restorePriceListPrices } : {}), ...(listPriceCreations ? { listPriceLists: listPriceListsForPriceCreation, addPriceListPrices, removePrices } : {}), ...(listDeletions ? { softDeletePriceLists, restorePriceLists } : {}), ...(listUpdates ? { listPriceLists: listPriceListsForUpdate, updatePriceLists } : {}), ...(listCreations ? { createPriceLists, deletePriceLists } : {}), ...(shippingUpdates ? { updatePriceSets: updateShippingPriceSets, listPrices: listShippingPrices,\n        listPriceRules: listShippingPriceRules, createPriceRules: createShippingPriceRules } : {}),\n        ...(preferences && !preferenceUpdates && !preferenceDeletions ? { createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),\n        ...(preferenceUpdates ? { listPricePreferences: listUpdatePricePreferences, updatePricePreferences, upsertPricePreferences: upsertUpdatePricePreferences } : {}),\n        ...(preferenceDeletions ? { softDeletePricePreferences, restorePricePreferences } : {}),\n        ...(!variantItemPricing && !preferences && !shippingUpdates && !listCreations && !listUpdates && !listDeletions && !listPrices ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}), ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {}) }';
     it("preserves the complete native selection and exact public method anchor", () => {
       expect(() => verifyPricingWorkflowSelection(original, selected, repository)).not.toThrow();
       expect(selected).toContain(methods);
     });
-    it.each(["softDeletePricePreferences", "restorePricePreferences", "deletePriceLists", "softDeletePriceLists", "restorePriceLists", "listPriceLists", "updatePriceLists", "addPriceListPrices", "removePrices", "updatePriceListPrices", "listPrices", "softDeletePrices", "restorePrices"])("rejects missing native method %s", method => {
+    it.each(["softDeletePricePreferences", "restorePricePreferences", "deletePriceLists", "softDeletePriceLists", "restorePriceLists", "listPriceLists", "updatePriceLists", "addPriceListPrices", "removePrices", "updatePriceListPrices", "listPrices", "softDeletePrices", "restorePrices", "calculatePrices"])("rejects missing native method %s", method => {
       const changed = original.replace(new RegExp("\\b" + method + "(?=\\s*[<(])", "g"), method + "Unadmitted");
       expect(changed).not.toBe(original);
       expect(() => verifyPricingWorkflowSelection(changed, selected, repository)).toThrow("Missing native Pricing admitted methods");
@@ -429,6 +429,49 @@ describe("maintained Medusa test ports", () => {
       'methods: { createPriceLists, createPricePreferences }', 'methods: { createPriceSets, createPricePreferences }',
       'methods: { createPriceSets, createPriceLists }'])("rejects public method replacement %s", replacement => {
       expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, replacement), repository)).toThrow();
+    });
+    it.each([
+      ["selector", 'const variantItemPricing = admission === "variant-item-pricing"', 'const variantItemPricing = true'],
+      ["selector spelling", 'const variantItemPricing = admission === "variant-item-pricing"', 'const variantItemPricing = admission === "variant-updates"'],
+      ["profile", 'variantItemPricing ? "pricing-variant-item-pricing"', 'variantItemPricing ? "pricing-base-prices"'],
+      ["command overgrant", 'variantItemPricing ? [count, calculate]', 'variantItemPricing ? [count, calculate, create]'],
+      ["command omission", 'variantItemPricing ? [count, calculate]', 'variantItemPricing ? [calculate]'],
+      ["method overgrant", 'variantItemPricing ? { calculatePrices }', 'variantItemPricing ? { calculatePrices, createPriceSets }'],
+      ["method fallback", 'variantItemPricing ? { calculatePrices } : {}', 'variantItemPricing ? { calculatePrices } : { calculatePrices }'],
+      ["method selector", 'variantItemPricing ? { calculatePrices }', 'mutable ? { calculatePrices }'],
+      ["creation fallback", '!variantItemPricing && !preferences && !shippingUpdates', '!preferences && !shippingUpdates'],
+      ["PriceSet creation refusal", 'createPriceSets: variantItemPricing || preferences', 'createPriceSets: preferences'],
+      ["PriceList creation refusal", 'createPriceLists: variantItemPricing || preferences', 'createPriceLists: preferences'],
+      ["preference creation refusal", 'createPricePreferences: variantItemPricing || shipping', 'createPricePreferences: shipping'],
+      ["native calculation visibility", 'calculatePrices: preferences || shipping', 'calculatePrices: variantItemPricing || preferences || shipping'],
+      ["native calculation owner", 'native.calculatePrices.bind(native)', 'native.listPriceSets.bind(native)'],
+      ["calculation dispatch", 'commands.read("pricingCalculateVariantItems"', 'commands.write("pricingCalculateVariantItems"'],
+      ["calculation decoder", 'prepare(decodeVariantItemPricingCalculation)', 'prepare(decodePricingCalculation)'],
+      ["calculation context", '[{ id: [...args.filters.id] }, args.pricingContext, context]', '[{ id: [...args.filters.id] }, {}, context]'],
+      ["calculation receiver", 'Reflect.apply(service.calculatePrices, service,', 'Reflect.apply(service.calculatePrices, {},'],
+      ["method command", 'defineWorkflowMethod({ command: calculate,', 'defineWorkflowMethod({ command: count,'],
+      ["method output", 'commerceDecoder(VariantItemPricingCalculationOutput, "storedCorruption")', 'commerceDecoder(Schema.Unknown, "storedCorruption")'],
+      ["graph relation overgrant", 'paths: variantItemPricing ? [] : prepared.paths', 'paths: prepared.paths'],
+      ["calculation import", 'from "./calculation"', 'from "./other-calculation"'],
+    ])("rejects variant item pricing service %s mutation", (_name, before, after) => {
+      const changed = selected.replace(before, after);
+      expect(changed).not.toBe(selected);
+      expect(() => verifyPricingWorkflowSelection(original, changed, repository)).toThrow("Unadmitted native Pricing workflow selection");
+    });
+    it.each([
+      ["selector", 'const variantItemPricing = admission === "variant-item-pricing"', 'const variantItemPricing = false'],
+      ["PriceSet creation refusal", 'create: variantItemPricing ? refuse : (input, shared)', 'create: (input, shared)'],
+      ["PriceList creation refusal", 'create: variantItemPricing || listUpdates', 'create: listUpdates'],
+      ["preference creation refusal", 'create: variantItemPricing ? refuse : preferenceCreate', 'create: preferenceCreate'],
+      ["calculation profile", 'variantItemPricing ? "variant-item-pricing" : "scalar"', '"scalar"'],
+      ["calculation profile fallback", 'variantItemPricing ? "variant-item-pricing" : "scalar"', '"variant-item-pricing"'],
+      ["calculation arguments", 'calculateLogicalPrices(ctx, { filters, pricingContext },', 'calculateLogicalPrices(ctx, { filters, pricingContext: {} },'],
+      ["calculation owner", 'calculateLogicalPrices(ctx, { filters, pricingContext },', 'otherCalculatePrices(ctx, { filters, pricingContext },'],
+      ["admission union", '| "variant-item-pricing";', '| "all-pricing";'],
+    ])("rejects variant item pricing repository %s mutation", (_name, before, after) => {
+      const changed = repository.replace(before, after);
+      expect(changed).not.toBe(repository);
+      expect(() => verifyPricingWorkflowSelection(original, selected, changed)).toThrow("Unadmitted native Pricing workflow selection");
     });
     it.each(['...{ methods: { calculatePrices } }', '["methods"]: { calculatePrices }',
       'get methods() { return { calculatePrices }; }', 'methods'])("rejects public method override %s", override => {
@@ -498,7 +541,7 @@ describe("maintained Medusa test ports", () => {
       selected.replace('...(preferences && !preferenceUpdates && !preferenceDeletions ? { createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences } : {})',
         '...(preferences ? { listPricePreferences, upsertPricePreferences, deletePricePreferences } : {})'),
       selected.replace('preferences ? [createPreference, preferenceList, preferenceUpsert, preferenceDelete]', 'preferences ? [preferenceList, preferenceUpsert, preferenceDelete]'),
-      selected.replace('createPricePreferences: shipping || preferenceUpdates || preferenceDeletions || listCreations || listUpdates || listDeletions || listPrices ? binding.refuse : native.createPricePreferences.bind(native)',
+      selected.replace('createPricePreferences: variantItemPricing || shipping || preferenceUpdates || preferenceDeletions || listCreations || listUpdates || listDeletions || listPrices ? binding.refuse : native.createPricePreferences.bind(native)',
         'createPricePreferences: preferences || shipping ? binding.refuse : native.createPricePreferences.bind(native)'),
       selected.replace('listPricePreferences: listUpdatePricePreferences', 'listPricePreferences'),
       selected.replace('upsertPricePreferences: upsertUpdatePricePreferences', 'upsertPricePreferences'),
@@ -520,8 +563,8 @@ describe("maintained Medusa test ports", () => {
         'restorePricePreferences: preferenceDeletions ? native.softDeletePricePreferences.bind(native) : binding.refuse'),
       selected.replace('listPricePreferences: preferences && !preferenceDeletions ?', 'listPricePreferences: preferences ?'),
       selected.replace('upsertPricePreferences: preferences && !preferenceDeletions ?', 'upsertPricePreferences: preferences ?'),
-      selected.replace('createPricePreferences: shipping || preferenceUpdates || preferenceDeletions || listCreations || listUpdates || listDeletions || listPrices ?',
-        'createPricePreferences: shipping || preferenceUpdates || listCreations || listUpdates || listDeletions || listPrices ?'),
+      selected.replace('createPricePreferences: variantItemPricing || shipping || preferenceUpdates || preferenceDeletions || listCreations || listUpdates || listDeletions || listPrices ?',
+        'createPricePreferences: variantItemPricing || shipping || preferenceUpdates || listCreations || listUpdates || listDeletions || listPrices ?'),
       selected.replace('deletePricePreferences: preferences && !preferenceUpdates && !preferenceDeletions ?',
         'deletePricePreferences: preferences && !preferenceUpdates ?'),
       selected.replace('preferenceDeletions ? "pricing-price-preference-deletions"', 'preferenceDeletions ? "pricing-price-preference-updates"'),
@@ -554,7 +597,7 @@ describe("maintained Medusa test ports", () => {
       selected.replace('if (shipping && !shippingUpdates) shippingLifecycleServices.set', 'if (lifecycle || shipping) shippingLifecycleServices.set'),
       selected.replace('shipping ? pricingShippingOptionPolicy(preferencePolicy, shippingOutput, shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined)', 'shipping ? pricingLogicalProductUpdateEventPolicy()'),
       selected.replace('const shippingUpdates = admission === "shipping-option-updates"', 'const shippingUpdates = shipping'),
-      selected.replace('...(!preferences && !shippingUpdates && !listCreations && !listUpdates && !listDeletions && !listPrices ?', '...(!preferences ?'),
+      selected.replace('...(!variantItemPricing && !preferences && !shippingUpdates && !listCreations && !listUpdates && !listDeletions && !listPrices ?', '...(!preferences ?'),
       selected.replace('createPriceRules: createShippingPriceRules } : {})', 'createPriceRules: createShippingPriceRules, deletePriceSets } : {})'),
       selected.replace('updatePriceSets: updateShippingPriceSets', 'updatePriceSets'),
       selected.replace('[shippingUpdate, shippingListPrices, shippingListRules, shippingCreateRules, list, count, retrieve]', '[shippingUpdate, shippingListPrices, shippingListRules, shippingCreateRules, create, list, count, retrieve]'),
@@ -606,7 +649,7 @@ describe("maintained Medusa test ports", () => {
       ['const listUpdates = admission === "price-list-updates"', 'const listUpdates = true'],
       ['compilePriceListUpdateContracts(metadata)', 'compilePriceListUpdateContracts(otherFrame)'],
       ['preparePriceListUpdateReplacement(contracts)', 'preparePriceListUpdateReplacement(otherContracts)'],
-      ['create: listUpdates || listDeletions || listPriceCreations || listPriceUpdates || listPriceRemovals ? refuse :', 'create: false ? refuse :'],
+      ['create: variantItemPricing || listUpdates || listDeletions || listPriceCreations || listPriceUpdates || listPriceRemovals ? refuse :', 'create: false ? refuse :'],
       ['readPriceListUpdateRows(ctx, listPrice.contracts.listReadContracts, captured))) : listUpdate === undefined ? refuse :', 'readPriceListUpdateRows(ctx, listPrice.contracts.listReadContracts, captured))) : undefined === undefined ? refuse :'],
       ['readPriceListUpdateRows(ctx, listUpdate.contracts, input)', 'readPriceListUpdateRows(ctx, otherContracts, input)'],
       ['listUpdate.replace(ctx, input, config)', 'listUpdate.replace(ctx, input, {})'],

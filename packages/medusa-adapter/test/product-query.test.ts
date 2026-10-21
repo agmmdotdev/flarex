@@ -175,6 +175,36 @@ describe("Medusa relation query extraction", () => {
       .toEqual({ title: "", enabled: false, metadata: null });
   });
 
+  it("projects Variant parent Type and Collection through the existing checked local relations", async () => {
+    await Effect.runPromise(Effect.gen(function* () {
+      const paths = ["product", "product.type", "product.collection"];
+      const fields = ["title", "product.title", "product.type.value", "product.collection.title"];
+      const projection = yield* relatedProjection(catalog, "variant", fields, paths);
+      expect(projection.storageFields).toEqual(["id", "title", "product_id"]);
+      const rows = [{ id: "v", title: "Small", product_id: "p", product: {
+        id: "p", title: "Shirt", type_id: "t", collection_id: "c", handle: "hidden",
+        type: { id: "t", value: "Apparel", metadata: { hidden: true } },
+        collection: { id: "c", title: "Summer", handle: "hidden" },
+      } }];
+      const before = structuredClone(rows);
+      expect(yield* projectReadRows(rows, projection)).toEqual([{ id: "v", title: "Small", product_id: "p",
+        product: { id: "p", title: "Shirt", type: { id: "t", value: "Apparel" }, collection: { id: "c", title: "Summer" } },
+      }]);
+      expect(rows).toEqual(before);
+      expect(yield* projectReadRows([{ id: "v", title: "Small", product_id: "p", product: {
+        id: "p", title: "Shirt", type: null, collection: null,
+      } }], projection)).toEqual([{ id: "v", title: "Small", product_id: "p",
+        product: { id: "p", title: "Shirt", type: null, collection: null },
+      }]);
+      for (const path of ["product.tags", "product.categories", "product.shipping_profile", "product.type.products"]) {
+        expect(yield* Effect.result(relatedProjection(catalog, "variant", undefined, ["product", path])))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+      }
+      expect(yield* Effect.result(relatedProjection(catalog, "option", fields, paths)))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    }));
+  });
+
   it("groups composite keys without delimiter collisions and ignores missing pivot targets", () => {
     const first = { a: "a:b", b: "c", id: "one" };
     const second = { a: "a", b: "b:c", id: "two" };

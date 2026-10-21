@@ -771,6 +771,33 @@ PostgreSQL. Its independently approved named 256-call profile keeps 64 events an
 all other defaults unchanged; hosted activation, restart and scale remain
 separate gates.
 
+The [native Variant and line-item pricing preflight](./preflight/159-native-variant-item-price-calculation.md)
+is implemented for its bounded private profile on PGlite and ordinary-role
+PostgreSQL. Its unchanged
+read workflow joins six native service owners and three stored-Link owners,
+including the complete default Inventory/Location/Channel projection and native
+to-one PriceSet/ShippingProfile relationships. Cart, Customer and Region remain
+supplied values. Currency stays optional for empty/manual paths without Pricing
+groups; actual groups preserve the original required-currency guard and native
+`MedusaError` type/message through the Commerce failure cause. Native Query
+aliases, exact cache hints, omitted/null fields,
+implicit join keys, context grouping and complete Pricing DTOs retain their
+owners; the private host remains cache disabled and admits zero business events.
+The finite candidate selects up to four effective items/Variant IDs, four
+Products, four Inventory Items, sixteen Levels and at most ten flattened
+non-control Pricing attributes. An identity-bound nine-logical-participant allowance leaves default
+and physical compositions capped at eight. The original 64-call refusal remains
+preserved; this root selects its own named 256-call allowance under the standing
+core authorization. Its existing 64-event ceiling, ten-second command deadline,
+participant resources and other limits remain unchanged. Both default-profile
+refusals remain part of the admitted boundary.
+Native sale/override behavior is preserved, including lower equally specific
+sale Prices retaining a non-List original. The separate PostgreSQL `57014`
+publication failure for one Product with four Variants remains an unresolved
+Product creation reliability gate; independent native setup roots for this
+read fixture do not resolve it. Arbitrary Cart writes, hosted activation and
+scale remain outside this slice.
+
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
 The genuine creation step remains unchanged and returns complete native rows,
