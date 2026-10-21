@@ -1,3 +1,4 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { InventoryLevelStockLocation } from "@medusajs/link-modules";
@@ -73,7 +74,7 @@ function participants(selected: readonly GraphDirectPath[] = paths): GraphPartic
 type Call = { readonly participant: Parameters<AtomicCommerceContext["call"]>[0]; readonly command: Parameters<AtomicCommerceContext["call"]>[1]; readonly args: Json };
 function context(responses: readonly Json[], calls: Call[] = []): AtomicCommerceContext {
   let index = 0;
-  return { eventGroupId: "direct-graph", checkpoint: Effect.void,
+  return { eventGroupId: "direct-graph", checkpoint: Effect.void, recordFailure: promiseFailureObserver(),
     capture: () => Effect.fail(commerceError("unsupportedProfile")), emit: () => Effect.fail(commerceError("unadmittedEvent")),
     clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")), refuse: Effect.fail,
     call: (participant, command, args) => {

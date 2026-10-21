@@ -136,7 +136,7 @@ const publishCmsOutcome = Effect.fn("CmsCommit.publishOutcome")(function* (input
     if (attempt === undefined) return yield* Effect.fail(cmsError("storedCorruption"));
     receiptEvidence.set(receipt, attempt);
   }
-  yield* Effect.fromResult(lifetime.charge(receipts.length * 128));
+  yield* lifetime.fromResult(lifetime.charge(receipts.length * 128));
   const presented = hooks?.transformReceipts?.(Object.freeze(receipts)) ?? receipts;
   if (!lifetime.isClosing() || presented.length !== receipts.length) return yield* Effect.fail(cmsError("invalidAuthority"));
   for (let index = 0; index < receipts.length; index += 1) {

@@ -13,7 +13,7 @@ import { makeAtomicCommerceHost } from "../../persistence-postgres/src/framework
 import type { LogicalCommerceCallValidation } from "../../persistence-postgres/src/frameworks/atomicCommerce/participants";
 import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { createStep, createWorkflow, parallelize, WorkflowResponse } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, parallelize, StepResponse, WorkflowResponse } from "@medusajs/workflows-sdk";
 import { runNativeMedusaWorkflow } from "../src/workflow/runtime";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
@@ -197,6 +197,47 @@ describe("explicit queued atomic operations on a neutral logical source", () => 
     expect(await rows()).toEqual(beforeRows); expect(await commits()).toEqual(beforeCommits); expect(await events()).toEqual(beforeEvents);
   });
 
+  it.each(["strict", "queued"] as const)("keeps compound DAL Cause and atomic rollback without running transaction-covered inverses: %s", async scheduling => {
+    const failure = commerceError("invalidInput"), defect = new TypeError("owned DAL finalizer");
+    let inverseCalls = 0;
+    const successful = write("causeProbeBeforeFailure");
+    const failing = defineCommerceCommand("causeProbeCompoundFailure", "write", Effect.fn(function* (ctx) {
+      const table = yield* ctx.table("queue_probe");
+      yield* table.write(ctx.manager, "insert", [{ id: "cause-probe-failed-" + scheduling, value: 2 }]);
+      return yield* ctx.refuse(failure).pipe(Effect.ensuring(Effect.die(defect)));
+    }));
+    let invoke: ((command: CommerceCommand, input: Json) => Promise<Json>) | undefined;
+    const first = createStep({ name: "cause-probe-before-" + scheduling, compensation: "transactionCovered" }, async () => {
+      if (!invoke) throw new Error("Missing native source binding");
+      return new StepResponse(await invoke(successful, { id: "cause-probe-first-" + scheduling, value: 1 }));
+    }, async () => { inverseCalls++; });
+    const last = createStep("cause-probe-failure-" + scheduling, async (_input: unknown) => {
+      if (!invoke) throw new Error("Missing native source binding");
+      try { return await invoke(failing, null); }
+      catch { return "native caught compound rejection"; }
+    });
+    const workflow = createWorkflow("cause-probe-compound-" + scheduling, () => new WorkflowResponse(last(first(undefined))));
+    const prepared = Result.getOrThrow(workflow.prepare());
+    const tested = await open(Effect.fn(function* (ctx) {
+      const observed = yield* Effect.exit(runNativeMedusaWorkflow(prepared, ctx, null, owner => {
+        invoke = (command, input) => owner.run(ctx.call(participant, command, input));
+        return { resolve: () => { throw new Error("Unexpected native container resolution"); } };
+      }));
+      if (Exit.isSuccess(observed)) throw new Error("Native catch must not discharge the owned Cause");
+      expect(observed.cause.reasons.some(reason => Cause.isDieReason(reason) && reason.defect === defect)).toBe(true);
+      // A trusted caller can observe/catch the outcome; only the original
+      // root lifetime/FIFO can prevent this apparent success from committing.
+      return null;
+    }), [successful, failing], undefined, scheduling);
+    const before = { rows: await rows(), commits: await commits(), events: await events() };
+    const exit = await Effect.runPromiseExit(tested.host.run(tested.host.newRequestKey(), tested.command, null));
+    if (Exit.isSuccess(exit)) throw new Error("Expected complete native failure");
+    expect(exit.cause.reasons.filter(reason => Cause.isFailReason(reason) && reason.error === failure)).toHaveLength(1);
+    expect(exit.cause.reasons.filter(reason => Cause.isDieReason(reason) && reason.defect === defect)).toHaveLength(1);
+    expect(inverseCalls).toBe(0);
+    expect({ rows: await rows(), commits: await commits(), events: await events() }).toEqual(before);
+  });
+
   it("records a native callback failure once under the default strict profile", async () => {
     const failure = commerceError("invalidInput");
     const refused = createStep("queue-probe-strict-native-refused", async () => { throw failure; });
@@ -246,7 +287,10 @@ describe("explicit queued atomic operations on a neutral logical source", () => 
     expect(Result.getOrThrow(Cause.findError(exit.cause))).toBe(failure);
     // The original failure remains first; interrupted participant work also
     // retains the transaction owner's rollback-only cleanup evidence.
-    expect(reasons(exit.cause)).toEqual(["invalidInput", "rollbackOnly"]);
+    expect(exit.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error.reason)).toEqual(["invalidInput", "rollbackOnly"]);
+    expect(exit.cause.reasons.filter(reason => Cause.isFailReason(reason) && reason.error === failure)).toHaveLength(1);
+    expect(exit.cause.reasons.filter(Cause.isInterruptReason)).toHaveLength(2);
+    expect(exit.cause.reasons.some(Cause.isDieReason)).toBe(false);
     expect(cleaned).toBe(true);
     expect({ rows: await rows(), commits: await commits(), events: await events() }).toEqual(before);
     if (escaped === undefined) throw new Error("Missing escaped native participant method");

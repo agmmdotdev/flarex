@@ -96,7 +96,7 @@ export const makeCmsRelations = Effect.fn("CmsRelations.make")(function* (
       yield* native.port.validateInTransaction(capability, native.input, state.tx, state.clock)
         .pipe(Effect.mapError(cause => cmsRelationReadFailure(cause, "bindingChanged")));
       if (++windows > 64) return yield* Effect.fail(cmsError("limitExceeded"));
-      yield* Effect.fromResult(lifetime.charge((limit + 1) * 128));
+      yield* lifetime.fromResult(lifetime.charge((limit + 1) * 128));
       const page = yield* readIncomingAppRelationEdgePageInTransactionEffect(state.tx, { scopeId: state.authority.scopeId,
         definition: resolved.definition.edge, targetRowId: identity.rowId, maximumIdentities: limit, ...(observeQuery === undefined ? {} : { observeQuery }) })
         .pipe(Effect.mapError(cause => cmsError(cause._tag === "AppRelationEdgeCorruptionError" ? "storedCorruption" : "statementFailure", cause)));

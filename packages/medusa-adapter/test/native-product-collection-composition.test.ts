@@ -1,3 +1,4 @@
+import { expectNativePromiseDefect, promiseFailureObserver } from "./support/promise-failure-observer";
 import { describe, expect, it, vi } from "vitest";
 import { Deferred, Effect, Result, Schema } from "effect";
 import type { PreparedWorkflow, WorkflowContainer } from "@medusajs/workflows-sdk";
@@ -23,7 +24,7 @@ function nativePort(services: Readonly<Record<string, object>>) {
     return resolve(name) as Service;
   } };
   const decode = commerceDecoder(Schema.Json, "invalidInput");
-  const context: AtomicCommerceContext = { eventGroupId: "native-collection-composition", checkpoint: Effect.void,
+  const context: AtomicCommerceContext = { eventGroupId: "native-collection-composition", checkpoint: Effect.void, recordFailure: promiseFailureObserver(),
     clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     capture: (value, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decode)(value))),
     call: () => Effect.fail(commerceError("unsupportedProfile")), emit: () => Effect.fail(commerceError("unadmittedEvent")),
@@ -160,8 +161,7 @@ describe("genuine native Product Collection composition", () => {
     const failure = new Error("Collection hook failed");
     const native = nativePort({ product: { softDeleteProductCollections: softDelete }, link: { delete: remove }, event_bus: { emit } });
     const prepared = Result.getOrThrow(deleteCollectionsWorkflow.prepare({ collectionsDeleted: () => { throw failure; } }));
-    await expect(Effect.runPromise(native.run(prepared, { ids: ["pcol-existing"] })))
-      .rejects.toMatchObject({ reason: "adapterFailure", cause: failure });
+    await expectNativePromiseDefect(native.run(prepared, { ids: ["pcol-existing"] }), failure);
     expect(softDelete).toHaveBeenCalledExactlyOnceWith(["pcol-existing"]);
     expect(remove).toHaveBeenCalledExactlyOnceWith({ product: { product_collection_id: ["pcol-existing"] } });
     expect(emit).toHaveBeenCalledExactlyOnceWith([{ name: "product-collection.deleted", data: { id: "pcol-existing" }, metadata: { eventGroupId: "native-collection-composition" } }]);

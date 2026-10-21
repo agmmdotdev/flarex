@@ -1,6 +1,6 @@
 import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
 import type { LiveAppRowRevisionV1 } from "../../src/storage/documents/appRows";
-import { Effect, Exit, Result } from "effect";
+import { Cause, Effect, Exit, Result } from "effect";
 import { expect, it, vi } from "vitest";
 import { AppCreationTimeV1Schema, canonicalizeAppDocumentV1 } from "flarex-protocol/app-document";
 import {
@@ -45,6 +45,7 @@ import { decodeStoredAppRowRevisionEvidenceEffect, inspectStoredAppDocumentEvide
 import { detachLogicalDocumentChanges } from "../../src/storage/documents/logicalDocuments/detachChanges";
 import { validateLogicalDocumentChanges } from "../../src/storage/documents/logicalDocuments/contribution";
 import { bindLogicalInsertionRoot, hasLogicalInsertionEvidence } from "../../src/storage/documents/logicalDocuments/insertionOrder";
+import { capturePrivateJsonData } from "../../src/values/privateJsonData";
 
 const tableId = CatalogTableIdSchema.make(1);
 const scopeId = ScopeIdSchema.make("scope_91000000-0000-4000-8000-000000000001");
@@ -93,7 +94,7 @@ const make = (read: () => Effect.Effect<never, Error> = () => Effect.fail(new Er
     const root = makeLogicalDocumentRootEvaluator({ attempt, scopeId, snapshotCommitSeq, attemptFence },
       { identities: 64, workingBytes: 128_000 });
     const transaction = {} as FlarexMetadataTransaction;
-    const working = yield* makeLogicalDocumentWorkingSet({
+    const reopen = () => makeLogicalDocumentWorkingSet({
       readTransaction: () => Effect.sync(() => { readCalls++; }).pipe(Effect.andThen(read())),
       requireAdmission: Effect.void,
       scopeId, clock: { scopeId, storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
@@ -109,8 +110,48 @@ const make = (read: () => Effect.Effect<never, Error> = () => Effect.fail(new Er
       }, validateDocument: () => Effect.void,
       error: reason => new Error(reason), uniqueConflict: () => new Error("uniqueConflict"),
     }, AppCreationTimeV1Schema.make(1), mechanics?.unique ?? [], mechanics?.indexes ?? [], undefined, transaction);
-    return { root, lifetime, id, working, transaction, readCalls: () => readCalls };
+    const working = yield* reopen();
+    return { root, lifetime, id, working, reopen, transaction, readCalls: () => readCalls };
   });
+
+it.each(["insert charge", "row-use receipt"] as const)("retains the completed working-set charge Cause after trusted catch: %s", path =>
+  runEffect(Effect.gen(function* () {
+    const { root, lifetime, id, working, reopen, readCalls } = yield* make();
+    try {
+      const cleanup = new TypeError("working-set charge finalizer");
+      let work: Effect.Effect<unknown, Error>;
+      if (path === "insert charge") {
+        Result.getOrThrow(lifetime.charge(lifetime.remainingBytes() - 64));
+        work = working.documents.insert(lifetime.context, id, "items", {});
+      } else {
+        const inserted = yield* working.documents.insert(lifetime.context, id, "items", { name: "Ada" });
+        if (typeof inserted._id !== "string") throw new Error("Missing genuine pending document ID");
+        const borrowed = yield* reopen();
+        const input = [inserted._id];
+        const captured = Result.getOrThrow(capturePrivateJsonData(input, lifetime.remainingBytes(), reason => new Error(reason)));
+        Result.getOrThrow(lifetime.charge(lifetime.remainingBytes() - captured.bytes - 16));
+        work = borrowed.documents.getMany(lifetime.context, id, "items", input);
+      }
+      const before = root.snapshot();
+      const completed = yield* Effect.exit(work.pipe(Effect.ensuring(Effect.die(cleanup))));
+      if (Exit.isSuccess(completed)) throw new Error("Expected genuine working-set charge overflow");
+      const first = completed.cause.reasons.find(Cause.isFailReason);
+      if (first === undefined) throw new Error("Missing actual charge failure");
+      expect(first.error.message).toBe("limitExceeded");
+      expect(completed.cause.reasons.filter(reason => Cause.isDieReason(reason) && reason.defect === cleanup)).toHaveLength(1);
+      expect(Result.isSuccess(lifetime.recordFailure(lifetime.context, completed.cause))).toBe(true);
+      const sealed = yield* Effect.exit(lifetime.seal);
+      if (Exit.isSuccess(sealed)) throw new Error("Trusted catch must not discharge the charge failure");
+      expect(sealed.cause.reasons.filter(reason => Cause.isFailReason(reason) && reason.error === first.error)).toHaveLength(1);
+      expect(sealed.cause.reasons.filter(reason => Cause.isDieReason(reason) && reason.defect === cleanup)).toHaveLength(1);
+      expect(root.snapshot().attempts).toEqual(before.attempts);
+      expect(root.snapshot().changes).toEqual(before.changes);
+      expect(readCalls()).toBe(0);
+    } finally {
+      yield* lifetime.close;
+      root.close();
+    }
+  })));
 
 it("evaluates a finite root's pending writes, cached reads, and close without admission SQL", () =>
   runEffect(Effect.gen(function* () {

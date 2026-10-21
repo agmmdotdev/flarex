@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { mockRelationalRead } from "./mock-relational-read";
-import { Deferred, Effect, Result } from "effect";
+import { Cause, Deferred, Effect, Exit, Result } from "effect";
 import type { Context, IMessageAggregator, ModulePersistenceMutationEventArgs, ModulePersistenceMutationService } from "@medusajs/types";
 import { dispatchPerformedActions, suppressMutationEventDispatch } from "@medusajs/drizzle/mutation-events";
-import { commerceError, commerceLimits, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, commerceLimits, CommerceTransactionError, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceMutationEvents } from "../src/repository/mutation-events";
 import { makeCommercePromiseOwner } from "../src/module/promise-owner";
 import { productRepository } from "../src/modules/product/repository";
@@ -85,9 +85,9 @@ describe("shared request-owned Medusa mutation dispatch", () => {
       yield* events.dispatch("afterCreate", args, suppressMutationEventDispatch(context));
       expect(registered).toEqual([]);
       // The original framework action dispatcher records one duplicate token.
-      yield* Effect.promise(signal => owner.callback(() => dispatchPerformedActions({
+      yield* owner.invoke(() => dispatchPerformedActions({
         created: { Publication: [{ id: "book" }] }, updated: {}, deleted: {},
-      }, context), signal));
+      }, context));
       yield* events.dispatch("afterCreate", args, context);
       expect(registered).toHaveLength(1);
       yield* events.dispatch("afterCreate", args, context);
@@ -113,14 +113,23 @@ describe("shared request-owned Medusa mutation dispatch", () => {
     })));
   });
 
-  it.each([new Error("foreign callback"), commerceError("unadmittedEvent")])("retains the existing foreign failure envelope %#", async error => {
+  it.each([new Error("foreign callback"), commerceError("unadmittedEvent")])("retains typed native failures and foreign defects at dispatch %#", async error => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const { events } = yield* fixture;
       const context: Context = {};
       events.registerSubscriber(context, events.createSubscriber(["Publication"], { interceptEntityMutationEvents: () => { throw error; } }));
-      const result = yield* events.rows("afterUpdate", "Publication", [{ id: "book" }], context).pipe(Effect.result);
-      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure" } });
-      if (Result.isFailure(result)) expect(result.failure.cause).toBe(error);
+      const result = yield* Effect.exit(events.rows("afterUpdate", "Publication", [{ id: "book" }], context));
+      if (Exit.isSuccess(result)) throw new Error("Expected subscriber rejection");
+      expect(result.cause.reasons).toHaveLength(1);
+      const reason = result.cause.reasons[0];
+      if (reason === undefined) throw new Error("Missing subscriber outcome");
+      if (error instanceof CommerceTransactionError) {
+        if (!Cause.isFailReason(reason)) throw new Error("Expected typed native failure");
+        expect(reason.error).toBe(error);
+      } else {
+        if (!Cause.isDieReason(reason)) throw new Error("Expected foreign subscriber defect");
+        expect(reason.defect).toBe(error);
+      }
     })));
   });
 
@@ -152,7 +161,7 @@ describe("shared request-owned Medusa mutation dispatch", () => {
       const receipts: Receipt[] = [];
       const late = events.createSubscriber(["Publication"], collector(receipts));
       const result = yield* events.dispatch("afterCreate", { entity: { id: "late" }, meta: { className: "Publication" } }, {}, late).pipe(Effect.result);
-      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure", cause: { reason: "closed" } } });
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
       expect(receipts).toEqual([]);
     })));
   });

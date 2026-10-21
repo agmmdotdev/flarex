@@ -1,3 +1,4 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { defineAtomicCommerceParticipant, type AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -17,7 +18,7 @@ type Call = { readonly participant: Parameters<AtomicCommerceContext["call"]>[0]
   readonly command: Parameters<AtomicCommerceContext["call"]>[1]; readonly input: Json };
 function context(result: Json = [[], 0]) {
   const calls: Call[] = [], refusals: string[] = [];
-  const scope: AtomicCommerceContext = { eventGroupId: "native-variant-price-set-query", checkpoint: Effect.void,
+  const scope: AtomicCommerceContext = { eventGroupId: "native-variant-price-set-query", checkpoint: Effect.void, recordFailure: promiseFailureObserver(),
     refuse: error => { refusals.push(error.reason); return Effect.fail(error); },
     capture: () => Effect.fail(commerceError("unsupportedProfile")), emit: () => Effect.fail(commerceError("unadmittedEvent")),
     clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),

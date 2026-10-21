@@ -244,7 +244,7 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
           const id = crypto.randomUUID();
           const lifetime = yield* makeBoundedRequestLifetime(commerceError, { ...commerceLimits, ...resources }, owner, Object.freeze({ requestId: Symbol("commerce.request") }), id, bootstrap ? "write" : root?.mode ?? "read");
           return yield* Effect.gen(function* () {
-            yield* Effect.fromResult(lifetime.charge(evidence?.canonicalBytes.byteLength ?? captured.bytes));
+            yield* lifetime.fromResult(lifetime.charge(evidence?.canonicalBytes.byteLength ?? captured.bytes));
             const selected = member.kind === "physical"
               ? { kind: "physical" as const, admission: member.admission, working: yield* makeCommerceStore(member.admission, lifetime, id) }
               : { kind: "logical" as const, working: yield* makeLogicalCommerceParticipant(member.admission, tx, lifetime, lifetime.context, id,
@@ -256,7 +256,7 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
               if (events.length >= resources.eventMessages) return yield* Effect.fail(commerceError("limitExceeded"));
               const message = yield* local.capture(event);
               const capturedEvent = yield* Effect.fromResult(captureCommerceJsonData(message, commerceLimits.rowBytes));
-              yield* Effect.fromResult(lifetime.charge(capturedEvent.bytes));
+              yield* lifetime.fromResult(lifetime.charge(capturedEvent.bytes));
               events.push(capturedEvent.value);
             }));
             const invoke = Effect.fn("CommerceHost.invoke")(function* (context: BoundedRequestContext, command: CommerceCommand, inputArgs: Json,
@@ -265,11 +265,11 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
               if (definition === undefined || !allowed.has(command) || (key === null && definition.mode !== "read")) return yield* Effect.fail(commerceError("invalidAuthority"));
               const contextFor = (manager: BoundedRequestContext) => makeCommerceCommandContext(lifetime, working, id, manager, invoke, captureEvent);
               const commandInput = yield* Effect.fromResult(captureCommerceJsonData(inputArgs, lifetime.remainingBytes()));
-              yield* Effect.fromResult(lifetime.charge(commandInput.bytes));
+              yield* lifetime.fromResult(lifetime.charge(commandInput.bytes));
               const output = yield* definition.run(contextFor(context), commandInput.value);
               if (rootInvocation) yield* lifetime.seal;
               const result = yield* Effect.fromResult(captureCommerceJsonData(output, lifetime.remainingBytes()));
-              yield* Effect.fromResult(lifetime.charge(result.bytes));
+              yield* lifetime.fromResult(lifetime.charge(result.bytes));
               return result.value;
             });
             let value: Json;
@@ -300,7 +300,7 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
               value = yield* invoke(lifetime.context, token, captured.value, true);
             }
             const result = yield* Effect.fromResult(canonicalizeJsonOutcome(value, resources.commandBytes)).pipe(Effect.mapError(projectFailure));
-            yield* Effect.fromResult(lifetime.charge(bootstrap ? result.canonicalBytes.byteLength : 0));
+            yield* lifetime.fromResult(lifetime.charge(bootstrap ? result.canonicalBytes.byteLength : 0));
             if (bootstrap) yield* lifetime.seal;
             if (local !== undefined && selected.kind === "physical") yield* local.validate(Object.freeze(events.slice()), selected.working.snapshot(), root?.name ?? "initialize", selected.working.lifecycleSnapshot(), selected.working.observationSnapshot());
             if (lookup !== null) {

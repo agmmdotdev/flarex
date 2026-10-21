@@ -1,3 +1,4 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { defineAtomicCommerceParticipant, type AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -47,7 +48,7 @@ function participants(remotePaths: readonly GraphRemotePath[] = paths): GraphPar
 type Call = { readonly participant: Parameters<AtomicCommerceContext["call"]>[0]; readonly command: Parameters<AtomicCommerceContext["call"]>[1]; readonly args: Json };
 function context(responses: readonly Json[], calls: Call[] = []): AtomicCommerceContext {
   let index = 0;
-  return { eventGroupId: "unit-link-graph", checkpoint: Effect.void,
+  return { eventGroupId: "unit-link-graph", checkpoint: Effect.void, recordFailure: promiseFailureObserver(),
     capture: () => Effect.fail(commerceError("unsupportedProfile")), emit: () => Effect.fail(commerceError("unadmittedEvent")), refuse: Effect.fail,
     clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     call: (participant, command, args) => {

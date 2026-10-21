@@ -1,4 +1,4 @@
-import { Cause, Clock, Effect, Exit, Option, Result } from "effect";
+import { Cause, Clock, Context, Effect, Option, Result } from "effect";
 import { observeExecution } from "../diagnostics/operation";
 
 declare const requestBrand: unique symbol;
@@ -48,6 +48,11 @@ export interface BoundedRequestLifetime<Failure> {
   /** Recheck the active borrowed context after a callback without a second call charge. */
   readonly checkpoint: (context: BoundedRequestContext) => Effect.Effect<void, Failure>;
   readonly charge: (bytes: number) => Result.Result<void, Failure>;
+  /** Convert a preparation verdict, retaining the Cause of an exact charge-issued receipt. */
+  readonly fromResult: <Value>(result: Result.Result<Value, Failure>) => Effect.Effect<Value, Failure>;
+  /** Authenticate a live borrowed context and retain its first complete failure.
+   * No call/byte charge, callback execution or settlement authority. */
+  readonly recordFailure: (context: BoundedRequestContext, cause: Cause.Cause<Failure>) => Result.Result<Cause.Cause<Failure>, Failure>;
   readonly seal: Effect.Effect<void, Failure>;
   readonly close: Effect.Effect<void>;
   readonly isClosing: () => boolean;
@@ -56,6 +61,7 @@ export interface BoundedRequestLifetime<Failure> {
 }
 
 const requestRoots = new WeakMap<object, object>();
+const FailureOrigin = Context.Service<object>("Flarex/BoundedRequestFailureOrigin");
 /** Source-private authentic request identity; carries no storage authority. */
 export const boundedRequestRootIdentity = <Failure>(lifetime: BoundedRequestLifetime<Failure>): object | undefined => requestRoots.get(lifetime);
 
@@ -63,17 +69,59 @@ export const boundedRequestRootIdentity = <Failure>(lifetime: BoundedRequestLife
 export function projectBoundedRequestLifetime<Outer, Inner extends Outer>(
   root: BoundedRequestLifetime<Outer>, project: (failure: Outer) => Inner,
 ): BoundedRequestLifetime<Inner> {
+  // Projection owns these exact Reason translations. Stable forward identities
+  // preserve repeated propagation; the reverse direction authenticates only
+  // reasons actually issued here, never structural errors supplied by a caller.
+  const forward = new WeakMap<Cause.Reason<Outer>, Cause.Reason<Inner>>();
+  const reverse = new WeakMap<Cause.Reason<Inner>, Cause.Reason<Outer>>();
+  const projectCause = (cause: Cause.Cause<Outer>): Cause.Cause<Inner> => Cause.fromReasons(cause.reasons.map(reason => {
+    const known = forward.get(reason);
+    if (known !== undefined) return known;
+    // Cause.map preserves annotation representation with the installed runtime.
+    // Its Reason.annotate Map overload is not implemented by RC112.
+    const mapped = Cause.map(Cause.fromReasons([reason]), project).reasons[0];
+    if (mapped === undefined) throw new Error("Cause projection lost its original reason");
+    forward.set(reason, mapped);
+    reverse.set(mapped, reason);
+    return mapped;
+  }));
+  const projectEffect = <Value>(work: Effect.Effect<Value, Outer>) => work.pipe(
+    Effect.catchCause(cause => Effect.failCause(projectCause(cause))));
+  const chargeReceipts = new WeakMap<object, Effect.Effect<never, Inner>>();
   const projected = Object.freeze({
     context: root.context, mode: root.mode, isClosing: root.isClosing, remainingBytes: root.remainingBytes, usedCalls: root.usedCalls, close: root.close,
-    begin: (context, id) => root.begin(context, id).pipe(Effect.mapError(project)),
-    adapterCommit: (context, id) => root.adapterCommit(context, id).pipe(Effect.mapError(project)),
-    rollback: (context, id) => root.rollback(context, id).pipe(Effect.mapError(project)),
-    operation: (context, id, mode, work) => root.operation(context, id, mode, work).pipe(Effect.mapError(project)),
-    nested: (context, id, work, mode) => root.nested(context, id, work, mode).pipe(Effect.mapError(project)),
-    withinDeadline: work => root.withinDeadline(work).pipe(Effect.mapError(project)),
-    checkpoint: context => root.checkpoint(context).pipe(Effect.mapError(project)),
-    charge: bytes => root.charge(bytes).pipe(Result.mapError(project)),
-    seal: root.seal.pipe(Effect.mapError(project)),
+    begin: (context, id) => projectEffect(root.begin(context, id)),
+    adapterCommit: (context, id) => projectEffect(root.adapterCommit(context, id)),
+    rollback: (context, id) => projectEffect(root.rollback(context, id)),
+    operation: (context, id, mode, work) => projectEffect(root.operation(context, id, mode, work)),
+    nested: (context, id, work, mode) => projectEffect(root.nested(context, id, work, mode)),
+    withinDeadline: work => projectEffect(root.withinDeadline(work)),
+    checkpoint: context => projectEffect(root.checkpoint(context)),
+    charge: bytes => {
+      const original = root.charge(bytes);
+      const mapped = original.pipe(Result.mapError(project));
+      if (Result.isFailure(original) && Result.isFailure(mapped)) {
+        // The exact source Result emits one failure. Bind its projected Reason
+        // to the error already returned in this receipt, preserving identity.
+        chargeReceipts.set(mapped, root.fromResult(original).pipe(
+          Effect.flatMap(() => Effect.die(new Error("Charge failure receipt unexpectedly succeeded"))),
+          Effect.catchCause(cause => {
+            const receipt = Cause.map(cause, () => mapped.failure);
+            receipt.reasons.forEach((reason, index) => {
+              const source = cause.reasons[index];
+              if (source !== undefined) reverse.set(reason, source);
+            });
+            return Effect.failCause(receipt);
+          }),
+        ));
+      }
+      return mapped;
+    },
+    fromResult: result => chargeReceipts.get(result) ?? Effect.fromResult(result),
+    recordFailure: (context, cause) => root.recordFailure(context,
+      Cause.fromReasons(cause.reasons.map(reason => reverse.get(reason) ?? reason)))
+      .pipe(Result.map(projectCause), Result.mapError(project)),
+    seal: projectEffect(root.seal),
   } satisfies BoundedRequestLifetime<Inner>);
   const identity = requestRoots.get(root);
   if (identity !== undefined) requestRoots.set(projected, identity);
@@ -103,16 +151,59 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
   };
   contexts.set(context, { request, live: true, mode });
 
+  // Effect may clone Reasons when adding stack annotations. The private token
+  // survives that official cloning; only this lifetime can authenticate it.
+  type OriginEntry = { reason: Cause.Reason<Failure> };
+  const origins = new WeakMap<object, OriginEntry>();
+  const issued = new WeakMap<Cause.Reason<Failure>, OriginEntry>();
+  const originOf = (reason: Cause.Reason<Failure>): OriginEntry | undefined => {
+    const token = reason.annotations.get(FailureOrigin.key);
+    return token !== null && typeof token === "object" ? origins.get(token) ?? issued.get(reason) : issued.get(reason);
+  };
+  const ownCause = (cause: Cause.Cause<Failure>): Cause.Cause<Failure> => {
+    const entries: OriginEntry[] = [];
+    for (const reason of cause.reasons) {
+      let entry = originOf(reason);
+      if (entry === undefined) {
+        const token = Object.freeze({});
+        const owned = reason.annotate(Context.make(FailureOrigin, token), { overwrite: true });
+        entry = { reason: owned };
+        origins.set(token, entry);
+        issued.set(reason, entry);
+        issued.set(owned, entry);
+      } else {
+        const retainedAnnotations = entry.reason.annotations;
+        const changed = [...reason.annotations].some(([key, value]) => retainedAnnotations.get(key) !== value);
+        if (changed) {
+          // This Context carries existing diagnostic annotations only, with no
+          // service requirements or business capabilities added to execution.
+          entry.reason = entry.reason.annotate(Context.makeUnsafe(new Map(reason.annotations)), { overwrite: true });
+          issued.set(entry.reason, entry);
+        }
+      }
+      if (!entries.includes(entry)) entries.push(entry);
+    }
+    return Cause.fromReasons(entries.map(entry => entry.reason));
+  };
   const latch = (cause: Cause.Cause<Failure>): void => {
     if (request.phase === "closed") return;
-    if (Option.isNone(request.failure)) request.failure = Option.some(cause);
+    const owned = ownCause(cause);
+    if (Option.isNone(request.failure) || request.failure.value.reasons.every(reason =>
+      owned.reasons.some(next => originOf(next) === originOf(reason)))) request.failure = Option.some(owned);
     if (request.phase === "open") request.phase = "rollbackOnly";
   };
-  const fail = (reason: RequestFailureReason): Result.Result<never, Failure> => {
-    const error = failure(reason);
-    latch(Cause.fail(error));
-    return Result.fail(error);
+  const refusal = (reason: RequestFailureReason) => {
+    const error = failure(reason), cause = ownCause(Cause.fail(error));
+    latch(cause);
+    return { error, cause };
   };
+  const chargeReceipts = new WeakMap<object, Cause.Cause<Failure>>();
+  const fail = (reason: RequestFailureReason): Result.Result<never, Failure> => {
+    const refused = refusal(reason), result = Result.fail(refused.error);
+    chargeReceipts.set(result, refused.cause);
+    return result;
+  };
+  const refuse = (reason: RequestFailureReason): Effect.Effect<never, Failure> => Effect.failCause(refusal(reason).cause);
   const charge = (bytes: number): Result.Result<void, Failure> => {
     if (request.phase === "rollbackOnly")
       return Result.fail(failure("rollbackOnly", Option.getOrUndefined(request.failure)));
@@ -121,11 +212,15 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
     request.bytes += bytes;
     return Result.succeed(undefined);
   };
+  const fromResult: BoundedRequestLifetime<Failure>["fromResult"] = result => {
+    const cause = chargeReceipts.get(result);
+    return cause === undefined ? Effect.fromResult(result) : Effect.failCause(cause);
+  };
   const check = Effect.fnUntraced(function* (supplied: BoundedRequestContext) {
     const state = contexts.get(supplied);
     if (state === undefined || !state.live || state.request !== request ||
       state.request.owner !== owner || state.request.requestIdentity !== requestIdentity) {
-      return yield* Effect.fromResult(fail("invalidAuthority"));
+      return yield* refuse("invalidAuthority");
     }
     if (request.phase !== "open") {
       // A framework refusal may re-enter before seal. Keep its rollback-only
@@ -134,13 +229,13 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
         ? failure("rollbackOnly", Option.getOrUndefined(request.failure))
         : failure("closed"));
     }
-    if ((yield* Clock.currentTimeMillis) >= request.expiresAt) return yield* Effect.fromResult(fail("deadlineExceeded"));
-    if (request.active !== supplied) return yield* Effect.fromResult(fail("overlappingOperation"));
+    if ((yield* Clock.currentTimeMillis) >= request.expiresAt) return yield* refuse("deadlineExceeded");
+    if (request.active !== supplied) return yield* refuse("overlappingOperation");
   }, work => observeExecution("BoundedRequest.checkContext", work));
   const resolveId = Effect.fnUntraced(function* (presented: PresentedTransactionId, missingAllowed: boolean) {
     if (presented === undefined || presented === null) {
       if (missingAllowed) return request.id;
-      return yield* Effect.fromResult(fail("invalidAuthority"));
+      return yield* refuse("invalidAuthority");
     }
     let value: string;
     if (presented instanceof Promise) {
@@ -155,7 +250,7 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
       value = yield* resolved;
     } else value = presented;
     if (typeof value !== "string" || value.length === 0 || value !== request.id) {
-      return yield* Effect.fromResult(fail("invalidAuthority"));
+      return yield* refuse("invalidAuthority");
     }
     return value;
   }, work => observeExecution("BoundedRequest.resolveId", work));
@@ -163,16 +258,19 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
     presented: PresentedTransactionId, missingAllowed: boolean) {
     yield* check(supplied);
     request.calls += 1;
-    if (request.calls > limits.calls) return yield* Effect.fromResult(fail("limitExceeded"));
+    if (request.calls > limits.calls) return yield* refuse("limitExceeded");
     yield* resolveId(presented, missingAllowed);
     // Pending IDs may settle after revocation, closure, timeout or child entry.
     yield* check(supplied);
   }, work => observeExecution("BoundedRequest.enter", work));
   const observe = <Value>(work: Effect.Effect<Value, Failure>) => Effect.suspend(() => {
     request.activeCalls += 1;
-    return work.pipe(Effect.onExit(exit => Exit.isFailure(exit)
-      ? Effect.sync(() => latch(exit.cause)) : Effect.void),
-      Effect.ensuring(Effect.sync(() => { request.activeCalls -= 1; })));
+    return Effect.uninterruptibleMask(restore => restore(work).pipe(Effect.catchCause(cause => {
+      const owned = ownCause(cause);
+      latch(owned);
+      return Effect.failCause(owned);
+    }),
+      Effect.ensuring(Effect.sync(() => { request.activeCalls -= 1; }))));
   });
   const begin = Effect.fnUntraced(function* (supplied: BoundedRequestContext, presented?: PresentedTransactionId) {
     return yield* (observe(enter(supplied, presented, true).pipe(Effect.as(request.id))));
@@ -181,8 +279,8 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
     function* <Value>(supplied: BoundedRequestContext, presented: PresentedTransactionId, operationMode: "read" | "write", work: Effect.Effect<Value, Failure>) {
     return yield* (observe(Effect.gen(function* () {
       yield* enter(supplied, presented, operationMode === "read" && readIdPolicy === "allowMissing");
-      if (contexts.get(supplied)?.mode === "read" && operationMode === "write") return yield* Effect.fromResult(fail("invalidAuthority"));
-      if (request.busy) return yield* Effect.fromResult(fail("overlappingOperation"));
+      if (contexts.get(supplied)?.mode === "read" && operationMode === "write") return yield* refuse("invalidAuthority");
+      if (request.busy) return yield* refuse("overlappingOperation");
       request.busy = true;
       return yield* work.pipe(Effect.ensuring(Effect.sync(() => { request.busy = false; })));
     })));
@@ -192,9 +290,9 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
     function* <Value>(supplied: BoundedRequestContext, presented: PresentedTransactionId, work: (child: BoundedRequestContext) => Effect.Effect<Value, Failure>, nestedMode?: "read" | "write") {
     return yield* (observe(Effect.gen(function* () {
       yield* enter(supplied, presented, false);
-      if (request.busy) return yield* Effect.fromResult(fail("overlappingOperation"));
+      if (request.busy) return yield* refuse("overlappingOperation");
       const parentMode = contexts.get(supplied)?.mode ?? request.mode;
-      if (parentMode === "read" && nestedMode === "write") return yield* Effect.fromResult(fail("invalidAuthority"));
+      if (parentMode === "read" && nestedMode === "write") return yield* refuse("invalidAuthority");
       // SAFETY: this child is registered only for this exact outer lifetime.
       const child = Object.freeze({}) as BoundedRequestContext;
       const childState: ContextState<Failure> = { request, live: true, mode: nestedMode ?? parentMode };
@@ -216,17 +314,17 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
       if (request.phase !== "open") return yield* Effect.fail(request.phase === "rollbackOnly"
         ? failure("rollbackOnly", Option.getOrUndefined(request.failure)) : failure("closed"));
       const remaining = request.expiresAt - (yield* Clock.currentTimeMillis);
-      if (remaining <= 0) return yield* Effect.fromResult(fail("deadlineExceeded"));
+      if (remaining <= 0) return yield* refuse("deadlineExceeded");
       // The deadline branch latches its failure before the race interrupts
       // native work. Nested observed operations must not latch that internal
       // interruption ahead of the owning deadline cause.
       return yield* Effect.raceFirst(work, Effect.sleep(remaining).pipe(
-        Effect.andThen(() => Effect.fromResult(fail("deadlineExceeded")))));
+        Effect.andThen(() => refuse("deadlineExceeded"))));
     })));
   },
     work => observeExecution("BoundedRequest.withinDeadline", work));
   const settleFromAdapter = Effect.fnUntraced(function* (supplied: BoundedRequestContext, presented: PresentedTransactionId, reason: "borrowedSettlement" | "rollbackOnly") {
-    return yield* (observe(enter(supplied, presented, false).pipe(Effect.andThen(() => Effect.fromResult(fail(reason))))));
+    return yield* (observe(enter(supplied, presented, false).pipe(Effect.andThen(() => refuse(reason)))));
   }, work => observeExecution("BoundedRequest.adapterSettlement", work));
   const seal = Effect.gen(function* () {
     if (request.phase === "closed" || request.phase === "closing") return yield* Effect.fail(failure("closed"));
@@ -241,8 +339,21 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
     request.phase = "closed";
     contexts.delete(context);
   });
-  const lifetime = Object.freeze({ context, mode, begin, operation, nested, withinDeadline,
-    checkpoint: (supplied: BoundedRequestContext) => observe(check(supplied)), charge, seal, close,
+  const recordFailure: BoundedRequestLifetime<Failure>["recordFailure"] = (supplied, cause) => {
+    const state = contexts.get(supplied);
+    if (state === undefined || !state.live || state.request !== request ||
+      state.request.owner !== owner || state.request.requestIdentity !== requestIdentity)
+      return Result.fail(failure("invalidAuthority"));
+    if (request.phase === "closed" || request.phase === "closing") return Result.fail(failure("closed"));
+    // Failure observation grants no SQL or settlement authority. A live
+    // parent can poison its own root while a child runs. Only authenticated
+    // originating Reason tokens admit enrichment of the same failure chain.
+    const owned = ownCause(cause);
+    latch(owned);
+    return Result.succeed(owned);
+  };
+  const lifetime = Object.freeze({ context, mode, begin, operation, nested, withinDeadline, recordFailure,
+    checkpoint: (supplied: BoundedRequestContext) => observe(check(supplied)), charge, fromResult, seal, close,
     remainingBytes: () => limits.commandBytes - request.bytes,
     usedCalls: () => request.calls,
     isClosing: () => request.phase === "closing" && !request.busy && request.children === 0 && request.activeCalls === 0 && Option.isNone(request.failure),

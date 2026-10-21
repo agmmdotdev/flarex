@@ -1,3 +1,4 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { createHook, createStep, createWorkflow, isPreparedWorkflow, StepResponse, transform, when, WorkflowResponse } from "@medusajs/workflows-sdk";
@@ -30,7 +31,7 @@ const members = workflowResourceSelections(resources);
 if (members === undefined) throw new Error("Missing unit resource selection");
 const decodeJson = commerceDecoder(Schema.Json, "invalidInput");
 // A resource-dispatch unit port, not a persistence or transaction simulation.
-const context = (): AtomicCommerceContext => ({ eventGroupId: "unit", checkpoint: Effect.void,
+const context = (): AtomicCommerceContext => ({ eventGroupId: "unit", checkpoint: Effect.void, recordFailure: promiseFailureObserver(),
   capture: (input, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decodeJson)(input))),
   call: (_participant, _command, args) => Effect.succeed(args),
   emit: () => Effect.fail(commerceError("unadmittedEvent")), clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")), refuse: error => Effect.fail(error),
@@ -614,12 +615,13 @@ describe("workflow registration and scoped resource composition", () => {
 
   it("refuses the root on a decoder defect while preserving the defect channel", async () => {
     const ctx = context();
-    const refuse = vi.fn(ctx.refuse);
+    const refuse = vi.fn(ctx.refuse), recordFailure = vi.fn(ctx.recordFailure);
     const defect = new Error("trusted decoder defect");
-    const exit = await Effect.runPromise(Effect.exit(checkedCommerceValue({ ...ctx, refuse }, () => { throw defect; })));
+    const exit = await Effect.runPromise(Effect.exit(checkedCommerceValue({ ...ctx, refuse, recordFailure }, () => { throw defect; })));
     if (Exit.isSuccess(exit)) throw new Error("Expected decoder failure");
     expect(Result.getOrThrow(Cause.findDefect(exit.cause))).toBe(defect);
-    expect(refuse).toHaveBeenCalledWith(expect.objectContaining({ reason: "adapterFailure", cause: defect }));
+    expect(recordFailure).toHaveBeenCalledExactlyOnceWith(exit.cause);
+    expect(refuse).not.toHaveBeenCalled();
   });
 
   it("refuses a callback bound to another selection before invoking its body", async () => {

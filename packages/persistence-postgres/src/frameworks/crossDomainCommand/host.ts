@@ -223,13 +223,13 @@ const composeLogicalCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.c
                   const lifetime = yield* makeBoundedRequestLifetime<CompositeFailure, object, object>(compositeError, cmsLimits, owner,
                     Object.freeze({}), transactionId, "write");
                   return yield* Effect.gen(function* () {
-                    yield* Effect.fromResult(lifetime.charge(request.captured.bytes + evidence.canonicalBytes.byteLength));
+                    yield* lifetime.fromResult(lifetime.charge(request.captured.bytes + evidence.canonicalBytes.byteLength));
                     const participants = yield* makeCurrencyAnnouncementParticipants({ tx,
                       authority: located.authority, application: applicationAdmission, payload: payloadAdmission,
                       currency: currencyAdmission, lifetime, transactionId, applicationTable,
                       currencyCommand, cmsCommand, materialization }, testHooks);
                     const result = yield* participants.execute(request.argumentsValue);
-                    yield* Effect.fromResult(lifetime.charge(result.canonicalBytes.byteLength));
+                    yield* lifetime.fromResult(lifetime.charge(result.canonicalBytes.byteLength));
                     const resultSha256 = yield* hashCurrencyAnnouncement(result.canonicalBytes);
                     yield* lifetime.seal;
                     const closed = yield* participants.close();

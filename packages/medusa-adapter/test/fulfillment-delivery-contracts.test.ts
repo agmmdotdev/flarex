@@ -1,3 +1,4 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { defineAtomicCommerceParticipant, type AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -58,7 +59,7 @@ describe("selected native Fulfillment Delivery translation", () => {
     expect(Object.keys(mixed.workflow.methods)).toEqual(expect.arrayContaining(["createFulfillment", "cancelFulfillment"]));
     expect(mixed.workflow.methods).not.toHaveProperty("listFulfillments");
     let calls = 0;
-    const context: AtomicCommerceContext = { eventGroupId: "delivery145-mixed-refusal", checkpoint: Effect.void, refuse: Effect.fail,
+    const context: AtomicCommerceContext = { eventGroupId: "delivery145-mixed-refusal", checkpoint: Effect.void, recordFailure: promiseFailureObserver(), refuse: Effect.fail,
       capture: () => Effect.fail(commerceError("unsupportedProfile")), emit: () => Effect.fail(commerceError("unadmittedEvent")),
       clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
       call: () => { calls++; return Effect.die(new Error("Mixed Delivery must not dispatch")); } };

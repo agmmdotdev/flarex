@@ -287,7 +287,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
           }
           const lifetime = yield* makeCmsRequestLifetime(owner, requestIdentity, transactionId, key === null ? "read" : root.mode, requestBudget);
           return yield* Effect.gen(function* () {
-            yield* Effect.fromResult(lifetime.charge(captured.bytes + (evidence?.canonicalBytes.byteLength ?? 0)));
+            yield* lifetime.fromResult(lifetime.charge(captured.bytes + (evidence?.canonicalBytes.byteLength ?? 0)));
             const creationTime = AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis);
             const bundle = member.kind === "source" ? yield* Effect.gen(function* () {
               if (payload.kind !== "source") return yield* Effect.fail(cmsError("invalidAuthority"));
@@ -328,18 +328,18 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
               const definition = getCmsCommand(child);
               if (definition === undefined || !allowed.has(child) || (key === null && definition.mode !== "read")) return yield* Effect.fail(cmsError("invalidAuthority"));
               const childInput = yield* Effect.fromResult(capturePrivateJsonData(childArgs, lifetime.remainingBytes(), cmsError));
-              yield* Effect.fromResult(lifetime.charge(childInput.bytes));
+              yield* lifetime.fromResult(lifetime.charge(childInput.bytes));
               const commandContext = makeCmsCommandContext(lifetime, transactionId, context,
                 { documents: bundle.documents, relations: bundle.incoming, preferences: bundle.preferences },
                 key === null && context === lifetime.context, invoke);
               const value = yield* Effect.suspend(() => definition.run(commandContext, childInput.value));
               const output = yield* Effect.fromResult(capturePrivateJsonData(value, lifetime.remainingBytes(), cmsError));
-              yield* Effect.fromResult(lifetime.charge(output.bytes));
+              yield* lifetime.fromResult(lifetime.charge(output.bytes));
               return output.value;
             }, work => observeExecution("CmsHost.invoke", work, "caller"));
             const value = yield* invoke(lifetime.context, token, captured.value);
             const result = yield* canonicalizeSuccessfulResultV1Effect(value);
-            yield* Effect.fromResult(lifetime.charge(result.canonicalBytes.byteLength));
+            yield* lifetime.fromResult(lifetime.charge(result.canonicalBytes.byteLength));
             const digest = member.kind === "source" && lookup === null ? undefined : yield* sha256(result.canonicalBytes);
             yield* lifetime.seal;
             if (lookup !== null && digest !== undefined) {

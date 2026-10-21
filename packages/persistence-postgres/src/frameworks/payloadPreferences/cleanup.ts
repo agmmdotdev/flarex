@@ -145,7 +145,7 @@ export function makePayloadPreferenceCleanupRecorder(lifetime: CmsRequestLifetim
                 cmsError,
               ),
             );
-            yield* Effect.fromResult(lifetime.charge(captured.bytes));
+            yield* lifetime.fromResult(lifetime.charge(captured.bytes));
             const value = yield* decodeSelector(captured.value).pipe(
               Effect.mapError((cause) => cmsError("invalidInput", cause)),
             );
@@ -167,7 +167,7 @@ export function makePayloadPreferenceCleanupRecorder(lifetime: CmsRequestLifetim
             ) {
               return yield* Effect.fail(cmsError("invalidAuthority"));
             }
-            yield* Effect.fromResult(lifetime.charge(128));
+            yield* lifetime.fromResult(lifetime.charge(128));
             intents.push(
               Object.freeze({
                 documentId: pending.documentId,
@@ -214,7 +214,7 @@ export const applyPayloadPreferenceCleanup = Effect.fn(
   closures.delete(closure);
   return yield* applyPayloadPreferenceDeletionIntents({
     tx: state.tx, authority: state.authority, availability: state.preferenceAvailability,
-    intents: captured.intents, lifetime,
+    intents: captured.intents, charge: bytes => lifetime.fromResult(lifetime.charge(bytes)),
     requireDeletion: id => requireCmsClosedPendingDeletion(pendingDeletions, admission, lifetime, id),
   });
 });
@@ -224,12 +224,12 @@ export const applyPayloadPreferenceCleanup = Effect.fn(
 export const applyPayloadPreferenceDeletionIntents = Effect.fn("PayloadPreferences.applyDeletionIntents")(function* (
   input: Readonly<{ tx: FlarexMetadataTransaction; authority: TrustedScopeAuthority;
     availability: InstallationRuntimeData | null; intents: readonly PayloadPreferenceDeletionIntent[];
-    lifetime: Pick<CmsRequestLifetime, "charge">;
+    charge: (bytes: number) => Effect.Effect<void, CmsTransactionError>;
     requireDeletion: (id: AppDocumentIdV1) => Effect.Effect<Readonly<{ documentId: AppDocumentIdV1; collectionSlug: string }>, CmsTransactionError>;
   }>,
 ) {
   const evidence: PayloadPreferenceDeletionEvidence[] = [];
-  const { tx, authority, lifetime } = input;
+  const { tx, authority, charge } = input;
   if (input.intents.length === 0) return Object.freeze(evidence);
   const availability = input.availability;
   if (availability === null)
@@ -279,12 +279,10 @@ export const applyPayloadPreferenceDeletionIntents = Effect.fn("PayloadPreferenc
     ).pipe(Effect.flatMap(readIds));
     if (selected.length > budget)
       return yield* Effect.fail(cmsError("limitExceeded"));
-    yield* Effect.fromResult(
-      lifetime.charge(
-        selected.reduce(
-          (bytes, preferenceId) => bytes + preferenceId.length * 4 + 64,
-          0,
-        ),
+    yield* charge(
+      selected.reduce(
+        (bytes, preferenceId) => bytes + preferenceId.length * 4 + 64,
+        0,
       ),
     );
     if (selected.length > 0) {

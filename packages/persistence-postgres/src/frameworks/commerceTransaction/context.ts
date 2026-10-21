@@ -38,13 +38,17 @@ export function makeCommerceCommandContext(
     captureLocalEvent: event => captureEvent(manager, event),
     nested: (child, args) => lifetime.nested(manager, id, context => invoke(context, child, args), getCommerceCommand(child)?.mode),
     rejectEvent: lifetime.operation(manager, id, "write", Effect.fail(commerceError("unadmittedEvent"))),
+    recordFailure: cause => lifetime.recordFailure(manager, cause),
     refuse: error => lifetime.operation(manager, id, "read", Effect.fail(error)),
     ...(operations === undefined ? {} : { enqueue: <Value>(
       prepare: () => Result.Result<Json, CommerceTransactionError>,
       work: (captured: Json) => Effect.Effect<Value, CommerceTransactionError>,
-    ) => operations.submit(() => prepare().pipe(Result.flatMap(input =>
-      captureCommerceJsonData(input, lifetime.remainingBytes())), Result.flatMap(captured =>
-      lifetime.charge(captured.bytes).pipe(Result.map(() => captured.value)))), work) }),
+    ) => operations.submit(() => Result.gen(function* () {
+      const input = yield* prepare();
+      const captured = yield* captureCommerceJsonData(input, lifetime.remainingBytes());
+      yield* lifetime.charge(captured.bytes);
+      return captured.value;
+    }), work) }),
     borrow: work => lifetime.nested(manager, id, child => callLimit === undefined
       ? work(makeCommerceCommandContext(lifetime, working, id, child, invoke, captureEvent))
       : withCommerceCommandContext(lifetime, working, id, child, invoke, captureEvent, callLimit, work)),

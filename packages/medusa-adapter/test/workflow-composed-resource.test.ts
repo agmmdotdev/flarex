@@ -1,5 +1,6 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { describe, expect, it, vi } from "vitest";
-import { Effect, Option, Result, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, commerceLimits } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineGraphReadCommand } from "../src/local-graph/commands";
@@ -45,18 +46,19 @@ describe("finite composed resources over authentic source methods", () => {
     }, false, { local: resource }));
     const decodeJson = commerceDecoder(Schema.Json, "invalidInput");
     const call = vi.fn<AtomicCommerceContext["call"]>((_participant, _command, input) => Effect.succeed(input));
-    const ctx: AtomicCommerceContext = { eventGroupId: "neutral-empty", checkpoint: Effect.void,
+    const recordFailure = promiseFailureObserver();
+    const ctx: AtomicCommerceContext = { recordFailure, eventGroupId: "neutral-empty", checkpoint: Effect.void,
       capture: (input, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decodeJson)(input))),
       call, refuse: error => Effect.fail(error), emit: () => Effect.fail(commerceError("unadmittedEvent")), clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     };
-    const owner = await Effect.runPromise(makeCommercePromiseOwner());
+    const owner = await Effect.runPromise(makeCommercePromiseOwner(recordFailure));
     try {
       const selections = workflowResourceSelections(resources); if (!selections) throw new Error("Missing selection");
       const local = bindWorkflowResources(resources, selections, undefined, [], ctx, owner)
         .resolve<{ read(value: number): Promise<unknown> }>("local");
       expect(await local.read(7)).toBe(mode === "local-result" ? 7 : 0);
-      expect(owner.refusal()).toMatchObject(mode === "local-result" ? { _tag: "None" }
-        : { _tag: "Some", value: { reason: "invalidAuthority" } });
+      if (mode === "local-result") expect(recordFailure).not.toHaveBeenCalled();
+      else expect(recordFailure).toHaveBeenCalledWith(expect.objectContaining({ reasons: expect.arrayContaining([expect.objectContaining({ _tag: "Fail", error: expect.objectContaining({ reason: "invalidAuthority" }) })]) }));
       expect(call).not.toHaveBeenCalled();
       await Effect.runPromise(owner.close);
       await expect(local.read(8)).rejects.toMatchObject({ reason: "closed" });
@@ -78,12 +80,13 @@ describe("finite composed resources over authentic source methods", () => {
     const calls: Array<{ participant: unknown; command: unknown; input: unknown }> = [];
     const decodeJson = commerceDecoder(Schema.Json, "invalidInput");
     const refuse = vi.fn<AtomicCommerceContext["refuse"]>(error => Effect.fail(error));
-    const ctx: AtomicCommerceContext = { eventGroupId: "neutral-pair", checkpoint: Effect.void,
+    const recordFailure = promiseFailureObserver();
+    const ctx: AtomicCommerceContext = { recordFailure, eventGroupId: "neutral-pair", checkpoint: Effect.void,
       capture: (input, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decodeJson)(input))),
       call: (participant, command, input) => Effect.sync(() => { calls.push({ participant, command, input }); return input; }),
       emit: () => Effect.fail(commerceError("unadmittedEvent")), clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")), refuse,
     };
-    const owner = await Effect.runPromise(makeCommercePromiseOwner());
+    const owner = await Effect.runPromise(makeCommercePromiseOwner(recordFailure));
     try {
       const selected = workflowResourceSelections(resources);
       if (!selected) throw new Error("Missing resource selection");
@@ -96,7 +99,7 @@ describe("finite composed resources over authentic source methods", () => {
       expect(refuse).toHaveBeenCalled();
       expect(calls).toHaveLength(2);
       expect(() => container.resolve("first")).toThrow();
-      expect(Option.isSome(owner.refusal())).toBe(true);
+      expect(recordFailure).toHaveBeenCalledWith(expect.objectContaining({ reasons: expect.arrayContaining([expect.objectContaining({ _tag: "Fail", error: expect.objectContaining({ reason: "unsupportedProfile" }) })]) }));
       await Effect.runPromise(owner.close);
       await expect(pair.sum(1)).rejects.toMatchObject({ reason: "closed" });
       expect(calls).toHaveLength(2);
@@ -149,11 +152,12 @@ describe("finite composed resources over authentic source methods", () => {
     const decodeJson = commerceDecoder(Schema.Json, "invalidInput");
     const call = vi.fn<AtomicCommerceContext["call"]>((_participant, _command, input) => Effect.succeed(input));
     const refuse = vi.fn<AtomicCommerceContext["refuse"]>(error => Effect.fail(error));
-    const ctx: AtomicCommerceContext = { eventGroupId: mode, checkpoint: Effect.void,
+    const recordFailure = promiseFailureObserver();
+    const ctx: AtomicCommerceContext = { recordFailure, eventGroupId: mode, checkpoint: Effect.void,
       capture: (input, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decodeJson)(input))),
       call, refuse, emit: () => Effect.fail(commerceError("unadmittedEvent")), clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     };
-    const owner = await Effect.runPromise(makeCommercePromiseOwner());
+    const owner = await Effect.runPromise(makeCommercePromiseOwner(recordFailure));
     try {
       const selected = workflowResourceSelections(resources); if (!selected) throw new Error("Missing resource selection");
       const pair = bindWorkflowResources(resources, selected, undefined, [], ctx, owner).resolve<{ read(value: number): Promise<unknown> }>("pair");
@@ -162,7 +166,7 @@ describe("finite composed resources over authentic source methods", () => {
         expect(refuse).toHaveBeenCalledWith(expect.objectContaining({ reason: "storedCorruption" }));
       } else {
         expect(await pair.read(1)).toBe(0);
-        expect(owner.refusal()).toMatchObject({ _tag: "Some", value: { reason: "invalidAuthority" } });
+        expect(recordFailure).toHaveBeenCalledWith(expect.objectContaining({ reasons: expect.arrayContaining([expect.objectContaining({ _tag: "Fail", error: expect.objectContaining({ reason: "invalidAuthority" }) })]) }));
       }
       expect(call).not.toHaveBeenCalled();
     } finally { await Effect.runPromise(owner.close); }

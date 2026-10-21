@@ -101,7 +101,7 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
           yield* lifetime.checkpoint(manager);
           yield* localRootGate;
           const captured = yield* Effect.fromResult(captureCommerceJsonData(decoded, lifetime.remainingBytes()));
-          yield* Effect.fromResult(lifetime.charge(captured.bytes));
+          yield* lifetime.fromResult(lifetime.charge(captured.bytes));
           events.push(captured.value);
         }));
       const context = makeCommerceCommandContext(lifetime, {

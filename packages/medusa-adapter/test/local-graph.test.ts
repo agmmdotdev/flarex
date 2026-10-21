@@ -1,3 +1,4 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { defineAtomicCommerceParticipant, defineCommerceCommand, type AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -14,7 +15,7 @@ const participant = defineAtomicCommerceParticipant("graph-unit");
 const query = (entity: string, fields: string[] = ["id"]) => ({ entity, fields, pagination: { take: 2 } });
 const context = (result: Json = [[], 0], calls: Json[] = []): AtomicCommerceContext => ({
   eventGroupId: "unit-graph",
-  checkpoint: Effect.void,
+  checkpoint: Effect.void, recordFailure: promiseFailureObserver(),
   capture: () => Effect.fail(commerceError("unsupportedProfile")),
   emit: () => Effect.fail(commerceError("unadmittedEvent")),
   clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),

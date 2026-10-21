@@ -1,6 +1,6 @@
-import { Effect, Option } from "effect";
+import { Effect } from "effect";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { useCapturedPrivateJsonData, commerceError, CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { useCapturedPrivateJsonData, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeCommercePromiseOwner, type CommercePromiseOwner } from "./promise-owner";
 
 /** One command owns all foreign framework continuations and DAL runners. */
@@ -8,18 +8,10 @@ export const withCommerceService = Effect.fn("MedusaAdapter.withService")(functi
   ctx: CommerceCommandContext, compose: (owner: CommercePromiseOwner) => Service,
   work: (service: Service) => Promise<unknown>,
 ) {
-  const owner = yield* makeCommercePromiseOwner();
-  return yield* Effect.gen(function* () {
-    const value = yield* Effect.tryPromise({
-      try: signal => owner.callback(() => work(compose(owner)), signal),
-      catch: cause => cause instanceof CommerceTransactionError ? cause : commerceError("adapterFailure", cause),
-    });
-    const refusal = owner.refusal();
-    if (Option.isSome(refusal)) return yield* ctx.refuse(refusal.value);
+  const owner = yield* makeCommercePromiseOwner(ctx.recordFailure);
+  return yield* owner.withClose(Effect.gen(function* () {
+    const value = yield* owner.invoke(() => work(compose(owner)));
     if (owner.hasPending()) return yield* ctx.refuse(commerceError("overlappingOperation"));
     return (yield* Effect.fromResult(useCapturedPrivateJsonData(value, ctx.resources.commandBytes, commerceError))).value;
-  }).pipe(
-    Effect.tapCause(cause => Effect.exit(ctx.refuse(commerceError("adapterFailure", cause))).pipe(Effect.asVoid)),
-    Effect.ensuring(owner.close),
-  );
+  }));
 });

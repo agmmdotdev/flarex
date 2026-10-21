@@ -1,5 +1,5 @@
 import type { CommerceResources } from "./resources";
-import type { Effect, Result } from "effect";
+import type { Cause, Effect, Result } from "effect";
 import type { Json } from "flarex-protocol/json";
 import type { CommerceStore } from "./storeModel";
 import type { BoundedRequestContext } from "../../execution/preparation/boundedRequestLifetime";
@@ -49,6 +49,8 @@ export interface CommerceCommandContext {
   readonly captureLocalEvent: (event: unknown) => Effect.Effect<void, CommerceTransactionError>;
   readonly nested: (command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
   readonly rejectEvent: Effect.Effect<never, CommerceTransactionError>;
+  /** Trusted failure observation only; authenticates this existing live context. */
+  readonly recordFailure: (cause: Cause.Cause<CommerceTransactionError>) => Result.Result<Cause.Cause<CommerceTransactionError>, CommerceTransactionError>;
   readonly refuse: (error: CommerceTransactionError) => Effect.Effect<never, CommerceTransactionError>;
   /** Trusted queued profile only. Capture and charge owned JSON before waiting;
    * the callback receives that snapshot and no settlement capability. */

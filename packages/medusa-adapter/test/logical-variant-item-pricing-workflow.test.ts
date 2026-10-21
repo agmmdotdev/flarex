@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Effect, Result, Schema } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { PricingModuleService } from "@medusajs/pricing/services";
 import { ProductModuleService } from "@medusajs/product/services";
 import { InventoryModuleService } from "@medusajs/inventory/services";
@@ -436,8 +436,18 @@ describe("native Variant and item pricing on the complete default graph", () => 
   it("preserves native empty-PriceSet and unmatched-currency dereference failures", async () => {
     const empty = await connected.seed("pricing159-empty-set", { prices: [] }), host = await prepare();
     for (const value of [input(empty), { ...input(baseline), cart: { ...input(baseline).cart, currency_code: "eur" } }]) {
-      const failure = await refused(host.run(host.newRequestKey(), value), "reading 'calculated_amount'");
-      expect(failureMessages(failure)).toContain("TypeError");
+      const before = await snapshot();
+      const failure = await Effect.runPromiseExit(host.run(host.newRequestKey(), value));
+      if (Exit.isSuccess(failure)) throw new Error("The genuine native missing-price dereference must fail");
+      const nativeDefects = failure.cause.reasons.filter(Cause.isDieReason);
+      expect(nativeDefects).toHaveLength(1);
+      const native = nativeDefects[0];
+      if (native === undefined) throw new Error("Missing genuine native pricing defect");
+      expect(native.defect).toBeInstanceOf(TypeError);
+      expect(native.defect).toMatchObject({ message: expect.stringContaining("reading 'calculated_amount'") });
+      expect(failure.cause.reasons.some(reason => Cause.isFailReason(reason) &&
+        reason.error.reason === "adapterFailure" && reason.error.cause === native.defect)).toBe(false);
+      expect(await snapshot()).toEqual(before);
     }
   }, 180_000);
 
@@ -466,17 +476,24 @@ describe("native Variant and item pricing on the complete default graph", () => 
 
   it("keeps a caught read-profile write refusal sticky and revokes its borrowed callback", async () => {
     const original = PricingModuleService.prototype.calculatePrices;
-    let caught = false, escaped: (() => Promise<unknown>) | undefined;
+    let caught: unknown, escaped: (() => Promise<unknown>) | undefined;
     vi.spyOn(PricingModuleService.prototype, "calculatePrices").mockImplementation(async function (this: PricingModuleService, ...args) {
       const result = await Reflect.apply(original, this, args);
       escaped = () => Reflect.apply(original, this, args);
       try { await this.createPriceSets([{ prices: [{ currency_code: "usd", amount: 999 }] }], args[2]); }
-      catch { caught = true; }
+      catch (error) { caught = error; }
       return result;
     });
     const host = await prepare();
-    await refused(host.run(host.newRequestKey(), input(baseline)), "rollbackOnly");
-    expect(caught).toBe(true);
+    const initial = await snapshot();
+    const outcome = await Effect.runPromiseExit(host.run(host.newRequestKey(), input(baseline)));
+    if (Exit.isSuccess(outcome)) throw new Error("Caught native write refusal must remain sticky");
+    expect(outcome.cause.reasons.map(reason => reason._tag)).toEqual(["Fail", "Fail"]);
+    const failures = outcome.cause.reasons.filter(Cause.isFailReason);
+    expect(failures.map(reason => reason.error.reason)).toEqual(["unsupportedProfile", "rollbackOnly"]);
+    expect(failures[0]?.error).toBe(caught);
+    expect(caught).toMatchObject({ reason: "unsupportedProfile" });
+    expect(await snapshot()).toEqual(initial);
     if (escaped === undefined) throw new Error("Missing genuine borrowed Pricing callback after refusal");
     const before = await snapshot(); await expect(escaped()).rejects.toMatchObject({ reason: "closed" });
     expect(await snapshot()).toEqual(before);

@@ -303,7 +303,7 @@ export function makeAtomicEventCapture(
       Math.min(commitEventLimits.bytes, lifetime.remainingBytes() + prechargedBytes), commerceError));
     // Queued admission already owns and charges the raw message. A decoder may
     // shrink it; retain that admission charge and add only envelope growth.
-    yield* Effect.fromResult(lifetime.charge(Math.max(0, captured.bytes - prechargedBytes)));
+    yield* lifetime.fromResult(lifetime.charge(Math.max(0, captured.bytes - prechargedBytes)));
     // The decoder establishes the shape; the captured value owns immutable data.
     const owned = captured.value;
     if (!isEnvelope(owned)) return yield* Effect.fail(commerceError("unadmittedEvent"));
@@ -388,7 +388,7 @@ export const appendDerivedCommerceIdEvents = Effect.fnUntraced(function* (
       subscribers: derived.subscribers } satisfies CommittedEvent;
     const captured = yield* Effect.fromResult(capturePrivateJsonData(envelope,
       Math.min(commitEventLimits.bytes, lifetime.remainingBytes()), commerceError));
-    yield* Effect.fromResult(lifetime.charge(captured.bytes));
+    yield* lifetime.fromResult(lifetime.charge(captured.bytes));
     if (!isEnvelope(captured.value)) return yield* Effect.fail(commerceError("unadmittedEvent"));
     const nextBytes = state.capturedBytes + captured.bytes + (state.capturedCount === 0 ? 0 : 1);
     if (nextBytes > commitEventLimits.totalBytes) return yield* Effect.fail(commerceError("limitExceeded"));

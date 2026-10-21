@@ -1,3 +1,4 @@
+import { expectNativePromiseDefect, promiseFailureObserver } from "./support/promise-failure-observer";
 import { describe, expect, it, vi } from "vitest";
 import { Deferred, Effect, Result, Schema } from "effect";
 import type { PreparedWorkflow, WorkflowContainer } from "@medusajs/workflows-sdk";
@@ -23,7 +24,7 @@ function nativePort(services: Readonly<Record<string, object>>) {
     return resolve(name) as Service;
   } };
   const decode = commerceDecoder(Schema.Json, "invalidInput");
-  const context: AtomicCommerceContext = { eventGroupId: "native-category-composition", checkpoint: Effect.void,
+  const context: AtomicCommerceContext = { eventGroupId: "native-category-composition", checkpoint: Effect.void, recordFailure: promiseFailureObserver(),
     clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     capture: (value, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decode)(value))),
     call: () => Effect.fail(commerceError("unsupportedProfile")), emit: () => Effect.fail(commerceError("unadmittedEvent")),
@@ -171,8 +172,7 @@ describe("genuine native Product Category composition", () => {
     const prepared = Result.getOrThrow(createProductCategoriesWorkflow.prepare({ categoriesCreated: () => {
       expect(trace).toEqual(["events"]); throw failure;
     } }));
-    await expect(Effect.runPromise(native.run(prepared, { product_categories: [{ name: "Category" }] })))
-      .rejects.toMatchObject({ reason: "adapterFailure", cause: failure });
+    await expectNativePromiseDefect(native.run(prepared, { product_categories: [{ name: "Category" }] }), failure);
     expect(inverse).not.toHaveBeenCalled();
     trace.length = 0; emit.mockClear();
     const updateInverse = vi.fn(async () => undefined);
@@ -181,8 +181,7 @@ describe("genuine native Product Category composition", () => {
     const changed = Result.getOrThrow(updateProductCategoriesWorkflow.prepare({ categoriesUpdated: () => {
       expect(trace).toEqual(["events"]); throw failure;
     } }));
-    await expect(Effect.runPromise(update.run(changed, { selector: { id: "category" }, update: {} })))
-      .rejects.toMatchObject({ reason: "adapterFailure", cause: failure });
+    await expectNativePromiseDefect(update.run(changed, { selector: { id: "category" }, update: {} }), failure);
     expect(updateInverse).not.toHaveBeenCalled();
     trace.length = 0; emit.mockClear();
     const remove = vi.fn(async (_selector: unknown) => { trace.push("link"); return [null, {}]; });
@@ -190,7 +189,6 @@ describe("genuine native Product Category composition", () => {
     const deleted = Result.getOrThrow(deleteProductCategoriesWorkflow.prepare({ categoriesDeleted: () => {
       expect(new Set(trace)).toEqual(new Set(["link", "events"])); throw failure;
     } }));
-    await expect(Effect.runPromise(deletion.run(deleted, ["category"])))
-      .rejects.toMatchObject({ reason: "adapterFailure", cause: failure });
+    await expectNativePromiseDefect(deletion.run(deleted, ["category"]), failure);
   });
 });

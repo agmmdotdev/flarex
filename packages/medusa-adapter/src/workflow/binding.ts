@@ -80,10 +80,7 @@ export function bindWorkflowResources(selection: PreparedWorkflowResources, memb
       methods.push([name, (...args) => owner.run(Effect.gen(function* () {
         if (definition.scopeExclusive) yield* requireAtomicCommerceScopeExclusion(ctx);
         const input = yield* checkedCommerceValue(ctx, () => contract.arguments(args));
-        const value: unknown = yield* Effect.tryPromise({
-          try: signal => owner.callback(() => Promise.resolve(handler(...input)), signal),
-          catch: cause => cause instanceof CommerceTransactionError ? cause : commerceError("adapterFailure", cause),
-        }).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+        const value: unknown = yield* owner.invoke(() => Promise.resolve(handler(...input)));
         return yield* checkedCommerceValue(ctx, () => captureCommerceInput(value).pipe(Result.flatMap(contract.output)));
       }))]);
     }

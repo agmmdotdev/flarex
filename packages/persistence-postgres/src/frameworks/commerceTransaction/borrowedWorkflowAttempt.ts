@@ -178,7 +178,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
                     !hasLogicalParticipantAttemptAdmission(admission, input.attempt, selected.name))
                     return yield* Effect.fail(commerceError("invalidAuthority"));
                   const captured = yield* Effect.fromResult(captureCommerceJsonData(value, lifetime.remainingBytes()));
-                  yield* Effect.fromResult(lifetime.charge(captured.bytes));
+                  yield* lifetime.fromResult(lifetime.charge(captured.bytes));
                   const store = yield* working.relationalTable(manager, id, first.localName);
                   const context = makeCommerceCommandContext(lifetime, {
                     store, resources,
@@ -221,7 +221,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
                   yield* lifetime.checkpoint(manager);
                   yield* localRootGate;
                   const output = yield* Effect.fromResult(captureCommerceJsonData(result, lifetime.remainingBytes()));
-                  yield* Effect.fromResult(lifetime.charge(output.bytes));
+                  yield* lifetime.fromResult(lifetime.charge(output.bytes));
                   return Object.freeze({ input: captured.value, result: output.value });
                 });
               const observed = yield* invoke(child, command, args);
@@ -243,7 +243,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
               yield* localRootGate;
               const normalized = normalize === undefined ? value : yield* Effect.fromResult(normalize(value));
               const captured = yield* Effect.fromResult(captureCommerceJsonData(normalized, lifetime.remainingBytes()));
-              yield* Effect.fromResult(lifetime.charge(captured.bytes));
+              yield* lifetime.fromResult(lifetime.charge(captured.bytes));
               return captured.value;
             })),
             call,
@@ -252,6 +252,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
                 Effect.tap(() => Effect.sync(() => { eventSources.push(null); })), Effect.asVoid)),
             clearPendingEvents: contract => lifetime.operation(lifetime.context, id, "write",
               localRootGate.pipe(Effect.andThen(eventCapture.clearPending(contract)))),
+            recordFailure: cause => lifetime.recordFailure(lifetime.context, cause),
             refuse: (error: CommerceTransactionError) => lifetime.operation(lifetime.context, id, "write", Effect.fail(error)),
           });
           let consumed = false;

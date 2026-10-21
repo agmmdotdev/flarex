@@ -1,3 +1,4 @@
+import { expectNativePromiseDefect, promiseFailureObserver } from "./support/promise-failure-observer";
 import { describe, expect, it, vi } from "vitest";
 import { Deferred, Effect, Result, Schema } from "effect";
 import type { PreparedWorkflow, WorkflowContainer } from "@medusajs/workflows-sdk";
@@ -23,7 +24,7 @@ function nativePort(services: Readonly<Record<string, object>>) {
     return resolve(name) as Service;
   } };
   const decode = commerceDecoder(Schema.Json, "invalidInput");
-  const context: AtomicCommerceContext = { eventGroupId: "native-option-composition", checkpoint: Effect.void,
+  const context: AtomicCommerceContext = { eventGroupId: "native-option-composition", checkpoint: Effect.void, recordFailure: promiseFailureObserver(),
     clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     capture: (value, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decode)(value))),
     call: () => Effect.fail(commerceError("unsupportedProfile")), emit: () => Effect.fail(commerceError("unadmittedEvent")),
@@ -146,16 +147,16 @@ describe("genuine native Product Option composition", () => {
     const failure = new Error("Option hook failed"), emit = vi.fn(async (_messages: unknown) => undefined);
     const inverse = vi.fn(async () => undefined), create = nativePort({ product: { createProductOptions: async () => rows, deleteProductOptions: inverse }, event_bus: { emit } });
     const created = Result.getOrThrow(createProductOptionsWorkflow.prepare({ productOptionsCreated: () => { throw failure; } }));
-    await expect(Effect.runPromise(create.run(created, { product_options: [] }))).rejects.toMatchObject({ reason: "adapterFailure", cause: failure });
+    await expectNativePromiseDefect(create.run(created, { product_options: [] }), failure);
     expect(emit).not.toHaveBeenCalled(); expect(inverse).not.toHaveBeenCalled();
     const update = nativePort({ product: { listProductOptions: async () => [], updateProductOptions: async () => rows }, event_bus: { emit } });
     const updated = Result.getOrThrow(updateProductOptionsWorkflow.prepare({ productOptionsUpdated: () => { throw failure; } }));
-    await expect(Effect.runPromise(update.run(updated, { selector: {}, update: {} }))).rejects.toMatchObject({ reason: "adapterFailure", cause: failure });
+    await expectNativePromiseDefect(update.run(updated, { selector: {}, update: {} }), failure);
     expect(emit).not.toHaveBeenCalled();
     const remove = vi.fn(async (_input: unknown) => [null, {}]);
     const deletion = nativePort({ product: { softDeleteProductOptions: async () => ({}) }, link: { delete: remove }, event_bus: { emit } });
     const deleted = Result.getOrThrow(deleteProductOptionsWorkflow.prepare({ productOptionsDeleted: () => { throw failure; } }));
-    await expect(Effect.runPromise(deletion.run(deleted, { ids: ["option"] }))).rejects.toMatchObject({ reason: "adapterFailure", cause: failure });
+    await expectNativePromiseDefect(deletion.run(deleted, { ids: ["option"] }), failure);
     expect(emit).not.toHaveBeenCalled(); expect(remove).not.toHaveBeenCalled();
   });
 });

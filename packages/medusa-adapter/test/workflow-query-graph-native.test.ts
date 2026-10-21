@@ -1,3 +1,4 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { defineAtomicCommerceParticipant, type AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -17,7 +18,7 @@ async function bind(result: Json = [[{ id: "v" }], 1]) {
       table: { name: "variant", columns: ["id"], primaryKeys: ["id"], foreignKeys: [], companions: {} },
       paths: [], orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }],
   } }]));
-  const context: AtomicCommerceContext = { eventGroupId: "native-direct-graph", checkpoint: Effect.void,
+  const context: AtomicCommerceContext = { eventGroupId: "native-direct-graph", checkpoint: Effect.void, recordFailure: promiseFailureObserver(),
     refuse: error => { refusals.push(error.reason); return Effect.fail(error); },
     capture: () => Effect.fail(commerceError("unsupportedProfile")), emit: () => Effect.fail(commerceError("unadmittedEvent")),
     clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),

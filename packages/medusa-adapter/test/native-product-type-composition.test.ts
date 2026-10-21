@@ -1,3 +1,4 @@
+import { expectNativePromiseDefect, promiseFailureObserver } from "./support/promise-failure-observer";
 import { describe, expect, it, vi } from "vitest";
 import { Deferred, Effect, Result, Schema } from "effect";
 import type { PreparedWorkflow, WorkflowContainer } from "@medusajs/workflows-sdk";
@@ -23,7 +24,7 @@ function nativePort(services: Readonly<Record<string, object>>) {
     return resolve(name) as Service;
   } };
   const decode = commerceDecoder(Schema.Json, "invalidInput");
-  const context: AtomicCommerceContext = { eventGroupId: "native-type-composition", checkpoint: Effect.void,
+  const context: AtomicCommerceContext = { eventGroupId: "native-type-composition", checkpoint: Effect.void, recordFailure: promiseFailureObserver(),
     clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     capture: (value, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decode)(value))),
     call: () => Effect.fail(commerceError("unsupportedProfile")), emit: () => Effect.fail(commerceError("unadmittedEvent")),
@@ -144,8 +145,7 @@ describe("genuine native Product Type composition", () => {
     const failure = new Error("Type hook failed");
     const native = nativePort({ product: { softDeleteProductTypes: softDelete }, link: { delete: remove }, event_bus: { emit } });
     const prepared = Result.getOrThrow(deleteProductTypesWorkflow.prepare({ productTypesDeleted: () => { throw failure; } }));
-    await expect(Effect.runPromise(native.run(prepared, { ids: ["ptyp-existing"] })))
-      .rejects.toMatchObject({ reason: "adapterFailure", cause: failure });
+    await expectNativePromiseDefect(native.run(prepared, { ids: ["ptyp-existing"] }), failure);
     expect(softDelete).toHaveBeenCalledExactlyOnceWith(["ptyp-existing"]); expect(remove).not.toHaveBeenCalled(); expect(emit).not.toHaveBeenCalled();
   });
 });

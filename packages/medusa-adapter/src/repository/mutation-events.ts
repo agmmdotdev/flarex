@@ -3,7 +3,6 @@ import {
   createDrizzleEventSubscriber, registerDrizzleEventSubscriber, dispatchCreatedMutations,
   dispatchDrizzleMutationRows, dispatchDrizzleMutationEvent, dispatchCascadedUpdateMutations,
 } from "@medusajs/drizzle/mutation-events";
-import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommercePromiseOwner } from "../module/promise-owner";
 
 /** One instance per request-owned repository family. Medusa owns subscriber
@@ -13,11 +12,7 @@ import type { CommercePromiseOwner } from "../module/promise-owner";
 export function commerceMutationEvents(owner: CommercePromiseOwner) {
   const subscribed = new WeakSet<object>();
   const ownedSubscribers = new WeakSet<object>();
-  // Preserve the existing foreign-dispatch failure envelope, including its
-  // original cause. The repository's checked boundary makes failures sticky.
-  const invoke = Effect.fn("CommerceEvents.invoke")((work: () => Promise<void>) =>
-    Effect.tryPromise({ try: signal => owner.callback(work, signal),
-      catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) }));
+  const invoke = Effect.fn("CommerceEvents.invoke")((work: () => Promise<void>) => owner.invoke(work));
 
   return {
     createSubscriber: (...args: Parameters<typeof createDrizzleEventSubscriber>) => {

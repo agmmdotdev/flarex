@@ -4,7 +4,6 @@ import { commerceError, CommerceTransactionError } from "@flarex/persistence-pos
 import type { CommercePromiseOwner } from "../module/promise-owner";
 import { captureCommerceInput } from "../value/input";
 import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
-const projectFailure = (cause: unknown) => cause instanceof CommerceTransactionError ? cause : commerceError("adapterFailure", cause);
 export function commerceRepositoryContext(root: CommerceCommandContext, owner: CommercePromiseOwner) {
   const contexts = new Map<unknown, CommerceCommandContext>([[root.manager, root]]);
   let active = root;
@@ -60,7 +59,7 @@ export function commerceRepositoryContext(root: CommerceCommandContext, owner: C
           contexts.set(child.manager, child);
           // SAFETY: the framework's generic manager contract is opaque at this
           // seam. Only this request's child token is supplied to the callback.
-          return yield* Effect.tryPromise({ try: signal => owner.callback(() => task(child.manager as Manager), signal), catch: projectFailure })
+          return yield* owner.invoke(() => task(child.manager as Manager))
             .pipe(Effect.ensuring(Effect.sync(() => { contexts.delete(child.manager); active = parent; })));
         }));
       }));

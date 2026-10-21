@@ -180,7 +180,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
         const field = yield* Effect.fromResult(column(name)).pipe(Effect.mapError(cause => commerceError("storedCorruption", cause)));
         yield* Effect.fromResult(parameter(field, value)).pipe(Effect.mapError(cause => commerceError("storedCorruption", cause)));
       }
-      yield* Effect.fromResult(lifetime.charge(captured.bytes));
+      yield* lifetime.fromResult(lifetime.charge(captured.bytes));
       values.push(captured.value);
     }
     return Object.freeze(values);
@@ -296,12 +296,12 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       return yield* operation;
     }));
   const find = Effect.fn("CommerceStore.find")((context: BoundedRequestContext, input: unknown, preparation?: ReadPreparation) => guard(context, "read", Effect.gen(function* () {
-    const query = yield* Effect.fromResult(parseRead(input, preparation));
+    const query = yield* lifetime.fromResult(parseRead(input, preparation));
     yield* catalogBound();
     return yield* queryRows(sql`select ${query.selected} from ${target} where ${scoped} and (${query.filter}) order by ${query.order} offset ${query.skip} limit ${query.take}`);
   })));
   const count = Effect.fn("CommerceStore.count")((context: BoundedRequestContext, input: unknown, preparation?: ReadPreparation) => guard(context, "read", Effect.gen(function* () {
-    const query = yield* Effect.fromResult(parseRead(input, preparation));
+    const query = yield* lifetime.fromResult(parseRead(input, preparation));
     yield* catalogBound();
     const result = yield* statement(state.tx.execute(sql`select count(*)::integer as total from ${target} where ${scoped} and (${query.filter})`));
     const rows = yield* driverRows(result);
@@ -310,7 +310,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     return row.total;
   })));
   const findPage = Effect.fn("CommerceStore.findPage")((context: BoundedRequestContext, input: unknown, preparation?: ReadPreparation) => guard(context, "read", Effect.gen(function* () {
-    const query = yield* Effect.fromResult(parseRead(input, preparation));
+    const query = yield* lifetime.fromResult(parseRead(input, preparation));
     // The retained physical compatibility profile has an explicit catalog cap.
     // Its own SQL owner supplies page lookahead within that bounded catalog.
     yield* catalogBound();
@@ -325,7 +325,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     const keyBytes = new TextEncoder().encode(encoded.canonicalJson);
     const captured = yield* Effect.fromResult(capturePrivateJsonData(row, lifetime.remainingBytes(), commerceError));
     if (!isJsonObject(captured.value)) return yield* Effect.fail(commerceError("storedCorruption"));
-    yield* Effect.fromResult(lifetime.charge(captured.bytes + keyBytes.byteLength));
+    yield* lifetime.fromResult(lifetime.charge(captured.bytes + keyBytes.byteLength));
     work.observations.push(Object.freeze({ tableId: capability.tableId, keyBytes, operation, changed, row: captured.value }));
   });
   const record = Effect.fn("CommerceStore.record")(function* (row: JsonObject, operation: RelationalRowFact["operation"], observedOperation: CommerceRowObservation["operation"] = operation) {
@@ -335,7 +335,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     const encoded = yield* captureRelationalRowKey(state.descriptor.layout, table.identity.tableId, row, capability.keyId)
       .pipe(Effect.mapError(cause => commerceError("storedCorruption", cause)));
     const keyBytes = new TextEncoder().encode(encoded.canonicalJson);
-    yield* Effect.fromResult(lifetime.charge(keyBytes.byteLength));
+    yield* lifetime.fromResult(lifetime.charge(keyBytes.byteLength));
     facts.push(Object.freeze({ codecVersion: primary.kind === "primary" ? 1 : 2, tableId: table.identity.tableId, keyBytes, operation }));
     yield* observe(row, observedOperation, true);
   });
@@ -343,7 +343,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError));
     if (!representable(captured.value) || !Array.isArray(captured.value) || captured.value.length > resources.catalogRows)
       return yield* Effect.fail(invalid());
-    yield* Effect.fromResult(lifetime.charge(captured.bytes));
+    yield* lifetime.fromResult(lifetime.charge(captured.bytes));
     const catalog = yield* catalogBound();
     const inputs: { readonly identity: string; readonly fields: readonly RelationalPhysicalColumn[]; readonly parameters: readonly SQL[]; readonly predicate: SQL }[] = [];
     const inputKeys = new Set<string>();
@@ -474,7 +474,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError));
     if (!representable(captured.value)) return yield* Effect.fail(invalid());
     if (!Array.isArray(captured.value) || captured.value.length > resources.catalogRows) return yield* Effect.fail(invalid());
-    yield* Effect.fromResult(lifetime.charge(captured.bytes));
+    yield* lifetime.fromResult(lifetime.charge(captured.bytes));
     yield* catalogBound();
     if (captured.value.length === 0) return [];
     const inputs: { readonly key: string; readonly fields: readonly RelationalPhysicalColumn[]; readonly parameters: readonly SQL[] }[] = [];
@@ -550,7 +550,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError));
       if (!representable(captured.value) || !Array.isArray(captured.value) || captured.value.length > resources.catalogRows) return yield* Effect.fail(invalid());
       if (captured.value.length > resources.writeBatchRows) return yield* Effect.fail(commerceError("limitExceeded"));
-      yield* Effect.fromResult(lifetime.charge(captured.bytes));
+      yield* lifetime.fromResult(lifetime.charge(captured.bytes));
       if (captured.value.length === 0) return [];
       yield* catalogBound();
       const identities = new Set<string>();
@@ -604,7 +604,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError));
     if (!representable(captured.value)) return yield* Effect.fail(invalid());
     if (!Array.isArray(captured.value) || captured.value.length > resources.catalogRows || captured.value.some(value => !isPrivateValueText(value) || value.length === 0)) return yield* Effect.fail(invalid());
-    yield* Effect.fromResult(lifetime.charge(captured.bytes));
+    yield* lifetime.fromResult(lifetime.charge(captured.bytes));
     yield* catalogBound();
     if (captured.value.length === 0) return [];
     const deleted = yield* queryRows(sql`delete from ${target} where ${scoped} and ${sql.identifier(key.name)} in (${sql.join(captured.value.map(value => sql`${value}`), sql`, `)}) returning ${returning}`);
@@ -663,7 +663,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       if (operation === "restore" && previous === null) yield* observe(row, operation, false);
       else yield* record(row, "update", operation);
       const keyBytes = new TextEncoder().encode(encoded.canonicalJson);
-      yield* Effect.fromResult(lifetime.charge(keyBytes.byteLength + (previous?.length ?? 0) + (next?.length ?? 0)));
+      yield* lifetime.fromResult(lifetime.charge(keyBytes.byteLength + (previous?.length ?? 0) + (next?.length ?? 0)));
       work.lifecycle.push(Object.freeze({ tableId: capability.tableId, keyBytes, operation,
         beforeDeletedAt: previous, afterDeletedAt: next }));
       ordered.set(encoded.canonicalJson, row);

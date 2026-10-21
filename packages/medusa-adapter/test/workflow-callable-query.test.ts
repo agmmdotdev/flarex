@@ -1,3 +1,4 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Result, Schema } from "effect";
 import type { ModuleJoinerConfig } from "@medusajs/framework/types";
@@ -68,7 +69,7 @@ function participants(remote: readonly GraphRemotePath[] = paths()): GraphPartic
 // database filtering nor establishes persistence/transaction compatibility.
 function context(results: readonly Json[], calls: Array<{ command: unknown; args: Json }> = []): AtomicCommerceContext {
   let index = 0;
-  return { eventGroupId: "neutral-query", checkpoint: Effect.void, refuse: Effect.fail,
+  return { eventGroupId: "neutral-query", checkpoint: Effect.void, recordFailure: promiseFailureObserver(), refuse: Effect.fail,
     capture: () => Effect.fail(commerceError("unsupportedProfile")), emit: () => Effect.fail(commerceError("unadmittedEvent")),
     clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     call: (_participant, selected, args) => { calls.push({ command: selected, args });

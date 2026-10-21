@@ -124,7 +124,7 @@ const composeCmsReadHost = Effect.fn("CmsReadHost.compose")(function* <Failure>(
         const id = crypto.randomUUID();
         const lifetime = yield* makeCmsRequestLifetime(owner, Object.freeze({ requestId: Symbol("cms.readRequest") }), id, "read", requestBudget);
         return yield* Effect.gen(function* () {
-          yield* Effect.fromResult(lifetime.charge(captured.bytes));
+          yield* lifetime.fromResult(lifetime.charge(captured.bytes));
           const documents = yield* makeSourceCmsReadDocuments(admission, tx, lifetime,
             AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), documentReads);
           const commandPorts = Object.freeze({ documents,
@@ -140,16 +140,16 @@ const composeCmsReadHost = Effect.fn("CmsReadHost.compose")(function* <Failure>(
             if (definition === undefined || definition.mode !== "read" || !allowed.has(command))
               return yield* Effect.fail(cmsError("invalidAuthority"));
             const child = yield* Effect.fromResult(capturePrivateJsonData(inputArgs, lifetime.remainingBytes(), cmsError));
-            yield* Effect.fromResult(lifetime.charge(child.bytes));
+            yield* lifetime.fromResult(lifetime.charge(child.bytes));
             const output = yield* definition.run(makeCmsCommandContext(lifetime, id, context, commandPorts,
               context === lifetime.context, invoke), child.value);
             const result = yield* Effect.fromResult(capturePrivateJsonData(output, lifetime.remainingBytes(), cmsError));
-            yield* Effect.fromResult(lifetime.charge(result.bytes));
+            yield* lifetime.fromResult(lifetime.charge(result.bytes));
             return result.value;
           });
           const result = yield* canonicalizeSuccessfulResultV1Effect(yield* invoke(lifetime.context, token, captured.value))
             .pipe(Effect.mapError(projectCmsRequestFailure));
-          yield* Effect.fromResult(lifetime.charge(result.canonicalBytes.byteLength));
+          yield* lifetime.fromResult(lifetime.charge(result.canonicalBytes.byteLength));
           return result.valueJson;
         }).pipe(lifetime.withinDeadline, Effect.tap(() => lifetime.seal), Effect.ensuring(lifetime.close));
       }));

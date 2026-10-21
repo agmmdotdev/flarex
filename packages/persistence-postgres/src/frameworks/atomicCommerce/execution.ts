@@ -104,7 +104,7 @@ function makeParticipantInvocation(
     let value = capturedInput;
     if (value === undefined) {
       const captured = yield* Effect.fromResult(captureCommerceJsonData(nestedArgs, lifetime.remainingBytes()));
-      yield* Effect.fromResult(lifetime.charge(captured.bytes));
+      yield* lifetime.fromResult(lifetime.charge(captured.bytes));
       value = captured;
     }
     const input = value.value;
@@ -132,7 +132,7 @@ function makeParticipantInvocation(
     const result = yield* Effect.fromResult(
       captureCommerceJsonData(output, lifetime.remainingBytes()),
     );
-    yield* Effect.fromResult(lifetime.charge(result.bytes));
+    yield* lifetime.fromResult(lifetime.charge(result.bytes));
     return Object.freeze({
       input: value.value,
       result: result.value,
@@ -280,7 +280,10 @@ function makeAtomicCommerceExecution(
     eventGroupId: key,
     checkpoint: rootOperation(lifetime.operation(lifetime.context, id, "read", Effect.void)),
     capture: (value, normalize) => operations !== undefined ? operations.submit(
-      () => (normalize === undefined ? Result.succeed(value) : normalize(value)).pipe(Result.flatMap(prepareCapture)),
+      () => Result.gen(function* () {
+        const normalized = normalize === undefined ? value : yield* normalize(value);
+        return yield* prepareCapture(normalized);
+      }),
       captured => lifetime.operation(lifetime.context, id, "read", Effect.succeed(captured.value)),
     ) : lifetime.operation(
         lifetime.context,
@@ -291,7 +294,7 @@ function makeAtomicCommerceExecution(
           const intermediate = yield* Effect.fromResult(
             captureCommerceJsonData(normalized, lifetime.remainingBytes()),
           );
-          yield* Effect.fromResult(lifetime.charge(intermediate.bytes));
+          yield* lifetime.fromResult(lifetime.charge(intermediate.bytes));
           return intermediate.value;
         }),
       ),
@@ -317,6 +320,7 @@ function makeAtomicCommerceExecution(
           ? Effect.fail(commerceError("unadmittedEvent"))
           : eventCapture.capture(contract, message).pipe(Effect.asVoid)),
       ),
+    recordFailure: cause => lifetime.recordFailure(lifetime.context, cause),
     refuse: (error) => operations === undefined
       ? lifetime.operation(lifetime.context, id, "write", Effect.fail(error))
       : operations.submit(() => Result.fail(error), () => Effect.fail(error)),
@@ -421,7 +425,7 @@ export const executeAtomicCommerceRequest = Effect.fnUntraced(function* (
       request.key,
       operations,
     );
-    yield* Effect.fromResult(lifetime.charge(evidence.bytes));
+    yield* lifetime.fromResult(lifetime.charge(evidence.bytes));
     const value = yield* Effect.gen(function* () {
       const output = yield* request.definition.run(execution.context, request.args);
       // Escaped calls must fail closed before unused stores can be opened.
@@ -439,7 +443,11 @@ export const executeAtomicCommerceRequest = Effect.fnUntraced(function* (
           const sealed = yield* Effect.exit(lifetime.seal);
           const schedulingCause = scheduled !== undefined && Exit.isFailure(scheduled)
             ? Cause.combine(cause, scheduled.cause) : cause;
-          return yield* Effect.failCause(Exit.isFailure(sealed) ? Cause.combine(schedulingCause, sealed.cause) : schedulingCause);
+          const complete = Exit.isFailure(sealed) ? Cause.combine(schedulingCause, sealed.cause) : schedulingCause;
+          return yield* Result.match(lifetime.recordFailure(lifetime.context, complete), {
+            onSuccess: owned => Effect.failCause(owned),
+            onFailure: error => Effect.failCause(Cause.combine(complete, Cause.fail(error))),
+          });
         }),
       ),
     );
@@ -449,7 +457,7 @@ export const executeAtomicCommerceRequest = Effect.fnUntraced(function* (
     const capturedResult = yield* Effect.fromResult(
       captureCommerceJsonData(value, lifetime.remainingBytes()),
     );
-    yield* Effect.fromResult(lifetime.charge(capturedResult.bytes));
+    yield* lifetime.fromResult(lifetime.charge(capturedResult.bytes));
     const result = yield* Effect.fromResult(canonicalizeJsonOutcome(capturedResult.value)).pipe(
       Effect.mapError(projectCommerceRequestFailure),
     );

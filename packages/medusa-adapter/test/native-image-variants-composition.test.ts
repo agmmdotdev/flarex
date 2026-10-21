@@ -1,3 +1,4 @@
+import { expectNativePromiseDefect, promiseFailureObserver } from "./support/promise-failure-observer";
 import { describe, expect, it, vi } from "vitest";
 import { Deferred, Effect, Result, Schema } from "effect";
 import type { PreparedWorkflow, WorkflowContainer } from "@medusajs/workflows-sdk";
@@ -24,7 +25,7 @@ function nativePort(services: Readonly<Record<string, object>>) {
     return resolve(name) as Service;
   } };
   const decode = commerceDecoder(Schema.Json, "invalidInput");
-  const context: AtomicCommerceContext = { eventGroupId: "native-image-variants", checkpoint: Effect.void,
+  const context: AtomicCommerceContext = { eventGroupId: "native-image-variants", checkpoint: Effect.void, recordFailure: promiseFailureObserver(),
     clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     capture: (value, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decode)(value))),
     call: () => Effect.fail(commerceError("unsupportedProfile")), emit: () => Effect.fail(commerceError("unadmittedEvent")),
@@ -152,8 +153,8 @@ describe("genuine native inverse Image-Variant composition", () => {
     const native = nativePort({ product: { addImageToVariant: add, removeImageFromVariant: remove,
       listProductVariants: async () => [{ id: "variant", thumbnail: "image-url" }],
       updateProductVariants: async () => { throw failure; }, upsertProductVariants: restore }, query });
-    await expect(Effect.runPromise(native.run(Result.getOrThrow(batchImageVariantsWorkflow.prepare()),
-      { image_id: "image", add: ["new"], remove: ["variant"] }))).rejects.toMatchObject({ reason: "adapterFailure", cause: failure });
+    await expectNativePromiseDefect(native.run(Result.getOrThrow(batchImageVariantsWorkflow.prepare()),
+      { image_id: "image", add: ["new"], remove: ["variant"] }), failure);
     expect(add).toHaveBeenCalledTimes(1); expect(remove).toHaveBeenCalledTimes(1); expect(restore).not.toHaveBeenCalled();
   });
 

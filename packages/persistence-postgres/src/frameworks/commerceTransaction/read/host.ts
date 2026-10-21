@@ -116,7 +116,7 @@ const composeCommerceReadHost = Effect.fn("CommerceReadHost.compose")(function* 
         const lifetime = yield* makeBoundedRequestLifetime(commerceError, { ...commerceLimits, ...resources },
           owner, Object.freeze({ requestId: Symbol("commerce.readRequest") }), id, "read");
         return yield* Effect.gen(function* () {
-          yield* Effect.fromResult(lifetime.charge(captured.bytes));
+          yield* lifetime.fromResult(lifetime.charge(captured.bytes));
           const working = yield* makeLogicalCommerceReadParticipant(admission, tx, lifetime, id, resources);
           const refuseEvent = (context: BoundedRequestContext) =>
             lifetime.operation(context, id, "write", Effect.fail(commerceError("unadmittedEvent")));
@@ -127,10 +127,10 @@ const composeCommerceReadHost = Effect.fn("CommerceReadHost.compose")(function* 
             if (definition === undefined || definition.mode !== "read" || !allowed.has(command))
               return yield* Effect.fail(commerceError("invalidAuthority"));
             const commandInput = yield* Effect.fromResult(captureCommerceJsonData(inputArgs, lifetime.remainingBytes()));
-            yield* Effect.fromResult(lifetime.charge(commandInput.bytes));
+            yield* lifetime.fromResult(lifetime.charge(commandInput.bytes));
             const output = yield* definition.run(makeCommerceCommandContext(lifetime, working, id, context, invoke, refuseEvent), commandInput.value);
             const result = yield* Effect.fromResult(captureCommerceJsonData(output, lifetime.remainingBytes()));
-            yield* Effect.fromResult(lifetime.charge(result.bytes));
+            yield* lifetime.fromResult(lifetime.charge(result.bytes));
             return result.value;
           });
           const value = yield* invoke(lifetime.context, token, captured.value);

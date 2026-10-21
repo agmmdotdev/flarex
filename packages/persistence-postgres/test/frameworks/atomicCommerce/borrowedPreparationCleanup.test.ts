@@ -49,7 +49,7 @@ vi.mock("../../../src/storage/documents/logicalDocuments/documentAdmission", asy
     prepare: (state: unknown, checkedRead: unknown, tx: unknown) => Effect.Effect<unknown>,
   ) => Effect.gen(function* () {
     yield* prepare({
-      configuration: { profile: "payload.scalar" },
+      configuration: { profile: "payload.scalar", tables: [] },
       root: { scopeId: "prepared-scope", snapshotCommitSeq: 1n, executionProfile: "durableOperations" },
       clock: {}, tables: [{ tableId: 1, localName: "posts" }],
       writeMechanics: { tables: [], unique: [], indexes: [], searchDefinitions: [] },

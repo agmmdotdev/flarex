@@ -149,7 +149,7 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   const heldEvents = eligibility === undefined || originalEvents === undefined || originalEvents.values.length === 0
     ? undefined : yield* bindCommitEventEligibility(originalEvents.values, eligibility)
       .pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
-  if (heldEvents !== undefined) yield* Effect.fromResult(lifetime.charge(heldEvents.additionalBytes));
+  if (heldEvents !== undefined) yield* lifetime.fromResult(lifetime.charge(heldEvents.additionalBytes));
   const events = heldEvents ?? originalEvents;
   const now = yield* publishCommerceAtoms(() => readScopePublicationDatabaseTime(state.tx, scope.scopeId, options));
   const allocation = yield* Effect.fromResult(allocateScopePublicationResult(clock, now))

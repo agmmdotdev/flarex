@@ -50,10 +50,10 @@ export function makeSourcePayloadPreferenceCleanup(preferences: PreparedCmsPrefe
     // callback lifetime. The shared SQL owner also bounds total identities.
     let charged = 0;
     const evidence = yield* applyPayloadPreferenceDeletionIntents({ tx, authority, availability, intents,
-      lifetime: { charge: bytes => {
+      charge: bytes => {
         charged += bytes;
-        return charged > cmsLimits.commandBytes ? Result.fail(cmsError("limitExceeded")) : Result.succeed(undefined);
-      } }, requireDeletion });
+        return Effect.fromResult(charged > cmsLimits.commandBytes ? Result.fail(cmsError("limitExceeded")) : Result.succeed(undefined));
+      }, requireDeletion });
     const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(authority.scopeId)).pipe(Effect.mapError(cause => cmsError("invalidAuthority", cause)));
     const epoch = yield* Effect.fromResult(projectScopeEpochUuidV1Result(clock.epoch)).pipe(Effect.mapError(cause => cmsError("invalidAuthority", cause)));
     const facts = yield* preparePayloadPreferenceDeletionFacts({ scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid,

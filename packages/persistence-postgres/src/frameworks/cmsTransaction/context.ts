@@ -12,7 +12,7 @@ export function makeCmsCommandContext(
   populationRead = standaloneRead,
 ): CmsCommandContext {
   return Object.freeze({ context, standaloneRead, populationRead, transactionId, ...ports,
-    reserveOutput: bytes => lifetime.operation(context, transactionId, "read", Effect.suspend(() => Effect.fromResult(lifetime.charge(bytes)))),
+    reserveOutput: bytes => lifetime.operation(context, transactionId, "read", Effect.suspend(() => lifetime.fromResult(lifetime.charge(bytes)))),
     begin: id => lifetime.begin(context, id), commit: id => lifetime.adapterCommit(context, id), rollback: id => lifetime.rollback(context, id),
     nested: (child, args) => lifetime.nested(context, transactionId, nested => invoke(nested, child, args)),
   } satisfies CmsCommandContext);

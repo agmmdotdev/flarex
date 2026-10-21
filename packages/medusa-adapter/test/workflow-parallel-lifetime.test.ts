@@ -1,3 +1,4 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { Cause, Deferred, Effect, Exit, Result, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { createStep, createWorkflow, parallelize, WorkflowResponse, type PreparedWorkflow } from "@medusajs/workflows-sdk";
@@ -32,12 +33,13 @@ function fixture(call: (value: unknown) => Effect.Effect<string, CommerceTransac
   if (members === undefined) throw new Error("Missing authentic selection");
   const decode = commerceDecoder(Schema.Json, "invalidInput");
   const refuse = vi.fn((error: CommerceTransactionError) => Effect.fail(error));
-  const context: AtomicCommerceContext = { eventGroupId: "parallel-lifetime", checkpoint: Effect.void,
+  const recordFailure = promiseFailureObserver();
+  const context: AtomicCommerceContext = { eventGroupId: "parallel-lifetime", checkpoint: Effect.void, recordFailure,
     capture: (value, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decode)(value))),
     call: (_participant, _command, value) => call(value), emit: () => Effect.fail(commerceError("unadmittedEvent")),
     clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")), refuse,
   };
-  return { resources, refuse, run: (flow: PreparedWorkflow, input: unknown = null) =>
+  return { resources, refuse, recordFailure, run: (flow: PreparedWorkflow, input: unknown = null) =>
     runNativeMedusaWorkflow(flow, context, input,
       owner => bindWorkflowResources(resources, members, undefined, [], context, owner)),
   };
@@ -103,7 +105,7 @@ describe("parallel native callback lifetime", () => {
     expect(cleaned).toBe(true);
     if (Exit.isSuccess(exit)) throw new Error("Expected the initiating refusal");
     expect(Result.getOrThrow(Cause.findError(exit.cause))).toBe(failure);
-    expect(native.refuse).toHaveBeenCalledWith(failure);
+    expect(native.recordFailure).toHaveBeenCalledWith(expect.objectContaining({ reasons: expect.arrayContaining([expect.objectContaining({ _tag: "Fail", error: failure })]) }));
     await expect(escaped?.("late")).rejects.toMatchObject({ reason: "closed" });
   });
 

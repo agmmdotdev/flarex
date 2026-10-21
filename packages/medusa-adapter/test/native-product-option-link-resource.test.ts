@@ -1,5 +1,6 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { describe, expect, it, vi } from "vitest";
-import { Effect, Option, Result, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -25,14 +26,15 @@ async function bind() {
   const call = vi.fn<AtomicCommerceContext["call"]>(() => Effect.fail(commerceError("invalidAuthority")));
   const emit = vi.fn<AtomicCommerceContext["emit"]>(() => Effect.fail(commerceError("unadmittedEvent")));
   const refuse = vi.fn<AtomicCommerceContext["refuse"]>(error => Effect.fail(error));
+  const recordFailure = promiseFailureObserver();
   const ctx: AtomicCommerceContext = { eventGroupId: "native-product-option-links", checkpoint: Effect.void,
     clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
     capture: (input, normalize) => Effect.suspend(() => Effect.fromResult(captureCommerceInput(input).pipe(Result.flatMap(normalize ?? decodeJson)))),
-    call, emit, refuse,
+    call, emit, refuse, recordFailure,
   };
-  const owner = await Effect.runPromise(makeCommercePromiseOwner());
+  const owner = await Effect.runPromise(makeCommercePromiseOwner(recordFailure));
   const service = bindWorkflowResources(resources, selected, undefined, [], ctx, owner).resolve<Service>("link");
-  return { resource, service, owner, call, emit, refuse };
+  return { resource, service, owner, call, emit, refuse, recordFailure };
 }
 
 describe("native Product Option deletion Link resource", () => {
@@ -48,7 +50,7 @@ describe("native Product Option deletion Link resource", () => {
       expect(definition?.dependencies).toEqual([]);
       expect(Object.keys(definition?.methods ?? {})).toEqual(["delete"]);
       expect(definition?.identity).toEqual({ format: "medusa.product-option.deletion-links", services: [] });
-      expect(Option.isNone(bound.owner.refusal())).toBe(true);
+      expect(bound.recordFailure).not.toHaveBeenCalled();
     } finally { nativeDelete.mockRestore(); await Effect.runPromise(bound.owner.close); }
   });
 
@@ -96,14 +98,10 @@ describe("native Product Option deletion Link resource", () => {
       await expect(Reflect.apply(bound.service.delete, undefined, [{ product: { product_option_id: ["1", "2", "3", "4", "5"] } }]))
         .rejects.toMatchObject({ reason: "invalidInput" });
       expect(bound.refuse).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ reason: "invalidInput" }));
-      // Async decoder refusal belongs to the real root's ctx.refuse. This ABI
-      // port observes that handoff; it does not implement transaction poison.
-      expect(Option.isNone(bound.owner.refusal())).toBe(true);
-      // The Promise owner separately latches synchronous facade refusals until
-      // its owning bridge poisons the root, even when the caller catches them.
+      expect(bound.recordFailure).toHaveBeenCalledWith(expect.objectContaining({ reasons: expect.arrayContaining([expect.objectContaining({ _tag: "Fail", error: expect.objectContaining({ reason: "invalidInput" }) })]) }));
       expect(() => Reflect.apply(Reflect.get(bound.service, "restore"), undefined, []))
         .toThrow(expect.objectContaining({ reason: "unsupportedProfile" }));
-      expect(bound.owner.refusal()).toMatchObject({ _tag: "Some", value: { reason: "unsupportedProfile" } });
+      expect(bound.recordFailure).toHaveBeenCalledWith(expect.objectContaining({ reasons: expect.arrayContaining([expect.objectContaining({ _tag: "Fail", error: expect.objectContaining({ reason: "unsupportedProfile" }) })]) }));
       expect(nativeDelete).not.toHaveBeenCalled();
       const escaped = bound.service.delete;
       await Effect.runPromise(bound.owner.close);

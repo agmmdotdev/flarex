@@ -165,12 +165,18 @@ existing command path; live managers/services are never cached across requests.
   before a callback can catch the rejection. Trusted decoder defects also poison
   pending work while retaining their defect channel. Existing participant calls
   bypass this adapter check and preserve their already-owned full Cause.
-- Native Promise rejection classification remains a separate boundary gap:
-  the workflow runtime and service bridge wrap arbitrary native rejections as
-  `adapterFailure`. Native dereference errors retain their original cause, but
-  this does not establish defect classification through the complete host.
-  Correct the existing Promise/Cause owner after a dedicated native SDK error
-  and compensation preflight; leaf-level `Effect.die` is not whole-host proof.
+- Native Promise crossings preserve complete owned Causes through private
+  owner-issued receipts. Genuine native domain errors retain typed behavior;
+  foreign defects remain defects. The bounded lifetime authenticates completion
+  of its initiating failure across annotation cloning, domain projection and
+  exact charge-result receipts. Context-bound failure recording grants no data
+  or settlement authority, and successful seal fences later recording. The
+  existing Promise owner joins body, runners and finalizers and records their
+  complete outcome before return. The
+  [Promise/Cause contract](../flarexdb-framework-integration/preflight/161-native-promise-cause-preservation.md)
+  owns these guarantees and their bounded verification scope. Atomic rollback
+  does not automatically run transaction-covered native inverses; explicit
+  retained inverses and durable SDK compensation retain their own owners.
 - Root call/byte/deadline limits, cancellation, draining/joining and escaped-method
   closure remain with the existing runtime. Finalization also covers resource
   construction. Resources cannot grant raw SQL, managers or delivery authority.

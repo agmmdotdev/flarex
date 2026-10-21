@@ -68,7 +68,7 @@ export const makeCommerceOperations = Effect.fn("Commerce.makeOperations")(funct
         if (firstCause !== undefined) return Effect.failCause(firstCause);
         if (phase !== "open") return Effect.fail(commerceError("closed"));
         if (accepted >= callLimit || lifetime.usedCalls() >= callLimit) return Effect.fail(commerceError("limitExceeded"));
-        return Effect.fromResult(prepare()).pipe(Effect.map(prepared => {
+        return lifetime.fromResult(prepare()).pipe(Effect.map(prepared => {
           const reply = Deferred.makeUnsafe<Value, CommerceTransactionError>();
           const complete = (exit: Exit.Exit<Value, CommerceTransactionError>) => Effect.gen(function* () {
             if (Exit.isFailure(exit) && phase !== "closed") latch(exit.cause);

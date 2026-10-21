@@ -1,4 +1,4 @@
-import type { Effect, Result } from "effect";
+import type { Cause, Effect, Result } from "effect";
 import type { Json } from "flarex-protocol/json";
 import type { CommerceCommand } from "../commerceTransaction/commands";
 import type { CommerceTransactionError } from "../commerceTransaction/model";
@@ -30,6 +30,8 @@ export interface AtomicCommerceContext {
    * the current root. Captured history and resource charges are retained. */
   readonly clearPendingEvents: (contract: CommerceEventContract) => Effect.Effect<void, CommerceTransactionError>;
   readonly call: (participant: AtomicCommerceParticipant, command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
+  /** Trusted failure observation only; authenticates this existing live context. */
+  readonly recordFailure: (cause: Cause.Cause<CommerceTransactionError>) => Result.Result<Cause.Cause<CommerceTransactionError>, CommerceTransactionError>;
   readonly refuse: (error: CommerceTransactionError) => Effect.Effect<never, CommerceTransactionError>;
 }
 export interface AtomicCommandDefinition {

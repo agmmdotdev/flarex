@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Cause, Deferred, Effect, Fiber, References, Result, Schema, Tracer } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, References, Result, Schema, Tracer } from "effect";
 import { PricingModuleService } from "@medusajs/pricing/services";
+import { MedusaError } from "@medusajs/framework/utils/portable";
 import { defaultCommerceResources, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
@@ -307,8 +308,16 @@ describe(`original native Price List Price batch with combined admission - ${dri
 
   it("preserves child failure and one atomic rollback when a genuine validator rejects a Variant alongside deletion", async () => {
     const list = await seed("child-failure", [price()]), old = children(list, "prices")[0]!, before = await connected.snapshot();
-    await expect(run({ data: { id: id(list), create: [{ ...price(0, "CAD", 51), variant_id: "missing158-variant" }], update: [], delete: [id(old)] } }))
-      .rejects.toMatchObject({ reason: "adapterFailure", cause: { type: "invalid_data", message: "No price set exist for variants: missing158-variant" } });
+    const host = await connected.prepare();
+    const failed = await Effect.runPromiseExit(host.run(host.newRequestKey(), { data: { id: id(list),
+      create: [{ ...price(0, "CAD", 51), variant_id: "missing158-variant" }], update: [], delete: [id(old)] } }));
+    if (Exit.isSuccess(failed)) throw new Error("Native Variant validation unexpectedly committed the batch");
+    const native = failed.cause.reasons.filter(Cause.isFailReason).filter(reason => reason.error.reason === "adapterFailure");
+    expect(native).toHaveLength(1);
+    const error = native[0]?.error.cause;
+    expect(error).toBeInstanceOf(MedusaError);
+    expect(error).toMatchObject({ type: "invalid_data", message: "No price set exist for variants: missing158-variant" });
+    expect(failed.cause.reasons.some(reason => Cause.isDieReason(reason) && reason.defect === error)).toBe(false);
     expect(await connected.snapshot()).toEqual(before);
   });
 

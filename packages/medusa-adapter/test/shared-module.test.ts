@@ -1,6 +1,7 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { describe, expect, it } from "vitest";
 import { mockRelationalRead } from "./mock-relational-read";
-import { Effect, Option, Result } from "effect";
+import { Effect, Result } from "effect";
 import type { DAL } from "@medusajs/framework/types";
 import { model } from "@medusajs/utils/dml/model";
 import { commerceError, commerceLimits, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -16,7 +17,8 @@ const Edition = model.define("Edition", { serial: model.text().primaryKey() });
 const bindVolumeService = prepareCommerceInternalService(Volume);
 const preparedLibrary = Result.getOrThrow(prepareCommerceModule({ name: "library", models: [Volume, Edition] }));
 const fixture = Effect.gen(function* () {
-  const owner = yield* Effect.acquireRelease(makeCommercePromiseOwner(), owner => owner.close);
+  const recordFailure = promiseFailureObserver();
+  const owner = yield* Effect.acquireRelease(makeCommercePromiseOwner(recordFailure), owner => owner.close);
   const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(reason => commerceError(reason), commerceLimits, {}, {}, "module-construction", "read"), lifetime => lifetime.close);
   const unused = () => Effect.fail(commerceError("unsupportedProfile"));
   const root = makeCommerceCommandContext(lifetime, { resources: defaultCommerceResources,
@@ -39,7 +41,7 @@ const fixture = Effect.gen(function* () {
   };
   const registration = { name: "library", baseRepository: repository,
     repository: () => repository };
-  return { owner, root, repository, calls, registration };
+  return { owner, root, repository, calls, registration, recordFailure };
 });
 
 describe("shared module preparation and repository construction", () => {
@@ -49,7 +51,7 @@ describe("shared module preparation and repository construction", () => {
     const prepared = Result.getOrThrow(prepareCommerceModule({ name: "captured", models: declaration }));
     declaration.length = 0;
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-      const { owner, repository } = yield* fixture;
+      const { owner, repository, recordFailure } = yield* fixture;
       const calls: string[] = [];
       const binding = { baseRepository: repository, repository: (selected: typeof admitted) => {
         calls.push(selected.name);
@@ -61,7 +63,7 @@ describe("shared module preparation and repository construction", () => {
       admitted.name = "Renamed";
       expect(() => prepared.bind(owner, binding)).toThrowError(expect.objectContaining({ reason: "unsupportedProfile" }));
       expect(calls).toEqual(["Volume"]);
-      expect(owner.refusal()).toMatchObject({ _tag: "Some", value: { reason: "unsupportedProfile" } });
+      expect(recordFailure).toHaveBeenCalledWith(expect.objectContaining({ reasons: expect.arrayContaining([expect.objectContaining({ _tag: "Fail", error: expect.objectContaining({ reason: "unsupportedProfile" }) })]) }));
     })));
   });
 
@@ -85,12 +87,12 @@ describe("shared module preparation and repository construction", () => {
 
   it.each(["missing", "duplicate", "foreign", "sameName"] as const)("refuses %s model sets and latches the refusal", async scenario => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-      const { owner, registration } = yield* fixture;
+      const { owner, registration, recordFailure } = yield* fixture;
       const { persistence } = preparedLibrary.bind(owner, registration);
       const input = scenario === "missing" ? [Volume] : scenario === "duplicate" ? [Volume, Volume]
         : [Volume, { name: scenario === "sameName" ? "Edition" : "Other" }];
       expect(() => persistence.prepareModels(input)).toThrowError(expect.objectContaining({ reason: "unsupportedProfile" }));
-      expect(owner.refusal()).toMatchObject({ _tag: "Some", value: { reason: "unsupportedProfile" } });
+      expect(recordFailure).toHaveBeenCalledWith(expect.objectContaining({ reasons: expect.arrayContaining([expect.objectContaining({ _tag: "Fail", error: expect.objectContaining({ reason: "unsupportedProfile" }) })]) }));
     })));
   });
 
@@ -117,7 +119,7 @@ describe("shared module preparation and repository construction", () => {
 
   it("constructs renamed internal services with the DML primary key and bound repository receiver", async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-      const { owner, root, calls, registration } = yield* fixture;
+      const { owner, root, calls, registration, recordFailure } = yield* fixture;
       const module = preparedLibrary.bind(owner, registration);
       const service = bindVolumeService(new (module.persistence.createRepository(Volume))(), module.persistence);
       const context = { manager: root.manager, transactionManager: root.manager };
@@ -127,7 +129,7 @@ describe("shared module preparation and repository construction", () => {
       expect(calls[0]).toMatchObject({ input: { options: { orderBy: { isbn: "ASC" } } }, manager: root.manager });
       expect(module.baseRepository.getFreshManager()).toBe(root.manager);
       expect(module.baseRepository.getActiveManager()).toBe(root.manager);
-      expect(Option.isNone(owner.refusal())).toBe(true);
+      expect(recordFailure).not.toHaveBeenCalled();
     })));
   });
 

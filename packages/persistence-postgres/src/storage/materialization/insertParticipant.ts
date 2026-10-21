@@ -60,7 +60,7 @@ const makeInsertParticipant = Effect.fn("ApplicationCommand.makeInsert")((
       .pipe(Effect.mapError(cause => applicationCommandError("documentInvalid", cause)));
     if (document.canonicalBytes.byteLength > 65_536) return yield* Effect.fail(applicationCommandError("limitExceeded"));
     yield* validate({ operation: "insert", tableName, tableId, documentId, creationTime, document });
-    yield* Effect.fromResult(lifetime.charge(captured.bytes + document.canonicalBytes.byteLength + 128));
+    yield* lifetime.fromResult(lifetime.charge(captured.bytes + document.canonicalBytes.byteLength + 128));
     changes.push(Object.freeze({ kind: "live", documentId, tableId, rowId, creationTime, document,
       dependency: { kind: "appRowPoint", documentId, observed: { kind: "missing", basis: { kind: "noVisibleRevision" } } } } satisfies PreparedPointCommitRowIntentV1));
     return documentId;
@@ -72,7 +72,7 @@ const makeInsertParticipant = Effect.fn("ApplicationCommand.makeInsert")((
     if (row?.kind !== "live") return Option.none<JsonObject>();
     const value = yield* Effect.fromResult(capturePrivateJsonData(row.document.value, 65_536, applicationCommandError));
     if (!isJsonObject(value.value)) return yield* Effect.fail(applicationCommandError("documentInvalid"));
-    yield* Effect.fromResult(lifetime.charge(value.bytes));
+    yield* lifetime.fromResult(lifetime.charge(value.bytes));
     return Option.some(value.value);
   })));
   const close = Effect.fn("ApplicationCommand.close")(function* () {

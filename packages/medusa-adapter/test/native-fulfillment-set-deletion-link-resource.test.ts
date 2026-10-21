@@ -1,5 +1,6 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { Effect, Option, Result, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
 import { LocationFulfillmentSet } from "@medusajs/link-modules";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -47,12 +48,13 @@ async function bind() {
   const call = vi.fn<AtomicCommerceContext["call"]>(() => Effect.succeed({}));
   const emit = vi.fn<AtomicCommerceContext["emit"]>(() => Effect.fail(commerceError("unadmittedEvent")));
   const refuse = vi.fn<AtomicCommerceContext["refuse"]>(error => Effect.fail(error));
+  const recordFailure = promiseFailureObserver();
   const context: AtomicCommerceContext = { eventGroupId: "native-fulfillment-set-links", checkpoint: Effect.void,
     clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
-    capture: (input, normalize) => Effect.suspend(() => Effect.fromResult(captureCommerceInput(input).pipe(Result.flatMap(normalize ?? decodeJson)))), call, emit, refuse };
-  const owner = await Effect.runPromise(makeCommercePromiseOwner());
+    capture: (input, normalize) => Effect.suspend(() => Effect.fromResult(captureCommerceInput(input).pipe(Result.flatMap(normalize ?? decodeJson)))), call, emit, refuse, recordFailure };
+  const owner = await Effect.runPromise(makeCommercePromiseOwner(recordFailure));
   const service = bindWorkflowResources(resources, selected, undefined, [], context, owner).resolve<Service>("link");
-  return { resource, service, owner, call, emit, refuse };
+  return { resource, service, owner, call, emit, refuse, recordFailure };
 }
 
 describe("native Fulfillment Set deletion installed Location Link resource", () => {
@@ -64,7 +66,7 @@ describe("native Fulfillment Set deletion installed Location Link resource", () 
         expect(await bound.service[operation](input)).toEqual([null, {}]); expect(input).toEqual(original); expect(native.mock.calls.at(-1)?.[0]).toEqual(original);
       }
       expect(native).toHaveBeenCalledTimes(2); expect(bound.call).toHaveBeenCalledTimes(1); expect(bound.emit).not.toHaveBeenCalled();
-      expect(Option.isNone(bound.owner.refusal())).toBe(true);
+      expect(bound.recordFailure).not.toHaveBeenCalled();
       const definition = composedWorkflowResourceDefinition(bound.resource);
       expect(definition?.dependencies).toHaveLength(10); expect(Object.keys(definition?.methods ?? {})).toEqual(["delete", "restore"]);
       expect(definition?.identity).toMatchObject({ format: "medusa.fulfillment-set.deletion-links", lifecycle: { maximumRows: 8, completeHistory: true } });
@@ -110,9 +112,9 @@ describe("native Fulfillment Set deletion installed Location Link resource", () 
       await expect(Reflect.apply(bound.service.delete, undefined, [endpoint(["1", "2", "3", "4", "5"])]))
         .rejects.toMatchObject({ reason: "invalidInput" });
       expect(bound.refuse).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ reason: "invalidInput" }));
-      expect(Option.isNone(bound.owner.refusal())).toBe(true);
+      expect(bound.recordFailure).toHaveBeenCalledWith(expect.objectContaining({ reasons: expect.arrayContaining([expect.objectContaining({ _tag: "Fail", error: expect.objectContaining({ reason: "invalidInput" }) })]) }));
       expect(() => Reflect.apply(Reflect.get(bound.service, "create"), undefined, [])).toThrow(expect.objectContaining({ reason: "unsupportedProfile" }));
-      expect(bound.owner.refusal()).toMatchObject({ _tag: "Some", value: { reason: "unsupportedProfile" } });
+      expect(bound.recordFailure).toHaveBeenCalledWith(expect.objectContaining({ reasons: expect.arrayContaining([expect.objectContaining({ _tag: "Fail", error: expect.objectContaining({ reason: "unsupportedProfile" }) })]) }));
       const remove = bound.service.delete, restore = bound.service.restore; await Effect.runPromise(bound.owner.close);
       await expect(remove(endpoint(["set"]))).rejects.toMatchObject({ reason: "closed" });
       await expect(restore(endpoint(["set"]))).rejects.toMatchObject({ reason: "closed" });

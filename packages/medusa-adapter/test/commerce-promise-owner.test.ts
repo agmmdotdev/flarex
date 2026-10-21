@@ -1,4 +1,4 @@
-import { Clock, Context, Deferred, Effect, Option, References, Scope, Tracer } from "effect";
+import { Cause, Clock, Context, Deferred, Effect, Exit, Option, References, Scope, Tracer } from "effect";
 import { describe, expect, it } from "vitest";
 import { mockRelationalRead } from "./mock-relational-read";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -154,16 +154,22 @@ describe("commerce Promise operation context", () => {
     expect(left.spans.some(span => right.spans.includes(span))).toBe(false);
   });
 
-  it("preserves runtime rejection identities and the first synchronous refusal", async () => {
+  it("preserves single rejection identities and restores synchronous refusal Causes", async () => {
     const owner = await Effect.runPromise(makeCommercePromiseOwner());
     const failure = commerceError("invalidInput");
     const defect = new TypeError("DAL defect");
     try {
       await expect(owner.run(Effect.fail(failure))).rejects.toBe(failure);
-      await expect(owner.run(Effect.die(defect))).rejects.toBe(defect);
-      expect(() => owner.reject(failure)).toThrow(failure);
+      const defectOwner = await Effect.runPromise(makeCommercePromiseOwner());
+      try { await expect(defectOwner.run(Effect.die(defect))).rejects.toBe(defect); }
+      finally { await Effect.runPromise(defectOwner.close); }
+      const synchronous = await Effect.runPromiseExit(owner.invoke(async () => owner.reject(failure)));
+      if (Exit.isSuccess(synchronous)) throw new Error("Expected restored synchronous refusal");
+      expect(synchronous.cause.reasons.some(reason => Cause.isFailReason(reason) && reason.error === failure)).toBe(true);
       expect(() => owner.reject(commerceError("unsupportedProfile"))).toThrow();
-      expect(owner.refusal()).toEqual(Option.some(failure));
+      const completed = await Effect.runPromise(owner.close);
+      if (Exit.isSuccess(completed)) throw new Error("Expected complete synchronous refusal outcome");
+      expect(completed.cause.reasons.filter(reason => Cause.isFailReason(reason) && reason.error === failure)).toHaveLength(1);
     } finally { await Effect.runPromise(owner.close); }
   });
 
@@ -192,7 +198,7 @@ describe("commerce Promise operation context", () => {
       expect(settled[0]?.status).toBe("rejected");
       let starts = 0;
       yield* Effect.promise(() => expect(owner.run(Effect.sync(() => { starts++; }))).rejects.toMatchObject({ reason: "closed" }));
-      yield* Effect.promise(() => expect(owner.callback(async () => { starts++; }, new AbortController().signal))
+      yield* Effect.promise(() => expect(Effect.runPromise(owner.invoke(async () => { starts++; })))
         .rejects.toMatchObject({ reason: "closed" }));
       expect(starts).toBe(0);
     }));

@@ -1,12 +1,14 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { describe, expect, it, vi } from "vitest";
-import { Effect, Option } from "effect";
+import { Effect } from "effect";
 import { commerceError, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceModuleEventBus } from "../src/module/events";
 import { makeCommercePromiseOwner } from "../src/module/promise-owner";
 
 describe("native module event binding", () => {
   it("validates options before inspecting messages and validates the complete batch before forwarding", async () => {
-    const owner = await Effect.runPromise(makeCommercePromiseOwner());
+    const recordFailure = promiseFailureObserver();
+    const owner = await Effect.runPromise(makeCommercePromiseOwner(recordFailure));
     const capture = vi.fn(() => Effect.void);
     const bus = commerceModuleEventBus({ owner, resources: defaultCommerceResources,
       capture, check: work => work, refuse: () => owner.run(Effect.fail(commerceError("unsupportedProfile"))),
@@ -28,7 +30,8 @@ describe("native module event binding", () => {
   });
 
   it.each(["snapshot", "current"] as const)("retains the %s refusal policy across sequential event forwarding", async policy => {
-    const owner = await Effect.runPromise(makeCommercePromiseOwner());
+    const recordFailure = promiseFailureObserver();
+    const owner = await Effect.runPromise(makeCommercePromiseOwner(recordFailure));
     let active = "root";
     const forwarded: string[] = [];
     const refused: string[] = [];
@@ -57,14 +60,15 @@ describe("native module event binding", () => {
   });
 
   it("keeps caught subscription refusal sticky and refuses grouped and escaped event operations", async () => {
-    const owner = await Effect.runPromise(makeCommercePromiseOwner());
+    const recordFailure = promiseFailureObserver();
+    const owner = await Effect.runPromise(makeCommercePromiseOwner(recordFailure));
     const bus = commerceModuleEventBus({ owner, resources: defaultCommerceResources,
       capture: () => Effect.void, check: work => work,
       refuse: () => owner.run(Effect.fail(commerceError("unsupportedProfile"))),
     });
     try {
       expect(() => bus.subscribe("sample", async () => {})).toThrow();
-      expect(Option.getOrUndefined(owner.refusal())).toMatchObject({ reason: "unsupportedProfile" });
+      expect(recordFailure).toHaveBeenCalledWith(expect.objectContaining({ reasons: expect.arrayContaining([expect.objectContaining({ _tag: "Fail", error: expect.objectContaining({ reason: "unsupportedProfile" }) })]) }));
       await expect(bus.releaseGroupedEvents("group")).rejects.toMatchObject({ reason: "unsupportedProfile" });
     } finally { await Effect.runPromise(owner.close); }
     await expect(bus.emit([], { internal: true })).rejects.toMatchObject({ reason: "closed" });
