@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { sql } from "drizzle-orm";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
-import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
+import { AppDocumentIdV1Schema, type AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import {
   requireCmsAdmission,
   type CmsAdmission,
@@ -22,6 +22,9 @@ import {
 import { capturePrivateJsonData } from "../../values/privateJsonData";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
 import { rowsFromDriverExecuteResult } from "../../database/driverExecuteResult";
+import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
+import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
+import type { InstallationRuntimeData } from "../../installation/frameworkSchema/installation/runtimeData";
 
 export interface PayloadPreferenceCleanup {
   readonly deleteForPendingDocument: (
@@ -31,12 +34,15 @@ export interface PayloadPreferenceCleanup {
     selector: unknown,
   ) => Effect.Effect<void, CmsTransactionError>;
 }
-interface DeletionIntent {
-  readonly documentId: AppDocumentIdV1;
-  readonly collectionSlug: string;
-  readonly key: string;
-}
-interface DeletionEvidence extends DeletionIntent {
+export const PayloadPreferenceDeletionIntentSchema = Schema.Struct({
+  documentId: AppDocumentIdV1Schema, collectionSlug: Schema.String,
+  key: Schema.String.check(Schema.isMaxLength(2048)),
+}).annotate({ parseOptions: { onExcessProperty: "error" } });
+export type PayloadPreferenceDeletionIntent = typeof PayloadPreferenceDeletionIntentSchema.Type;
+const PayloadPreferenceDeletionIntentsSchema = Schema.Array(PayloadPreferenceDeletionIntentSchema)
+  .check(Schema.isMaxLength(cmsLimits.identities));
+export const decodePayloadPreferenceDeletionIntents = Schema.decodeUnknownEffect(PayloadPreferenceDeletionIntentsSchema);
+export interface PayloadPreferenceDeletionEvidence extends PayloadPreferenceDeletionIntent {
   readonly preferenceIds: readonly string[];
 }
 declare const closureBrand: unique symbol;
@@ -49,7 +55,7 @@ const closures = new WeakMap<
     admission: CmsAdmission;
     lifetime: CmsRequestLifetime;
     pendingDeletions: CmsPendingDeletions;
-    intents: readonly DeletionIntent[];
+    intents: readonly PayloadPreferenceDeletionIntent[];
   }>
 >();
 const decodeSelector = Schema.decodeUnknownEffect(
@@ -93,7 +99,31 @@ export const makePayloadPreferenceCleanup = Effect.fn(
   pendingDeletions: CmsPendingDeletions,
 ) {
   const state = yield* requireCmsAdmission(admission);
-  const intents: DeletionIntent[] = [];
+  const recorder = makePayloadPreferenceCleanupRecorder(lifetime, {
+    available: state.preferenceAvailability !== null,
+    collections: state.configuration.tables.map(table => table.collectionSlug),
+    requireOpen: requireCmsAdmission(admission, state.tx).pipe(Effect.asVoid),
+    requireDeletion: id => requireCmsPendingDeletion(pendingDeletions, admission, lifetime, id),
+  });
+  const close = Effect.fn("PayloadPreferences.closeCleanup")(function* () {
+    const intents = yield* recorder.close;
+    // SAFETY: the registry binds immutable intents to the closing request.
+    const closure = Object.freeze({}) as PayloadPreferenceCleanupClosure;
+    closures.set(closure, Object.freeze({ admission, lifetime, pendingDeletions, intents }));
+    return closure;
+  });
+  return Object.freeze({ cleanup: recorder.cleanup, close });
+});
+
+/** Shared lifecycle recorder. Its trusted CMS owner supplies only exact pending
+ * deletion proof; native callbacks receive the operation port alone. */
+export function makePayloadPreferenceCleanupRecorder(lifetime: CmsRequestLifetime, input: Readonly<{
+  available: boolean;
+  collections: readonly string[];
+  requireOpen: Effect.Effect<void, CmsTransactionError>;
+  requireDeletion: (id: string) => Effect.Effect<Readonly<{ documentId: AppDocumentIdV1; collectionSlug: string }>, CmsTransactionError>;
+}>) {
+  const intents: PayloadPreferenceDeletionIntent[] = [];
   const keys = new Set<string>();
   let closed = false;
   const deleteForPendingDocument: PayloadPreferenceCleanup["deleteForPendingDocument"] =
@@ -104,9 +134,9 @@ export const makePayloadPreferenceCleanup = Effect.fn(
           transactionId,
           "write",
           Effect.gen(function* () {
-            yield* requireCmsAdmission(admission, state.tx);
+            yield* input.requireOpen;
             if (closed) return yield* Effect.fail(cmsError("closed"));
-            if (state.preferenceAvailability === null)
+            if (!input.available)
               return yield* Effect.fail(cmsError("unsupportedProfile"));
             const captured = yield* Effect.fromResult(
               capturePrivateJsonData(
@@ -121,9 +151,7 @@ export const makePayloadPreferenceCleanup = Effect.fn(
             );
             const prefix = `collection-${collectionSlug}-`;
             if (
-              !state.configuration.tables.some(
-                (table) => table.collectionSlug === collectionSlug,
-              ) ||
+              !input.collections.includes(collectionSlug) ||
               !value.key.in[0].startsWith(prefix)
             ) {
               return yield* Effect.fail(cmsError("invalidInput"));
@@ -131,12 +159,7 @@ export const makePayloadPreferenceCleanup = Effect.fn(
             const key = value.key.in[0];
             if (keys.has(key))
               return yield* Effect.fail(cmsError("invalidInput"));
-            const pending = yield* requireCmsPendingDeletion(
-              pendingDeletions,
-              admission,
-              lifetime,
-              key.slice(prefix.length),
-            );
+            const pending = yield* input.requireDeletion(key.slice(prefix.length));
             if (
               pending.collectionSlug !== collectionSlug ||
               key !==
@@ -156,29 +179,18 @@ export const makePayloadPreferenceCleanup = Effect.fn(
           }),
         ),
     );
-  const close = Effect.fn("PayloadPreferences.closeCleanup")(function* () {
-    yield* requireCmsAdmission(admission);
+  const close = Effect.gen(function* () {
+    yield* input.requireOpen;
     if (closed || !lifetime.isClosing())
       return yield* Effect.fail(cmsError("invalidAuthority"));
     closed = true;
-    // SAFETY: the registry binds immutable intents to the closing request.
-    const closure = Object.freeze({}) as PayloadPreferenceCleanupClosure;
-    closures.set(
-      closure,
-      Object.freeze({
-        admission,
-        lifetime,
-        pendingDeletions,
-        intents: Object.freeze([...intents]),
-      }),
-    );
-    return closure;
+    return Object.freeze([...intents]);
   });
   return Object.freeze({
     cleanup: Object.freeze({ deleteForPendingDocument }),
     close,
   });
-});
+}
 
 /** Only settlement applies the captured intents; returned facts attest actual deletes. */
 export const applyPayloadPreferenceCleanup = Effect.fn(
@@ -200,13 +212,30 @@ export const applyPayloadPreferenceCleanup = Effect.fn(
     return yield* Effect.fail(cmsError("invalidAuthority"));
   const state = yield* requireCmsAdmission(admission);
   closures.delete(closure);
-  const evidence: DeletionEvidence[] = [];
-  if (captured.intents.length === 0) return Object.freeze(evidence);
-  const availability = state.preferenceAvailability;
+  return yield* applyPayloadPreferenceDeletionIntents({
+    tx: state.tx, authority: state.authority, availability: state.preferenceAvailability,
+    intents: captured.intents, lifetime,
+    requireDeletion: id => requireCmsClosedPendingDeletion(pendingDeletions, admission, lifetime, id),
+  });
+});
+
+/** SQL is confined to the accepting outer transaction and the exact installed
+ * lifecycle layout. Capture alone never manufactures an empty-match receipt. */
+export const applyPayloadPreferenceDeletionIntents = Effect.fn("PayloadPreferences.applyDeletionIntents")(function* (
+  input: Readonly<{ tx: FlarexMetadataTransaction; authority: TrustedScopeAuthority;
+    availability: InstallationRuntimeData | null; intents: readonly PayloadPreferenceDeletionIntent[];
+    lifetime: Pick<CmsRequestLifetime, "charge">;
+    requireDeletion: (id: AppDocumentIdV1) => Effect.Effect<Readonly<{ documentId: AppDocumentIdV1; collectionSlug: string }>, CmsTransactionError>;
+  }>,
+) {
+  const evidence: PayloadPreferenceDeletionEvidence[] = [];
+  const { tx, authority, lifetime } = input;
+  if (input.intents.length === 0) return Object.freeze(evidence);
+  const availability = input.availability;
   if (availability === null)
     return yield* Effect.fail(cmsError("invalidAuthority"));
   const scope = yield* Effect.fromResult(
-    projectScopeIdUuidV1Result(state.authority.scopeId),
+    projectScopeIdUuidV1Result(authority.scopeId),
   ).pipe(Effect.mapError((cause) => cmsError("invalidAuthority", cause)));
   const layout = availability.physicalLayout;
   const physical = layout.tables[0];
@@ -230,13 +259,8 @@ export const applyPayloadPreferenceCleanup = Effect.fn(
   const table = sql`${sql.identifier(layout.targetNamespace.schemaName)}.${sql.identifier(physical.name)}`;
   const id = sql.identifier(identity.name);
   let identityCount = 0;
-  for (const intent of captured.intents) {
-    const pending = yield* requireCmsClosedPendingDeletion(
-      pendingDeletions,
-      admission,
-      lifetime,
-      intent.documentId,
-    );
+  for (const intent of input.intents) {
+    const pending = yield* input.requireDeletion(intent.documentId);
     if (
       pending.collectionSlug !== intent.collectionSlug ||
       intent.key !==
@@ -244,11 +268,11 @@ export const applyPayloadPreferenceCleanup = Effect.fn(
     ) {
       return yield* Effect.fail(cmsError("invalidAuthority"));
     }
-    const where = sql`${sql.identifier("scope_uuid")} = ${scope.scopeUuid}::uuid and ${sql.identifier(generation.name)} = ${state.authority.storageGeneration}
+    const where = sql`${sql.identifier("scope_uuid")} = ${scope.scopeUuid}::uuid and ${sql.identifier(generation.name)} = ${authority.storageGeneration}
       and ${sql.identifier(lookup.name)} = ${intent.key}`;
     const budget = cmsLimits.identities - identityCount;
     const selected = yield* runDrizzleStatementEffect(
-      state.tx.execute(sql`select
+      tx.execute(sql`select
       case when octet_length(${id}) between 1 and 2048 then ${id} else null end as id
       from ${table} where ${where} order by ${id} limit ${budget + 1} for update`),
       (cause) => cmsError("statementFailure", cause),
@@ -265,7 +289,7 @@ export const applyPayloadPreferenceCleanup = Effect.fn(
     );
     if (selected.length > 0) {
       const deleted = yield* runDrizzleStatementEffect(
-        state.tx.execute(sql`delete from ${table} where ${where}
+        tx.execute(sql`delete from ${table} where ${where}
         and ${id} in (${sql.join(
           selected.map((preferenceId) => sql`${preferenceId}`),
           sql`, `,

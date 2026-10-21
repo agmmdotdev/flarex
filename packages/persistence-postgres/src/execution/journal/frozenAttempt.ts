@@ -33,6 +33,7 @@ const frozenFiniteAttemptBrand: unique symbol = Symbol("Flarex/FrozenFiniteAttem
 export interface FrozenFiniteAttempt { readonly [frozenFiniteAttemptBrand]: true }
 
 export type FrozenFiniteOperation = Readonly<{
+  payloadPreferenceCleanups?: readonly import("../../frameworks/payloadPreferences/cleanup").PayloadPreferenceDeletionIntent[];
   kind: "participant";
   sequence: bigint;
   admission: LogicalParticipantAdmissionBundle;

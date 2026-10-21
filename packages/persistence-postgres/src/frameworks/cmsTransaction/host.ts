@@ -1,3 +1,4 @@
+import { prepareCmsPreferences } from "../payloadPreferences/admission";
 import { observeExecution, withExecutionDiagnosticDefaults } from "../../execution/diagnostics/operation";
 import { getCmsCommand, type CmsCommand } from "./commands";
 import { projectCmsRequestFailure } from "./failure";
@@ -76,14 +77,13 @@ import {
 } from "./publication";
 import {
   prepareCmsApplicationFromBinding,
-  prepareCmsPreferences,
   withCmsAdmission,
   requireCmsAdmission,
   type CmsAdmission,
 } from "./admission";
 import { makeCmsRequestLifetime } from "./lifetime";
 import { makeCmsDocuments, makeSourceCmsDocuments } from "./documents";
-import { makePayloadPreferenceCleanup, type PayloadPreferenceCleanup } from "../payloadPreferences/cleanup";
+import { makePayloadPreferenceCleanup, makePayloadPreferenceCleanupRecorder } from "../payloadPreferences/cleanup";
 import {
   cmsError,
   cmsLimits,
@@ -169,7 +169,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
   const compositionAuthority = input.authority;
   const preferenceTarget = input.payloadPreferenceTarget;
   if (preferenceTarget !== undefined && !hasFrameworkSchemaTargetDatabase(preferenceTarget, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
-  if (logicalSelection !== undefined && (preferenceTarget !== undefined || relationReads !== undefined))
+  if (logicalSelection !== undefined && relationReads !== undefined)
     return yield* Effect.fail(cmsError("unsupportedProfile"));
   if (logicalSelection === undefined && pointCommitAuthority === undefined)
     return yield* Effect.fail(cmsError("invalidAuthority"));
@@ -214,7 +214,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
     if (logicalSelection !== undefined) {
       const source = yield* prepareLogicalDocumentSourceAdmission(logicalSelection.ports, logicalSelection.unique,
         { deploymentId, scopeId: context.authority.scopeId, schemaVersionId: logicalSelection.schemaVersionId },
-        (yield* Effect.fromResult(logicalSelection.source)).value, { kind: "standalone", application: binding }).pipe(
+        (yield* Effect.fromResult(logicalSelection.source)).value, { kind: "standalone", application: binding }, preferences).pipe(
           Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
       const sourceTemplate = yield* prepareSourceCmsDocumentMaterialization(
         yield* source.lendPreparation().pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))), materialization).pipe(
@@ -295,12 +295,22 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
               const working = yield* makeSourceCmsDocuments(member.admission, tx, lifetime, creationTime, testHooks?.documentReads);
               const incoming: CmsRelations = Object.freeze({ incoming: (context: CmsRequestContext, id: CmsPresentedTransactionId) =>
                 lifetime.operation(context, id, "read", Effect.fail(cmsError("unsupportedProfile"))) });
-              const preferences: PayloadPreferenceCleanup = Object.freeze({ deleteForPendingDocument: (context: CmsRequestContext, id: CmsPresentedTransactionId) =>
-                lifetime.operation(context, id, "write", Effect.fail(cmsError("unsupportedProfile"))) });
+              const sourceState = yield* requireLogicalDocumentSourceAdmission(member.admission, tx).pipe(Effect.mapError(projectFailure));
+              const preferences = makePayloadPreferenceCleanupRecorder(lifetime, {
+                available: sourceState.preferenceCleanup !== undefined,
+                collections: sourceState.configuration.tables.map(table => table.collectionSlug),
+                requireOpen: requireLogicalDocumentSourceAdmission(member.admission, tx).pipe(Effect.asVoid, Effect.mapError(projectFailure)),
+                requireDeletion: documentId => working.requirePendingDeletion(documentId).pipe(Effect.flatMap(row => {
+                  const collection = sourceState.configuration.tables.find(table => table.logicalTableName === row.tableName);
+                  return collection === undefined ? Effect.fail(cmsError("invalidAuthority")) :
+                    Effect.succeed({ documentId: row.documentId, collectionSlug: collection.collectionSlug });
+                })),
+              });
               const finalize = (actualLookup: NonNullable<typeof lookup>, value: CanonicalSuccessfulResultV1, digest: Uint8Array) =>
                 participant === null ? Effect.fail(cmsError("invalidAuthority")) :
-                  working.close().pipe(Effect.flatMap(closure => participant.finalize(closure, actualLookup, value, digest, testHooks)), Effect.asVoid);
-              return Object.freeze({ documents: working.documents, incoming, preferences, finalize });
+                  preferences.close.pipe(Effect.flatMap(intents => working.close(intents)),
+                    Effect.flatMap(closure => participant.finalize(closure, actualLookup, value, digest, testHooks)), Effect.asVoid);
+              return Object.freeze({ documents: working.documents, incoming, preferences: preferences.cleanup, finalize });
             }) : yield* Effect.gen(function* () {
               if (payload.kind !== "application") return yield* Effect.fail(cmsError("invalidAuthority"));
               const participant = key === null ? null : yield* enterCmsApplicationCommit(payload.commit, member.admission, lifetime);

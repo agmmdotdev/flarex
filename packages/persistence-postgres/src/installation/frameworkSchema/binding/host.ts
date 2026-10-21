@@ -381,6 +381,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           active.selection,
           payloadProfiles,
           commerceProfiles,
+          logicalStorage?.source("payload"),
         );
         return yield* storeBindingCandidate(tx, candidate, verified);
       }),
@@ -430,6 +431,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           active.selection,
           payloadProfiles,
           commerceProfiles,
+          logicalStorage?.source("payload"),
         );
         const current = yield* readBindingHead(tx, authority, "update");
         if (
@@ -530,6 +532,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           active.selection,
           payloadProfiles,
           commerceProfiles,
+          logicalStorage?.source("payload"),
         );
         const current = yield* readBindingHead(tx, authority, "update");
         const matches = Option.isNone(current)

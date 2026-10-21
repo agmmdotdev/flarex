@@ -535,6 +535,7 @@ export interface SessionJournalStorePersistence {
 }
 
 export type AdmittedCompletion = Readonly<{
+  payloadPreferenceCleanups?: readonly import("../../frameworks/payloadPreferences/cleanup").PayloadPreferenceDeletionIntent[];
   result: Json;
   changes: LogicalDocumentChanges;
   eventIntents: readonly Readonly<{ sourceKey: string | null; intent: Json }>[];

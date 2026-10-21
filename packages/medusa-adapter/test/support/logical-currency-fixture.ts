@@ -180,6 +180,9 @@ type LogicalCurrencyResource =
 
 type FixtureIdentity = Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
 type LogicalCurrencyFixtureOptions = Readonly<{
+  /** Fixed fixture installation phase, before protected serving proofs exist. */
+  preparePhysicalProfile?: (resources: Readonly<{ control: PostgresFlarexPersistence;
+    target: PostgresFlarexPersistence; schemaName: string }>) => Promise<void>;
   physicalSessionObservation?: () => PhysicalSessionObservation | undefined;
   postgresEndpoints?: PostgresFixtureEndpoints;
   includeUserNameIndex?: boolean; includeProductLaunch?: boolean;
@@ -290,6 +293,8 @@ export async function logicalCurrencyFixture(
       const targetOwner = await createFileScopedPostgresFixture({}, { immutableCatalog: control.persistence.drizzle },
         options?.finiteStorageCapture === true ? "finiteCapture" : "ordinary", options?.postgresEndpoints);
       registerCleanup(targetOwner.dispose);
+      await options?.preparePhysicalProfile?.({ control: control.persistence, target: targetOwner.persistence,
+        schemaName: targetOwner.schemaName });
       const target = await (options?.protectedRuntime === true || options?.managedRead === true
           ? createActivationServingFileScopedPostgresFixture(targetOwner,
             options?.finiteStorageCapture === true ? "finiteCapture" : "ordinary", options?.postgresEndpoints).then(resource => {

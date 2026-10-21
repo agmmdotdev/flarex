@@ -1,28 +1,11 @@
+import { acceptCmsPreferences, type PreparedCmsPreferences } from "../payloadPreferences/admission";
 import { observeExecution } from "../../execution/diagnostics/operation";
 import {
   chargeHostPreparation,
   captureHostPreparationLifetime,
   type PreparedHostPreparationLifetime,
 } from "../../execution/preparation/preparedHostRuntime";
-import {
-  frameworkSchemaTargetSnapshot,
-  type FrameworkSchemaTarget,
-} from "../../installation/frameworkSchema/target";
-import { scopePhysicalLocatorsEqual } from "../../scope/scopePhysicalLocator";
-import {
-  prepareInstallationRuntime,
-  acceptPreparedInstallation,
-  type PreparedInstallationRuntime,
-} from "../../installation/frameworkSchema/installation/runtime";
 import type { InstallationRuntimeData } from "../../installation/frameworkSchema/installation/runtimeData";
-import { bindingInstallationReference } from "../../installation/frameworkSchema/binding/model";
-import { runRelationalSession, type RelationalSession } from "../../database/relationalTransaction/session";
-import { lockScopeClockForShareInTransactionEffect } from "../../scope/scopeClock";
-import { resolveLocatedTrustedScopeAuthorityByIdEffect } from "../../scope/scopeAuthorityResolution";
-import {
-  hasLocatedReadCommittedTargetDatabaseV1,
-} from "../../database/locatedTransactionIdentity";
-import { verifyPayloadPreferenceStorageBinding } from "../payloadPreferences/binding";
 import { Effect, Option, Schema, Result } from "effect";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type {
@@ -122,10 +105,6 @@ export interface CmsAdmissionState {
   readonly preferenceAvailability: InstallationRuntimeData | null;
   readonly preparation: PreparedCmsApplicationState;
 }
-export interface PreparedCmsPreferences {
-  readonly target: FrameworkSchemaTarget;
-  readonly installation: PreparedInstallationRuntime;
-}
 const admissions = new WeakMap<object, CmsAdmissionState>();
 const prepared = new WeakMap<PreparedCmsApplication, PreparedCmsApplicationState>();
 const disposeCmsPreparation = (token: PreparedCmsApplication, validator: ApplicationRevisionSyscallValidatorV1) => () => {
@@ -138,29 +117,6 @@ function cmsClockMatches(authority: TrustedScopeAuthority, clock: ScopeClockReco
   return clock.scopeId === authority.scopeId && clock.storageGeneration === authority.storageGeneration &&
     clock.storageGenerationFence === authority.storageGenerationFence && clock.epoch === authority.epoch;
 }
-
-/** Host-owned immutable installation inputs, never request authority. Selection
- * releases its scope lock before the installation owner's snapshot preparation. */
-export const prepareCmsPreferences = Effect.fn("CmsAdmission.preparePreferences")(function* (
-  database: FlarexMetadataDatabase, session: RelationalSession,
-  authority: ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>,
-  deploymentId: string, scopeId: ScopeId, target: FrameworkSchemaTarget,
-) {
-  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect({ deploymentId, scopeId }, authority);
-  if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
-  const reference = yield* runRelationalSession(session, "command", tx => Effect.gen(function* () {
-    const clock = yield* lockScopeClockForShareInTransactionEffect(tx, located.authority.scopeId);
-    if (!cmsClockMatches(located.authority, clock)) return yield* Effect.fail(cmsError("invalidAuthority"));
-    const head = yield* readBindingHead(tx, located.authority, "none");
-    if (Option.isNone(head)) return yield* Effect.fail(cmsError("bindingChanged"));
-    const candidate = yield* readBindingCandidate(tx, located.authority, head.value.frame.candidateSha256);
-    if (Option.isNone(candidate)) return yield* Effect.fail(cmsError("storedCorruption"));
-    if (candidate.value.frame.payloadLifecycle === null) return yield* Effect.fail(cmsError("unsupportedProfile"));
-    return bindingInstallationReference(candidate.value.frame.payloadLifecycle);
-  }));
-  const installation = yield* prepareInstallationRuntime(database, target, reference);
-  return Object.freeze({ target, installation }) satisfies PreparedCmsPreferences;
-});
 
 /** Host-owned revision preparation, never a live admission verdict. Control
  * evidence is captured before opening any request's target data transaction. */
@@ -264,16 +220,7 @@ export const withCmsAdmission = Effect.fnUntraced(function* <Value, Failure, Req
       return yield* Effect.fail(cmsError("invalidAuthority"));
     }
     yield* verifyAcceptedPayloadContentBinding(tx, clock, frame, binding);
-    let preferenceAvailability: InstallationRuntimeData | null = null;
-    if (preferences !== undefined && frame.payloadLifecycle !== null) {
-      const snapshot = frameworkSchemaTargetSnapshot(preferences.target);
-      if (snapshot === undefined || snapshot.namespace.frame.deploymentId !== authority.deploymentId ||
-        !scopePhysicalLocatorsEqual(snapshot.physicalLocator, authority.physicalLocator)) return yield* Effect.fail(cmsError("invalidAuthority"));
-      const availability = yield* acceptPreparedInstallation(preferences.installation, preferences.target,
-        bindingInstallationReference(frame.payloadLifecycle), tx);
-      yield* verifyPayloadPreferenceStorageBinding(frame, availability);
-      preferenceAvailability = availability;
-    }
+    const preferenceAvailability = yield* acceptCmsPreferences(preferences, frame, tx, authority);
     // SAFETY: authority resides exclusively in this live, transaction-bound registry.
     const token = Object.freeze({}) as CmsAdmission;
     admissions.set(token, Object.freeze({ binding, tx, authority, clock, schema, frame, preferenceAvailability,

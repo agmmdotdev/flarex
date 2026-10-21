@@ -1,4 +1,12 @@
 import { makeCmsCommandBinding } from "@flarex/persistence-postgres/internal/cms-construction";
+import { installPayloadPreferenceFixture } from "../../../../persistence-postgres/test/frameworks/payloadPreferences/payloadPreferenceFixture";
+import { makeDataBindingHost, dataBindingActivationRequest } from "../../../../persistence-postgres/src/installation/frameworkSchema/binding/host";
+import { readAdmittedDataBinding } from "../../../../persistence-postgres/src/installation/frameworkSchema/binding/selection";
+import { installationBindingReference } from "../../../../persistence-postgres/test/installation/frameworkSchema/frameworkDataBindingPhysicalTestSupport";
+import { makePayloadContentProfiles } from "../../../../payload-adapter/src/profile";
+import { prepareCmsPreferences } from "../../../../persistence-postgres/src/frameworks/payloadPreferences/admission";
+import { makeFrameworkSchemaTarget } from "../../../../persistence-postgres/src/installation/frameworkSchema/target";
+import { createPostgresSplitScopeAuthorityProvisioner, createPostgresLocatedSplitScopeClockTarget } from "../../../../persistence-postgres/src/database/postgres";
 import { inspectPayloadRuntimeForTest } from "@flarex/payload-adapter/internal/testing";
 import type { CmsCommand } from "../../../../persistence-postgres/src/frameworks/cmsTransaction/commands";
 import { createHash } from "node:crypto";
@@ -286,6 +294,7 @@ type CreatedActivation = Extract<Effect.Success<ReturnType<
 >>, { status: "created" }>;
 
 export interface MixedMutationProductFixture {
+  readonly payloadPreferences?: Awaited<ReturnType<typeof installPayloadPreferenceFixture>>;
   readonly readSettlementLedger: () => Promise<PerformanceSettlementLedger | null>;
   readonly currency: CurrencyFixture;
   readonly product: ProductFixture;
@@ -408,6 +417,7 @@ type MixedMutationProductFixtureInput = Readonly<{
   readMetadataScale?: LogicalReadMetadataScale;
   /** Compiler input for ordinary native execution; fixed conformance profiles keep their own definitions. */
   payloadCollections?: unknown;
+  payloadPreferences?: true;
   applicationSource?: (seed: ProductSeed["seed"], payloadParticipant: string | undefined) => string;
 }> & (Readonly<{ workflow: true; payloadProfile: MixedPayloadProfileKind;
   workflowIds?: Readonly<{ variantId: string; priceSetId: string }> }> |
@@ -423,12 +433,30 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
   if (input.payloadCollections !== undefined && input.payloadProfile !== "ordinary")
     throw new Error("Configured collections require the ordinary Payload runtime");
   const payloadCollections = input.payloadCollections ?? mixedPayloadPostsCollections();
+  if (input.payloadPreferences === true && input.resource !== undefined)
+    throw new Error("Preference-enabled mixed fixtures require a fresh resource");
+  let installedPreferences: Awaited<ReturnType<typeof installPayloadPreferenceFixture>> | undefined;
+  const preparePhysicalProfile = input.payloadPreferences !== true ? undefined : async (resources: Parameters<
+    NonNullable<NonNullable<Parameters<typeof logicalCurrencyFixture>[2]>["preparePhysicalProfile"]>>[0]) => {
+    const deploymentId = input.fixtureIdentity?.deploymentId ?? "deployment_application_native_mutation";
+    const physicalLocator = { kind: "database_per_scope" as const, databaseKey: "logical_currency_target", schemaName: resources.schemaName };
+    await createPostgresSplitScopeAuthorityProvisioner(resources.control, {
+      placementPlanner: { plan: () => physicalLocator },
+      targetResolver: { resolve: async locator => createPostgresLocatedSplitScopeClockTarget(resources.target, locator) },
+      randomUuid: () => crypto.randomUUID(),
+    }).ensure({ deploymentId, projectId: input.fixtureIdentity?.projectId ?? "project_application_native_mutation" });
+    const target = await Effect.runPromise(makeFrameworkSchemaTarget({ database: resources.target.drizzle,
+      deploymentId, canonicalPhysicalDatabaseIdentity: "logical-currency-target",
+      physicalLocator }));
+    installedPreferences = await installPayloadPreferenceFixture(resources.target, target, deploymentId, resources.control);
+  };
   const cleanup: Array<() => Promise<void>> = [];
   const provisioningStart = globalThis.performance.now();
   try {
   const currency = await logicalCurrencyFixture(input.driver, close => cleanup.push(close),
     input.resource === undefined
       ? { includeProduct: true, finiteStorageCapture: true,
+        ...(preparePhysicalProfile === undefined ? {} : { preparePhysicalProfile }),
         ...(currentDiagnostics === undefined ? {} : { physicalSessionObservation: () => currentDiagnostics()?.physicalSessionObservation }),
         ...(input.postgresEndpoints === undefined ? {} : { postgresEndpoints: input.postgresEndpoints }),
         protectedRuntime: input.driver === "postgres",
@@ -484,9 +512,27 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
   const selectedPayload = input.payloadProfile === undefined ? undefined : mixedPayloadProfiles[input.payloadProfile];
   const payloadProfileRevision = selectedPayload === undefined ? undefined :
     createHash("sha256").update(
-      `mixed-payload-${selectedPayload.profile.participant}-${input.payloadProfile}`).digest("hex");
+      `mixed-payload-${selectedPayload.profile.participant}-${input.payloadProfile}${input.payloadPreferences ? "/preferences" : ""}`).digest("hex");
   const compiledPayload = selectedPayload === undefined ? undefined :
     await Effect.runPromise(compilePayloadCollections(payloadCollections));
+  const payloadPreferences = input.payloadPreferences === undefined ? undefined : await (async () => {
+    if (compiledPayload === undefined || input.payloadProfile !== "ordinary") throw new Error("Preference mixed fixture requires ordinary compiled Payload");
+    const installed = installedPreferences ?? await installPayloadPreferenceFixture(currency.persistence, currency.bindingTarget, currency.deploymentId, currency.control);
+    const bindings = await Effect.runPromise(makeDataBindingHost({ database: currency.persistence.drizzle,
+      selection: { deploymentId: currency.deploymentId, scopeId: application.authority.scopeId }, target: currency.bindingTarget,
+      authority: application.authorityPorts, application: application.activation,
+      payloadProfiles: await Effect.runPromise(makePayloadContentProfiles(compiledPayload)),
+      logicalStorage: { controlDb: currency.control.drizzle, schemaVersionId: logicalSchemaVersionId, unique: application.uniqueConstraintEligibility } }));
+    const current = await Effect.runPromise(bindings.withCurrent(readAdmittedDataBinding));
+    const candidate = await Effect.runPromise(bindings.prepare({ ...current.frame,
+      payloadLifecycle: { ...installationBindingReference(installed.availability), profiles: [installed.profile.profile] } }));
+    await Effect.runPromise(bindings.activate(dataBindingActivationRequest(application.authority.scopeId,
+      current.frame.application.storageGeneration, `mixed-payload-preferences-${input.suffix}`, candidate.sha256, current.head)));
+    return installed;
+  })();
+  const preparedPreferences = payloadPreferences === undefined ? undefined : await Effect.runPromise(prepareCmsPreferences(
+    currency.persistence.drizzle, currency.session, application.authorityPorts, currency.deploymentId,
+    application.authority.scopeId, currency.bindingTarget));
   let retainedPayload: MixedPayloadNativeRuntime | Effect.Success<ReturnType<typeof makePayloadRuntime>> | undefined;
   if (selectedPayload !== undefined && compiledPayload !== undefined) {
     const nativeScope = await Effect.runPromise(Scope.make());
@@ -518,7 +564,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
     yield* input.hooks.onPreparedFiniteProductSource({ currency, catalog: sourceCatalog, prepared });
   const payloadPrepared = compiledPayload === undefined ? undefined : yield*
     prepareLogicalDocumentSourceAdmission(sourcePorts, application.uniqueConstraintEligibility,
-      sourceLocation, compiledPayload.sourceContract, sourceConstruction);
+      sourceLocation, compiledPayload.sourceContract, sourceConstruction, preparedPreferences);
   const binding = yield* preparePrivateProductAttempt();
   const eventPolicy = yield* preparePrivateProductAttemptEventPolicy(binding, {
     producerRevision: revision, contractRevision: revision,
@@ -606,7 +652,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
   return { cleanup, currency, product, pricing, link, application, admissionContext, prepareAttempt, withApplicationPreparation, readApplicationPreparation, acquireFreshApplicationPreparation,
     initialSeed,
     schemaVersionId, logicalSchemaVersionId, sourceCatalog, prepared,
-    selectedPayload, payloadProfileRevision, compiledPayload, payloadPrepared, retainedPayload,
+    selectedPayload, payloadProfileRevision, compiledPayload, payloadPrepared, retainedPayload, payloadPreferences,
     binding, revision, eventPolicy, workflowBinding, workflowSelections, store, pgTarget,
     readSourcePreparationUsage: sourceGraph.readUsage,
     provisioningMilliseconds,
@@ -976,10 +1022,12 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
   currentEntry: CurrentApplicationFiniteEntry, cleanup: Array<() => Promise<void>>): Promise<MixedMutationProductFixture> {
   const { currency, product, pricing, link, application,
     schemaVersionId, logicalSchemaVersionId,
-    selectedPayload, payloadProfileRevision, compiledPayload, retainedPayload,
+    selectedPayload, payloadProfileRevision, compiledPayload, retainedPayload, payloadPreferences,
     revision, store, pgTarget } = context;
   const { sourceCatalog, prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections } = graph;
   const { seed, baseline } = seedGraph;
+  const payloadMethods = ["payload-create", "payload-update", "payload-findByID",
+    ...(payloadPreferences === undefined ? [] : ["payload-delete"])];
   const provideDiagnostic = <A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
     performance?.diagnostics === undefined ? withExecutionDiagnosticDefaults(work) : performance.diagnostics.provide(work);
   const runEffect = async <A, E>(work: Effect.Effect<A, E>): Promise<A> => {
@@ -1167,10 +1215,10 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
       }, ...(payloadPrepared === undefined || selectedPayload === undefined ? [] : [{
         participant: selectedPayload.profile.participant,
         admission: { participant: selectedPayload.profile.participant,
-          operationMethods: ["payload-create", "payload-update", "payload-findByID"],
+          operationMethods: payloadMethods,
           profileRevision: payloadProfileRevision!,
           sources: [{ selection: payloadPrepared,
-            methods: ["payload-create", "payload-update", "payload-findByID"] }] },
+            methods: payloadMethods }] },
         borrow: Effect.fn("MixedFixture.borrowPayload")(function* (borrowedInput: Parameters<LogicalParticipantBorrow>[0]) {
           const runtime = yield* ensurePayloadRuntime(borrowedInput.attempt).pipe(
             Effect.mapError(projectPayloadParticipantFailure));
@@ -1466,7 +1514,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     "medusa.product", ["update", "retrieve", "listByHandle"]);
   const payloadAuthority = payloadPrepared === undefined || selectedPayload === undefined ? undefined :
     payloadPrepared.createCommitAuthority(active.selection, selectedPayload.profile.participant,
-      ["payload-create", "payload-update", "payload-findByID"]);
+      payloadMethods);
   const workflowAuthorities = workflowBinding === undefined ? [] :
     workflowSelections.map((selection, index) => selection.createCommitAuthority(
       active.selection, "medusa.workflow", workflowBinding.sources[index]!.methods));
@@ -1478,7 +1526,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
   }, ...(payloadAuthority === undefined || selectedPayload === undefined ||
     payloadProfileRevision === undefined ? [] : [{
     participant: selectedPayload.profile.participant,
-    operationMethods: ["payload-create", "payload-update", "payload-findByID"],
+    operationMethods: payloadMethods,
     profileRevision: payloadProfileRevision, sources: [payloadAuthority],
   }]), ...(workflowBinding === undefined ? [] : [{
     participant: "medusa.workflow", operationMethods: ["run"],
@@ -1642,7 +1690,8 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     return yield* makeCmsCommandBinding({ serving, hostRuntime: preparedHostTestRuntime(currency.persistence.drizzle),
       identityAndAccessPolicy: { profile: compiled.configuration.profile, release: "3.88.0",
         access: "closed-headless-local-api", hook: "none" },
-      profile: { kind: "source", schemaVersionId: logicalSchemaVersionId, source: compiled.sourceContract } });
+      profile: { kind: "source", schemaVersionId: logicalSchemaVersionId, source: compiled.sourceContract,
+        ...(payloadPreferences === undefined ? {} : { payloadPreferenceTarget: currency.bindingTarget }) } });
   });
 
   function standalonePayloadFaultHostInput(compiled: NonNullable<typeof compiledPayload>, session: typeof currency.session) {
@@ -1651,6 +1700,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
       deploymentId: currency.deploymentId,
       scopeId: application.authority.scopeId, authority: application.authorityPorts,
       application: application.activation,
+      ...(payloadPreferences === undefined ? {} : { payloadPreferenceTarget: currency.bindingTarget }),
       identityAndAccessPolicy: { profile: compiled.configuration.profile, release: "3.88.0",
         access: "closed-headless-local-api", hook: "none" },
       logicalStorage: { ports: { controlDb: currency.control.drizzle,
@@ -1879,6 +1929,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
   const runAdmitted = bound.runAdmittedOperation;
   if (runAdmitted === undefined) throw new Error("Missing bound admitted participant");
   return { currency, product,
+    ...(payloadPreferences === undefined ? {} : { payloadPreferences }),
     ...(pricing === undefined ? {} : { pricing }),
     ...(link === undefined ? {} : { link }),
     ...(selectedPayload === undefined ? {} : { payload: Object.freeze({

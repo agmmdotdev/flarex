@@ -28,6 +28,7 @@ import {
   requireLogicalDocumentRootEvaluatorOpen,
 } from "../../storage/documents/logicalDocuments/rootEvaluator";
 import { makeCmsCommandContext } from "./context";
+import { makePayloadPreferenceCleanupRecorder } from "../payloadPreferences/cleanup";
 import { getCmsCommand, type CmsCommand, type CmsCommandContext } from "./commands";
 import { cmsError, cmsLimits, CmsTransactionError,
   type CmsRequestContext, type CmsPresentedTransactionId } from "./model";
@@ -65,6 +66,8 @@ const makeBorrowedCmsAttempt = Effect.fnUntraced(function* (
       yield* localRootGate;
       if (state.configuration.profile !== "payload.scalar" && state.configuration.profile !== "payload.content-relations")
         return yield* Effect.fail(cmsError("unsupportedProfile"));
+      if (input.method === "payload-delete" && (state.preferenceCleanup === undefined || state.root.executionProfile !== "finiteRoot"))
+        return yield* Effect.fail(cmsError("unsupportedProfile"));
       const lifetime = yield* makeBoundedRequestLifetime(cmsError,
         { calls: cmsLimits.calls, commandBytes: cmsLimits.commandBytes, commandMs: cmsLimits.commandMs },
         input.attempt, Object.freeze({}), crypto.randomUUID(), "write", "require");
@@ -97,15 +100,23 @@ const makeBorrowedCmsAttempt = Effect.fnUntraced(function* (
             cmsError(cause.reason === "documentInvalid" ? "documentInvalid" : "invalidAuthority", cause)))),
         }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), state.writeMechanics.unique,
           state.writeMechanics.indexes, undefined, constructionTx);
-        return Object.freeze({ lifetime, id, working });
+        const preferences = makePayloadPreferenceCleanupRecorder(lifetime, {
+          available: state.preferenceCleanup !== undefined,
+          collections: state.configuration.tables.map(table => table.collectionSlug), requireOpen: requireAdmission,
+          requireDeletion: documentId => working.requirePendingDeletion(documentId).pipe(Effect.flatMap(row => {
+            const collection = state.configuration.tables.find(table => table.logicalTableName === row.tableName);
+            return collection === undefined ? Effect.fail(cmsError("invalidAuthority")) :
+              Effect.succeed({ documentId: row.documentId, collectionSlug: collection.collectionSlug });
+          })),
+        });
+        return Object.freeze({ lifetime, id, working, preferences });
       });
-    }), (state, _checkedRead, { lifetime, id, working }) => Effect.sync(() => {
+    }), (state, _checkedRead, { lifetime, id, working, preferences }) => Effect.sync(() => {
         const ports: Pick<CmsCommandContext, "documents" | "relations" | "preferences"> = {
           documents: working.documents,
           relations: Object.freeze({ incoming: (request: CmsRequestContext, presented: CmsPresentedTransactionId) => lifetime.operation(request, presented,
             "read", Effect.fail(cmsError("unsupportedProfile"))) }),
-          preferences: Object.freeze({ deleteForPendingDocument: (request: CmsRequestContext, presented: CmsPresentedTransactionId) => lifetime.operation(request, presented,
-            "write", Effect.fail(cmsError("unsupportedProfile"))) }),
+          preferences: preferences.cleanup,
         };
         const context = makeCmsCommandContext(lifetime, id, lifetime.context, ports,
           false, () => Effect.fail(cmsError("invalidAuthority")), state.configuration.profile === "payload.content-relations");
@@ -113,10 +124,11 @@ const makeBorrowedCmsAttempt = Effect.fnUntraced(function* (
         const close = Effect.gen(function* () {
           if (consumed) return yield* Effect.fail(cmsError("closed"));
           yield* lifetime.seal;
+          const payloadPreferenceCleanups = yield* preferences.close;
           const changes = yield* working.close();
           consumed = true;
           const events: readonly Json[] = Object.freeze([]);
-          return Object.freeze({ changes, events,
+          return Object.freeze({ changes, events, payloadPreferenceCleanups,
             workBytes: cmsLimits.commandBytes - lifetime.remainingBytes(), workCalls: lifetime.usedCalls() });
         }).pipe(Effect.ensuring(lifetime.close));
         return Object.freeze({ context, close, sourceKey: state.sourceKey,
@@ -155,6 +167,7 @@ export const makeBorrowedCmsInvocation = Effect.fnUntraced(function* (
     const result = yield* borrowed.withinDeadline(definition.run(borrowed.context, args));
     const closed = yield* borrowed.close;
     return Object.freeze({ result, changes: closed.changes,
+      payloadPreferenceCleanups: closed.payloadPreferenceCleanups,
       eventIntents: Object.freeze(closed.events.map(intent => Object.freeze({ sourceKey: borrowed.sourceKey, intent }))),
       workBytes: closed.workBytes, workCalls: closed.workCalls });
   }, work => observeExecution("LogicalCms.invoke", work, "caller"));

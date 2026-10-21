@@ -35,14 +35,14 @@ targets within the same request and pending state. Joins remain standalone-only.
 
 ## Boundaries And Validation
 
-The participant allowlist remains create/update/findByID. No borrowed delete,
-find/count, many/join fields, arbitrary hooks, cross-owner writes, commerce
-references, public facade, serving activation or performance optimization.
-Use a trusted source-CMS document command to prove target restriction and
-target-delete/reference-insert outcomes without widening that allowlist.
-Native logical-source Payload delete still refuses at preference cleanup; its
-full lifecycle remains a separate gate. Native create/update supply the real
-standalone target writers and population reads remain genuine Local API calls.
+Create/update/findByID remain available in content-only profiles. The connected
+[delete and preference lifecycle](./payload-delete-preferences-preflight.md)
+adds real Payload delete only with admitted cleanup authority. The relationship
+witness now uses native delete to prove target restriction and both target-delete/
+reference-insert orderings. Find/count, many/join fields, arbitrary hooks,
+cross-owner writes, commerce references, public facade, serving activation and
+performance optimization retain their gates. Population reads remain genuine
+Local API calls.
 
 The [connected Worker witness](../../packages/flarex-backend/test/mixedMutationPayloadRelationships.workerd.test.ts)
 covers pending population and reassignment/clear, missing/wrong-table/foreign-scope

@@ -200,6 +200,7 @@ export interface RetainedPhysicalProfileInstallationInput {
   readonly database: FlarexMetadataDatabase;
   readonly target: FrameworkSchemaTarget;
   readonly artifactRepository: FrameworkSchemaArtifactRepository;
+  readonly artifactControlDatabase?: FlarexMetadataDatabase;
   readonly requests: readonly FrameworkFreshInstallationRequest[];
   readonly policy: FrameworkInstallerPolicy;
   readonly journal: InstallationMigrationJournal;
@@ -232,10 +233,12 @@ export const installRetainedPhysicalProfile: (input: RetainedPhysicalProfileInst
           protectNewTables: () => protectNewPhysicalTables(owner, input.journal).pipe(Effect.mapError(maintenanceMigrationResource)),
         };
         const migrationTarget = yield* makePostgresMaintenanceFrameworkMigrationTargetEffect(targetInput);
-        const artifactReadTarget = yield* makePostgresMaintenanceFrameworkMigrationTargetEffect({ ...targetInput, readOnly: true });
+        const artifactControl = input.artifactControlDatabase ?? input.database;
+        const artifactStarter = artifactControl === input.database ? makeCatalogControlSessionStarter({ controlDb: input.database,
+          driver: makeMaintenanceArtifactReadDriver(yield* makePostgresMaintenanceFrameworkMigrationTargetEffect({
+            ...targetInput, readOnly: true }), input.policy) }) : undefined;
         const artifactReader = yield* Effect.fromResult(makeFrameworkSchemaArtifactMaintenanceReader(input.artifactRepository,
-          input.database, makeCatalogControlSessionStarter({ controlDb: input.database,
-            driver: makeMaintenanceArtifactReadDriver(artifactReadTarget, input.policy) })));
+          artifactControl, artifactStarter));
         const installer = yield* Effect.fromResult(makeFrameworkInstaller({ target: migrationTarget,
           artifactRepository: artifactReader, policy: input.policy }));
         let result: RestoredFrameworkSchemaAvailabilityHead | undefined;
@@ -256,20 +259,21 @@ export const installRetainedPhysicalProfile: (input: RetainedPhysicalProfileInst
         if (result === undefined) return yield* Effect.fail(fail("invalidInstallation"));
         const tables = result.installation.plan.plan.physicalLayout.frame.tables;
         for (const database of input.runtimeDatabases ?? (input.runtimePolicies ?? []).map(policy => policy.database)) {
+          const accessProfile = input.runtimePolicies?.find(policy => policy.database === database)?.accessProfile ?? "dataRuntime";
           const login = yield* driver(() => database.execute(`select session_user as login,
             current_database() as "databaseName", current_schema() as "schemaName", current_user = session_user as "sameLogin"`));
           const observed = yield* decodeDriverRows(login).pipe(Effect.mapError(cause => fail("invalidInstallation", cause)));
           const [runtime] = yield* decodeRuntime(observed.rows).pipe(Effect.mapError(cause => fail("invalidInstallation", cause)));
           if (!runtime.sameLogin || runtime.databaseName !== owner.databaseName || runtime.schemaName !== owner.schemaName)
             return yield* Effect.fail(fail("changed"));
-          for (const table of tables) yield* driver(() => owner.client.query(
+          if (accessProfile !== "controlRead") for (const table of tables) yield* driver(() => owner.client.query(
             `grant select, insert, update, delete on ${quoteIdentifier(owner.schemaName)}.${quoteIdentifier(table.name)} to ${quoteIdentifier(runtime.login)}`));
           for (const table of tables) yield* driver(() => owner.client.query(
-            `revoke truncate, trigger, references on ${quoteIdentifier(owner.schemaName)}.${quoteIdentifier(table.name)} from ${quoteIdentifier(runtime.login)}`));
+            `revoke ${accessProfile === "controlRead" ? "all" : "truncate, trigger, references"} on ${quoteIdentifier(owner.schemaName)}.${quoteIdentifier(table.name)} from ${quoteIdentifier(runtime.login)}`));
           yield* verifyManagedRuntimePrivileges(database, owner.schemaName, {
             schemaName: input.journal.migrationsSchema ?? "drizzle",
             tableName: input.journal.migrationsTable ?? "__drizzle_migrations",
-          });
+          }, accessProfile);
         }
         return result;
       }));

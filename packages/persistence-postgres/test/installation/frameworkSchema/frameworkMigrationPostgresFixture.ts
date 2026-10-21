@@ -7,12 +7,13 @@ import type { FrameworkSchemaArtifactRepository } from "../../../src/installatio
 import type { FrameworkSchemaTarget } from "../../../src/installation/frameworkSchema/target";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
 import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
+import type { InstallationAccessProfile } from "../../../src/installation/installationLifecycle";
 
 interface MaintenanceFixtureRegistration {
   readonly config: ClientConfig;
   readonly schemaName: string;
   readonly journal: InstallationMigrationJournal;
-  readonly runtimePolicies: ReadonlyArray<Readonly<{ database: FlarexMetadataDatabase; endpointPolicy: string }>>;
+  readonly runtimePolicies: ReadonlyArray<Readonly<{ database: FlarexMetadataDatabase; endpointPolicy: string; accessProfile?: InstallationAccessProfile }>>;
   readonly runtimeDatabases?: readonly FlarexMetadataDatabase[];
 }
 const maintenanceFixtures = new WeakMap<PostgresFlarexPersistence, MaintenanceFixtureRegistration>();
@@ -26,12 +27,14 @@ export function registerFrameworkMaintenanceFixture(persistence: PostgresFlarexP
 export const installPostgresPhysicalProfileFixture = Effect.fn("FrameworkFixture.installPhysicalProfile")(
   function* (input: Readonly<{ persistence: PostgresFlarexPersistence; target: FrameworkSchemaTarget;
     artifactRepository: FrameworkSchemaArtifactRepository; requests: readonly FrameworkFreshInstallationRequest[];
+    artifactControlDatabase?: FlarexMetadataDatabase;
     policy: FrameworkInstallerPolicy;
     observeStartup?: (observed: Readonly<{ dedicated: boolean; options: string | undefined }>) => void }>) {
     const registered = maintenanceFixtures.get(input.persistence);
     if (registered === undefined) return yield* Effect.fail(new Error("Missing exact physical-profile maintenance fixture registration"));
     return yield* installRetainedPhysicalProfile({ ...registered, database: input.persistence.drizzle,
       target: input.target, artifactRepository: input.artifactRepository, requests: input.requests, policy: input.policy,
+      ...(input.artifactControlDatabase === undefined ? {} : { artifactControlDatabase: input.artifactControlDatabase }),
       ...(input.observeStartup === undefined ? {} : { options: { observe: event => {
         if (event.phase !== "begin" || event.edge !== "before") return;
         const parameters: unknown = Reflect.get(event.client, "connectionParameters");

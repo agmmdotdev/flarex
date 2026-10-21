@@ -423,6 +423,8 @@ export type PointCommitSqlOperationV1 =
   | "validateRelationRestrict"
   | "recheckOutcome"
   | "writeCommitHeader"
+  | "applyPayloadPreferenceCleanup"
+  | "writePayloadPreferenceDeletions"
   | "writeCommitChange"
   | "writeCommitRelationAdjacencyChange"
   | "writeOutcome"
@@ -441,6 +443,7 @@ export class PointCommitSqlErrorV1 extends Data.TaggedError(
 }> {}
 
 export type PointCommitRollbackProofV1Error =
+  | import("../../frameworks/cmsTransaction/model").CmsTransactionError
   | PointCommitConflictV1Error
   | PointCommitStaleAuthorityV1Error
   | PointCommitCorruptionV1Error

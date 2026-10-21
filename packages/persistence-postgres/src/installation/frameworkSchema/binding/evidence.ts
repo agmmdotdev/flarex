@@ -1,6 +1,7 @@
 import type {
   ApplicationActiveSelection,
 } from "../../../application/activation/contracts";
+import type { LogicalSchemaSource } from "flarex-protocol/internal/logical-schema-candidate";
 import {
   verifyPayloadPreferenceBinding,
   type PayloadContentProfiles,
@@ -106,6 +107,7 @@ export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
     selection: ApplicationActiveSelection,
     payloadProfiles: PayloadContentProfiles | undefined,
     commerceProfiles: CommerceBindingProfiles = [],
+    logicalPayload?: LogicalSchemaSource,
   ) {
     yield* verifyPayloadContentBinding(tx, frame, selection, database);
     const verified: VerifiedBindingLane[] = [];
@@ -115,7 +117,7 @@ export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
         binding,
         snapshot,
       );
-      if (slot === "payloadLifecycle") yield* verifyPayloadPreferenceBinding(frame, availability, payloadProfiles);
+      if (slot === "payloadLifecycle") yield* verifyPayloadPreferenceBinding(frame, availability, payloadProfiles, logicalPayload);
       else if (availability.installation.admission.admission.frame.admissionProfile === "registered-commerce-fresh") {
         const selected = [];
         for (const member of binding.profiles) {

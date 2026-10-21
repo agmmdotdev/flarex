@@ -1,3 +1,4 @@
+import { detachLogicalDocumentChanges } from "../../storage/documents/logicalDocuments/detachChanges";
 import { Effect } from "effect";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { projectScopeIdUuidV1Result, type CommitSeq } from "flarex-protocol/storage-authority";
@@ -30,18 +31,6 @@ interface JointSourceInput {
   readonly currencyChanges: LogicalDocumentChanges;
   readonly options: Pick<ApplicationDocumentMaterializationOptions, "afterTransactionStep" | "observeQuery">;
 }
-const captureChanges = (value: LogicalDocumentChanges): LogicalDocumentChanges => Object.freeze({
-  changes: Object.freeze([...value.changes]), attempts: Object.freeze([...value.attempts]),
-  lifecycle: Object.freeze([...value.lifecycle]),
-  observedRows: Object.freeze([...value.observedRows]),
-  relationalReads: Object.freeze([...value.relationalReads]),
-  noFinalRows: Object.freeze([...value.noFinalRows]), dependencies: Object.freeze([...value.dependencies]),
-  scans: Object.freeze([...value.scans]), uniqueReads: Object.freeze([...value.uniqueReads]),
-  indexReads: Object.freeze([...value.indexReads]), setNull: Object.freeze([...value.setNull]),
-  pageReads: Object.freeze([...value.pageReads]), searchReads: Object.freeze([...value.searchReads]),
-  referenceReplacements: Object.freeze([...value.referenceReplacements]),
-});
-
 /** Three source-owned contributions enter one generic row/index delta. This
  * command owns neither a second transaction nor an independent publication. */
 export const prepareJointLogicalMaterialization = Effect.fn("CurrencyAnnouncement.prepareJointDelta")(function* (
@@ -52,8 +41,8 @@ export const prepareJointLogicalMaterialization = Effect.fn("CurrencyAnnouncemen
   const payloadAdmission = input.payload;
   const currencyAdmission = input.currency;
   const pendingApplicationChanges = Object.freeze([...input.applicationChanges]);
-  const payloadChanges = captureChanges(input.payloadChanges);
-  const currencyChanges = captureChanges(input.currencyChanges);
+  const payloadChanges = detachLogicalDocumentChanges(input.payloadChanges);
+  const currencyChanges = detachLogicalDocumentChanges(input.currencyChanges);
   const afterTransactionStep = input.options.afterTransactionStep;
   const observeQuery = input.options.observeQuery;
   const options = Object.freeze({ ...(afterTransactionStep === undefined ? {} : { afterTransactionStep }),

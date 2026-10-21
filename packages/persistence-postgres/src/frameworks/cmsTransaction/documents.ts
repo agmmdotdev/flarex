@@ -152,6 +152,7 @@ export const makeCmsDocuments = Effect.fnUntraced(function* (
 declare const sourceClosureBrand: unique symbol;
 export interface SourceCmsDocumentClosure { readonly [sourceClosureBrand]: true }
 const sourceClosures = new WeakMap<object, Readonly<{
+  preferenceIntents: readonly import("../payloadPreferences/cleanup").PayloadPreferenceDeletionIntent[];
   admission: LogicalDocumentSourceAdmission;
   tx: FlarexMetadataTransaction;
   lifetime: CmsRequestLifetime;
@@ -194,14 +195,15 @@ export const makeSourceCmsDocuments = Effect.fnUntraced(function* (
       cmsError(cause.reason === "documentInvalid" ? "documentInvalid" : "invalidAuthority", cause)))),
   }, creationTime, readReadiness.kind === "queryRequired" ? state.unique : state.writeMechanics.unique,
     readReadiness.kind === "queryRequired" ? [] : state.writeMechanics.indexes, testHooks);
-  const close = Effect.fnUntraced(function* () {
+  const close: (preferenceIntents?: readonly import("../payloadPreferences/cleanup").PayloadPreferenceDeletionIntent[]) =>
+    Effect.Effect<SourceCmsDocumentClosure, CmsTransactionError> = Effect.fnUntraced(function* (preferenceIntents: readonly import("../payloadPreferences/cleanup").PayloadPreferenceDeletionIntent[] = []) {
     const changes = yield* working.close();
     // SAFETY: this token is registered only after the admitted working set closes.
     const closure = Object.freeze({}) as SourceCmsDocumentClosure;
-    sourceClosures.set(closure, Object.freeze({ admission, tx, lifetime, changes }));
+    sourceClosures.set(closure, Object.freeze({ admission, tx, lifetime, changes, preferenceIntents }));
     return closure;
   }, work => observeExecution("CmsDocuments.closeSource", work, "caller"));
-  return Object.freeze({ documents: working.documents, close });
+  return Object.freeze({ documents: working.documents, close, requirePendingDeletion: working.requirePendingDeletion });
 }, work => observeExecution("CmsDocuments.makeSource", work, "caller"));
 
 export const consumeSourceCmsDocumentClosure = Effect.fnUntraced(function* (
@@ -213,5 +215,5 @@ export const consumeSourceCmsDocumentClosure = Effect.fnUntraced(function* (
     closed.lifetime !== lifetime || !lifetime.isClosing()) return yield* Effect.fail(cmsError("invalidAuthority"));
   yield* requireLogicalDocumentSourceAdmission(admission, tx).pipe(Effect.mapError(cause => cmsError("invalidAuthority", cause)));
   sourceClosures.delete(closure);
-  return closed.changes;
+  return Object.freeze({ changes: closed.changes, preferenceIntents: closed.preferenceIntents });
 }, work => observeExecution("CmsDocuments.consumeSourceClosure", work, "caller"));

@@ -26,7 +26,7 @@ export interface CmsReadBinding { readonly [readBindingBrand]: true }
 
 export type CmsContentIdentity = Readonly<{ configSha256: string; provenanceSha256: string }>;
 export type CmsCommandProfile =
-  | Readonly<{ kind: "source"; schemaVersionId: CatalogSchemaVersionId; source: unknown }>
+  | Readonly<{ kind: "source"; schemaVersionId: CatalogSchemaVersionId; source: unknown; payloadPreferenceTarget?: FrameworkSchemaTarget }>
   | Readonly<{ kind: "fullProof"; payloadPreferenceTarget?: FrameworkSchemaTarget }>;
 
 interface CmsBindingSelection {
@@ -91,7 +91,7 @@ export const makeCmsCommandBinding = Effect.fn("CmsBinding.makeCommand")(functio
   if (profile.kind !== "source" && profile.kind !== "fullProof")
     return yield* Effect.fail(cmsError("unsupportedProfile"));
   const configuration: CommandConfiguration = profile.kind === "source"
-    ? Object.freeze({ ...common, logicalStorage: Object.freeze({ ports: claimed.logicalStoragePorts,
+    ? Object.freeze({ ...common, ...(profile.payloadPreferenceTarget === undefined ? {} : { payloadPreferenceTarget: profile.payloadPreferenceTarget }), logicalStorage: Object.freeze({ ports: claimed.logicalStoragePorts,
       unique: claimed.uniqueConstraintEligibility, schemaVersionId: profile.schemaVersionId,
       source: (yield* Effect.fromResult(capturePrivateJsonData(profile.source, MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES, cmsError))).value }) })
     : Object.freeze({ ...common, pointCommitAuthority: claimed.pointCommitAuthority,

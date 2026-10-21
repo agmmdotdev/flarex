@@ -1,4 +1,8 @@
 import { copyBytes } from "@flarex/utils/bytes";
+import { reproveScopePublicationPrefix } from "../publication/pointCommitProjection";
+import { writePayloadPreferenceDeletionFacts, type PayloadPreferenceDeletionFact } from "../../frameworks/payloadPreferences/facts";
+import type { PayloadPreferenceDeletionIntent } from "../../frameworks/payloadPreferences/cleanup";
+import type { SourcePayloadPreferenceCleanup } from "../../frameworks/payloadPreferences/sourceCleanup";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { sql } from "drizzle-orm";
 import {
@@ -504,8 +508,26 @@ clock, settlement: documentSettlement, intrinsic: intrinsicDefinitions,
     const ready = yield* Effect.fromResult(requirePointCommitReadyForPublicationResult(kernel));
     if (publicationContribution === null) return yield* Effect.fail(corruption("commandInvalid"));
     if (Exit.isFailure(publicationContribution)) return yield* Effect.failCause(publicationContribution.cause);
-    const contribution = publicationContribution.value;
-    yield* finiteCommitPromiseEffect(() => writeScopePublicationPrefix(tx, contribution, ready, options, undefined, anchor.session));
+    const cleanups = new Map<SourcePayloadPreferenceCleanup, PayloadPreferenceDeletionIntent[]>();
+    for (const source of command.sources) {
+      const intents = source.operation.payloadPreferenceCleanups ?? [];
+      if (intents.length === 0) continue;
+      const owner = source.selected.payloadPreferenceCleanup;
+      if (owner === undefined || source.operation.method !== "payload-delete" || source.selected.sourceKey !== "payload")
+        return yield* Effect.fail(corruption("commandInvalid"));
+      const retained = cleanups.get(owner) ?? [];
+      retained.push(...intents);
+      cleanups.set(owner, retained);
+    }
+    const preferenceFacts: PayloadPreferenceDeletionFact[] = [];
+    for (const [owner, intents] of cleanups) preferenceFacts.push(...(yield* owner.apply(tx, acceptedAuthority, clock.record,
+      command.frozen.graph, intents).pipe(Effect.mapError(cause => cause.reason === "statementFailure" || cause.reason === "resourceFailure"
+        ? finiteCommitSqlFailure("applyPayloadPreferenceCleanup", cause) : cause))).facts);
+    const contribution = { ...publicationContribution.value, payloadPreferenceDeletionCount: preferenceFacts.length };
+    const prefix = yield* finiteCommitPromiseEffect(() => writeScopePublicationPrefix(tx, contribution, ready, options, undefined, anchor.session));
+    yield* writePayloadPreferenceDeletionFacts(tx, ready.commitSeq, preferenceFacts).pipe(
+      Effect.mapError(cause => cause.reason === "statementFailure" ? finiteCommitSqlFailure("writePayloadPreferenceDeletions", cause) : cause));
+    if (preferenceFacts.length > 0) yield* finiteCommitPromiseEffect(() => reproveScopePublicationPrefix(prefix));
     if (accepted !== undefined && options.afterTransactionStep === undefined) {
       yield* requireScopePublicationStrongReferences(tx, ready, options).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPointCommitCallbackFailure))));
       const guard = yield* prepareProtectedMetadataFinalGuardBatch(tx).pipe(Effect.mapError(error =>

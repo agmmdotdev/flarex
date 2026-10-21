@@ -94,7 +94,9 @@ export const makeCurrencyAnnouncementParticipants = Effect.fn("CurrencyAnnouncem
       const presented = testHooks?.receipts?.(expected) ?? expected;
       if (presented.length !== expected.length || presented.some((receipt, index) => receipt !== expected[index]))
         return yield* Effect.fail(compositeError("invalidAuthority"));
-      const payloadChanges = yield* consumeSourceCmsDocumentClosure(cmsClosure, payload, tx, cmsLifetime);
+      const payloadClosure = yield* consumeSourceCmsDocumentClosure(cmsClosure, payload, tx, cmsLifetime);
+      if (payloadClosure.preferenceIntents.length !== 0) return yield* Effect.fail(compositeError("unsupportedProfile"));
+      const payloadChanges = payloadClosure.changes;
       const currencyChanges = (yield* consumeLogicalCommerceClosure(commerceClosure, commerceLifetime)).changes;
       const applicationChanges = yield* app.consume(appClosure);
       const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, authority.scopeId);

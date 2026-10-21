@@ -9,8 +9,6 @@ import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotenc
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { installOneCommitResponseFault } from "./support/postgresCommitResponseFault";
-import { defineCmsCommand } from "../../persistence-postgres/src/frameworks/cmsTransaction/commands";
-import { cmsError } from "../../persistence-postgres/src/frameworks/cmsTransaction/model";
 import { insertInitialScopeClockInTransactionResult } from "../../persistence-postgres/src/scope/scopeClockInitialization";
 import { selectScopeClockRows } from "../../persistence-postgres/src/scope/scopeClock";
 import { PointCommitConflictV1Error } from "../../persistence-postgres/src/commit/point/errors";
@@ -30,19 +28,10 @@ const decodeSuccess = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Lite
 const decodeIds = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String,
   article: Schema.Struct({ id: Schema.String }), author: Schema.Struct({ id: Schema.String }) }));
 const decodeDocument = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String }));
-const DeleteArgs = Schema.Struct({ id: Schema.String, table: Schema.String });
-// Trusted persistence-owner witness only. Native logical-source Payload delete
-// remains unadmitted until preference cleanup has its connected lifecycle.
-const deleteDocument = defineCmsCommand({ name: "test-delete-referenced-document", mode: "write",
-  run: Effect.fn("PayloadRelationTest.deleteDocument")(function* (context, input) {
-    const args = yield* Schema.decodeUnknownEffect(DeleteArgs)(input).pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
-    yield* context.documents.delete(context.context, context.transactionId, args.id, args.table);
-    return null;
-  }) });
 const seedAuthor = async (fixture: Fixture) => decodeDocument(await fixture.runStandalonePayloadCommand(commands => commands.create,
   { collection: "writers-room", data: { name: "Committed author" } }));
-const removeAuthor = (fixture: Fixture, id: string) => fixture.runStandalonePayloadCommand(() => deleteDocument,
-  { id, table: "writers_room" });
+const removeAuthor = (fixture: Fixture, id: string) => fixture.runStandalonePayloadCommand(commands => commands.delete,
+  { id, collection: "writers-room" });
 
 function referenceSource(participant: string | undefined, target: string, populate = false) {
   if (participant === undefined) throw new Error("Missing Payload participant");
@@ -91,9 +80,35 @@ function applicationSource(seed: Fixture["seed"], participant: string | undefine
   } } };`;
 }
 describe.each(drivers)("Payload optional-one relationships in one Worker mutation on %s", driver => {
+  it("clears a committed reference and natively deletes its target in the same mixed root", async () => {
+    let authorId = "", articleId = "";
+    const fixture = await createMixedMutationProductFixture({ driver, suffix: `payload-relation-delete-root-${driver}`,
+      payloadProfile: "ordinary", payloadCollections: collections, payloadPreferences: true,
+      applicationSource: (_seed, participant) => `export default { users: { create: { isMutation: true, isPublic: true,
+        _handler: async ctx => {
+          await ctx.privateMixed.call(${JSON.stringify(participant)}, "payload-update",
+            { collection: "articles", id: ${JSON.stringify(articleId)}, data: { author: null } });
+          return await ctx.privateMixed.call(${JSON.stringify(participant)}, "payload-delete",
+            { collection: "writers-room", id: ${JSON.stringify(authorId)} });
+        } } } };` });
+    let fresh: Fixture | undefined;
+    try {
+      authorId = (await seedAuthor(fixture)).id;
+      articleId = decodeDocument(await fixture.runStandalonePayloadCommand(commands => commands.create,
+        { collection: "articles", data: { headline: "Committed article", author: authorId } })).id;
+      fresh = await fixture.openCompetingFiniteFixture(`payload-relation-delete-fresh-${driver}`);
+      const value = await successfulValue(await fresh.runExecution());
+      expect(await fixture.readCurrentApplicationDocument(articleId)).toMatchObject({ author: authorId });
+      expect(await fresh.publish(value)).toMatchObject({ kind: "published" });
+      expect(await fixture.readCurrentApplicationDocument(articleId)).not.toHaveProperty("author");
+      await expect(fixture.readCurrentApplicationDocument(authorId)).rejects.toThrow("Missing committed Application document");
+      expect(fresh.nativeInvokeCount.get("payload-delete")).toBe(1);
+    } finally { try { await fresh?.close(); } finally { await fixture.close(); } }
+  }, 180_000);
+
   it("populates pending cross-collection changes and publishes one replayable outcome", async () => {
     const fixture = await createMixedMutationProductFixture({ driver, suffix: `payload-relations-${driver}`,
-      payloadProfile: "ordinary", payloadCollections: collections, applicationSource });
+      payloadProfile: "ordinary", payloadCollections: collections, payloadPreferences: true, applicationSource });
     try {
       const before = await publishedCounts(fixture);
       const value = await successfulValue(await fixture.runExecution());
@@ -116,7 +131,7 @@ describe.each(drivers)("Payload optional-one relationships in one Worker mutatio
 
   it("preserves omitted references and supports reassignment and explicit null clearing", async () => {
     const fixture = await createMixedMutationProductFixture({ driver, suffix: `payload-relation-clear-${driver}`,
-      payloadProfile: "ordinary", payloadCollections: collections });
+      payloadProfile: "ordinary", payloadCollections: collections, payloadPreferences: true });
     try {
       const p = JSON.stringify(fixture.payload?.profile.participant);
       const value = await successfulValue(await fixture.runExecution(applicationSource(fixture.seed, fixture.payload?.profile.participant, `
@@ -141,7 +156,7 @@ describe.each(drivers)("Payload optional-one relationships in one Worker mutatio
 
   it("rejects a wrong-table reference and poisons caught failure after mixed pending work", async () => {
     const fixture = await createMixedMutationProductFixture({ driver, suffix: `payload-relation-wrong-${driver}`,
-      payloadProfile: "ordinary", payloadCollections: collections });
+      payloadProfile: "ordinary", payloadCollections: collections, payloadPreferences: true });
     try {
       const before = await publishedCounts(fixture);
       const product = await fixture.readCurrentProduct();
@@ -160,7 +175,7 @@ describe.each(drivers)("Payload optional-one relationships in one Worker mutatio
 
   it("rolls back all domains after a late native validation failure", async () => {
     const fixture = await createMixedMutationProductFixture({ driver, suffix: `payload-relation-rollback-${driver}`,
-      payloadProfile: "ordinary", payloadCollections: collections });
+      payloadProfile: "ordinary", payloadCollections: collections, payloadPreferences: true });
     try {
       const before = await publishedCounts(fixture);
       const product = await fixture.readCurrentProduct();
@@ -178,7 +193,7 @@ describe.each(drivers)("Payload optional-one relationships in one Worker mutatio
 
   it.each(["missing", "foreignScope"] as const)("refuses a %s target at final settlement", async kind => {
     const fixture = await createMixedMutationProductFixture({ driver, suffix: `payload-relation-${kind.toLowerCase()}-${driver}`,
-      payloadProfile: "ordinary", payloadCollections: collections });
+      payloadProfile: "ordinary", payloadCollections: collections, payloadPreferences: true });
     try {
       const author = await seedAuthor(fixture);
       const identity = decodeAppDocumentIdentityV1(author.id);
@@ -215,7 +230,7 @@ describe.each(drivers)("Payload optional-one relationships in one Worker mutatio
 
   it.each(["deleteFirst", "referenceFirst"] as const)("enforces the target-delete race with %s", async order => {
     const fixture = await createMixedMutationProductFixture({ driver, suffix: `payload-relation-${order.toLowerCase()}-${driver}`,
-      payloadProfile: "ordinary", payloadCollections: collections });
+      payloadProfile: "ordinary", payloadCollections: collections, payloadPreferences: true });
     try {
       const author = await seedAuthor(fixture);
       const value = await successfulValue(await fixture.runExecution(referenceSource(fixture.payload?.profile.participant, author.id)));
@@ -250,7 +265,7 @@ describe.each(drivers)("Payload optional-one relationships in one Worker mutatio
   it("retries the whole root after a populated committed target changes", async () => {
     let authorId = "";
     const fixture = await createMixedMutationProductFixture({ driver, suffix: `payload-relation-retry-${driver}`,
-      payloadProfile: "ordinary", payloadCollections: collections,
+      payloadProfile: "ordinary", payloadCollections: collections, payloadPreferences: true,
       applicationSource: (_seed, participant) => referenceSource(participant, authorId, true) });
     let fresh: Fixture | undefined;
     try {
@@ -278,7 +293,7 @@ describe.each(drivers)("Payload optional-one relationships in one Worker mutatio
 
   it.skipIf(driver !== "postgres")("recovers referenced rows after losing the real COMMIT response", async () => {
     const fixture = await createMixedMutationProductFixture({ driver, suffix: `payload-relation-recovery-${driver}`,
-      payloadProfile: "ordinary", payloadCollections: collections, applicationSource });
+      payloadProfile: "ordinary", payloadCollections: collections, payloadPreferences: true, applicationSource });
     try {
       const value = await successfulValue(await fixture.runExecution());
       const before = await publishedCounts(fixture);

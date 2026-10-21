@@ -28,15 +28,13 @@ import { requireLogicalDocumentSourceAdmission, type LogicalDocumentSourceAdmiss
 import { prepareSourceCmsDocumentDelta, requireSourceCmsDocumentMaterialization, type PreparedSourceCmsDocumentMaterialization } from "./contribution";
 import type { CmsRequestLifetime } from "./lifetime";
 import { applyPayloadPreferenceCleanup, type PayloadPreferenceCleanupClosure } from "../payloadPreferences/cleanup";
-import { fxSystemCommitPayloadPreferenceDeletions } from "../payloadPreferences/factsSchema";
-import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
+import { preparePayloadPreferenceDeletionFacts, writePayloadPreferenceDeletionFacts, type PayloadPreferenceDeletionFact } from "../payloadPreferences/facts";
 import { cmsError, type CmsTransactionError } from "./model";
 
 import { Cause, Effect, Result } from "effect";
 import { captureHostPreparationLifetime, type PreparedHostPreparationLifetime } from "../../execution/preparation/preparedHostRuntime";
 import type { AppSchemaCandidateWriteGuardPlanningHead } from "../../storage/catalog/appSchemaCandidateValidation";
 
-import { appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 
 import { projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, type CommitSeq, type ReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
@@ -106,7 +104,7 @@ const projectCmsPublicationFailure = (cause: unknown) => {
 };
 const cmsKernel = <Value>(work: () => Promise<Value>) => Effect.tryPromise({ try: work, catch: projectCmsPublicationFailure });
 
-type PreferenceFact = Omit<typeof fxSystemCommitPayloadPreferenceDeletions.$inferInsert, "commitSeq" | "changeOrdinal">;
+type PreferenceFact = PayloadPreferenceDeletionFact;
 
 /** Both CMS admission profiles use this one publication owner. Semantic
  * participants supply a checked delta; only this owner allocates and settles. */
@@ -158,15 +156,7 @@ const publishCmsOutcome = Effect.fn("CmsCommit.publishOutcome")(function* (input
   };
   const kernel: ScopePublicationKernel = { clock, ...allocation, relationAdjacencyChanges: adjacency };
   const prefix = yield* cmsKernel(() => writeScopePublicationPrefix(tx, contribution, kernel, options));
-  if (preferenceFacts.length > 0) {
-    const written = yield* runDrizzleStatementEffect(tx.insert(fxSystemCommitPayloadPreferenceDeletions)
-      .values(preferenceFacts.map((fact, changeOrdinal) => ({ ...fact, changeOrdinal, commitSeq: allocation.commitSeq })))
-      .returning({ ordinal: fxSystemCommitPayloadPreferenceDeletions.changeOrdinal }),
-    cause => cmsError("statementFailure", cause));
-    if (written.length !== preferenceFacts.length || new Set(written.map(row => row.ordinal)).size !== written.length ||
-      written.some(row => row.ordinal < 0 || row.ordinal >= preferenceFacts.length))
-      return yield* Effect.fail(cmsError("storedCorruption"));
-  }
+  yield* writePayloadPreferenceDeletionFacts(tx, allocation.commitSeq, preferenceFacts);
   if (hooks?.afterPreferenceFacts !== undefined) yield* hooks.afterPreferenceFacts();
   if (preferenceFacts.length > 0 || hooks?.afterPreferenceFacts !== undefined)
     yield* cmsKernel(() => reproveScopePublicationPrefix(prefix));
@@ -246,27 +236,11 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
       );
       if (hooks?.afterPreferenceCleanup !== undefined)
         yield* hooks.afterPreferenceCleanup(preferenceEvidence);
-      const preferenceFacts: PreferenceFact[] = [];
-      for (const cleanup of preferenceEvidence) {
-        if (cleanup.preferenceIds.length === 0) continue;
-        const content = closed.changes.find(
-          (row) => row.documentId === cleanup.documentId,
-        );
-        const binding = state.frame.payloadLifecycle;
-        if (content?.kind !== "deleted" || binding === null)
-          return yield* Effect.fail(cmsError("invalidAuthority"));
-        for (const preferenceId of cleanup.preferenceIds)
-          preferenceFacts.push({
-            scopeUuid: scope.scopeUuid,
-            epochUuid: epoch.epochUuid,
-            codecVersion: 1,
-            storageGeneration: state.authority.storageGeneration,
-            artifactSha256: binding.installation.artifact.artifactSha256,
-            preferenceId,
-            contentTableId: content.tableId,
-            contentRowId: appRowIdHexV1ToBytes(content.rowId),
-          });
-      }
+      const binding = state.frame.payloadLifecycle;
+      if (preferenceEvidence.length > 0 && binding === null) return yield* Effect.fail(cmsError("invalidAuthority"));
+      const preferenceFacts = binding === null ? [] : yield* preparePayloadPreferenceDeletionFacts({
+        scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid, storageGeneration: state.authority.storageGeneration,
+        artifactSha256: binding.installation.artifact.artifactSha256, changes: closed.changes, evidence: preferenceEvidence });
       return yield* publishCmsOutcome({ tx: state.tx, scopeId: scope.scopeId, clock, options: preparation.options,
         identity, result, resultSha256, changes: closed.changes, attempts: closed.attempts,
         lifetime, preferenceFacts, lower: commitSeq => delta.lower(commitSeq).pipe(
@@ -302,7 +276,8 @@ export const enterSourceCmsCommit = Effect.fn("CmsCommit.enterSource")(function*
     if (finalized || identity.scopeUuid !== scope.scopeUuid || !lifetime.isClosing())
       return yield* Effect.fail(cmsError("invalidAuthority"));
     finalized = true;
-    const closed = yield* consumeSourceCmsDocumentClosure(closure, admission, tx, lifetime);
+    const captured = yield* consumeSourceCmsDocumentClosure(closure, admission, tx, lifetime);
+    const closed = captured.changes;
     if (hooks?.afterDocumentClosure !== undefined) yield* hooks.afterDocumentClosure({
       dependencies: closed.dependencies, scans: closed.scans, uniqueReads: closed.uniqueReads,
       changes: closed.changes, noFinalRows: closed.noFinalRows, observedRows: closed.observedRows,
@@ -315,10 +290,13 @@ export const enterSourceCmsCommit = Effect.fn("CmsCommit.enterSource")(function*
       current.lastCommitSeq < state.clock.lastCommitSeq) return yield* Effect.fail(cmsError("invalidAuthority"));
     const clock = { record: current, scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid };
     const delta = yield* prepareSourceCmsDocumentDelta(admission, tx, current, closed, prepared);
-    if (hooks?.afterPreferenceCleanup !== undefined) yield* hooks.afterPreferenceCleanup([]);
+    const cleanup = captured.preferenceIntents.length === 0 ? { facts: [], evidence: [] } :
+      state.preferenceCleanup === undefined ? yield* Effect.fail(cmsError("invalidAuthority")) :
+      yield* state.preferenceCleanup.apply(tx, state.authority, current, closed, captured.preferenceIntents);
+    if (hooks?.afterPreferenceCleanup !== undefined) yield* hooks.afterPreferenceCleanup(cleanup.evidence);
     return yield* publishCmsOutcome({ tx, scopeId: scope.scopeId, clock, options,
       identity, result, resultSha256, changes: closed.changes, attempts: closed.attempts,
-      lifetime, preferenceFacts: [], lower: delta.lower,
+      lifetime, preferenceFacts: cleanup.facts, lower: delta.lower,
       ...(hooks === undefined ? {} : { hooks }) });
   });
   return Object.freeze({ uniqueDefinitions: state.unique,

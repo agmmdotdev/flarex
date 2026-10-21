@@ -135,7 +135,7 @@ interface FiniteRootAdmittedRecord {
   readonly bindingDigest: Uint8Array;
   readonly completed: Pick<
     AdmittedCompletion,
-    "result" | "eventIntents" | "workBytes" | "workCalls"
+    "result" | "eventIntents" | "workBytes" | "workCalls" | "payloadPreferenceCleanups"
   >;
   readonly outcome: Extract<
     SessionJournalStoredOutcome,
@@ -978,6 +978,7 @@ export function makeFiniteRootLifecycle(owner: JournalAttemptOwner) {
                     attemptStart: receipt.attemptStart,
                     attemptEnd: receipt.attemptEnd,
                     result: receipt.completed.result,
+                    ...(receipt.completed.payloadPreferenceCleanups === undefined ? {} : { payloadPreferenceCleanups: receipt.completed.payloadPreferenceCleanups }),
                     eventIntents: receipt.completed.eventIntents,
                     workBytes: receipt.completed.workBytes,
                     workCalls: receipt.completed.workCalls,

@@ -538,6 +538,9 @@ export const prepareFiniteCommitCommand = Effect.fnUntraced(function* (
       profile.operationMethods.includes(operation.method) && profile.profileRevision === operation.profileRevision);
     const bundle = inspectLogicalParticipantAdmissionBundle(operation.admission, frozen.attempt, operation.participant, operation.method, operation.profileRevision);
     const profile = profiles[0];
+    if (operation.payloadPreferenceCleanups?.length &&
+      (operation.method !== "payload-delete" || operation.sourceRefs.length !== 1))
+      return yield* Effect.fail(corruption("commandInvalid"));
     if (profiles.length !== 1 || profile === undefined || bundle === null || profile.sources.length !== bundle.admissions.length ||
       operation.sourceRefs.length !== bundle.admissions.length || operation.attemptStart < 0 || operation.attemptEnd < operation.attemptStart ||
       operation.attemptEnd > frozen.graph.attempts.length) return yield* Effect.fail(corruption("commandInvalid"));
@@ -555,6 +558,8 @@ export const prepareFiniteCommitCommand = Effect.fnUntraced(function* (
       const token = profile.sources[ordinal]!, methods = bundle.sourceMethods[ordinal]!;
       const selected = inspectFiniteOperationCommitAuthority(token, admission, frozen.attempt, operation.participant, methods);
       const reference = operation.sourceRefs[ordinal];
+      if (operation.payloadPreferenceCleanups?.length && selected?.payloadPreferenceCleanup === undefined)
+        return yield* Effect.fail(corruption("commandInvalid"));
       if (selected === null || reference === undefined || reference.sourceKey !== selected.sourceKey ||
         reference.sourceSha256Hex !== selected.sourceSha256 || reference.bindingHead.sequence !== selected.head.sequence ||
         reference.bindingHead.sha256 !== selected.head.sha256 || selected.root.principalDigest !== encodeBytesToLowercaseHex(session.identityAccessPolicySha256) ||
@@ -565,6 +570,12 @@ export const prepareFiniteCommitCommand = Effect.fnUntraced(function* (
         const attempted = frozen.graph.attempts[index]!;
         if (selected.tableIds.has(attempted.tableId)) { touchedTables.add(attempted.tableId); attributedAttempts.add(index); }
       }
+        for (const intent of operation.payloadPreferenceCleanups ?? []) {
+          const deletion = frozen.graph.attempts.slice(operation.attemptStart, operation.attemptEnd)
+            .findLast(attempt => attempt.documentId === intent.documentId);
+          if (selected.sourceKey !== "payload" || deletion?.operation !== "delete" || deletion.after !== null ||
+            !selected.tableIds.has(deletion.tableId)) return yield* Effect.fail(corruption("commandInvalid"));
+        }
       for (const tableId of selected.tableIds) nativeTables.add(tableId);
       sources.push({ token, operation, admission, methods, selected, touchedTables: Object.freeze([...touchedTables]) });
       const selectedEvents: CommittedEvent[] = [];

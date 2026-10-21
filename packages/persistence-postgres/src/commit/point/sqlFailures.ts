@@ -1,4 +1,5 @@
 import { Data, Effect } from "effect";
+import { CmsTransactionError } from "../../frameworks/cmsTransaction/model";
 import { LocatedReadCommittedTransactionFailureV1 } from "../../execution/readCommittedTransactionFailure";
 import {
   corruption,
@@ -478,6 +479,7 @@ export function mapTransactionFailure(
   cause: unknown,
 ): PointCommitRollbackProofV1Error {
   if (
+    cause instanceof CmsTransactionError ||
     cause instanceof PointCommitConflictV1Error ||
     cause instanceof AppDocumentInsertionConflictError ||
     cause instanceof PointCommitStaleAuthorityV1Error ||

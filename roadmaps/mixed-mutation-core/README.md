@@ -18,12 +18,14 @@ Historical gate passes reported below do not close this selected acceptance.
 [Configured scalar Payload collections](./configured-payload-attempt-preflight.md)
 now use native create/update/findByID inside the existing Application mixed root,
 with compiler-owned collection identities and one outer settlement. Borrowing no
-longer requires a single `posts` table. Direct find/count/delete coverage does
-not widen the borrowed method allowlist. The
+longer requires a single `posts` table. Direct operation coverage does not
+expand an unadmitted borrowed method allowlist. The
 [optional-one relationship slice](./payload-relationships-attempt-preflight.md)
 connects configured native references and depth-one population to the same pending
-root and shared publication policy. Borrowed delete/preference cleanup, many/joins,
-cross-framework relationships, public facades and broader profiles retain gates.
+root and shared publication policy. The [native delete and preference lifecycle](./payload-delete-preferences-preflight.md)
+connects exact cleanup intents to the same outer publication for preference-enabled
+fresh logical sources and finite mixed roots. Many/joins, cross-framework
+relationships, public facades and broader profiles retain gates.
 
 Status: the Application, Product, selected Payload Local API, and finite
 Medusa workflow slices are implemented as a private, isolated-scope execution

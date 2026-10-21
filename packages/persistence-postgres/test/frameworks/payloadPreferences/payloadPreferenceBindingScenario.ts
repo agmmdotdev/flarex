@@ -235,8 +235,9 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   await runEffectFailure(cleanupHost.read(cleanupRead, { id: postId, beforeDelete: true }));
   if (escaped === undefined) throw new Error("Missing escaped request");
   await runEffectFailure(escaped.preferences.deleteForPendingDocument(escaped.context, escaped.transactionId, "posts", selector));
-  // The existing host rejects output charging once a caught operation has latched rollback.
-  expect(await runEffectFailure(cleanupHost.run(cleanupHost.newRequestKey(), cleanup, { id: postId, selector: {}, catchFailure: true }))).toMatchObject({ reason: "closed" });
+  // Output charging retains the shared lifetime's rollback-only verdict after
+  // a caught operation failure; content and preference publication stay refused.
+  expect(await runEffectFailure(cleanupHost.run(cleanupHost.newRequestKey(), cleanup, { id: postId, selector: {}, catchFailure: true }))).toMatchObject({ reason: "rollbackOnly" });
   // Selection now happens during settlement: callback-local catch cannot suppress
   // overflow, and the bounded selection still refuses before DELETE.
   await persistence.drizzle.insert(table).values(Array.from({ length: cmsLimits.identities - 1 }, (_, index) => ({ ...seed, id: `overflow-${index}` })));

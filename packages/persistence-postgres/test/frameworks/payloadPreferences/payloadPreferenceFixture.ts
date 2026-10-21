@@ -17,17 +17,18 @@ import { runEffect } from "../../support/effectTestRuntime";
 
 /** Test orchestration only: all installation and physical naming stay with shared owners. */
 export async function installPayloadPreferenceFixture(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
-  target: FrameworkSchemaTarget, deploymentId: string) {
+  target: FrameworkSchemaTarget, deploymentId: string, control = persistence) {
   const profile = await runEffect(capturePayloadPreferenceProfile(deploymentId));
-  const repository = "pool" in persistence ? Result.getOrThrow(makeFrameworkSchemaArtifactRepository({ controlDb: persistence.drizzle,
-    controlSessionStarter: makeCatalogControlSessionStarter({ controlDb: persistence.drizzle, driver: makePostgresCatalogControlSessionDriver(persistence.pool) }),
-    readTimeoutMilliseconds: 10000, attemptTimeoutMilliseconds: 10000, recoveryTimeoutMilliseconds: 10000, lockTimeoutMilliseconds: 2000 })) : makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence).repository;
+  const repository = "pool" in control ? Result.getOrThrow(makeFrameworkSchemaArtifactRepository({ controlDb: control.drizzle,
+    controlSessionStarter: makeCatalogControlSessionStarter({ controlDb: control.drizzle, driver: makePostgresCatalogControlSessionDriver(control.pool) }),
+    readTimeoutMilliseconds: 10000, attemptTimeoutMilliseconds: 10000, recoveryTimeoutMilliseconds: 10000, lockTimeoutMilliseconds: 2000 })) : makePGliteFrameworkSchemaArtifactAdmissionFixture(control).repository;
   await runEffect(admitFrameworkSchemaArtifactEffect(repository, Result.getOrThrow(prepareFrameworkSchemaArtifactAdmission(profile.artifact))));
   const policy = { leaseDurationMilliseconds: 120000, lockTimeoutMilliseconds: 5000, statementTimeoutMilliseconds: 30000,
     runTimeoutMilliseconds: 120000, maximumStepsPerCall: 128 };
   const input = { artifactIdentity: profile.artifact.identity, attemptId: "preference-install", leaseOwnerId: "preference-test" };
   const availability = "pool" in persistence ? await runEffect(installPostgresPhysicalProfileFixture({
     persistence, target, artifactRepository: repository, requests: [input, input], policy,
+    ...(control === persistence ? {} : { artifactControlDatabase: control.drizzle }),
   })) : await (async () => {
     const migrationTarget = await makeFrameworkMigrationFixtureTarget(persistence, target);
     const installer = Result.getOrThrow(makeFrameworkInstaller({ target: migrationTarget, artifactRepository: repository, policy }));

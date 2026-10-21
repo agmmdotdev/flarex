@@ -229,15 +229,16 @@ export function makeFrameworkSchemaArtifactRepository(
 export function makeFrameworkSchemaArtifactMaintenanceReader(
   original: FrameworkSchemaArtifactRepository,
   controlDb: FlarexMetadataDatabase,
-  controlSessionStarter: CatalogControlSessionStarter,
+  controlSessionStarter?: CatalogControlSessionStarter,
 ): Result.Result<FrameworkSchemaArtifactRepository, FrameworkSchemaArtifactRepositoryConfigurationError> {
   const state = frameworkSchemaArtifactRepositoryStates.get(original);
+  const starter = controlSessionStarter ?? state?.controlSessionStarter;
   if (state === undefined || state.controlDb !== controlDb ||
-    !hasCatalogControlSessionComposition(controlSessionStarter, controlDb)) return Result.fail(
+    !hasCatalogControlSessionComposition(starter, controlDb)) return Result.fail(
       FrameworkSchemaArtifactRepositoryConfigurationError.invalidControlSessionComposition());
   const reader = Object.freeze({ [frameworkSchemaArtifactRepositoryBrand]: true } satisfies FrameworkSchemaArtifactRepository);
   frameworkSchemaArtifactRepositoryStates.set(reader, Object.freeze({
-    controlDb, controlSessionStarter, timeoutPolicy: state.timeoutPolicy, readOnly: true,
+    controlDb, controlSessionStarter: starter, timeoutPolicy: state.timeoutPolicy, readOnly: true,
   }));
   return Result.succeed(reader);
 }

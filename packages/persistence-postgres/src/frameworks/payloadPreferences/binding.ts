@@ -6,6 +6,8 @@ import { bindingError } from "../../installation/frameworkSchema/binding/errors"
 import { sameBindingValue } from "../../installation/frameworkSchema/binding/canonical";
 import { commerceBindings } from "../../installation/frameworkSchema/binding/model";
 import { capturePayloadPreferenceArtifact } from "./schema";
+import { verifyApplicationWritePolicies } from "@flarex/analysis/internal/application-write-policy";
+import type { LogicalSchemaSource } from "flarex-protocol/internal/logical-schema-candidate";
 
 declare const payloadContentProfilesBrand: unique symbol;
 export interface PayloadContentProfiles {
@@ -59,7 +61,7 @@ export const verifyPayloadPreferenceStorageBinding = Effect.fn("PayloadPreferenc
 ) {
   const binding = frame.payloadLifecycle;
   const content = frame.payloadContent;
-  if (binding === null || content === null || commerceBindings(frame).length !== 0) return yield* Effect.fail(bindingError("unsupportedProfile"));
+  if (binding === null || (content === null && frame.logicalSchema === null) || commerceBindings(frame).length !== 0) return yield* Effect.fail(bindingError("unsupportedProfile"));
   const expected = yield* capturePayloadPreferenceProfile(binding.installation.artifact.deploymentId);
   if (!sameBindingValue(binding.installation.artifact, { ...expected.artifact.identity }) ||
     binding.profiles.length !== 1 || binding.profiles[0] === undefined || !sameBindingValue(binding.profiles[0], expected.profile) ||
@@ -75,11 +77,24 @@ export const verifyPayloadPreferenceBinding = Effect.fn("PayloadPreferences.veri
   frame: DataBindingSetFrame,
   availability: RestoredFrameworkSchemaAvailabilityHead,
   profiles: PayloadContentProfiles | undefined,
+  logicalSource?: LogicalSchemaSource,
 ) {
   yield* verifyPayloadPreferenceStorageBinding(frame, installationRuntimeData(availability));
   const content = frame.payloadContent;
   const count = frame.application.readiness.kind === "policy" ? frame.application.readiness.relationCount : -1;
   const selected = profiles === undefined ? undefined : contentProfiles.get(profiles);
+  if (content === null && frame.logicalSchema !== null && logicalSource?.owner === "payload" && logicalSource.definition.kind === "documents") {
+    const verified = yield* verifyApplicationWritePolicies(logicalSource.evidence,
+      logicalSource.definition.tables.map(table => table.logicalName)).pipe(Effect.mapError(cause => bindingError("unsupportedProfile", cause)));
+    const configuration = verified.policies.configuration;
+    const identity = verified.policies.tables[0];
+    const relationCount = logicalSource.definition.relations.length;
+    if (identity?.owner !== "payload" || logicalSource.writeProfile !== configuration.profile ||
+      selected === undefined || !selected.profiles.some(profile => profile.relationCount === relationCount &&
+        profile.identity.configSha256 === identity.configSha256 && profile.identity.provenanceSha256 === identity.provenanceSha256))
+      return yield* Effect.fail(bindingError("unsupportedProfile"));
+    return;
+  }
   if (content === null || (count !== 0 && count !== 1 && count !== 2) || selected === undefined ||
     !selected.profiles.some(profile => profile.relationCount === count &&
       profile.identity.configSha256 === content.configSha256 && profile.identity.provenanceSha256 === content.provenanceSha256)) {

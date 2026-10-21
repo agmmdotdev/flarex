@@ -341,6 +341,7 @@ export const withLogicalParticipantAttemptAdmissionEffect = Effect.fn("LogicalPa
 declare const commitBrand: unique symbol;
 export interface LogicalParticipantCommitAuthority { readonly [commitBrand]: true }
 interface CommitState {
+  readonly payloadPreferenceCleanup?: import("../../../frameworks/payloadPreferences/sourceCleanup").SourcePayloadPreferenceCleanup;
   readonly publicationDefinitions: import("../../../commit/publication/definitionPreparation").PreparedPublicationDefinitions;
   readonly application?: ApplicationBindingInput;
   readonly projectApplicationFailure?: (cause: unknown) => LogicalParticipantAdmissionError;
@@ -427,6 +428,7 @@ export const inspectFiniteOperationCommitAuthority = (
       indexes: state.indexes, unique: state.unique, search: state.search, publicationDefinitions: state.publicationDefinitions,
       metadataProjection: state.metadataProjection, validateDocument: state.validateDocument,
       root: issued.root, sourceKey: state.sourceKey, sourceSha256: state.sourceSha256, head: issued.head,
+      ...(state.payloadPreferenceCleanup === undefined ? {} : { payloadPreferenceCleanup: state.payloadPreferenceCleanup }),
     });
 };
 

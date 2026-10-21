@@ -593,7 +593,12 @@ CRUD and nested hooks. Combined content/lifecycle admission enables
 actual delete with atomic preference facts. The [lifecycle contract](./preflight/19-payload-preference-cleanup-and-delete-publication.md)
 implements lifecycle storage, binding, bounded cleanup receipts, atomic
 publication and exact adapter routing. Content-only composition still refuses
-cleanup. The [optional-one capability](./preflight/20-payload-content-relations-and-rebinding.md)
+cleanup.
+The [logical-source and finite mixed delete lifecycle](../mixed-mutation-core/payload-delete-preferences-preflight.md)
+connects that same reserved installation, exact cleanup and fact codec to fresh
+configured sources and one mixed outer publication. General preference CRUD,
+many/join mixed operations and cross-framework references remain separate gates.
+The [optional-one capability](./preflight/20-payload-content-relations-and-rebinding.md)
 implements authenticated configuration advancement, exact rebinding and native
 CMS publication. The [bounded population capability](./preflight/21-payload-many-transition-and-bounded-population.md)
 implements depth-one standalone forward reads over that relation. The

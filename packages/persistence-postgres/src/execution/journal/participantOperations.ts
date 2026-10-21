@@ -934,6 +934,8 @@ const prepareAdmittedCompletionEffect = Effect.fn(
   borrowed: LogicalBorrowedParticipantOperation,
 ) {
   const completed = yield* borrowed.invoke(frame.operation, frame.args);
+  if (completed.payloadPreferenceCleanups?.length) return yield* Effect.fail(
+    new LogicalParticipantAdmissionError({ reason: "unsupportedProfile" }));
   if (completed.eventIntents.length > commitEventLimits.messages) {
     return yield* Effect.fail(
       new LogicalParticipantAdmissionError({
@@ -1742,7 +1744,10 @@ export function makeParticipantOperationRunner(
                 kind: "admittedLogicalResult" as const,
                 result: completed.result,
                 events: completed.eventIntents,
-                sourceDependencies: [],
+                sourceDependencies: completed.payloadPreferenceCleanups?.length ? [{ sourceKey: "payload", evidence: {
+                  format: "flarex.payload-preference-cleanup", version: 1,
+                  intents: completed.payloadPreferenceCleanups.map(intent => ({ ...intent })),
+                } }] : [],
                 workBytes: completed.workBytes,
                 workCalls: completed.workCalls,
               });
@@ -1797,6 +1802,7 @@ export function makeParticipantOperationRunner(
                   completed: Object.freeze(
                     structuredClone({
                       result: completed.result,
+                      ...(completed.payloadPreferenceCleanups === undefined ? {} : { payloadPreferenceCleanups: completed.payloadPreferenceCleanups }),
                       eventIntents: completed.eventIntents,
                       workBytes: completed.workBytes,
                       workCalls: completed.workCalls,

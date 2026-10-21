@@ -37,6 +37,7 @@ export const bindPayloadParticipant: (
     switch (method) {
       case "payload-create": return commands.create;
       case "payload-update": return commands.update;
+      case "payload-delete": return commands.delete;
       case "payload-findByID": return commands.findByID;
       default: return undefined;
     }

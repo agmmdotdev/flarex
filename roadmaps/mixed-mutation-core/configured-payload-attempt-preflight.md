@@ -10,8 +10,10 @@ remain pending under the
 Extend the existing borrowed Payload create/update/findByID path to compiler-owned
 scalar collections. Preserve the ordinary native runtime, authenticated source
 and table identities, one Application pending owner and one outer settlement.
-This does not admit delete/preference cleanup, find/count, relationships,
-arbitrary hooks, another execution engine or public/hosted activation.
+The connected [optional-one relationship](./payload-relationships-attempt-preflight.md)
+and [delete/preference lifecycle](./payload-delete-preferences-preflight.md)
+follow-ups extend these same owners. Find/count, arbitrary hooks, another
+execution engine and public/hosted activation remain outside this capability.
 
 ## Current Owners And Failing Boundary
 
