@@ -799,11 +799,18 @@ read fixture do not resolve it. Arbitrary Cart writes, hosted activation and
 scale remain outside this slice.
 
 The [native Cart creation preflight](./preflight/160-native-cart-creation-workflow.md)
-records the next connected objective. Its original-native executable witness
-is pending; Cart, Customer, Tax, Promotion and the complete Cart Link graph
-need genuine owners before adapter admission. Native local-provider behavior,
-conditional payment/Locking resolution and complete capacity must be proved
-before choosing a profile. No Cart write or resource extension is admitted yet.
+records the next connected objective. Its selected original-native cohort is
+characterized, including genuine local SystemTax, the fresh Cart's empty
+Payment branch, native failures and retained inverses. Native cancellation
+leaves orphan Addresses and Cart-Promotion Links; proposed Cart/Link owner
+corrections require explicit native business decisions and native inverse proofs.
+The connected Cart, Customer, Tax, Promotion and complete Cart Link graph still
+need adapter owners. Complete capacity, remaining call-detail coverage and
+conditional provider/Locking lifecycles must be proved before choosing a
+profile. No Cart write or resource extension is admitted yet. The connected
+[Promise/Cause preservation correction](./preflight/161-native-promise-cause-preservation.md)
+is implemented at the existing failure/lifetime owners; it does not repair
+native Cart business compensation or establish Cart admission.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

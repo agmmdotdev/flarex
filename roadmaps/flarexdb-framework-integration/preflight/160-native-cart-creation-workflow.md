@@ -6,8 +6,8 @@ Status: the selected original-native cohort is characterized after the bounded
 [Variant and item pricing workflow](./159-native-variant-item-price-calculation.md).
 The module-owner plan is prepared. Native compensation corrections remain
 proposals requiring an explicit business decision. Maximum-graph evidence,
-remaining call-detail coverage, concurrency proofs, resource measurement and
-adapter admission remain pending.
+remaining call-detail coverage, native inverse concurrency/ownership proofs,
+resource measurement and adapter admission remain pending.
 
 The executing reference is Medusa 2.13.4, commit
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, recorded by
@@ -116,11 +116,61 @@ the remaining targeted call-detail and maximum-graph evidence before admission.
 No post-Promotion calculated total is established by a Cart read that preceded
 the adjustment writes.
 
+A separate combined native probe reaches four effective items: three Variants
+and one manual item, both inline Addresses, guest creation, genuine SystemTax
+and automatic plus supplied Promotions. Both explicit cancellation and a late
+parent failure retain complete selected evidence and expose the same Address
+and Cart-Promotion residual families. This uses a separately bounded diagnostic
+capture profile; it does not establish the complete stored graph maximum or
+select any adapter resource allowance.
+
 Native events can be delivered before root failure: ungrouped Customer creation
 and compensation events remain observable. Grouped `cart.created` and Link
 events may be cleared instead of released after a late hook fails. Preserve the
 actual native calls and distinguish that delivery behavior from the accepted
 atomic profile's committed event authority.
+
+Direct genuine Link witnesses retain additional owner constraints. A conflicting
+create/upsert replaces the row's non-key `id` and clears `deleted_at`, while
+preserving the existing stored creation/update timestamps. Native dismiss and
+restore preserve the ID but advance the stored update timestamp. Public Link
+DTOs lose PostgreSQL timestamp precision, and a dismiss result can precede the
+flush-time timestamp update. Capture exact preimages and resulting state at the
+write owner; returned DTOs alone are insufficient.
+
+The native Link event decorator can emit before its transaction commits. An
+explicit failure after genuine emission rolls back the Link row while its
+attachment event has already been delivered; a subsequent retry can create a
+different ID and deliver another attachment. Preserve this native fault witness.
+Do not infer post-commit or exactly-once publication from successful calls, or
+silently change forward event timing as part of an inverse correction.
+
+## Address locking mechanism and limits
+
+An ordinary-role PostgreSQL kernel experiment uses the genuine Cart schema,
+enforced immediate Address FKs and unchanged native Cart creation writers.
+Strong Address row locks block incoming shipping/billing references. If a
+reference writer commits first, a fresh statement after lock acquisition sees
+and protects its active or soft-deleted Cart reference. If the inverse locks
+first and deletes the Address, the waiting creation fails its FK check. A
+`FOR NO KEY UPDATE` negative control does not exclude the reference writer.
+Raw Cart/Address deletion is atomic across rollback, retry and absent replay.
+
+The experimental inverse is raw PostgreSQL, not a native Cart compensator or
+an adapter implementation. Native update cooperation remains unproven. For the
+characterized null-to-existing-Address inputs, completed public scalar FK updates
+leave the references unchanged. The selected `{ id }` shipping relation update
+attempts a new Address insert and fails with `23505` at the actual ORM flush.
+An earlier observation before the ambient transaction's flush cannot establish
+either update behavior or FK
+blocking. Preserve these outcomes; do not change native update semantics to make
+the locking experiment pass.
+
+Native physical Address deletion followed by creation can reuse a supplied ID.
+An ID-only inverse can therefore select a different insertion. These witnesses
+support the proposed strong-lock mechanism for creation writers but do not prove
+the native ownership receipt, general update cooperation, deadlock freedom,
+event/retry policy or Flarex logical reference profile.
 
 ## Proposed native inverse corrections
 
@@ -133,9 +183,10 @@ witnesses and separately bind every correction candidate to its source.
    and references from active or soft-deleted Carts remain protected. The proposed
    PostgreSQL mechanism locks exact Cart/Address rows in a fixed order with strong
    row locks, then checks both Address reference columns in a fresh statement.
-   Existing FK cooperation, actual isolation, both writer orders, rollback and
-   retry must be proved. The adapter must implement the semantic operation through
-   its trusted logical/reference owner, without adapter SQL or a second lifetime.
+   Creation-writer FK cooperation is characterized above; the actual native
+   inverse, its generation authority and complete lifecycle still need proof.
+   The adapter must implement the semantic operation through its trusted
+   logical/reference owner, without adapter SQL or a second lifetime.
 2. **Cart-Promotion preimage compensation.** Preserve native forward validation,
    selection and create/upsert behavior, including existing-pair ID replacement.
    Capture complete prior and resulting identities/content/membership at the
@@ -144,18 +195,30 @@ witnesses and separately bind every correction candidate to its source.
    timestamps through a scoped native restoration operation; ordinary forward
    timestamp hooks retain their behavior. The inverse restores the original
    preimage only while its resulting generation remains current; exact
-   already-restored state is an
-   idempotent result, while another generation causes a protected conflict.
-   Genuinely created Links use native soft-delete/history behavior. Collect only
-   events corresponding to actual mutations, preserve native scalar/batched ID
-   payloads, and preserve event-failure limits.
+   already-restored state is an idempotent result, while another generation
+   causes a protected conflict.
+   Genuinely created Links use native soft-delete/history behavior; retries must
+   recognize their own already-inactive generation separately from a replaced
+   Link's restored preimage. Collect only events corresponding to actual
+   mutations, preserve native scalar/batched ID payloads, and preserve
+   event-failure limits.
    Present-row locks and absent-pair races, existing ADD, REPLACE, supersession,
    retries and native event sequences require separate genuine witnesses.
 
 A workflow-level precheck followed by independent deletes is insufficient for
 Address safety or partial-inverse recovery. Pair-only Link dismissal cannot
 protect a later generation. No generic DAL redesign, create-if-absent forward
-change, arbitrary-writer guarantee or concurrency success is established here.
+change, arbitrary-writer guarantee or complete native inverse concurrency
+guarantee is established here.
+
+Cart and Address DML have no declared immutable generation field. Native IDs,
+timestamps and complete matching content do not by themselves rule out physical
+ID reuse or an exact intervening replacement. Generation authorization and its
+supported lifetime must be established at the actual owner before implementing
+the proposed inverse; a copied preimage or value-history proof is insufficient.
+The existing scope-exclusive transaction, complete indexed reference checks and
+authenticated retained-row replay are reuse candidates. Source inspection has
+not established a need for another core transaction or generation API.
 
 ## Implementation sequence after the native decision
 
