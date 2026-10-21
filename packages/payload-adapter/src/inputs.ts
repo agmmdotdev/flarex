@@ -87,7 +87,7 @@ export function makePayloadInputs(profile: PayloadContentProfile, collections: r
   const readOptions = Effect.fn("PayloadInput.readOptions")(function* (context: CmsCommandContext, collection: PayloadCollectionRuntime, args: typeof ReadEnvelope.Type) {
     const depth = yield* decodeDepth(args.depth === undefined ? 0 : args.depth).pipe(
       Effect.mapError(cause => cmsError("unsupportedProfile", cause)));
-    if (depth === 1 && (profile === "payload.scalar" || !context.standaloneRead)) {
+    if (depth === 1 && (profile === "payload.scalar" || !context.populationRead)) {
       return yield* Effect.fail(cmsError("unsupportedProfile"));
     }
     const where = yield* Effect.fromResult(collection.query.decode(args.where === undefined ? {} : args.where)).pipe(

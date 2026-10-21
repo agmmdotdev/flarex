@@ -43,8 +43,11 @@ fields, custom defaults/validation/access/hooks, projections, auth/dashboard,
 uploads, drafts/versions, subscriptions, public SDK/routes, deployed artifacts,
 existing-row migration, ownership transfer and cross-domain references out of
 scope. The existing fixed many/join profiles remain supported regressions, not
-additional configurable capabilities. Combined Commerce/CMS commands remain
-scalar-only; this gate does not extend their relation admission.
+additional configurable capabilities. This standalone gate does not extend
+combined-command relation admission. The
+[mixed optional-one successor](../../mixed-mutation-core/payload-relationships-attempt-preflight.md)
+separately connects the admitted relationship to the existing mixed root;
+other combined-command profiles retain their own gates.
 
 ## Governing Evidence And Why Now
 

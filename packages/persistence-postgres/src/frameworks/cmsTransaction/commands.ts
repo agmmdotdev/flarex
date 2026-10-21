@@ -10,6 +10,7 @@ export interface CmsCommand { readonly [commandBrand]: true }
 export interface CmsCommandContext {
   readonly context: CmsRequestContext;
   readonly standaloneRead: boolean;
+  readonly populationRead: boolean;
   readonly reserveOutput: (bytes: number) => Effect.Effect<void, CmsTransactionError>;
   readonly transactionId: string;
   readonly documents: CmsDocuments;

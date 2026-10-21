@@ -1,7 +1,7 @@
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodeLogicalSchemaCandidate } from "../src/logical-schema-candidate";
-import { compileLogicalExtensionIndexes } from "../src/logical-storage-requirements";
+import { compileLogicalReferenceIndexes, compileLogicalStrongReferences } from "../src/logical-storage-requirements";
 import { normalizeRelationalSchema } from "../src/relational-schema";
 
 const qualified = (logicalName: string) => ({ namespace: "app", logicalName });
@@ -21,6 +21,39 @@ const candidate = {
 };
 
 describe("logical candidate dependency identities", () => {
+  it("derives optional Payload policy and an indexed reverse path from the native declaration", () => {
+    const relation = { format: "flarex.relation-declaration", version: 1,
+      source: { table: "references", path: [{ kind: "field", name: "user" }], forwardName: "user" },
+      target: { table: "users" }, value: { cardinality: "one", required: false },
+      inverse: { cardinality: "many", name: null }, localized: false, onTargetDelete: "restrict" };
+    const native = { ...candidate, extensions: [], sources: candidate.sources.map(source => ({ ...source,
+      key: "payload", owner: "payload", writeProfile: "payload.content-relations",
+      definition: { ...source.definition, relations: [relation] },
+    })) };
+    const checked = Result.getOrThrow(decodeLogicalSchemaCandidate(native));
+    expect(compileLogicalStrongReferences(checked)).toMatchObject({ _tag: "Success", success: [{
+      name: "document-relation/payload/references/user", sourceKey: "payload",
+      source: { table: qualified("references"), field: "user" }, target: { table: qualified("users"), field: "_id" },
+      liveness: { source: { kind: "current" }, target: { kind: "current" } }, onTargetDelete: "restrict",
+    }] });
+    expect(compileLogicalReferenceIndexes(checked)).toMatchObject({ _tag: "Success", success: [{
+      localName: "references", descriptor: "strong-reference/user",
+      physicalSpec: { orderedFields: [{ kind: "documentPath", path: "user" }, { kind: "systemCreationTime" }] },
+    }] });
+    const existing = Result.getOrThrow(decodeLogicalSchemaCandidate({ ...native, sources: native.sources.map(source => ({
+      ...source, definition: { ...source.definition, indexes: [{ tableLogicalName: "references", descriptor: "by_user", fields: ["user"] }] },
+    })) }));
+    expect(compileLogicalReferenceIndexes(existing)).toMatchObject({ _tag: "Success", success: [] });
+    const unsupported = Result.getOrThrow(decodeLogicalSchemaCandidate({ ...native, sources: native.sources.map(source => ({
+      ...source, definition: { ...source.definition, relations: [{ ...relation, value: { cardinality: "one", required: true } }] },
+    })) }));
+    expect(Result.isFailure(compileLogicalStrongReferences(unsupported))).toBe(true);
+    const collision = Result.getOrThrow(decodeLogicalSchemaCandidate({ ...native,
+      extensions: candidate.extensions.map(extension => ({ ...extension, sourceKey: "payload",
+        name: "document-relation/payload/references/user" })) }));
+    expect(Result.isFailure(compileLogicalStrongReferences(collision))).toBe(true);
+  });
+
   it("requires explicit complete unique intent and validates its field dependencies", () => {
     const constraint = { tableLogicalName: "references", descriptor: "unique/user", fields: ["user"], sparse: false, nullsDistinct: false };
     const withConstraints = (uniqueConstraints: unknown) => ({ ...candidate, sources: candidate.sources.map(source => ({
@@ -83,7 +116,7 @@ describe("logical candidate dependency identities", () => {
     const decoded = decodeLogicalSchemaCandidate(candidate);
     expect(Result.isSuccess(decoded)).toBe(true);
     if (Result.isFailure(decoded)) return;
-    const derived = compileLogicalExtensionIndexes(decoded.success);
+    const derived = compileLogicalReferenceIndexes(decoded.success);
     expect(Result.isSuccess(derived)).toBe(true);
     if (Result.isFailure(derived)) return;
     expect(derived.success).toHaveLength(1);
@@ -94,7 +127,7 @@ describe("logical candidate dependency identities", () => {
       definition: { ...source.definition, indexes: [{ tableLogicalName: "references", descriptor: "by_user", fields: ["user"] }] },
     })) });
     expect(Result.isSuccess(indexed)).toBe(true);
-    if (Result.isSuccess(indexed)) expect(compileLogicalExtensionIndexes(indexed.success)).toMatchObject({ _tag: "Success", success: [] });
+    if (Result.isSuccess(indexed)) expect(compileLogicalReferenceIndexes(indexed.success)).toMatchObject({ _tag: "Success", success: [] });
   });
 
   it("admits only relational column names that an exact reverse index can address", () => {

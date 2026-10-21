@@ -19,8 +19,11 @@ Historical gate passes reported below do not close this selected acceptance.
 now use native create/update/findByID inside the existing Application mixed root,
 with compiler-owned collection identities and one outer settlement. Borrowing no
 longer requires a single `posts` table. Direct find/count/delete coverage does
-not widen the borrowed method allowlist; preference cleanup, relationships,
-public facades and broader framework profiles retain separate gates.
+not widen the borrowed method allowlist. The
+[optional-one relationship slice](./payload-relationships-attempt-preflight.md)
+connects configured native references and depth-one population to the same pending
+root and shared publication policy. Borrowed delete/preference cleanup, many/joins,
+cross-framework relationships, public facades and broader profiles retain gates.
 
 Status: the Application, Product, selected Payload Local API, and finite
 Medusa workflow slices are implemented as a private, isolated-scope execution

@@ -9,8 +9,9 @@ export function makeCmsCommandContext(
   lifetime: CmsRequestLifetime, transactionId: string, context: CmsRequestContext,
   ports: Pick<CmsCommandContext, "documents" | "relations" | "preferences">, standaloneRead: boolean,
   invoke: (context: CmsRequestContext, child: CmsCommand, args: Json) => Effect.Effect<Json, CmsTransactionError>,
+  populationRead = standaloneRead,
 ): CmsCommandContext {
-  return Object.freeze({ context, standaloneRead, transactionId, ...ports,
+  return Object.freeze({ context, standaloneRead, populationRead, transactionId, ...ports,
     reserveOutput: bytes => lifetime.operation(context, transactionId, "read", Effect.suspend(() => Effect.fromResult(lifetime.charge(bytes)))),
     begin: id => lifetime.begin(context, id), commit: id => lifetime.adapterCommit(context, id), rollback: id => lifetime.rollback(context, id),
     nested: (child, args) => lifetime.nested(context, transactionId, nested => invoke(nested, child, args)),

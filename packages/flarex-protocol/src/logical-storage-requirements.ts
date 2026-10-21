@@ -1,6 +1,6 @@
 import { Data, Result, Schema } from "effect";
 import { CatalogDefinitionNameSchema, type CatalogDefinitionName } from "./catalog";
-import { logicalTableKey, type LogicalSchemaCandidate, type LogicalSchemaSource,
+import { logicalTableKey, type LogicalSchemaCandidate, type LogicalSchemaSource, type LogicalSchemaExtension,
   type QualifiedLogicalTable } from "./logical-schema-candidate";
 import { SchemaManifestAppDeveloperOrderedIndexSpecV1Schema } from "./schema-manifest";
 import { decodeAppOrderedIndexPhysicalSpecV1Result, lowerAppDeveloperOrderedIndexPhysicalSpecV1,
@@ -112,14 +112,47 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
   });
 }
 
+/** Native declarations remain authoritative; this is their derived publication
+ * policy, not a second schema declaration or a cross-source extension. */
+export function compileLogicalDocumentReferences(source: LogicalSchemaSource) {
+  return Result.gen(function* () {
+    const references: LogicalSchemaExtension[] = [];
+    if (source.owner !== "payload" || source.writeProfile !== "payload.content-relations" ||
+      source.definition.kind !== "documents" || source.definition.relations.length !== 1) return references;
+    const relation = source.definition.relations[0];
+    if (relation === undefined || relation.value.cardinality !== "one" || relation.value.required ||
+      relation.localized || relation.onTargetDelete !== "restrict" || relation.inverse.name !== null ||
+      relation.source.path.length !== 1 || relation.source.path[0]?.kind !== "field")
+      return yield* Result.fail(failure(source));
+    const from = source.bindings.find(binding => binding.kind === "definition" && binding.localName === relation.source.table);
+    const to = source.bindings.find(binding => binding.kind === "definition" && binding.localName === relation.target.table);
+    if (from === undefined || to === undefined) return yield* Result.fail(failure(source));
+    references.push({ name: `document-relation/${source.key}/${relation.source.table}/${relation.source.forwardName}`,
+      sourceKey: source.key, source: { table: from.table, field: relation.source.path[0].name },
+      target: { table: to.table, field: "_id" }, policy: "strongReference",
+      liveness: { source: { kind: "current" }, target: { kind: "current" } }, onTargetDelete: "restrict" });
+    return Object.freeze(references);
+  });
+}
+
+export function compileLogicalStrongReferences(candidate: LogicalSchemaCandidate) {
+  return Result.gen(function* () {
+    const references = [...candidate.extensions];
+    for (const source of candidate.sources) references.push(...yield* compileLogicalDocumentReferences(source));
+    if (references.length > 1024 || new Set(references.map(reference => reference.name)).size !== references.length)
+      return yield* Result.fail(new LogicalStorageRequirementError({ reason: "unsupportedDefinition", sourceKey: "references" }));
+    return Object.freeze(references);
+  });
+}
+
 /** Strong references need complete reverse membership at target deletion.
  * Reuse an unconditional leading-field index when the producer already has
  * one; otherwise derive one stable index per source table and field. */
-export function compileLogicalExtensionIndexes(candidate: LogicalSchemaCandidate) {
+export function compileLogicalReferenceIndexes(candidate: LogicalSchemaCandidate) {
   return Result.gen(function* () {
     const derived: LogicalExtensionIndexRequirement[] = [];
     const sourceIndexes = new Map<string, readonly LogicalSourceIndexRequirement[]>();
-    for (const extension of candidate.extensions) {
+    for (const extension of yield* compileLogicalStrongReferences(candidate)) {
       const source = candidate.sources.find(member => member.key === extension.sourceKey);
       if (source === undefined) return yield* Result.fail(new LogicalStorageRequirementError({
         reason: "unsupportedDefinition", sourceKey: extension.sourceKey,

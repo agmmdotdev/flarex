@@ -2,6 +2,7 @@ import { Data, Effect, Exit, Option, Result, Schema } from "effect";
 import { observeExecution } from "../../../execution/diagnostics/operation";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { encodeCanonicalJson, type Json, type JsonObject } from "flarex-protocol/json";
+import { compileLogicalDocumentReferences } from "flarex-protocol/internal/logical-storage-requirements";
 import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES, logicalTableKey,
   type LogicalSchemaSource } from "flarex-protocol/internal/logical-schema-candidate";
 import { CatalogSchemaVersionIdSchema, type CatalogSchemaVersionId,
@@ -576,11 +577,14 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
   const selectedTables = readiness.sourceDefinitionTables(source.key);
   if (selectedTables === undefined) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
   const tableIds = new Set(selectedTables.map(table => table.tableId));
-  // Built-in document relations still require their separate edge owner.
-  // The common publisher maintains activated reverse indexes and enforces
-  // strong references for native as well as source-bound writes.
-  if (source.definition.kind === "documents" && source.definition.relations.length !== 0)
-    return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "unsupportedProfile" }));
+  // Admit only native declarations lowered to the shared publication policy.
+  // Other document profiles still need their own connected integrity proof.
+  if (source.definition.kind === "documents") {
+    const references = yield* Effect.fromResult(compileLogicalDocumentReferences(source)).pipe(
+      Effect.mapError(cause => new LogicalSourceAdmissionError({ reason: "unsupportedProfile", cause })));
+    if (references.length !== source.definition.relations.length)
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "unsupportedProfile" }));
+  }
   const snapshot = readiness.snapshot;
   if (snapshot === null || encodeBytesToLowercaseHex(snapshot.manifestSha256) !== readiness.reference.manifestSha256)
     return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));

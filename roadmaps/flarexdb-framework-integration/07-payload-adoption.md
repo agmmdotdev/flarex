@@ -34,8 +34,12 @@ Payload behavior and conformance; the SDK roadmap owns eventual public surfaces.
 now borrows compiler-owned collections through native create/update/findByID in
 the existing Application root. Multi-collection pending state, constraint
 validation and outer-only settlement replace the fixed `posts` restriction.
-This does not admit borrowed delete/preference cleanup, find/count, relations,
-or public developer syntax; the direct Local API profile remains distinct.
+The [optional-one mixed relationship slice](../mixed-mutation-core/payload-relationships-attempt-preflight.md)
+adds compiler-owned cross-collection references and native depth-one population
+against that pending root. Shared publication enforces final target liveness
+and indexed restrict-on-delete. Borrowed delete/preference cleanup, find/count,
+many/joins, cross-framework references and public syntax retain separate gates;
+the direct Local API profile remains distinct.
 
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)
 is a required shared-storage integration gate: use real Payload Local API calls

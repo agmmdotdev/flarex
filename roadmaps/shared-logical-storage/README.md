@@ -56,6 +56,14 @@ with digest-bound table targets and the existing first-data and settlement owner
 
 ## Current Sources Of Truth
 
+[Payload optional-one mixed relationships](../mixed-mutation-core/payload-relationships-attempt-preflight.md)
+derive reference policy and reverse-index requirements from the checked native
+document declaration. They reuse shared activation/publication enforcement for
+same-source final target liveness and restricted deletion; native Payload retains
+input, access and population semantics. Existing full-proof CMS edge consumers
+retain their own profile. This does not admit general cross-framework traversal,
+borrowed deletion or additional native document relationship kinds.
+
 [PostgreSQL relational predicates](./68-postgres-relational-predicates.md) owns
 the implemented bounded private prerequisite for complete native
 text predicate trees over captured candidates. Native Price Preference update

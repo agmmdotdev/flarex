@@ -1,5 +1,6 @@
 import { makeCmsCommandBinding } from "@flarex/persistence-postgres/internal/cms-construction";
 import { inspectPayloadRuntimeForTest } from "@flarex/payload-adapter/internal/testing";
+import type { CmsCommand } from "../../../../persistence-postgres/src/frameworks/cmsTransaction/commands";
 import { createHash } from "node:crypto";
 import {
   awaitEffectTransactionSettlement,
@@ -256,10 +257,10 @@ type MixedPayloadConformanceRuntime = Effect.Success<ReturnType<MixedPayloadNati
 export type MixedPayloadProfileKind = "ordinary" | "success" | "caughtFailure" | "denied" | "promisedId" |
   "foreignId" | "removedId" | "unresolvedId" | "inspection";
 const ordinaryPayloadRevision = createHash("sha256").update(
-  "payload@3.88.0/compiled-scalar/local-create-updateByID-findByID/compiled-access/no-hooks").digest("hex");
+  "payload@3.88.0/compiled-scalar-or-optional-one/local-create-updateByID-findByID/compiled-access/no-hooks").digest("hex");
 const mixedPayloadProfiles = Object.freeze({
   ordinary: { profile: Object.freeze({ revisionSha256: ordinaryPayloadRevision,
-    participant: `payload.scalar.${ordinaryPayloadRevision}` }), make: makePayloadRuntime },
+    participant: `payload.configured.${ordinaryPayloadRevision}` }), make: makePayloadRuntime },
   success: { profile: mixedPayloadSuccessProfile, make: makeMixedPayloadSuccessRuntime },
   caughtFailure: { profile: mixedPayloadCaughtFailureProfile, make: makeMixedPayloadCaughtFailureRuntime },
   denied: { profile: mixedPayloadDeniedProfile, make: makeMixedPayloadDeniedRuntime },
@@ -387,6 +388,9 @@ export interface MixedMutationProductFixture {
     "updateTag" | "createTag" | "removeProductTag", input: Json) => Promise<Json>;
   readonly runStandaloneLinkCreate: (variantId: string, priceSetId: string) => Promise<Json>;
   readonly runStandalonePayloadCreate: (title: string) => Promise<Json>;
+  /** Trusted test composition; never supplied by the application handler. */
+  readonly runStandalonePayloadCommand: (select: (commands: ReturnType<typeof inspectPayloadRuntimeForTest>["commands"]) => CmsCommand,
+    args: Json) => Promise<Json>;
   readonly retryClosedWorkflow: (value: Json) => Promise<unknown>;
   readonly readCurrentProduct: () => Promise<Json>;
   readonly readCurrentApplicationDocument: (id: string) => Promise<unknown>;
@@ -1636,7 +1640,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
   ) {
     const serving = yield* application.makeServing(session);
     return yield* makeCmsCommandBinding({ serving, hostRuntime: preparedHostTestRuntime(currency.persistence.drizzle),
-      identityAndAccessPolicy: { profile: "payload.scalar", release: "3.88.0",
+      identityAndAccessPolicy: { profile: compiled.configuration.profile, release: "3.88.0",
         access: "closed-headless-local-api", hook: "none" },
       profile: { kind: "source", schemaVersionId: logicalSchemaVersionId, source: compiled.sourceContract } });
   });
@@ -1647,7 +1651,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
       deploymentId: currency.deploymentId,
       scopeId: application.authority.scopeId, authority: application.authorityPorts,
       application: application.activation,
-      identityAndAccessPolicy: { profile: "payload.scalar", release: "3.88.0",
+      identityAndAccessPolicy: { profile: compiled.configuration.profile, release: "3.88.0",
         access: "closed-headless-local-api", hook: "none" },
       logicalStorage: { ports: { controlDb: currency.control.drizzle,
         authority: application.authorityPorts }, unique: application.uniqueConstraintEligibility,
@@ -1749,7 +1753,9 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
         `conflict-${input.suffix}-link`, { product: { variant_id: variantId },
           pricing: { price_set_id: priceSetId } }, session));
   }
-  async function runStandalonePayloadCreate(title: string): Promise<Json> {
+  async function runStandalonePayloadCommand(
+    select: (commands: ReturnType<typeof inspectPayloadRuntimeForTest>["commands"]) => CmsCommand, args: Json,
+  ): Promise<Json> {
     if (compiledPayload === undefined) throw new Error("Missing selected Payload source");
     const postgresTarget = currency.resource.kind === "postgres" ? currency.resource.target : undefined;
     const primary = await postgresTarget?.pool.connect();
@@ -1794,8 +1800,9 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     }
     const result = await runEffect(Effect.scoped(Effect.gen(function* () {
       const runtime = yield* makePayloadRuntime(compiledPayload);
+      const command = select(inspectPayloadRuntimeForTest(runtime).commands);
       const host = yield* makeCmsHost({ ...standalonePayloadFaultHostInput(compiledPayload, postgresSession ?? currency.session),
-        commands: [inspectPayloadRuntimeForTest(runtime).commands.create], expectedContentIdentity: compiledPayload.contentIdentity },
+        commands: [command], expectedContentIdentity: compiledPayload.contentIdentity },
       separate === undefined ? undefined : { afterAdmission: tx => Effect.tryPromise({
         try: async () => {
           const observed = await tx.execute<{ pid: number; schemaName: string; applicationName: string;
@@ -1820,15 +1827,18 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
         },
         catch: cause => new CmsTransactionError({ reason: "resourceFailure", cause }),
       }) });
-      return yield* host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.create, {
-        collection: "posts", data: { title, publishedAt: "2026-01-01" },
-      }).pipe(Effect.ensuring(host.close));
+      return yield* host.run(host.newRequestKey(), command, args).pipe(Effect.ensuring(host.close));
     })));
     if (separate !== undefined && (separate.pool.totalCount !== 1 || separate.pool.idleCount !== 1))
       throw new Error("Standalone Payload did not release its single PostgreSQL connection");
     return result;
     } finally { await separate?.close(); }
     } finally { primary?.release(); }
+  }
+  function runStandalonePayloadCreate(title: string): Promise<Json> {
+    return runStandalonePayloadCommand(commands => commands.create, {
+      collection: "posts", data: { title, publishedAt: "2026-01-01" },
+    });
   }
   const defaultPublisher = createPointCommitPublisherPortV1(application.sessionAuthority, publisherOptions);
   let selectedPublisher = defaultPublisher;
@@ -1968,7 +1978,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     freeze: (result: unknown) => authenticatedInitialEntry.prepareFiniteCommit(result),
     prepareOccPublication, retryWholeAttempt,
     runStandaloneProductUpdate, runStandaloneProductMutation, runStandaloneLinkCreate,
-    runStandalonePayloadCreate,
+    runStandalonePayloadCreate, runStandalonePayloadCommand,
     retryClosedWorkflow: value => lastBorrowedWorkflowInvoke === undefined
       ? Promise.reject(new Error("Workflow was never borrowed")) : lastBorrowedWorkflowInvoke(value),
     readCurrentProduct, readCurrentApplicationDocument, readCurrentPayloadPost, readCurrentWorkflowPricing,

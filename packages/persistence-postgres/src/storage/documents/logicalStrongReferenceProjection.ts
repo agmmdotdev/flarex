@@ -1,5 +1,6 @@
 import { Data, Effect } from "effect";
 import { logicalTableKey, type QualifiedLogicalTable } from "flarex-protocol/internal/logical-schema-candidate";
+import { compileLogicalStrongReferences } from "flarex-protocol/internal/logical-storage-requirements";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
@@ -35,20 +36,22 @@ const prepareLogicalStrongReferenceProjectionsFromReader = Effect.fn("LogicalStr
     requirements: Effect.Success<ReturnType<typeof readLogicalStorageRequirements>>,
     definitions: PublishedPhysicalRequirementSnapshotV1["definitions"]) {
     const { candidate } = requirements.evidence;
-    if (candidate.extensions.length === 0) {
+    const references = yield* Effect.fromResult(compileLogicalStrongReferences(candidate)).pipe(
+      Effect.mapError(cause => new LogicalStrongReferenceProjectionError({ reason: "incompleteCatalog", cause })));
+    if (references.length === 0) {
       const empty: readonly StrongReferenceActivationProjection[] = Object.freeze([]);
       return empty;
     }
     const tableId = (table: QualifiedLogicalTable) =>
       requirements.evidence.tableBindings.find(binding => logicalTableKey(binding.table) === logicalTableKey(table))?.tableId;
-    const uniqueTableIds = [...new Set(candidate.extensions.map(extension => tableId(extension.target.table))
+    const uniqueTableIds = [...new Set(references.map(extension => tableId(extension.target.table))
       .filter((id): id is NonNullable<typeof id> => id !== undefined))];
     const unique = yield* locateAppUniqueConstraintDefinitionsForSchemaEffect(db, deploymentId, scopeId,
       requirements.artifact.schemaVersionId, uniqueTableIds, requirements.unique.length)
       .pipe(Effect.mapError(cause => new LogicalStrongReferenceProjectionError({ reason: "resourceFailure", cause })));
     if (unique === null) return yield* Effect.fail(new LogicalStrongReferenceProjectionError({ reason: "incompleteCatalog" }));
     const projected: StrongReferenceActivationProjection[] = [];
-    for (const extension of candidate.extensions) {
+    for (const extension of references) {
       const sourceTableId = tableId(extension.source.table);
       const targetTableId = tableId(extension.target.table);
       if (sourceTableId === undefined || targetTableId === undefined)

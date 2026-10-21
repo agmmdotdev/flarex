@@ -3,7 +3,7 @@ import { and, asc, eq, or, sql } from "drizzle-orm";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
 import { compileLogicalSourceUniqueConstraints, compileLogicalSourceIndexes, compileLogicalSourceSearches,
-  compileLogicalExtensionIndexes,
+  compileLogicalReferenceIndexes,
   type LogicalSourceIndexRequirement, type LogicalSourceSearchRequirement,
   type LogicalSourceUniqueRequirement } from "flarex-protocol/internal/logical-storage-requirements";
 import type { CatalogTableId } from "flarex-protocol/catalog";
@@ -91,7 +91,7 @@ export const prepareLogicalStorageRequirementsFromArtifact = Effect.fn("LogicalS
       search.push({ ...yield* bind(requirement), sourceKey: source.key, sourceSha256: source.sourceSha256 });
     for (const requirement of yield* Effect.fromResult(compileLogicalSourceUniqueConstraints(source))) unique.push(yield* bind(requirement));
   }
-  for (const requirement of yield* Effect.fromResult(compileLogicalExtensionIndexes(evidence.candidate))) {
+  for (const requirement of yield* Effect.fromResult(compileLogicalReferenceIndexes(evidence.candidate))) {
     const table = tableBindings.get(logicalTableKey(requirement.table));
     if (table === undefined) return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "incompleteBinding" }));
     ordered.push({ localName: requirement.localName, descriptor: requirement.descriptor,

@@ -249,7 +249,7 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, colle
     updateGlobal: deferred, updateGlobalVersion: deferred, updateJobs: deferred, updateMany: deferred, updateVersion: deferred, upsert: deferred,
   } satisfies BaseDatabaseAdapter) };
   const within = async <Value>(context: CmsCommandContext, collection: PayloadCollectionRuntime, request: Partial<PayloadRequest>, signal: AbortSignal, diagnostics: Context.Context<never>, work: () => Promise<Value>, populate = false, joins: PayloadJoinQuery = { referencedBy: false, referencedByMany: false }, onCollection?: (collection: string) => void) => {
-    if (populate && (!context.standaloneRead || profile === "payload.scalar")) throw new UnsupportedPayloadCapability("population request");
+    if (populate && (!context.populationRead || profile === "payload.scalar")) throw new UnsupportedPayloadCapability("population request");
     const state: RequestBridge = { context, collection, request, signal, joins, diagnostics, live: !signal.aborted,
       population: populate ? makePayloadPopulation(profile, collection) : null, semaphore: Semaphore.makeUnsafe(1),
       ...(onCollection === undefined ? {} : { onCollection }) };
