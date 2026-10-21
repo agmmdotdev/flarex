@@ -73,3 +73,16 @@ export { LINKS } from "@medusajs/utils/link/links";
 
 export { filterObjectByKeys } from "@medusajs/utils/common/filter-object-by-keys";
 export { simpleHash } from "@medusajs/utils/common/simple-hash";
+
+export { decorateCartTotals } from "@medusajs/utils/totals/cart/index";
+export { createRawPropertiesFromBigNumber } from "@medusajs/utils/totals/create-raw-properties-from-bignumber";
+export { transformPropertiesToBigNumber } from "@medusajs/utils/totals/transform-properties-to-bignumber";
+export { calculateAdjustmentAmountFromPromotion } from "@medusajs/utils/totals/promotion/index";
+export { AbstractPaymentProvider } from "@medusajs/utils/payment/abstract-payment-provider";
+export { PaymentCollectionStatus } from "@medusajs/utils/payment/payment-collection";
+export { PaymentSessionStatus } from "@medusajs/utils/payment/payment-session";
+export { PaymentActions } from "@medusajs/utils/payment/webhook";
+export * as PromotionUtils from "@medusajs/utils/promotion/index";
+export { ApplicationMethodAllocation, ApplicationMethodTargetType, ApplicationMethodType, CampaignBudgetType, ComputedActions, PromotionActions, PromotionRuleOperator, PromotionStatus, PromotionType } from "@medusajs/utils/promotion/index";
+export { CartWorkflowEvents } from "@medusajs/utils/core-flows/events";
+export { FloatProperty } from "@medusajs/utils/dml/properties/float";

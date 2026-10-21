@@ -9,6 +9,24 @@ proposals requiring an explicit business decision. Maximum-graph evidence,
 remaining call-detail coverage, native inverse concurrency/ownership proofs,
 resource measurement and adapter admission remain pending.
 
+Private source prerequisites now include the native Cart, Customer, Tax and
+Payment services/models, local System providers, Cart totals helpers and selected
+native type closure. Runtime adaptations only relocate framework utility
+imports; Payment's explicit-model joiner delegates directly to the existing
+native portable builder. Its model order, aliases and options remain native.
+Payment's unchanged static manifest retains the host-specific provider loader
+and is outside the portable service/provider entrypoint claim.
+
+Promotion's models, types and pure calculation/validation helpers are selected;
+its executing service and static manifest remain unpromoted. Its automatic
+candidate prefilter uses native SQL, including deleted relation rows and
+text-to-decimal comparisons, so ordinary active-relation reads or a list-all
+fallback cannot replace it. A native persistence seam must preserve candidate
+selection and failures before the connected Promotion service can be admitted.
+These prerequisites add no adapter commands, Cart write profile or provider
+activation. Native compensation decisions and complete inverse proofs remain
+separate gates.
+
 The executing reference is Medusa 2.13.4, commit
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, recorded by
 `third_party/medusa/SOURCE.json`. The root is `createCartWorkflow` in

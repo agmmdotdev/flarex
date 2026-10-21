@@ -812,6 +812,14 @@ profile. No Cart write or resource extension is admitted yet. The connected
 is implemented at the existing failure/lifetime owners; it does not repair
 native Cart business compensation or establish Cart admission.
 
+The private native source prerequisites are promoted for Cart, Customer, Tax
+and Payment, with native totals, provider helpers and complete selected types.
+Promotion currently exposes its models and pure calculators; its executing
+service remains gated by the native SQL prefilter's portable persistence seam.
+Payment's genuine System provider and service have portable entrypoints; its
+native provider-registration loader remains host-specific. Source promotion
+does not admit these modules' persistence operations or the Cart root.
+
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
 The genuine creation step remains unchanged and returns complete native rows,

@@ -1,6 +1,7 @@
 // @ts-check
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import ts from "@typescript/typescript6";
 import { variantItemPricingSourcePairs, variantItemPricingRequiredCurrencySource, verifyNativeRequiredCurrencyGuard,
   verifyVariantItemPricingSource, verifyVariantItemPricingSourcePair } from "./check-medusa-variant-item-pricing-source.mjs";
 
@@ -90,6 +91,31 @@ describe("native159 line item mapper", () => {
 });
 
 describe("native159 exact fields and pure types", () => {
+  it("admits the original two-DTO extraction and the complete byte-exact native Customer leaf", () => {
+    const selected = entry(customerPath);
+    const parsed = ts.createSourceFile("customer.ts", selected.native, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const extracted = ["CustomerAddressDTO", "CustomerDTO"].map(name => {
+      const declarations = parsed.statements.filter(node => ts.isInterfaceDeclaration(node) && node.name.text === name);
+      expect(declarations).toHaveLength(1);
+      const declaration = declarations[0];
+      if (declaration === undefined) throw new Error("Missing original Customer DTO");
+      return declaration.getText(parsed);
+    }).join("\n\n");
+    expect(() => verifyVariantItemPricingSourcePair(customerPath, selected.native, extracted)).not.toThrow();
+    expect(() => verifyVariantItemPricingSourcePair(customerPath, selected.native, selected.native)).not.toThrow();
+    expect(() => verifyVariantItemPricingSourcePair(customerPath, selected.native, extracted + "\nexport interface Extra { id: string }"))
+      .toThrow();
+  });
+  it.each([
+    ["layout-only full closure", (/** @type {string} */ source) => "/* extra layout */\n" + source],
+    ["edited full closure declaration", (/** @type {string} */ source) => source.replace("export interface CustomerGroupDTO", "export interface OtherCustomerGroupDTO")],
+    ["partial new closure", (/** @type {string} */ source) => source.slice(0, source.indexOf("export interface CustomerDTO"))],
+    ["duplicate full closure", (/** @type {string} */ source) => source + source],
+  ])("rejects %s beyond the original Customer extraction", (_label, change) => {
+    const selected = entry(customerPath), changed = change(selected.native);
+    expect(changed).not.toBe(selected.native);
+    expect(() => verifyVariantItemPricingSourcePair(customerPath, selected.native, changed)).toThrow();
+  });
   it("retains exact field order and source bytes", () => {
     mutant("packages/medusa-core-flows/src/cart/utils/fields.ts", '"inventory_items.required_quantity"', '"inventory_items.required_quantity", "metadata"');
   });

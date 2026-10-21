@@ -1,0 +1,44 @@
+{
+  "name": "@medusajs/payment",
+  "version": "2.13.4",
+  "private": true,
+  "license": "MIT",
+  "exports": {
+    "./models": {
+      "types": "./dist/models/index.d.ts",
+      "source": "./src/models/index.ts",
+      "default": "./dist/models/index.js"
+    },
+    "./services": {
+      "types": "./dist/services/index.d.ts",
+      "source": "./src/services/index.ts",
+      "default": "./dist/services/index.js"
+    },
+    "./providers/system": {
+      "types": "./dist/providers/system.d.ts",
+      "source": "./src/providers/system.ts",
+      "default": "./dist/providers/system.js"
+    },
+    "./static-manifest": {
+      "types": "./dist/static-manifest.d.ts",
+      "source": "./src/static-manifest.ts",
+      "default": "./dist/static-manifest.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "source": "./src/types/index.ts",
+      "default": "./dist/types/index.js"
+    }
+  },
+  "dependencies": {
+    "@medusajs/framework": "workspace:*",
+    "@medusajs/types": "workspace:*",
+    "@medusajs/utils": "workspace:*",
+    "@medusajs/modules-sdk": "workspace:*",
+    "@medusajs/deps": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

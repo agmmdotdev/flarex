@@ -7,6 +7,7 @@ import { verifyNativeJsonAssignment } from "./check-medusa-json-assignment-sourc
 import { pricingRepositoryNormalizationSource, verifyNativePriceListPriceNormalization, verifyPriceListPriceCreationCallbacks, verifyPriceListPriceCreationSelection, verifyPriceListPriceRemovalCallbacks, verifyPriceListPriceRemovalSelection, priceListPriceBatchSourcePair, verifyPriceListPriceBatchCallbacks, verifyPriceListPriceBatchSelection, verifyPriceListPriceBatchService } from "./check-medusa-price-list-prices-source.mjs";
 import { verifyNativePriceListPriceUpdate, stripNativePriceListPriceUpdatePricingExtension } from "./check-medusa-price-list-price-update-source.mjs";
 import { variantItemPricingSourcePairs, verifyVariantItemPricingSource } from "./check-medusa-variant-item-pricing-source.mjs";
+import { cartPrerequisiteSourcePairs, verifyCartPrerequisiteSourceSelection, verifyPaymentJoinerFork } from "./check-medusa-cart-prerequisite-source.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -198,6 +199,11 @@ export function verifyInventoryReservationArithmeticExtraction(source, target, h
 }
 
 const owners = new Map([
+  ["packages/medusa-cart", "@medusajs/cart"],
+  ["packages/medusa-customer", "@medusajs/customer"],
+  ["packages/medusa-tax", "@medusajs/tax"],
+  ["packages/medusa-payment", "@medusajs/payment"],
+  ["packages/medusa-promotion", "@medusajs/promotion"],
   ["packages/medusa-currency", "@medusajs/currency"],
   ["packages/medusa-product", "@medusajs/product"],
   ["packages/medusa-sales-channel", "@medusajs/sales-channel"],
@@ -354,6 +360,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/sales-channel/steps/detach-products-from-sales-channels.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/sales-channel/steps/detach-products-from-sales-channels.ts"), "utf8"));
   const promotion = supplied;
+  verifyCartPrerequisiteSourceSelection(promotion.files);
   const sums = readFileSync(path.join(root, "third_party/medusa/SOURCE_SHA256SUMS"));
   if (sha256(sums) !== "d20d4f16843cd4844b2f1c4807a5787488e0f08bc068bba9641926984f183017") {
     throw new Error("Changed pinned Medusa source manifest");
@@ -763,7 +770,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       ["packages/medusa-pricing/src/normalization.ts", "packages/modules/pricing/src/services/pricing-module.ts"],
     ]) if (file.target === target && (file.classification !== "selectedExportFacade" || file.source !== sourcePrefix + source))
       throw new Error("Shipping Option extraction outside its exact pinned source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "authored"].includes(file.classification)) {
+    if (file.classification === "paymentJoinerFork" && !cartPrerequisiteSourcePairs.some(pair => pair.target === file.target && pair.classification === "paymentJoinerFork"))
+      throw new Error("Payment joiner adaptation outside its selected native source pair");
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -872,6 +881,10 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       if (hash !== file.sourceSha256) throw new Error(`Changed promotion source: ${file.source}`);
       if (shippingNativeSources.has(file.target))
         verifyModuleTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
+      if (cartPrerequisiteSourcePairs.some(pair => pair.target === file.target && pair.classification === "importRelocation"))
+        verifyModuleTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
+      if (file.classification === "paymentJoinerFork")
+        verifyPaymentJoinerFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "inventoryServiceFork")
         verifyInventoryReservationRestoreFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"),
           readFileSync(path.join(root, "packages/medusa-inventory/src/utils/inventory-level-quantity.ts"), "utf8"));

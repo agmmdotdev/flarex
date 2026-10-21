@@ -562,6 +562,56 @@
       "types": "./dist/common/filter-object-by-keys.d.ts",
       "source": "./src/common/filter-object-by-keys.ts",
       "default": "./dist/common/filter-object-by-keys.js"
+    },
+    "./totals/cart/index": {
+      "types": "./dist/totals/cart/index.d.ts",
+      "source": "./src/totals/cart/index.ts",
+      "default": "./dist/totals/cart/index.js"
+    },
+    "./totals/create-raw-properties-from-bignumber": {
+      "types": "./dist/totals/create-raw-properties-from-bignumber.d.ts",
+      "source": "./src/totals/create-raw-properties-from-bignumber.ts",
+      "default": "./dist/totals/create-raw-properties-from-bignumber.js"
+    },
+    "./totals/transform-properties-to-bignumber": {
+      "types": "./dist/totals/transform-properties-to-bignumber.d.ts",
+      "source": "./src/totals/transform-properties-to-bignumber.ts",
+      "default": "./dist/totals/transform-properties-to-bignumber.js"
+    },
+    "./totals/promotion/index": {
+      "types": "./dist/totals/promotion/index.d.ts",
+      "source": "./src/totals/promotion/index.ts",
+      "default": "./dist/totals/promotion/index.js"
+    },
+    "./payment/abstract-payment-provider": {
+      "types": "./dist/payment/abstract-payment-provider.d.ts",
+      "source": "./src/payment/abstract-payment-provider.ts",
+      "default": "./dist/payment/abstract-payment-provider.js"
+    },
+    "./payment/payment-collection": {
+      "types": "./dist/payment/payment-collection.d.ts",
+      "source": "./src/payment/payment-collection.ts",
+      "default": "./dist/payment/payment-collection.js"
+    },
+    "./payment/payment-session": {
+      "types": "./dist/payment/payment-session.d.ts",
+      "source": "./src/payment/payment-session.ts",
+      "default": "./dist/payment/payment-session.js"
+    },
+    "./payment/webhook": {
+      "types": "./dist/payment/webhook.d.ts",
+      "source": "./src/payment/webhook.ts",
+      "default": "./dist/payment/webhook.js"
+    },
+    "./promotion/index": {
+      "types": "./dist/promotion/index.d.ts",
+      "source": "./src/promotion/index.ts",
+      "default": "./dist/promotion/index.js"
+    },
+    "./dml/properties/float": {
+      "types": "./dist/dml/properties/float.d.ts",
+      "source": "./src/dml/properties/float.ts",
+      "default": "./dist/dml/properties/float.js"
     }
   },
   "license": "MIT",

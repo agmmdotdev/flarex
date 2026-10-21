@@ -112,6 +112,66 @@
       "types": "./dist/workflows/stock-locations/mutations.d.ts",
       "source": "./src/workflows/stock-locations/mutations.ts",
       "default": "./dist/workflows/stock-locations/mutations.js"
+    },
+    "./cart/index": {
+      "types": "./dist/cart/index.d.ts",
+      "source": "./src/cart/index.ts",
+      "default": "./dist/cart/index.js"
+    },
+    "./cart/common": {
+      "types": "./dist/cart/common.d.ts",
+      "source": "./src/cart/common.ts",
+      "default": "./dist/cart/common.js"
+    },
+    "./cart/mutations": {
+      "types": "./dist/cart/mutations.d.ts",
+      "source": "./src/cart/mutations.ts",
+      "default": "./dist/cart/mutations.js"
+    },
+    "./cart/service": {
+      "types": "./dist/cart/service.d.ts",
+      "source": "./src/cart/service.ts",
+      "default": "./dist/cart/service.js"
+    },
+    "./customer/index": {
+      "types": "./dist/customer/index.d.ts",
+      "source": "./src/customer/index.ts",
+      "default": "./dist/customer/index.js"
+    },
+    "./customer/common": {
+      "types": "./dist/customer/common.d.ts",
+      "source": "./src/customer/common.ts",
+      "default": "./dist/customer/common.js"
+    },
+    "./customer/service": {
+      "types": "./dist/customer/service.d.ts",
+      "source": "./src/customer/service.ts",
+      "default": "./dist/customer/service.js"
+    },
+    "./customer/mutations": {
+      "types": "./dist/customer/mutations.d.ts",
+      "source": "./src/customer/mutations.ts",
+      "default": "./dist/customer/mutations.js"
+    },
+    "./tax/index": {
+      "types": "./dist/tax/index.d.ts",
+      "source": "./src/tax/index.ts",
+      "default": "./dist/tax/index.js"
+    },
+    "./promotion/index": {
+      "types": "./dist/promotion/index.d.ts",
+      "source": "./src/promotion/index.ts",
+      "default": "./dist/promotion/index.js"
+    },
+    "./payment/index": {
+      "types": "./dist/payment/index.d.ts",
+      "source": "./src/payment/index.ts",
+      "default": "./dist/payment/index.js"
+    },
+    "./totals/index": {
+      "types": "./dist/totals/index.d.ts",
+      "source": "./src/totals/index.ts",
+      "default": "./dist/totals/index.js"
     }
   },
   "license": "MIT",

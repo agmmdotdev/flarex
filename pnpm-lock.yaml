@@ -959,6 +959,21 @@ importers:
         specifier: 8.22.0
         version: 8.22.0
 
+  packages/medusa-cart:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
+      '@medusajs/modules-sdk':
+        specifier: workspace:*
+        version: link:../medusa-modules-sdk
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+
   packages/medusa-core-flows:
     dependencies:
       '@medusajs/deps':
@@ -991,6 +1006,21 @@ importers:
         version: link:../medusa-orchestration
 
   packages/medusa-currency:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
+      '@medusajs/modules-sdk':
+        specifier: workspace:*
+        version: link:../medusa-modules-sdk
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+
+  packages/medusa-customer:
     dependencies:
       '@medusajs/framework':
         specifier: workspace:*
@@ -1150,6 +1180,24 @@ importers:
         specifier: workspace:*
         version: link:../medusa-utils
 
+  packages/medusa-payment:
+    dependencies:
+      '@medusajs/deps':
+        specifier: workspace:*
+        version: link:../medusa-deps
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
+      '@medusajs/modules-sdk':
+        specifier: workspace:*
+        version: link:../medusa-modules-sdk
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+
   packages/medusa-pricing:
     dependencies:
       '@medusajs/framework':
@@ -1186,6 +1234,18 @@ importers:
       faker:
         specifier: 5.5.3
         version: 5.5.3
+
+  packages/medusa-promotion:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
 
   packages/medusa-region:
     dependencies:
@@ -1233,6 +1293,21 @@ importers:
         version: link:../medusa-utils
 
   packages/medusa-store:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
+      '@medusajs/modules-sdk':
+        specifier: workspace:*
+        version: link:../medusa-modules-sdk
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+
+  packages/medusa-tax:
     dependencies:
       '@medusajs/framework':
         specifier: workspace:*

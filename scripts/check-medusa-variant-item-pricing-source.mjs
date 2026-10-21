@@ -169,10 +169,10 @@ function adaptCallback(source, target) {
   return { expected, runtimeExpected };
 }
 
-/** The existing Customer DTO needs only its native Address DTO. The unrelated
- * legacy customer type would expand Address ownership and is not promoted.
- * Compare the complete target to exactly these original nodes; a second copy,
- * alias, import, reference alteration or extra declaration cannot disappear.
+/** The original selected Customer DTOs remain an admitted extraction. Cart's
+ * complete native Customer type closure is admitted separately by exact bytes.
+ * Compare an extraction to exactly these original nodes; a second copy, alias,
+ * import, reference alteration or extra declaration cannot disappear.
  * @param {string} source */
 function selectedCustomerTypes(source) {
   const parsed = ts.createSourceFile("customer.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
@@ -216,6 +216,7 @@ export function verifyVariantItemPricingSourcePair(target, source, actual) {
     if (authorityProgram(runtimeExpected, false) !== authorityProgram(actual, false)) throw new Error(failure + ": emitted callback " + target);
     return;
   }
+  if (target.endsWith("/customer/common.ts") && actual === source) return;
   const expected = target.endsWith("/customer/common.ts") ? selectedCustomerTypes(source) : adaptPureTypes(source, target);
   if (authorityProgram(expected) !== authorityProgram(actual)) throw new Error(failure + ": " + target);
 }

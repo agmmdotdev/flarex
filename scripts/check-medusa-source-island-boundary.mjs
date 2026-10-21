@@ -754,6 +754,8 @@ export function discoverRootToolSources(repoRoot) {
     "scripts/check-medusa-price-list-price-batch-source.test.js",
     "scripts/check-medusa-variant-item-pricing-source.mjs",
     "scripts/check-medusa-variant-item-pricing-source.test.js",
+    "scripts/check-medusa-cart-prerequisite-source.mjs",
+    "scripts/check-medusa-cart-prerequisite-source.test.js",
     "scripts/check-medusa-currency-portable.mjs",
     "scripts/check-medusa-source-island-boundary.mjs",
     "scripts/check-medusa-source-island-boundary.test.js",

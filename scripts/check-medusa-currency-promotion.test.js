@@ -1210,7 +1210,7 @@ describe("native Inventory Item creation callback provenance", () => {
 
 describe("exact Currency promotion", () => {
   it("authenticates source, transformed inputs, package exports, and available build outputs", () => {
-    expect(promotion.packages).toHaveLength(25);
+    expect(promotion.packages).toHaveLength(30);
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-locking")).toBe(true);
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-store")).toBe(true);
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-orchestration")).toBe(true);
@@ -1298,7 +1298,7 @@ describe("exact Currency promotion", () => {
 
   it("retains the executable original compatibility scenarios and assertions", () => {
     const tests = promotion.files.filter((file) => file.classification === "testPort");
-    expect(tests).toHaveLength(18);
+    expect(tests).toHaveLength(21);
     for (const file of tests) {
       const original = file.source;
       if (!original) throw new Error("Missing original test source");
