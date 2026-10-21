@@ -590,6 +590,7 @@ describe.each(drivers)("finite indexed body permission on %s", driver => {
         finally { observer.stop(); await fixture.close(); }
       };
       const predicateCaptures = () => observer.captures.filter(capture => capture.kind === "relationalPredicate");
+      const numeric = (operator: string, value: number) => ({ kind: "postgresNumericCast", column: "subtitle", operator, value });
       await fresh("nullable-current-and-pending", {
         run: (working, lifetime, id, _root, permission) => Effect.gen(function* () {
           const table = permission.tables.find(value => value.localName === productName);
@@ -624,6 +625,51 @@ describe.each(drivers)("finite indexed body permission on %s", driver => {
           expect(yield* selectedIds(text("exists", false))).toEqual([]);
           expect(yield* selectedIds(text("regex", "^pending$"))).toEqual([base.seed.productId]);
           expect(yield* selectedIds({ kind: "postgresText", column: "subtitle", operator: "notIn", values: ["a%b"] })).toEqual([base.seed.productId]);
+        }),
+      });
+      await fresh("numeric-cast-current-and-pending", {
+        run: (working, lifetime, id) => Effect.gen(function* () {
+          const store = yield* working.relationalTable(lifetime.context, id, productName);
+          const current = yield* store.find(lifetime.context, { order: { column: "id", direction: "asc" }, predicate: anchor });
+          expect(current.find(row => row.id === base.seed.productId)?.subtitle).toBeNull();
+          expect(current.find(row => row.id === second.seed.productId)?.subtitle).toBe("a%b");
+          const selected = (predicate: unknown) => store.find(lifetime.context, query(predicate)).pipe(Effect.map(rows => rows.map(row => row.id).sort()));
+          // The original invalid TEXT remains valid data. Keep its lexical
+          // guard and numeric cast inside one authenticated SQL expression.
+          expect(yield* selected({ kind: "and", children: [
+            { kind: "postgresText", column: "subtitle", operator: "notIn", values: ["a%b"] }, numeric("gt", 1),
+          ] })).toEqual([]);
+          expect(yield* selected({ kind: "or", children: [{ kind: "and", children: [] }, numeric("gt", 1)] }))
+            .toEqual([...ids].sort());
+          for (const [subtitle, operator, threshold, matches] of [
+            ["1.0000000000000000001", "gt", 1, true],
+            ["9007199254740993", "gt", 9007199254740992, true],
+            [" 01.00 ", "gte", 1, true],
+            ["1e0", "lte", 1, true],
+            ["NaN", "gt", 1, true], ["Infinity", "gt", 1, true], ["-Infinity", "lt", 1, true],
+            ["1.0000000000000000001", "lte", 1, false],
+          ] as const) {
+            yield* store.write(lifetime.context, "update", [{ id: second.seed.productId, subtitle }]);
+            expect(yield* selected(numeric(operator, threshold))).toEqual(matches ? [second.seed.productId] : []);
+          }
+          expect(yield* store.find(lifetime.context, { order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [
+            { kind: "in", column: "id", values: [] }, numeric("gt", 1),
+          ] } })).toEqual([]);
+          expect(predicateCaptures().some(capture => capture.rawCount === 0 && capture.headerReason === "accepted")).toBe(true);
+        }),
+      });
+      await fresh("original-numeric-cast-error", {
+        run: (working, lifetime, id, _root, permission) => Effect.gen(function* () {
+          const table = permission.tables.find(value => value.localName === productName);
+          if (table === undefined) throw failure("Missing genuine numeric predicate source");
+          const store = yield* working.relationalTable(lifetime.context, id, productName);
+          const rows = yield* store.find(lifetime.context, { order: { column: "id", direction: "asc" }, predicate: anchor });
+          const batch = yield* Effect.fromResult(predicateBatch(permission, table, rows, numeric("gt", 1)));
+          const outcome = yield* Effect.result(permission.capture({ kind: "relationalPredicate", tableId: table.tableId, batch },
+            { kind: "rows", tableId: table.tableId }));
+          expect(outcome).toMatchObject({ _tag: "Failure", failure: { message: "captureFailure",
+            cause: { _tag: "FiniteStorageCaptureError", reason: "resourceFailure" } } });
+          expect(predicateCaptures()).toHaveLength(0);
         }),
       });
       for (const refusal of ["cloned-token", "wrong-table", "clock-demand", "wrong-demand-table", "cloned-source", "other-source"] as const) await fresh(`authority-${refusal}`, {
@@ -791,6 +837,42 @@ describe.each(drivers)("finite indexed body permission on %s", driver => {
           expect(predicateCaptures()).toHaveLength(0);
         }),
       });
+    } finally { observer.restore(); await base.close(); }
+  }, 120_000);
+
+  it("refuses a numeric-cast body before execution after genuine scope authorization revocation", async () => {
+    let participant: FiniteSessionJournalParticipantSelection | undefined;
+    const base = await createMixedMutationProductFixture({ driver, suffix: `finite-numeric-revocation-${driver}`,
+      hooks: { transformFiniteEntrySources: participants => { participant = participants[0]; return participants; } } });
+    const observer = observeNativeCaptures();
+    try {
+      if (participant === undefined) throw failure("Missing genuine numeric revocation participant");
+      await nativeSeedPhase(`${driver}: native invalid numeric TEXT`, () => runNativeStandaloneProductUpdate(base.currency, base.product,
+        `finite-numeric-revocation-${driver}-subtitle`, { id: base.seed.productId, data: { subtitle: "invalid-numeric-text" } }));
+      const fixture = await base.openCompetingFiniteFixture(`finite-numeric-revocation-${driver}-child`);
+      try {
+        observer.begin();
+        await runReadCase(fixture, participant, { caseName: "revoked-before-numeric-body",
+          run: (working, lifetime, id, _root, permission) => Effect.gen(function* () {
+            const table = permission.tables.find(value => value.localName === base.seedGraph.catalog.product.table.name);
+            if (table === undefined) throw failure("Missing genuine numeric revocation source");
+            const store = yield* working.relationalTable(lifetime.context, id, table.localName);
+            const rows = yield* store.find(lifetime.context, { order: { column: "id", direction: "asc" },
+              predicate: { kind: "in", column: "id", values: [base.seed.productId] } });
+            expect(rows).toHaveLength(1);
+            expect(rows[0]?.subtitle).toBe("invalid-numeric-text");
+            const batch = yield* Effect.fromResult(predicateBatch(permission, table, rows,
+              { kind: "postgresNumericCast", column: "subtitle", operator: "gt", value: 1 }));
+            yield* Effect.tryPromise({ try: () => base.currency.persistence.drizzle.transaction(tx => Effect.runPromise(
+              advanceScopeAuthorizationRevocationEpochInTransactionEffect(tx, base.currency.application.authority.scopeId))),
+              catch: cause => failure("Owner numeric revocation failed", cause) });
+            expect(yield* Effect.result(permission.capture({ kind: "relationalPredicate", tableId: table.tableId, batch },
+              { kind: "rows", tableId: table.tableId }))).toMatchObject({ _tag: "Failure", failure: { message: "captureFailure",
+                cause: { _tag: "FiniteStorageCaptureError", reason: "authorizationRevocationEpochChanged" } } });
+            expect(observer.captures.filter(capture => capture.kind === "relationalPredicate")).toHaveLength(0);
+          }),
+        });
+      } finally { observer.stop(); await fixture.close(); }
     } finally { observer.restore(); await base.close(); }
   }, 120_000);
 

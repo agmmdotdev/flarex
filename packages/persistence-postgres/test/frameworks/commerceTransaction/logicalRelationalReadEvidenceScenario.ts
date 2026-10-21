@@ -37,7 +37,7 @@ export const logicalRelationalReadEvidenceScenario = Effect.fn("LogicalReadEvide
     authority: fixture.authorityPorts, application: fixture.activation, identityAndAccessPolicy: { profile: "neutral-read-evidence" } };
   const participant = defineAtomicCommerceParticipant("neutralReadEvidence");
   const seed = defineCommerceCommand("neutralReadEvidenceSeed", "write", ctx => Effect.gen(function* () {
-    yield* (yield* ctx.table("folio")).write(ctx.manager, "insert", [{ folio_key: "evidence-owner" }, { folio_key: "outside-owner" }, { folio_key: "predicate-owner" }]);
+    yield* (yield* ctx.table("folio")).write(ctx.manager, "insert", [{ folio_key: "evidence-owner" }, { folio_key: "outside-owner" }, { folio_key: "predicate-owner" }, { folio_key: "numeric-owner" }]);
     return [...yield* (yield* ctx.table("entry")).write(ctx.manager, "insert", [
       { entry_key: "b", folio_key: "evidence-owner", text: "second" },
       { entry_key: "a", folio_key: "evidence-owner", text: "first" },
@@ -46,6 +46,8 @@ export const logicalRelationalReadEvidenceScenario = Effect.fn("LogicalReadEvide
       { entry_key: "predicate-b", folio_key: "predicate-owner", text: "ångström βeta" },
       { entry_key: "predicate-c", folio_key: "predicate-owner", text: "fox jumped" },
       { entry_key: "predicate-d", folio_key: "predicate-owner", text: "lazy FOX" },
+      ...["01.000", "1e0", "1.0000000000000000001", "9007199254740993", "NaN", "Infinity", "-Infinity", "bad"].map((text, index) =>
+        ({ entry_key: "numeric-" + index, folio_key: "numeric-owner", text })),
     ])];
   }));
   const read = defineCommerceCommand("neutralReadEvidenceSelection", "read", (ctx, input) => Effect.gen(function* () {
@@ -81,14 +83,26 @@ export const logicalRelationalReadEvidenceScenario = Effect.fn("LogicalReadEvide
     ] } });
     return { before: [...before], after: [...after], count, page: { rows: [...page.rows], hasMore: page.hasMore } };
   }));
-  const caughtPredicateFailure = defineCommerceCommand("neutralPostgresPredicateCaughtFailure", "write", ctx => Effect.gen(function* () {
+  const caughtPredicateFailure = defineCommerceCommand("neutralPostgresPredicateCaughtFailure", "write", (ctx, input) => Effect.gen(function* () {
     const store = yield* ctx.table("entry");
     yield* store.write(ctx.manager, "update", [{ entry_key: "predicate-c", text: "must roll back" }]);
     yield* store.find(ctx.manager, { order: { column: "entry_key", direction: "asc" }, predicate: { kind: "and", children: [
-      { kind: "in", column: "folio_key", values: ["predicate-owner"] },
-      { kind: "postgresText", column: "text", operator: "regex", value: "[" },
+      input === "numeric" ? { kind: "in", column: "entry_key", values: ["numeric-7"] }
+        : { kind: "in", column: "folio_key", values: ["predicate-owner"] },
+      input === "numeric" ? { kind: "postgresNumericCast", column: "text", operator: "gt", value: 1 }
+        : { kind: "postgresText", column: "text", operator: "regex", value: "[" },
     ] } }).pipe(Effect.result);
     return null;
+  }));
+  const numericOverlay = defineCommerceCommand("neutralNumericCastOverlay", "write", ctx => Effect.gen(function* () {
+    const store = yield* ctx.table("entry");
+    const query = { fields: ["entry_key"], order: { column: "entry_key", direction: "asc" }, predicate: { kind: "and", children: [
+      { kind: "in", column: "entry_key", values: ["numeric-0"] },
+      { kind: "postgresNumericCast", column: "text", operator: "gt", value: 1 },
+    ] } };
+    const program = store.prepareRead(query), before = yield* program.find(ctx.manager);
+    yield* store.write(ctx.manager, "update", [{ entry_key: "numeric-0", text: "1.0000000000000000001" }]);
+    return { before: [...before], after: [...yield* program.find(ctx.manager)], count: yield* program.count(ctx.manager) };
   }));
   yield* Effect.acquireUseRelease(makeCommerceHost({ ...hostInput, logicalStorage, commands: [read] }),
     host => host.initialize([]), host => host.close);
@@ -119,9 +133,10 @@ export const logicalRelationalReadEvidenceScenario = Effect.fn("LogicalReadEvide
   }));
   const predicateRoot = defineAtomicCommerceCommand("neutralPostgresPredicateRoot", (ctx, input) => ctx.call(participant, predicateRead, input));
   const overlayRoot = defineAtomicCommerceCommand("neutralPostgresPredicateOverlayRoot", ctx => ctx.call(participant, predicateOverlay, null));
-  const caughtRoot = defineAtomicCommerceCommand("neutralPostgresPredicateCaughtRoot", ctx => ctx.call(participant, caughtPredicateFailure, null));
-  yield* Effect.acquireUseRelease(makeAtomicCommerceHost({ ...hostInput, commands: [seedRoot, readRoot, predicateRoot, overlayRoot, caughtRoot],
-    participants: [{ participant, logicalStorage, commands: [seed, read, predicateRead, predicateOverlay, caughtPredicateFailure], validateLogicalCall }],
+  const caughtRoot = defineAtomicCommerceCommand("neutralPostgresPredicateCaughtRoot", (ctx, input) => ctx.call(participant, caughtPredicateFailure, input));
+  const numericOverlayRoot = defineAtomicCommerceCommand("neutralNumericCastOverlayRoot", ctx => ctx.call(participant, numericOverlay, null));
+  yield* Effect.acquireUseRelease(makeAtomicCommerceHost({ ...hostInput, commands: [seedRoot, readRoot, predicateRoot, overlayRoot, caughtRoot, numericOverlayRoot],
+    participants: [{ participant, logicalStorage, commands: [seed, read, predicateRead, predicateOverlay, caughtPredicateFailure, numericOverlay], validateLogicalCall }],
   }), host => Effect.gen(function* () {
     yield* host.run(host.newRequestKey(), seedRoot, null);
     const request = host.newRequestKey();
@@ -138,6 +153,44 @@ export const logicalRelationalReadEvidenceScenario = Effect.fn("LogicalReadEvide
     const selected = (predicate: Json): JsonObject => ({ fields: ["entry_key"], order: { column: "entry_key", direction: "asc" },
       predicate: { kind: "and", children: [{ kind: "in", column: "folio_key", values: ["predicate-owner"] }, predicate] } });
     const select = (query: JsonObject) => host.run(host.newRequestKey(), predicateRoot, { operation: "find", query });
+    const numeric = (operator: string, value: number): JsonObject => ({ kind: "postgresNumericCast", column: "text", operator, value });
+    const numericSelection = (predicate: Json): JsonObject => ({ fields: ["entry_key"], order: { column: "entry_key", direction: "asc" },
+      includeIdentities: true, predicate: { kind: "and", children: [{ kind: "in", column: "folio_key", values: ["numeric-owner"] }, predicate] } });
+    const numericGuard = (predicate: Json): JsonObject => ({ kind: "and", children: [
+      { kind: "postgresText", column: "text", operator: "notIn", values: ["bad"] }, predicate,
+    ] });
+    for (const [operator, threshold, keys] of [
+      ["gt", 1, ["numeric-2", "numeric-3", "numeric-4", "numeric-5"]],
+      ["gte", 1, ["numeric-0", "numeric-1", "numeric-2", "numeric-3", "numeric-4", "numeric-5"]],
+      ["lt", 1, ["numeric-6"]],
+      ["lte", 1, ["numeric-0", "numeric-1", "numeric-6"]],
+      ["gt", 9007199254740992, ["numeric-3", "numeric-4", "numeric-5"]],
+    ] satisfies Array<readonly [string, number, readonly string[]]>) {
+      const query = numericSelection(numericGuard(numeric(operator, threshold)));
+      expect(yield* select(query)).toEqual({ rows: keys.map(entry_key => ({ entry_key })), count: keys.length });
+      expect(identityReceipts.at(-1)?.relationalReads).toEqual([0, 1].map(() => ({ table: "entry", query,
+        total: keys.length, returned: keys.length, orderedIdentities: keys.map(entry_key => ({ entry_key })) })));
+    }
+    expect(yield* select(numericSelection({ kind: "or", children: [{ kind: "and", children: [] }, numeric("gt", 1)] })))
+      .toEqual({ rows: Array.from({ length: 8 }, (_, index) => ({ entry_key: "numeric-" + index })), count: 8 });
+    expect(yield* select({ ...numericSelection(numeric("gt", 1)), predicate: { kind: "and", children: [
+      { kind: "in", column: "entry_key", values: [] }, numeric("gt", 1),
+    ] } })).toEqual({ rows: [], count: 0 });
+    expect(yield* select({ ...numericSelection(numeric("gt", 1)), predicate: { kind: "and", children: [
+      { kind: "in", column: "folio_key", values: ["no-numeric-candidates"] }, numeric("gt", 1),
+    ] } })).toEqual({ rows: [], count: 0 });
+    expect((yield* Effect.result(select(numericSelection(numeric("gt", 1)))))._tag).toBe("Failure");
+    expect(yield* host.run(host.newRequestKey(), predicateRoot, { operation: "aggregate", query: {
+      predicate: numericSelection(numericGuard(numeric("gt", 1))).predicate!,
+    } })).toEqual({ count: 4 });
+    expect(yield* host.run(host.newRequestKey(), predicateRoot, { operation: "page", query: {
+      fields: ["entry_key"], order: { column: "entry_key", direction: "asc" }, take: 2,
+      predicate: { kind: "and", children: [
+        { kind: "isNull", column: "deleted_at" },
+        { kind: "postgresText", column: "folio_key", operator: "like", value: "numeric-owner" },
+        numericGuard(numeric("gt", 1)),
+      ] },
+    } })).toEqual({ rows: [{ entry_key: "numeric-2" }, { entry_key: "numeric-3" }], hasMore: true });
     // Call-local observations deliberately include access candidates. Selected
     // identities authenticate actual membership independently of those rows,
     // projection and pagination, for both pure and PostgreSQL residuals.
@@ -236,5 +289,9 @@ export const logicalRelationalReadEvidenceScenario = Effect.fn("LogicalReadEvide
     const beforeRefusal = yield* select(selected(pg("like", "%fox%")));
     expect((yield* Effect.result(host.run(host.newRequestKey(), caughtRoot, null)))._tag).toBe("Failure");
     expect(yield* select(selected(pg("like", "%fox%")))).toEqual(beforeRefusal);
+    expect((yield* Effect.result(host.run(host.newRequestKey(), caughtRoot, "numeric")))._tag).toBe("Failure");
+    expect(yield* select(selected(pg("like", "%fox%")))).toEqual(beforeRefusal);
+    expect(yield* host.run(host.newRequestKey(), numericOverlayRoot, null))
+      .toEqual({ before: [], after: [{ entry_key: "numeric-0" }], count: 1 });
   }), host => host.close);
 });

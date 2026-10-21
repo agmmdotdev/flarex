@@ -34,6 +34,8 @@ const Node = Schema.Union([
     values: Schema.Array(Schema.Union([Schema.String, Schema.Boolean])) }),
   Schema.Struct({ kind: Schema.Literal("numericIn"), column: Schema.String,
     values: Schema.Array(Schema.Union([Schema.String, Schema.Number])) }),
+  Schema.Struct({ kind: Schema.Literal("postgresNumericCast"), column: Schema.String,
+    operator: Schema.Literals(["gt", "gte", "lt", "lte"]), value: Schema.Finite }),
   Schema.Struct({ kind: Schema.Literal("indexedPoints"),
     columns: Schema.Array(Schema.String).check(Schema.isMinLength(2), Schema.isMaxLength(4)),
     values: Schema.Array(Schema.Array(Schema.Union([Schema.String, Schema.Boolean]))).check(Schema.isMaxLength(16)) }),
@@ -326,6 +328,16 @@ export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTab
           json: { column: node.column, value: node.value },
           matches: row => row[node.column] !== null && row[node.column] !== undefined &&
             jsonbContains(row[node.column]!, node.value) };
+      }
+      if (node.kind === "postgresNumericCast") {
+        if (columnForName(node.column)?.type !== "text") return yield* Result.fail(error("invalidInput"));
+        if (++operands > relationalReadLimits.filterOperands) return yield* Result.fail(error("limitExceeded"));
+        demandedFields.add(node.column);
+        // PostgreSQL owns parsing of stored text, NULL and cast failures. This
+        // residual introduces no access path or approximate JavaScript verdict.
+        return { predicate: node, postgres: true,
+          select: () => Result.succeed({ selections: null, unindexedText: true }),
+          requiredNulls: new Set<string>(), search: null, matches: () => false };
       }
       if (node.kind === "postgresText") {
         const column = columnForName(node.column);

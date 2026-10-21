@@ -13,6 +13,7 @@ export type NormalizedRelationalPredicate =
   | Readonly<{ kind: "and" | "or"; children: readonly NormalizedRelationalPredicate[] }>
   | Readonly<{ kind: "in"; column: string; values: readonly (string | boolean)[] }>
   | Readonly<{ kind: "numericIn"; column: string; values: readonly string[] }>
+  | Readonly<{ kind: "postgresNumericCast"; column: string; operator: "gt" | "gte" | "lt" | "lte"; value: number }>
   | Readonly<{ kind: "indexedPoints"; columns: readonly string[]; values: readonly (readonly (string | boolean)[])[] }>
   | Readonly<{ kind: "isNull"; column: string }>
   | Readonly<{ kind: "textNotEqual" | "greaterThan"; column: string; value: string }>
@@ -102,6 +103,17 @@ function expression(node: NormalizedRelationalPredicate): SQL {
     case "in": return membership(node.column, node.values);
     case "numericIn": return node.values.length === 0 ? sql`false`
       : sql`(${text(node.column)})::numeric in (${sql.join(node.values.map(value => sql`${value}::numeric`), sql`, `)})`;
+    case "postgresNumericCast": {
+      // Bind the finite number's decimal spelling. Stored TEXT remains intact:
+      // PostgreSQL alone determines numeric precision, special values/errors.
+      const left = sql`(${text(node.column)})::numeric`, right = sql`${String(node.value)}::numeric`;
+      switch (node.operator) {
+        case "gt": return sql`${left} > ${right}`;
+        case "gte": return sql`${left} >= ${right}`;
+        case "lt": return sql`${left} < ${right}`;
+        case "lte": return sql`${left} <= ${right}`;
+      }
+    }
     case "indexedPoints": return join(node.values.map(point => join(node.columns.map((column, offset) =>
       sql`${text(column)} = ${String(point[offset])}`), "and")), "or");
     case "isNull": return sql`${text(node.column)} is null`;

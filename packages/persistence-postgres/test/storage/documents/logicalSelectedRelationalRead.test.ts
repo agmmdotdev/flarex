@@ -127,6 +127,66 @@ describe("selected relational read access", () => {
     expect(statement.params).not.toContain("changed");
   });
 
+  it("keeps numeric casts in the complete SQL tree without parsing stored TEXT or widening access", () => {
+    const table = postgresFixture(), tableId = decodeCatalogTableId(1);
+    for (const operator of ["gt", "gte", "lt", "lte"] as const) {
+      const comparison = { kind: "postgresNumericCast", column: "value", operator, value: 1 };
+      const query = Result.getOrThrow(compileLogicalRelationalRead(table, [], { order: { column: "id", direction: "asc" },
+        predicate: { kind: "and", children: [{ kind: "in", column: "id", values: ["a"] },
+          { kind: "postgresText", column: "value", operator: "notIn", values: ["bad"] }, comparison] } }, 4, failure));
+      expect(query.selections).toEqual([{ column: "id", value: "a" }]);
+      expect(query.inspect({ id: "a", value: "bad", deleted_at: null }))
+        .toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
+      // Invalid numeric syntax is valid stored TEXT; SQL, rather than row
+      // validation or a JavaScript numeric grammar, determines its verdict.
+      for (const value of ["bad", "NaN", "Infinity", "-Infinity", " 01.00 ", "9007199254740993.125", null])
+        expect(Result.isSuccess(query.inspectRow({ id: "a", value, deleted_at: null }))).toBe(true);
+      if (query.postgresPredicate === undefined) throw new Error("Missing numeric cast program");
+      comparison.value = 7;
+      const batch = Result.getOrThrow(preparePostgresRelationalBatch(query.postgresPredicate, table, tableId,
+        [{ id: "a", value: "bad", deleted_at: null }], { rows: 4, bytes: 8192 }, failure));
+      const statement = new PgDialect().sqlToQuery(Result.getOrThrow(buildPostgresRelationalPredicateBody(batch, tableId, failure)));
+      expect(statement.sql).toContain("not in (");
+      expect(statement.sql).toContain("::numeric");
+      expect(statement.params).toContain("1");
+      expect(statement.params).not.toContain("7");
+      expect(preparePostgresRelationalBatch(structuredClone(query.postgresPredicate), table, tableId, [], { rows: 4, bytes: 8192 }, failure))
+        .toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+      expect(buildPostgresRelationalPredicateBody(batch, decodeCatalogTableId(2), failure))
+        .toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+      const empty = Result.getOrThrow(preparePostgresRelationalBatch(query.postgresPredicate, table, tableId, [], { rows: 4, bytes: 8192 }, failure));
+      expect(new PgDialect().sqlToQuery(Result.getOrThrow(buildPostgresRelationalPredicateBody(empty, tableId, failure))).sql)
+        .toContain("::numeric");
+    }
+    expect(compileLogicalRelationalRead(table, [], { order: { column: "id", direction: "asc" },
+      predicate: { kind: "postgresNumericCast", column: "value", operator: "gt", value: 1 } }, 4, failure))
+      .toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
+  });
+
+  it("refuses malformed numeric-cast operands, columns and unchanged predicate budgets", () => {
+    const table = postgresFixture(), order = { column: "id", direction: "asc" };
+    const leaf = { kind: "postgresNumericCast", column: "value", operator: "gt", value: 1 };
+    for (const predicate of [
+      ...[NaN, Infinity, -Infinity, "1", null, true, {}, []].map(value => ({ ...leaf, value })),
+      { ...leaf, column: "missing" }, { ...leaf, operator: "eq" }, { ...leaf, extra: true },
+    ]) expect(compileLogicalRelationalRead(table, [], { order, predicate }, 4, failure))
+      .toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
+    for (const type of ["numeric", "boolean", "timestamptz", "jsonb"] as const) {
+      const other = { ...table, columns: table.columns.map(column => column.identity.columnId === "value" ? { ...column, type } : column) };
+      expect(compileLogicalRelationalRead(other, [], { order, predicate: leaf }, 4, failure))
+        .toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
+    }
+    expect(compileLogicalRelationalRead(table, [], { order, predicate: { kind: "and", children: Array.from({ length: 64 }, () => leaf) } }, 4, failure))
+      .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+    expect(compileLogicalRelationalRead(table, [], { order, predicate: { kind: "and", children: [
+      { kind: "in", column: "id", values: Array.from({ length: 256 }, () => "a") }, leaf,
+    ] } }, 4, failure)).toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+    let nested: unknown = leaf;
+    for (let depth = 0; depth < 9; depth++) nested = { kind: "and", children: [nested] };
+    expect(compileLogicalRelationalRead(table, [], { order, predicate: nested }, 4, failure))
+      .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+  });
+
   it("binds immutable PostgreSQL batches to their issuer/table and validates exact nullable result ordinals", () => {
     const table = postgresFixture(), tableId = decodeCatalogTableId(1), otherId = decodeCatalogTableId(2);
     const query = Result.getOrThrow(compileLogicalRelationalRead(table, [], { order: { column: "id", direction: "asc" },

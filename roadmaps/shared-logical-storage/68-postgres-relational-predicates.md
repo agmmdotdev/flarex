@@ -108,6 +108,29 @@ Dynamic bodies use ephemeral unnamed SQL; no prepared-statement-name collision,
 retained query session or cached permission verdict is introduced. Other named
 finite captures retain their implicit-statement contract.
 
+## PostgreSQL numeric casts of text
+
+The private `postgresNumericCast` leaf compares a checked TEXT column, cast by
+PostgreSQL to unconstrained `numeric`, against one finite JavaScript number.
+Its closed operators are `gt`, `gte`, `lt` and `lte`. The operand's decimal
+spelling is parameterized and cast to `numeric`; strings, nonfinite numbers,
+wrong column types and undeclared envelope fields refuse during preparation.
+
+Stored TEXT is not parsed or canonicalized by JavaScript or the finite exact
+decimal decoder. PostgreSQL therefore owns accepted numeric spellings, exact
+stored precision, NaN/Infinity, NULL and malformed-cast failures. The leaf makes
+the complete Boolean tree PostgreSQL-dependent. Lexical guards, other predicates
+and numeric casts are evaluated together; no eager per-leaf verdict or retained
+numeric interpretation is introduced.
+
+This terminal predicate adds no index or scan permission. Existing indexed
+candidate acquisition, complete row validation, pending overlays, read receipts,
+program/batch identity, resource limits and protected `relationalPredicate`
+capture remain authoritative. Empty candidate batches still reach that owner.
+The finite numeric-column `numericIn` contract and existing pure predicates
+remain unchanged. This scalar mechanism does not admit joins or Promotion
+business policy, and does not repair native malformed SQL generation.
+
 ## Exact numeric membership
 
 Native Price List Price creation requires numeric equality for finite quantity
