@@ -97,6 +97,7 @@ const prepareLogicalStrongReferenceProjectionsFromReader = Effect.fn("LogicalStr
         reverseIndex: Object.freeze({ indexDefinitionId: definition.indexDefinitionId,
           physicalSpec: reverse.physicalSpec, physicalSpecSha256Hex: definition.physicalSpecSha256Hex }),
         targetTableId, targetField: extension.target.field, targetLiveness: extension.liveness.target,
+        ...(extension.onTargetSoftDelete === undefined ? {} : { onTargetSoftDelete: extension.onTargetSoftDelete }),
         targetIdentity, onTargetDelete: extension.onTargetDelete }));
     }
     return Object.freeze(projected);

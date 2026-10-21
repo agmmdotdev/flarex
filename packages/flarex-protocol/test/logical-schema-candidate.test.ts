@@ -21,6 +21,33 @@ const candidate = {
 };
 
 describe("logical candidate dependency identities", () => {
+  it("admits exactly nullable reference identities without widening arbitrary unions", () => {
+    const withType = (fieldType: unknown) => decodeLogicalSchemaCandidate({ ...candidate,
+      sources: candidate.sources.map(source => ({ ...source, definition: { ...source.definition,
+        tables: source.definition.tables.map(table => table.logicalName === "references"
+          ? { ...table, definition: { ...table.definition, documentType: { type: "object",
+            value: { user: { fieldType, optional: false } } } } } : table),
+      } })),
+    });
+    for (const identity of [{ type: "string" }, { type: "id", tableName: "users" }]) {
+      for (const value of [[identity, { type: "null" }], [{ type: "null" }, identity]])
+        expect(Result.isSuccess(withType({ type: "union", value }))).toBe(true);
+    }
+    for (const value of [[], [{ type: "null" }], [{ type: "string" }, { type: "number" }],
+      [{ type: "string" }, { type: "null" }, { type: "id", tableName: "users" }],
+      [{ type: "id", tableName: "posts" }, { type: "null" }]])
+      expect(Result.isFailure(withType({ type: "union", value }))).toBe(true);
+  });
+
+  it("refuses retained-reference semantics without an authenticated soft-delete target", () => {
+    for (const onTargetSoftDelete of ["retain", "cascade", null])
+      expect(Result.isFailure(decodeLogicalSchemaCandidate({ ...candidate,
+        extensions: candidate.extensions.map(extension => ({ ...extension, onTargetSoftDelete })),
+      }))).toBe(true);
+    const decoded = Result.getOrThrow(decodeLogicalSchemaCandidate(candidate));
+    expect(decoded.extensions[0]).not.toHaveProperty("onTargetSoftDelete");
+  });
+
   it("derives optional Payload policy and an indexed reverse path from the native declaration", () => {
     const relation = { format: "flarex.relation-declaration", version: 1,
       source: { table: "references", path: [{ kind: "field", name: "user" }], forwardName: "user" },

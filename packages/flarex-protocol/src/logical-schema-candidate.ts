@@ -80,6 +80,7 @@ export const LogicalSchemaExtensionSchema = Schema.Struct({
   policy: Schema.Literal("strongReference"),
   liveness: Schema.Struct({ source: LogicalSchemaEndpointLivenessSchema,
     target: LogicalSchemaEndpointLivenessSchema }).annotate(strict),
+  onTargetSoftDelete: Schema.optionalKey(Schema.Literal("retain")),
   onTargetDelete: Schema.Literal("restrict"),
 }).annotate(strict);
 
@@ -209,6 +210,8 @@ function validateCandidate(candidate: LogicalSchemaCandidate): string | undefine
     if (!matchesEndpointLiveness(source, extension.liveness.source) ||
         !matchesEndpointLiveness(target, extension.liveness.target))
       return "Extension liveness does not match its endpoint schema";
+    if (extension.onTargetSoftDelete === "retain" && extension.liveness.target.kind !== "softDeleteNull")
+      return "Retention requires an authenticated soft-delete target";
     const left = sourceReferenceKind(source, extension.source.field);
     const right = targetIdentityKind(target, extension.target.field);
     if (left === undefined || right === undefined || (left !== "text" && left !== right))
@@ -244,7 +247,11 @@ function sourceReferenceKind({ source, binding }: DefinitionBinding, field: stri
   if (source.definition.kind === "documents") {
     if (field === "_id") return undefined;
     const table = source.definition.tables.find(entry => entry.logicalName === binding.localName);
-    const type = table?.definition.documentType.value[field]?.fieldType;
+    const declaredType = table?.definition.documentType.value[field]?.fieldType;
+    // Admit precisely one nullable identity, not arbitrary unions of identities.
+    const type = declaredType?.type === "union" && declaredType.value.length === 2 &&
+      declaredType.value.some(member => member.type === "null")
+      ? declaredType.value.find(member => member.type !== "null") : declaredType;
     if (source.definition.indexes.some(index => index.tableLogicalName === binding.localName &&
       index.decimalFields?.some(path => path === field))) return undefined;
     if (type?.type === "id") {

@@ -124,10 +124,12 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
       return selected;
     });
     const requireTargets = Effect.fn("ScopePublication.requireReferenceTargets")(function* (
-      reference: StrongReferenceActivationProjection, demands: readonly string[],
+      reference: StrongReferenceActivationProjection, demands: readonly string[], retained = false,
     ) {
+      const targetLiveness = retained ? { kind: "current" as const } : reference.targetLiveness;
+      const validationKey = (value: string) => JSON.stringify([reference.name, value, targetLiveness.kind]);
       const values = [...new Set(demands)].filter(value =>
-        !validatedTargets.has(JSON.stringify([reference.name, value])));
+        !validatedTargets.has(validationKey(value)));
       if (values.length === 0) return;
       const refuse = (value: string) => new ScopePublicationReferenceConstraintError({
         reason: "targetNotLive", reference: reference.name, value,
@@ -158,10 +160,10 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
               cache.set(key, row);
             }
             const target = cache.get(key) ?? null;
-            if (target === null || !live(target, reference.targetLiveness) ||
+            if (target === null || !live(target, targetLiveness) ||
               targetValue(reference, rowId, target) !== value)
               return yield* Effect.fail(refuse(value));
-            validatedTargets.add(JSON.stringify([reference.name, value]));
+            validatedTargets.add(validationKey(value));
           }
         }));
       });
@@ -223,7 +225,8 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
     const maintainReverseIndex = Effect.fn("ScopePublication.maintainReferenceIndex")(function* (
       reference: StrongReferenceActivationProjection, sourceIds: readonly AppRowIdHexV1[],
     ) {
-      if (sourceIds.length === 0) return;
+      const originalReferences = new Map<AppRowIdHexV1, string>();
+      if (sourceIds.length === 0) return originalReferences;
       const build = yield* coverage(reference);
       if (build.coveredThroughCommitSeq !== pendingCommitSeq && build.coveredThroughCommitSeq === null)
         return yield* Effect.fail(corruption("reference index has no coverage frontier"));
@@ -244,6 +247,9 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
           if (previous.kind === "live") {
             const excess = charge(previous.document.canonicalBytes.byteLength);
             if (excess !== null) return yield* Effect.fail(excess);
+            const value = fieldValue(previous, reference.sourceField);
+            if (reference.onTargetSoftDelete === "retain" && live(previous, reference.sourceLiveness) && typeof value === "string")
+              originalReferences.set(rowId, value);
           }
           const ordinal = index++;
           const next = current[ordinal] ?? null;
@@ -285,7 +291,7 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
       // An activated Application index may also serve as the reverse index.
       // Its pending entries were already lowered by the document materializer;
       // the checks above still require those entries to match the final rows.
-      if (build.maintenance !== null || build.coveredThroughCommitSeq === pendingCommitSeq) return;
+      if (build.maintenance !== null || build.coveredThroughCommitSeq === pendingCommitSeq) return originalReferences;
       const baseline = build.coveredThroughCommitSeq;
       if (baseline === null) return yield* Effect.fail(corruption("reference index lost its coverage frontier"));
       const updated = yield* Effect.tryPromise({ try: () => tx.update(fxSystemIndexBuildStates)
@@ -301,6 +307,7 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
       catch: cause => persistence("readStrongReferenceProjection", cause) });
       if (updated.length !== 1) return yield* Effect.fail(corruption("reference index coverage failed to advance"));
       coveredReferences.set(reference, { ...build, coveredThroughCommitSeq: pendingCommitSeq });
+      return originalReferences;
     });
     const requireNoSources = Effect.fn("ScopePublication.requireNoReferenceSources")(function* (
       reference: StrongReferenceActivationProjection, value: string,
@@ -346,19 +353,23 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
       const targetIds = changes.filter(change => change.tableId === reference.targetTableId).map(change => change.rowId);
       if (sourceIds.length + targetIds.length > MAX_REFERENCE_ROWS)
         return yield* Effect.fail(capacity("changedRows", sourceIds.length + targetIds.length));
-      yield* maintainReverseIndex(reference, sourceIds);
+      const originalReferences = yield* maintainReverseIndex(reference, sourceIds);
       for (let offset = 0; offset < sourceIds.length; offset += PAGE_ROWS) {
         const rows = yield* finalRows(reference.sourceTableId, sourceIds.slice(offset, offset + PAGE_ROWS), true);
         const values: string[] = [];
+        const retainedValues: string[] = [];
         let invalidSource = false;
         for (const source of rows) {
           if (!live(source, reference.sourceLiveness) || source === null) continue;
           const value = fieldValue(source, reference.sourceField);
           if (value === null || value === undefined) continue;
           if (typeof value !== "string") { invalidSource = true; break; }
-          values.push(value);
+          if (reference.onTargetSoftDelete === "retain" && originalReferences.get(source.rowId) === value)
+            retainedValues.push(value);
+          else values.push(value);
         }
         yield* requireTargets(reference, values);
+        yield* requireTargets(reference, retainedValues, true);
         if (invalidSource) return yield* Effect.fail(corruption("reference source value is not text"));
       }
       for (let offset = 0; offset < targetIds.length; offset += PAGE_ROWS) {
@@ -374,10 +385,12 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
             if (excess !== null) return yield* Effect.fail(excess);
           }
           const next = current[index++] ?? null;
-          if (previous.kind !== "live" || !live(previous, reference.targetLiveness)) return;
+          const deletionLiveness = reference.onTargetSoftDelete === "retain"
+            ? { kind: "current" as const } : reference.targetLiveness;
+          if (previous.kind !== "live" || !live(previous, deletionLiveness)) return;
           const oldValue = targetValue(reference, rowId, previous);
           if (typeof oldValue !== "string") return yield* Effect.fail(corruption("reference target key is not text"));
-          if (live(next, reference.targetLiveness) && next !== null &&
+          if (live(next, deletionLiveness) && next !== null &&
             targetValue(reference, rowId, next) === oldValue) return;
           yield* requireNoSources(reference, oldValue);
         }));

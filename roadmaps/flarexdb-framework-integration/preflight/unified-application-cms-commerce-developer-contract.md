@@ -30,9 +30,9 @@ outside this proposal. The active Medusa integration keeps its existing scope.
 - [The shared-storage roadmap](../../shared-logical-storage/README.md#early-cross-framework-proof)
   owns the required connected proof and remaining storage gates.
 - [The private reference preflight](../../shared-logical-storage/cross-framework-reference-preflight.md)
-  proposes backend endpoint/lifecycle, authorization and proof sequencing. Its
-  retained-reference policy is unimplemented and remains proposed; public API
-  design stays deferred.
+  owns the selected private endpoint/lifecycle integrity slice and remaining
+  authorization/proof sequencing. Soft-delete retention and hard-delete
+  restriction are selected for that profile; public API design stays deferred.
 
 Code and decisive tests determine implementation status. Examples in this
 proposal do not override those sources or freeze public syntax.
@@ -209,12 +209,13 @@ contract; stronger reference policies must not be applied to Links implicitly.
 | Native relation integrity and selected Payload consumers | [Relation commit owner](../../../packages/persistence-postgres/src/application/relations/commit/Repository.ts) and [configured relation scenario](../../../packages/persistence-postgres/test/integration/payload/payloadConfiguredRelationshipScenario.ts) cover target failures, restricted deletion and concurrency within admitted profiles |
 | Selected mixed Application/Product/Payload mutations | [Private attempt contract](../../mixed-mutation-core/02-payload-local-api-attempt-preflight.md), [configured scalar collections](../../mixed-mutation-core/configured-payload-attempt-preflight.md), [optional-one relationships](../../mixed-mutation-core/payload-relationships-attempt-preflight.md) and [native delete/preference cleanup](../../mixed-mutation-core/payload-delete-preferences-preflight.md) connect native operations, pending population and one root outcome through the existing [fixture](../../../packages/executor/test/performance/support/mixedMutationProductFixture.ts); no general public mixed API or many/join support |
 | Borrowed Payload operation coverage | [Participant binding](../../../packages/payload-adapter/src/participant/binding.ts) selects create, update and findByID; delete additionally requires admitted preference lifecycle authority in a finite root. Direct operation coverage does not expand other method allowlists |
-| Application/Payload/Medusa strong-reference execution | Pending; [common source admission](../../shared-logical-storage/25-cross-source-runtime-admission.md) refuses unsupported relationship-bearing sources before issuing runtime authority |
+| Private article-to-Product reference integrity | [Selected backend slice](../../shared-logical-storage/cross-framework-reference-preflight.md) admits exact nullable identities, retains existing references across soft deletion and restricts hard deletion through shared publication; explicit private point-read composition, no native commerce population or general authorized traversal |
+| Complete Application/Payload/Medusa relationship proof | Pending; the selected vertical does not close Medusa-originating extensions, general authorized forward/reverse reads, dependency evolution or broader execution profiles |
 | Public authoring, relation helpers and generated facades | Pending under the SDK roadmap; all example syntax here remains illustrative |
 | Connected cross-framework queries, general access/hooks, drafts, dashboard and hosted production serving | Separate pending gates; private storage/mutation evidence grants none of these capabilities |
 
-Do not infer missing-target enforcement for article-to-product references from
-the completed Payload-to-Payload relation tests. Existing fast PGlite and focused
+Article-to-Product enforcement has its own selected private proof; it does not
+follow from the Payload-to-Payload relation tests. Fast PGlite and focused
 ordinary-role PostgreSQL evidence remains bounded to its actual profiles.
 
 ## Open Decisions And Deferred Scope
@@ -226,10 +227,12 @@ Before implementation of a selected relationship, decide:
 - Product discovery versus assignment permission and public versus editorial
   reads. Common authentication does not collapse content/commerce permissions.
 - Product soft deletion, restoration, article drafts/publication and unavailable
-  targets. Retaining an identity and showing an authorized unavailable state is
-  a candidate policy, not an implemented or universally accepted default.
-- Hard-delete policy. Restricting deletion while strong references remain is a
-  candidate first policy, not an automatic change to Medusa behavior.
+  targets. The selected private profile retains the identity across Product soft
+  deletion; general authorized unavailable-state projection and drafts remain
+  pending. This is not a universal framework default.
+- Hard-delete policy. The selected private strong-reference profile restricts
+  deletion while references remain. Native Links and extension-free commerce
+  behavior are not implicitly strengthened.
 - Bounded forward/reverse reads, pagination, error projection and permitted
   cross-framework query snapshots/dependencies.
 - Whether a feature needs a live reference or an explicit historical business
@@ -257,9 +260,9 @@ of making generic application patches stand in for domain operations.
 1. Specify one bounded private connected scenario: a Payload article selects an
    admitted Medusa product and Application campaign logic consumes the connected
    result. The [backend preflight](../../shared-logical-storage/cross-framework-reference-preflight.md)
-   now records that proposed scope and its owner corrections; principals,
-   visibility/error outcomes and lifecycle selection must be resolved before
-   enabling the relationship. Complete the owning shared-storage proof in both
+   now implements the selected integrity/lifecycle slice; general principal and
+   visibility/error outcomes remain gated before broader exposure. Complete the
+   owning shared-storage proof in both
    directions, including a reference originating in an admitted Medusa extension;
    article-to-product alone does not close that gate.
 2. Correct existing shared owners where necessary, then prove real native APIs,

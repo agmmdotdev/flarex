@@ -2,10 +2,11 @@
 
 ## Status And Scope
 
-Status: backend implementation proposal; no cross-framework capability is
-implemented or enabled by this document. Preparing this preflight does not
-authorize the proposed lifecycle change or runtime cutover. Existing scoped
-approvals retain their own authority.
+Status: the owner selects retained references on Product soft deletion and
+restricted hard deletion for the first private backend slice. The bounded
+integrity/lifecycle implementation is described below; general authorized
+traversal and the complete CXR1-CXR4 proof remain pending. Public and hosted
+capabilities are not enabled by this slice.
 
 The first connected outcome is one optional reference from a Payload article
 to an admitted Medusa Product, consumed by Application campaign logic in the
@@ -50,7 +51,7 @@ editing those paths. A Payload-only workaround cannot satisfy that dependency.
 
 | Owner and current source | Implemented behavior | Required connected extension |
 | --- | --- | --- |
-| [Candidate contract](../../packages/flarex-protocol/src/logical-schema-candidate.ts) | Qualified endpoints, source-owned strong-reference extensions, document IDs or single text primary keys, schema-derived liveness and restrict policy | Admit the exact optional/nullable source shape and selected lifecycle policy without reinterpreting existing definitions |
+| [Candidate contract](../../packages/flarex-protocol/src/logical-schema-candidate.ts) | Qualified endpoints, source-owned strong-reference extensions, exact nullable string/document-ID fields, single text primary keys, schema-derived liveness and explicit soft-delete retention | Broader endpoint/cardinality and visibility profiles retain their gates; existing simple-policy definitions keep their meaning |
 | [Payload compiler](../../packages/payload-adapter/src/collections.ts) | Scalar collections and one optional, monomorphic, nonlocalized relationship within the configured Payload collection set | Compiler-authenticated external reference field; native `relationTo` cannot simply name an unregistered commerce collection |
 | [Shared requirement lowering](../../packages/flarex-protocol/src/logical-storage-requirements.ts) and [activation projection](../../packages/persistence-postgres/src/storage/documents/logicalStrongReferenceProjection.ts) | Derive/reuse reverse indexes and resolve authenticated endpoint identities and target key claims | Carry the selected reference policy through build/readiness, binding and every relevant writer |
 | [Source admission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts) and [readiness](../../packages/persistence-postgres/src/storage/catalog/logicalStorageReadiness.ts) | Checked native document relation lowering and dependency closure over strong-reference endpoints | Connected per-profile token-issuance/refusal proof for cross-framework reads and writes; metadata or dependency closure alone grants no new operation |
@@ -63,13 +64,36 @@ implementation, retain a precise admission matrix and executable witness for
 each supported/refused source profile. Reconcile the earlier runtime-admission
 note with that evidence rather than removing refusals globally.
 
-The current candidate accepts plain string/document-ID reference fields, while
-optional native Payload scalar text is compiled as a nullable union. That is a
-real contract gap for this optional commerce reference. Correct the shared
-endpoint decoder and compiler evidence together; do not require a fake product,
-empty-string sentinel, a mandatory field or a weaker unchecked cast.
+The candidate decoder now admits precisely one string/document identity plus
+null, matching the native Payload compiler's optional scalar text output.
+Arbitrary mixed unions and wrong-table typed identities still refuse. No fake
+product, empty-string sentinel, mandatory-field workaround or unchecked cast is
+introduced.
 
-## Proposed First Backend Profile
+## Implemented Private Integrity Slice
+
+The explicit optional `onTargetSoftDelete: "retain"` policy is authenticated in
+the existing candidate, activation projection and binding. It is admitted only
+with the target's checked soft-delete capability. Omitting it preserves the
+existing simple liveness/restrict semantics and serialized meaning.
+
+Shared publication reuses its original-row observation to distinguish retained
+edges from new assignments. New assignments require an active final target;
+retained edges require structural existence. Validation caches distinguish
+those demands. Reverse membership persists across target soft deletion, and
+hard deletion checks it even when the original target was already soft-deleted.
+Only the existing trusted publisher settles.
+
+The [connected private Worker scenario](../../packages/flarex-backend/test/mixedMutationPayloadCommerceReference.workerd.test.ts)
+uses real native Payload scalar CRUD, explicit Product reads and Application
+writes in the finite root, plus existing native Product lifecycle/event paths.
+The existing fixture now forwards extensions through the real composition owner;
+it supplies no enforcement. No Medusa implementation, public facade, commerce
+population bridge or general permission engine is added. This is the first
+integrity slice, not completion of the wider authorization, reverse-read,
+simultaneous-contention or CXR3/CXR4 gates.
+
+## Selected First Private Backend Profile
 
 Use a private Payload scalar field carrying the native Product text primary
 key, with an authenticated cross-source extension declaring its reference
@@ -91,22 +115,22 @@ composition performs a separate Product read when needed. No nested Product
 create/update/delete follows from writing or traversing the article field.
 Keep direct-write ownership refusal and content deletion/preference cleanup.
 
-Only fresh isolated installations and the existing finite, database-only
-mutation profile are proposed initially. General drafts/versions/localization,
+Only fresh isolated installations, the existing finite database-only root and
+the selected standalone endpoint writers are covered initially. General drafts/versions/localization,
 many/joins, arbitrary hooks, remote effects, durable suspended workflows and
 public/hosted serving retain their gates. Unsupported configurations refuse at
 admission; a draft read cannot silently return a published or current record.
 
-## Proposed Lifecycle Policy And Required Core Correction
+## Selected Lifecycle Policy And Shared Core Correction
 
-Recommended initial outcome: require an active Product when creating a new
+The owner selects the initial outcome: require an active Product when creating a new
 reference, preserve existing identities across Product soft deletion, and
-restrict hard deletion while references remain. This remains a proposal,
-including its intentional effect on explicitly participating commerce targets.
+restrict hard deletion while references remain. This intentionally strengthens
+hard-deletion behavior for explicitly participating commerce targets only.
 Native Module Links and extension-free Product behavior retain their own
 contracts; their presence does not select this stronger policy.
 
-| Event | Proposed behavior |
+| Event | Selected integrity behavior and remaining access obligations |
 | --- | --- |
 | Create or change a non-null article reference | Target must exist, belong to the same authorized shop and be active in the admitted final state; check assignment permission again on save |
 | Clear the optional reference or delete the article | Remove its derived membership; invoke no commerce mutation; article deletion retains native preference cleanup |
@@ -117,17 +141,16 @@ contracts; their presence does not select this stronger policy.
 | Hard-delete a Product referenced by an existing article | Refuse atomically, including when the Product is already soft-deleted |
 | Clear/delete every referencing article and hard-delete its Product in one admitted root | Permit only if the complete final graph and native commerce constraints allow it; no automatic cross-owner cascade |
 
-The current liveness projection cannot express this policy. Its one
+The prior liveness projection could not express this policy. Its one
 `targetLiveness` predicate governs both required targets and target transitions;
 `softDeleteNull` plus restrict treats soft deletion as loss of liveness. The
 candidate decoder also requires liveness to match the native soft-delete
 capability, so setting Product liveness to `current` is not a valid shortcut.
-Existing validation rechecks changed source rows, and its target transition
-check skips a previously non-live target. Merely relaxing assignment validation
-would therefore neither permit safe unrelated article edits nor protect hard
-deletion of an already soft-deleted Product.
+The original validation rechecked changed source rows, and its target transition
+check skipped a previously non-live target. The shared correction addresses both
+boundaries; merely relaxing assignment validation would have left unsafe gaps.
 
-The proposed correction belongs to the shared authenticated policy,
+The implemented integrity correction belongs to the shared authenticated policy,
 activation/projection and publication owners: distinguish assignment eligibility
 from retained endpoint existence and read visibility. Validate new edges against
 active targets; validate retained edges and hard deletion against structural
@@ -142,12 +165,11 @@ soft-deleted result. Current simple liveness/restrict definitions retain their
 meaning; any new policy needs explicit schema encoding, installation and
 readiness proof. Do not silently upgrade existing installations.
 
-Alternative for a smaller initial profile: restrict both soft and hard deletion
-while referenced, matching the current projection's semantics. This changes the
-editorial outcome and still needs cross-framework proof; it is not an automatic
-fallback if retained-reference implementation is difficult. Resolve the policy
-choice before implementing or enabling it. This preflight recommends the
-retained-reference outcome but does not mark that choice accepted.
+The existing strict-live policy still restricts both soft and hard deletion
+while referenced. It remains an explicit separately encoded behavior, not a
+fallback for the selected retention policy. General assignment/retention/read
+permission outcomes in the table remain an access-boundary proof obligation;
+the private trusted-principal fixture does not establish them for public callers.
 
 ## Reads, Authorization And Pending State
 
@@ -186,8 +208,8 @@ outcome. No SQL transaction spans untrusted execution or remote work.
 
 | Gate | Connected outcome and exit criteria |
 | --- | --- |
-| CXR1: policy and authenticated endpoints | Resolve lifecycle choice and exact private principal/read outcomes. Inventory current source refusals and direct/borrowed endpoint writers. Admit optional/null text references through real Payload compiler output, the native Product primary key and shared candidate/activation owners. Missing, wrong-owner, wrong-table and unsupported definitions refuse before capability issuance. No Medusa edit occurs before the ownership checkpoint. |
-| CXR2: article-to-product mutation and reads | Run native Payload and Product operations plus an Application campaign mutation in one finite root. Prove selected lifecycle behavior, pending forward/reverse reads, permission checks, complete shared maintenance and one settlement. Preserve standalone endpoint-write safety and existing Payload-to-Payload/delete-preference behavior. This is the first vertical, not completion of the broader gate. |
+| CXR1: policy and authenticated endpoints | Retention/hard-delete policy and exact nullable identity admission are implemented for the selected private profile. Exact principal/read outcomes and the full supported/refused profile matrix remain gated. Missing, wrong-owner, wrong-table and unsupported definitions must refuse before capability issuance. No Medusa edit occurs before the ownership checkpoint. |
+| CXR2: article-to-product mutation and reads | The first private native mutation/explicit point-read vertical uses one finite root and shared lifecycle enforcement. Authorized reverse reads, full permission checks, pending new-Product construction and distinct-connection barrier proofs remain pending. Preserve standalone endpoint-write safety and existing Payload-to-Payload/delete-preference behavior. This vertical does not close the broader gate. |
 | CXR3: three-owner and opposite-direction proof | Add a real compiler-admitted Medusa-owned extension referencing Payload or Application, through its owner's native operation path. Choose the extension with the Medusa owner; no fixture-only field or direct generic patch of commerce rows. Prove Application-owned references/consumption and all relevant target transitions with explicitly selected source-lifecycle rules. Native rich Link behavior remains separately characterized. |
 | CXR4: dependency activation and recovery | Refuse incompatible endpoint/policy candidates without changing active authority/data. Prove fresh binding/build/readiness, stale capability refusal, admitted rebinding, recovery and concurrent-write safeguards. General populated-data conversions and ownership transfers remain deferred. |
 
@@ -232,8 +254,8 @@ than creating a relation coordinator, second catalog or generic CRUD facade.
 Run fast PGlite semantics and focused ordinary-role real PostgreSQL validation
 separately, then the affected connected Worker regressions. Use Pinggg `tsc-rs`
 for affected package typechecks, required lint/source guards and both read-only
-project reviewers for significant implementation. This document records future
-proof obligations, not successful test receipts. Native-relative performance,
+project reviewers for significant implementation. These are proof obligations;
+Git owns chronological validation receipts. Native-relative performance,
 capacity and hosted production acceptance remain separate open gates.
 
 Extend the [candidate contract tests](../../packages/flarex-protocol/test/logical-schema-candidate.test.ts)

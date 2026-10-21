@@ -240,11 +240,12 @@ implementation.
   request evidence cost, build cost, tenant skew or shared-database contention.
 - Generic schema evolution still needs conversion/build/readiness and old-reader
   handling. No independent-schema or production performance claim is proven.
-- Cross-framework relationships, authorized reverse traversal and dependency-aware
-  evolution have not been proved as one connected Application/Payload/Medusa path.
-  [Runtime admission](./25-cross-source-runtime-admission.md) refuses affected
-  sources with declared strong references until core enforcement exists; a
-  jointly admitted candidate is not a serving relationship capability.
+- General cross-framework relationships, authorized reverse traversal and
+  dependency-aware evolution have not been proved as one connected
+  Application/Payload/Medusa path. The [private reference slice](./cross-framework-reference-preflight.md)
+  adds exact nullable endpoints and explicit soft-delete retention/hard-delete
+  restriction through shared publication. Existing strict reference behavior
+  remains distinct; a jointly admitted candidate alone grants no serving capability.
 - Application evolution and framework structural installation remain distinct
   implementations. Shared storage does not itself consolidate their metadata,
   progress or activation responsibilities.
@@ -347,12 +348,12 @@ capabilities for these proofs; test fixtures may not emulate missing admission.
 ## Early Cross-Framework Proof
 
 The [private reference preflight](./cross-framework-reference-preflight.md)
-proposes the backend sequence: an optional Payload article-to-Product reference
-with Application participation, then a real Medusa-originating extension and
-dependency activation/recovery proof. Its retained-reference soft-delete policy
-requires a shared-owner correction and remains proposed. Existing reference
-primitives do not establish this capability. Public API design and the other
-session's Medusa implementation are outside this documentation slice.
+owns the first private optional Payload article-to-Product integrity/lifecycle
+slice with Application participation. The selected policy retains references
+through soft deletion and restricts hard deletion through the shared publisher.
+General authorized traversal, the Medusa-originating extension and dependency
+activation/recovery proof remain pending. Public API design and the other
+session's Medusa implementation remain outside this slice.
 
 The [unified developer-contract proposal](../flarexdb-framework-integration/preflight/unified-application-cms-commerce-developer-contract.md)
 uses an editorial article, commerce product and Application campaign to explain

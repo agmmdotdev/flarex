@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { CatalogIndexDefinitionIdSchema, CatalogTableIdSchema,
   CatalogUniqueConstraintDefinitionIdSchema } from "flarex-protocol/catalog";
-import { LogicalSchemaEndpointLivenessSchema } from "flarex-protocol/internal/logical-schema-candidate";
+import { LogicalSchemaEndpointLivenessSchema, LogicalSchemaExtensionSchema } from "flarex-protocol/internal/logical-schema-candidate";
 import { AppOrderedIndexPhysicalSpecV1Schema } from "flarex-protocol/ordered-index";
 
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
@@ -23,6 +23,7 @@ export const StrongReferenceActivationProjectionSchema = Schema.Struct({
   targetTableId: CatalogTableIdSchema,
   targetField: Name,
   targetLiveness: LogicalSchemaEndpointLivenessSchema,
+  onTargetSoftDelete: LogicalSchemaExtensionSchema.fields.onTargetSoftDelete,
   targetIdentity: Schema.Union([
     Schema.Struct({ kind: Schema.Literal("documentId"), logicalTableName: Name }).annotate(strict),
     Schema.Struct({ kind: Schema.Literal("textPrimaryKey"),

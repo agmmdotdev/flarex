@@ -43,9 +43,11 @@ find/count, many/joins, cross-framework references and public syntax retain
 separate gates; the direct Local API profile remains distinct.
 
 The [private cross-framework reference preflight](../shared-logical-storage/cross-framework-reference-preflight.md)
-proposes optional article-to-Product identity admission, explicit private
-composition and shared lifecycle/integrity work. Its policy and implementation
-remain pending; native Payload population does not yet resolve commerce targets.
+implements the first optional article-to-Product identity/integrity slice through
+native scalar fields and explicit private composition. Shared publication retains
+references across soft deletion and restricts hard deletion, while new assignments
+require active targets. General authorized traversal remains pending; native
+Payload population does not yet resolve commerce targets.
 It does not design public APIs or expand the other session's Medusa scope.
 
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)

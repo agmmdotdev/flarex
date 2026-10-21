@@ -27,11 +27,13 @@ connects exact cleanup intents to the same outer publication for preference-enab
 fresh logical sources and finite mixed roots. Many/joins, cross-framework
 relationships, public facades and broader profiles retain gates.
 
-The next [private cross-framework reference preflight](../shared-logical-storage/cross-framework-reference-preflight.md)
-proposes an article-to-Product/Application vertical using these owners. Optional
-external identity admission, retained-reference lifecycle policy, authorized
-indexed reads and all-endpoint publication/recovery proofs remain pending.
-This selects no public API syntax or additional mixed operation allowlist.
+The [private cross-framework reference slice](../shared-logical-storage/cross-framework-reference-preflight.md)
+connects an optional scalar article-to-Product reference and explicit Product
+point reads with Application writes. Shared publication validates new versus
+retained edges, keeps references across soft deletion and restricts hard deletion,
+including already soft-deleted targets. General authorized reverse traversal,
+new-Product pending construction and the broader cross-framework proof remain
+pending. This selects no public API syntax or additional mixed operation allowlist.
 
 Status: the Application, Product, selected Payload Local API, and finite
 Medusa workflow slices are implemented as a private, isolated-scope execution

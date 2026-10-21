@@ -174,6 +174,7 @@ import { CmsTransactionError } from
 import { prepareLogicalDocumentSourceAdmission } from
   "@flarex/persistence-postgres/internal/logical-document-admission";
 import { compilePayloadCollections } from "@flarex/payload-adapter/internal/collections";
+import type { LogicalSchemaExtension } from "flarex-protocol/internal/logical-schema-candidate";
 import { makePayloadRuntime, type PayloadAttemptRuntime } from "@flarex/payload-adapter/internal/runtime";
 import { projectPayloadParticipantFailure } from "@flarex/payload-adapter/internal/participant";
 import {
@@ -417,6 +418,7 @@ type MixedMutationProductFixtureInput = Readonly<{
   readMetadataScale?: LogicalReadMetadataScale;
   /** Compiler input for ordinary native execution; fixed conformance profiles keep their own definitions. */
   payloadCollections?: unknown;
+  extensions?: readonly LogicalSchemaExtension[];
   payloadPreferences?: true;
   applicationSource?: (seed: ProductSeed["seed"], payloadParticipant: string | undefined) => string;
 }> & (Readonly<{ workflow: true; payloadProfile: MixedPayloadProfileKind;
@@ -456,6 +458,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
   const currency = await logicalCurrencyFixture(input.driver, close => cleanup.push(close),
     input.resource === undefined
       ? { includeProduct: true, finiteStorageCapture: true,
+        ...(input.extensions === undefined ? {} : { extensions: input.extensions }),
         ...(preparePhysicalProfile === undefined ? {} : { preparePhysicalProfile }),
         ...(currentDiagnostics === undefined ? {} : { physicalSessionObservation: () => currentDiagnostics()?.physicalSessionObservation }),
         ...(input.postgresEndpoints === undefined ? {} : { postgresEndpoints: input.postgresEndpoints }),
@@ -471,6 +474,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
         ...(input.fixtureIdentity === undefined ? {} :
         { fixtureIdentity: input.fixtureIdentity }) }
       : { includeProduct: true, finiteStorageCapture: true, resource: input.resource, fixtureIdentity: input.fixtureIdentity,
+        ...(input.extensions === undefined ? {} : { extensions: input.extensions }),
         ...(currentDiagnostics === undefined ? {} : { physicalSessionObservation: () => currentDiagnostics()?.physicalSessionObservation }),
         protectedRuntime: input.driver === "postgres",
         ...(input.driver === "postgres" ? { managedRead: true as const } : {}),

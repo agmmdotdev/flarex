@@ -1,9 +1,16 @@
 # Cross-Source Relationship Runtime Admission
 
-Status: implemented core correction under the standing shared-storage completion
-goal. Strong-reference execution remains pending.
+Status: historical fail-closed correction, superseded for explicitly admitted
+profiles by shared reference projection/publication and native Payload lowering.
+The [private reference preflight](./cross-framework-reference-preflight.md) owns
+the selected optional article-to-Product retention slice and remaining gates.
+Current [source admission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts)
+and [publication](../../packages/persistence-postgres/src/commit/publication/strongReferenceAdmission.ts)
+own execution. The [strict cross-source scenarios](../../packages/medusa-adapter/test/logical-cross-source-admission.test.ts)
+exercise the existing simple liveness/restrict profile; metadata alone still
+grants no serving capability or complete authorized traversal.
 
-## Preflight And Decision
+## Historical Preflight And Decision
 
 The shared candidate can authenticate a strong cross-source extension, but the
 current generic row runtime has no corresponding target-liveness, reverse-index
