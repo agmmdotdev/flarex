@@ -50,6 +50,14 @@ require active targets. General authorized traversal remains pending; native
 Payload population does not yet resolve commerce targets.
 It does not design public APIs or expand the other session's Medusa scope.
 
+The [private authorized point-read profile](../shared-logical-storage/cross-framework-reference-preflight.md#implemented-private-point-read-profile)
+adds bounded native source access and separately granted Product retrieval.
+Save-time assignment/retention permissions remain unimplemented; the
+[save authorization preflight](../shared-logical-storage/reference-save-authorization-preflight.md)
+proposes the next private slice, beginning with protected permission evidence
+and its existing finite dependency/publication owner. Neither profile establishes
+general CMS authorization or a public operation surface.
+
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)
 is a required shared-storage integration gate: use real Payload Local API calls
 with Application/Medusa references, indexed forward/reverse access, visibility,

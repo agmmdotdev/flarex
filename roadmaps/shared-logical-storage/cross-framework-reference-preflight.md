@@ -234,6 +234,12 @@ access predicate trees, drafts/versions, pending new-Product construction,
 authorized reverse traversal and general query/reactive composition remain gated.
 No public API syntax is selected here.
 
+The next proposed foundation slice is the
+[private save-time authorization preflight](./reference-save-authorization-preflight.md).
+It separates native article write access from target assignment/retention and
+requires protected permission dependencies to survive through publication.
+Its SA1-SA4 gates remain pending; fixed read grants do not satisfy them.
+
 ### Remaining Read And Composition Contract
 
 Use bounded explicit point reads for forward resolution and the installed
