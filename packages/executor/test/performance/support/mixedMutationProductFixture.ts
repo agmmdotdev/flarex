@@ -256,10 +256,10 @@ type MixedPayloadConformanceRuntime = Effect.Success<ReturnType<MixedPayloadNati
 export type MixedPayloadProfileKind = "ordinary" | "success" | "caughtFailure" | "denied" | "promisedId" |
   "foreignId" | "removedId" | "unresolvedId" | "inspection";
 const ordinaryPayloadRevision = createHash("sha256").update(
-  "payload@3.88.0/posts.scalar/local-create-updateByID-findByID/compiled-access/no-hooks-v1").digest("hex");
+  "payload@3.88.0/compiled-scalar/local-create-updateByID-findByID/compiled-access/no-hooks").digest("hex");
 const mixedPayloadProfiles = Object.freeze({
   ordinary: { profile: Object.freeze({ revisionSha256: ordinaryPayloadRevision,
-    participant: `payload.posts.${ordinaryPayloadRevision}` }), make: makePayloadRuntime },
+    participant: `payload.scalar.${ordinaryPayloadRevision}` }), make: makePayloadRuntime },
   success: { profile: mixedPayloadSuccessProfile, make: makeMixedPayloadSuccessRuntime },
   caughtFailure: { profile: mixedPayloadCaughtFailureProfile, make: makeMixedPayloadCaughtFailureRuntime },
   denied: { profile: mixedPayloadDeniedProfile, make: makeMixedPayloadDeniedRuntime },
@@ -290,7 +290,7 @@ export interface MixedMutationProductFixture {
   readonly product: ProductFixture;
   readonly pricing?: PricingFixture;
   readonly link?: LinkFixture;
-  readonly payload?: Readonly<{ profile: MixedPayloadConformanceRuntime["profile"];
+  readonly payload?: Readonly<{ profile: (typeof mixedPayloadProfiles)[MixedPayloadProfileKind]["profile"];
     runtimeHistory: readonly MixedPayloadConformanceRuntime[];
     current: () => MixedPayloadConformanceRuntime | undefined }>;
   readonly seed: ProductSeed["seed"];
@@ -402,6 +402,9 @@ type MixedMutationProductFixtureInput = Readonly<{
   includeUserNameIndex?: boolean;
   initialApplicationUsers?: readonly ApplicationNativeMutationUserDocument[];
   readMetadataScale?: LogicalReadMetadataScale;
+  /** Compiler input for ordinary native execution; fixed conformance profiles keep their own definitions. */
+  payloadCollections?: unknown;
+  applicationSource?: (seed: ProductSeed["seed"], payloadParticipant: string | undefined) => string;
 }> & (Readonly<{ workflow: true; payloadProfile: MixedPayloadProfileKind;
   workflowIds?: Readonly<{ variantId: string; priceSetId: string }> }> |
 Readonly<{ workflow?: never; workflowIds?: never; payloadProfile?: MixedPayloadProfileKind }>) &
@@ -413,6 +416,9 @@ Readonly<{ workflow?: never; workflowIds?: never; payloadProfile?: MixedPayloadP
 
 async function prepareMixedMutationProductContext(input: MixedMutationProductFixtureInput,
   initialSeedSuffix: string, currentDiagnostics?: () => MixedMutationEffectDiagnostics | undefined) {
+  if (input.payloadCollections !== undefined && input.payloadProfile !== "ordinary")
+    throw new Error("Configured collections require the ordinary Payload runtime");
+  const payloadCollections = input.payloadCollections ?? mixedPayloadPostsCollections();
   const cleanup: Array<() => Promise<void>> = [];
   const provisioningStart = globalThis.performance.now();
   try {
@@ -429,7 +435,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
         ...(input.workflow === true ? { includeProductLaunch: true } : {}),
         ...(input.workflow === true ? { includePricing: true,
           includeVariantPricingLink: true } : {}),
-        ...(input.payloadProfile === undefined ? {} : { payloadCollections: mixedPayloadPostsCollections() }),
+        ...(input.payloadProfile === undefined ? {} : { payloadCollections }),
         ...(input.fixtureIdentity === undefined ? {} :
         { fixtureIdentity: input.fixtureIdentity }) }
       : { includeProduct: true, finiteStorageCapture: true, resource: input.resource, fixtureIdentity: input.fixtureIdentity,
@@ -442,7 +448,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
         ...(input.workflow === true ? { includeProductLaunch: true } : {}),
         ...(input.workflow === true ? { includePricing: true,
           includeVariantPricingLink: true } : {}),
-        ...(input.payloadProfile === undefined ? {} : { payloadCollections: mixedPayloadPostsCollections() }) });
+        ...(input.payloadProfile === undefined ? {} : { payloadCollections }) });
   const provisioningMilliseconds = globalThis.performance.now() - provisioningStart;
   const application = currency.application;
   const admissionContext = Object.freeze({ deploymentId: currency.deploymentId,
@@ -476,7 +482,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
     createHash("sha256").update(
       `mixed-payload-${selectedPayload.profile.participant}-${input.payloadProfile}`).digest("hex");
   const compiledPayload = selectedPayload === undefined ? undefined :
-    await Effect.runPromise(compilePayloadCollections(mixedPayloadPostsCollections()));
+    await Effect.runPromise(compilePayloadCollections(payloadCollections));
   let retainedPayload: MixedPayloadNativeRuntime | Effect.Success<ReturnType<typeof makePayloadRuntime>> | undefined;
   if (selectedPayload !== undefined && compiledPayload !== undefined) {
     const nativeScope = await Effect.runPromise(Scope.make());
@@ -1435,7 +1441,8 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
         return { id, updated, pending, workflow, created, afterHook, enabled, final };
       },
     } } };`;
-    const applicationSource = source ?? workflowSource ?? payloadSource ?? productSource;
+    const applicationSource = source ?? input.applicationSource?.(seed, selectedPayload?.profile.participant) ??
+      workflowSource ?? payloadSource ?? productSource;
     const execute = input.executionHost ?? ((request: Parameters<MixedMutationExecutionHost>[0]) =>
       runMixedMutationInProcess(request, performance?.diagnostics));
     const execution = await execute({

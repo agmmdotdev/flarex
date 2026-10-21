@@ -63,8 +63,8 @@ const makeBorrowedCmsAttempt = Effect.fnUntraced(function* (
           snapshotCommitSeq: state.root.snapshotCommitSeq, attemptFence: input.rootAttemptFence,
         }, () => cmsError("closed"));
       yield* localRootGate;
-      if (state.configuration.profile !== "payload.scalar" || state.tables.length !== 1 ||
-        state.tables[0]?.localName !== "posts") return yield* Effect.fail(cmsError("unsupportedProfile"));
+      if (state.configuration.profile !== "payload.scalar")
+        return yield* Effect.fail(cmsError("unsupportedProfile"));
       const lifetime = yield* makeBoundedRequestLifetime(cmsError,
         { calls: cmsLimits.calls, commandBytes: cmsLimits.commandBytes, commandMs: cmsLimits.commandMs },
         input.attempt, Object.freeze({}), crypto.randomUUID(), "write", "require");

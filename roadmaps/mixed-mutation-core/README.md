@@ -15,6 +15,13 @@ Historical gate passes reported below do not close this selected acceptance.
 
 ## Status And Scope
 
+[Configured scalar Payload collections](./configured-payload-attempt-preflight.md)
+now use native create/update/findByID inside the existing Application mixed root,
+with compiler-owned collection identities and one outer settlement. Borrowing no
+longer requires a single `posts` table. Direct find/count/delete coverage does
+not widen the borrowed method allowlist; preference cleanup, relationships,
+public facades and broader framework profiles retain separate gates.
+
 Status: the Application, Product, selected Payload Local API, and finite
 Medusa workflow slices are implemented as a private, isolated-scope execution
 profile. The earlier finite-root design is delivered for that graph; its proposed

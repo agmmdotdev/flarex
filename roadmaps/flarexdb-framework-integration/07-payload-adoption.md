@@ -30,6 +30,13 @@ separately from pending cross-framework integrity and public authoring. CMS
 markers and `ctx.cms`/`ctx.commerce` syntax remain illustrative. This plan owns
 Payload behavior and conformance; the SDK roadmap owns eventual public surfaces.
 
+[Configured scalar mixed execution](../mixed-mutation-core/configured-payload-attempt-preflight.md)
+now borrows compiler-owned collections through native create/update/findByID in
+the existing Application root. Multi-collection pending state, constraint
+validation and outer-only settlement replace the fixed `posts` restriction.
+This does not admit borrowed delete/preference cleanup, find/count, relations,
+or public developer syntax; the direct Local API profile remains distinct.
+
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)
 is a required shared-storage integration gate: use real Payload Local API calls
 with Application/Medusa references, indexed forward/reverse access, visibility,
