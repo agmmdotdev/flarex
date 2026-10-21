@@ -2,10 +2,11 @@
 
 ## Status and authority
 
-Status: proposed next connected objective after the bounded
+Status: original-native characterization in progress after the bounded
 [Variant and item pricing workflow](./159-native-variant-item-price-calculation.md).
-Static source tracing is complete; original-native executable characterization,
-capacity measurements and adapter admission remain pending.
+Initial empty and populated SystemTax cases have complete result and stored-state
+evidence. The broader native matrix, complete event capture, capacity measurements
+and adapter admission remain pending.
 
 The executing reference is Medusa 2.13.4, commit
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, recorded by
@@ -72,6 +73,30 @@ Verify the actual nested SDK context: acquire/release steps can skip before
 Locking resolution when a parent idempotency key exists. Record actual
 translation flags, hook registrations and optional Caching resolution. Do not
 remove these paths from the native fixture to simplify the dependency graph.
+
+## Confirmed initial native behavior
+
+The genuine empty root selects Store/Region/Channel defaults, creates the native
+US address, reaches both empty tax-line setters, computes automatic promotions
+and queries Cart-Promotion and Cart-PaymentCollection Links. The populated case
+creates a guest Customer, checks both rich Inventory Links and persists a native
+10-percent SystemTax line. Fresh creation leaves PaymentCollection absent.
+
+The native root returns its original created-Cart value. In the populated
+witness, that value has an empty `items` array while a subsequent stored Cart
+contains its line item and computed totals. Preserve that distinction; a final
+Cart reread is not an equivalent native return contract.
+
+Initial genuine cancellation also exposes native residuals: an active Cart
+address remains after Cart removal, and promotion cases retain an active
+Cart-Promotion Link pointing at the removed Cart. Preserve those original
+witnesses and trace the native owners before proposing a business correction.
+Atomic outer rollback does not establish retained native inverse correctness.
+
+The initial observer's omitted Tax API and saturated generic detail capture do
+not establish complete method/event parity or a Flarex call allowance. Required
+results, Promotion decisions and complete emitted/delivered events need explicit
+bounded evidence before admission.
 
 ## Admission and implementation gates
 
