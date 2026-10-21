@@ -457,26 +457,30 @@ describe("M03-A app-schema candidate validation", { concurrent: false }, () => {
       fields: { name: false },
     });
     const result = await fixture.persistence.drizzle.transaction(tx =>
-      runEffect(applyAppSchemaCandidateWriteGuardInTransactionEffect(
-        tx,
-        guard,
-        prepared,
-        authority,
-        clock,
-        CommitSeqSchema.make(1n),
-        Object.freeze([
-          Object.freeze({
-            tableId: fixture.tableId,
-            rowId: rowId(1),
-            document,
-          }),
-          Object.freeze({
-            tableId: fixture.secondaryTableId,
-            rowId: rowId(2),
-            document: secondaryDocument,
-          }),
-        ]),
-      ))
+      runEffect(Effect.gen(function* () {
+        const lockedClock = yield*
+          lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
+        return yield* applyAppSchemaCandidateWriteGuardInTransactionEffect(
+          tx,
+          guard,
+          prepared,
+          authority,
+          lockedClock,
+          CommitSeqSchema.make(1n),
+          Object.freeze([
+            Object.freeze({
+              tableId: fixture.tableId,
+              rowId: rowId(1),
+              document,
+            }),
+            Object.freeze({
+              tableId: fixture.secondaryTableId,
+              rowId: rowId(2),
+              document: secondaryDocument,
+            }),
+          ]),
+        );
+      }))
     );
     expect(result).toEqual({ status: "candidateFailed" });
     await expect(load(fixture, fixture.schemaVersionId)).resolves.toMatchObject({
@@ -558,30 +562,38 @@ describe("M03-A app-schema candidate validation", { concurrent: false }, () => {
       fields: { name: "valid" },
     });
     await expect(fixture.persistence.drizzle.transaction(tx =>
-      runEffect(applyAppSchemaCandidateWriteGuardInTransactionEffect(
-        tx,
-        guard,
-        prepared,
-        authority,
-        clock,
-        CommitSeqSchema.make(1n),
-        Object.freeze([Object.freeze({
-          tableId: fixture.tableId,
-          rowId: rowId(1),
-          document: validDocument,
-        })]),
-      ))
+      runEffect(Effect.gen(function* () {
+        const lockedClock = yield*
+          lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
+        return yield* applyAppSchemaCandidateWriteGuardInTransactionEffect(
+          tx,
+          guard,
+          prepared,
+          authority,
+          lockedClock,
+          CommitSeqSchema.make(1n),
+          Object.freeze([Object.freeze({
+            tableId: fixture.tableId,
+            rowId: rowId(1),
+            document: validDocument,
+          })]),
+        );
+      }))
     )).resolves.toEqual({ status: "unchanged" });
     await expect(fixture.persistence.drizzle.transaction(tx =>
-      runEffect(applyAppSchemaCandidateWriteGuardInTransactionEffect(
-        tx,
-        guard,
-        prepared,
-        authority,
-        clock,
-        CommitSeqSchema.make(1n),
-        Object.freeze([]),
-      ))
+      runEffect(Effect.gen(function* () {
+        const lockedClock = yield*
+          lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
+        return yield* applyAppSchemaCandidateWriteGuardInTransactionEffect(
+          tx,
+          guard,
+          prepared,
+          authority,
+          lockedClock,
+          CommitSeqSchema.make(1n),
+          Object.freeze([]),
+        );
+      }))
     )).resolves.toEqual({ status: "unchanged" });
     await expect(load(fixture, fixture.schemaVersionId)).resolves.toMatchObject({
       head: { frameSha256Hex: progressSha },
@@ -605,19 +617,23 @@ describe("M03-A app-schema candidate validation", { concurrent: false }, () => {
       fields: { name: 42 },
     });
     await expect(fixture.persistence.drizzle.transaction(tx =>
-      runEffect(applyAppSchemaCandidateWriteGuardInTransactionEffect(
-        tx,
-        guard,
-        receiptEvidence,
-        authority,
-        clock,
-        CommitSeqSchema.make(1n),
-        Object.freeze([Object.freeze({
-          tableId: fixture.tableId,
-          rowId: rowId(2),
-          document: invalidDocument,
-        })]),
-      ))
+      runEffect(Effect.gen(function* () {
+        const lockedClock = yield*
+          lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
+        return yield* applyAppSchemaCandidateWriteGuardInTransactionEffect(
+          tx,
+          guard,
+          receiptEvidence,
+          authority,
+          lockedClock,
+          CommitSeqSchema.make(1n),
+          Object.freeze([Object.freeze({
+            tableId: fixture.tableId,
+            rowId: rowId(2),
+            document: invalidDocument,
+          })]),
+        );
+      }))
     )).resolves.toEqual({ status: "candidateFailed" });
     await expect(load(fixture, fixture.schemaVersionId)).resolves.toMatchObject({
       head: { frame: {
@@ -773,19 +789,23 @@ describe("M03-A app-schema candidate validation", { concurrent: false }, () => {
       fields: { name: 42 },
     });
     await expect(fixture.persistence.drizzle.transaction(tx =>
-      runEffect(applyAppSchemaCandidateWriteGuardInTransactionEffect(
-        tx,
-        guard,
-        prepared,
-        authority,
-        clock,
-        CommitSeqSchema.make(2n),
-        Object.freeze([Object.freeze({
-          tableId: fixture.tableId,
-          rowId: rowId(2),
-          document: invalid,
-        })]),
-      ))
+      runEffect(Effect.gen(function* () {
+        const lockedClock = yield*
+          lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
+        return yield* applyAppSchemaCandidateWriteGuardInTransactionEffect(
+          tx,
+          guard,
+          prepared,
+          authority,
+          lockedClock,
+          CommitSeqSchema.make(2n),
+          Object.freeze([Object.freeze({
+            tableId: fixture.tableId,
+            rowId: rowId(2),
+            document: invalid,
+          })]),
+        );
+      }))
     )).resolves.toEqual({ status: "candidateFailed" });
     await expect(load(fixture, fixture.schemaVersionId)).resolves.toMatchObject({
       head: { frame: {
