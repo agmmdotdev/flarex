@@ -1412,6 +1412,12 @@ export function makeParticipantOperationRunner(
             kind: "stateRejected",
             issue: Object.freeze({ reason: "journalFailed" }),
           });
+        const commandOnlyRoot = owner.readFiniteRoot(attemptState);
+        if (commandOnlyRoot?.commandWriter !== undefined) {
+          commandOnlyRoot.status = "aborted";
+          discardFiniteRootEvidence(commandOnlyRoot);
+          return yield* Effect.fail(new InvalidSessionJournalCapabilityV1Error({ capability: "attempt" }));
+        }
         const sources = [];
         for (const [ordinal, source] of admitted.admissions.entries()) {
           const state = inspectLogicalParticipantAttemptAdmission(
@@ -1529,6 +1535,12 @@ export function makeParticipantOperationRunner(
           }
         >);
         const requestEvidence = yield* canonicalizeStoredRequestEffect(request);
+        const commandRoot = owner.readFiniteRoot(attemptState);
+        if (commandRoot?.commandWriter !== undefined) {
+          commandRoot.status = "aborted";
+          discardFiniteRootEvidence(commandRoot);
+          return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidInput" }));
+        }
         const inFlightKey = `${attemptState.selector.scopeId}/${attemptState.selector.sessionId}/${attemptState.selector.attemptFence}`;
         if (owner.isAdmittedOperationInFlight(inFlightKey)) {
           return Object.freeze({

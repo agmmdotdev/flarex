@@ -1,6 +1,10 @@
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
 import { ApplicationRevisionSyscallDocumentValidationV1Error } from "../../application/revision/applicationRevisionSyscallValidatorErrors";
 import type { SessionJournalStorePersistence } from "./contracts";
+import type { PinnedPointTableV1, SessionJournalPointOperationV1 } from "./contracts";
+import { issueApplicationCommandWriteAuthority, applicationCommandWriteTable,
+  matchesApplicationCommandWriteAuthority, type ApplicationCommandWriteAuthority } from "../../application/ownership/Command";
+import { PrivatePermissionEvidenceError, capturePrivateReferencePermissionEvidence } from "./privatePermissionEvidence";
 import {
   InvalidSessionJournalCapabilityV1Error,
   InvalidSessionJournalInputV1Error,
@@ -35,6 +39,7 @@ import {
   CommitSyscallSequenceV1Schema,
   MAX_COMMIT_OPERATION_CALLS_V1,
 } from "flarex-protocol/commit-protocol";
+import { requireFiniteAttemptPreparationOpen } from "../../storage/documents/logicalDocuments/sourceAdmission";
 import type {
   LogicalAppWriteV1,
   LogicalPatchFieldV1,
@@ -522,6 +527,7 @@ const runFinitePointOperationEffect = Effect.fnUntraced(function* (
   onDocumentRejection: (
     error: ApplicationRevisionSyscallDocumentValidationV1Error,
   ) => void,
+  commandWriter?: ApplicationCommandWriteAuthority,
 ): Effect.fn.Return<
   AppliedSessionJournalOperationV1,
   SessionJournalRunPointOperationV1Error
@@ -529,6 +535,11 @@ const runFinitePointOperationEffect = Effect.fnUntraced(function* (
   const { context } = frontier;
   finite.inFlightOperations += 1;
   return yield* Effect.gen(function* () {
+    if (finite.status === "open" && request.kind !== "get" && finite.commandWriter !== undefined &&
+      (commandWriter !== finite.commandWriter || applicationCommandWriteTable(commandWriter,
+        finite.handle, table.attempt.selector.scopeId) !== table.tableId))
+      return yield* Effect.fail(new ApplicationTableWriteDeniedError({ operation: request.kind,
+        tableName: table.tableName, message: "Ordinary Application mutations cannot write this managed table." }));
     if (
       !kernelContextMatchesAttempt(context, table.attempt) ||
       context.anchor.executionProfile !== "finiteRoot"
@@ -589,7 +600,8 @@ const runFinitePointOperationEffect = Effect.fnUntraced(function* (
           { kind: "rows", tableId: table.tableId },
         )
         .pipe(Effect.mapError(mapRunPointOperationFailure));
-      if (ownership.denied)
+      if (ownership.denied && (commandWriter === undefined ||
+        !matchesApplicationCommandWriteAuthority(commandWriter, finite.handle, table.attempt.selector.scopeId, ownership.commandPolicy)))
         return yield* Effect.fail(
           new ApplicationTableWriteDeniedError({
             operation: request.kind,
@@ -598,7 +610,7 @@ const runFinitePointOperationEffect = Effect.fnUntraced(function* (
               "Ordinary Application mutations cannot write this managed table.",
           }),
         );
-      finite.writableTables.add(table.tableId);
+      if (commandWriter === undefined) finite.writableTables.add(table.tableId);
     }
     // Planning may hydrate an uncached patch/replace target. Rejected documents
     // must not retain that read without accepting its dependency/counter charge.
@@ -1677,9 +1689,10 @@ export function makePointOperations(
       (work) => observeExecution("SessionJournalStore.resolvePointTable", work),
     );
 
-  const runPointOperationEffect: SessionJournalStorePersistence["runPointOperationEffect"] =
+  const runPointOperation =
     Effect.fnUntraced(
-      function* (table, operation, validator) {
+      function* (table: PinnedPointTableV1, operation: SessionJournalPointOperationV1,
+        validator: ApplicationRevisionSyscallValidatorV1, commandWriter?: ApplicationCommandWriteAuthority) {
         const tableState =
           typeof table === "object" && table !== null
             ? owner.readPointTable(table)
@@ -1698,6 +1711,15 @@ export function makePointOperations(
         let documentRejection:
           ApplicationRevisionSyscallDocumentValidationV1Error | undefined;
         const finite = owner.readFiniteRoot(tableState.attempt);
+        // Check before cached receipts: ordinary code cannot replay a privileged write.
+        if (request.kind !== "get" && finite?.status === "open" && finite.commandWriter !== undefined &&
+          (commandWriter !== finite.commandWriter || applicationCommandWriteTable(commandWriter,
+            finite.handle, tableState.attempt.selector.scopeId) !== tableState.tableId)) {
+          finite.status = "aborted";
+          discardFiniteRootEvidence(finite);
+          return yield* Effect.fail(new ApplicationTableWriteDeniedError({ operation: request.kind,
+            tableName: tableState.tableName, message: "Ordinary Application mutations cannot write this managed table." }));
+        }
         const localRead =
           finite !== undefined && request.kind !== "insert"
             ? readKnownFinitePoint(
@@ -1733,6 +1755,7 @@ export function makePointOperations(
                 (error) => {
                   documentRejection = error;
                 },
+                commandWriter,
               );
             })
           : Effect.gen(function* () {
@@ -1780,6 +1803,7 @@ export function makePointOperations(
                 (error) => {
                   documentRejection = error;
                 },
+                commandWriter,
               );
             });
         const applied = yield* checked.pipe(
@@ -1815,5 +1839,61 @@ export function makePointOperations(
       },
       (work) => observeExecution("SessionJournalStore.runPointOperation", work),
     );
-  return Object.freeze({ resolvePointTableEffect, runPointOperationEffect });
+  const runPointOperationEffect: SessionJournalStorePersistence["runPointOperationEffect"] =
+    (table, operation, validator) => runPointOperation(table, operation, validator);
+  const preparePrivateApplicationCommandEffect: SessionJournalStorePersistence["preparePrivateApplicationCommandEffect"] =
+    Effect.fn("SessionJournalStore.preparePrivateApplicationCommand")(function* (attempt, tableName) {
+      const table = yield* resolvePointTableEffect(attempt, tableName);
+      const state = owner.readPointTable(table);
+      const finite = state === undefined ? undefined : owner.readFiniteRoot(state.attempt);
+      const inFlightKey = state === undefined ? "" : `${state.attempt.selector.scopeId}/${state.attempt.selector.sessionId}/${state.attempt.selector.attemptFence}`;
+      if (state === undefined || finite === undefined || finite.status !== "open" || finite.lastSequence !== 0n ||
+        finite.inFlightOperations !== 0 || finite.participantWorkCalls !== 0 || finite.commandWriter !== undefined ||
+        owner.isAdmittedOperationInFlight(inFlightKey))
+        return yield* Effect.fail(new InvalidSessionJournalCapabilityV1Error({ capability: "attempt" }));
+      finite.inFlightOperations++;
+      return yield* Effect.gen(function* () {
+        const captured = yield* finiteApplicationCapture(finite, state.attempt)({ kind: "ownership", tableId: state.tableId },
+          { kind: "rows", tableId: state.tableId })
+          .pipe(Effect.mapError(cause => new SessionJournalPersistenceV1Error({ operation: "runPointOperation", cause })));
+        if (captured.commandPolicy === undefined || finite.status !== "open" || finite.lastSequence !== 0n ||
+          finite.inFlightOperations !== 1 || finite.participantWorkCalls !== 0 || finite.commandWriter !== undefined ||
+          owner.isAdmittedOperationInFlight(inFlightKey))
+          return yield* Effect.fail(new InvalidSessionJournalCapabilityV1Error({ capability: "attempt" }));
+        const authority = issueApplicationCommandWriteAuthority(attempt, state.attempt.selector.scopeId, captured.commandPolicy);
+        finite.commandWriter = authority;
+        return Object.freeze({ run: (operation: SessionJournalPointOperationV1, validator: ApplicationRevisionSyscallValidatorV1) =>
+          runPointOperation(table, operation, validator, authority) });
+      }).pipe(Effect.ensuring(Effect.sync(() => { finite.inFlightOperations--; })));
+    });
+  const readPrivateReferencePermissionsEffect: SessionJournalStorePersistence["readPrivateReferencePermissionsEffect"] =
+    Effect.fn("SessionJournalStore.readPrivateReferencePermissions")(function* (attempt, input, validator) {
+      const table = yield* resolvePointTableEffect(attempt, input.tableName);
+      const state = owner.readPointTable(table);
+      const finite = state === undefined ? undefined : owner.readFiniteRoot(state.attempt);
+      if (state === undefined || finite === undefined)
+        return yield* Effect.fail(new PrivatePermissionEvidenceError({ reason: "invalidAuthority" }));
+      finite.inFlightOperations++;
+      return yield* Effect.gen(function* () {
+        if (finite.status !== "open" || finite.commandWriter !== undefined ||
+          finite.initialContext.principalDigest !== input.principal.principalDigest ||
+          state.attempt.selector.scopeId !== input.principal.scopeId)
+          return yield* Effect.fail(new PrivatePermissionEvidenceError({ reason: "invalidAuthority" }));
+        const captured = yield* finiteApplicationCapture(finite, state.attempt)({ kind: "ownership", tableId: state.tableId },
+          { kind: "rows", tableId: state.tableId }).pipe(Effect.mapError(cause =>
+            new SessionJournalPersistenceV1Error({ operation: "runPointOperation", cause })));
+        if (captured.commandPolicy === undefined || finite.status !== "open" || finite.commandWriter !== undefined)
+          return yield* Effect.fail(new PrivatePermissionEvidenceError({ reason: "invalidAuthority" }));
+        const read = yield* runPointOperationEffect(table, { kind: "get", documentId: input.documentId,
+          syscallSequence: input.syscallSequence }, validator);
+        if (read.kind !== "completed" || (read.outcome.kind !== "present" && read.outcome.kind !== "missing"))
+          return yield* Effect.fail(new PrivatePermissionEvidenceError({ reason: "invalidAuthority" }));
+        return yield* capturePrivateReferencePermissionEvidence(attempt, input.principal, captured.commandPolicy.writePolicySha256,
+          input.documentId, read.outcome.document, () => finite.status === "open" &&
+            Result.isSuccess(requireFiniteAttemptPreparationOpen(finite.metadata, attempt)));
+      }).pipe(Effect.onError(() => Effect.sync(() => { finite.status = "aborted"; discardFiniteRootEvidence(finite); })),
+        Effect.ensuring(Effect.sync(() => { finite.inFlightOperations--; })));
+    });
+  return Object.freeze({ resolvePointTableEffect, runPointOperationEffect, preparePrivateApplicationCommandEffect,
+    readPrivateReferencePermissionsEffect });
 }

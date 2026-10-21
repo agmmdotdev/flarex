@@ -99,6 +99,9 @@ const bindVerifiedPolicies = Effect.fn("ApplicationWritePolicyBinding.bindTables
       const declaration = policy.declaration;
       writePolicies.push(Object.freeze(declaration.owner === "application" ? {
         ...table, owner: "application", writePolicySha256: policy.writePolicySha256,
+      } : declaration.owner === "application-command" ? {
+        ...table, owner: "application-command", writePolicySha256: policy.writePolicySha256,
+        policyId: declaration.policyId,
       } : {
         ...table, owner: "payload", writePolicySha256: policy.writePolicySha256,
         policyId: declaration.policyId, configSha256: declaration.configSha256, provenanceSha256: declaration.provenanceSha256,

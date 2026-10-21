@@ -93,6 +93,7 @@ import {
 } from "../session/finiteSession";
 import { readPreparedFiniteSessionJournalEntrySchema } from "./finiteEntryActivation";
 import { issueFrozenFiniteAttempt } from "./freezeClosedRoot";
+import { closeApplicationCommandWriteAuthority, freezeApplicationCommandWriteAuthority } from "../../application/ownership/Command";
 import type { FrozenFiniteOperation } from "./frozenAttempt";
 import type {
   SessionJournalStoredRequest,
@@ -187,6 +188,7 @@ type FiniteRootRecord =
   | FiniteRootRelationRecord;
 
 interface FiniteRootAttemptData {
+  commandWriter?: import("../../application/ownership/Command").ApplicationCommandWriteAuthority;
   originalEntry?: import("./finiteEntry").OriginalFiniteExecutionEntry;
   readonly handle: SessionJournalAttempt;
   readonly resolvedTarget: ResolvedJournalTargetV1;
@@ -254,6 +256,7 @@ export function finiteApplicationCapture(
 export function discardFiniteRootEvidence(
   finite: FiniteRootAttemptState,
 ): void {
+  if (finite.commandWriter !== undefined) closeApplicationCommandWriteAuthority(finite.commandWriter);
   finite.evaluator.close();
   finite.admissions.clear();
   finite.receipts.clear();
@@ -983,15 +986,18 @@ export function makeFiniteRootLifecycle(owner: JournalAttemptOwner) {
                     workBytes: receipt.completed.workBytes,
                     workCalls: receipt.completed.workCalls,
                   })
-                : Object.freeze({
+                : receipt.kind === "point" ? Object.freeze({
+                    kind: "point" as const,
+                    tableId: receipt.request.tableId,
+                    sequence,
+                    request: receipt.requestEvidence.valueJson,
+                    outcome: receipt.outcomeEvidence.valueJson,
+                    ...(receipt.plan.write === undefined ? {} : { write: receipt.plan.write }),
+                  }) : Object.freeze({
                     kind: receipt.kind,
                     sequence,
                     request: receipt.requestEvidence.valueJson,
                     outcome: receipt.outcomeEvidence.valueJson,
-                    ...(receipt.kind === "point" &&
-                    receipt.plan.write !== undefined
-                      ? { write: receipt.plan.write }
-                      : {}),
                   }),
             );
           const applicationMetadataProjection =
@@ -1029,11 +1035,16 @@ export function makeFiniteRootLifecycle(owner: JournalAttemptOwner) {
           // Receipts, pins and captured dependencies already belong to this closed
           // finite root. Registry ingress detaches them once; no exposed return or
           // caller input shares those retained values.
+          const commandWriteAuthority = finite.commandWriter === undefined ? undefined :
+            freezeApplicationCommandWriteAuthority(finite.commandWriter, attempt);
+          if (finite.commandWriter !== undefined && commandWriteAuthority === undefined)
+            return yield* Effect.fail(corruption(attemptState, "exactAttemptPinsChanged"));
           const frozen = issueFrozenFiniteAttempt(
             closedRoot,
             finite.evaluator,
             {
               attempt,
+              ...(commandWriteAuthority === undefined ? {} : { commandWriteAuthority }),
               originalEntry,
               resolvedTarget: finite.resolvedTarget,
               applicationMetadataProjection,

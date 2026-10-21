@@ -524,12 +524,14 @@ export const prepareFiniteCommitCommand = Effect.fnUntraced(function* (
       return yield* Effect.fail(corruption("commandInvalid"));
   }
   const applicationTables = new Set<CatalogTableId>();
+  const applicationPointTables = new Set<CatalogTableId>();
   const sources: FiniteCommitSource[] = [];
   const nativeTables = new Set<CatalogTableId>();
   const events: CommittedEvent[] = [];
   const attributedAttempts = new Set<number>();
   for (const operation of frozen.operations) {
     if (operation.kind !== "participant") {
+      if (operation.kind === "point") applicationPointTables.add(operation.tableId);
       if (operation.write !== undefined) applicationTables.add(yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(operation.write.documentId)
         .pipe(Result.map(identity => identity.tableId), Result.mapError(() => corruption("commandInvalid")))));
       continue;
@@ -617,6 +619,7 @@ export const prepareFiniteCommitCommand = Effect.fnUntraced(function* (
   return Object.freeze({ authorityPins, session, executionClaim, scopeUuid: scope.scopeUuid, frozen,
     dependencies, generatedInsertions, generatedOnlyPoints, rowIntents, rowIntentsByTable: indexApplicationDocumentRowIntents({ rowIntents }), sources: Object.freeze(sources), events: Object.freeze(events),
     attemptedTableIds: Object.freeze([...applicationTables]),
+    applicationPointTableIds: Object.freeze([...applicationPointTables]),
     participantMaterialDocumentIds: new Set(rowIntents.filter(row => nativeTables.has(row.tableId)).map(row => row.documentId)),
     indexRangeDependencies: frozen.applicationIndexRanges, relationDependencies: frozen.applicationRelationDependencies,
     successfulResult }) satisfies PreparedFiniteCommitCommand;

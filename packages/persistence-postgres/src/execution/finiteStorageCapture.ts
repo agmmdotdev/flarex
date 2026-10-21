@@ -72,7 +72,8 @@ export interface FiniteStorageCaptureEnvelopes {
     matches: readonly (boolean | null)[]; bytes: number }>;
   readonly rows: Readonly<{ kind: "rows"; prepared: PreparedAppRowsSnapshotRead; rawRows: readonly unknown[] }>;
   readonly indexPage: Readonly<{ kind: "indexPage"; prepared: PreparedAppIndexSnapshotRead; rawRows: readonly unknown[] }>;
-  readonly ownership: Readonly<{ kind: "ownership"; denied: boolean }>;
+  readonly ownership: Readonly<{ kind: "ownership"; denied: boolean;
+    commandPolicy?: import("../application/ownership/Command").ApplicationCommandPolicy }>;
   readonly historicalIdentity: Readonly<{ kind: "historicalIdentity"; exists: boolean }>;
   readonly transactionTime: Readonly<{ kind: "transactionTime"; timestamp: string }>;
   readonly retirement: Readonly<{ kind: "retirement"; retired: boolean }>;
@@ -653,7 +654,9 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
       const verdict = denyManagedApplicationTableWrites([operation.tableId], snapshot.ownership?.frame.claims ?? []);
       if (Result.isFailure(verdict) && verdict.failure.reason !== "writeDenied")
         return yield* Effect.fail(mapOwnershipFailure(verdict.failure));
-      return Object.freeze({ kind: "ownership" as const, denied: Result.isFailure(verdict) });
+      const commandPolicy = snapshot.ownership?.frame.claims.find(claim => claim.policy.tableId === operation.tableId)?.policy;
+      return Object.freeze({ kind: "ownership" as const, denied: Result.isFailure(verdict),
+        ...(commandPolicy?.owner === "application-command" ? { commandPolicy } : {}) });
     }, effect => observeExecution("FiniteStorageCapture.acceptOwnership", effect));
     const capture: FiniteStorageCaptureTarget[typeof CAPTURE_FINITE_STORAGE] = (input, operation) =>
       // Inspect the operation only when evaluated. Non-ownership captures keep

@@ -14,6 +14,32 @@ const ordinary = Schema.decodeUnknownSync(ApplicationSchemaWritePolicyBindingSch
   owner: "application", writePolicySha256: "d".repeat(64) });
 
 describe("Application write ownership", () => {
+  it("retains command-only Application claims without changing ordinary table writes", async () => {
+    const command = Schema.decodeUnknownSync(ApplicationSchemaWritePolicyBindingSchema)({
+      applicationTableId: 3, logicalName: "permissions", tableId: 13, owner: "application-command",
+      policyId: "application.reference-permissions", writePolicySha256: hashPolicyFixture({
+        format: "flarex.application-table-write-policy", version: 1, logicalTableName: "permissions",
+        owner: "application-command", policyId: "application.reference-permissions" }),
+    });
+    const input = { policies: [ordinary, managed, command], previous: [], previouslyWritable: new Set([ordinary.tableId]),
+      activationSequence: 1n, revisionId: "command-policy" };
+    const claims = Result.getOrThrow(retainApplicationManagedTableClaims(input));
+    expect(claims.map(claim => claim.policy.owner)).toEqual(["payload", "application-command"]);
+    expect(Result.isSuccess(denyManagedApplicationTableWrites([ordinary.tableId], claims))).toBe(true);
+    expect(denyManagedApplicationTableWrites([command.tableId], claims)).toMatchObject({ _tag: "Failure", failure: { reason: "writeDenied" } });
+    for (const policies of [[ordinary, managed], [ordinary, managed, { ...ordinary, tableId: command.tableId }],
+      [ordinary, managed, { ...command, writePolicySha256: "f".repeat(64) }]])
+      expect(retainApplicationManagedTableClaims({ ...input, previous: claims, policies, activationSequence: 2n }))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "ownershipChanged" } });
+    const encoded = await Effect.runPromise(canonicalizeApplicationWriteOwnership({
+      format: "flarex.application-write-ownership", version: 1, scopeId: ScopeIdSchema.make("command-policy"),
+      storageGeneration: "flarexdb_v1", activationSequence: "1", revisionId: "command-policy",
+      writePolicySetSha256: "e".repeat(64), predecessor: null, claims,
+    }));
+    expect((await Effect.runPromise(decodeStoredApplicationWriteOwnership(encoded.canonicalBytes, encoded.sha256))).frame.claims).toEqual(claims);
+    expect(retainApplicationManagedTableClaims({ ...input, previouslyWritable: new Set([command.tableId]) }))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "previouslyWritable" } });
+  });
   it("retains managed claims and refuses removal, transfer, identity changes and historical reuse", () => {
     const input = { policies: [ordinary, managed], previous: [], previouslyWritable: new Set([ordinary.tableId]), activationSequence: 2n, revisionId: "revision-policy" };
     const claims = Result.getOrThrow(retainApplicationManagedTableClaims(input));

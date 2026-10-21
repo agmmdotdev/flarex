@@ -2,10 +2,15 @@
 
 ## Status And Scope
 
-Status: proposed backend implementation contract; not implemented by this
-preflight. The owner requested this planning step after the private authorized
-reference-read slice. No new capability, permission store, schema or runtime
-behavior is enabled here.
+Status: SA1 protected permission evidence is implemented as a bounded private
+backend foundation. SA2-SA4 remain proposed and pending. Native authorized saves
+and public API syntax are not implemented by this slice.
+
+The shared analysis/binding, retained ownership, finite admission and settlement
+owners now support a private Application command-only write policy. Ordinary
+Application mutations cannot write that table. Separate trusted command roots
+can change its data; consuming roots obtain attempt-bound permission evidence
+through exact Application point dependencies.
 
 The next outcome is an authorized native Payload article save with one optional
 Product reference in the existing finite mixed root. Distinguish article write
@@ -72,6 +77,74 @@ the selected reference-read runtime supplies real read access and refuses writes
 Neither establishes an authorized write profile. Test instrumentation is not a
 permission authority and must not become the production construction path.
 
+## SA1 Implemented Protected Permission Source
+
+Ordinary Application ownership provides tracked reads and ordinary writes. It
+cannot protect policy data from a same-root self-grant. The accepted correction
+adds `application-command` ownership with the closed private policy identity
+`application.reference-permissions` to the existing analysis/binding contract.
+This is backend metadata, not selected public schema syntax.
+
+The existing retained-claim owner prevents takeover of previously writable
+tables, ownership transfer, removal or policy reinterpretation. Payload claims
+retain their existing semantics. No migration, reset, backfill or change to
+named durable data is part of this fresh-source profile.
+
+The actual owners are:
+
+- [Write-policy analysis](../../packages/analysis/src/applicationWritePolicy/model.ts)
+  and [schema bindings](../../packages/flarex-protocol/src/application-schema-binding.ts)
+  authenticate table ownership and policy hashes. Trusted analyzer hashing uses
+  its captured host capability while application import-time crypto stays blocked.
+- [Command authority](../../packages/persistence-postgres/src/application/ownership/Command.ts)
+  binds opaque issuer evidence to the exact attempt, scope, table and retained
+  policy. Only the private journal constructor can mint it after genuine ownership
+  capture on a pristine finite root. Permission reads, existing point work and
+  borrowed participant work exclude command acquisition. Command roots cannot
+  issue consuming permission evidence or borrow framework operations.
+- [Point operations](../../packages/persistence-postgres/src/execution/journal/pointOperations.ts)
+  enforce ordinary insert/patch/replace/delete denial, including no-op writes and
+  cached privileged receipts. Freeze closes the writer and retains separate opaque
+  commit evidence. The [commit owner](../../packages/persistence-postgres/src/application/ownership/Commit.ts)
+  authenticates that evidence against the current retained claim under the normal
+  publication locks. It permits only the selected protected table; it supplies no
+  unrestricted commit bypass or additional settler.
+- [Private permission evidence](../../packages/persistence-postgres/src/execution/journal/privatePermissionEvidence.ts)
+  strictly decodes the stored bounded policy and binds its principal and scope
+  to the admitted root. It distinguishes missing facts (`None`), malformed stored
+  data (corruption), and invalid authority. Issued evidence stops being usable
+  when the root leaves its open lifetime. Copies and cross-attempt/principal
+  reuse are refused.
+
+The bounded policy document contains a format/version, principal scope/digest,
+collection, relation, source create/update/delete decisions and at most 256
+assignment/retention target IDs each. The fresh connected source stores it in
+`audit.policy`; `posts` remains Payload-managed and `users` remains ordinary
+Application data. Those fixture table names do not select a public permission
+schema or generalized ACL engine. Only backend composition selects the policy
+point; application arguments do not supply its authority.
+
+The finite activation owner now carries genuine V3 schema, manifest-binding,
+publication and retained ownership evidence through entry and settlement. This
+bounded path requires no declared Application relations/edge definitions and
+refuses borrowed current-generation construction. It preserves the legacy path
+and does not fabricate legacy control rows for V3 evidence. Broader composite
+finite profiles remain gated.
+
+Finite publication also retains table identities from genuine Application point
+receipts for read-only dependencies. Previously its contribution allowlist used
+only Application write tables, rejecting a policy read when that table had no
+write. The publication owner now separates that read selection from attempted
+write ownership and maintenance. Exact point conflicts still govern freshness.
+
+[Connected scenarios](../../packages/persistence-postgres/test/application/ownership/privateReferencePermissionScenario.ts)
+exercise trusted policy create/revoke/delete, ordinary write refusal, read-only
+publication, exact receipt replay, same-root and concurrent acquisition refusal,
+closed/forged/cross-principal evidence, malformed/missing facts and a policy update
+that makes a consuming root stale. The same scenario has PGlite and ordinary-role
+PostgreSQL consumers. It does not implement Payload access or final effective-edge
+authorization; those remain SA2 and SA3 obligations below.
+
 ## Proposed Save Decisions
 
 Use native Payload create/update/delete access with `overrideAccess: false` for
@@ -112,22 +185,12 @@ Unsupported hook/nesting profiles refuse admission.
 
 ## Permission Freshness And Publication
 
-The selected direction is permission facts read through the existing finite
-snapshot/dependency owner. For the first connected witness, propose one bounded
-private Application-owned policy point record for the admitted principal and
-shop, seeded only in a fresh isolated source. It carries the selected source
-operation and target assignment/retention decisions. This is test data exercising
-real backend enforcement, not a generic authorization schema or permission
-decision implemented by the harness.
-
-Before implementing that witness, gate SA1 below must identify its actual schema,
-protected writer, trusted reader and exact dependency capture. An ordinary
-Application-owned row is not inherently protected: a user mutation must not be
-able to patch it and grant itself permission. Existing point storage alone does
-not establish this authority. If current owners cannot provide protected writes
-and publication validation, record the correct-owner gap and stop dependent
-implementation. Do not compensate with a fixture callback, a raw SQL ACL table
-or an adapter-local transaction.
+SA1 reads bounded permission facts through the existing finite snapshot/dependency
+owner. Its fresh private Application policy point carries the admitted principal
+and scope plus source-operation and target assignment/retention decisions.
+The command-only ownership and opaque read evidence above protect that source;
+the harness supplies data and invokes real backend owners. It implements no
+permission evaluator or separate SQL ACL store.
 
 Read permission facts afresh for each save attempt. Discovery/picker output,
 previous read grants, a supplied policy digest or a cached positive decision are
@@ -216,9 +279,9 @@ Cancellation/closed authority cannot mint or reuse a live save capability.
 
 ## Next Correctness Gates
 
-| Gate | Exit criteria; all remain pending |
+| Gate | Status and exit criteria |
 | --- | --- |
-| SA1: protected permission evidence | Identify exact policy data/write/read owners and finite dependency path. Prove missing/malformed distinctions, ordinary user inability to edit policy, same-root escalation refusal and no SQL transaction across callbacks. Name any required core correction before dependent implementation. |
+| SA1: protected permission evidence | Implemented for the bounded private source above: command-only ownership, genuine V3 finite admission, tracked policy reads, opaque attempt/principal evidence, missing/corruption distinctions and same-root acquisition refusal. No authorized native save profile is activated. |
 | SA2: native authorized saves | Real Payload create/update/delete with source denial and target assignment/retention decisions; authorize normalized effective fields and all admitted writes. Prove null/omitted/same-value, clear/reattach and repeated-call behavior; no nested commerce write authority. |
 | SA3: atomic freshness and replay | Fresh save after picker permission revocation denies. Revocation versus in-flight save in both commit orders validates tracked evidence. Caught denial cannot publish; exact replay does not rerun hooks; changed grants refuse; fresh-root retry reauthorizes. Preserve cancellation and lost-COMMIT outcome ownership. |
 | SA4: consumer cutover and cleanup | Migrate only the selected private save consumer. Remove displaced allow-all assembly for that consumer, retain distinct trusted/default and read-only profiles, and preserve native lifecycle/integrity regressions. Do not claim general serving authorization. |
@@ -235,8 +298,8 @@ Worker responses; native access and operation counters prove the executing path.
 Implementation requires fast PGlite semantics and focused ordinary-role real
 PostgreSQL validation reported separately, affected connected Worker consumers,
 Pinggg `tsc-rs`, lint/source guards and both required read-only project reviews.
-These are future implementation obligations. This docs-only preflight supplies
-no new runtime validation result, performance acceptance or production claim.
+SA2-SA4 retain their connected implementation obligations. SA1 establishes no
+performance acceptance or production authorization claim.
 
 ## Cutover, Data And Deferred Work
 

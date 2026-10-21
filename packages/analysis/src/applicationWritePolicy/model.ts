@@ -133,6 +133,11 @@ export const ApplicationTableWritePolicySchema = Schema.Union([
   }).annotate(StrictStructOptions),
   Schema.Struct({
     logicalTableName: Identity,
+    owner: Schema.Literal("application-command"),
+    policyId: Schema.Literal("application.reference-permissions"),
+  }).annotate(StrictStructOptions),
+  Schema.Struct({
+    logicalTableName: Identity,
     owner: Schema.Literal("payload"),
     policyId: Schema.Literal("payload.scalar"),
     configSha256: Digest,

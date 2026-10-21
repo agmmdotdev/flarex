@@ -24,7 +24,7 @@ const positiveSequence = Schema.String.check(Schema.isPattern(/^[1-9][0-9]{0,18}
 const digest = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
 export const ApplicationManagedTableClaimSchema = Schema.Struct({
   policy: ApplicationSchemaWritePolicyBindingSchema.check(Schema.makeFilter(policy =>
-    policy.owner === "payload" ? undefined : "A retained managed claim must be Payload-owned")),
+    policy.owner !== "application" ? undefined : "A retained managed claim requires a protected write policy")),
   establishingRevisionId: identity,
   establishingActivationSequence: positiveSequence,
 });

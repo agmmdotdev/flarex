@@ -54,6 +54,7 @@ export interface PreparedFiniteCommitCommand extends ApplicationDocumentMaterial
     ApplicationDocumentMaterializationCommand["rowIntents"]
   >;
   readonly attemptedTableIds: readonly CatalogTableId[];
+  readonly applicationPointTableIds: readonly CatalogTableId[];
   readonly participantMaterialDocumentIds: ReadonlySet<string>;
   readonly indexRangeDependencies: readonly LogicalIndexRangeReadDependencyV1[];
   readonly relationDependencies: readonly LogicalApplicationRelationIncomingReadDependencyV1[];

@@ -51,6 +51,7 @@ import type {
 } from "./constructionContracts";
 import {
   type ApplicationActivationRepository,
+  type ApplicationRelationActivationRepository,
   type ApplicationActiveSelection,
   type ApplicationBindingInput,
   type ApplicationBindingPreparation,
@@ -97,7 +98,7 @@ export const lendApplicationBindingPreparationInputs = Effect.fn("ApplicationAct
   });
 
 export function hasApplicationActivationPlanningComposition(
-  repository: ApplicationActivationRepository<unknown, unknown>,
+  repository: ApplicationActivationRepository<unknown, unknown> | ApplicationRelationActivationRepository<unknown, unknown>,
   controlDb: FlarexMetadataDatabase,
   schema: ApplicationSchemaAuthorityPublisher<unknown>,
   authority: TrustedScopeAuthorityResolutionPorts<
@@ -105,9 +106,10 @@ export function hasApplicationActivationPlanningComposition(
   >,
 ): boolean {
   const state = readApplicationActivationRepositoryState(repository);
-  return state?.readinessKind === "legacy" && state.authority === authority &&
+  return state !== undefined && state.authority === authority &&
+    state.controlDatabase === controlDb &&
     hasApplicationReadinessPlanningComposition(
-      state.readiness,
+      state.nativeReadiness,
       controlDb,
       schema,
       authority,

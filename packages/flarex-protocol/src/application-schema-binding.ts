@@ -421,6 +421,8 @@ const WritePolicyBindingFields = {
 };
 export const ApplicationSchemaWritePolicyBindingSchema = Schema.Union([
   Schema.Struct({ ...WritePolicyBindingFields, owner: Schema.Literal("application") }).annotate(StrictStructOptions),
+  Schema.Struct({ ...WritePolicyBindingFields, owner: Schema.Literal("application-command"),
+    policyId: Schema.Literal("application.reference-permissions") }).annotate(StrictStructOptions),
   Schema.Struct({
     ...WritePolicyBindingFields,
     owner: Schema.Literal("payload"),
@@ -807,7 +809,7 @@ export const canonicalizeApplicationSchemaBindingV3 = Effect.fn("ApplicationSche
         version: 1,
         logicalTableName: policy.logicalName,
         owner: policy.owner,
-        ...(policy.owner === "payload" ? {
+        ...(policy.owner === "application-command" ? { policyId: policy.policyId } : policy.owner === "payload" ? {
           policyId: policy.policyId, configSha256: policy.configSha256, provenanceSha256: policy.provenanceSha256,
         } : {}),
       };

@@ -45,7 +45,7 @@ import type {
 } from "./contracts";
 import { runLocatedTransaction } from "./databaseBoundary";
 import { activationFailure } from "./errors";
-import { makeFiniteActivePreparationReader } from "./finitePreparation";
+import { makeFiniteActivePreparationReader, makeCompositeFiniteActivePreparationReader } from "./finitePreparation";
 import { validIdentity } from "./limits";
 import {
   registerApplicationActivationRepository,
@@ -195,6 +195,7 @@ export function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFai
   registerApplicationActivationRepository(repository, Object.freeze({
     readinessKind: "legacy",
     readiness: captured.readiness,
+    nativeReadiness: captured.readiness,
     deploymentId: captured.deploymentId, scopeId: captured.scopeId,
     controlDatabase: Result.getOrElse(readApplicationReadinessControlDatabase(captured.readiness), () => undefined),
     authority: captured.authority,
@@ -400,6 +401,7 @@ export function makeCompositeApplicationActivationRepository<
   registerApplicationActivationRepository(repository, Object.freeze({
     readinessKind: "composite",
     readiness: captured,
+    nativeReadiness: captured.readiness,
     deploymentId: captured.deploymentId, scopeId: captured.scopeId,
     controlDatabase: Result.getOrElse(readApplicationReadinessControlDatabase(captured.readiness), () => undefined),
     authority: captured.authority,
@@ -407,6 +409,7 @@ export function makeCompositeApplicationActivationRepository<
   }));
   const prepareActive = makeActivePreparationReader(captured);
   registerApplicationBindingPreparationReader(repository, makeCompositeBindingPreparationReader(captured, prepareActive));
+  registerFiniteActivePreparationReader(repository, makeCompositeFiniteActivePreparationReader(repository, captured, prepareActive));
   registerStandaloneApplicationBindingPreparationReader(repository, makeLegacyStandaloneBindingPreparationReader(captured));
   return repository;
 }

@@ -50,6 +50,13 @@ export function retainApplicationManagedTableClaims(input: Readonly<{
   }
   for (const previous of input.previous) {
     const current = policies.get(previous.policy.tableId);
+    if (previous.policy.owner === "application-command") {
+      if (current?.owner !== "application-command" || current.logicalName !== previous.policy.logicalName ||
+        current.applicationTableId !== previous.policy.applicationTableId || current.policyId !== previous.policy.policyId ||
+        current.writePolicySha256 !== previous.policy.writePolicySha256)
+        return Result.fail(new ApplicationWriteOwnershipError({ reason: "ownershipChanged" }));
+      continue;
+    }
     if (current === undefined || current.owner !== "payload" || previous.policy.owner !== "payload" ||
       current.logicalName !== previous.policy.logicalName || current.policyId !== previous.policy.policyId ||
       current.provenanceSha256 !== previous.policy.provenanceSha256 ||
@@ -60,7 +67,7 @@ export function retainApplicationManagedTableClaims(input: Readonly<{
     claims.set(current.tableId, Object.freeze({ ...previous, policy: current }));
   }
   for (const policy of input.policies) {
-    if (policy.owner !== "payload" || claims.has(policy.tableId)) continue;
+    if (policy.owner === "application" || claims.has(policy.tableId)) continue;
     if (input.previouslyWritable.has(policy.tableId)) {
       return Result.fail(new ApplicationWriteOwnershipError({ reason: "previouslyWritable" }));
     }

@@ -424,6 +424,7 @@ export async function setExactRelationAdjacencyVersion(
 }
 
 export interface RelationReadinessFixtureOptions {
+  readonly analysis?: import("../applicationNativeMutationTestFixture").ApplicationNativeMutationAnalysis;
   readonly activationProfile?: ApplicationActivationTargetProfile;
   /** Wrap the genuine target before serving owners capture their immutable ports. */
   readonly wrapServingTarget?: (target: LocatedReadCommittedAttemptTargetV1) => LocatedReadCommittedAttemptTargetV1;
@@ -571,6 +572,7 @@ export async function relationReadinessFixture(
   const analyses = makeApplicationAnalysisRepository(persistence.drizzle, {
     randomUuid: fixtureUuidSequence(11, 12, 13),
   });
+  const analyzed = options.analysis === undefined ? await (async () => {
   const pending = await runEffect(analyses.begin({
     authority,
     requestKey: `request:application-relation-fold:${fixtureOrdinal}`,
@@ -579,7 +581,7 @@ export async function relationReadinessFixture(
     analyzerIdentity: "application-relation-analyzer",
     analyzerPolicyIdentity: "application-relation-analyzer-policy",
   }));
-  const analyzed = await runEffect(analyses.settle(authority, {
+  return runEffect(analyses.settle(authority, {
     kind: "analyzed",
     candidateId: pending.candidateId,
     sourceArtifactRootSha256:
@@ -588,9 +590,13 @@ export async function relationReadinessFixture(
     analyzerPolicyIdentity: "application-relation-analyzer-policy",
     canonicalManifest: canonicalManifest.canonicalText,
   }));
+  })() : await options.analysis.run({ authority, repository: analyses,
+    requestKey: `request:application-relation-fold:${fixtureOrdinal}`,
+    sourceArtifactRootSha256: canonicalManifest.manifest.sourceArtifact.rootSha256 });
   if (analyzed.status !== "analyzed") {
     throw new Error("Expected analyzed relation-aware Application revision.");
   }
+  expect(analyzed.manifest).toEqual(canonicalManifest.manifest);
   expect(analyzed.manifestSha256).toBe(relationInput.manifestSha256);
   const publications = makeApplicationRelationPublicationRepository(
     persistence.drizzle,

@@ -15,6 +15,7 @@ import {
   installApplicationImportPolicyV1,
 } from "@flarex/analysis/internal/application-import-policy-v1";
 import { Cause, Effect, Exit, Result, Scheduler } from "effect";
+import { ApplicationWritePolicyDigest, makeApplicationWritePolicyDigest } from "@flarex/analysis/internal/application-write-policy";
 
 export * from "flarex/server";
 export * from "flarex/values";
@@ -28,6 +29,8 @@ const UTF8 = new TextEncoder();
 // application code continues to observe the policy-patched global timer.
 const ANALYZER_SET_TIMEOUT = globalThis.setTimeout.bind(globalThis);
 const ANALYZER_CLEAR_TIMEOUT = globalThis.clearTimeout.bind(globalThis);
+const ANALYZER_DIGEST = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
+const APPLICATION_POLICY_DIGEST = makeApplicationWritePolicyDigest(bytes => ANALYZER_DIGEST("SHA-256", bytes));
 const APPLICATION_ANALYSIS_SCHEDULER = new Scheduler.MixedScheduler(
   "async",
   task => {
@@ -136,7 +139,7 @@ export async function runApplicationAnalysisColdLoad(
           sourceMapFailure: "ignore",
         });
         return yield* makeApplicationManifest(analysis, input.sourceArtifact);
-      }),
+      }).pipe(Effect.provideService(ApplicationWritePolicyDigest, APPLICATION_POLICY_DIGEST)),
       { scheduler: APPLICATION_ANALYSIS_SCHEDULER },
     );
     if (importPolicy.forbiddenAttempted()) {

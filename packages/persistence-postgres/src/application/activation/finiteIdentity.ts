@@ -7,6 +7,10 @@ import type { ScopeClockRecord } from "../../scope/scopeClock";
 import type { AppRowTransaction } from "../../storage/documents/appRows";
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { OriginalApplicationControlRead } from "../readiness/contracts";
+import type { ApplicationRelationSchemaAuthority } from "../relations/applicationRelationSchemaAuthority";
+import { readApplicationRelationReadinessCapturePorts } from "../relations/applicationRelationReadinessFold";
+import type { OriginalSchemaVersionRead } from "../../storage/catalog/schemaVersionArtifacts";
+import type { LocatedApplicationRelationManifestBinding } from "../relations/binding/Model";
 import { readApplicationReadinessCapturePorts } from "../readiness/identity";
 import type { prepareCapturedApplicationReadiness } from "../readiness/preparation";
 import {
@@ -37,14 +41,17 @@ import { copyBytes, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Effect, Result } from "effect";
 import type { CommitSeq } from "flarex-protocol/storage-authority";
 
-export interface FiniteActivePreparationState {
+interface FiniteActivePreparationCommon {
   readonly repository: object;
   readonly selection: ApplicationActiveSelection;
-  readonly schema: AwaitedFiniteSchema;
-  readonly originalControl: OriginalApplicationControlRead;
   readonly lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>;
   readonly originalGenerationBinding: ApplicationBindingInput | undefined;
 }
+export type FiniteActivePreparationState = FiniteActivePreparationCommon & (
+  Readonly<{ kind: "legacy"; schema: AwaitedFiniteSchema; originalControl: OriginalApplicationControlRead }> |
+  Readonly<{ kind: "relation"; schema: ApplicationRelationSchemaAuthority; database: FlarexMetadataDatabase;
+    artifact: OriginalSchemaVersionRead; binding: LocatedApplicationRelationManifestBinding }>
+);
 
 export type AwaitedFiniteSchema = Extract<Effect.Success<ReturnType<typeof prepareCapturedApplicationReadiness>>, { readonly schema: unknown }>["schema"];
 
@@ -83,7 +90,7 @@ export function readPreparedFiniteApplicationMutationConstruction(prepared: Prep
   const state = finiteActivePreparations.get(prepared);
   if (state === undefined) return Result.fail(activationError("read", "invalidComposition"));
   const selected = readApplicationSelectionState(state.selection);
-  if (selected?.kind !== "legacy") return Result.fail(activationError("read", "invalidComposition"));
+  if (selected === undefined) return Result.fail(activationError("read", "invalidComposition"));
   return (state.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
     Result.mapError(cause => activationError("read", "invalidComposition", undefined, false, cause)),
     Result.map(() => Object.freeze({ basis: structuredClone(selected.basis), schema: Object.freeze({
@@ -99,10 +106,10 @@ export function readPreparedFiniteApplicationMutationConstruction(prepared: Prep
 export function readPreparedFiniteApplicationAuthority(prepared: PreparedFiniteActiveApplication,
   database: FlarexMetadataDatabase) {
   const state = finiteActivePreparations.get(prepared);
-  if (state === undefined || state.originalControl.database !== database)
+  if (state === undefined || (state.kind === "legacy" ? state.originalControl.database : state.database) !== database)
     return Result.fail(activationError("read", "invalidComposition"));
   const selected = readApplicationSelectionState(state.selection);
-  if (selected?.kind !== "legacy") return Result.fail(activationError("read", "invalidComposition"));
+  if (selected === undefined) return Result.fail(activationError("read", "invalidComposition"));
   return (state.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
     Result.mapError(cause => activationError("read", "invalidComposition", undefined, false, cause)),
     Result.map(() => Object.freeze({ ...selected.basis.authority,
@@ -117,12 +124,23 @@ export function readPreparedFiniteApplicationTerminalProjection<Failure>(prepare
     manifestJsonByteLengthText: string; manifestCanonicalByteLengthText: string; schemaBindingByteLengthText: string;
   }>) => Result.Result<void, Failure>) {
   const state = finiteActivePreparations.get(prepared);
-  if (state === undefined || state.originalControl.database !== database)
+  if (state === undefined || (state.kind === "legacy" ? state.originalControl.database : state.database) !== database)
     return Result.fail(activationError("read", "invalidComposition"));
   const selected = readApplicationSelectionState(state.selection);
-  if (selected?.kind !== "legacy" || selected.finitePreparation === undefined)
+  if (selected === undefined || selected.finitePreparation === undefined)
     return Result.fail(activationError("read", "invalidComposition"));
   const schema = selected.finitePreparation.schema;
+  if (state.kind === "relation") return Result.gen(function* () {
+    yield* readApplicationBindingTargetProtection(state.selection);
+    if (selected.kind !== "relation") return yield* Result.fail(activationError("read", "invalidComposition"));
+    yield* admitSizes({ manifestJsonByteLengthText: state.artifact.sizes.manifestJsonByteLengthText,
+      manifestCanonicalByteLengthText: state.artifact.sizes.manifestCanonicalByteLengthText,
+      schemaBindingByteLengthText: state.binding.manifestBinding.canonicalBytes.byteLength.toString() });
+    return Object.freeze({ kind: "relation" as const, basis: selected.basis, authority: state.schema,
+      binding: state.binding, artifact: state.artifact, schema,
+      functionDeclared: selected.basis.manifest.functions.some(fn => fn.path === functionPath) });
+  });
+  if (selected.kind !== "legacy") return Result.fail(activationError("read", "invalidComposition"));
   return Result.gen(function* () {
     yield* readApplicationBindingTargetProtection(state.selection);
     const { artifact, schemaAuthority } = state.originalControl;
@@ -130,7 +148,7 @@ export function readPreparedFiniteApplicationTerminalProjection<Failure>(prepare
       manifestCanonicalByteLengthText: artifact.sizes.manifestCanonicalByteLengthText,
       schemaBindingByteLengthText: schemaAuthority.schemaBindingByteLengthText }));
     const basis = selected.basis, binding = schemaAuthority.row;
-    return Object.freeze({ basis: Object.freeze({ deploymentId: basis.deploymentId, scopeId: basis.authority.scopeId,
+    return Object.freeze({ kind: "legacy" as const, basis: Object.freeze({ deploymentId: basis.deploymentId, scopeId: basis.authority.scopeId,
       schemaVersionId: basis.schemaVersionId, revisionId: basis.revisionId,
       functionDeclared: basis.manifest.functions.some(fn => fn.path === functionPath),
       applicationSchemaSha256: copyBytes(basis.applicationSchemaSha256), schemaManifestSha256: copyBytes(basis.schemaManifestSha256),
@@ -168,7 +186,7 @@ export function readPreparedFiniteApplicationOriginalControl<Failure>(prepared: 
     schemaBindingByteLengthText: string;
   }>) => Result.Result<void, Failure>) {
   const state = finiteActivePreparations.get(prepared);
-  if (state === undefined || state.originalControl.database !== database)
+  if (state === undefined || state.kind !== "legacy" || state.originalControl.database !== database)
     return Result.fail(activationError("read", "invalidComposition"));
   return Result.gen(function* () {
     yield* (state.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
@@ -250,8 +268,10 @@ export function readFiniteApplicationCapturePorts(metadata: FiniteApplicationMet
   // SAFETY: the exact issuer registry authenticates either opaque binding form.
   const selected = captured === undefined ? undefined : readLegacyApplicationBindingPreparation(captured.selection) ??
     readApplicationSelectionState(captured.selection as ApplicationActiveSelection);
-  if (captured === undefined || captured.root !== root || selected?.kind !== "legacy")
+  if (captured === undefined || captured.root !== root || selected === undefined)
     return Result.fail(activationError("validateSelection", "invalidComposition"));
+  if (selected.kind === "relation") return readApplicationRelationReadinessCapturePorts(selected.readinessRepository, selected.readiness).pipe(
+    Result.mapError(cause => activationError("validateSelection", "invalidComposition", undefined, false, cause)));
   return readApplicationReadinessCapturePorts(selected.readinessRepository, selected.readiness).pipe(
     Result.mapError(cause => activationError("validateSelection", "invalidComposition", undefined, false, cause)));
 }
@@ -263,7 +283,7 @@ export function readPreparedFiniteApplicationMetadataProjections(metadata: Finit
     isPreparedApplicationBinding(state.selection) || isPreparedStandaloneApplicationBinding(state.selection))
     return Result.fail(activationError("validateSelection", "invalidComposition"));
   const selected = readApplicationSelectionState(state.selection);
-  if (selected?.kind !== "legacy" || selected.finitePreparation === undefined)
+  if (selected === undefined || selected.finitePreparation === undefined)
     return Result.fail(activationError("validateSelection", "invalidComposition"));
   const projections = selected.finitePreparation;
   return readApplicationBindingTargetProtection(state.selection).pipe(Result.map(() => projections));
@@ -279,7 +299,7 @@ export function readPreparedFiniteApplicationPublicationDefinitions(metadata: Fi
     isPreparedStandaloneApplicationBinding(state.selection))
     return Result.fail(activationError("validateSelection", "invalidComposition"));
   const selected = readApplicationSelectionState(state.selection);
-  if (selected?.kind !== "legacy" || selected.finitePreparation === undefined)
+  if (selected === undefined || selected.finitePreparation === undefined)
     return Result.fail(activationError("validateSelection", "invalidComposition"));
   return readApplicationBindingTargetProtection(state.selection).pipe(
     Result.map(() => selected.finitePreparation!.publicationDefinitions));

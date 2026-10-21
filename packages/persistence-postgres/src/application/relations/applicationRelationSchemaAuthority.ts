@@ -108,10 +108,18 @@ export function hasResolvedApplicationRelationSchemaAuthorityDatabase(
 export const readResolvedApplicationRelationManifestBinding = Effect.fn("ApplicationRelationSchemaAuthority.readResolvedBinding")(
   function* (schema: ApplicationRelationSchemaAuthority, controlDb: FlarexMetadataDatabase,
     input: LocateApplicationRelationManifestBindingInput) {
+    return structuredClone(yield* lendResolvedApplicationRelationManifestBinding(schema, controlDb, input));
+  });
+
+/** Trusted construction borrows the original registered catalog evidence.
+ * It grants no fresh serving acceptance and must stay with its host lifetime. */
+export const lendResolvedApplicationRelationManifestBinding = Effect.fn("ApplicationRelationSchemaAuthority.lendResolvedBinding")(
+  function* (schema: ApplicationRelationSchemaAuthority, controlDb: FlarexMetadataDatabase,
+    input: LocateApplicationRelationManifestBindingInput) {
     const state = resolvedBindings.get(schema);
     if (state === undefined || state.controlDb !== controlDb || schema.deploymentId !== input.deploymentId ||
       schema.applicationManifestSha256 !== input.applicationManifestSha256) return yield* failure("invalidInput");
-    return structuredClone(state.binding);
+    return state.binding;
   },
 );
 

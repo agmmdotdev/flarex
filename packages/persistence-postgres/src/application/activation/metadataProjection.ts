@@ -21,7 +21,11 @@ import {
 import { readApplicationMetadataUniqueRequirements } from "../readiness/acceptance";
 import { locateApplicationRelationBindingForCommitEffect } from "../relations/binding/Repository";
 import type { ActivePreparation } from "./bindingPreparation";
-import type { ApplicationActiveSelection, ApplicationActiveSelectionBasis } from "./contracts";
+import type { ApplicationActiveSelection, ApplicationExecutableActiveSelection, ApplicationRelationActiveSelectionBasis } from "./contracts";
+import type { FlarexMetadataDatabase } from "../deployments";
+import type { OriginalSchemaVersionRead } from "../../storage/catalog/schemaVersionArtifacts";
+import { readApplicationRelationMetadataUniqueRequirements, type ApplicationRelationPreparationInputs } from "../relations/applicationRelationReadinessFold";
+import type { LocatedApplicationRelationBinding } from "../relations/binding/Model";
 import { activationError, activationFailure } from "./errors";
 import { readApplicationBindingTargetProtection, readApplicationSelectionState } from "./selectionIdentity";
 import type { canonicalizeApplicationManifest } from "@flarex/analysis/application-analysis";
@@ -44,15 +48,17 @@ export const prepareApplicationExecutionMetadataProjection = Effect.fn("Applicat
 });
 
 export const prepareFiniteApplicationSchemaMetadataProjection = Effect.fn("ApplicationActivation.prepareFiniteSchemaMetadataProjection")(
-  function* (selection: ApplicationActiveSelection, basis: ApplicationActiveSelectionBasis) {
+  function* (selection: ApplicationActiveSelection, basis: ApplicationExecutableActiveSelection["basis"]) {
     yield* Effect.fromResult(readApplicationBindingTargetProtection(selection));
     const requirements = basis.physicalRequirements;
     if (requirements.manifest.kind === "appSchema") return yield* prepareLogicalStorageMetadataProjection({
       deploymentId: basis.deploymentId, schemaVersionId: basis.schemaVersionId, profile: "nativeApplication",
     }, requirements, []);
     const selected = readApplicationSelectionState(selection);
-    if (selected?.kind !== "legacy") return yield* activationFailure("validateSelection", "invalidComposition");
-    const unique = yield* readApplicationMetadataUniqueRequirements(selected.readinessRepository, selected.readiness, basis.schemaVersionId);
+    if (selected === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
+    const unique = selected.kind === "legacy"
+      ? yield* readApplicationMetadataUniqueRequirements(selected.readinessRepository, selected.readiness, basis.schemaVersionId)
+      : yield* readApplicationRelationMetadataUniqueRequirements({ repository: selected.readinessRepository, readiness: selected.readiness }, basis.schemaVersionId);
     return yield* prepareLogicalStorageMetadataProjection({ deploymentId: basis.deploymentId,
       schemaVersionId: basis.schemaVersionId, profile: "nativeApplication" }, requirements, unique.members);
   },
@@ -88,3 +94,23 @@ export const prepareFiniteApplicationMetadataProjections = Effect.fn(function* (
           schemaArtifact: { ...relations.schemaArtifact, createdAt: relations.schemaArtifact.createdAt.getTime() } } });
       return Object.freeze({ execution, nativeApplication, schema, publicationDefinitions: Object.freeze({ prepared: definitions, relations }) });
     });
+
+export const prepareCompositeFiniteApplicationMetadataProjections = Effect.fn("ApplicationActivation.prepareCompositeFiniteMetadata")(
+  function* (selection: ApplicationActiveSelection, basis: ApplicationRelationActiveSelectionBasis,
+    database: FlarexMetadataDatabase, artifact: OriginalSchemaVersionRead,
+    inputs: ApplicationRelationPreparationInputs, relations: LocatedApplicationRelationBinding) {
+    const execution = yield* prepareApplicationExecutionMetadataProjection(basis);
+    yield* registerHostPreparationDisposal(() => { disposeFiniteMetadataProjection(execution); });
+    const nativeApplication = yield* prepareFiniteApplicationSchemaMetadataProjection(selection, basis);
+    yield* registerHostPreparationDisposal(() => { disposeFiniteMetadataProjection(nativeApplication); });
+    const schema = yield* prepareFiniteApplicationExecutionSchema({ database, artifact }, basis);
+    const definitions = preparePublicationDefinitions(inputs.indexes, inputs.unique);
+    yield* registerHostPreparationDisposal(() => { disposePublicationDefinitions(definitions); });
+    yield* chargeHostPreparation(readPublicationDefinitionPreparationPayload(definitions)).pipe(
+      Effect.mapError(cause => activationError("read", "resourceFailure", undefined, false, { stage: "compositeFiniteDefinitions", cause })));
+    yield* chargeHostPreparation({ schema, execution: yield* Effect.fromResult(readFiniteMetadataProjectionPreparationPayload(execution)),
+      nativeApplication: yield* Effect.fromResult(readFiniteMetadataProjectionPreparationPayload(nativeApplication)) }).pipe(
+        Effect.mapError(cause => activationError("read", "resourceFailure", undefined, false, { stage: "compositeFiniteProjections", cause })));
+    return Object.freeze({ execution, nativeApplication, schema,
+      publicationDefinitions: Object.freeze({ prepared: definitions, relations }) });
+  });

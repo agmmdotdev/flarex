@@ -442,6 +442,8 @@ export function runFinitePointCommitPublication(target: LocatedPointCommitPublic
         {
           scopeId: command.authorityPins.scopeId, generation: command.authorityPins.executionAuthorityGeneration,
           authenticatedAttemptedTables: command.attemptedTableIds,
+          ...(command.frozen.commandWriteAuthority === undefined ? {} : { privateCommand: {
+            authority: command.frozen.commandWriteAuthority, attempt: command.frozen.attempt } }),
           materialTables: command.rowIntents.filter(intent => !command.participantMaterialDocumentIds.has(intent.documentId)).map(intent => intent.tableId)
         },
         options.uniqueConstraints, target, metadata.ownership).pipe(Effect.mapError(error => error.reason === "resourceFailure"
@@ -476,7 +478,9 @@ export function runFinitePointCommitPublication(target: LocatedPointCommitPublic
       if (sourceObservations.length !== sourceOrdinal) return yield* Effect.fail(stale("activeSchemaChanged"));
       return acceptedSources;
     }));
-    const allowed = new Set([...command.attemptedTableIds, ...command.sources.flatMap(source => [...source.selected.tableIds])]);
+    // Genuine point receipts retain read-only Application tables as well as
+    // writes. Write ownership/maintenance still use attemptedTableIds above.
+    const allowed = new Set([...command.applicationPointTableIds, ...command.sources.flatMap(source => [...source.selected.tableIds])]);
     yield* validateLogicalDocumentChanges({
       // Only the admitted finite working-set issuer can produce causal proofs.
       // Acceptance of that proof does not grant a command capability or journal mode.

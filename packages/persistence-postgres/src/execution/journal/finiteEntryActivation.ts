@@ -135,7 +135,7 @@ export const runPreparedFiniteReplacementSessionJournalEntryEffect = Effect.fn(
       yield* registerManagedMetadataSnapshotFinalGuard(tx, pair.database, pair.control);
     }
     const fresh = yield* captureFiniteReplacementAttemptInTransactionEffect(tx, input, original);
-    const accept = (accepted: Readonly<{ selection: ApplicationActiveSelection; basis: import("../../application/activation/contracts").ApplicationActiveSelectionBasis }>,
+    const accept = (accepted: Readonly<{ selection: ApplicationActiveSelection; basis: import("../../application/activation/contracts").ApplicationExecutableActiveSelection["basis"] }>,
       binding: AcceptedApplicationBinding) => Effect.gen(function* () {
         yield* requireFiniteReplacementApplicationExecutionAuthority(accepted.basis, fresh.executionAuthority).pipe(
           Effect.tapError(failure => failure instanceof ApplicationMutationAdmissionError

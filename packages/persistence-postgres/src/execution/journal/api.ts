@@ -1,5 +1,7 @@
 /** Trusted execution consumer surface; construction and issuer state stay private. */
 export { preparePrivateParticipantReadAccess, PrivateReadPrincipal, PrivateReadIds, PrivateReadAccessError } from "./privateReadAccess";
+export { PrivateReferencePermissions, PrivatePermissionEvidenceError, inspectPrivateReferencePermissionEvidence } from "./privatePermissionEvidence";
+export type { PrivateReferencePermissionEvidence } from "./privatePermissionEvidence";
 export type {
   SessionJournalPointOperationKindV1,
   SessionJournalIndexedQueryOperationV1,

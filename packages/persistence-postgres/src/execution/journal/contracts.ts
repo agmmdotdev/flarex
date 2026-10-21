@@ -407,6 +407,18 @@ export type LogicalParticipantBorrow = (input: LogicalParticipantBorrowBase &
     LogicalParticipantInvocationError>;
 
 export interface SessionJournalStorePersistence {
+  readonly readPrivateReferencePermissionsEffect: (attempt: SessionJournalAttempt, input: Readonly<{
+    tableName: string; documentId: AppDocumentIdV1; syscallSequence: import("flarex-protocol/commit-protocol").CommitSyscallSequenceV1;
+    principal: import("./privateReadAccess").PrivateReadPrincipal;
+  }>, validator: ApplicationRevisionSyscallValidatorV1) => Effect.Effect<
+    import("effect").Option.Option<import("./privatePermissionEvidence").PrivateReferencePermissionEvidence>,
+    SessionJournalResolvePointTableV1Error | SessionJournalRunPointOperationV1Error |
+      import("./privatePermissionEvidence").PrivatePermissionEvidenceError>;
+  /** Trusted backend only; this capability is never an RPC or Worker operation. */
+  readonly preparePrivateApplicationCommandEffect: (attempt: SessionJournalAttempt, tableName: string) => Effect.Effect<
+    Readonly<{ run: (operation: SessionJournalPointOperationV1, validator: ApplicationRevisionSyscallValidatorV1) =>
+      Effect.Effect<RunSessionJournalPointOperationV1Result, SessionJournalRunPointOperationV1Error> }>,
+    SessionJournalResolvePointTableV1Error | SessionJournalRunPointOperationV1Error>;
   readonly prepareFiniteEntryEffect: (participants: readonly FiniteSessionJournalParticipantSelection[]) =>
     Effect.Effect<PreparedFiniteSessionJournalEntry, FiniteEntryFailure, Scope.Scope>;
   readonly confirmedFiniteEntryAttempt: (capture: ConfirmedFiniteRootEntryCapture,

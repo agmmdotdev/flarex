@@ -238,7 +238,10 @@ The next proposed foundation slice is the
 [private save-time authorization preflight](./reference-save-authorization-preflight.md).
 It separates native article write access from target assignment/retention and
 requires protected permission dependencies to survive through publication.
-Its SA1-SA4 gates remain pending; fixed read grants do not satisfy them.
+SA1 implements protected Application command-only policy writes and tracked
+private permission evidence. Native authorized saves and their effective-edge,
+revocation/replay and cutover proof remain SA2-SA4 gates; fixed read grants do
+not satisfy those gates.
 
 ### Remaining Read And Composition Contract
 

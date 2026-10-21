@@ -27,6 +27,7 @@ import type { OriginalFiniteExecutionEntry } from "./finiteEntry";
 import type { LiveAppRowRevisionV1 } from "../../storage/documents/appRows";
 import { readIssuedCanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
 import type { CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
+import type { CatalogTableId } from "flarex-protocol/catalog";
 import { createOwnedCanonicalFlarexRuntimeValueReaderV1 } from "flarex-protocol/internal/value-runtime-core";
 
 const frozenFiniteAttemptBrand: unique symbol = Symbol("Flarex/FrozenFiniteAttempt");
@@ -48,14 +49,22 @@ export type FrozenFiniteOperation = Readonly<{
   workBytes: number;
   workCalls: number;
 }> | Readonly<{
-  kind: "point" | "index" | "relation";
+  kind: "point";
+  tableId: CatalogTableId;
   sequence: bigint;
   request: Json;
   outcome: Json;
   write?: LogicalAppWriteV1;
+}> | Readonly<{
+  kind: "index" | "relation";
+  sequence: bigint;
+  request: Json;
+  outcome: Json;
+  write?: never;
 }>;
 
 export interface FrozenFiniteAttemptData {
+  readonly commandWriteAuthority?: import("../../application/ownership/Command").ApplicationCommandCommitAuthority;
   readonly attempt: SessionJournalAttempt;
   readonly originalEntry: OriginalFiniteExecutionEntry;
   readonly resolvedTarget: ResolvedJournalTargetV1;
@@ -176,6 +185,7 @@ function detachFrozenFiniteAttemptData(data: OwnedFrozenFiniteAttemptData): Froz
     applicationRelationDependencies: data.applicationRelationDependencies };
   return Object.freeze({ ...structuredClone({ ...values, rowIntents: projectRawRowIntents(rowIntents) }), graph: detachLogicalDocumentChanges(graph), attempt, originalEntry, resolvedTarget, applicationMetadataProjection,
     applicationPublicationDefinitions, candidatePlanningHead, anchorCapture,
+    ...(data.commandWriteAuthority === undefined ? {} : { commandWriteAuthority: data.commandWriteAuthority }),
     ...(metadataReservation === undefined ? {} : { metadataReservation }),
     operations: detachOperations(operations) });
 }

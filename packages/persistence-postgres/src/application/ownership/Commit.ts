@@ -13,6 +13,8 @@ import { ApplicationWriteOwnershipError } from "./Model";
 import { ApplicationWriteOwnershipHistoryBudget, denyManagedApplicationTableWrites } from "./Policy";
 import { readApplicationOwnershipForUniqueDefinitions, type AppUniqueConstraintDefinitionPortV1 } from "../../storage/unique/appUniqueConstraintCommitV1";
 import { fxSystemApplicationWriteOwnership } from "./Schema";
+import { admittedApplicationCommandCommitTable, type ApplicationCommandCommitAuthority } from "./Command";
+import type { SessionJournalAttempt } from "../../execution/journal/contracts";
 
 const ApplicationWriteOwnershipCommitStatusSchema = Schema.Struct({
   contract: Schema.NullOr(Schema.Int), retained: Schema.Boolean,
@@ -26,6 +28,7 @@ export const validateApplicationWriteOwnershipForCommit = Effect.fn("Application
     generation: "application_v1" | "legacy_dynamic_worker_v1";
     authenticatedAttemptedTables: ReadonlyArray<CatalogTableId> | null;
     materialTables: ReadonlyArray<CatalogTableId>;
+    privateCommand?: Readonly<{ authority: ApplicationCommandCommitAuthority; attempt: SessionJournalAttempt }>;
   }>, uniqueConstraints?: AppUniqueConstraintDefinitionPortV1, target?: LocatedReadCommittedAttemptTargetV1,
     observedStatus?: unknown): Effect.fn.Return<void, ApplicationWriteOwnershipError> {
     const rows = observedStatus === undefined ? yield* runDrizzleStatementEffect(tx.select({
@@ -56,7 +59,13 @@ export const validateApplicationWriteOwnershipForCommit = Effect.fn("Application
     if (input.generation !== "application_v1" || input.authenticatedAttemptedTables === null) {
       return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "writeDenied" }));
     }
+    const allowed = input.privateCommand === undefined ? undefined : admittedApplicationCommandCommitTable(
+      input.privateCommand.authority, input.privateCommand.attempt, input.scopeId,
+      snapshot.ownership.frame.claims.map(claim => claim.policy));
+    if (input.privateCommand !== undefined && allowed === undefined)
+      return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "writeDenied" }));
     yield* Effect.fromResult(denyManagedApplicationTableWrites(
-      [...input.authenticatedAttemptedTables, ...input.materialTables], snapshot.ownership.frame.claims));
+      [...input.authenticatedAttemptedTables, ...input.materialTables].filter(tableId => tableId !== allowed),
+      snapshot.ownership.frame.claims));
   },
 );

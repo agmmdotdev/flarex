@@ -481,6 +481,17 @@ export function hasPreparedApplicationRelationReadRepository(input: PreparedAppl
   return state !== undefined && state.repository === repositoryStates.get(repository);
 }
 
+/** Exact readiness issuer supplies placement ports for finite storage capture. */
+export function readApplicationRelationReadinessCapturePorts(repository: ApplicationRelationReadinessFoldRepository,
+  readiness: ApplicationRelationReadinessFoldResult): Result.Result<Pick<ApplicationRelationReadinessFoldContext, "authority" | "controlDb">,
+    ApplicationRelationReadinessFoldIssue> {
+  const issued = issuedReadyResults.get(readiness);
+  return issued === undefined || repositoryStates.get(repository) !== issued.repository
+    ? Result.fail(failureValue("invalidComposition"))
+    : Result.succeed(Object.freeze({ authority: issued.repository.context.authority,
+      controlDb: issued.repository.context.controlDb }));
+}
+
 /** Immutable planning inputs may be retained by a host. Each acceptance still
  * validates live evidence; preparation issues no ready result or active selection. */
 export const prepareApplicationRelationActiveRead = Effect.fn("ApplicationRelationReadinessFold.prepareActiveRead")(

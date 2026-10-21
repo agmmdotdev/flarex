@@ -188,6 +188,16 @@ type FiniteAttemptMetadataState = Readonly<{
 const finiteAttemptMetadata = new WeakMap<FiniteAttemptMetadata, FiniteAttemptMetadataState>();
 const finiteAttemptProjections = new WeakMap<FiniteAttemptMetadata, PreparedFiniteMetadataProjection>();
 
+/** Permission evidence may be inspected only while its original metadata and
+ * host preparation remain authentic. This conveys no fresh database verdict. */
+export function requireFiniteAttemptPreparationOpen(metadata: FiniteAttemptMetadata, root: SessionJournalAttempt) {
+  const state = finiteAttemptMetadata.get(metadata);
+  if (state === undefined || state.root !== root)
+    return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  return readFiniteApplicationStorageCaptureMetadata(state.applicationMetadata, root).pipe(
+    Result.map(() => undefined), Result.mapError(cause => new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
+}
+
 export const getFiniteAttemptMetadataProjection = (metadata: FiniteAttemptMetadata, root: SessionJournalAttempt) =>
   finiteAttemptMetadata.get(metadata)?.root === root ? finiteAttemptProjections.get(metadata) ?? null : null;
 /** Final Application maintenance requires its original native table routing. */
@@ -251,7 +261,7 @@ export const prepareFiniteApplicationSourceComposition = Effect.fn("LogicalSourc
   const issued = readFiniteActiveApplicationPreparationState(active);
   const selected = issued === undefined ? undefined : readApplicationSelectionState(issued.selection);
   const lifetime = yield* captureHostPreparationLifetime();
-  if (issued === undefined || selected?.kind !== "legacy" || selected.finitePreparation === undefined ||
+  if (issued === undefined || selected === undefined || selected.finitePreparation === undefined ||
     lifetime === undefined || lifetime.checkOpen !== issued.lifetime?.checkOpen || sources.length > 9)
     return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
   yield* Effect.fromResult(readApplicationBindingTargetProtection(issued.selection));

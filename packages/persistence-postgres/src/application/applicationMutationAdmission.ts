@@ -48,6 +48,7 @@ import {
   type ApplicationActiveSelection,
   type ApplicationBindingInput,
   type ApplicationActivationRepository,
+  type ApplicationRelationActivationRepository,
   type ApplicationExecutableActiveSelection,
 } from "./activation/contracts";
 import {
@@ -147,7 +148,7 @@ const finiteMutationPreparations = new WeakMap<PreparedFiniteApplicationMutation
 /** Private finite constructor; captures one target bundle, then authenticates while target SQL is closed. */
 export const prepareFiniteApplicationMutationAdmission = Effect.fn(
   "ApplicationMutationAdmission.prepareFinite",
-)(function* (activationRepository: ApplicationActivationRepository<unknown, unknown>, functionPath: string,
+)(function* (activationRepository: ApplicationActivationRepository<unknown, unknown> | ApplicationRelationActivationRepository<unknown, unknown>, functionPath: string,
   context: ApplicationMutationAdmissionContext, originalGenerationBinding?: ApplicationBindingInput) {
   if (!isNonBlankString(functionPath)) return yield* failure("invalidFunction");
   if (!hasApplicationActivationPlanningComposition(activationRepository, context.controlDb,
@@ -162,8 +163,11 @@ export const prepareFiniteApplicationMutationAdmission = Effect.fn(
   const fn = basis.manifest.functions.find(candidate => candidate.path === functionPath);
   if (fn === undefined) return yield* failure("functionMissing");
   if (fn.kind !== "mutation" || fn.visibility !== "public") return yield* failure("functionUnsupported");
-  const entryBytes = yield* Effect.fromResult(applicationFunctionEntryPublicationFrameV1(fn).pipe(
-    Result.mapError(cause => failureValue("storedFunction", false, cause))));
+  const entryBytes = basis.manifest.version === 1
+    ? yield* Effect.fromResult(applicationFunctionEntryPublicationFrameV1(fn).pipe(
+        Result.mapError(cause => failureValue("storedFunction", false, cause))))
+    : yield* Effect.fromResult(applicationFunctionEntryPublicationFrameV2(fn).pipe(
+        Result.mapError(cause => failureValue("storedFunction", false, cause))));
   const entrySha256 = encodeBytesToLowercaseHex(yield* sha256(entryBytes));
   const executionAuthority = yield* prepareMutationExecutionAuthority(basis, Object.freeze({ ...fn,
     kind: "mutation" as const, visibility: "public" as const, entrySha256 }));
@@ -383,8 +387,11 @@ export const requireFiniteReplacementApplicationExecutionAuthority = Effect.fn(
   if (fn === undefined) return yield* failure("functionMissing");
   if (fn.kind !== "mutation" || (fn.visibility !== "public" && fn.visibility !== "internal"))
     return yield* failure("functionUnsupported");
-  const entryBytes = yield* Effect.fromResult(applicationFunctionEntryPublicationFrameV1(fn).pipe(
-    Result.mapError(cause => failureValue("storedFunction", false, cause))));
+  const entryBytes = basis.manifest.version === 1
+    ? yield* Effect.fromResult(applicationFunctionEntryPublicationFrameV1(fn).pipe(
+        Result.mapError(cause => failureValue("storedFunction", false, cause))))
+    : yield* Effect.fromResult(applicationFunctionEntryPublicationFrameV2(fn).pipe(
+        Result.mapError(cause => failureValue("storedFunction", false, cause))));
   const entrySha256 = encodeBytesToLowercaseHex(yield* sha256(entryBytes));
   const current = yield* prepareMutationExecutionAuthority(basis, Object.freeze({ ...fn,
     kind: "mutation" as const, visibility: fn.visibility, entrySha256 }));

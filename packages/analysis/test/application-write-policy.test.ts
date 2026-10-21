@@ -8,10 +8,33 @@ import { ApplicationManifestSchema, canonicalizeApplicationManifest, makeApplica
 import { verifyApplicationManifestV3 } from "../src/applicationAnalysisV3.ts";
 import { applicationSchemaPublicationFrame } from "../src/applicationPublicationFramesV2.ts";
 import { captureApplicationWritePolicyData, decodeApplicationWritePolicies } from "../src/applicationWritePolicy/capture.ts";
-import { verifyApplicationWritePolicies } from "../src/applicationWritePolicy/verification.ts";
+import { verifyApplicationWritePolicies, ApplicationWritePolicyDigest, makeApplicationWritePolicyDigest } from "../src/applicationWritePolicy/verification.ts";
 import type { ApplicationWritePolicies } from "../src/applicationWritePolicy/model.ts";
 
 describe("Application write-policy evidence", () => {
+  it("hashes protected command policy with injected host crypto while ambient crypto is blocked", async () => {
+    const input = policyFixture();
+    const policies = { ...input, tables: [{ logicalTableName: "audit", owner: "application-command" as const,
+      policyId: "application.reference-permissions" as const }, input.tables[1]!] };
+    const hostDigest = makeApplicationWritePolicyDigest(async bytes => {
+      const digest = createHash("sha256").update(new Uint8Array(bytes)).digest();
+      return Uint8Array.from(digest).buffer;
+    });
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+    let ambientReads = 0;
+    Object.defineProperty(globalThis, "crypto", { configurable: true, get: () => { ambientReads++; throw new Error("Blocked import crypto"); } });
+    try {
+      const verified = await Effect.runPromise(verifyApplicationWritePolicies(policies, ["audit", "posts"])
+        .pipe(Effect.provideService(ApplicationWritePolicyDigest, hostDigest)));
+      expect(verified.policySetSha256).toBe(hash(policies));
+      expect(verified.tables[0]?.writePolicySha256).toBe(hash({ format: "flarex.application-table-write-policy", version: 1,
+        ...policies.tables[0] }));
+      expect(ambientReads).toBe(0);
+    } finally {
+      if (descriptor === undefined) Reflect.deleteProperty(globalThis, "crypto");
+      else Object.defineProperty(globalThis, "crypto", descriptor);
+    }
+  });
   it("authenticates revision-3 defaults/order and enforces timestamp and collection agreement", () => {
     const fixture = policyFixture();
     const table = fixture.configuration.tables[0]!;

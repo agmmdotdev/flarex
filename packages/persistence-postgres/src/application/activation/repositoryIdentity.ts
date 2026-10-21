@@ -39,11 +39,13 @@ import {
   readStandaloneApplicationBindingSelectionReaderState,
 } from "./selectionIdentity";
 import { Effect } from "effect";
+import type { makeCompositeFiniteActivePreparationReader } from "./finitePreparation";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
 export interface ApplicationActivationRepositoryState {
   readonly readinessKind: "legacy" | "composite";
   readonly readiness: unknown;
+  readonly nativeReadiness: unknown;
   readonly deploymentId: string;
   readonly scopeId: ScopeId;
   readonly controlDatabase: FlarexMetadataDatabase | undefined;
@@ -69,12 +71,14 @@ export function registerApplicationActivationRepository<SchemaFailure, ColdFailu
   activationRepositoryStates.set(repository, state);
 }
 
-const finiteActivePreparationReaders = new WeakMap<object, (originalGenerationBinding?: ApplicationBindingInput) => Effect.Effect<PreparedFiniteActiveApplication,
+type FiniteActivePreparationFailure = Effect.Error<ReturnType<ReturnType<typeof makeCompositeFiniteActivePreparationReader>>> |
   ReadApplicationReadinessError | ApplicationActivationError | LocatedReadCommittedTransactionFailureV1 |
-  TrustedScopeAuthorityError | LockScopeClockForShareError>>();
+  TrustedScopeAuthorityError | LockScopeClockForShareError;
+const finiteActivePreparationReaders = new WeakMap<object, (originalGenerationBinding?: ApplicationBindingInput) =>
+  Effect.Effect<PreparedFiniteActiveApplication, FiniteActivePreparationFailure>>();
 
 export const prepareFiniteActiveApplication = Effect.fn("ApplicationActivation.prepareFiniteActive")(
-function* (repository: ApplicationActivationRepository<unknown, unknown>, originalGenerationBinding?: ApplicationBindingInput) {
+function* (repository: ApplicationActivationRepository<unknown, unknown> | ApplicationRelationActivationRepository<unknown, unknown>, originalGenerationBinding?: ApplicationBindingInput) {
   const prepare = finiteActivePreparationReaders.get(repository);
   if (prepare === undefined) return yield* activationFailure("read", "invalidComposition");
   return yield* prepare(originalGenerationBinding);
@@ -117,10 +121,9 @@ export function registerStandaloneApplicationBindingPreparationReader(repository
   standaloneBindingPreparationReaders.set(repository, reader);
 }
 
-export function registerFiniteActivePreparationReader<SchemaFailure, ColdFailure>(repository: ApplicationActivationRepository<SchemaFailure, ColdFailure>,
+export function registerFiniteActivePreparationReader<SchemaFailure, ColdFailure>(repository: ApplicationActivationRepository<SchemaFailure, ColdFailure> | ApplicationRelationActivationRepository<SchemaFailure, ColdFailure>,
   reader: (originalGenerationBinding?: ApplicationBindingInput) => Effect.Effect<PreparedFiniteActiveApplication,
-    ReadApplicationReadinessError | ApplicationActivationError | LocatedReadCommittedTransactionFailureV1 |
-    TrustedScopeAuthorityError | LockScopeClockForShareError>): void {
+    FiniteActivePreparationFailure>): void {
   finiteActivePreparationReaders.set(repository, reader);
 }
 

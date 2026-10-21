@@ -354,7 +354,7 @@ type PointCommitStoredAuthorityV1 = Pick<
   | "schemaVersionId"
 >;
 
-function pointCommitAuthorityPinsFromStoredSessionV1(
+export function pointCommitAuthorityPinsFromStoredSessionV1(
   authority: PointCommitStoredAuthorityV1,
   session: StoredTransactionSessionScalarsV1,
 ): PointCommitAttemptScalarCommandV1["authorityPins"] {
@@ -423,7 +423,7 @@ function pointCommitAuthorityPinsFromStoredSessionV1(
       });
 }
 
-function pointCommitSessionFromStoredSessionV1(
+export function pointCommitSessionFromStoredSessionV1(
   session: StoredTransactionSessionScalarsV1,
   lifecycle: "running" | "finishing",
 ): PointCommitAttemptScalarCommandV1["session"] {

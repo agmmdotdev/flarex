@@ -40,12 +40,14 @@ grants, retaining exact dependencies and opaque RPC refusals. General authorized
 new-Product pending construction and the broader cross-framework proof remain
 pending. This selects no public API syntax or additional mixed operation allowlist.
 
-The next proposed reference foundation slice is
+The private reference authorization foundation is tracked in
 [private save-time authorization](../shared-logical-storage/reference-save-authorization-preflight.md):
 native article write access, explicit target assignment/retention decisions and
-permission freshness through existing dependency/publication owners. Protected
-permission-source admission is its first gate; no authorized save profile is
-implemented by that preflight.
+permission freshness through existing dependency/publication owners. SA1 now
+implements protected Application command-only policy writes and tracked private
+permission evidence in a bounded V3 finite profile. Native authorized saves,
+effective-edge decisions and their connected revocation/replay proof remain
+SA2-SA4 gates; no public API syntax is selected.
 
 Status: the Application, Product, selected Payload Local API, and finite
 Medusa workflow slices are implemented as a private, isolated-scope execution

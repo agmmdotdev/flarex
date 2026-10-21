@@ -93,6 +93,9 @@ export const prepareApplicationOwnershipSuccessor = Effect.fn("ApplicationWriteO
   for (const claim of previous) {
     const prior = claim.policy;
     const next = policies.find(policy => policy.tableId === prior.tableId);
+    if (prior.owner === "application-command" && next?.owner === "application-command" &&
+      prior.logicalName === next.logicalName && prior.policyId === next.policyId &&
+      prior.writePolicySha256 === next.writePolicySha256) continue;
     if (prior.owner !== "payload" || next?.owner !== "payload" || next.logicalName !== prior.logicalName ||
       next.policyId !== prior.policyId || next.provenanceSha256 !== prior.provenanceSha256 ||
       !verifiedBefore.tables.some(table => table.declaration.logicalTableName === prior.logicalName && table.writePolicySha256 === prior.writePolicySha256)) {

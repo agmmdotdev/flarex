@@ -3,7 +3,7 @@ import { fxSystemScopeExecutionAuthorities } from "../../database/schema";
 import { isTerminalTransactionSessionLifecycleV1 } from "../../execution/transactionSessionAttemptFacet";
 import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
-import { bytesEqualFullScan } from "@flarex/utils/bytes";
+import { bytesEqualFullScan, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import {
   readPreparedFiniteApplicationTerminalProjection,
 } from "../../application/activation/finiteIdentity";
@@ -14,6 +14,7 @@ import { snapshotSchemaManifestValue } from "../../storage/catalog/schemaManifes
 import type {
   OriginalApplicationControlRead,
 } from "../../application/readiness/contracts";
+import type { OriginalSchemaVersionRead } from "../../storage/catalog/schemaVersionArtifacts";
 
 import {
   MAX_SCHEMA_MANIFEST_APP_TABLES,
@@ -194,7 +195,7 @@ export type PreparedFiniteTerminalControl = Effect.Success<ReturnType<typeof mat
 
 /** The genuine Application construction owner authenticates these originals once. */
 export const prepareFiniteApplicationExecutionSchema = Effect.fn("StoredCommitAuthority.prepareFiniteApplicationExecutionSchema")(
-  function* (original: OriginalApplicationControlRead,
+  function* (original: OriginalApplicationControlRead | Readonly<{ database: FlarexMetadataDatabase; artifact: OriginalSchemaVersionRead }>,
     expected: Readonly<{ deploymentId: string; schemaVersionId: CatalogSchemaVersionId }>) {
     const deploymentId = yield* Schema.decodeUnknownEffect(TransactionGrantDeploymentIdV1Schema)(expected.deploymentId)
       .pipe(Effect.mapError(cause => new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode", cause })));
@@ -223,8 +224,7 @@ function* (ports: StoredCommitAuthorityEvidenceLoaderPortsV1, authority: StoredC
   if (selector === undefined || db === undefined) return yield* Effect.fail(
     new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode",
       cause: "Finite Application terminal control evidence unavailable" }));
-  const projected = yield* Effect.fromResult(
-    readPreparedFiniteApplicationTerminalProjection(application, db, selector.functionPath, sizes => {
+  const projection = readPreparedFiniteApplicationTerminalProjection(application, db, selector.functionPath, sizes => {
       const jsonLength = parseLength(sizes.manifestJsonByteLengthText);
       const canonicalLength = parseLength(sizes.manifestCanonicalByteLengthText);
       const bindingLength = parseLength(sizes.schemaBindingByteLengthText);
@@ -232,8 +232,26 @@ function* (ports: StoredCommitAuthorityEvidenceLoaderPortsV1, authority: StoredC
         jsonLength + canonicalLength + bindingLength > MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1
         ? Result.fail(new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode",
           cause: "Finite Application terminal control materialization budget exceeded" })) : Result.succeed(undefined);
-    })).pipe(Effect.mapError(cause => cause instanceof StoredCommitAuthorityEvidencePersistenceV1Error ? cause :
+    });
+  const projected = yield* Effect.fromResult<Result.Result.Success<typeof projection>, Result.Result.Failure<typeof projection>>(projection)
+    .pipe(Effect.mapError(cause => cause instanceof StoredCommitAuthorityEvidencePersistenceV1Error ? cause :
       new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode", cause })));
+  if (projected.kind === "relation") {
+    const { basis, authority: schema, binding, artifact } = projected;
+    if (authority.deploymentId !== basis.deploymentId || authority.scopeId !== basis.authority.scopeId ||
+      authority.schemaVersionId !== basis.schemaVersionId || selector.revisionId !== basis.revisionId ||
+      !projected.functionDeclared || !bytesEqualFullScan(selector.applicationSchemaSha256, basis.applicationSchemaSha256) ||
+      schema.deploymentId !== basis.deploymentId || schema.schemaVersionId !== basis.schemaVersionId ||
+      artifact.sizes.deploymentId !== basis.deploymentId || artifact.sizes.schemaVersionId !== basis.schemaVersionId ||
+      !bytesEqualFullScan(artifact.sizes.manifestSha256, basis.schemaManifestSha256) || artifact.payload === null ||
+      binding.manifestBinding.sha256Hex !== encodeBytesToLowercaseHex(basis.manifestSchemaBindingSha256) ||
+      !bytesEqualFullScan(binding.relationBinding.boundPublicationSha256, basis.boundPublicationSha256) ||
+      !bytesEqualFullScan(binding.relationBinding.applicationSchemaSha256, basis.applicationSchemaSha256) ||
+      !bytesEqualFullScan(binding.relationBinding.schemaManifestSha256, basis.schemaManifestSha256))
+      return yield* Effect.fail(new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode",
+        cause: "Finite composite Application terminal selector mismatch" }));
+    return projected.schema;
+  }
   const { basis, schemaVersion, artifact, binding } = projected;
   const sizes = artifact.sizes;
   // Replacement admission authenticates the original signed program against a

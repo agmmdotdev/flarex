@@ -64,6 +64,8 @@ export interface RelationSelectionState {
     ApplicationRelationReadinessFoldResult,
     { readonly status: "ready" }
   >;
+  readonly lifetime?: LegacySelectionState["lifetime"];
+  readonly finitePreparation?: LegacySelectionState["finitePreparation"];
 }
 
 export type SelectionState = LegacySelectionState | RelationSelectionState;
@@ -103,7 +105,9 @@ export function readApplicationBindingTargetProtection(input: ApplicationBinding
       Result.map(() => Object.freeze({ protection: undefined, lifetime: prepared.lifetime,
         readinessProtection: prepared.currentPreparation })));
   }
-  if (state.kind !== "legacy") return Result.succeed(Object.freeze({ protection: undefined, lifetime: undefined, readinessProtection: undefined }));
+  if (state.kind !== "legacy") return (state.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
+    Result.mapError(cause => activationError("validateSelection", "invalidComposition", state.basis.revisionId, false, cause)),
+    Result.map(() => Object.freeze({ protection: undefined, lifetime: state.lifetime, readinessProtection: undefined })));
   const protection = readApplicationReadinessTargetProtection(state.readinessRepository, state.readiness);
   return (state.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
     Result.mapError(cause => activationError("validateSelection", "invalidComposition", state.basis.revisionId, false, cause)),
@@ -206,7 +210,7 @@ export function attachCurrentApplicationBindingMetadata(binding: ApplicationBind
 export function attachFiniteApplicationSelectionPreparation(selection: ApplicationActiveSelection,
   projections: NonNullable<LegacySelectionState["finitePreparation"]>, currentPreparation?: RetainedBindingMetadata) {
   const selected = selectionStates.get(selection);
-  if (selected?.kind !== "legacy") return Result.fail(activationError("read", "invalidComposition"));
+  if (selected === undefined) return Result.fail(activationError("read", "invalidComposition"));
   selectionStates.set(selection, Object.freeze({ ...selected, finitePreparation: projections,
     ...(currentPreparation === undefined ? {} : { currentPreparation }) }));
   return Result.succeed(undefined);
@@ -217,7 +221,7 @@ export function attachFiniteApplicationSelectionPreparation(selection: Applicati
 export function attachFiniteApplicationSourceComposition(selection: ApplicationActiveSelection,
   sourceComposition: PreparedFiniteMetadataProjection) {
   const selected = selectionStates.get(selection);
-  if (selected?.kind !== "legacy" || selected.finitePreparation === undefined ||
+  if (selected === undefined || selected.finitePreparation === undefined ||
     selected.finitePreparation.sourceComposition !== undefined)
     return Result.fail(activationError("read", "invalidComposition"));
   selectionStates.set(selection, Object.freeze({ ...selected,
@@ -229,7 +233,17 @@ export function readFiniteApplicationSourceComposition(selection: ApplicationBin
   // SAFETY: the issuer lookup authenticates the opaque Application selection.
   const selected = selectionStates.get(selection as ApplicationActiveSelection);
   return readApplicationBindingTargetProtection(selection).pipe(Result.map(() =>
-    selected?.kind === "legacy" ? selected.finitePreparation?.sourceComposition : undefined));
+    selected?.finitePreparation?.sourceComposition));
+}
+
+/** Finite construction attaches only the lifetime of its actual retained host. */
+export function attachRelationFiniteLifetime(selection: ApplicationActiveSelection,
+  lifetime: NonNullable<LegacySelectionState["lifetime"]>) {
+  const selected = selectionStates.get(selection);
+  if (selected?.kind !== "relation" || selected.lifetime !== undefined)
+    return Result.fail(activationError("read", "invalidComposition"));
+  selectionStates.set(selection, Object.freeze({ ...selected, lifetime }));
+  return Result.succeed(undefined);
 }
 
 export interface RetainedBindingMetadata {

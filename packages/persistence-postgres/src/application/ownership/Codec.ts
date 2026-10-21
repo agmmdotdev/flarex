@@ -21,9 +21,10 @@ export const canonicalizeApplicationWriteOwnership = Effect.fn("ApplicationWrite
     }
     for (const claim of decoded.claims) {
       const policy = claim.policy;
-      if (policy.owner !== "payload") return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "invalidEvidence" }));
+      if (policy.owner === "application") return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "invalidEvidence" }));
       const declaration = { format: "flarex.application-table-write-policy", version: 1, logicalTableName: policy.logicalName,
-        owner: policy.owner, policyId: policy.policyId, configSha256: policy.configSha256, provenanceSha256: policy.provenanceSha256 };
+        owner: policy.owner, policyId: policy.policyId, ...(policy.owner === "payload" ? {
+          configSha256: policy.configSha256, provenanceSha256: policy.provenanceSha256 } : {}) };
       const policyBytes = new TextEncoder().encode(encodeCanonicalJson(declaration, () => { throw new Error("Invalid owned policy"); }));
       if (encodeBytesToLowercaseHex(yield* digestApplicationWriteOwnership(policyBytes)) !== policy.writePolicySha256) {
         return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "invalidEvidence" }));
