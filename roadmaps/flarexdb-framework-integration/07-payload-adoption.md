@@ -23,6 +23,13 @@ framework indexing and cross-framework relation semantics remain open gates.
 
 ## Status And Scope
 
+The [unified developer-contract proposal](./preflight/unified-application-cms-commerce-developer-contract.md)
+connects CMS exposure and write ownership to explicit Application, Payload and
+Medusa operations inside supported mutations. It records current private proofs
+separately from pending cross-framework integrity and public authoring. CMS
+markers and `ctx.cms`/`ctx.commerce` syntax remain illustrative. This plan owns
+Payload behavior and conformance; the SDK roadmap owns eventual public surfaces.
+
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)
 is a required shared-storage integration gate: use real Payload Local API calls
 with Application/Medusa references, indexed forward/reverse access, visibility,

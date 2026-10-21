@@ -338,6 +338,14 @@ capabilities for these proofs; test fixtures may not emulate missing admission.
 
 ## Early Cross-Framework Proof
 
+The [unified developer-contract proposal](../flarexdb-framework-integration/preflight/unified-application-cms-commerce-developer-contract.md)
+uses an editorial article, commerce product and Application campaign to explain
+the desired connected backend experience. Explicit CMS/commerce operations do
+not remove the need for core reference integrity or confer target write rights.
+Selected native/Payload relation checks already exist; cross-framework strong
+references remain pending and unsupported sources fail closed. Proposed public
+syntax and lifecycle defaults do not advance the proof below.
+
 GLS1 defines this contract, GLS2 supplies indexed endpoint access, and GLS3
 executes the connected relation proof. GLS4 proves admitted activation/recovery
 and unsupported-transition refusal. Full schema/data transition orchestration

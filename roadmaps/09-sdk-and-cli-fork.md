@@ -171,6 +171,16 @@ and do not become public SDK contracts through this handoff.
 
 ### Deferred CMS Facade Handoff
 
+The [unified Application/CMS/commerce developer-contract proposal](./flarexdb-framework-integration/preflight/unified-application-cms-commerce-developer-contract.md)
+records the intended explicit operation boundaries: application document writes,
+Payload-style content operations and Medusa-style services/workflows composed
+through supported mutations. Relation assignment changes the source; target
+mutation uses its owning domain operation. `.cms()`, relation declarations and
+`ctx.cms`/`ctx.commerce` examples are proposals, not selected exports. Private
+mixed-mutation and write-ownership proofs do not implement generated public
+facades or automatic CMS-aware writer narrowing. This roadmap owns their later
+API selection after the required private composition and ownership gates.
+
 The optional CMS package may later generate a `ctx.cms` facade, but the core
 `flarex` package does not acquire Payload runtime dependencies. The accepted
 authority modes are CMS view, CMS managed, and app-command managed; names such
