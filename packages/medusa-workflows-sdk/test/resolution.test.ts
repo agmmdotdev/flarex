@@ -1,9 +1,10 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, Result } from "effect";
+import type { PricingTypes } from "@medusajs/types";
 import { createHook, createStep, createWorkflow, isPreparedWorkflow, StepResponse, transform, when, WorkflowResponse, type WorkflowData } from "../src/index";
 import { executeWorkflow, type WorkflowExecutionPort } from "../src/runtime";
 import { proxify, referenceOf } from "../src/references";
-import type { StepFunction, StepOutput } from "../src/model";
+import type { Resolved, StepFunction, StepOutput } from "../src/model";
 
 /** SDK-owned Promise test bridge; typed failures, defects and interruption keep
  * Effect's normal runtime semantics, with full outcomes asserted through Exit. */
@@ -173,6 +174,60 @@ describe("prepared workflow resolution", () => {
       consume({ map: undefined, rows: [], tuple: ["a", 1], date: { toISOString: () => "date" }, callback });
       // @ts-expect-error Function parameter and return contracts remain intact.
       consume({ map: undefined, rows: [], tuple: ["a", 1], date, callback: (value: number) => String(value) });
+    };
+    expectTypeOf(check).toBeFunction();
+  });
+
+  it("preserves nominal resolved values while unwrapping nested structural references", () => {
+    class Amount {
+      readonly #kind = "amount";
+      constructor(readonly value: number) {}
+      toString() { return this.#kind + this.value; }
+    }
+    type Nested = { amount: Amount; selected: WorkflowData<string>; rows: readonly { amount: WorkflowData<Amount> }[];
+      tuple: readonly [WorkflowData<Amount>, WorkflowData<number>] };
+    type Expected = { amount: Amount; selected: string; rows: readonly { amount: Amount }[]; tuple: readonly [Amount, number] };
+    const check = (amount: Amount, reference: WorkflowData<Amount>, text: WorkflowData<string>, number: WorkflowData<number>) => {
+      expectTypeOf<Resolved<Amount>>().toEqualTypeOf<Amount>();
+      expectTypeOf<Resolved<WorkflowData<Amount>>>().toEqualTypeOf<Amount>();
+      expectTypeOf<Resolved<Nested>>().toEqualTypeOf<Expected>();
+      expectTypeOf<Resolved<PricingTypes.PriceDTO>>().toEqualTypeOf<PricingTypes.PriceDTO>();
+      const resolved: Resolved<WorkflowData<Amount>> = amount;
+      const consume = (_value: Resolved<Nested>) => undefined;
+      consume({ amount: resolved, selected: "selected", rows: [{ amount }], tuple: [amount, 1] });
+      // @ts-expect-error Public members cannot counterfeit the Amount's private identity.
+      const counterfeit: Resolved<Amount> = { value: 1, toString: () => "amount1" };
+      // @ts-expect-error A nominal reference still resolves to Amount, not its public shape.
+      const counterfeitReference: Resolved<WorkflowData<Amount>> = { value: 1, toString: () => "amount1" };
+      // @ts-expect-error Nested scalar references must actually be resolved to their declared values.
+      consume({ amount, selected: number, rows: [{ amount }], tuple: [amount, 1] });
+      // @ts-expect-error Resolving nested tuples preserves independent nominal/scalar positions.
+      consume({ amount, selected: "selected", rows: [{ amount }], tuple: [text, reference] });
+      void counterfeit; void counterfeitReference;
+    };
+    expectTypeOf(check).toBeFunction();
+    // Retaining a nominal static type grants no class-literal runtime support.
+    expect(() => createWorkflow("nominal-definition-literal", () => new WorkflowResponse(new Amount(1))))
+      .toThrow("Definition literals must be plain records");
+  });
+
+  it("retains native Pricing DTO types through child workflows and a parent response", () => {
+    const check = (price: PricingTypes.PriceDTO) => {
+      const prices = createStep("typed-native-pricing-dtos", () => new StepResponse<PricingTypes.PriceDTO[]>([price]));
+      const child = createWorkflow("typed-native-pricing-child", (): WorkflowResponse<PricingTypes.PriceDTO[]> =>
+        new WorkflowResponse(prices(undefined)));
+      expectTypeOf<ReturnType<typeof child.runAsStep>>().toEqualTypeOf<StepOutput<PricingTypes.PriceDTO[]>>();
+      const parent = createWorkflow("typed-native-pricing-parent", (): WorkflowResponse<{ created: PricingTypes.PriceDTO[] }> => {
+        const created = child.runAsStep({ input: undefined });
+        return new WorkflowResponse(transform({ created }, resolved => {
+          expectTypeOf(resolved.created).toEqualTypeOf<PricingTypes.PriceDTO[]>();
+          return resolved;
+        }));
+      });
+      expectTypeOf<ReturnType<typeof parent.runAsStep>>().toEqualTypeOf<StepOutput<{ created: PricingTypes.PriceDTO[] }>>();
+      const wrong = createStep("typed-wrong-pricing-child", () => new StepResponse<string[]>(["price-id"]));
+      // @ts-expect-error A child returning only IDs cannot supply the native Price DTO contract.
+      createWorkflow("typed-refused-pricing-parent", (): WorkflowResponse<PricingTypes.PriceDTO[]> => new WorkflowResponse(wrong(undefined)));
     };
     expectTypeOf(check).toBeFunction();
   });

@@ -4,7 +4,7 @@ import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallback
 import { deliverySourcePairs, verifyFulfillmentDeliveryCallbacks, verifyNativeSkipStepResponseType } from "./check-medusa-delivery-source.mjs";
 import { verifyPricingNormalizationExtraction, verifyPricingCandidateConstraintExport } from "./check-medusa-pricing-normalization.mjs";
 import { verifyNativeJsonAssignment } from "./check-medusa-json-assignment-source.mjs";
-import { pricingRepositoryNormalizationSource, verifyNativePriceListPriceNormalization, verifyPriceListPriceCreationCallbacks, verifyPriceListPriceCreationSelection, verifyPriceListPriceRemovalCallbacks, verifyPriceListPriceRemovalSelection } from "./check-medusa-price-list-prices-source.mjs";
+import { pricingRepositoryNormalizationSource, verifyNativePriceListPriceNormalization, verifyPriceListPriceCreationCallbacks, verifyPriceListPriceCreationSelection, verifyPriceListPriceRemovalCallbacks, verifyPriceListPriceRemovalSelection, priceListPriceBatchSourcePair, verifyPriceListPriceBatchCallbacks, verifyPriceListPriceBatchSelection, verifyPriceListPriceBatchService } from "./check-medusa-price-list-prices-source.mjs";
 import { verifyNativePriceListPriceUpdate, stripNativePriceListPriceUpdatePricingExtension } from "./check-medusa-price-list-price-update-source.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
@@ -296,6 +296,11 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, "packages/medusa-core-flows/src/price-list/steps/remove-price-list-prices.ts"), "utf8"));
   verifyPriceListPriceRemovalSelection(readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/pricing/remove-price-list-prices.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/src/workflow/policy.ts"), "utf8"));
+  verifyPriceListPriceBatchCallbacks(readFileSync(path.join(root, priceListPriceBatchSourcePair.source), "utf8"),
+    readFileSync(path.join(root, priceListPriceBatchSourcePair.target), "utf8"));
+  verifyPriceListPriceBatchSelection(readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/pricing/batch-price-list-prices.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-adapter/src/workflow/policy.ts"), "utf8"));
+  verifyPriceListPriceBatchService(readFileSync(path.join(root, "packages/medusa-adapter/src/modules/pricing/price-list-price-batch-service.ts"), "utf8"));
   verifyPriceListPriceUpdatePolicySelection(readFileSync(path.join(root, "packages/medusa-adapter/src/modules/pricing/price-list-price-update-receipt.ts"), "utf8"));
   verifyPriceListPriceUpdateSelection(readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/pricing/update-price-list-prices.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/src/workflow/policy.ts"), "utf8"));
@@ -654,6 +659,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     const priceListPriceRemovalPair = priceListPriceRemovalSources.find(relative => file.target === "packages/medusa-core-flows/src/" + relative || file.source === sourcePrefix + "packages/core/core-flows/src/" + relative);
     if (priceListPriceRemovalPair !== undefined && (file.target !== "packages/medusa-core-flows/src/" + priceListPriceRemovalPair || file.source !== sourcePrefix + "packages/core/core-flows/src/" + priceListPriceRemovalPair || file.classification !== "workflowFork"))
       throw new Error("PriceList Price removal outside its exact pinned source pair");
+    if ((file.target === priceListPriceBatchSourcePair.target || file.source === priceListPriceBatchSourcePair.source) &&
+      (file.target !== priceListPriceBatchSourcePair.target || file.source !== priceListPriceBatchSourcePair.source || file.classification !== "workflowFork"))
+      throw new Error("PriceList Price batch outside its exact pinned source pair");
     // Bind both directions: neither a selected target nor its native source
     // can be relabeled, redirected, or reused as a different extraction.
     const priceListDeletePair = priceListDeleteSources.find(([target, source]) => file.target === target || file.source === source);

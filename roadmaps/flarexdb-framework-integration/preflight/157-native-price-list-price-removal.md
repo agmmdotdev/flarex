@@ -95,12 +95,14 @@ the corrected genuine setup, and the separate observed filtered no-op in the
 external `flarex-157-native-price-list-prices-removal-witness` packet. This is a
 harness correction; no native business correction is selected.
 
-The existing 156 adapter replacement requires an active parent when writing a
+The initial 156 adapter replacement required an active parent when writing a
 Rule. Its genuine attempt to add a late active Rule beneath a deleted Price
-refuses and rolls back; 157 does not broaden that separate admission. The native
-packet proves the after-forward late-active branch. Adapter checks distinguish
-that setup limitation from restoration of a canonical mixed-history graph and
-from the admitted restore-parent/update/redelete sequence.
+refused and rolled back; that failed witness remains preserved. The scoped
+[158 correction](./158-native-price-list-price-batch.md) admits existing
+historical parents only for update Rule ownership, matching the native packet's
+after-forward late-active branch. The retained removal inverse restores that
+current graph while preserving already-active Rule clocks. Canonical mixed
+history and the restore-parent/update/redelete sequence remain distinct cases.
 
 ## Approved portable ordering
 
@@ -156,5 +158,6 @@ The user explicitly approved this order for 157. Ordering approvals for 154,
    cross-List selection, protected Links, repeated cancellation, late-parent
    composition and two committed cycles on PGlite and ordinary-role PostgreSQL.
    Finite atomic rollback remains distinct from independently committed native
-   callbacks. The existing 156 late-active-Rule setup limitation above is retained.
+   callbacks. The scoped 158 correction resolves the initial 156 late-active-Rule
+   setup limitation above without changing removal's lifecycle authority.
    Hosted activation, external delivery, arbitrary inputs and scale remain gated.

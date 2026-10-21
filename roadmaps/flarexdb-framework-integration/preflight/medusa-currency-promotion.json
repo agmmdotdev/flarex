@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "26ca6b34b8a76561d68ddb9ea0df7d46abbd4cbc05949c3b26f27abea1909b7a"
+      "targetSha256": "1904d297ad58d38efca854c640c2915bba07a742bba9d20170eb5d9220411689"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -3308,7 +3308,7 @@
       "classification": "workflowFork",
       "source": "third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/create-workflow.ts",
       "sourceSha256": "f5570bf0877ffc08838782735ae6d2274acaf7c39e7285e5d0edad6aa1eed66b",
-      "targetSha256": "db873fc8bdddb0ec2fc0fcffe546c39d68292065564b146b242fe4119c1b3d82"
+      "targetSha256": "9ee6ace2504fbe9797dfe74694a37004b159b679d3aea879c1804e06162f7f79"
     },
     {
       "target": "packages/medusa-workflows-sdk/src/identity.ts",
@@ -3325,7 +3325,7 @@
       "classification": "workflowFork",
       "source": "third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/type.ts",
       "sourceSha256": "dd3511dd3bff9ee1e192fdec72790c20a5944e2a10262d36b0e90ef4db87a538",
-      "targetSha256": "2be52e10d7b700e221a5312d5a124f8fded446b7e345ec315897afbb34702b75"
+      "targetSha256": "2205ac764fb189653a4eafe2adca6ae53462a1fa334efcc75487020442059223"
     },
     {
       "target": "packages/medusa-workflows-sdk/src/orchestrator-builder.ts",
@@ -3375,7 +3375,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/policy.ts",
       "classification": "authored",
-      "targetSha256": "43bb8daf2237270a90ac40cbf3fbdb8d9a666c1bde8435600b46827955c6df96"
+      "targetSha256": "7e290a9264c52820b65fa34308a00f5b3e12e3d64b69d1d6d1ca6d674e9aabfa"
     },
     {
       "target": "packages/medusa-adapter/src/links/product-shipping-profile-schema.ts",
@@ -5525,7 +5525,7 @@
     {
       "target": "packages/medusa-workflows-sdk/test/resolution.test.ts",
       "classification": "authored",
-      "targetSha256": "8a3acc0a5aef459e30c7ea7182ca52313c3b5b7f4a19420a2340b14a8c17b449"
+      "targetSha256": "a35765df543dffb654e66266e5c8c9cde6a7a88104eac5cbf4be71a3f4aa1825"
     },
     {
       "target": "packages/medusa-adapter/test/mock-relational-read.ts",
@@ -11611,7 +11611,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/pricing/price-list-price-repository.ts",
       "classification": "authored",
-      "targetSha256": "ed5831e5a536620dfa81566720270eb85129bbee27dd500c379916fea93bd54d"
+      "targetSha256": "81db9b2e1a3b991240546c49e11d1d80e8a22f36a7bde1f00dc46a41b92792f0"
     },
     {
       "target": "packages/medusa-adapter/src/modules/pricing/price-list-price-receipt.ts",
@@ -11715,7 +11715,7 @@
     {
       "target": "packages/medusa-adapter/test/price-list-price-update-order.test.ts",
       "classification": "authored",
-      "targetSha256": "90964d03192f30055a3c7c866f43d806a118ac44e0e92f8f729b2177f057db5a"
+      "targetSha256": "b1904a94925a9fcdfc2c9a204a979dfff18e6aeaba5d3d6616d7be18164a8090"
     },
     {
       "target": "packages/medusa-adapter/test/price-list-price-update-receipt.test.ts",
@@ -11784,12 +11784,54 @@
     {
       "target": "packages/medusa-adapter/test/logical-price-list-price-removal-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "d11c4d973ceea283fc55938680a4fab15ce973472443164a74ebb424130d184f"
+      "targetSha256": "740baa1a59cc6f24b6af25cf12ad4ad0a20be65937aa5e5aa19aeb4c8f6186e0"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-price-list-price-removal-fixture.ts",
       "classification": "authored",
       "targetSha256": "2388803023d5ce1fcf939dac1c254d0e234be77eafe05f735543c656630b9488"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/pricing/price-list-price-batch-input.ts",
+      "classification": "authored",
+      "targetSha256": "39c5bb22d4280591ea605b75fe27905618c3c56c71f57150592de311a3396988"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/pricing/price-list-price-batch-service.ts",
+      "classification": "authored",
+      "targetSha256": "aed6d1d2c782e22f195aa0ea8536503069856706b1128dce171b669badffdc94"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/pricing/batch-price-list-prices.ts",
+      "classification": "authored",
+      "targetSha256": "7efcf6c9566212a8bf6b2eee5c017ecc9fb8ded4fd5e478ca47215c0bf61c47e"
+    },
+    {
+      "target": "packages/medusa-adapter/test/price-list-price-batch-service.test.ts",
+      "classification": "authored",
+      "targetSha256": "4c12e7d557adebb9fe58b65456d4503c5186131e949f0f0d1df77e4c922d1859"
+    },
+    {
+      "target": "packages/medusa-adapter/test/price-list-price-batch-contracts.test.ts",
+      "classification": "authored",
+      "targetSha256": "6f6b4e34fbad7f36d694122158537c3997be835f52cf729a73bfa79503c2ef45"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/price-list/workflows/batch-price-list-prices.ts",
+      "classification": "workflowFork",
+      "targetSha256": "41a591f368ddebe5f4d7291bd0dc1b996b6aa77ce5eee3ac04c545e8cf91abfc",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/price-list/workflows/batch-price-list-prices.ts",
+      "sourceSha256": "4118905f2ae68bf06c6ac3838030e593f253a3583e9eedac481c16b41ebb29a0"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-price-list-price-batch-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "e88476c112bd9b5f118a8fb8664e4d48dd67ee95229812641da7248a593dc238"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-price-list-price-batch-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "07d0b8c2294c80317a8a43008038e728ae964cefaf8a07f1265c188e55e6c4da"
     }
   ],
   "dependencies": {
@@ -12344,7 +12386,8 @@
         "./price-list/update-price-list-prices",
         "./price-list/update-price-list-prices-step",
         "./price-list/remove-price-list-prices",
-        "./price-list/remove-price-list-prices-step"
+        "./price-list/remove-price-list-prices-step",
+        "./price-list/batch-price-list-prices"
       ]
     },
     {

@@ -356,3 +356,174 @@ const expectedSelection = `const selection = Effect.fn("PricingWorkflow.createPr
       output: contracts.Output, events: internalModuleWorkflowEvents,
     } });
 });`;
+
+
+/** The original158 parent composes the three retained native child workflows. */
+export const priceListPriceBatchSourcePair = {
+  source: "third_party/medusa/upstream/packages/core/core-flows/src/price-list/workflows/batch-price-list-prices.ts",
+  target: "packages/medusa-core-flows/src/price-list/workflows/batch-price-list-prices.ts",
+};
+
+/** Preserve the complete typed and emitted parent, including native parallel
+ * child calls, empty-entry transforms and named result slots. Only portable
+ * package aliases may differ; the existing child guards own their semantics.
+ * @param {string} nativeRoot @param {string} root */
+export function verifyPriceListPriceBatchCallbacks(nativeRoot, root) {
+  const expected = nativeRoot.replaceAll("\r\n", "\n")
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  if (authorityProgram(expected) !== authorityProgram(root))
+    throw new Error("Changed native PriceList Price batch callback behavior");
+}
+
+
+/** Bind the158 host to one combined Pricing participant and the existing
+ * read-only stored Link Query, with the approved limit of 256 calls and other defaults.
+ * @param {string} facade @param {string} policy */
+export function verifyPriceListPriceBatchSelection(facade, policy) {
+  const failure = "Changed PriceList Price batch resource selection";
+  if (authorityProgram(facade) !== authorityProgram(expectedBatchSelection)) throw new Error(failure);
+  const file = ts.createSourceFile("policy.ts", policy, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const declarations = file.statements.filter(ts.isVariableStatement)
+    .flatMap(statement => statement.declarationList.declarations)
+    .filter(node => ts.isIdentifier(node.name) && node.name.text === "priceListPriceBatchResources");
+  const declaration = declarations[0], statement = declaration?.parent.parent;
+  const imports = file.statements.filter(ts.isImportDeclaration).filter(node =>
+    node.importClause?.namedBindings !== undefined && ts.isNamedImports(node.importClause.namedBindings) &&
+    node.importClause.namedBindings.elements.some(element => element.name.text === "defaultCommerceResources"));
+  if (declarations.length !== 1 || statement === undefined || !ts.isVariableStatement(statement) ||
+    statement.declarationList.declarations.length !== 1 || imports.length !== 1 || imports[0] === undefined ||
+    authorityProgram(imports[0].getText(file)) !== authorityProgram('import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";') ||
+    authorityProgram(statement.getText(file)) !== authorityProgram('export const priceListPriceBatchResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });'))
+    throw new Error(failure);
+}
+
+const expectedBatchSelection = `import { Effect } from "effect";
+import { jsonEqual } from "flarex-protocol/json";
+import { batchPriceListPricesWorkflow } from "@medusajs/core-flows/price-list/batch-price-list-prices";
+import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { capturePricingMetadata } from "../../modules/pricing/schema";
+import { PriceListPriceBatchWorkflowInput, compilePriceListPriceBatchContracts } from "../../modules/pricing/price-list-price-batch-input";
+import type { makePriceListPriceBatchCommands } from "../../modules/pricing/price-list-price-batch-service";
+import type { prepareVariantPricingLink } from "../../links/variant-pricing-service";
+import { captureWorkflowRecord } from "../../workflow/configuration";
+import { internalModuleWorkflowEvents } from "../../workflow/events";
+import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type AtomicWorkflowExecution,
+  type InstalledWorkflowModule } from "../../workflow/host";
+import { workflowModuleDefinition } from "../../workflow/module";
+import { prepareWorkflowResources } from "../../workflow/resources";
+import { priceListPriceBatchResources } from "../../workflow/policy";
+
+/** Original parallel children share one outer settlement owner. Their native
+ * service/repository modes remain fixed by each selected command's issuer. */
+export const prepareBatchPriceListPricesWorkflow = Effect.fn("PricingWorkflow.batchPriceListPrices")(function* (input: {
+  readonly execution: AtomicWorkflowExecution;
+  readonly modules: {
+    readonly pricing: InstalledWorkflowModule<Effect.Success<ReturnType<typeof makePriceListPriceBatchCommands>>["workflow"]>;
+    readonly link: InstalledWorkflowModule<Effect.Success<ReturnType<typeof prepareVariantPricingLink>>["workflow"]>;
+  };
+  readonly revision: string;
+  readonly subscribers: AtomicCommerceEvents["subscribers"];
+}) {
+  const options = yield* Effect.fromResult(captureWorkflowRecord(input));
+  if (Object.keys(options).some(key => !["execution", "modules", "revision", "subscribers"].includes(key)))
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const registrations = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
+  const installed = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, ["pricing", "link"]));
+  if (Object.keys(registrations).length !== 2) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const pricing = workflowModuleDefinition(installed.pricing.module), link = workflowModuleDefinition(installed.link.module);
+  if (pricing?.source.name !== "flarex-pricing-local" || pricing.source.profile !== "pricing-price-list-price-batch" ||
+    link?.source.profile !== "medusa.variant-pricing.link-workflow")
+    return yield* Effect.fail(commerceError("invalidAuthority"));
+  for (const binding of [installed.pricing, installed.link]) {
+    if (binding.logicalResources !== undefined && !jsonEqual(binding.logicalResources, priceListPriceBatchResources))
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
+  }
+  const modules = {
+    pricing: { ...installed.pricing, logicalResources: priceListPriceBatchResources, logicalPublication: "mixed" as const },
+    link: { ...installed.link, logicalResources: priceListPriceBatchResources },
+  };
+  const contracts = yield* Effect.fromResult(compilePriceListPriceBatchContracts((yield* capturePricingMetadata()).frame));
+  const resources = yield* Effect.fromResult(prepareWorkflowResources({
+    pricing: { module: modules.pricing.module, methods: ["listPriceLists", "addPriceListPrices", "removePrices",
+      "snapshotPriceListPricesForUpdate", "updatePriceListPrices", "restorePriceListPrices", "listPrices", "softDeletePrices", "restorePrices"], graph: false },
+    link: { module: modules.link.module, methods: [], graph: true, expose: false },
+  }, true));
+  const prepared = yield* Effect.fromResult(batchPriceListPricesWorkflow.prepare())
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  return yield* prepareAtomicWorkflowHost({ execution: options.execution, modules,
+    operationScheduling: "queued", borrowedOperationScheduling: "queued",
+    revision: options.revision, subscribers: options.subscribers, requestCallLimit: priceListPriceBatchResources.calls,
+    workflow: { name: "batchPriceListPricesWorkflow", resources, prepared, input: PriceListPriceBatchWorkflowInput,
+      output: contracts.Output, events: internalModuleWorkflowEvents },
+  });
+});
+`;
+
+
+/** The combined profile only selects existing authenticated methods and routes
+ * each exact command object through its original issuer's logical validator.
+ * It adds no transaction owner or replacement business implementation.
+ * @param {string} source */
+export function verifyPriceListPriceBatchService(source) {
+  if (authorityProgram(source) !== authorityProgram(expectedBatchServiceSelection))
+    throw new Error("Changed PriceList Price batch service selection");
+}
+
+const expectedBatchServiceSelection = `import { Effect } from "effect";
+import { Modules } from "@medusajs/framework/utils/portable";
+import type { CommerceCommand, LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { defineWorkflowModule, workflowMethodDefinition, workflowModuleDefinition } from "../../workflow/module";
+import { makeLocalPricingCommands } from "./service";
+
+/** One installed Pricing participant retains each child's original commands,
+ * repositories and receipt issuer. The parent adds no transaction boundary. */
+export const makePriceListPriceBatchCommands = Effect.fn("PricingAdapter.priceListPriceBatchCommands")(function* () {
+  const creation = yield* makeLocalPricingCommands("price-list-price-creations");
+  const update = yield* makeLocalPricingCommands("price-list-price-updates");
+  const removal = yield* makeLocalPricingCommands("price-list-price-removals");
+  const creationPolicy = workflowModuleDefinition(creation.workflow)?.logical;
+  const updatePolicy = workflowModuleDefinition(update.workflow)?.logical;
+  const removalPolicy = workflowModuleDefinition(removal.workflow)?.logical;
+  if (creationPolicy === undefined || updatePolicy === undefined || removalPolicy === undefined ||
+    creationPolicy.validateLogical !== undefined || updatePolicy.validateLogical !== undefined || removalPolicy.validateLogical !== undefined)
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const { listPriceLists, addPriceListPrices, removePrices } = creation.workflow.methods;
+  const { snapshotPriceListPricesForUpdate, updatePriceListPrices, restorePriceListPrices } = update.workflow.methods;
+  const { listPrices, softDeletePrices, restorePrices } = removal.workflow.methods;
+  if (listPriceLists === undefined || addPriceListPrices === undefined || removePrices === undefined ||
+    snapshotPriceListPricesForUpdate === undefined || updatePriceListPrices === undefined || restorePriceListPrices === undefined ||
+    listPrices === undefined || softDeletePrices === undefined || restorePrices === undefined)
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const methods = { listPriceLists, addPriceListPrices, removePrices, snapshotPriceListPricesForUpdate,
+    updatePriceListPrices, restorePriceListPrices, listPrices, softDeletePrices, restorePrices };
+  const groups = [
+    { methods: [listPriceLists, addPriceListPrices, removePrices], policy: creationPolicy },
+    { methods: [snapshotPriceListPricesForUpdate, updatePriceListPrices, restorePriceListPrices], policy: updatePolicy },
+    { methods: [listPrices, softDeletePrices, restorePrices], policy: removalPolicy },
+  ];
+  const commands: CommerceCommand[] = [];
+  const owners = new Map<CommerceCommand, LogicalCommerceCallValidation>();
+  for (const group of groups) for (const method of group.methods) {
+    const definition = workflowMethodDefinition(method);
+    if (definition === undefined || !group.policy.commands.includes(definition.command) ||
+      owners.has(definition.command)) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    commands.push(definition.command); owners.set(definition.command, group.policy.validateLogicalCall);
+  }
+  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("PricingBatch.validateChildCall")(function* (call, activity, command) {
+    const validate = owners.get(command);
+    if (validate === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+    // Forward the exact command object through its original module's issuer
+    // check as well as the combined module's enclosing issuer check.
+    yield* validate(call, activity, command);
+  });
+  const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: Modules.PRICING,
+    source: { name: "flarex-pricing-local", profile: "pricing-price-list-price-batch" }, methods,
+    graph: { aliases: [], reads: [] }, logical: { commands, capture: creationPolicy.capture, validateLogicalCall,
+      allowStorageInsertionOrder: true, allowRecordedRowReplay: true, allowPreservingDeletionUpsert: "preserveTimestamps" },
+  }));
+  return { workflow, commands };
+});
+`;

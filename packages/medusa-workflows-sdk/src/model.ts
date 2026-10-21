@@ -16,8 +16,12 @@ type WorkflowInput<T> = WorkflowData<T> | (T extends Date | ((...args: never[]) 
   : T extends readonly unknown[] ? { [Key in keyof T]: WorkflowInput<T[Key]> } & { readonly [dataBrand]?: never }
   : T extends object ? { [Key in keyof T]: WorkflowInput<T[Key]> } & { readonly [dataBrand]?: never } : T);
 export interface StepFunction<Input, Output> { (input: WorkflowInput<Input>): StepOutput<Output> }
-export type Resolved<T> = T extends { readonly [dataBrand]: infer Value } ? Value : T extends Date | ((...args: never[]) => unknown) ? T : T extends readonly unknown[]
-  ? { [Key in keyof T]: Resolved<T[Key]> } : T extends object ? { [Key in keyof T]: Resolved<T[Key]> } : T;
+/** Resolve structural authoring records without projecting nominal values into
+ * public member bags. A private/protected identity is absent from Pick's keys;
+ * preserving its type does not admit class instances at a runtime boundary. */
+export type Resolved<T> = T extends { readonly [dataBrand]: infer Value } ? Value
+  : T extends Date | ((...args: never[]) => unknown) ? T
+  : T extends object ? Pick<T, keyof T> extends T ? { [Key in keyof T]: Resolved<T[Key]> } : T : T;
 /** Narrow, trusted resource view. The adapter authenticates every resolved method. */
 export interface WorkflowContainer { resolve<T>(name: string): T }
 export interface StepExecutionContext { readonly container: WorkflowContainer; readonly eventGroupId: string }

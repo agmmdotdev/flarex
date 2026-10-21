@@ -3,6 +3,7 @@ import { Effect, Result } from "effect";
 import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
 import { capturePricingMetadata } from "../src/modules/pricing/schema";
 import { compilePriceListPriceUpdateContracts } from "../src/modules/pricing/price-list-price-update-input";
+import { preparePriceListPriceReplacement } from "../src/modules/pricing/price-list-price-repository";
 
 describe("Price List Price update candidate and snapshot Rule order", () => {
   it("authenticates insertion traversal for active normalization candidates while retaining ID order for complete snapshots", async () => {
@@ -19,5 +20,19 @@ describe("Price List Price update candidate and snapshot Rule order", () => {
     const snapshotRules = Result.getOrThrow(contracts.compileRuleReadPlan(buildQuery({ price_id: ids }, { withDeleted: true, order: { id: "ASC" } })));
     expect(snapshotRules).toMatchObject({ order: { column: "id", direction: "asc" }, includeIdentities: true,
       predicate: { kind: "in", column: "price_id", values: ids } });
+  });
+
+  it("admits an existing historical Rule parent only for native update while retaining other endpoint policies", async () => {
+    const contracts = Result.getOrThrow(compilePriceListPriceUpdateContracts((await Effect.runPromise(capturePricingMetadata())).frame));
+    const creation = Result.getOrThrow(preparePriceListPriceReplacement(contracts, "creation"));
+    const update = Result.getOrThrow(preparePriceListPriceReplacement(contracts, "update"));
+    expect(update.profile.foreignKeyVisibility?.(update.rule, "price_id")).toBe("existing");
+    expect(creation.profile.foreignKeyVisibility?.(creation.rule, "price_id")).toBe("active");
+    for (const prepared of [creation, update]) {
+      expect(prepared.profile.foreignKeyVisibility?.(prepared.root, "price_set_id")).toBe("existing");
+      expect(prepared.profile.foreignKeyVisibility?.(prepared.root, "price_list_id")).toBe("active");
+      expect(prepared.profile.foreignKeyVisibility?.(prepared.root, "price_id")).toBe("active");
+      expect(prepared.profile.foreignKeyVisibility?.(prepared.rule, "id")).toBe("active");
+    }
   });
 });

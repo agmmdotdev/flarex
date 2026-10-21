@@ -150,7 +150,7 @@ export function when<Input>(nameOrInput: string | Input, inputOrPredicate: Input
     // SAFETY: the authoring signature binds the captured input before graph erasure.
     invoke: predicate as Invoke<unknown, unknown>, compensate: undefined, compensation: undefined, hook: false });
   context.pending.add(id);
-  return Object.freeze({ then<Output>(build: () => Output & ([Extract<Output, PromiseLike<unknown>>] extends [never] ? unknown : never)): WorkflowData<Resolved<Output> | undefined> {
+  const region: ConditionalRegion = { then(build) {
     if (current !== context || context.guards !== parents || !context.pending.delete(id) || typeof build !== "function") {
       throw definitionError("invalidDefinition", "Complete each condition once in its own composer region");
     }
@@ -165,7 +165,8 @@ export function when<Input>(nameOrInput: string | Input, inputOrPredicate: Input
         invoke: value => value, compensate: undefined, compensation: undefined, hook: false });
     } finally { context.guards = parents; }
     return proxify({ kind: "step", owner: context.owner, step: resultId });
-  } });
+  } };
+  return Object.freeze(region);
 }
 export interface PreparedWorkflow {
   readonly name: string;

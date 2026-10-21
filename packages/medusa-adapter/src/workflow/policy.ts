@@ -80,6 +80,8 @@ export const priceListPriceCreationResources = Object.freeze({ ...defaultCommerc
 export const priceListPriceUpdateResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 /** Original Price removal and its current-graph inverse retain default limits. */
 export const priceListPriceRemovalResources = Object.freeze({ ...defaultCommerceResources });
+/** Original parallel Price List Price children retain the approved call allowance. */
+export const priceListPriceBatchResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
 /** Complete ServiceZone lifecycle graph and its genuine retained raw-ID inverse. */
 export const serviceZoneDeletionResources = Object.freeze({ ...defaultCommerceResources, calls: 256, eventMessages: 128 });
 /** Native ServiceZone geographic update; measured admission is selected independently. */

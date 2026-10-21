@@ -736,9 +736,11 @@ historical nullable Lists without changing stored foreign keys. Current-graph
 restoration includes Rule history, preserves active descendant clocks and emits
 no module events. The approved portable order emits Prices by ID, then Rules by
 parent Price ID and Rule ID. Pricing is the sole commerce resource; stored Links
-remain untouched. The existing 156 late-active-Rule setup refusal is preserved
-separately from native evidence and canonical mixed-history restoration.
-Batch, hosted activation, external delivery and arbitrary scale remain gated.
+remain untouched. The scoped 158 correction lets native 156 replace Rules under
+an existing historical Price; the original refusal witness remains preserved.
+The genuine retained removal inverse restores that current graph and preserves
+already-active Rule clocks, independently of canonical mixed-history restoration.
+Hosted activation, external delivery and arbitrary scale remain gated.
 
 The [Price List Price update](./preflight/156-native-price-list-price-update.md)
 root and private adapter implement the same bounded List/Price/Rule input graph.
@@ -753,6 +755,21 @@ all other limits unchanged. Original native defects remain separate witnesses.
 Standalone concurrent native execution, unbounded history and hosted delivery
 remain outside this admission; ordinary PostgreSQL timeout reliability remains
 unproven.
+
+The [Price List Price batch preflight](./preflight/158-native-price-list-price-batch.md)
+traces the native parallel parent and its combined Pricing/Link Query closure.
+It preserves demonstrated destructive reuse compensation and mixed-time native
+update snapshots separately from finite atomic rollback. The bounded private
+root admits one List, up to two creation inputs, two update inputs and eight
+raw removal selectors, with up to two Rule attributes per supplied Price.
+Pricing's replacement owner now accepts existing historical parents for update
+Rule writes while creation retains active-parent visibility. The original
+default64 parent-capacity refusal and the historical-parent mismatch remain
+preserved witnesses. Corrected external candidate evidence covers the bounded
+native maximum and genuine aggregate disjoint inverses on PGlite and ordinary-role
+PostgreSQL. Its independently approved named 256-call profile keeps 64 events and
+all other defaults unchanged; hosted activation, restart and scale remain
+separate gates.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.
@@ -952,11 +969,11 @@ by the native FK and deliberately has no row grant. The approved
 provides explicit zero-access ownership at the shared profile/binding owner.
 The finite native closure and three unchanged test bodies retain their actual
 seed data. All three profiles and the root use the approved 128-call contract.
-The bounded private admission is complete. Price calculation,
-PriceList operations, cross-module cascades, nonempty Inventory levels, Stock
-Location writes and the complete Product composer remain subsequent admission
-gates. The later Inventory admission above adds its own selected structural and
-runtime closure without broadening this Pricing-only profile.
+The bounded private admission is complete. This Pricing-only profile does not
+grant price calculation, PriceList operations, cross-module cascades, Inventory
+level writes, Stock Location writes or complete Product composition. The later
+workflow admissions above own their selected capabilities without broadening
+this profile.
 
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)
 gives both commerce hosts domain-separated ordinary JSON identity and result

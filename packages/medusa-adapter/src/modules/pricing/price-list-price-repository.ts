@@ -128,7 +128,10 @@ export function preparePriceListPriceReplacement(contracts: PriceListPriceCreati
       }), decodeReference: () => Result.fail(commerceError("unsupportedProfile")), decodeAssociation: () => Result.fail(commerceError("unsupportedProfile")) };
     const profile: ReplacementProfile = { catalog, operation: "upsertWithReplace", existingRootWrite: "upsertOrInsert", ownedChildWrite: "upsert",
       ...(mode === "update" ? { preserveExistingManagedFields: true as const } : {}),
-      foreignKeyVisibility: (entity, column) => entity === root && column === "price_set_id" ? "existing" : "active",
+      // Native update can replace Rules after another callback soft-deletes
+      // their Price. The physical owner must exist; its lifecycle is preserved.
+      foreignKeyVisibility: (entity, column) => entity === root && column === "price_set_id" ||
+        mode === "update" && entity === rule && column === "price_id" ? "existing" : "active",
       orderedDeletionTables: [rule.table.name], ordering: new Map<string, CommerceRelationOrder>([[root.table.name, "id"], [contracts.tables.set.name, "id"],
         [contracts.tables.list.name, "id"], [rule.table.name, { kind: "storageInsertion", direction: "asc" }]]),
       allowedRelations: entity => entity === root ? ["price_rules"] : [], ownedToOne: () => [], mutableForeignKeys: entity => mode === "update" && entity === root,

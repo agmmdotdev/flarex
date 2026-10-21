@@ -245,26 +245,28 @@ describe(`approved portable original Price List Price removal - ${driver}`, { co
     expect(await connected.read(oldRules)).toEqual([]); expect(eventsSince(before, await connected.snapshot())).toEqual([]);
   });
 
-  it("preserves the 156 historical-parent Rule-creation refusal and the genuine retained 157 inverse", async () => {
+  it("creates a late active Rule through native156 under a historical Price and restores the genuine current graph", async () => {
     const list = await seed("late-active", [price(0, { original157: "before" })]), old = children(list, "prices")[0]!, selected = id(old);
-    const originalGraph = graph(await connected.readRows(), [selected]), originalIds = children(old, "price_rules").map(id), forward = await connected.prepareForward();
+    const originalIds = children(old, "price_rules").map(id), forward = await connected.prepareForward();
     const retained = await Effect.runPromise(forward.run(forward.newRequestKey(), { ids: [selected] }));
-    const before = await connected.snapshot(), deletedGraph = graph(await connected.readRows(), [selected]);
+    const deletedGraph = graph(await connected.readRows(), [selected]);
     const update = vi.spyOn(PricingModuleService.prototype, "updatePriceListPrices");
-    // This is the preserved failed setup from the bounded adapter run. The
-    // 156 replacement owner requires an active Rule parent, so its authority
-    // cannot reproduce the frozen native witness's late active Rule branch.
-    // No test-only write, fabricated inverse or broader admission repairs it.
-    await expect(connected.outsideUpdate({ data: [{ id: id(list), prices: [{ id: selected, ...price(0, { lateActive157: "after" }), amount: 88 }] }] }))
-      .rejects.toMatchObject({ reason: "adapterFailure", cause: { type: "invalid_data",
-        message: "You tried to set relationship price_id: " + selected + ", but such entity does not exist" } });
-    expect(update).toHaveBeenCalledTimes(1); expect(await connected.snapshot()).toEqual(before);
-    expect(graph(await connected.readRows(), [selected])).toEqual(deletedGraph);
-    expect(deletedGraph.filter(entry => entry.table === "price_rule").map(entry => id(entry.row))).toEqual(originalIds);
+    await connected.outsideUpdate({ data: [{ id: id(list), prices: [{ id: selected, ...price(0, { lateActive157: "after" }), amount: 88 }] }] });
+    expect(update).toHaveBeenCalledTimes(1);
+    const current = graph(await connected.readRows(), [selected]), currentRoot = current.find(entry => entry.table === "price"),
+      lateRule = current.find(entry => entry.table === "price_rule");
+    if (currentRoot === undefined || lateRule === undefined) throw new Error("Missing genuine native156 late active Rule graph");
+    expect(currentRoot.row.deleted_at).toBe(deletedGraph.find(entry => entry.table === "price")?.row.deleted_at);
+    expect(currentRoot.row.amount).toBe("88.000000000000000000");
+    expect(lateRule.row).toMatchObject({ price_id: selected, attribute: "lateActive157", value: "after", deleted_at: null });
+    expect(current.filter(entry => entry.table === "price_rule")).toHaveLength(1);
+    expect(await connected.read(originalIds)).toEqual([]);
+    const before = await connected.snapshot();
     const inverse = await connected.prepareInverse();
     await Effect.runPromise(inverse.run(inverse.newRequestKey(), retained.compensation));
-    const restored = graph(await connected.readRows(), [selected]); expect(stable(restored)).toEqual(stable(originalGraph));
+    const restored = graph(await connected.readRows(), [selected]); expect(stable(restored)).toEqual(stable(current));
     expect(restored.every(entry => entry.row.deleted_at === null)).toBe(true);
+    expect(restored.find(entry => entry.table === "price_rule")?.row).toEqual(lateRule.row);
     expect(eventsSince(before, await connected.snapshot())).toEqual([]);
   });
 
@@ -274,8 +276,8 @@ describe(`approved portable original Price List Price removal - ${driver}`, { co
     expect(original.find(entry => entry.table === "price")?.row.deleted_at).toEqual(expect.any(String));
     expect(originalRules).toHaveLength(2); expect(originalRules.filter(entry => entry.row.deleted_at !== null)).toHaveLength(1);
     if (!active) throw new Error("Missing canonical initially active Rule");
-    // This comparison starts as imported mixed history. It does not claim
-    // that 156 can create an active Rule after a 157 forward deletion.
+    // This comparison starts as imported mixed history, independently of the
+    // genuine late native156 mutation exercised above.
     const before = await connected.snapshot(), inverse = await connected.prepareInverse(), restore = vi.spyOn(PricingModuleService.prototype, "restorePrices");
     expect(await Effect.runPromise(inverse.run(inverse.newRequestKey(), [selected]))).toBeNull();
     expect(restore).toHaveBeenCalledTimes(1); expect(restore.mock.calls[0]?.[0]).toEqual([selected]);
