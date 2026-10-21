@@ -31,7 +31,10 @@ The [private cross-framework reference slice](../shared-logical-storage/cross-fr
 connects an optional scalar article-to-Product reference and explicit Product
 point reads with Application writes. Shared publication validates new versus
 retained edges, keeps references across soft deletion and restricts hard deletion,
-including already soft-deleted targets. General authorized reverse traversal,
+including already soft-deleted targets. Selected ordinary-role PostgreSQL
+barriers cover assignment/clear versus native Product deletion in both lock
+orders; connected failure/cancellation/retry and lost-COMMIT recovery retain
+the same owner boundaries. General authorized reverse traversal,
 new-Product pending construction and the broader cross-framework proof remain
 pending. This selects no public API syntax or additional mixed operation allowlist.
 

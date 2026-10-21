@@ -394,6 +394,8 @@ export interface MixedMutationProductFixture {
   readonly retryWholeAttempt: (conflict: unknown) =>
     Promise<Effect.Success<ReturnType<ReturnType<typeof createFinitePointMutationExecution>["retryFailedAttempt"]>>>;
   readonly runStandaloneProductUpdate: (next: Readonly<{ title: string; handle: string }>) => Promise<Json>;
+  /** Trusted native-host test composition on a separately authenticated connection. */
+  readonly withStandaloneProductSession: (invoke: (session?: ReturnType<typeof makePostgresRelationalSession>) => Promise<Json>) => Promise<Json>;
   readonly runStandaloneProductMutation: (kind: "replaceOptionValues" | "createVariant" |
     "updateTag" | "createTag" | "removeProductTag", input: Json) => Promise<Json>;
   readonly runStandaloneLinkCreate: (variantId: string, priceSetId: string) => Promise<Json>;
@@ -1737,12 +1739,17 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     if (currency.resource.kind !== "postgres") return invoke();
     const target = currency.resource.target;
     const primary = await target.pool.connect();
+    let primaryReleased = false;
     let separate: Awaited<ReturnType<typeof createPostgresPersistence>> | undefined;
     try {
       const identity = (await primary.query<{ schemaName: string; pid: number; login: string; role: string; databaseName: string }>(
         'select current_schema() as "schemaName", pg_backend_pid()::int as pid, session_user as login, current_user as role, current_database() as "databaseName"')).rows[0];
       if (identity === undefined || !/^[a-z_][a-z0-9_]*$/.test(identity.schemaName))
         throw new Error("Missing standalone target PostgreSQL connection identity");
+      // Observe the primary identity without monopolizing its single checkout
+      // while an independent native command overlaps the mixed publisher.
+      primary.release();
+      primaryReleased = true;
       const faultUrl = input.hooks?.standaloneOwnerCredentialFault === true ? process.env.FLAREX_POSTGRES_DATABASE_URL : undefined;
       if (input.hooks?.standaloneOwnerCredentialFault === true && faultUrl === undefined)
         throw new Error("Missing PostgreSQL owner URL for standalone credential fault");
@@ -1773,10 +1780,11 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
         standalone.applicationName !== applicationName || standalone.login !== identity.login ||
         standalone.role !== identity.role || standalone.databaseName !== identity.databaseName)
         throw new Error("Standalone command used wrong PostgreSQL connection");
-      const sameTargetBackend = (await primary.query<{ present: boolean }>(
+      const sameTargetBackend = (await separate.query<{ present: boolean }>(
         `select exists(select 1 from pg_stat_activity where pid = $1 and application_name = $2
-          and datname = current_database()) as present`,
-        [standalone.pid, applicationName])).rows[0]?.present;
+          and datname = current_database()) and exists(select 1 from pg_stat_activity
+          where pid = $3 and datname = current_database()) as present`,
+        [standalone.pid, applicationName, identity.pid])).rows[0]?.present;
       if (sameTargetBackend !== true)
         throw new Error("Standalone command PostgreSQL backend was not connected");
       observations.push(Object.freeze({
@@ -1784,8 +1792,11 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
       return result;
     } finally {
       try { await separate?.close(); }
-      finally { primary.release(); }
+      finally { if (!primaryReleased) primary.release(); }
     }
+  }
+  function withStandaloneProductSession(invoke: (session?: ReturnType<typeof makePostgresRelationalSession>) => Promise<Json>) {
+    return runStandaloneCommerceCommand("flarex_product_standalone", standaloneProductPgConnections, invoke);
   }
   async function runStandaloneProductUpdate(next: Readonly<{ title: string; handle: string }>): Promise<Json> {
     const inputData = { ...seed.updateInput,
@@ -2032,7 +2043,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     preparePublication, prepareFrozenPublication, publish, replayPublication,
     freeze: (result: unknown) => authenticatedInitialEntry.prepareFiniteCommit(result),
     prepareOccPublication, retryWholeAttempt,
-    runStandaloneProductUpdate, runStandaloneProductMutation, runStandaloneLinkCreate,
+    runStandaloneProductUpdate, withStandaloneProductSession, runStandaloneProductMutation, runStandaloneLinkCreate,
     runStandalonePayloadCreate, runStandalonePayloadCommand,
     retryClosedWorkflow: value => lastBorrowedWorkflowInvoke === undefined
       ? Promise.reject(new Error("Workflow was never borrowed")) : lastBorrowedWorkflowInvoke(value),

@@ -1,85 +1,9 @@
-import { Cause, Effect, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import type { LogicalSchemaExtension } from "flarex-protocol/internal/logical-schema-candidate";
-import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
 import { decodeAppDocumentIdentityV1 } from "flarex-protocol/app-document-id";
-import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
-import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
-import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
-import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
-import { isJsonObject } from "flarex-protocol/json";
-import { captureProductSchema } from "../../medusa-adapter/src/modules/product/schema";
-import { productRuntimeMetadata } from "../../medusa-adapter/src/modules/product/runtime-metadata";
-import { createHash } from "node:crypto";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
-
-type Fixture = Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
-const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
-  ? ["pglite" as const] : ["pglite" as const, "postgres" as const];
-const collections = [{ slug: "articles", fields: [
-  { name: "headline", type: "text", required: true },
-  { name: "featuredProduct", type: "text" },
-] }];
-const extensions: readonly LogicalSchemaExtension[] = [{ name: "article_product", sourceKey: "payload",
-  source: { table: { namespace: "app", logicalName: "articles" }, field: "featuredProduct" },
-  target: { table: { namespace: "medusa", logicalName: "commerce.product/product" }, field: "id" },
-  policy: "strongReference", liveness: { source: { kind: "current" },
-    target: { kind: "softDeleteNull", field: "deleted_at" } },
-  onTargetSoftDelete: "retain", onTargetDelete: "restrict" }];
-const decodeSuccess = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
-  result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }));
-const decodeArticle = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String }));
-const decodeMixed = Schema.decodeUnknownSync(Schema.Struct({ article: Schema.Struct({ id: Schema.String }), id: Schema.String }));
-async function successfulValue(input: unknown) {
-  return (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(decodeSuccess(input).result.result))).value;
-}
-async function expectCmsFailure(work: Promise<unknown>, reason: string) {
-  const result = (await Promise.allSettled([work]))[0];
-  if (result?.status !== "rejected" || !Cause.isCause(result.reason)) throw new Error("Expected native CMS failure Cause");
-  const failure = result.reason.reasons[0];
-  if (failure === undefined || !Cause.isFailReason(failure)) throw new Error("Expected typed native CMS failure");
-  expect(failure.error).toMatchObject({ reason });
-}
-function referenceSource(participant: string | undefined, target: string, productUpdate?: Fixture["seed"]["updateInput"]) {
-  if (participant === undefined) throw new Error("Missing Payload participant");
-  return `export default { users: { create: { isMutation: true, isPublic: true, _handler: async ctx => {
-    const article = await ctx.privateMixed.call(${JSON.stringify(participant)}, "payload-create",
-      { collection: "articles", data: { headline: "Selected product", featuredProduct: ${JSON.stringify(target)} } });
-    ${productUpdate === undefined ? "return article;" : `await ctx.privateMixed.call("medusa.product", "update", ${JSON.stringify(productUpdate)});
-      const product = await ctx.privateMixed.call("medusa.product", "retrieve", { id: ${JSON.stringify(target)} });
-      const id = await ctx.db.insert("users", { name: product.title });
-      return { article, id };`}
-  } } } };`;
-}
-async function commerceHost(fixture: Fixture) {
-  const commands = fixture.product.runtime.commands;
-  return Effect.runPromise(makeCommerceHost({ ...fixture.product.hostInput,
-    commands: [commands.internalProductSoftDelete, commands.internalProductRestore] }));
-}
-// Native hard deletion emits a module event. Compose its real call validator
-// and event contract, rather than using the eventless internal-service host.
-async function prepareProductDeletion(fixture: Fixture) {
-  const catalog = await Effect.runPromise(captureProductSchema("atomic-commerce")
-    .pipe(Effect.flatMap(schema => productRuntimeMetadata(schema.metadata.frame))));
-  const policy = fixture.product.runtime.logicalPolicy;
-  const revision = createHash("sha256").update("private-reference-product-delete").digest("hex");
-  const contract = defineCommerceEventContract({ name: catalog.product.deletedEvent, revision, internal: true, decode: policy.capture });
-  const participant = defineAtomicCommerceParticipant("product");
-  const command = fixture.product.runtime.commands.delete;
-  const root = defineAtomicCommerceCommand("privateReferenceProductDelete", (ctx, args) => ctx.call(participant, command, args));
-  const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.currency.hostInput,
-    identityAndAccessPolicy: { profile: "private-reference-product-delete" },
-    participants: [{ participant, logicalStorage: fixture.product.hostInput.logicalStorage,
-      commands: [command], validateLogicalCall: policy.validateLogicalCall,
-      events: { contracts: [contract], select: event => isJsonObject(event) && event.name === catalog.product.deletedEvent
-        ? Effect.succeed(contract) : Effect.fail(commerceError("unadmittedEvent")) } }],
-    commands: [root], events: { producerRevision: revision, contracts: [contract],
-      subscribers: [{ id: "private-reference-product-delete", revision }],
-      validate: events => events.some(event => !event.internal) ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },
-  }));
-  return host.run(host.newRequestKey(), root, fixture.seed.productId).pipe(Effect.ensuring(host.close));
-}
+import { type Fixture, drivers, collections, extensions, decodeArticle, decodeMixed, successfulValue,
+  expectCmsFailure, referenceSource, commerceHost, prepareProductDeletion } from "./support/payloadCommerceReferenceFixture";
 
 describe.each(drivers)("private Payload-to-Product reference on %s", driver => {
   it("retains native references through soft deletion and unrelated edits, restricts hard deletion and permits explicit clear", async () => {

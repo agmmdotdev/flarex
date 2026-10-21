@@ -90,8 +90,27 @@ writes in the finite root, plus existing native Product lifecycle/event paths.
 The existing fixture now forwards extensions through the real composition owner;
 it supplies no enforcement. No Medusa implementation, public facade, commerce
 population bridge or general permission engine is added. This is the first
-integrity slice, not completion of the wider authorization, reverse-read,
-simultaneous-contention or CXR3/CXR4 gates.
+integrity slice, not completion of the wider authorization, reverse-read or
+CXR3/CXR4 gates.
+
+The selected [PostgreSQL overlap scenarios](../../packages/flarex-backend/test/mixedMutationPayloadCommerceConcurrency.postgres.test.ts)
+use distinct authenticated ordinary-role backends and observe actual
+`pg_blocking_pids` edges. Explicit barriers cover new assignment versus Product
+soft/hard deletion and clear versus hard deletion in both lock orders. The
+native lifecycle host explicitly selects the existing `scopeExclusive` profile;
+the mixed root uses its existing publication lock. These scenarios establish
+the selected invariant under serialization, not independent-write throughput,
+all native execution profiles or permission/binding-change races.
+
+The [connected recovery scenarios](../../packages/flarex-backend/test/mixedMutationPayloadCommerceRecovery.workerd.test.ts)
+exercise caught late native failure, cancellation after staging a reference,
+and whole-root retry after a real Product read conflict on both database lanes.
+Failed roots publish no rows/history/indexes/facts/events/outcomes and leave no
+ghost edge restricting a subsequent native hard delete. PostgreSQL additionally
+loses the real COMMIT response after an independent connection observes the
+durable commit: resolution and replay preserve the reference and all three
+owners without rerunning native operations. This is selected record-mutation
+recovery evidence; it does not close schema/dependency activation recovery.
 
 ## Selected First Private Backend Profile
 
@@ -209,7 +228,7 @@ outcome. No SQL transaction spans untrusted execution or remote work.
 | Gate | Connected outcome and exit criteria |
 | --- | --- |
 | CXR1: policy and authenticated endpoints | Retention/hard-delete policy and exact nullable identity admission are implemented for the selected private profile. Exact principal/read outcomes and the full supported/refused profile matrix remain gated. Missing, wrong-owner, wrong-table and unsupported definitions must refuse before capability issuance. No Medusa edit occurs before the ownership checkpoint. |
-| CXR2: article-to-product mutation and reads | The first private native mutation/explicit point-read vertical uses one finite root and shared lifecycle enforcement. Authorized reverse reads, full permission checks, pending new-Product construction and distinct-connection barrier proofs remain pending. Preserve standalone endpoint-write safety and existing Payload-to-Payload/delete-preference behavior. This vertical does not close the broader gate. |
+| CXR2: article-to-product mutation and reads | The first private native mutation/explicit point-read vertical uses one finite root and shared lifecycle enforcement. Selected distinct-connection scope-lock races and record-mutation failure/retry/recovery are covered below. Authorized reverse reads, full permission checks, pending new-Product construction and permission/binding-change races remain pending. Preserve standalone endpoint-write safety and existing Payload-to-Payload/delete-preference behavior. This vertical does not close the broader gate. |
 | CXR3: three-owner and opposite-direction proof | Add a real compiler-admitted Medusa-owned extension referencing Payload or Application, through its owner's native operation path. Choose the extension with the Medusa owner; no fixture-only field or direct generic patch of commerce rows. Prove Application-owned references/consumption and all relevant target transitions with explicitly selected source-lifecycle rules. Native rich Link behavior remains separately characterized. |
 | CXR4: dependency activation and recovery | Refuse incompatible endpoint/policy candidates without changing active authority/data. Prove fresh binding/build/readiness, stale capability refusal, admitted rebinding, recovery and concurrent-write safeguards. General populated-data conversions and ownership transfers remain deferred. |
 
