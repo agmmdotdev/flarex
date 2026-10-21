@@ -22,28 +22,44 @@ const prepare = Effect.gen(function* () {
   return { metadata };
 });
 
-it("shares scoped and callback borrows through retirement and host close", () =>
+it.each(["host", "runtime"] as const)("shares scoped and callback borrows through retirement and %s close", closeOwner =>
   runEffect(Effect.scoped(Effect.gen(function* () {
-    const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 256 });
+    const runtimeScope = yield* Scope.make();
+    yield* Effect.addFinalizer(exit => Scope.close(runtimeScope, exit));
+    const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 256 }).pipe(Scope.provide(runtimeScope));
     const retained = yield* retainPreparedHost(runtime, Effect.succeed({}));
     const payloads = new WeakMap<object, string>();
     let disposals = 0;
+    let lazyDisposals = 0;
     const generation = yield* retained.reconstruct(() => Effect.gen(function* () {
+      const lifetime = yield* captureHostPreparationLifetime();
+      if (lifetime === undefined) return yield* Effect.die("Missing generation lifetime");
       const key = Object.freeze({});
       payloads.set(key, "scoped payload");
       yield* chargeHostPreparation("scoped payload");
       yield* registerHostPreparationDisposal(() => { payloads.delete(key); disposals++; });
-      return { key };
+      return { key, lifetime };
     }));
     const borrowScope = yield* Scope.make();
     yield* Effect.addFinalizer(exit => Scope.close(borrowScope, exit));
     const acquired = yield* generation.acquire.pipe(Scope.provide(borrowScope));
     const entered = yield* Deferred.make<void>();
     const release = yield* Deferred.make<void>();
+    yield* Effect.addFinalizer(() => Deferred.succeed(release, undefined));
     const callback = yield* Effect.forkChild(generation.use(value => Effect.gen(function* () {
       expect(value).toBe(acquired);
       yield* Deferred.succeed(entered, undefined);
       yield* Deferred.await(release);
+      yield* Effect.fromResult(value.lifetime.checkOpen());
+      yield* Effect.fromResult(value.lifetime.charge(new Uint8Array()));
+      yield* Effect.fromResult(value.lifetime.onDispose(() => { lazyDisposals++; }));
+      expect(value.lifetime.charge(new Uint8Array(256))).toMatchObject({
+        _tag: "Failure", failure: { reason: "capacityExceeded" },
+      });
+      expect(value.lifetime.checkOpen()).toMatchObject({ _tag: "Failure", failure: { reason: "capacityExceeded" } });
+      expect(value.lifetime.onDispose(() => { lazyDisposals++; })).toMatchObject({
+        _tag: "Failure", failure: { reason: "capacityExceeded" },
+      });
       expect(payloads.has(value.key)).toBe(true);
     })));
     yield* Deferred.await(entered);
@@ -52,7 +68,8 @@ it("shares scoped and callback borrows through retirement and host close", () =>
     expect(yield* Effect.flip(Effect.scoped(generation.acquire))).toMatchObject({ reason: "closed" });
     expect(Result.getOrThrow(retained.readUsage()).chargedBytes).toBe(charged);
     let closed = false;
-    const closing = yield* Effect.forkChild(retained.close.pipe(Effect.tap(() => Effect.sync(() => { closed = true; }))));
+    const close = closeOwner === "host" ? retained.close : Scope.close(runtimeScope, Exit.succeed(undefined));
+    const closing = yield* Effect.forkChild(close.pipe(Effect.tap(() => Effect.sync(() => { closed = true; }))));
     yield* Effect.yieldNow;
     expect(closed).toBe(false);
     yield* Scope.close(borrowScope, Exit.succeed(undefined));
@@ -65,6 +82,12 @@ it("shares scoped and callback borrows through retirement and host close", () =>
     expect(closed).toBe(true);
     expect(payloads.has(acquired.key)).toBe(false);
     expect(disposals).toBe(1);
+    expect(lazyDisposals).toBe(1);
+    expect(acquired.lifetime.checkOpen()).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+    if (closeOwner === "host") {
+      const replacement = yield* retainPreparedHost(runtime, prepare);
+      yield* replacement.close;
+    }
   }))));
 
 it("releases scoped generation borrows on interruption and preserves combined Cause", () =>
@@ -367,9 +390,25 @@ it("keeps lazy charges within their host allocation and rejects them after close
     }));
     const charge = yield* retained.use(host => Effect.succeed(host.charge));
     expect(Result.isSuccess(charge("x".repeat(32)))).toBe(true);
-    const overflow = charge("x".repeat(32));
-    expect(Result.isFailure(overflow) ? overflow.failure.reason : undefined).toBe("capacityExceeded");
-    yield* retained.close;
+    const entered = yield* Deferred.make<void>();
+    const release = yield* Deferred.make<void>();
+    yield* Effect.addFinalizer(() => Deferred.succeed(release, undefined));
+    const borrower = yield* Effect.forkChild(retained.use(() => Effect.gen(function* () {
+      yield* Deferred.succeed(entered, undefined);
+      yield* Deferred.await(release);
+      const overflow = charge("x".repeat(32));
+      expect(Result.isFailure(overflow) ? overflow.failure.reason : undefined).toBe("capacityExceeded");
+      expect(charge(null)).toMatchObject({ _tag: "Failure", failure: { reason: "capacityExceeded" } });
+    })));
+    yield* Deferred.await(entered);
+    let finished = false;
+    const closing = yield* Effect.forkChild(retained.close.pipe(Effect.tap(() => Effect.sync(() => { finished = true; }))));
+    yield* Effect.yieldNow;
+    expect(finished).toBe(false);
+    yield* Deferred.succeed(release, undefined);
+    yield* Fiber.join(borrower);
+    yield* Fiber.join(closing);
+    expect(finished).toBe(true);
     const closed = charge(null);
     expect(Result.isFailure(closed) ? closed.failure.reason : undefined).toBe("closed");
     const replacement = yield* retainPreparedHost(runtime, prepare);
@@ -542,22 +581,47 @@ it(
       Effect.scoped(
         Effect.gen(function* () {
           const scope = yield* Scope.make();
+          yield* Effect.addFinalizer(exit => Scope.close(scope, exit));
           const runtime = yield* makePreparedHostRuntime({
             maximumHosts: 2,
             maximumPreparedBytes: 128,
           }).pipe(Scope.provide(scope));
-          const held = yield* retainPreparedHost(runtime, prepare);
+          let staticDisposals = 0;
+          let generationDisposals = 0;
+          const held = yield* retainPreparedHost(runtime, Effect.gen(function* () {
+            const host = yield* prepare;
+            const lifetime = yield* captureHostPreparationLifetime();
+            if (lifetime === undefined) return yield* Effect.die("Missing static lifetime");
+            return { ...host, lifetime };
+          }));
+          const staticLifetime = yield* held.use(host => Effect.succeed(host.lifetime));
+          const staticFinished = yield* Deferred.make<void>();
+          const generation = yield* held.reconstruct(() => captureHostPreparationLifetime().pipe(
+            Effect.flatMap(lifetime => lifetime === undefined ? Effect.die("Missing generation lifetime") : Effect.succeed(lifetime))));
+          const generationEntered = yield* Deferred.make<void>();
           const useEntered = yield* Deferred.make<void>();
           const constructionEntered = yield* Deferred.make<void>();
           const release = yield* Deferred.make<void>();
+          yield* Effect.addFinalizer(() => Deferred.succeed(release, undefined));
           const running = yield* Effect.forkChild(
             held.use((host) =>
               Deferred.succeed(useEntered, undefined).pipe(
                 Effect.andThen(Deferred.await(release)),
+                Effect.tap(() => Effect.fromResult(host.lifetime.checkOpen())),
+                Effect.tap(() => Effect.fromResult(host.lifetime.charge(new Uint8Array()))),
+                Effect.tap(() => Effect.fromResult(host.lifetime.onDispose(() => { staticDisposals++; }))),
                 Effect.as(host.metadata.length),
               ),
-            ),
+            ).pipe(Effect.ensuring(Deferred.succeed(staticFinished, undefined))),
           );
+          const generationBorrow = yield* Effect.forkChild(generation.use(lifetime => Effect.gen(function* () {
+            yield* Deferred.succeed(generationEntered, undefined);
+            yield* Deferred.await(release);
+            yield* Deferred.await(staticFinished);
+            expect(staticLifetime.checkOpen()).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+            yield* Effect.fromResult(lifetime.checkOpen());
+            yield* Effect.fromResult(lifetime.onDispose(() => { generationDisposals++; }));
+          })));
           const constructing = yield* Effect.forkChild(
             retainPreparedHost(
               runtime,
@@ -570,6 +634,7 @@ it(
             ),
           );
           yield* Deferred.await(useEntered);
+          yield* Deferred.await(generationEntered);
           yield* Deferred.await(constructionEntered);
           let finished = false;
           const closing = yield* Effect.forkChild(
@@ -589,12 +654,19 @@ it(
             yield* Effect.flip(retainPreparedHost(runtime, prepare)),
           ).toMatchObject({ reason: "closed" });
           expect(finished).toBe(false);
+          expect(yield* Effect.flip(generation.use(() => Effect.void))).toMatchObject({ reason: "closed" });
+          expect(yield* Effect.flip(Effect.scoped(generation.acquire))).toMatchObject({ reason: "closed" });
+          expect(yield* Effect.flip(held.reconstruct(() => Effect.succeed("late")))).toMatchObject({ reason: "closed" });
+          expect(held.readUsage()).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
           yield* Deferred.succeed(release, undefined);
           expect(yield* Fiber.join(running)).toBe(32);
           expect(yield* Effect.flip(Fiber.join(constructing))).toMatchObject({
             reason: "closed",
           });
+          yield* Fiber.join(generationBorrow);
           yield* Fiber.join(closing);
+          expect(staticDisposals).toBe(1);
+          expect(generationDisposals).toBe(1);
           expect(finished).toBe(true);
         }),
       ),

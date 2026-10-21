@@ -183,6 +183,7 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
   const done = yield* Deferred.make<void>();
   let value: Value | undefined;
   let active = 1; // Construction also owns its reservation until it settles.
+  let hostBorrows = 0;
   let constructing = true;
   const releaseConstruction = () => { if (constructing) { constructing = false; active--; } };
   let closing = false;
@@ -214,16 +215,20 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
     owner.leases.add(lease);
     return Effect.void;
   });
-  const chargeResult: PreparedHostPreparationCharge = data => {
-    if (owner.closed || closing) return Result.fail(error("closed"));
-    if (rejected !== undefined) return Result.fail(rejected);
-    return measurePayload(data, owner.maximumPreparedBytes - owner.bytes).pipe(
-      Result.map(size => { owner.bytes += size; bytes += size; }),
-      Result.mapError(cause => { rejected = cause; return cause; }));
-  };
-  const checkOpen = (): Result.Result<void, PreparedHostRuntimeError> => owner.closed || closing ? Result.fail(error("closed")) :
+  const checkAllocation = (): Result.Result<void, PreparedHostRuntimeError> =>
     rejected === undefined ? Result.succeed(undefined) : Result.fail(rejected);
-  const onDispose: PreparedHostPreparationLifetime["onDispose"] = dispose => checkOpen().pipe(
+  // New uses and unfinished stages always require admission to remain open.
+  const checkOpen = (): Result.Result<void, PreparedHostRuntimeError> =>
+    owner.closed || closing ? Result.fail(error("closed")) : checkAllocation();
+  // Only an installed host's actual use can keep its static issuers alive while
+  // draining. Active construction and generation reservations do not count.
+  const checkLifetime = (): Result.Result<void, PreparedHostRuntimeError> =>
+    value !== undefined && hostBorrows > 0 ? checkAllocation() : checkOpen();
+  const chargeResult: PreparedHostPreparationCharge = data => checkLifetime().pipe(
+    Result.flatMap(() => measurePayload(data, owner.maximumPreparedBytes - owner.bytes).pipe(
+      Result.map(size => { owner.bytes += size; bytes += size; }),
+      Result.mapError(cause => { rejected = cause; return cause; }))));
+  const onDispose: PreparedHostPreparationLifetime["onDispose"] = dispose => checkLifetime().pipe(
     Result.map(() => { staticDisposals.add(dispose); }));
   /** Read the real lease accounting without charging or exposing its value. */
   const readUsage = (): Result.Result<Readonly<{ chargedBytes: number }>, PreparedHostRuntimeError> =>
@@ -251,7 +256,10 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
       };
       const reclaim = () => { if (retired && borrowing === 0) dispose(); };
       reservation.abandon = () => { retired = true; reclaim(); };
-      const generationCheck = (): Result.Result<void, PreparedHostRuntimeError> => checkOpen().pipe(
+      // Completed generations retain their issuers for existing borrowers,
+      // including retired borrowers; unfinished construction stays strict.
+      const generationCheck = (): Result.Result<void, PreparedHostRuntimeError> =>
+        (generationValue !== undefined && borrowing > 0 ? checkAllocation() : checkOpen()).pipe(
         Result.flatMap(() => stageRejected !== undefined ? Result.fail(stageRejected) :
           retired && borrowing === 0 ? Result.fail(error("closed")) : Result.succeed(undefined)));
       const generationCharge: PreparedHostPreparationCharge = data => generationCheck().pipe(
@@ -270,7 +278,8 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
           const acquireBorrow = Effect.suspend(() => {
             if (retired || generationValue === undefined) return Effect.fail(error("closed"));
             const current = generationValue.value;
-            return Effect.fromResult(generationCheck()).pipe(Effect.map(() => { borrowing++; active++; return current; }));
+            return Effect.fromResult(checkOpen().pipe(Result.flatMap(generationCheck))).pipe(
+              Effect.map(() => { borrowing++; active++; return current; }));
           });
           const releaseBorrow = () => Effect.suspend(() => { borrowing--; active--; reclaim(); return finish; });
           const use: PreparedHostGeneration<Effect.Success<typeof construction>>["use"] = work =>
@@ -312,11 +321,13 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
           return Effect.fail(error("closed"));
         if (rejected !== undefined) return Effect.fail(rejected);
         active++;
+        hostBorrows++;
         return Effect.succeed(value);
       }),
       (host) => Effect.suspend(() => work(host)),
       () =>
         Effect.suspend(() => {
+          hostBorrows--;
           active--;
           return finish;
         }),
@@ -325,7 +336,7 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
     work: (host: Value) => Effect.Effect<A, E, R>,
   ): Effect.Effect<PreparedHostGeneration<A>, E | PreparedHostRuntimeError, R> =>
     use(host => stage(Effect.suspend(() => work(host))));
-  return { charge, chargeResult, checkOpen, onDispose, stage, abandon, install, access: Object.freeze({ use, reconstruct, close, readUsage }) };
+  return { charge, chargeResult, checkOpen: checkLifetime, onDispose, stage, abandon, install, access: Object.freeze({ use, reconstruct, close, readUsage }) };
 });
 
 /** Bounded structural payload accounting. Repeated references are deliberately

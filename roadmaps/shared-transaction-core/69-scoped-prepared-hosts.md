@@ -62,17 +62,19 @@ database decision; the active call completes its existing recovery protocol.
 
 ## Validation And Completion
 
-The retained `cmsHostLifetime.test.ts` PGlite witness currently exposes a drain
-gap: closing a host while an admitted read is paused makes the resumed logical
-working set receive `PreparedHostRuntimeError` with reason `closed`. The host
-allocation's generation check uses the root open check during closing, although
-the admitted invocation still holds a borrow. Accepted work must finish before
-capacity and captured mechanics are released. Correct this at the prepared-host
-runtime and borrowed-mechanics lifetime owners; do not weaken the witness or
-repair it in a framework adapter. New calls and unfinished construction stages
-must still refuse once closing starts; distinguish an already accepted borrow.
-Fixture reuse for this witness is deferred
-until that core correction is authorized and owner/consumer regressions pass.
+The prepared-host runtime distinguishes admission from the continued lifetime
+of an existing borrow. An installed host's static issuers remain valid while an
+actual host use drains; completed generation issuers remain valid for their own
+callback and scoped borrowers, including retired generations. Both retain their
+bounded lazy charges, disposal registrations and sticky accounting refusals.
+Construction reservations alone do not keep issuers open during shutdown.
+
+New host calls, generation borrows and stages, unfinished construction and usage
+inspection still refuse once closing starts. Payload disposal and capacity return
+wait for the final actual borrower. Keep this distinction at the shared lifetime
+owner; framework adapters and logical mechanics must not bypass its checks.
+The retained `cmsHostLifetime.test.ts` witness exercises resumed admitted work,
+surviving hosts and exact replay without a framework-local drain exception.
 
 Prove shared capacity across multiple hosts, byte refusal before exposure,
 reservation cleanup on failure/interruption, no admission after close, and drain
