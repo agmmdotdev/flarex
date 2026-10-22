@@ -3,7 +3,8 @@
 ## Status And Scope
 
 Status: SA1 protected permission evidence is implemented as a bounded private
-backend foundation. SA2-SA4 remain proposed and pending. Native authorized saves
+backend foundation. SA2 is blocked on the shared V3/joint-source composition
+prerequisite below; SA2-SA4 remain proposed and pending. Native authorized saves
 and public API syntax are not implemented by this slice.
 
 The shared analysis/binding, retained ownership, finite admission and settlement
@@ -147,6 +148,74 @@ authorization; those remain SA2 and SA3 obligations below.
 
 ## Proposed Save Decisions
 
+### SA2 Prerequisite: Protected V3 And Joint Sources
+
+SA1 and the existing mixed reference consumer currently use different admitted
+schema paths. The protected permission table is authenticated by the V3 embedded
+write-policy manifest. Existing mixed Payload/Product execution composes
+independent Application, Payload and Medusa sources. The following guards
+prevent connecting those paths today:
+
+- The current [schema composer](../../packages/medusa-adapter/src/composition/schema.ts)
+  explicitly rejects a genuine V3 analysis as `mixedApplicationPolicy`. Simply
+  removing that guard would also project Payload-managed tables as ordinary
+  Application definitions and discard per-table command ownership. Its existing
+  placement restriction is another explicit profile gate; composition must
+  preserve admitted placement rather than erase it.
+- The [logical schema admission owner](../../packages/persistence-postgres/src/storage/catalog/logicalSchemaAdmission.ts)
+  explicitly refuses a retained V3 binding as `unsupportedOwnershipBaseline`.
+  Bypassing the composer with a hand-built candidate therefore does not establish
+  safe retained ownership or admit the required joint catalog.
+- The [composite finite preparation owner](../../packages/persistence-postgres/src/application/activation/finitePreparation.ts)
+  rejects `originalGenerationBinding`. Existing mixed preparation supplies that
+  genuine borrowed binding to retain one source generation. SA1 only proves
+  standalone V3 finite preparation with no Application relation definitions.
+
+The [prerequisite witness](../../packages/flarex-backend/test/privatePayloadSaveCompositionPreflight.test.ts)
+uses actual SA1 cold analysis, V3 readiness/activation and genuine active
+selection. It witnesses the composer and borrowed-binding refusals; it does not
+execute or validate the proposed logical-admission correction. Its refusal
+expectations are temporary gap evidence, not a requirement to preserve the gap.
+Replace them with connected success and negative ownership assertions when the
+correction is authorized and implemented.
+
+Proposed correction, pending explicit authorization under `AGENTS.md`:
+
+1. Extend the shared Application source projection/composition owner to consume
+   genuine V3 analysis and native Payload compiler output together. Select each
+   table once by its authenticated schema/write owner; preserve command policy
+   identity, Payload provenance, placements and stable table identities. Keep
+   Application/Payload projection at a shared owner rather than adding a
+   Payload-only bypass in the adapter or test harness. Medusa's compiler still
+   supplies its own unchanged native definitions.
+2. Extend logical catalog admission to validate the retained V3 ownership
+   baseline against those actual source bindings. Admit only exact preserved
+   ownership; refuse command-to-ordinary changes, Payload-to-Application changes,
+   policy reinterpretation, removal and identity changes. This is a fresh private
+   composition proof, not an approved migration/backfill of named durable data.
+3. Extend genuine V3 finite preparation and source composition to borrow the
+   original authenticated generation through the existing selection/lifetime,
+   metadata and publication owners. Preserve the protected command claim and
+   ordinary mutation denial after mapping the joint catalog. Do not fabricate
+   legacy authority, weaken table comparisons, or introduce another settlement
+   owner. Application relation and placement support must remain bounded by
+   demonstrated compatibility; unsupported profiles still refuse.
+4. Prove a protected policy point and native Payload article/Product source in
+   one actual finite root before implementing save grants. Verify ordinary
+   self-grants remain impossible, exact permission dependencies reach publication,
+   and binding/claim changes invalidate preparation. Use PGlite and an
+   ordinary-role PostgreSQL target, plus the affected Worker consumers.
+5. Then resume SA2's native source access and effective per-write reference
+   decisions below. Any shared projection replacement must migrate its real
+   callers and remove displaced assembly in the same scope. No Medusa service,
+   workflow, promoted source or concurrent implementation change is selected.
+
+Do not substitute ordinary Application policy records, untracked fixture grants,
+adapter checks over request data, or a direct candidate that skips retained-owner
+validation. Those would remove SA1's protected source rather than connect it.
+
+### Native Save Policy
+
 Use native Payload create/update/delete access with `overrideAccess: false` for
 the source operation. Source authorization and target-reference authorization
 must both succeed. Target read or discovery permission implies neither target
@@ -282,7 +351,7 @@ Cancellation/closed authority cannot mint or reuse a live save capability.
 | Gate | Status and exit criteria |
 | --- | --- |
 | SA1: protected permission evidence | Implemented for the bounded private source above: command-only ownership, genuine V3 finite admission, tracked policy reads, opaque attempt/principal evidence, missing/corruption distinctions and same-root acquisition refusal. No authorized native save profile is activated. |
-| SA2: native authorized saves | Real Payload create/update/delete with source denial and target assignment/retention decisions; authorize normalized effective fields and all admitted writes. Prove null/omitted/same-value, clear/reattach and repeated-call behavior; no nested commerce write authority. |
+| SA2: native authorized saves | Blocked on the shared V3/joint-source prerequisite above. Then prove real Payload create/update/delete with source denial and target assignment/retention decisions; authorize normalized effective fields and all admitted writes. Prove null/omitted/same-value, clear/reattach and repeated-call behavior; no nested commerce write authority. |
 | SA3: atomic freshness and replay | Fresh save after picker permission revocation denies. Revocation versus in-flight save in both commit orders validates tracked evidence. Caught denial cannot publish; exact replay does not rerun hooks; changed grants refuse; fresh-root retry reauthorizes. Preserve cancellation and lost-COMMIT outcome ownership. |
 | SA4: consumer cutover and cleanup | Migrate only the selected private save consumer. Remove displaced allow-all assembly for that consumer, retain distinct trusted/default and read-only profiles, and preserve native lifecycle/integrity regressions. Do not claim general serving authorization. |
 

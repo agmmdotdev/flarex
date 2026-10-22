@@ -47,7 +47,10 @@ permission freshness through existing dependency/publication owners. SA1 now
 implements protected Application command-only policy writes and tracked private
 permission evidence in a bounded V3 finite profile. Native authorized saves,
 effective-edge decisions and their connected revocation/replay proof remain
-SA2-SA4 gates; no public API syntax is selected.
+SA2-SA4 gates. SA2 first needs the recorded shared V3/joint-source composition
+correction: the joint composer, retained ownership baseline and borrowed finite
+generation do not yet admit SA1's protected source together with the existing
+mixed consumer. No public API syntax is selected.
 
 Status: the Application, Product, selected Payload Local API, and finite
 Medusa workflow slices are implemented as a private, isolated-scope execution
