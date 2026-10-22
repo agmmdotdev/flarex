@@ -1,4 +1,6 @@
 // @ts-check
+import { taxLinesSourcePairs, verifyTaxLinesFork } from "./check-medusa-cart-prerequisite-source.mjs";
+import { verifyPortableAwilixSource } from "./check-medusa-awilix-portable-source.mjs";
 import { verifyPriceListPriceUpdatePolicySelection, verifyPriceListPriceUpdateSelection, verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder, verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyCsvNormalizerTests, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection, verifyInventoryCreateTests, verifyInventoryUpdateTests, verifyInventoryLevelUpdateTests, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields, verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
 import { verifyShippingOptionCreateCallbacks, verifyShippingOptionUpdateCallbacks, verifyShippingOptionDeleteCallbacks, verifyFulfillmentCreationCallbacks, verifyReturnFulfillmentCreationCallbacks, verifyFulfillmentCancellationCallbacks, verifyFulfillmentShipmentCallbacks, verifyRegionManifestFork } from "./check-medusa-shipping-option-source.mjs";
 import { deliverySourcePairs, verifyFulfillmentDeliveryCallbacks, verifyNativeSkipStepResponseType } from "./check-medusa-delivery-source.mjs";
@@ -13,7 +15,7 @@ import { inventoryConfirmationSourcePairs, inventoryAvailabilitySourcePair, veri
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "@typescript/typescript6";
 
 const manifestPath = "roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json";
@@ -283,6 +285,8 @@ function inventory(root, relative) {
 /** @param {string} root @param {unknown} supplied @returns {Promotion} */
 export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync(path.join(root, manifestPath), "utf8"))) {
   assertPromotion(supplied);
+  const awilixErrors = verifyPortableAwilixSource(pathToFileURL(path.resolve(root) + path.sep));
+  if (awilixErrors.length) throw new Error(awilixErrors.join("\n"));
   verifyNativeJsonAssignment(root);
   verifyPricingCandidateConstraintExport(
     readFileSync(path.join(root, sourcePrefix + "packages/modules/pricing/src/services/index.ts"), "utf8"),
@@ -773,6 +777,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       ["packages/medusa-pricing/src/normalization.ts", "packages/modules/pricing/src/services/pricing-module.ts"],
     ]) if (file.target === target && (file.classification !== "selectedExportFacade" || file.source !== sourcePrefix + source))
       throw new Error("Shipping Option extraction outside its exact pinned source pair");
+    if (file.classification === "taxLinesFork" && !taxLinesSourcePairs.some(pair => pair.target === file.target && pair.source === file.source))
+      throw new Error("Tax lines outside their exact native source pairs");
     if (file.classification === "paymentJoinerFork" && !cartPrerequisiteSourcePairs.some(pair => pair.target === file.target && pair.classification === "paymentJoinerFork"))
       throw new Error("Payment joiner adaptation outside its selected native source pair");
     if (file.classification === "workflowCacheFork" && !workflowCacheSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
@@ -781,7 +787,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       throw new Error("Customer selection adaptation outside its selected native source pair");
     if (file.classification === "inventoryConfirmationFork" && !inventoryConfirmationSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
       throw new Error("Inventory confirmation adaptation outside its selected native source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "inventoryConfirmationFork", "taxLinesFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -892,6 +898,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
         verifyModuleTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (cartPrerequisiteSourcePairs.some(pair => pair.target === file.target && pair.classification === "importRelocation"))
         verifyModuleTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
+      if (file.classification === "taxLinesFork")
+        verifyTaxLinesFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.classification === "paymentJoinerFork")
         verifyPaymentJoinerFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "workflowCacheFork")

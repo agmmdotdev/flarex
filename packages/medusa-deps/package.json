@@ -22,8 +22,17 @@
       "types": "./dist/awilix.d.ts",
       "source": "./src/awilix.ts",
       "default": "./dist/awilix.js"
+    },
+    "./awilix-portable": {
+      "types": "./src/awilix-portable.d.mts",
+      "source": "./src/awilix-portable.mjs",
+      "default": "./src/awilix-portable.mjs"
     }
   },
+  "files": [
+    "dist",
+    "src"
+  ],
   "license": "MIT",
   "dependencies": {
     "@mikro-orm/core": "6.4.16",

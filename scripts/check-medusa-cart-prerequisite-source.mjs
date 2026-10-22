@@ -6,6 +6,19 @@ import ts from "@typescript/typescript6";
 const failure = "Changed native Cart prerequisite source";
 const nativePrefix = "third_party/medusa/upstream/";
 
+export const taxLinesSourcePairs = Object.freeze([
+  { source: nativePrefix + "packages/core/core-flows/src/tax/steps/get-item-tax-lines.ts",
+    target: "packages/medusa-core-flows/src/tax/steps/get-item-tax-lines.ts", classification: "taxLinesFork" },
+  { source: nativePrefix + "packages/modules/tax/src/providers/system.ts",
+    target: "packages/medusa-tax/src/providers/system.ts", classification: "taxLinesFork" },
+  { source: nativePrefix + "packages/modules/tax/src/services/tax-module-service.ts",
+    target: "packages/medusa-tax/src/services/tax-module-service.ts", classification: "taxLinesFork" },
+  { source: nativePrefix + "packages/modules/tax/src/services/index.ts",
+    target: "packages/medusa-tax/src/services/index.ts", classification: "taxLinesFork" },
+  { source: nativePrefix + "packages/core/types/src/tax/common.ts",
+    target: "packages/medusa-types/src/tax/common.ts", classification: "taxLinesFork" },
+].map(pair => Object.freeze(pair)));
+
 export const customerSelectionSourcePairs = Object.freeze([
   { source: nativePrefix + "packages/core/core-flows/src/cart/steps/find-or-create-customer.ts",
     target: "packages/medusa-core-flows/src/cart/steps/find-or-create-customer.ts", classification: "customerSelectionFork" },
@@ -25,6 +38,9 @@ export const workflowCacheSourcePairs = Object.freeze([
 /** Exact source preparation closure. Promotion admits models and pure calculators;
  * its ORM service, prefilter and service metadata are deliberately absent. */
 export const cartPrerequisiteSourcePairs = Object.freeze([
+  ...taxLinesSourcePairs,
+  { source: nativePrefix + "packages/core/types/src/order/workflows.ts",
+    target: "packages/medusa-types/src/order/workflows.ts", classification: "unchanged" },
   ...customerSelectionSourcePairs,
   ...workflowCacheSourcePairs,
   {
@@ -220,21 +236,6 @@ export const cartPrerequisiteSourcePairs = Object.freeze([
   {
     "source": "third_party/medusa/upstream/packages/modules/tax/src/models/tax-region.ts",
     "target": "packages/medusa-tax/src/models/tax-region.ts",
-    "classification": "importRelocation"
-  },
-  {
-    "source": "third_party/medusa/upstream/packages/modules/tax/src/providers/system.ts",
-    "target": "packages/medusa-tax/src/providers/system.ts",
-    "classification": "unchanged"
-  },
-  {
-    "source": "third_party/medusa/upstream/packages/modules/tax/src/services/index.ts",
-    "target": "packages/medusa-tax/src/services/index.ts",
-    "classification": "unchanged"
-  },
-  {
-    "source": "third_party/medusa/upstream/packages/modules/tax/src/services/tax-module-service.ts",
-    "target": "packages/medusa-tax/src/services/tax-module-service.ts",
     "classification": "importRelocation"
   },
   {
@@ -616,6 +617,90 @@ function authorityProgram(text) {
 function replaceChecked(source, before, after) {
   if (source.split(before).length !== 2) throw new Error(failure + ": Payment adaptation anchor");
   return source.replace(before, after);
+}
+
+/** Preserve the complete native step and extract only SystemTax's existing
+ * field projection. The lazy callback retains each native identifier lookup.
+ * @param {string} source @param {string} target @param {string} destination */
+export function verifyTaxLinesFork(source, target, destination) {
+  let expected = source;
+  if (destination === taxLinesSourcePairs[0]?.target) {
+    const end = expected.indexOf('from "@medusajs/framework/types"') + 'from "@medusajs/framework/types"'.length;
+    if (!expected.startsWith("import {\n") || end < 30) throw new Error(failure + ": Tax type imports");
+    expected = 'import type { CartLineItemDTO, CartShippingMethodDTO, CartWorkflowDTO } from "@medusajs/types/cart/index"\n'
+      + 'import type { OrderLineItemDTO, OrderShippingMethodDTO } from "@medusajs/types/order/common"\n'
+      + 'import type { OrderWorkflowDTO } from "@medusajs/types/order/workflows"\n'
+      + 'import type { ITaxModuleService, ItemTaxLineDTO, ShippingTaxLineDTO, TaxableItemDTO, TaxableShippingDTO, TaxCalculationContext } from "@medusajs/types/tax/index"'
+      + expected.slice(end);
+    expected = replaceChecked(expected, 'from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
+    expected = replaceChecked(expected, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  } else if (destination === taxLinesSourcePairs[1]?.target) {
+    const parsed = ts.createSourceFile("native-system-tax.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const classes = parsed.statements.filter(ts.isClassDeclaration);
+    const methods = classes.flatMap(node => [...node.members]).filter(node => ts.isMethodDeclaration(node)
+      && ts.isIdentifier(node.name) && node.name.text === "getTaxLines");
+    const method = methods[0];
+    if (classes.length !== 1 || methods.length !== 1 || method === undefined || !ts.isMethodDeclaration(method) || method.body === undefined)
+      throw new Error(failure + ": Tax formatter anchor");
+    const body = method.body.getText(parsed);
+    if (body.split("this.getIdentifier()").length !== 3) throw new Error(failure + ": Tax identifier sites");
+    expected = source.slice(0, method.body.getStart(parsed))
+      + "{ return formatSystemTaxLines(itemLines, shippingLines, () => this.getIdentifier()) }"
+      + source.slice(method.body.end)
+      + `\nexport function formatSystemTaxLines(
+        itemLines: TaxTypes.ItemTaxCalculationLine[], shippingLines: TaxTypes.ShippingTaxCalculationLine[],
+        getIdentifier: () => string
+      ): (TaxTypes.ItemTaxLineDTO | TaxTypes.ShippingTaxLineDTO)[] `
+      + body.replaceAll("this.getIdentifier()", "getIdentifier()");
+  } else if (destination === taxLinesSourcePairs[2]?.target) {
+    const parsed = ts.createSourceFile("native-tax-service.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const classes = parsed.statements.filter(ts.isClassDeclaration);
+    if (classes.length !== 1) throw new Error(failure + ": Tax service class");
+    const members = classes.flatMap(node => [...node.members]).filter(ts.isMethodDeclaration);
+    const names = ["getTaxRatesForItem", "getTaxRateQueryForItem", "rateMatchesQuery", "checkRuleMatches", "prioritizeRates"];
+    const extracted = names.map(name => {
+      const selected = members.filter(node => ts.isIdentifier(node.name) && node.name.text === name);
+      if (selected.length !== 1 || selected[0] === undefined) throw new Error(failure + ": Tax selector method");
+      return selected[0];
+    });
+    const rootMethods = members.filter(node => ts.isIdentifier(node.name) && node.name.text === "getTaxLines");
+    const root = rootMethods[0];
+    if (rootMethods.length !== 1 || root?.body === undefined) throw new Error(failure + ": Tax call body");
+    const maps = root.body.statements.filter(ts.isVariableStatement).filter(node => node.declarationList.declarations.some(
+      declaration => ts.isIdentifier(declaration.name) && declaration.name.text === "toReturn"));
+    const mapping = maps[0];
+    if (maps.length !== 1 || mapping === undefined) throw new Error(failure + ": Tax item map");
+    /** @param {string} text */
+    const localCalls = text => names.reduce((value, name) => value.replaceAll("this." + name + "(", name + "("), text);
+    const mapBody = replaceChecked(localCalls(mapping.getText(parsed)), "const toReturn =", "return");
+    const helpers = extracted.map((node, index) => replaceChecked(localCalls(node.getText(parsed)), "private " + names[index] + "(", "function " + names[index] + "("));
+    const changes = [
+      { start: mapping.getStart(parsed), end: mapping.end,
+        value: "const toReturn = selectTaxRatesForItems(items, allCandidateRates, regionIds)" },
+      ...extracted.map(node => ({ start: node.getStart(parsed), end: node.end, value: "" })),
+    ].sort((a, b) => b.start - a.start);
+    for (const change of changes) expected = expected.slice(0, change.start) + change.value + expected.slice(change.end);
+    expected = replaceChecked(expected, 'from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
+    expected += `\nexport function selectTaxRatesForItems(
+      items: (TaxTypes.TaxableItemDTO | TaxTypes.TaxableShippingDTO)[],
+      allCandidateRates: InferEntityType<typeof TaxRate>[], regionIds: string[]
+    ): ItemWithRates[] { ${mapBody} }\n` + helpers.join("\n");
+  } else if (destination === taxLinesSourcePairs[3]?.target) {
+    expected = replaceChecked(expected, "export { default as TaxModuleService }", "export { default as TaxModuleService, selectTaxRatesForItems }");
+  } else if (destination === taxLinesSourcePairs[4]?.target) {
+    const parsed = ts.createSourceFile("native-tax-types.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const declarations = parsed.statements.filter(ts.isInterfaceDeclaration).filter(node => node.name.text === "TaxCalculationContext");
+    const declaration = declarations[0];
+    if (declarations.length !== 1 || declaration === undefined) throw new Error(failure + ": Tax context type");
+    let context = declaration.getText(parsed).replace(/^(\s+\w+\?: [^\r\n{]+)$/gm, "$1 | undefined");
+    context = replaceChecked(context, "  }\n\n  /**\n   * Whether", "  } | undefined\n\n  /**\n   * Whether");
+    context = replaceChecked(context, "  }[]", "  }[] | undefined");
+    context = replaceChecked(context, "    shipping_option_id: string", "    shipping_option_id: string | undefined");
+    context = replaceChecked(context, "    amount: number", "    amount: BigNumberValue");
+    expected = source.slice(0, declaration.getStart(parsed)) + context + source.slice(declaration.end);
+    expected = replaceChecked(expected, 'import { BigNumberInput } from "../totals"', 'import { BigNumberInput, BigNumberValue } from "../totals"');
+  } else throw new Error(failure + ": Tax destination");
+  if (authorityProgram(expected) !== authorityProgram(target)) throw new Error(failure + ": Tax lines");
 }
 
 /** The already pinned wrapper delegates supplied models without discovery.

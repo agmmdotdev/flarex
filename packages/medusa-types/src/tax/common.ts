@@ -1,6 +1,6 @@
 import { BaseFilterable } from "../dal"
 import { OperatorMap } from "../dal/utils"
-import { BigNumberInput } from "../totals"
+import { BigNumberInput, BigNumberValue } from "../totals"
 
 /**
  * The tax rate details.
@@ -424,7 +424,7 @@ export interface TaxCalculationContext {
   /**
    * The locale of the tax calculation.
    */
-  locale?: string
+  locale?: string | undefined
   /**
    * The customer's address
    */
@@ -437,32 +437,32 @@ export interface TaxCalculationContext {
     /**
      * The lower-case [ISO 3166-2](https://en.wikipedia.org/wiki/ISO_3166-2) province or state code.
      */
-    province_code?: string | null
+    province_code?: string | null | undefined
 
     /**
      * The first line of the address.
      */
-    address_1?: string
+    address_1?: string | undefined
 
     /**
      * The second line of the address
      */
-    address_2?: string | null
+    address_2?: string | null | undefined
 
     /**
      * The city.
      */
-    city?: string
+    city?: string | undefined
 
     /**
      * The postal code.
      */
-    postal_code?: string
+    postal_code?: string | undefined
 
     /**
      * Address metadata.
      */
-    metadata?: Record<string, unknown> | null
+    metadata?: Record<string, unknown> | null | undefined
   }
 
   /**
@@ -487,13 +487,13 @@ export interface TaxCalculationContext {
     /**
      * Customer metadata.
      */
-    metadata?: Record<string, unknown> | null
-  }
+    metadata?: Record<string, unknown> | null | undefined
+  } | undefined
 
   /**
    * Whether the tax lines are calculated for an order return.
    */
-  is_return?: boolean
+  is_return?: boolean | undefined
 
   /**
    * The shipping method details.
@@ -512,13 +512,13 @@ export interface TaxCalculationContext {
     /**
      * The associated shipping options's ID.
      */
-    shipping_option_id: string
+    shipping_option_id: string | undefined
 
     /**
      * The amount of the shipping method.
      */
-    amount: number
-  }[]
+    amount: BigNumberValue
+  }[] | undefined
 }
 
 /**

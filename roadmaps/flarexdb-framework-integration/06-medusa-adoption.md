@@ -825,14 +825,25 @@ profile retains default resource limits and existing queued scheduling. This
 private bounded child is admitted; complete Cart admission and its other
 business decisions remain separate.
 
+The bounded [item and shipping Tax child](./preflight/163-native-item-tax-lines.md)
+admits the genuine native step, four-model read-only Tax participant and
+local SystemTax provider on PGlite and ordinary-role PostgreSQL. The native
+service and call receipt reuse exact extracted selection and formatting owners.
+It accepts supplied Cart/Order values and complete cohorts of at most four item
+lines, four shipping lines, two Regions, eight Rates and sixteen Rules, with
+default resource limits. The portable native container preserves missing-provider
+errors and request isolation. Tax configuration writes, remote providers and
+complete Cart admission remain separate.
+
 The [native Cart creation preflight](./preflight/160-native-cart-creation-workflow.md)
 records the next connected objective. Its selected original-native cohort is
 characterized, including genuine local SystemTax, the fresh Cart's empty
 Payment branch, native failures and retained inverses. Native cancellation
 leaves orphan Addresses and Cart-Promotion Links; proposed Cart/Link owner
 corrections require explicit native business decisions and native inverse proofs.
-The connected Cart, Customer, Tax, Promotion and complete Cart Link graph still
-need adapter owners. Complete capacity, remaining call-detail coverage and
+The complete Cart persistence, Promotion and Cart Link graph still need adapter
+owners; these Customer and Tax children do not establish Cart-root readiness.
+Complete capacity, remaining call-detail coverage and
 conditional provider/Locking lifecycles must be proved before choosing a
 profile. No Cart write or resource extension for the complete Cart root is
 admitted yet. The connected
@@ -846,7 +857,7 @@ Promotion currently exposes its models and pure calculators; its executing
 service remains gated by the native SQL prefilter's portable persistence seam.
 Payment's genuine System provider and service have portable entrypoints; its
 native provider-registration loader remains host-specific. Source promotion
-does not admit these modules' persistence operations or the Cart root.
+alone does not admit additional persistence operations or the Cart root.
 
 The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
 root and private adapter implement the bounded portable slice.

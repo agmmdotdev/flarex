@@ -1,4 +1,5 @@
 // @ts-check
+import { taxLinesSourcePairs, verifyTaxLinesFork } from "./check-medusa-cart-prerequisite-source.mjs";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { cartPrerequisiteSourcePairs, workflowCacheSourcePairs, customerSelectionSourcePairs, verifyCustomerSelectionFork, verifyWorkflowCacheFork, verifyCartPrerequisiteSourceSelection, verifyPaymentJoinerFork } from "./check-medusa-cart-prerequisite-source.mjs";
@@ -6,6 +7,47 @@ import { verifyModuleTypeFork } from "./check-medusa-currency-promotion.mjs";
 import { verifyTestPort } from "./check-medusa-test-port.mjs";
 
 const failure = "Changed native Cart prerequisite source";
+
+
+describe("native Tax line source contracts", () => {
+  it.each(taxLinesSourcePairs)("retains complete typed and emitted $target", pair => {
+    expect(() => verifyTaxLinesFork(readFileSync(pair.source, "utf8"), readFileSync(pair.target, "utf8"), pair.target)).not.toThrow();
+  });
+  it.each([
+    [0, "items.length", "filteredItems.length"],
+    [0, "shippingAddress ?? orderOrCart.shipping_address", "orderOrCart.shipping_address"],
+    [0, "forceTaxCalculation || orderOrCart.region?.automatic_taxes", "forceTaxCalculation"],
+    [0, "if (!taxContext)", "if (false)"],
+    [0, "orderOrCart.shipping_methods?.map", "[].map"],
+    [0, "normalizeLineItemsForTax(orderOrCart, filteredItems)", "normalizeLineItemsForTax(orderOrCart, items)"],
+    [0, 'Modules.TAX', '"other"'],
+    [1, "r.rate || 0", "r.rate ?? 0"],
+    [1, "rate_id: r.id", "rate_id: r.code"],
+    [1, "shipping_line_id: l.shipping_line.id", "shipping_line_id: r.id"],
+    [1, "() => this.getIdentifier()", "() => 'system'"],
+    [1, "provider_id: getIdentifier()", "provider_id: 'system'"],
+    [2, "prioritizedRates[0]", "prioritizedRates[1]"],
+    [2, "rate.is_combinable && rate.tax_region.parent_id", "rate.is_combinable"],
+    [2, "rule.reference_id === ruleQuery.reference_id", "true"],
+    [2, "selectTaxRatesForItems(items, allCandidateRates, regionIds)", "selectTaxRatesForItems([], allCandidateRates, regionIds)"],
+    [2, "rates: applicableRates", "rates: []"],
+    [3, "selectTaxRatesForItems", "anotherSelector"],
+    [4, "province_code?: string | null | undefined", "province_code?: string"],
+    [4, "amount: BigNumberValue", "amount: number"],
+  ])("refuses changed Tax behavior %j %s", (index, before, after) => {
+    const pair = taxLinesSourcePairs[Number(index)];
+    if (pair === undefined) throw new Error("Missing native Tax pair");
+    const original = readFileSync(pair.source, "utf8"), target = readFileSync(pair.target, "utf8");
+    const changed = target.replace(String(before), String(after));
+    expect(changed).not.toBe(target);
+    expect(() => verifyTaxLinesFork(original, changed, pair.target)).toThrow(failure);
+  });
+  it.each(taxLinesSourcePairs)("rejects an unselected destination for $target", pair => {
+    const original = readFileSync(pair.source, "utf8"), target = readFileSync(pair.target, "utf8");
+    expect(() => verifyTaxLinesFork(original, target, pair.target + ".adjacent")).toThrow(failure);
+    expect(() => verifyTaxLinesFork(original, target + "\nthrow new Error('extra');", pair.target)).toThrow(failure);
+  });
+});
 /** @param {string} target */
 function entry(target) {
   const pair = cartPrerequisiteSourcePairs.find(item => item.target === target);

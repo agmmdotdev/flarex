@@ -37,6 +37,7 @@ describe("Medusa source-island boundary checker", () => {
   it("excludes only the exact native source proof tools while adjacent tooling remains denied", () => {
     const repoRoot = mkdtempSync(join(tmpdir(), "flarex-medusa-proof-boundary-"));
     const verifierPaths = ["scripts/check-medusa-shipping-option-source.mjs", "scripts/check-medusa-shipping-option-source.test.js",
+      "scripts/check-medusa-awilix-portable-source.mjs", "scripts/check-medusa-awilix-portable-source.test.js",
       "scripts/check-medusa-delivery-source.mjs", "scripts/check-medusa-json-assignment-source.mjs", "scripts/medusa-json-assignment.test.js",
       "scripts/check-medusa-price-list-prices-source.mjs", "scripts/check-medusa-price-list-prices-source.test.js",
       "scripts/check-medusa-price-list-price-removal-source.test.js", "scripts/check-medusa-price-list-price-batch-source.test.js",
@@ -373,8 +374,10 @@ describe("Medusa source-island boundary checker", () => {
         specifier: "../../../medusa-adapter/test/support/native-product-attempt-seed", target: "packages/medusa-adapter/test/support/native-product-attempt-seed.ts" },
       { importer: "packages/persistence-postgres/test/execution/finitePreparedSourceComposition.test.ts",
         specifier: "../../../medusa-adapter/src/composition/schema", target: "packages/medusa-adapter/src/composition/schema.ts" },
-      { importer: "packages/flarex-backend/test/privatePayloadSaveCompositionPreflight.test.ts",
-        specifier: "../../medusa-adapter/src/composition/schema", target: "packages/medusa-adapter/src/composition/schema.ts" },
+      { importer: "packages/flarex-backend/test/support/privatePayloadSaveFixture.ts",
+        specifier: "../../../medusa-adapter/src/composition/schema", target: "packages/medusa-adapter/src/composition/schema.ts" },
+      { importer: "packages/flarex-backend/test/support/privatePayloadSaveFixture.ts",
+        specifier: "../../../medusa-adapter/src/modules/product/service", target: "packages/medusa-adapter/src/modules/product/service.ts" },
       { importer: "packages/flarex-backend/test/mixedMutationProduct.workerd.test.ts",
         specifier: "../../medusa-adapter/src/modules/product/attempt", target: "packages/medusa-adapter/src/modules/product/attempt.ts" },
       { importer: "packages/flarex-backend/test/preparedTargetMetadata.postgres.test.ts",
@@ -399,7 +402,8 @@ describe("Medusa source-island boundary checker", () => {
       const text = `import { operation } from ${JSON.stringify(edge.specifier)};`;
       expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
         rootSources: [{ relativePath: edge.importer, text }] }).errors).toEqual([]);
-      for (const relativePath of ["packages/flarex-backend/test/adjacent.test.ts", "packages/flarex-backend/src/runtime.ts",
+      for (const relativePath of ["packages/flarex-backend/test/privatePayloadSaveCompositionPreflight.test.ts",
+        "packages/flarex-backend/test/adjacent.test.ts", "packages/flarex-backend/src/runtime.ts",
         "packages/persistence-postgres/test/adjacent.test.ts", "packages/persistence-postgres/src/runtime.ts",
         "packages/executor/test/performance/support/adjacentFlows.ts", "packages/executor/src/productFlows.ts"]) {
         const specifier = posix.relative(posix.dirname(relativePath), edge.target).replace(/\.ts$/u, "");

@@ -486,18 +486,7 @@ export default class TaxModuleService
       sharedContext
     )
 
-    const toReturn = items.map((item) => {
-      const rateQuery = this.getTaxRateQueryForItem(item, regionIds)
-      const candidateRates = allCandidateRates.filter((rate) =>
-        this.rateMatchesQuery(rate, rateQuery)
-      )
-      const applicableRates = this.getTaxRatesForItem(item, candidateRates)
-
-      return {
-        rates: applicableRates,
-        item,
-      }
-    })
+    const toReturn = selectTaxRatesForItems(items, allCandidateRates, regionIds)
 
     const taxLines = await this.getTaxLinesFromProvider(
       parentRegion.provider_id as string,
@@ -634,42 +623,107 @@ export default class TaxModuleService
     }
   }
 
-  private getTaxRatesForItem(
-    item: TaxTypes.TaxableItemDTO | TaxTypes.TaxableShippingDTO,
-    rates: InferEntityType<typeof TaxRate>[]
-  ): InferEntityType<typeof TaxRate>[] {
-    if (!rates.length) {
-      return []
-    }
+  private normalizeRegionCodes(code: string) {
+    return code.toLowerCase()
+  }
+}
 
-    const prioritizedRates = this.prioritizeRates(rates, item)
-    const rate = prioritizedRates[0]
-
-    const ratesToReturn = [rate]
-
-    // If the rate can be combined we need to find the rate's
-    // parent region and add that rate too. If not we can return now.
-    if (!(rate.is_combinable && rate.tax_region.parent_id)) {
-      return ratesToReturn
-    }
-
-    // First parent region rate in prioritized rates
-    // will be the most granular rate.
-    const parentRate = prioritizedRates.find(
-      (r) => r.tax_region.id === rate.tax_region.parent_id
+/** The native read path and receipt share the same pure matching and stable priority selection. */
+export function selectTaxRatesForItems(
+  items: (TaxTypes.TaxableItemDTO | TaxTypes.TaxableShippingDTO)[],
+  allCandidateRates: InferEntityType<typeof TaxRate>[],
+  regionIds: string[]
+): ItemWithRates[] {
+  return items.map((item) => {
+    const rateQuery = getTaxRateQueryForItem(item, regionIds)
+    const candidateRates = allCandidateRates.filter((rate) =>
+      rateMatchesQuery(rate, rateQuery)
     )
+    const applicableRates = getTaxRatesForItem(item, candidateRates)
 
-    if (parentRate) {
-      ratesToReturn.push(parentRate)
+    return {
+      rates: applicableRates,
+      item,
     }
+  })
+}
 
+function getTaxRatesForItem(
+  item: TaxTypes.TaxableItemDTO | TaxTypes.TaxableShippingDTO,
+  rates: InferEntityType<typeof TaxRate>[]
+): InferEntityType<typeof TaxRate>[] {
+  if (!rates.length) {
+    return []
+  }
+
+  const prioritizedRates = prioritizeRates(rates, item)
+  const rate = prioritizedRates[0]
+
+  const ratesToReturn = [rate]
+
+  // If the rate can be combined we need to find the rate's
+  // parent region and add that rate too. If not we can return now.
+  if (!(rate.is_combinable && rate.tax_region.parent_id)) {
     return ratesToReturn
   }
 
-  private getTaxRateQueryForItem(
-    item: TaxTypes.TaxableItemDTO | TaxTypes.TaxableShippingDTO,
-    regionIds: string[]
-  ): {
+  // First parent region rate in prioritized rates
+  // will be the most granular rate.
+  const parentRate = prioritizedRates.find(
+    (r) => r.tax_region.id === rate.tax_region.parent_id
+  )
+
+  if (parentRate) {
+    ratesToReturn.push(parentRate)
+  }
+
+  return ratesToReturn
+}
+
+function getTaxRateQueryForItem(
+  item: TaxTypes.TaxableItemDTO | TaxTypes.TaxableShippingDTO,
+  regionIds: string[]
+): {
+  $and: {
+    tax_region_id?: string[]
+    $or?: {
+      is_default?: boolean
+      rules?: {
+        $or: { reference: string; reference_id: string | undefined }[]
+      }
+    }[]
+  }[]
+} {
+  const isShipping = "shipping_option_id" in item
+  let ruleQuery = isShipping
+    ? [
+        {
+          reference: "shipping_option",
+          reference_id: item.shipping_option_id,
+        },
+      ]
+    : [
+        {
+          reference: "product",
+          reference_id: item.product_id,
+        },
+        {
+          reference: "product_type",
+          reference_id: item.product_type_id,
+        },
+      ]
+
+  return {
+    $and: [
+      { tax_region_id: regionIds },
+      { $or: [{ is_default: true }, { rules: { $or: ruleQuery } }] },
+    ],
+  }
+}
+
+function rateMatchesQuery(
+  rate: InferEntityType<typeof TaxRate>,
+  query: {
     $and: {
       tax_region_id?: string[]
       $or?: {
@@ -679,167 +733,122 @@ export default class TaxModuleService
         }
       }[]
     }[]
-  } {
-    const isShipping = "shipping_option_id" in item
-    let ruleQuery = isShipping
-      ? [
-          {
-            reference: "shipping_option",
-            reference_id: item.shipping_option_id,
-          },
-        ]
-      : [
-          {
-            reference: "product",
-            reference_id: item.product_id,
-          },
-          {
-            reference: "product_type",
-            reference_id: item.product_type_id,
-          },
-        ]
-
-    return {
-      $and: [
-        { tax_region_id: regionIds },
-        { $or: [{ is_default: true }, { rules: { $or: ruleQuery } }] },
-      ],
-    }
   }
+): boolean {
+  const { $and } = query
+  const [regionCheck, ruleCheck] = $and
 
-  private rateMatchesQuery(
-    rate: InferEntityType<typeof TaxRate>,
-    query: {
-      $and: {
-        tax_region_id?: string[]
-        $or?: {
-          is_default?: boolean
-          rules?: {
-            $or: { reference: string; reference_id: string | undefined }[]
-          }
-        }[]
-      }[]
-    }
-  ): boolean {
-    const { $and } = query
-    const [regionCheck, ruleCheck] = $and
-
-    // Check region match
-    if (!regionCheck.tax_region_id?.includes(rate.tax_region_id)) {
-      return false
-    }
-
-    // Check rule match
-    const { $or } = ruleCheck
-    if (rate.is_default) {
-      return true
-    }
-
-    // Check if any rule matches
-    for (const ruleCondition of $or ?? []) {
-      if (ruleCondition.is_default && rate.is_default) {
-        return true
-      }
-      if (ruleCondition.rules) {
-        const { $or: ruleQueries } = ruleCondition.rules
-        for (const ruleQuery of ruleQueries) {
-          if (
-            [...(rate.rules ?? [])]?.some(
-              (rule: InferEntityType<typeof TaxRateRule>) =>
-                rule.reference === ruleQuery.reference &&
-                rule.reference_id === ruleQuery.reference_id
-            )
-          ) {
-            return true
-          }
-        }
-      }
-    }
-
+  // Check region match
+  if (!regionCheck.tax_region_id?.includes(rate.tax_region_id)) {
     return false
   }
 
-  private checkRuleMatches(
-    rate: InferEntityType<typeof TaxRate>,
-    item: TaxTypes.TaxableItemDTO | TaxTypes.TaxableShippingDTO
-  ) {
-    if (rate.rules.length === 0) {
-      return {
-        isProductMatch: false,
-        isProductTypeMatch: false,
-        isShippingMatch: false,
+  // Check rule match
+  const { $or } = ruleCheck
+  if (rate.is_default) {
+    return true
+  }
+
+  // Check if any rule matches
+  for (const ruleCondition of $or ?? []) {
+    if (ruleCondition.is_default && rate.is_default) {
+      return true
+    }
+    if (ruleCondition.rules) {
+      const { $or: ruleQueries } = ruleCondition.rules
+      for (const ruleQuery of ruleQueries) {
+        if (
+          [...(rate.rules ?? [])]?.some(
+            (rule: InferEntityType<typeof TaxRateRule>) =>
+              rule.reference === ruleQuery.reference &&
+              rule.reference_id === ruleQuery.reference_id
+          )
+        ) {
+          return true
+        }
       }
     }
+  }
 
-    let isProductMatch = false
-    const isShipping = "shipping_option_id" in item
-    const matchingRules = rate.rules.filter((rule) => {
-      if (isShipping) {
-        return (
-          rule.reference === "shipping_option" &&
-          rule.reference_id === item.shipping_option_id
-        )
-      }
-      return (
-        (rule.reference === "product" &&
-          rule.reference_id === item.product_id) ||
-        (rule.reference === "product_type" &&
-          rule.reference_id === item.product_type_id)
-      )
-    })
+  return false
+}
 
-    if (matchingRules.some((rule) => rule.reference === "product")) {
-      isProductMatch = true
-    }
-
+function checkRuleMatches(
+  rate: InferEntityType<typeof TaxRate>,
+  item: TaxTypes.TaxableItemDTO | TaxTypes.TaxableShippingDTO
+) {
+  if (rate.rules.length === 0) {
     return {
-      isProductMatch,
-      isProductTypeMatch: matchingRules.length > 0,
-      isShippingMatch: isShipping && matchingRules.length > 0,
+      isProductMatch: false,
+      isProductTypeMatch: false,
+      isShippingMatch: false,
     }
   }
 
-  private prioritizeRates(
-    rates: InferEntityType<typeof TaxRate>[],
-    item: TaxTypes.TaxableItemDTO | TaxTypes.TaxableShippingDTO
-  ) {
-    const decoratedRates = rates.map((rate) => {
-      const { isProductMatch, isProductTypeMatch, isShippingMatch } =
-        this.checkRuleMatches(rate, item)
-
-      const isProvince = rate.tax_region.province_code !== null
-      const isDefault = rate.is_default
-
-      const decoratedRate = {
-        ...rate,
-        priority_score: 7,
-      }
-
-      if ((isShippingMatch || isProductMatch) && isProvince) {
-        decoratedRate.priority_score = 1
-      } else if (isProductTypeMatch && isProvince) {
-        decoratedRate.priority_score = 2
-      } else if (isDefault && isProvince) {
-        decoratedRate.priority_score = 3
-      } else if ((isShippingMatch || isProductMatch) && !isProvince) {
-        decoratedRate.priority_score = 4
-      } else if (isProductTypeMatch && !isProvince) {
-        decoratedRate.priority_score = 5
-      } else if (isDefault && !isProvince) {
-        decoratedRate.priority_score = 6
-      }
-
-      return decoratedRate
-    }) as (InferEntityType<typeof TaxRate> & {
-      priority_score: number
-    })[]
-
-    return decoratedRates.sort(
-      (a, b) => (a as any).priority_score - (b as any).priority_score
+  let isProductMatch = false
+  const isShipping = "shipping_option_id" in item
+  const matchingRules = rate.rules.filter((rule) => {
+    if (isShipping) {
+      return (
+        rule.reference === "shipping_option" &&
+        rule.reference_id === item.shipping_option_id
+      )
+    }
+    return (
+      (rule.reference === "product" &&
+        rule.reference_id === item.product_id) ||
+      (rule.reference === "product_type" &&
+        rule.reference_id === item.product_type_id)
     )
+  })
+
+  if (matchingRules.some((rule) => rule.reference === "product")) {
+    isProductMatch = true
   }
 
-  private normalizeRegionCodes(code: string) {
-    return code.toLowerCase()
+  return {
+    isProductMatch,
+    isProductTypeMatch: matchingRules.length > 0,
+    isShippingMatch: isShipping && matchingRules.length > 0,
   }
+}
+
+function prioritizeRates(
+  rates: InferEntityType<typeof TaxRate>[],
+  item: TaxTypes.TaxableItemDTO | TaxTypes.TaxableShippingDTO
+) {
+  const decoratedRates = rates.map((rate) => {
+    const { isProductMatch, isProductTypeMatch, isShippingMatch } =
+      checkRuleMatches(rate, item)
+
+    const isProvince = rate.tax_region.province_code !== null
+    const isDefault = rate.is_default
+
+    const decoratedRate = {
+      ...rate,
+      priority_score: 7,
+    }
+
+    if ((isShippingMatch || isProductMatch) && isProvince) {
+      decoratedRate.priority_score = 1
+    } else if (isProductTypeMatch && isProvince) {
+      decoratedRate.priority_score = 2
+    } else if (isDefault && isProvince) {
+      decoratedRate.priority_score = 3
+    } else if ((isShippingMatch || isProductMatch) && !isProvince) {
+      decoratedRate.priority_score = 4
+    } else if (isProductTypeMatch && !isProvince) {
+      decoratedRate.priority_score = 5
+    } else if (isDefault && !isProvince) {
+      decoratedRate.priority_score = 6
+    }
+
+    return decoratedRate
+  }) as (InferEntityType<typeof TaxRate> & {
+    priority_score: number
+  })[]
+
+  return decoratedRates.sort(
+    (a, b) => (a as any).priority_score - (b as any).priority_score
+  )
 }

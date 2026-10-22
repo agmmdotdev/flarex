@@ -5,9 +5,9 @@
 Status: selected native contract characterized; the shared null-constraint and
 partial-index prerequisite is implemented. The bounded SQL-real prerequisite
 is validated through ordinary execution and finite capture on both database
-lanes; native Tax adapter admission remains pending. The next
-independent child is `tax/steps/get-item-tax-lines.ts`, composed as one private
-workflow around the genuine `getItemTaxLinesStep`.
+lanes. The bounded native Tax adapter is admitted on PGlite and ordinary-role
+PostgreSQL. The independent child is `tax/steps/get-item-tax-lines.ts`, composed
+as one private workflow around the genuine `getItemTaxLinesStep`.
 
 The executing reference remains Medusa 2.13.4 at
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`. Accepted shared logical storage,
@@ -54,10 +54,12 @@ capture erases those object properties before the argument decoder runs. The
 shared method boundary now offers an explicit `preserveOwnUndefined` selection
 and bounded JSON transport through the existing capture owner, as described in
 [workflow host composition](../../workflow-foundations/11-workflow-host-composition.md).
-The Tax method must select that mode and decode its complete transported input;
+The Tax method selects that mode and decodes its complete transported input;
 reconstructing a fixed list of Tax keys cannot preserve arbitrary native context.
-This prerequisite does not itself admit the Tax method or change default methods
-and Query inputs.
+The outer supplied-value input remains bounded JSON. Native-created intermediate
+properties retain their own undefined values; external undefined JSON is not a
+new root input contract. Default methods and Query inputs retain their existing
+omission policy.
 
 ## Tax service and local provider
 
@@ -81,6 +83,30 @@ normalized lookup context but passes the original calculation context to the
 provider. SystemTax returns native item/shipping tax lines, converts a null
 Rate to zero through its existing expression, and identifies itself as
 `system`. It does not calculate or persist monetary tax totals.
+
+The executing Tax service and its call receipt reuse the same native pure
+selection and SystemTax field projection. The extracted selection retains the
+five original matching/priority method bodies, stable candidate order and
+combinable parent behavior. The formatter keeps the native lazy identifier
+lookup once per emitted line. Receipt validation computes the complete ordered
+result from checked cohorts; it neither copies the matching algorithm nor calls
+the provider again. Raw read-support observations are fully decoded before the
+receipt reconstructs active selections; valid deleted support rows do not become
+active Rules or corruption failures. Native default primary-key ordering remains
+the candidate Rate ordering.
+
+The private `@medusajs/deps/awilix-portable` entrypoint extracts the pinned modern
+Awilix container, resolver, parser and Error classes. Host module loading remains
+unavailable. The published browser artifact's Error inheritance does not preserve
+the native missing-provider branch, so that artifact is not selected. Exact source
+guards authenticate the loader-free extraction and genuine declaration reuse.
+Request cradles register the logger explicitly and retain the same stateless
+SystemTax instance for one immutable module preparation. Browser-bundle execution
+is distinct from Workerd or hosted activation.
+
+Native context declarations now describe explicitly supplied undefined properties
+and original shipping BigNumber values. These type corrections preserve the
+executing step's projection rather than deleting properties or coercing amounts.
 
 External/remote providers are excluded. No transaction may span a remote tax
 request. Supporting such a provider needs a separate workflow boundary and
@@ -134,6 +160,12 @@ boundary; this prerequisite does not admit general Tax CRUD or change its DTO
 normalization. Preserve existing int32, binary64 and exact numeric contracts.
 
 ## Bounded admission plan
+
+The implemented branch uses one read-only Tax participant with the complete four
+native models. It exposes only `getTaxLines`, retains default 64-call/64-event
+limits and the existing outer settlement owner, and admits the complete bounded
+item/shipping and Rate/Rule cohorts below. Larger cohorts refuse before provider
+output; no partial result is returned.
 
 1. Complete the neutral schema prerequisites and bounded SQL-real owner proof with
    their owning regressions. Preserve original failures and separate corrected

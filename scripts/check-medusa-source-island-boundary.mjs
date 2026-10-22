@@ -79,42 +79,44 @@ const preparedTargetMetadataTestImports = new Map([
 // and capture normalization to prove the real core gate runs first.
 // These edges grant no permission to adjacent tests or production consumers.
 const finiteContractTestImports = new Map([
-  ["packages/persistence-postgres/test/execution/finiteIndexedBodyPermission.test.ts", {
+  ["packages/persistence-postgres/test/execution/finiteIndexedBodyPermission.test.ts", [{
     specifier: "../../../medusa-adapter/test/support/native-product-attempt-seed", target: "packages/medusa-adapter/test/support/native-product-attempt-seed.ts",
-  }],
-  ["packages/persistence-postgres/test/execution/finitePreparedSourceComposition.test.ts", {
+  }]],
+  ["packages/persistence-postgres/test/execution/finitePreparedSourceComposition.test.ts", [{
     specifier: "../../../medusa-adapter/src/composition/schema", target: "packages/medusa-adapter/src/composition/schema.ts",
-  }],
-  ["packages/flarex-backend/test/privatePayloadSaveCompositionPreflight.test.ts", {
-    specifier: "../../medusa-adapter/src/composition/schema", target: "packages/medusa-adapter/src/composition/schema.ts",
-  }],
-  ["packages/persistence-postgres/test/frameworks/atomicCommerce/atomicCommerceSharedInstallation.test.ts", {
+  }]],
+  ["packages/flarex-backend/test/support/privatePayloadSaveFixture.ts", [{
+    specifier: "../../../medusa-adapter/src/composition/schema", target: "packages/medusa-adapter/src/composition/schema.ts",
+  }, {
+    specifier: "../../../medusa-adapter/src/modules/product/service", target: "packages/medusa-adapter/src/modules/product/service.ts",
+  }]],
+  ["packages/persistence-postgres/test/frameworks/atomicCommerce/atomicCommerceSharedInstallation.test.ts", [{
     specifier: "../../../../medusa-adapter/src/workflow/value", target: "packages/medusa-adapter/src/workflow/value.ts",
-  }],
-  ["packages/persistence-postgres/test/frameworks/atomicCommerce/borrowedWorkflowCapture.test.ts", {
+  }]],
+  ["packages/persistence-postgres/test/frameworks/atomicCommerce/borrowedWorkflowCapture.test.ts", [{
     specifier: "../../../../medusa-adapter/src/workflow/value", target: "packages/medusa-adapter/src/workflow/value.ts",
-  }],
-  ["packages/flarex-backend/test/mixedMutationFiniteRetirement.workerd.test.ts", {
+  }]],
+  ["packages/flarex-backend/test/mixedMutationFiniteRetirement.workerd.test.ts", [{
     specifier: "../../medusa-adapter/src/modules/currency/service", target: "packages/medusa-adapter/src/modules/currency/service.ts",
-  }],
-  ["packages/persistence-postgres/test/application/applicationFiniteBindingCorrelation.test.ts", {
+  }]],
+  ["packages/persistence-postgres/test/application/applicationFiniteBindingCorrelation.test.ts", [{
     specifier: "../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
-  }],
-  ["packages/persistence-postgres/test/application/bindingMetadataBackfillScenario.ts", {
+  }]],
+  ["packages/persistence-postgres/test/application/bindingMetadataBackfillScenario.ts", [{
     specifier: "../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
-  }],
-  ["packages/persistence-postgres/test/execution/finiteSourceCommitClosure.test.ts", {
+  }]],
+  ["packages/persistence-postgres/test/execution/finiteSourceCommitClosure.test.ts", [{
     specifier: "../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
-  }],
-  ["packages/persistence-postgres/test/frameworks/commerceTransaction/commerceLogicalInitialization.test.ts", {
+  }]],
+  ["packages/persistence-postgres/test/frameworks/commerceTransaction/commerceLogicalInitialization.test.ts", [{
     specifier: "../../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
-  }],
-  ["packages/persistence-postgres/test/execution/journal/sessionJournalMultiSource.test.ts", {
+  }]],
+  ["packages/persistence-postgres/test/execution/journal/sessionJournalMultiSource.test.ts", [{
     specifier: "../../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
-  }],
-  ["packages/persistence-postgres/test/storage/catalog/appSchemaCandidateValidation.postgres.test.ts", {
+  }]],
+  ["packages/persistence-postgres/test/storage/catalog/appSchemaCandidateValidation.postgres.test.ts", [{
     specifier: "../../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
-  }],
+  }]],
 ]);
 // Existing publication measurements reuse the authored observer through these
 // exact test consumers. Adjacent files and runtime code inherit no permission.
@@ -384,7 +386,7 @@ function admitsSelectedMixedTestImport(promotion, relativePath, specifier) {
         : relativePath === preparedTargetMetadataTest ? preparedTargetMetadataTestImports : undefined;
   const finiteContract = finiteContractTestImports.get(relativePath);
   const target = permitted?.get(specifier) ??
-    (finiteContract?.specifier === specifier ? finiteContract.target : undefined) ??
+    finiteContract?.find(edge => edge.specifier === specifier)?.target ??
     (publicationServerTestImports.get(relativePath) === specifier ? publicationServerOwner : undefined);
   return target !== undefined && promotion?.files.some(file =>
     file.target === target && file.classification === "authored") === true;
@@ -738,6 +740,8 @@ export function discoverRootConfigs(repoRoot) {
 /** @param {string} repoRoot */
 export function discoverRootToolSources(repoRoot) {
   const excluded = new Set([
+    "scripts/check-medusa-awilix-portable-source.mjs",
+    "scripts/check-medusa-awilix-portable-source.test.js",
     "scripts/check-medusa-currency-promotion.mjs",
     "scripts/check-medusa-currency-promotion.test.js",
     "scripts/check-medusa-test-port.mjs",

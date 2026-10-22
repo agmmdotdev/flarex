@@ -9,6 +9,10 @@ const promotion = verifyCurrencyPromotion(root);
 const admitted = new Set(promotion.files.map((file) => path.resolve(root, file.target).replaceAll("\\", "/")));
 const inputs = new Set();
 for (const entry of [
+  "packages/medusa-adapter/src/workflows/tax/item-tax-lines.ts",
+  "packages/medusa-core-flows/src/tax/steps/get-item-tax-lines.ts",
+  "packages/medusa-adapter/src/modules/tax/service.ts",
+  "packages/medusa-deps/src/awilix-portable.mjs",
   "packages/medusa-adapter/src/workflows/cart/customer-selection.ts",
   "packages/medusa-core-flows/src/cart/steps/find-or-create-customer.ts",
   "packages/medusa-utils/src/common/is-email.ts",
@@ -194,7 +198,8 @@ await build({
       // name is not an ORM dependency. Every actual dependency is still checked.
       const subscriberFactory = file === path.resolve(root, "packages/medusa-utils/src/modules-sdk/create-medusa-mikro-orm-event-subscriber.ts").replaceAll("\\", "/");
       const parserSchemaFacade = file === path.resolve(root, "packages/medusa-deps/src/zod.ts").replaceAll("\\", "/");
-      if (file.includes("third_party/medusa") || (!subscriberFactory && !parserSchemaFacade && /mikro-orm|pglite|medusa-test-utils|medusa-deps|awilix/.test(file))) {
+      const portableContainer = file === path.resolve(root, "packages/medusa-deps/src/awilix-portable.mjs").replaceAll("\\", "/");
+      if (file.includes("third_party/medusa") || (!subscriberFactory && !parserSchemaFacade && !portableContainer && /mikro-orm|pglite|medusa-test-utils|medusa-deps|awilix/.test(file))) {
         throw new Error(`Comparison dependency in Currency portable graph: ${file}`);
       }
       if (file.includes("/packages/medusa-") && !admitted.has(file)) throw new Error(`Unlisted portable input: ${file}`);

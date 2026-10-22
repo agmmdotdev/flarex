@@ -3,6 +3,16 @@
   "version": "2.13.4",
   "private": true,
   "exports": {
+    "./order/common": {
+      "types": "./dist/order/common.d.ts",
+      "source": "./src/order/common.ts",
+      "default": "./dist/order/common.js"
+    },
+    "./order/workflows": {
+      "types": "./dist/order/workflows.d.ts",
+      "source": "./src/order/workflows.ts",
+      "default": "./dist/order/workflows.js"
+    },
     "./caching/index": {
       "types": "./dist/caching/index.d.ts",
       "source": "./src/caching/index.ts",
