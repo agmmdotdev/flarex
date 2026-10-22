@@ -6,7 +6,7 @@ import { makeApplicationAnalysisRepository } from "../../../persistence-postgres
 import { privatePermissionFixture } from "../../../persistence-postgres/test/application/ownership/privatePermissionFixture";
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from "../../../persistence-postgres/test/installation/frameworkSchema/frameworkSchemaArtifactAdmissionTestSupport";
 import { startCatalogControlDeadline } from "../../../persistence-postgres/src/database/catalogControlSession";
-import { decodeCatalogSchemaVersion, decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
+import { decodeCatalogSchemaVersion, decodeCatalogSchemaVersionId, type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { makeLogicalSchemaAdmission } from "../../../persistence-postgres/src/storage/catalog/logicalSchemaAdmission";
 import { ensureLogicalStorageDefinitions } from "../../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
 import { readPreparedLogicalSchemaCandidate } from "../../../analysis/src/logicalSchemaCandidate";
@@ -45,6 +45,13 @@ import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/
 import type { CurrentApplicationFiniteEntry } from "../../../persistence-postgres/src/application/activation/contracts";
 import type { CurrentApplicationPreparationFailure } from "../../../persistence-postgres/src/application/activation/errors";
 import type { PreparedHostRuntimeError } from "../../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
+import type { DataBindingSetFrame } from "../../../persistence-postgres/src/installation/frameworkSchema/binding/model";
+
+interface PrivateSaveSchemaBinding {
+  readonly binding: Effect.Success<ReturnType<typeof makeDataBindingHost>>;
+  readonly frame: DataBindingSetFrame;
+  readonly build: () => Promise<void>;
+}
 
 type PolicyFixture = Awaited<ReturnType<typeof privatePermissionFixture>>;
 type Admit = ReturnType<typeof makeLogicalSchemaAdmission>["admit"];
@@ -77,6 +84,8 @@ export interface PrivatePayloadSaveFixture {
   readonly productRuntime: Effect.Success<ReturnType<typeof makeLocalProductCommands>>;
   readonly productHost: Effect.Success<ReturnType<typeof makeCommerceHost>>;
   readonly preferences: Awaited<ReturnType<typeof installPayloadPreferenceFixture>>;
+  readonly schemaBinding: PrivateSaveSchemaBinding;
+  readonly prepareSchemaBinding: (schemaVersionId: CatalogSchemaVersionId) => Promise<PrivateSaveSchemaBinding>;
   readonly close: () => Promise<void>;
 }
 
@@ -115,49 +124,60 @@ export async function privatePayloadSaveFixture(resources: Readonly<{
         lockTimeoutMilliseconds: 5_000, recoveryTimeoutMilliseconds: 20_000 });
     });
     await Effect.runPromise(admit(candidate));
-    const definitions = await control.drizzle.transaction(tx => Effect.runPromise(Effect.gen(function* () {
-        const definitions = yield* ensureLogicalStorageDefinitions(tx, deploymentId, location.schemaVersionId);
-        const closure = yield* prepareAppUniqueConstraintSetClosureV1Effect(control.drizzle, { deploymentId, schemaVersionId: location.schemaVersionId }, tx);
-        yield* closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure);
-        return definitions;
-      })));
-    const indexes = await Effect.runPromise(reconcilePublishedIndexBuildsV1Effect(ports, location));
-    if (indexes.status !== "reconciled") throw new Error("Missing joint index declarations");
-    for (const indexDefinitionId of indexes.definitionIds) {
-      const definition = await Effect.runPromise(locateAppIndexDefinitionByIdEffect(control.drizzle, authority.scopeId, indexDefinitionId));
-      if (definition === null) throw new Error("Missing joint index");
-      let enabled = false;
-      for (let step = 0; step < 20; step++) {
-        const input = { deploymentId, scopeId: authority.scopeId, indexDefinitionId, pageSize: 10 };
-        const build = definition.access.kind === "by_creation_time" ? await Effect.runPromise(buildIntrinsicCreationTimeIndexV1Effect(ports, input)) :
-          await Effect.runPromise(buildAppDeveloperOrderedIndexV1Effect(ports, input));
-        if (build.lifecycle === "enabled") {
-          enabled = true; break;
-        }
-      }
-      if (!enabled) throw new Error("Joint index did not enable");
-    }
-    const uniques = await Effect.runPromise(reconcileAppUniqueConstraintSetBuildV1Effect(ports, location));
-    if (uniques.status !== "reconciled") throw new Error("Missing joint unique declarations");
-    let enabled = false;
-    for (let step = 0; step < (uniques.definitionCount + 1) * 4; step++) {
-      const build = await Effect.runPromise(advanceAppUniqueConstraintSetBackfillV1Effect(ports, { ...location, pageSize: 16 }));
-      if (build.lifecycle === "enabled" && build.uniqueConstraintDefinitionId === null) { enabled = true; break; }
-    }
-    if (!enabled) throw new Error("Joint unique set did not enable");
     const located = await Effect.runPromise(resolveLocatedTrustedScopeAuthorityByIdEffect({ deploymentId, scopeId: authority.scopeId }, authorityPorts));
     const target = await Effect.runPromise(makeFrameworkSchemaTarget({ database: resources.persistence.drizzle, deploymentId,
       canonicalPhysicalDatabaseIdentity: "private_permissions", physicalLocator: located.authority.physicalLocator }));
     const preferences = await installPayloadPreferenceFixture(resources.persistence, target, deploymentId, control);
-    const binding = await Effect.runPromise(makeDataBindingHost({ database: resources.persistence.drizzle, target,
-      selection: { deploymentId, scopeId: authority.scopeId }, authority: authorityPorts, application: application.relationActivation,
-      payloadProfiles: await Effect.runPromise(makePayloadContentProfiles(compiled)),
-      logicalStorage: { controlDb: control.drizzle, schemaVersionId: location.schemaVersionId, unique: application.servingOwners.uniqueConstraintEligibility } }));
-    const reference = await Effect.runPromise(binding.readApplicationReference());
-    const bound = await Effect.runPromise(binding.prepare({ format: "flarex.data-binding-set", application: reference,
-      logicalSchema: { schemaVersionId: location.schemaVersionId, manifestSha256: encodeBytesToLowercaseHex(definitions.requirements.artifact.manifestSha256) },
-      payloadContent: null, payloadLifecycle: { ...installationBindingReference(preferences.availability), profiles: [preferences.profile.profile] },
-      commerce: [], crossDomainReferences: [] }));
+    const prepareSchemaBinding: PrivatePayloadSaveFixture["prepareSchemaBinding"] = async schemaVersionId => {
+      const selectedLocation = { ...location, schemaVersionId };
+      const definitions = await control.drizzle.transaction(tx => Effect.runPromise(Effect.gen(function* () {
+        const definitions = yield* ensureLogicalStorageDefinitions(tx, deploymentId, schemaVersionId);
+        const closure = yield* prepareAppUniqueConstraintSetClosureV1Effect(control.drizzle, { deploymentId, schemaVersionId }, tx);
+        yield* closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure);
+        return definitions;
+      })));
+      const build = async () => {
+        const indexes = await Effect.runPromise(reconcilePublishedIndexBuildsV1Effect(ports, selectedLocation));
+        if (indexes.status !== "reconciled") throw new Error("Missing joint index declarations");
+        for (const indexDefinitionId of indexes.definitionIds) {
+          const definition = await Effect.runPromise(locateAppIndexDefinitionByIdEffect(control.drizzle, authority.scopeId, indexDefinitionId));
+          if (definition === null) throw new Error("Missing joint index");
+          let enabled = false;
+          for (let step = 0; step < 20; step++) {
+            const input = { deploymentId, scopeId: authority.scopeId, indexDefinitionId, pageSize: 10 };
+            const build = definition.access.kind === "by_creation_time" ? await Effect.runPromise(buildIntrinsicCreationTimeIndexV1Effect(ports, input)) :
+              await Effect.runPromise(buildAppDeveloperOrderedIndexV1Effect(ports, input));
+            if (build.lifecycle === "enabled") {
+              enabled = true; break;
+            }
+          }
+          if (!enabled) throw new Error("Joint index did not enable");
+        }
+        const uniques = await Effect.runPromise(reconcileAppUniqueConstraintSetBuildV1Effect(ports, selectedLocation));
+        if (uniques.status !== "reconciled") throw new Error("Missing joint unique declarations");
+        let enabled = false;
+        for (let step = 0; step < (uniques.definitionCount + 1) * 4; step++) {
+          const build = await Effect.runPromise(advanceAppUniqueConstraintSetBackfillV1Effect(ports, { ...selectedLocation, pageSize: 16 }));
+          if (build.lifecycle === "enabled" && build.uniqueConstraintDefinitionId === null) { enabled = true; break; }
+        }
+        if (!enabled) throw new Error("Joint unique set did not enable");
+      };
+      const binding = await Effect.runPromise(makeDataBindingHost({ database: resources.persistence.drizzle, target,
+        selection: { deploymentId, scopeId: authority.scopeId }, authority: authorityPorts, application: application.relationActivation,
+        payloadProfiles: await Effect.runPromise(makePayloadContentProfiles(compiled)),
+        logicalStorage: { controlDb: control.drizzle, schemaVersionId, unique: application.servingOwners.uniqueConstraintEligibility } }));
+      const reference = await Effect.runPromise(binding.readApplicationReference());
+      const frame: DataBindingSetFrame = { format: "flarex.data-binding-set", application: reference,
+        logicalSchema: { schemaVersionId, manifestSha256: encodeBytesToLowercaseHex(definitions.requirements.artifact.manifestSha256) },
+        payloadContent: null, payloadLifecycle: { ...installationBindingReference(preferences.availability), profiles: [preferences.profile.profile] },
+        commerce: [], crossDomainReferences: [] };
+      return { binding, frame, build };
+    };
+    const schemaBinding = await prepareSchemaBinding(location.schemaVersionId);
+    await schemaBinding.build();
+    const { binding, frame } = schemaBinding;
+    const reference = frame.application;
+    const bound = await Effect.runPromise(binding.prepare(frame));
     await Effect.runPromise(binding.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration,
       "private-save-joint", bound.sha256, null)));
     const productSource = authored.sources.find(source => source.key === "medusa.product");
@@ -218,6 +238,7 @@ export async function privatePayloadSaveFixture(resources: Readonly<{
       return result;
     };
     return { fixture, compiled, candidate, authored, admit, target, open, withPreparation, session: resources.session, productHost, productRuntime, preferences,
+      schemaBinding, prepareSchemaBinding,
       close: async () => { try { await Effect.runPromise(Scope.close(scope, Exit.void)); } finally { await fixture.close(); } } };
   } catch (cause) {
     try { await Effect.runPromise(Scope.close(scope, Exit.void)); } finally { await fixture.close(); }

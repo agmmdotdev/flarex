@@ -102,12 +102,18 @@ import type { ApplicationBindingReference, DataBindingSetFrame } from "./model";
 import type { PayloadContentProfiles } from "../../../frameworks/payloadPreferences/binding";
 import type { StrongReferenceActivationProjection } from "./strongReferenceProjection";
 
-/** Called under the activation scope lock. A new policy cannot inherit an
- * invariant for rows committed before that policy existed. */
+/** Called under the activation scope lock. Existing enforced contracts cannot
+ * be retired through this profile, and new ones cannot inherit an invariant
+ * for rows committed before that policy existed. */
 export const requireSafeStrongReferenceActivation = Effect.fn("DataBindingHost.requireSafeReferences")(
   function* (tx: FlarexMetadataTransaction, scopeId: ScopeId,
     previouslyEnforced: readonly StrongReferenceActivationProjection[],
     proposedReferences: readonly StrongReferenceActivationProjection[]) {
+    if (previouslyEnforced.some(previous => !proposedReferences.some(reference =>
+      previous.name === reference.name && sameBindingValue(previous, reference)))) {
+      return yield* Effect.fail(bindingError("unsupportedProfile",
+        "removing or replacing an enforced strong reference requires an admitted transition"));
+    }
     const newlyReferencedTables = [...new Set(proposedReferences.filter(reference =>
       !previouslyEnforced.some(previous => previous.name === reference.name &&
         sameBindingValue(previous, reference))).map(reference => reference.sourceTableId))];
@@ -542,12 +548,10 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
             current.value.frame.sequence === request.expectedHead.sequence;
         if (!matches) return yield* Effect.fail(bindingError("concurrentHead"));
         const proposedReferences = logicalStorage?.strongReferences ?? [];
-        if (proposedReferences.length > 0) {
-          const previouslyEnforced = Option.isSome(current)
-            ? yield* readBindingActiveReferenceProjection(tx, authority, current.value)
-            : [];
-          yield* requireSafeStrongReferenceActivation(tx, clock.scopeId, previouslyEnforced, proposedReferences);
-        }
+        const previouslyEnforced = Option.isSome(current)
+          ? yield* readBindingActiveReferenceProjection(tx, authority, current.value)
+          : [];
+        yield* requireSafeStrongReferenceActivation(tx, clock.scopeId, previouslyEnforced, proposedReferences);
         const preparedMaintenance = logicalStorage === null || logicalInput === null ? null : yield* Effect.gen(function* () {
           const unique = yield* readUniqueMaintenanceRequirements(logicalInput.controlDb, deploymentId,
             logicalStorage.reference.schemaVersionId, hasLocatedReadCommittedTargetDatabaseV1(located.target, logicalInput.controlDb) ? tx : undefined)

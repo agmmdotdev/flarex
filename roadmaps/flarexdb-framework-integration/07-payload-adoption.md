@@ -65,7 +65,9 @@ authorization, production dispatch or a public operation surface.
 The [private reference schema/binding lifecycle preflight](../shared-logical-storage/reference-schema-binding-lifecycle-preflight.md)
 selects the next bounded backend proof after SA4: actual admission/refusal,
 fresh preparation and stale-use, concurrent activation/save and recovery. Its
-LB1-LB4 gates remain pending. It does not enable populated-data conversion,
+LB1 is implemented for its selected transition inventory: the shared owner now
+refuses removal/replacement of enforced references and proves unchanged-candidate
+rebinding and preference-profile withdrawal. LB2-LB4 remain pending. This does not enable populated-data conversion,
 write-owner transfer, Medusa changes or public API syntax.
 
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)
