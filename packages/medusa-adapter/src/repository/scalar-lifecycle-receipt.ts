@@ -20,7 +20,8 @@ interface ScalarLifecycleReceipt {
  * command admission, linkable-key maps and event schemas. No storage is opened. */
 export function scalarLifecycleReceipt(configuration: ScalarLifecycleReceipt): (
   call: Parameters<LogicalCallReceiptValidation>[0], activity: Parameters<LogicalCallReceiptValidation>[1],
-) => Effect.Effect<Readonly<{ operation: "softDelete" | "restore"; ids: readonly string[] }>, CommerceTransactionError> {
+) => Effect.Effect<Readonly<{ operation: "softDelete" | "restore"; ids: readonly string[];
+  requestedIds: readonly string[]; rows: ReadonlyMap<string, JsonObject> }>, CommerceTransactionError> {
   return Effect.fn("CommerceReceipt.validateScalarLifecycle")(function* (
     call: Parameters<LogicalCallReceiptValidation>[0], activity: Parameters<LogicalCallReceiptValidation>[1],
   ) {
@@ -39,10 +40,18 @@ export function scalarLifecycleReceipt(configuration: ScalarLifecycleReceipt): (
       if (table !== configuration.table || typeof row.id !== "string" || !requested.has(row.id))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       observed.set(row.id, row);
+      return { row, id: row.id };
     });
     for (const observation of activity.observedRows) yield* record(observation.table, observation.row);
-    for (const transition of activity.lifecycle) if (transition.rowAtOperation !== null)
-      yield* record(transition.table, transition.rowAtOperation);
+    const finalObserved = new Map(observed);
+    for (const transition of activity.lifecycle) if (transition.rowAtOperation !== null) {
+      const { row, id } = yield* record(transition.table, transition.rowAtOperation), final = finalObserved.get(id);
+      // An unchanged restore has the same complete row at the operation and
+      // final observation. Closed child receipts can omit unchanged rows, so
+      // their authenticated operation row remains sufficient when none exists.
+      if (transition.attemptOrdinal === null && final !== undefined && !jsonEqual(row, final))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+    }
     // Observations contain the final pending view. The first mutation preimage
     // restores each identity's actual state before this command.
     const preimages = new Set<string>();
@@ -81,6 +90,6 @@ export function scalarLifecycleReceipt(configuration: ScalarLifecycleReceipt): (
     if (pending.size !== 0 || matched.size !== activity.mutations.length || ordered.length > configuration.maximumRoots ||
       (ordered.length === 0 ? !result.empty : result.ids.length !== ordered.length || result.ids.some((id, index) => id !== ordered[index])))
       return yield* Effect.fail(commerceError("receiptMismatch"));
-    return { operation, ids: ordered };
+    return { operation, ids: ordered, requestedIds: ids, rows: observed };
   });
 }

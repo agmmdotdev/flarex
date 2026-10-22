@@ -4,7 +4,66 @@ import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTe
   verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
 import { readFileSync } from "node:fs";
 import { verifyPriceListPriceUpdateSelection, verifyPriceListPriceUpdatePolicySelection, verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListCreateCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder } from "./check-medusa-test-port.mjs";
-import { verifyTaxRuleCreateCallbacks, verifyTaxRateCreateCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTaxRuleDeleteCallbacks, verifyTaxRuleCreateCallbacks, verifyTaxRateCreateCallbacks } from "./check-medusa-test-port.mjs";
+
+describe("complete native Tax Rate Rule deletion source", () => {
+  const nativeWorkflow = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/tax/workflows/delete-tax-rate-rules.ts", "utf8");
+  const nativeStep = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/tax/steps/delete-tax-rate-rules.ts", "utf8");
+  const workflow = readFileSync("packages/medusa-core-flows/src/tax/workflows/delete-tax-rate-rules.ts", "utf8");
+  const step = readFileSync("packages/medusa-core-flows/src/tax/steps/delete-tax-rate-rules.ts", "utf8");
+  it("admits only genuine lifecycle callbacks and exact relocated imports", () => {
+    expect(() => verifyTaxRuleDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step)).not.toThrow();
+  });
+  it.each([
+    ["empty resolution", "if (!ids?.length)", "if (false)"],
+    ["empty retained IDs", "new StepResponse(void 0, [])", "new StepResponse(void 0, ids)"],
+    ["physical forward", "service.softDeleteTaxRateRules(ids)", "service.deleteTaxRateRules(ids)"],
+    ["partial forward", "service.softDeleteTaxRateRules(ids)", "service.softDeleteTaxRateRules(ids.slice(0, 1))"],
+    ["unawaited forward", "await service.softDeleteTaxRateRules(ids)", "service.softDeleteTaxRateRules(ids)"],
+    ["deduplicated retained request", "new StepResponse(void 0, ids)", "new StepResponse(void 0, [...new Set(ids)])"],
+    ["partial retained request", "new StepResponse(void 0, ids)", "new StepResponse(void 0, ids.slice(0, 1))"],
+    ["nonvoid native result", "new StepResponse(void 0, ids)", "new StepResponse(null, ids)"],
+    ["different module", "Modules.TAX", "Modules.CART"],
+    ["empty inverse guard", "if (!prevIds?.length)", "if (false)"],
+    ["different inverse", "service.restoreTaxRateRules(prevIds)", "service.deleteTaxRateRules(prevIds)"],
+    ["partial inverse", "service.restoreTaxRateRules(prevIds)", "service.restoreTaxRateRules(prevIds.slice(0, 1))"],
+    ["unawaited inverse", "await service.restoreTaxRateRules(prevIds)", "service.restoreTaxRateRules(prevIds)"],
+    ["public step input", "DeleteTaxRateRulesStepInput = string[]", "DeleteTaxRateRulesStepInput = string"],
+    ["erased import flag", "import type {", "import {"],
+    ["missing covered metadata", '  { name: deleteTaxRateRulesStepId, compensation: "transactionCovered" },', "  deleteTaxRateRulesStepId,"],
+    ["different covered metadata", 'compensation: "transactionCovered"', 'compensation: "other"'],
+    ["extra host option", 'compensation: "transactionCovered"', 'compensation: "transactionCovered", retries: 1'],
+    ["extra execution", "    await service.softDeleteTaxRateRules(ids)", "    void ids\n    await service.softDeleteTaxRateRules(ids)"],
+  ])("refuses step drift: %s", (_name, before, after) => {
+    const changed = step.replace(before, after);
+    expect(changed).not.toBe(step);
+    expect(() => verifyTaxRuleDeleteCallbacks(nativeWorkflow, workflow, nativeStep, changed)).toThrow("Changed native Tax Rate Rule deletion source");
+  });
+  it.each([
+    ["different identity", '"delete-tax-rate-rules"', '"other-tax-rule-delete"'],
+    ["barrel fallback", 'from "../steps/delete-tax-rate-rules"', 'from "../steps"'],
+    ["partial root input", "deleteTaxRateRulesStep(input.ids)", "deleteTaxRateRulesStep(input.ids.slice(0, 1))"],
+    ["wrong root property", "deleteTaxRateRulesStep(input.ids)", "deleteTaxRateRulesStep(input.otherIds)"],
+    ["missing response wrapper", "new WorkflowResponse(deleteTaxRateRulesStep(input.ids))", "deleteTaxRateRulesStep(input.ids)"],
+    ["public input shape", "ids: string[]", "ids: string"],
+    ["public void output", "WorkflowResponse<WorkflowData<void>>", "WorkflowResponse<WorkflowData<null>>"],
+    ["definition output", "  WorkflowData<void>,", "  WorkflowData<unknown>,"],
+    ["definition input", "  DeleteTaxRateRulesWorkflowInput,", "  unknown,"],
+    ["definition import flag", "  type WorkflowDefinition,", "  WorkflowDefinition,"],
+    ["erased input type", "WorkflowData<DeleteTaxRateRulesWorkflowInput>", "WorkflowData<unknown>"],
+    ["runtime import flag", "import {", "import type {"],
+  ])("refuses workflow drift: %s", (_name, before, after) => {
+    const changed = workflow.replace(before, after);
+    expect(changed).not.toBe(workflow);
+    expect(() => verifyTaxRuleDeleteCallbacks(nativeWorkflow, changed, nativeStep, step)).toThrow("Changed native Tax Rate Rule deletion source");
+  });
+  it("refuses missing or duplicate native relocation anchors", () => {
+    const changed = nativeStep.replace('from "@medusajs/framework/types"', 'from "other/types"');
+    expect(() => verifyTaxRuleDeleteCallbacks(nativeWorkflow, workflow, changed, step)).toThrow("relocation anchor");
+    const duplicate = nativeWorkflow + '\nimport { Extra } from "@medusajs/framework/workflows-sdk"\n';
+    expect(() => verifyTaxRuleDeleteCallbacks(duplicate, workflow, nativeStep, step)).toThrow("relocation anchor");
+  });
+});
 
 describe("complete native Tax Rate Rule creation source", () => {
   const nativeWorkflow = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/tax/workflows/create-tax-rate-rules.ts", "utf8");

@@ -1527,31 +1527,48 @@ export function verifyShippingOptionTypeCreateCallbacks(nativeWorkflow, workflow
  * @param {string} nativeWorkflow @param {string} workflow
  * @param {string} nativeStep @param {string} step */
 export function verifyTaxRateCreateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
-  verifyTaxCreationCallbacks("rate", nativeWorkflow, workflow, nativeStep, step);
+  verifyTaxWorkflowCallbacks({ label: "Tax Rate creation", stem: "create-tax-rates", stepId: "createTaxRatesStepId", workflowTypes: true },
+    nativeWorkflow, workflow, nativeStep, step);
 }
 
 /** Preserve the standalone Rule root's complete native typed/emitted modules.
  * @param {string} nativeWorkflow @param {string} workflow
  * @param {string} nativeStep @param {string} step */
 export function verifyTaxRuleCreateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
-  verifyTaxCreationCallbacks("rule", nativeWorkflow, workflow, nativeStep, step);
+  verifyTaxWorkflowCallbacks({ label: "Tax Rate Rule creation", stem: "create-tax-rate-rules", stepId: "createTaxRateRulesStepId", workflowTypes: true },
+    nativeWorkflow, workflow, nativeStep, step);
 }
 
-/** @param {"rate" | "rule"} kind
+/** Preserve native soft-delete, original retained IDs and restore callbacks.
  * @param {string} nativeWorkflow @param {string} workflow
  * @param {string} nativeStep @param {string} step */
-function verifyTaxCreationCallbacks(kind, nativeWorkflow, workflow, nativeStep, step) {
-  const failure = kind === "rate" ? "Changed native Tax Rate creation source" : "Changed native Tax Rate Rule creation source";
-  const stem = kind === "rate" ? "create-tax-rates" : "create-tax-rate-rules";
-  const stepId = kind === "rate" ? "createTaxRatesStepId" : "createTaxRateRulesStepId";
+export function verifyTaxRuleDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  verifyTaxWorkflowCallbacks({ label: "Tax Rate Rule deletion", stem: "delete-tax-rate-rules", stepId: "deleteTaxRateRulesStepId", workflowTypes: false },
+    nativeWorkflow, workflow, nativeStep, step);
+}
+
+/** @param {{label: string, stem: string, stepId: string, workflowTypes: boolean}} selection
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+function verifyTaxWorkflowCallbacks(selection, nativeWorkflow, workflow, nativeStep, step) {
+  const { stem, stepId } = selection, failure = "Changed native " + selection.label + " source";
   /** @param {string} text @param {string} before @param {string} after */
   const replace = (text, before, after) => {
     if (text.split(before).length !== 2) throw new Error(failure + ": relocation anchor");
     return text.replace(before, after);
   };
-  let expectedWorkflow = replace(nativeWorkflow, 'from "@medusajs/framework/types"', 'from "@medusajs/types/tax/index"');
+  let expectedWorkflow = selection.workflowTypes
+    ? replace(nativeWorkflow, 'from "@medusajs/framework/types"', 'from "@medusajs/types/tax/index"') : nativeWorkflow;
   expectedWorkflow = replace(expectedWorkflow, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
   expectedWorkflow = replace(expectedWorkflow, 'from "../steps"', `from "../steps/${stem}"`);
+  // The portable SDK brands unresolved void references. Keep the native resolved
+  // void contract while describing the existing staged value at authoring time.
+  if (stem === "delete-tax-rate-rules") {
+    expectedWorkflow = replace(expectedWorkflow, "  createWorkflow,", "  createWorkflow,\n  type WorkflowDefinition,");
+    expectedWorkflow = replace(expectedWorkflow, "export const deleteTaxRateRulesWorkflow = createWorkflow(",
+      "export const deleteTaxRateRulesWorkflow: WorkflowDefinition<\n  DeleteTaxRateRulesWorkflowInput,\n  WorkflowData<void>,\n  readonly []\n> = createWorkflow(");
+    expectedWorkflow = replace(expectedWorkflow, "WorkflowResponse<void>", "WorkflowResponse<WorkflowData<void>>");
+  }
   let expectedStep = replace(nativeStep, 'from "@medusajs/framework/types"', 'from "@medusajs/types/tax/index"');
   expectedStep = replace(expectedStep, 'from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
   expectedStep = replace(expectedStep, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
@@ -1560,7 +1577,7 @@ function verifyTaxCreationCallbacks(kind, nativeWorkflow, workflow, nativeStep, 
    * Import printing additionally authenticates erased import type flags.
    * @param {string} text */
   const imports = text => {
-    const parsed = ts.createSourceFile("tax-rate-creation.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const parsed = ts.createSourceFile("tax-workflow.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
     const printer = ts.createPrinter({ removeComments: true });
     return parsed.statements.filter(ts.isImportDeclaration)
       .map(node => printer.printNode(ts.EmitHint.Unspecified, node, parsed)).join("\n");

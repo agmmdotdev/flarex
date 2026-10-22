@@ -854,6 +854,16 @@ and uses separately approved Rule inverse storage insertion order. Default
 resource limits remain unchanged. Parent and unrelated rows remain intact;
 Rule soft-delete/restore and other Tax administration remain separate.
 
+The bounded
+[native Tax Rate Rule deletion](./preflight/166-native-tax-rate-rule-deletion-workflow.md)
+profile is complete for up to eight requested Rule IDs across four existing
+Rates, including retained restore compensation. It preserves requested-ID
+history behavior, active no-op restore maps and zero restored events. Complete
+historical selection binds explicitly approved storage insertion ordering;
+default resource limits remain unchanged. Shared scalar receipts correlate
+unchanged operation rows with independent observations and retain established
+decoded preimages. Rule replacement and other Tax administration remain separate.
+
 The [native Cart creation preflight](./preflight/160-native-cart-creation-workflow.md)
 records the next connected objective. Its selected original-native cohort is
 characterized, including genuine local SystemTax, the fresh Cart's empty

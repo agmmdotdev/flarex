@@ -44,7 +44,8 @@ export function compileTaxCreationRows(metadata: Metadata) {
       return yield* Result.fail(commerceError("unsupportedProfile"));
     const keyed = (decode: Result.Result.Success<ReturnType<typeof compileCompleteRow>>) => (input: unknown) => Result.gen(function* () {
       const row = yield* decode(input), id = yield* decodeStoredTaxId(row.id);
-      return { ...row, id };
+      const captured: JsonObject & Readonly<{ id: string }> = { ...row, id };
+      return captured;
     });
     const decodeRateRow = keyed(yield* compileCompleteRow(rate)), decodeRuleRow = keyed(yield* compileCompleteRow(rule));
     const defaults = (table: typeof rate) => {
