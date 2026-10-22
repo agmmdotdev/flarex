@@ -16,6 +16,7 @@ import { commerceError, logicalCommerceError, type CommerceTransactionError } fr
 import { projectCommerceRequestFailure } from "./request";
 import { defaultCommerceResources, logicalCommerceWorkingSetLimits, type CommerceResources } from "./resources";
 import { useCapturedPrivateJsonData } from "../../values/privateJsonData";
+import { inspectLogicalRealWriteAttempt } from "../../storage/documents/logicalDocuments/realWriteEvidence";
 
 /** A selected read borrows only read mechanics and its accepting transaction. */
 export const makeLogicalCommerceReadParticipant = Effect.fn("LogicalCommerce.makeReadParticipant")(function* (
@@ -58,6 +59,8 @@ export interface LogicalCommerceMutation {
   readonly operation: "insert" | "patch" | "replace" | "delete";
   readonly before: JsonObject | null;
   readonly after: JsonObject | null;
+  /** Original complete REAL fields, bound to this successful SQL-normalized write. */
+  readonly realNormalization?: JsonObject;
 }
 export interface LogicalCommerceObservedRow {
   readonly table: string;
@@ -246,7 +249,9 @@ export const projectLogicalCommerceActivity = Effect.fnUntraced(function* (
       return yield* Effect.fail(commerceError("storedCorruption"));
     const targetTable = attempt.deletedReference === undefined ? undefined : names.get(attempt.deletedReference.targetTableId);
     if (attempt.deletedReference !== undefined && targetTable === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
+    const realNormalization = yield* Effect.fromResult(inspectLogicalRealWriteAttempt(attempt, logicalCommerceError));
     mutations.push(Object.freeze({ ordinal: attempt.ordinal, table, operation: attempt.operation, before, after,
+      ...(realNormalization === undefined ? {} : { realNormalization }),
       ...(attempt.deletedReference === undefined || targetTable === undefined ? {} : { deletedReference: Object.freeze({
         sourceColumn: attempt.deletedReference.sourceColumn, targetTable,
         targetColumn: attempt.deletedReference.targetColumn, targetKey: attempt.deletedReference.targetKey,
@@ -304,7 +309,8 @@ export const projectLogicalCommerceActivity = Effect.fnUntraced(function* (
   // not clone and freeze every previously observed row again.
   return Object.freeze({
     mutations: Object.freeze(mutations.map(mutation => Object.freeze({ ...mutation,
-      before: detachLogicalRelationalActivityJson(mutation.before), after: detachLogicalRelationalActivityJson(mutation.after) }))),
+      before: detachLogicalRelationalActivityJson(mutation.before), after: detachLogicalRelationalActivityJson(mutation.after),
+      ...(mutation.realNormalization === undefined ? {} : { realNormalization: detachLogicalRelationalActivityJson(mutation.realNormalization) }) }))),
     lifecycle: Object.freeze(lifecycle.map(observation => Object.freeze({ ...observation,
       key: Object.freeze({ ...observation.key }), rowAtOperation: detachLogicalRelationalActivityJson(observation.rowAtOperation) }))),
     observedRows: Object.freeze(observedRows.map(observation => Object.freeze({ ...observation,

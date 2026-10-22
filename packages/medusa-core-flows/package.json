@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./tax/create-tax-rates": "./src/tax/workflows/create-tax-rates.ts",
+    "./tax/create-tax-rates-step": "./src/tax/steps/create-tax-rates.ts",
     "./tax/get-item-tax-lines": "./src/tax/steps/get-item-tax-lines.ts",
     "./cart/find-or-create-customer": "./src/cart/steps/find-or-create-customer.ts",
     "./cart/confirm-inventory-step": "./src/cart/steps/confirm-inventory.ts",

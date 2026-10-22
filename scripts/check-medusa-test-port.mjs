@@ -1521,6 +1521,41 @@ export function verifyShippingOptionTypeCreateCallbacks(nativeWorkflow, workflow
     throw new Error("Changed native ShippingOptionType creation public input type");
 }
 
+/** Keep the complete native Tax Rate creation root, both step callbacks and
+ * erased public contracts. Only exact type/portable/direct import relocations
+ * and covered host metadata are admitted. The physical inverse stays native.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyTaxRateCreateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const failure = "Changed native Tax Rate creation source";
+  /** @param {string} text @param {string} before @param {string} after */
+  const replace = (text, before, after) => {
+    if (text.split(before).length !== 2) throw new Error(failure + ": relocation anchor");
+    return text.replace(before, after);
+  };
+  let expectedWorkflow = replace(nativeWorkflow, 'from "@medusajs/framework/types"', 'from "@medusajs/types/tax/index"');
+  expectedWorkflow = replace(expectedWorkflow, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  expectedWorkflow = replace(expectedWorkflow, 'from "../steps"', 'from "../steps/create-tax-rates"');
+  let expectedStep = replace(nativeStep, 'from "@medusajs/framework/types"', 'from "@medusajs/types/tax/index"');
+  expectedStep = replace(expectedStep, 'from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
+  expectedStep = replace(expectedStep, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  expectedStep = replace(expectedStep, "  createTaxRatesStepId,", '  { name: createTaxRatesStepId, compensation: "transactionCovered" },');
+  /** The shared shape owner retains the complete typed and emitted modules.
+   * Import printing additionally authenticates erased import type flags.
+   * @param {string} text */
+  const imports = text => {
+    const parsed = ts.createSourceFile("tax-rate-creation.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const printer = ts.createPrinter({ removeComments: true });
+    return parsed.statements.filter(ts.isImportDeclaration)
+      .map(node => printer.printNode(ts.EmitHint.Unspecified, node, parsed)).join("\n");
+  };
+  for (const [expected, actual] of [[expectedWorkflow, workflow], [expectedStep, step]]) {
+    if (nativeWorkflowProgram(expected, failure, true) !== nativeWorkflowProgram(actual, failure, true)
+      || nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(actual, failure)
+      || imports(expected) !== imports(actual)) throw new Error(failure);
+  }
+}
+
 /** Authenticate the generic native creation-result initializer. SQL-specific
  * descriptor types may be erased; the full function body must remain native.
  * @param {string} nativeRepository @param {string} relationOwner */

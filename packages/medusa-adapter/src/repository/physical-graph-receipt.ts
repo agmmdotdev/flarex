@@ -1,10 +1,11 @@
-import { Result } from "effect";
+import { Result, Schema } from "effect";
 import { jsonEqual } from "flarex-protocol/json";
 import { commerceError, defaultCommerceResources, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { SchemaTable } from "../schema/model";
 import type { LogicalCallReceiptValidation } from "./call-receipt";
 import { orderNativeIdRows, projectNativeRow } from "./result";
 import { commerceRelationReadQuery } from "../query/relations";
+import { commerceDecoder } from "../value/decoder";
 import type { PhysicalReferenceDetachment } from "./reference-detachment";
 
 /** Correlate an already executed bounded physical cascade with its complete
@@ -15,6 +16,7 @@ export function correlatePhysicalGraphReceipt(input: {
   readonly entities: readonly { readonly table: SchemaTable; readonly maximum: number;
     readonly decodeRow: (value: unknown) => Result.Result<JsonObject, CommerceTransactionError> }[];
   readonly root: SchemaTable;
+  readonly rootOrder?: "storageInsertion";
   readonly referenceDetachments?: readonly PhysicalReferenceDetachment[];
   readonly requestedIds: readonly string[];
   readonly activity: Parameters<LogicalCallReceiptValidation>[1];
@@ -56,11 +58,28 @@ export function correlatePhysicalGraphReceipt(input: {
       .map(key => ({ child: child.name, parent: key.referencedTable, columns: key.columns, referenced: key.referencedColumns })));
     if (edges.some(edge => !byTable.has(edge.child) || edge.columns.length !== 1 || edge.referenced.length !== 1 || edge.referenced[0] !== "id"))
       return yield* Result.fail(mismatch());
-    const roots = orderNativeIdRows([...observed.get(root.name)?.values() ?? []], {});
+    let roots = orderNativeIdRows([...observed.get(root.name)?.values() ?? []], {});
     if (roots.some(row => !requestedIds.includes(row.id))) return yield* Result.fail(mismatch());
     const expectedReads: JsonObject[] = [], selected = new Set<string>();
-    if (requestedIds.length) expectedReads.push({ table: root.name,
-      query: commerceRelationReadQuery(defaultCommerceResources, { kind: "in", column: "id", values: requestedIds }), total: roots.length, returned: roots.length });
+    if (requestedIds.length) {
+      if (input.rootOrder === "storageInsertion") {
+        const identities = yield* commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String.check(Schema.isLengthBetween(1, 256)) }))
+          .check(Schema.isMaxLength(entities.find(entity => entity.table.name === root.name)?.maximum ?? 0)), "receiptMismatch")
+          (activity.relationalReads[0]?.orderedIdentities);
+        const byId = new Map(roots.map(row => [row.id, row])), ordered: typeof roots = [];
+        for (const identity of identities) {
+          const row = byId.get(identity.id);
+          if (row === undefined) return yield* Result.fail(mismatch());
+          byId.delete(identity.id); ordered.push(row);
+        }
+        if (byId.size) return yield* Result.fail(mismatch());
+        roots = ordered;
+        expectedReads.push({ table: root.name, query: commerceRelationReadQuery(defaultCommerceResources,
+          { kind: "in", column: "id", values: requestedIds }, { kind: "storageInsertion", direction: "asc" }, { includeIdentities: true }),
+          total: roots.length, returned: roots.length, orderedIdentities: identities });
+      } else expectedReads.push({ table: root.name,
+        query: commerceRelationReadQuery(defaultCommerceResources, { kind: "in", column: "id", values: requestedIds }), total: roots.length, returned: roots.length });
+    }
     // Checked metadata supplies the same finite scalar-FK edge order as the
     // lifecycle owner. Correlate every required query, including empty children.
     const correlateChildren = (table: string, row: JsonObject & { readonly id: string }, depth: number): Result.Result<void, CommerceTransactionError> => Result.gen(function* () {
@@ -124,6 +143,7 @@ export function correlatePhysicalGraphReceipt(input: {
       }))
         return yield* Result.fail(mismatch());
     }
+    if (input.rootOrder === "storageInsertion" && !jsonEqual(rootIds, roots.map(row => row.id))) return yield* Result.fail(mismatch());
     return rootIds;
   });
 }

@@ -835,6 +835,16 @@ default resource limits. The portable native container preserves missing-provide
 errors and request isolation. Tax configuration writes, remote providers and
 complete Cart admission remain separate.
 
+The private bounded
+[native Tax Rate creation](./preflight/164-native-tax-rate-creation-workflow.md)
+profile is admitted on PGlite and ordinary-role PostgreSQL for existing Regions,
+including nested Rule creation and the genuine retained physical inverse. The
+complete four-Rate/eight-Rule cohort retains default resource limits, native
+immediate REAL presentation and explicitly approved inverse storage insertion
+order. Shared authenticated conversion evidence and checked managed values
+preserve the native contract. The admitted calculation profile remains read-only;
+standalone Rule creation and other Tax administration remain separate.
+
 The [native Cart creation preflight](./preflight/160-native-cart-creation-workflow.md)
 records the next connected objective. Its selected original-native cohort is
 characterized, including genuine local SystemTax, the fresh Cart's empty

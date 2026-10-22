@@ -3,6 +3,7 @@ import type { LogicalDocumentChanges } from "./workingSet";
 import type { LiveAppRowRevisionV1 } from "../appRows";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import { detachLogicalCanonicalDocument } from "./relationalRows";
+import { retainDetachedLogicalRealWriteAttempt } from "./realWriteEvidence";
 
 /** Detach mutable evidence while retaining the opaque located index capability
  * that the index reader authenticates by object identity. */
@@ -35,11 +36,13 @@ export const detachLogicalDocumentRootChanges = (input: LogicalDocumentChanges,
     attempts: Object.freeze(detached.graph.attempts.map((attempt, index) => {
       const original = attempts[index];
       if (original === undefined) throw new Error("Detached logical attempt lost its original ordinal");
-      return Object.freeze({ ...attempt,
+      const projected = Object.freeze({ ...attempt,
         ...(original.insertionEvidence === undefined ? {} : { insertionEvidence: original.insertionEvidence }),
         ...(original.deletedReferenceEvidence === undefined ? {} : { deletedReferenceEvidence: original.deletedReferenceEvidence }),
         before: original.before === null ? null : detachDocument(original.before),
         after: original.after === null ? null : detachDocument(original.after) });
+      retainDetachedLogicalRealWriteAttempt(original, projected);
+      return projected;
     })),
     indexReads: Object.freeze(input.indexReads.map(read => Object.freeze({
       ...structuredClone({ bounds: read.bounds, entries: read.entries }), definition: read.definition,

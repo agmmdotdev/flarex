@@ -21,6 +21,9 @@ import { canonicalizeLogicalRelationalRow, prepareLogicalRelationalTableMechanic
   inspectLogicalRelationalRealBatch, executeLogicalRelationalRealBatch, hasLogicalRelationalRealVerdict,
   nativeLogicalRelationalCanonicalRow, type LogicalRelationalRealBatch } from "../../../src/storage/documents/logicalDocuments/relationalRows";
 import * as realOwner from "../../../src/storage/documents/logicalDocuments/relationalRows";
+import { captureLogicalRealWriteAttempt, inspectLogicalRealWriteAttempt, retainLogicalRealWriteAttempt, retainDetachedLogicalRealWriteAttempt } from "../../../src/storage/documents/logicalDocuments/realWriteEvidence";
+import { projectLogicalCommerceActivity, type LogicalCommerceActivity, type LogicalCommerceMutation } from "../../../src/frameworks/commerceTransaction/logicalParticipant";
+import { detachLogicalCanonicalDocument } from "../../../src/storage/documents/logicalDocuments/relationalRows";
 import type { LogicalDocumentFailure } from "../../../src/storage/documents/logicalDocuments/model";
 import { readAppRowAtSnapshotInTransactionEffect, type AppRowReadResultV1, type ReadAppRowError } from "../../../src/storage/documents/appRows";
 import { ExecutionDiagnostics } from "../../../src/execution/diagnostics/operation";
@@ -216,6 +219,52 @@ export async function realScenario(driver: "pglite" | "postgres", finiteCapture 
       executionIsolation: "scopeExclusive", commands: [root], participants: [{ participant, logicalStorage: main.input.logicalStorage,
         commands: [inverse], reconstitution: "advanceUpdatedAt", validateLogicalCall: () => Effect.void }] }));
     cleanup.push(() => Effect.runPromise(atomic.close)); expect(await Effect.runPromise(atomic.run(atomic.newRequestKey(), root, null))).toMatchObject([{ measure: 0.1, other: 16777216 }]);
+    // The native-facing original representation belongs to each successful
+    // mutation, separately from the canonical SQL result and persisted facts.
+    const evidenceCalls: LogicalCommerceActivity[] = [], evidenceAggregates: Array<readonly LogicalCommerceMutation[]> = [];
+    const evidenceDelete = defineCommerceCommand("neutralRealEvidenceDelete", "write", ctx => Effect.gen(function* () {
+      return [...yield* (yield* ctx.table("measure")).delete(ctx.manager, [{ id: "evidence-a" }, { id: "evidence-b" }])];
+    }));
+    const evidenceRoot = defineAtomicCommerceCommand("neutralRealEvidenceRoot", ctx => Effect.gen(function* () {
+      yield* ctx.call(participant, insert, [{ id: "evidence-a", measure: 16777217 },
+        { id: "evidence-b", measure: 1.0000000596046448 }]);
+      yield* ctx.call(participant, update, [{ id: "evidence-a", other: 16777217 }]);
+      yield* ctx.call(participant, read, "evidence-a");
+      return yield* ctx.call(participant, evidenceDelete, null);
+    }));
+    const evidenceAtomic = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
+      identityAndAccessPolicy: { profile: "neutral-real-write-evidence" }, executionIsolation: "scopeExclusive", commands: [evidenceRoot],
+      participants: [{ participant, logicalStorage: main.input.logicalStorage, commands: [insert, update, read, evidenceDelete],
+        validateLogicalCall: (_call, activity) => Effect.sync(() => { evidenceCalls.push(activity); }),
+        validateLogical: (_calls, mutations) => Effect.sync(() => { evidenceAggregates.push(mutations); }) }] }));
+    cleanup.push(() => Effect.runPromise(evidenceAtomic.close));
+    const evidenceRequest = evidenceAtomic.newRequestKey();
+    const evidenceResult = await Effect.runPromise(evidenceAtomic.run(evidenceRequest, evidenceRoot, null));
+    expect(evidenceCalls).toHaveLength(4);
+    expect(evidenceCalls[0]?.mutations.map(mutation => ({ ordinal: mutation.ordinal, original: mutation.realNormalization,
+      stored: mutation.after?.measure }))).toEqual([
+      { ordinal: 0, original: { measure: 16777217, other: null }, stored: 16777216 },
+      { ordinal: 1, original: { measure: 1.0000000596046448, other: null }, stored: 1.0000001 },
+    ]);
+    expect(evidenceCalls[1]?.mutations).toMatchObject([{ ordinal: 0, operation: "patch",
+      realNormalization: { measure: 16777216, other: 16777217 }, after: { measure: 16777216, other: 16777216 } }]);
+    expect(evidenceCalls[2]?.mutations).toEqual([]);
+    expect(evidenceCalls[3]?.mutations).toHaveLength(2);
+    for (const mutation of evidenceCalls[3]?.mutations ?? []) {
+      expect(mutation.operation).toBe("delete"); expect(Object.hasOwn(mutation, "realNormalization")).toBe(false);
+    }
+    expect(evidenceAggregates).toHaveLength(1);
+    expect(evidenceAggregates[0]?.map(mutation => mutation.ordinal)).toEqual([0, 1, 2, 3, 4]);
+    expect(evidenceAggregates[0]?.map(mutation => mutation.realNormalization)).toEqual([
+      { measure: 16777217, other: null }, { measure: 1.0000000596046448, other: null },
+      { measure: 16777216, other: 16777217 }, undefined, undefined,
+    ]);
+    const originalFields = evidenceCalls[0]?.mutations[0]?.realNormalization;
+    if (originalFields === undefined) throw new Error("Missing authentic REAL write representation");
+    expect(Reflect.set(originalFields, "measure", 7)).toBe(false);
+    const afterEvidence = await snapshot();
+    expect(await Effect.runPromise(evidenceAtomic.run(evidenceRequest, evidenceRoot, null))).toEqual(evidenceResult);
+    expect(evidenceCalls).toHaveLength(4); expect(await snapshot()).toEqual(afterEvidence);
     const initialRows = [{ id: "seed-midpoint", measure: 1.0000000596046448 }, { id: "seed-defaults" }, { id: "seed-null", measure: null }];
     const initialized = await prepare("initial", initialRows); expect(await Effect.runPromise(initialized.host.initialize(initialRows))).toEqual({ rowCount: 3 });
     expect(await Effect.runPromise(initialized.host.read(read, "seed-midpoint"))).toMatchObject([{ measure: 1.0000001 }]);
@@ -305,7 +354,64 @@ export async function realScenario(driver: "pglite" | "postgres", finiteCapture 
     const accepted = normalized.rows[0]; if (accepted === undefined) throw new Error("Missing actual SQL-normalized row");
     expect(accepted.measure).toBe(1.0000001); expect(Reflect.set(accepted, "measure", 9)).toBe(false);
     const document = await Effect.runPromise(canonicalizeLogicalRelationalRow(mechanics, accepted, documentId, AppCreationTimeV1Schema.make(1)));
-    expect(hasLogicalRelationalRealVerdict(mechanics, document)).toBe(true); document.canonicalBytes.fill(0);
+    expect(hasLogicalRelationalRealVerdict(mechanics, document)).toBe(true);
+    const privateError = (reason: string) => new Error(reason);
+    const originalAttempt = Object.freeze({ ordinal: 7, documentId, tableId: binding.tableId, tableName: "measure",
+      operation: "insert" as const, before: null, after: document });
+    // A successful SQL conversion that never became a write has no proof.
+    expect(inspectLogicalRealWriteAttempt(originalAttempt, privateError))
+      .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+    Result.getOrThrow(captureLogicalRealWriteAttempt(originalAttempt, privateError));
+    expect(Result.getOrThrow(inspectLogicalRealWriteAttempt(originalAttempt, privateError)))
+      .toEqual({ measure: 1.0000000596046448, other: null });
+    const activity = { attempts: [originalAttempt], lifecycle: [], observedRows: [], relationalReads: [], setNull: [], referenceReplacements: [] };
+    const names = new Map([[binding.tableId, "measure"]]);
+    expect((await Effect.runPromise(projectLogicalCommerceActivity(names, activity))).mutations)
+      .toMatchObject([{ ordinal: 7, realNormalization: { measure: 1.0000000596046448, other: null }, after: { measure: 1.0000001 } }]);
+    expect(await Effect.runPromiseExit(projectLogicalCommerceActivity(names, { ...activity, attempts: [{ ...originalAttempt }] })))
+      .toMatchObject({ _tag: "Failure" });
+    const projectedAttempt = Object.freeze({ ...originalAttempt, ordinal: 0 });
+    Result.getOrThrow(retainLogicalRealWriteAttempt(originalAttempt, projectedAttempt, 7, privateError));
+    expect((await Effect.runPromise(projectLogicalCommerceActivity(names, { ...activity, attempts: [projectedAttempt] }))).mutations)
+      .toMatchObject([{ ordinal: 0, realNormalization: { measure: 1.0000000596046448, other: null } }]);
+    const detachedAttempt = Object.freeze({ ...originalAttempt, after: detachLogicalCanonicalDocument(document) });
+    retainDetachedLogicalRealWriteAttempt(originalAttempt, detachedAttempt);
+    expect(Result.getOrThrow(inspectLogicalRealWriteAttempt(detachedAttempt, privateError)))
+      .toEqual({ measure: 1.0000000596046448, other: null });
+    const copiedOriginal = Object.freeze({ ...originalAttempt });
+    const copiedDetached = Object.freeze({ ...copiedOriginal, after: detachLogicalCanonicalDocument(document) });
+    retainDetachedLogicalRealWriteAttempt(copiedOriginal, copiedDetached);
+    expect(inspectLogicalRealWriteAttempt(copiedDetached, privateError))
+      .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+    for (const changed of [{ ordinal: 8 }, { tableId: CatalogTableIdSchema.make(binding.tableId + 1) }, { tableName: "foreign" },
+      { operation: "patch" as const }, { before: document }, { after: null }])
+      expect(retainLogicalRealWriteAttempt(originalAttempt, Object.freeze({ ...originalAttempt, ...changed }), 0, privateError))
+        .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+    for (const changed of [{ ordinal: 8 }, { tableId: CatalogTableIdSchema.make(binding.tableId + 1) }, { tableName: "foreign" },
+      { operation: "patch" as const }, { before: document }]) {
+      const forgedDetached = Object.freeze({ ...originalAttempt, ...changed });
+      retainDetachedLogicalRealWriteAttempt(originalAttempt, forgedDetached);
+      expect(inspectLogicalRealWriteAttempt(forgedDetached, privateError))
+        .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+    }
+    const forgedCanonical = Object.freeze({ ...originalAttempt, after: { ...document } });
+    retainDetachedLogicalRealWriteAttempt(originalAttempt, forgedCanonical);
+    expect(Result.getOrThrow(inspectLogicalRealWriteAttempt(forgedCanonical, privateError))).toBeUndefined();
+    const patchAttempt = Object.freeze({ ...originalAttempt, operation: "patch" as const, before: document });
+    Result.getOrThrow(captureLogicalRealWriteAttempt(patchAttempt, privateError));
+    const forgedBefore = Object.freeze({ ...patchAttempt, before: { ...document } });
+    expect(retainLogicalRealWriteAttempt(patchAttempt, forgedBefore, 0, privateError))
+      .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+    retainDetachedLogicalRealWriteAttempt(patchAttempt, forgedBefore);
+    expect(inspectLogicalRealWriteAttempt(forgedBefore, privateError))
+      .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+    document.canonicalBytes.fill(0);
+    expect(inspectLogicalRealWriteAttempt(originalAttempt, privateError))
+      .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+    const corruptedDetached = Object.freeze({ ...originalAttempt, after: detachLogicalCanonicalDocument(document) });
+    retainDetachedLogicalRealWriteAttempt(originalAttempt, corruptedDetached);
+    expect(inspectLogicalRealWriteAttempt(corruptedDetached, privateError))
+      .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
     expect(hasLogicalRelationalRealVerdict(mechanics, document)).toBe(false);
     expect(nativeLogicalRelationalCanonicalRow(mechanics, document, 4096, reason => new Error(reason))).toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
   } finally {

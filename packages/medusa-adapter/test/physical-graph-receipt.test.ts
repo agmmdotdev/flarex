@@ -173,6 +173,39 @@ describe("complete physical graph receipt correlation", () => {
       read("service_zone", "fulfillment_set_id", [supplementary], 0), read("service_zone", "fulfillment_set_id", [bmp], 0)] }, raw));
   });
 
+  it("authenticates an explicitly selected storage insertion root order without changing the default", () => {
+    const first = { ...set, id: "set-z" }, second = { ...set, id: "set-a", deleted_at: stamp };
+    const raw = ["set-a", "missing", "set-z", "set-a"];
+    const rootRead = { table: "fulfillment_set", query: commerceRelationReadQuery(defaultCommerceResources,
+      { kind: "in", column: "id", values: raw }, { kind: "storageInsertion", direction: "asc" }, { includeIdentities: true }),
+      total: 2, returned: 2, orderedIdentities: [{ id: "set-z" }, { id: "set-a" }] };
+    const activity: Activity = { ...empty(), mutations: [remove(0, "fulfillment_set", first), remove(1, "fulfillment_set", second)],
+      relationalReads: [rootRead, read("service_zone", "fulfillment_set_id", ["set-z"], 0), read("service_zone", "fulfillment_set_id", ["set-a"], 0)] };
+    const selected: Input = { ...input(activity, raw), rootOrder: "storageInsertion" };
+    expect(Result.getOrThrow(correlatePhysicalGraphReceipt(selected))).toEqual(["set-z", "set-a"]);
+    refused(input(activity, raw));
+    for (const identities of [[], [{ id: "set-z" }], [{ id: "set-z" }, { id: "set-z" }],
+      [{ id: "outside" }, { id: "set-a" }], [{ id: "set-z", extra: true }, { id: "set-a" }],
+      [{ id: "set-a" }, { id: "set-z" }]]) refused({ ...selected, activity: { ...activity,
+        relationalReads: [{ ...rootRead, orderedIdentities: identities }, ...activity.relationalReads.slice(1)] } });
+    refused({ ...selected, activity: { ...activity, relationalReads: [
+      { ...rootRead, query: commerceRelationReadQuery(defaultCommerceResources, { kind: "in", column: "id", values: raw }) },
+      ...activity.relationalReads.slice(1)] } });
+    refused({ ...selected, activity: { ...activity, relationalReads: [{ ...rootRead, total: 3 }, ...activity.relationalReads.slice(1)] } });
+    refused({ ...selected, activity: { ...activity, relationalReads: [{ ...rootRead, returned: 1 }, ...activity.relationalReads.slice(1)] } });
+    refused({ ...selected, activity: { ...activity,
+      mutations: [remove(0, "fulfillment_set", second), remove(1, "fulfillment_set", first)] } });
+  });
+
+  it("distinguishes storage insertion empty-ID skip from a complete empty identity read", () => {
+    expect(Result.getOrThrow(correlatePhysicalGraphReceipt({ ...input(empty(), []), rootOrder: "storageInsertion" }))).toEqual([]);
+    const activity: Activity = { ...empty(), relationalReads: [{ table: "fulfillment_set",
+      query: commerceRelationReadQuery(defaultCommerceResources, { kind: "in", column: "id", values: ["missing"] },
+        { kind: "storageInsertion", direction: "asc" }, { includeIdentities: true }), total: 0, returned: 0, orderedIdentities: [] }] };
+    expect(Result.getOrThrow(correlatePhysicalGraphReceipt({ ...input(activity, ["missing"]), rootOrder: "storageInsertion" }))).toEqual([]);
+    refused({ ...input({ ...activity, relationalReads: [] }, ["missing"]), rootOrder: "storageInsertion" });
+  });
+
   it("enforces every entity allowance and the real sixteen-Geo complete cohort boundary", () => {
     const activity = deletion();
     for (const entity of configuration.entities)

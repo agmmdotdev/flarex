@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "c4e271e882eff68f38a6e6658642285bf12abd898745f10bfd3181aa405c701e"
+      "targetSha256": "86c9445bb4cedbdb182efe19973e247fabf5d481f6c565a2fca030d5bf772078"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -3395,7 +3395,7 @@
     {
       "target": "packages/medusa-adapter/src/repository/scalar.ts",
       "classification": "authored",
-      "targetSha256": "0ca2628479169c73446e5b0fa9716c110aa2d2fc4e9bf1d5363260f563f1a0c5"
+      "targetSha256": "566db6be281621e87a912e4f848a709a55e27b43b4855879e27212202813bc69"
     },
     {
       "target": "packages/medusa-adapter/src/modules/fulfillment/shipping-profile-events.ts",
@@ -10093,7 +10093,7 @@
     {
       "target": "packages/medusa-adapter/src/repository/physical-graph-receipt.ts",
       "classification": "authored",
-      "targetSha256": "4251a442e8ddd586ab9e57c52ea110516d657ef5a319045746d50593166490e4"
+      "targetSha256": "4749b011eecd9c4b7444a4f69ea0dc7607d3d7c23226c1b42cbfeee39fc49e04"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/stock-location/create-location-fulfillment-set.ts",
@@ -10123,7 +10123,7 @@
     {
       "target": "packages/medusa-adapter/test/physical-graph-receipt.test.ts",
       "classification": "authored",
-      "targetSha256": "62554b299db88fb4477318726701bf0d24840bde102d2ef92e90faf3d86093b9"
+      "targetSha256": "6feb11764dc749b179707ca86acef730375b8b9ff5f7a252612a516fa047fe23"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-location-fulfillment-set-creation-fixture.ts",
@@ -13229,7 +13229,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/tax/module.ts",
       "classification": "authored",
-      "targetSha256": "8ea718b646a8f99dee7d1fe2e650d68ac6ca4a601c779e84d46df6aed0ce5e02"
+      "targetSha256": "c6ce9cb4c34eed3401cc8b986affc09bfb10c7303f8d579be45a59f0999174b9"
     },
     {
       "target": "packages/medusa-adapter/src/modules/tax/query.ts",
@@ -13254,7 +13254,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/tax/service.ts",
       "classification": "authored",
-      "targetSha256": "4443b835853b4a15eede067cecc8e7e8f1db8cf13898eacd2c52341eecb93c1f"
+      "targetSha256": "bdc63f9ede00efc668f096ce654df40c8119567bb8047ee627dfbb547820b102"
     },
     {
       "target": "packages/medusa-core-flows/src/tax/steps/get-item-tax-lines.ts",
@@ -13269,6 +13269,65 @@
       "targetSha256": "eba29f2560360ff5380ee0aebc19d03a3d623de26265f3d7ecfd607c328cd5c6",
       "source": "third_party/medusa/upstream/packages/core/types/src/order/workflows.ts",
       "sourceSha256": "eba29f2560360ff5380ee0aebc19d03a3d623de26265f3d7ecfd607c328cd5c6"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/tax/steps/create-tax-rates.ts",
+      "target": "packages/medusa-core-flows/src/tax/steps/create-tax-rates.ts",
+      "classification": "taxRateCreationFork",
+      "sourceSha256": "5ee4c8e34ace9ec3fdd8eece9994c0f947a2b0b718560ded6f8071c8bec21c48",
+      "targetSha256": "88adbe53b962a827815e0899d1fe7f523a21f43211026fd7eee19614db02c21b"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/tax/workflows/create-tax-rates.ts",
+      "target": "packages/medusa-core-flows/src/tax/workflows/create-tax-rates.ts",
+      "classification": "taxRateCreationFork",
+      "sourceSha256": "cfa0730c3ba4c651397924891f4c8e70d2ccbb25592172da8d0ddade04c2b7db",
+      "targetSha256": "9727e653e05b3774d5109dff72ae10cf709754198059057e3a71612be6d619c0"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rate-create-input.ts",
+      "classification": "authored",
+      "targetSha256": "0d28991e612890c4a75f9ac23087c88d494db8c329a1318a68d88bf45977d064"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rate-create-repository.ts",
+      "classification": "authored",
+      "targetSha256": "d35dee86b13ae4ded857c789eeb331b71bb1ebb0567aadeeb22961e61b549bdd"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rate-create-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "6e4b3f7f1901b23f2e09e50f7b59919310d0866ad97a493b10abc658dc23aad2"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rate-create-service.ts",
+      "classification": "authored",
+      "targetSha256": "00124159dc7c89b025ecf856150de1fe988d01aefe3a893676cd4ec950d02191"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/tax/create-rates.ts",
+      "classification": "authored",
+      "targetSha256": "4e6f4b80fa06b0b5cbb09b6b52865207414c70036cb120999987bc0d6fb6caef"
+    },
+    {
+      "target": "packages/medusa-adapter/test/tax-rate-create-contracts.test.ts",
+      "classification": "authored",
+      "targetSha256": "a4b1aa74d2eb7357d4104c64de9d300a2c25c3c56b0deaf5c6a41e82b8848e64"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-tax-rate-create-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "b32b43f50b1adfb873a25372b0a48f3f26196d3e17970abf0e5d8c34118371f0"
+    },
+    {
+      "target": "packages/medusa-adapter/test/tax-rate-create-receipt.test.ts",
+      "classification": "authored",
+      "targetSha256": "f23089e009e6b1cfd1485664a2302c2e055a9486213c3ea1457c11d4cd270b29"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-tax-rate-create-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "f13a31380b6536cd80ebcf8896cb8b605aa56654d47cf0a53f21ed9ede89f3ba"
     }
   ],
   "dependencies": {
@@ -13866,7 +13925,9 @@
         "./price-list/remove-price-list-prices-step",
         "./price-list/batch-price-list-prices",
         "./cart/get-variants-and-items-with-prices",
-        "./cart/get-variant-price-sets-step"
+        "./cart/get-variant-price-sets-step",
+        "./tax/create-tax-rates",
+        "./tax/create-tax-rates-step"
       ]
     },
     {

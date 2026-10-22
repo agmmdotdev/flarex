@@ -32,7 +32,8 @@ const decodeOptions = commerceDecoder(Schema.Struct({
 /** Shared scalar create/read mechanics. Module owners select checked metadata,
  * filters and explicit extensions; this factory grants no table or settlement. */
 export function prepareScalarRepository(table: SchemaTable, modelName: string, wherePolicy: WherePolicy,
-  normalizeProjection?: (value: Json) => Effect.Effect<Json, CommerceTransactionError>) {
+  normalizeProjection?: (value: Json) => Effect.Effect<Json, CommerceTransactionError>,
+  createPolicy?: { readonly managedTimestamps?: true; readonly nativeRealPresentation?: true }) {
   return Result.gen(function* () {
     const primary = table.columns.filter(column => column.primaryKey);
     if (primary.length !== 1 || primary[0]?.name !== "id" || primary[0].type !== "id") {
@@ -40,7 +41,8 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
     }
     const prefix = primary[0].options?.prefix;
     const columns = table.columns.map(column => column.name);
-    const scalarNames = columns.filter(name => !["created_at", "updated_at", "deleted_at"].includes(name));
+    const scalarNames = createPolicy?.managedTimestamps ? columns : columns.filter(name => !["created_at", "updated_at", "deleted_at"].includes(name));
+    const realColumns = createPolicy?.nativeRealPresentation ? table.columns.filter(column => column.type === "float").map(column => column.name) : [];
     const decodeCreate = commerceRowDecoder(scalarNames, "unsupportedProfile");
     const companions = Object.fromEntries(table.columns.filter(column => column.type === "bigNumber")
       .map(column => [column.name, "raw_" + column.name]));
@@ -96,9 +98,16 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
         }
         const store = yield* ctx.table(table.name);
         const inserted = yield* store.write(ctx.manager, "insert", rows);
+        // Native entities retain submitted REAL values until a cold read. SQL
+        // conversion must succeed first; canonical storage remains untouched.
+        const presented = inserted.map((entity, index) => {
+          const result = { ...entity }, submitted = rows[index];
+          for (const name of realColumns) if (submitted?.[name] !== undefined) result[name] = submitted[name];
+          return result;
+        });
         if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
-        yield* events.created(inserted.map(entity => ({ modelName, entity: { ...entity } })), shared);
-        return [...inserted];
+        yield* events.created(presented.map(entity => ({ modelName, entity: { ...entity } })), shared);
+        return presented;
       });
       const repository: DAL.RepositoryService = {
         getFreshManager: bridge.getFreshManager, getActiveManager: bridge.getActiveManager, transaction: bridge.transaction,

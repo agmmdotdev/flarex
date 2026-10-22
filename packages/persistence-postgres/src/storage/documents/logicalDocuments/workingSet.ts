@@ -56,6 +56,7 @@ import { preparePostgresRelationalBatch, inspectPostgresRelationalBatch, buildPo
 import { rowsFromDriverExecuteResult } from "../../../database/driverExecuteResult";
 import { decodeLogicalAggregate, sumLogicalRows } from "./aggregate";
 import { relationalTextIdentity } from "./relationalRows";
+import { captureLogicalRealWriteAttempt, retainLogicalRealWriteAttempt } from "./realWriteEvidence";
 import { prepareLogicalRelationalTableMechanics, hasPreparedLogicalRelationalTableMechanics,
   bindPreparedLogicalRelationalRows, prepareLogicalRelationalRowValues, canonicalizeLogicalRelationalRow, captureLogicalRelationalCanonicalRow,
   prepareLogicalRelationalRealBatch, inspectLogicalRelationalRealBatch, executeLogicalRelationalRealBatch, hasLogicalRelationalRealVerdict,
@@ -1513,6 +1514,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       tableId: pending.tableId, tableName: localTableName(pending.tableId) ?? pending.tableName, before: pending.current, after,
       ...(deletedReference === undefined || causalEvidence === undefined ? {} : { deletedReference: deletedReference.cause, deletedReferenceEvidence: causalEvidence }),
       ...(insertion === undefined ? {} : { insertionAttemptOrdinal: insertion.ordinal, insertionEvidence: insertion.evidence }) });
+    yield* captureLogicalRealWriteAttempt(attempt, error);
     if (insertionAttemptOrdinal !== undefined) pending.insertionOrder = Object.freeze({ kind: "pending", attemptOrdinal: insertionAttemptOrdinal });
     pending.attempts.push(attempt.ordinal);
     attempts.push(attempt);
@@ -2723,17 +2725,21 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     return preparedActivity;
   });
   const projectActivityData = (prepared: NonNullable<typeof preparedActivity>, cursor?: LogicalDocumentActivityCursor,
-    source?: PreparedWriteMechanicsState): LogicalDocumentActivity => {
+    source?: PreparedWriteMechanicsState) => Result.gen(function* () {
     const attemptOffset = localCursor.attempts + (cursor?.attempts ?? 0);
+    const selectedAttempts: LogicalDocumentAttempt[] = [];
+    for (const attempt of attempts.slice(attemptOffset)) {
+      const { deletedReferenceEvidence, ...rest } = attempt;
+      const evidence = deletedReferenceEvidence === undefined ? undefined : rebaseLogicalDeletedReferenceEvidence(deletedReferenceEvidence, attemptOffset);
+      const projected = Object.freeze({ ...rest, ordinal: attempt.ordinal - attemptOffset,
+        ...(evidence === undefined ? {} : { deletedReferenceEvidence: evidence }),
+        ...(attempt.deletedReference === undefined ? {} : { deletedReference: Object.freeze({ ...attempt.deletedReference,
+          targetDeleteOrdinal: attempt.deletedReference.targetDeleteOrdinal - attemptOffset }) }) });
+      yield* retainLogicalRealWriteAttempt(attempt, projected, attemptOffset, error);
+      selectedAttempts.push(projected);
+    }
     return Object.freeze({
-      attempts: Object.freeze(attempts.slice(attemptOffset).map(attempt => {
-        const { deletedReferenceEvidence, ...rest } = attempt;
-        const evidence = deletedReferenceEvidence === undefined ? undefined : rebaseLogicalDeletedReferenceEvidence(deletedReferenceEvidence, attemptOffset);
-        return Object.freeze({ ...rest, ordinal: attempt.ordinal - attemptOffset,
-          ...(evidence === undefined ? {} : { deletedReferenceEvidence: evidence }),
-          ...(attempt.deletedReference === undefined ? {} : { deletedReference: Object.freeze({ ...attempt.deletedReference,
-            targetDeleteOrdinal: attempt.deletedReference.targetDeleteOrdinal - attemptOffset }) }) });
-      })),
+      attempts: Object.freeze(selectedAttempts),
       lifecycle: Object.freeze(lifecycle.slice(localCursor.lifecycle + (cursor?.lifecycle ?? 0)).map(observation => Object.freeze({ ...observation,
         attemptOrdinal: observation.attemptOrdinal === null ? null : observation.attemptOrdinal - attemptOffset }))),
       observedRows: cursor === undefined && source === undefined ? prepared.observedRows :
@@ -2744,13 +2750,13 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       setNull: Object.freeze(setNull.slice(localCursor.setNull + (cursor?.setNull ?? 0))),
       referenceReplacements: Object.freeze(referenceReplacements.slice(localCursor.referenceReplacements + (cursor?.referenceReplacements ?? 0))),
     });
-  };
-  const activityData = prepareActivity.pipe(Effect.map(prepared => {
+  });
+  const activityData = prepareActivity.pipe(Effect.flatMap(prepared => Effect.gen(function* () {
     if (aggregateActivity?.key === prepared.key) return aggregateActivity.activity;
-    const activity = projectActivityData(prepared);
+    const activity = yield* Effect.fromResult(projectActivityData(prepared));
     aggregateActivity = Object.freeze({ key: prepared.key, activity });
     return activity;
-  }));
+  })));
   const activityContribution = prepareActivity.pipe(Effect.map(prepared => prepared.contribution));
   const closedActivityContribution = Effect.suspend(() => closed && lifetime.isClosing() && preparedActivity !== undefined
     ? Effect.succeed(preparedActivity.contribution) : Effect.fail(error("invalidAuthority")));
@@ -2774,7 +2780,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       if (attempts.slice(attemptOffset).some(attempt => attempt.deletedReference !== undefined &&
         attempt.deletedReference.targetDeleteOrdinal < attemptOffset)) return yield* Effect.fail(error("invalidAuthority"));
       if (source === undefined && cursor === undefined && aggregateActivity?.key === prepared.key) return aggregateActivity.activity;
-      return projectActivityData(prepared, cursor, source?.closed === true ? undefined : source);
+      return yield* Effect.fromResult(projectActivityData(prepared, cursor, source?.closed === true ? undefined : source));
     });
   });
   const activitySnapshot = (cursor?: LogicalDocumentActivityCursor) => observeExecution("LogicalDocuments.activitySnapshot", Effect.suspend(() =>

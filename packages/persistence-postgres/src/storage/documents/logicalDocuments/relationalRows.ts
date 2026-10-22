@@ -153,6 +153,7 @@ const issuedTableMechanics = new WeakMap<object, Readonly<{ table: RelationalTab
   capabilities: readonly RelationalPersistenceCapability[] }>>();
 const normalizedRows = new WeakMap<JsonObject, object>();
 const realCandidates = new WeakMap<JsonObject, object>();
+const realNormalizedInputs = new WeakMap<JsonObject, JsonObject>();
 interface CanonicalRowVerdict {
   readonly derived?: WeakMap<ReadonlySet<CanonicalFlarexValueV1>, CanonicalDerivedKeys>;
   readonly kind: "relational";
@@ -162,6 +163,8 @@ interface CanonicalRowVerdict {
   readonly digest: Uint8Array;
   readonly runtime: JsonObject;
   readonly native: JsonObject;
+  /** Original complete REAL fields from this exact successful SQL conversion. */
+  readonly realNormalization?: JsonObject;
 }
 interface CanonicalDocumentVerdict {
   readonly derived?: WeakMap<ReadonlySet<CanonicalFlarexValueV1>, CanonicalDerivedKeys>;
@@ -335,8 +338,10 @@ export const canonicalizeLogicalRelationalRow = Effect.fnUntraced(function* (
     const native = yield* useCapturedPrivateJsonData(Object.fromEntries(Object.entries(captured.value)
       .filter(([name]) => name !== "_id" && name !== "_creationTime")), Number.MAX_SAFE_INTEGER, mechanicError);
     if (!isJsonObject(native.value)) return yield* Result.fail(mechanicError("documentInvalid"));
+    const realNormalization = realNormalizedInputs.get(fields);
     canonicalRows.set(document, Object.freeze({ kind: "relational", mechanics, bytes: document.canonicalBytes.slice(), digest: document.sha256.slice(),
-      runtime: captured.value, native: native.value }));
+      runtime: captured.value, native: native.value,
+      ...(realNormalization === undefined ? {} : { realNormalization }) }));
     if (isJsonObject(document.valueJson)) canonicalJsonRows.set(document.valueJson, document);
   }));
   return document;
@@ -565,6 +570,26 @@ export const hasLogicalRelationalRealVerdict = (mechanics: PreparedLogicalRelati
   const prior = canonicalRows.get(document);
   return issuedTableMechanics.has(mechanics) && prior?.kind === "relational" && prior.mechanics === mechanics && canonicalBytesMatch(document, prior);
 };
+
+/** Private write evidence only. A successful validation read grants no original
+ * input representation, and foreign canonical structures cannot issue one. */
+export function inspectLogicalRelationalRealNormalization<Failure>(document: CanonicalFlarexValueV1,
+  error: LogicalDocumentFailure<Failure>): Result.Result<JsonObject | undefined, Failure> {
+  const verdict = canonicalRows.get(document);
+  if (verdict?.kind !== "relational") return Result.succeed(undefined);
+  return canonicalBytesMatch(document, verdict) ? Result.succeed(verdict.realNormalization) : Result.fail(error("storedCorruption"));
+}
+
+/** Canonical detachment retains the exact private runtime/native verdict. A
+ * structural copy, including matching byte buffers, cannot acquire that loan. */
+export function isLogicalRelationalCanonicalCopy(original: CanonicalFlarexValueV1 | null,
+  detached: CanonicalFlarexValueV1 | null): boolean {
+  if (original === detached) return true;
+  if (original === null || detached === null) return false;
+  const left = canonicalRows.get(original), right = canonicalRows.get(detached);
+  return left?.kind === "relational" && right?.kind === "relational" && left.runtime === right.runtime &&
+    left.native === right.native && left.mechanics === right.mechanics && left.realNormalization === right.realNormalization;
+}
 const RealBounds = Schema.Struct({ rows: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: MAX_BOUNDED_APP_ROW_READ_IDENTITIES })),
   bytes: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })) });
 const decodeRealBounds = Schema.decodeUnknownResult(RealBounds, { onExcessProperty: "error" });
@@ -671,6 +696,15 @@ export const executeLogicalRelationalRealBatch = Effect.fn("LogicalRelationalRow
     yield* Effect.fromResult(validate(capturedRow.value, reason));
     accepted.push(capturedRow.value);
     normalizedRows.set(capturedRow.value, policy.normalize);
+    if (facts.mode === "normalize") {
+      const original = facts.rows[index];
+      if (original === undefined) return yield* Effect.fail(error("storedCorruption"));
+      // Scalars are already captured and bounded by the SQL batch owner. Keep
+      // every REAL column, including null and unchanged values, without another
+      // normalization query or a second representation/rounding policy.
+      realNormalizedInputs.set(capturedRow.value, Object.freeze(Object.fromEntries(facts.mechanics.table.columns
+        .filter(column => column.type === "real").map(column => [column.identity.columnId, original[column.identity.columnId]!]))));
+    }
     const document = facts.documents?.[index];
     if (document !== undefined) {
       const prior = canonicalRows.get(document);
