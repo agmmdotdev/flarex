@@ -72,6 +72,7 @@ const predicatesFor = (where: LogicalWhere) => {
   for (const nullField of nulls) for (const textField of Object.keys(where)) {
     const value = where[textField];
     if (typeof value === "string") predicates.push({ kind: "fieldIsNullAndTextEquals", nullField, textField, value });
+    if (typeof value === "boolean") predicates.push({ kind: "fieldIsNullAndBooleanEquals", nullField, booleanField: textField, value });
   }
   return predicates.map(logicalReadPredicateKey);
 };
@@ -102,6 +103,8 @@ export function logicalPageReadAccessQuery(tx: FlarexMetadataTransaction, input:
     predicates.push({ kind: "fieldIsNull", field });
     if (equality !== undefined && typeof equality.value === "string")
       predicates.push({ kind: "fieldIsNullAndTextEquals", nullField: field, textField: equality.column, value: equality.value });
+    if (equality !== undefined && typeof equality.value === "boolean")
+      predicates.push({ kind: "fieldIsNullAndBooleanEquals", nullField: field, booleanField: equality.column, value: equality.value });
   }
   return logicalExactReadAccessQuery(tx, input,
     predicates.map(predicate => ({ kind: "page", key: logicalReadFacetKey(fields, predicate) }))).limit(1);

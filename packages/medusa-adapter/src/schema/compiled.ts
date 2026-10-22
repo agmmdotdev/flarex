@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { CompiledIndexWhere } from "./index-predicate";
 
 /** Shared checked compiler grammar. Module owners still admit their exact model set. */
 const strings = Schema.Array(Schema.String);
@@ -39,7 +40,7 @@ const Index = Schema.Struct({
   name: Schema.String,
   columns: strings,
   unique: Schema.Boolean,
-  where: Schema.optionalKey(Schema.Literals(["deleted_at IS NULL", "deleted_at IS NULL AND status = 'active'"])),
+  where: Schema.optionalKey(CompiledIndexWhere),
   type: Schema.optionalKey(Schema.String),
 });
 const ForeignKey = Schema.Struct({

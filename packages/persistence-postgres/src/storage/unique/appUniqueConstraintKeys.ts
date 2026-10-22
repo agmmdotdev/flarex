@@ -3,6 +3,7 @@ import { OrderedIndexKeyTooLargeError } from "flarex-protocol/ordered-index";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import {
   appDocumentPathIsNull,
+  appDocumentPathEqualsBoolean,
   lowerAppDocumentOrderedFieldValuesV1,
 } from "../indexes/appDocumentOrderedFieldValuesV1";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "./locatedAppUniqueConstraintDefinition";
@@ -22,7 +23,11 @@ function lowerAppUniqueConstraintProjectionV1Result(
   return Result.try({
     try: () => {
       const spec = definition.physicalSpec;
-      if (spec.predicate !== undefined && !appDocumentPathIsNull(document, spec.predicate.field)) {
+      const predicate = spec.predicate;
+      if (predicate !== undefined && !(predicate.kind === "fieldIsNull"
+        ? appDocumentPathIsNull(document, predicate.field)
+        : appDocumentPathIsNull(document, predicate.nullField) &&
+          appDocumentPathEqualsBoolean(document, predicate.booleanField, predicate.value))) {
         return Object.freeze({ kind: "omitted" as const, reason: "predicateExcluded" as const, localeKey: "" });
       }
       if (spec.nullsDistinct === true && spec.orderedFields.some(field => appDocumentPathIsNull(document, field))) {

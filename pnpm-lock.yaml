@@ -873,6 +873,9 @@ importers:
       '@medusajs/currency':
         specifier: workspace:*
         version: link:../medusa-currency
+      '@medusajs/customer':
+        specifier: workspace:*
+        version: link:../medusa-customer
       '@medusajs/deps':
         specifier: workspace:*
         version: link:../medusa-deps

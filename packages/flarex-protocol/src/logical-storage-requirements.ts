@@ -73,7 +73,7 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
         // use float64 ordered components after canonical zero normalization.
         // Timestamps are canonical UTC millisecond instants, whose fixed-width
         // ISO text has the same chronological order.
-        // Predicate membership uses the same canonical null and text values
+        // Predicate membership uses the same canonical null and scalar values
         // that relational validation admits for these columns.
         if (declaration.columns.some(column => {
           const type = table.columns.find(field => field.identity.columnId === column.columnId)?.type;
@@ -86,6 +86,10 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
             ? predicate.nullColumn.columnId.includes(".") || predicate.textColumn.columnId.includes(".") ||
               table.columns.find(column => column.identity.columnId === predicate.nullColumn.columnId)?.nullable !== true ||
               table.columns.find(column => column.identity.columnId === predicate.textColumn.columnId)?.type !== "text"
+            : predicate.kind === "isNullAndBooleanEquals"
+              ? predicate.nullColumn.columnId.includes(".") || predicate.booleanColumn.columnId.includes(".") ||
+                table.columns.find(column => column.identity.columnId === predicate.nullColumn.columnId)?.nullable !== true ||
+                table.columns.find(column => column.identity.columnId === predicate.booleanColumn.columnId)?.type !== "boolean"
             : true))) {
           return yield* Result.fail(failure(source));
         }
@@ -101,8 +105,11 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
             field.kind === "documentPath" ? { ...field, valueFormat: "sha256TextV1" as const } : field) } : {}),
           ...(predicate === null ? {} : predicate.kind === "isNull"
             ? { predicate: { kind: "fieldIsNull" as const, field: predicate.column.columnId } }
-            : { predicate: { kind: "fieldIsNullAndTextEquals" as const,
-              nullField: predicate.nullColumn.columnId, textField: predicate.textColumn.columnId, value: predicate.value } }),
+            : predicate.kind === "isNullAndTextEquals"
+              ? { predicate: { kind: "fieldIsNullAndTextEquals" as const,
+                nullField: predicate.nullColumn.columnId, textField: predicate.textColumn.columnId, value: predicate.value } }
+              : { predicate: { kind: "fieldIsNullAndBooleanEquals" as const,
+                nullField: predicate.nullColumn.columnId, booleanField: predicate.booleanColumn.columnId, value: predicate.value } }),
         }).pipe(Result.mapError(cause => failure(source, cause)));
         const descriptor = yield* decodeName(declaration.name).pipe(Result.mapError(cause => failure(source, cause)));
         requirements.push({ localName: table.identity.tableId, descriptor, physicalSpec });
@@ -246,18 +253,26 @@ export function compileLogicalSourceUniqueConstraints(source: LogicalSchemaSourc
         // Native decimal equality still needs a canonical value contract.
         // Int32 and finite binary64 values use canonical zero; canonical UTC
         // instants have unambiguous equality in the shared key codec.
+        if (predicate?.kind === "isNullAndTextEquals") return yield* Result.fail(failure(source));
         if (declaration.columns.some(column => {
           const type = table.columns.find(field => field.identity.columnId === column.columnId)?.type;
           return column.columnId.includes(".") || (type !== "text" && type !== "boolean" &&
             type !== "integer" && type !== "doublePrecision" && type !== "timestamptz");
-        }) || (predicate !== null && (predicate.kind !== "isNull" || predicate.column.columnId.includes(".")))) {
+        }) || (predicate !== null && (predicate.kind === "isNull" ? predicate.column.columnId.includes(".")
+          : predicate.nullColumn.columnId.includes(".") ||
+            predicate.booleanColumn.columnId.includes(".") ||
+            table.columns.find(column => column.identity.columnId === predicate.nullColumn.columnId)?.nullable !== true ||
+            table.columns.find(column => column.identity.columnId === predicate.booleanColumn.columnId)?.type !== "boolean"))) {
           return yield* Result.fail(failure(source));
         }
         const descriptor = yield* decodeName(declaration.name).pipe(Result.mapError(cause => failure(source, cause)));
         const physicalSpec = yield* decodeAppUniqueConstraintPhysicalSpecV1Result({ kind: "appUniqueConstraint", specVersion: 1,
           orderedFields: declaration.columns.map(column => column.columnId), sparse: false,
           ...(declaration.nullsDistinct ? { nullsDistinct: true } : {}),
-          ...(predicate === null ? {} : { predicate: { kind: "fieldIsNull", field: predicate.column.columnId } }),
+          ...(predicate === null ? {} : predicate.kind === "isNull"
+            ? { predicate: { kind: "fieldIsNull", field: predicate.column.columnId } }
+            : { predicate: { kind: "fieldIsNullAndBooleanEquals", nullField: predicate.nullColumn.columnId,
+              booleanField: predicate.booleanColumn.columnId, value: predicate.value } }),
           localePolicy: { kind: "none" }, keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
           keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
         }).pipe(Result.mapError(cause => failure(source, cause)));

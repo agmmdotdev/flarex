@@ -1,4 +1,5 @@
 import type { ColumnDefault, LoweredColumn, SchemaColumn, SchemaOrigins, SchemaTable } from "./model";
+import { lowerCompiledIndexWhere } from "./index-predicate";
 
 const authored = (sourceId: string) => ({ kind: "authored" as const, sourceId });
 const implicit = (sourceId: string) => ({ kind: "implicit" as const, sourceId });
@@ -91,12 +92,7 @@ export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string,
             table.columns.find(column => column.name === index.columns[0])?.type === "json"
             ? "jsonContainment" : index.type,
         columns: index.columns,
-        predicate:
-          index.where === undefined
-            ? null
-            : index.where === "deleted_at IS NULL"
-              ? { kind: "isNull", columnId: "deleted_at" }
-              : { kind: "isNullAndTextEquals", nullColumnId: "deleted_at", textColumnId: "status", value: "active" },
+        predicate: lowerCompiledIndexWhere(index.where),
         origin: origin(index.name),
       }));
     if (primary.length !== 0)

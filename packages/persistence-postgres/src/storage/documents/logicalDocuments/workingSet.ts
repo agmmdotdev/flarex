@@ -1302,7 +1302,12 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         const member = candidate.physicalSpec.orderedFields[position];
         return member?.kind === "documentPath" && member.path === field && member.valueFormat === undefined;
       }) && (predicate === undefined ? candidate.physicalSpec.predicate === undefined :
-        candidate.physicalSpec.predicate?.kind === "fieldIsNull" && candidate.physicalSpec.predicate.field === predicate.field));
+        predicate.kind === "fieldIsNull" ? candidate.physicalSpec.predicate?.kind === "fieldIsNull" &&
+          candidate.physicalSpec.predicate.field === predicate.field :
+        candidate.physicalSpec.predicate?.kind === "fieldIsNullAndBooleanEquals" &&
+          candidate.physicalSpec.predicate.nullField === predicate.nullField &&
+          candidate.physicalSpec.predicate.booleanField === predicate.booleanField &&
+          candidate.physicalSpec.predicate.value === predicate.value));
     if (projected.kind !== "claim" || fields.length === 0 || projected.projection.values.length !== fields.length || index === undefined)
       return yield* Effect.fail(error("invalidAuthority"));
     const expressions: OrderedIndexRangeExpressionV1[] = fields.map((_, position) => ({

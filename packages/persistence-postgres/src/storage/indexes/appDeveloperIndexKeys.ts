@@ -13,6 +13,7 @@ import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import type { LocatedAppIndexDefinitionV1 } from "./locatedAppIndexDefinition";
 import {
   appDocumentPathEqualsText,
+  appDocumentPathEqualsBoolean,
   appDocumentPathIsNull,
   lowerAppDocumentOrderedFieldValuesV1,
 } from "./appDocumentOrderedFieldValuesV1";
@@ -42,7 +43,9 @@ export function lowerAppOrderedIndexPhysicalKeyV1(
     if (predicate !== undefined && !(predicate.kind === "fieldIsNull"
       ? appDocumentPathIsNull(document, predicate.field)
       : appDocumentPathIsNull(document, predicate.nullField) &&
-        appDocumentPathEqualsText(document, predicate.textField, predicate.value))) return Result.succeed(null);
+        (predicate.kind === "fieldIsNullAndTextEquals"
+          ? appDocumentPathEqualsText(document, predicate.textField, predicate.value)
+          : appDocumentPathEqualsBoolean(document, predicate.booleanField, predicate.value)))) return Result.succeed(null);
     const values: OrderedIndexComponentV1[] = [];
     const documentFields = physicalSpec.orderedFields.filter(
       (field): field is Extract<typeof field, { readonly kind: "documentPath" }> =>

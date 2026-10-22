@@ -153,6 +153,12 @@ export type RelationalKeyDefinition = Readonly<{
 export type RelationalIndexPredicate =
   | null
   | (Readonly<{
+      readonly kind: "isNullAndBooleanEquals";
+      readonly nullColumn: RelationalColumnIdentity;
+      readonly booleanColumn: RelationalColumnIdentity;
+      readonly value: boolean;
+    }> & JsonObject)
+  | (Readonly<{
       readonly kind: "isNullAndTextEquals";
       readonly nullColumn: RelationalColumnIdentity;
       readonly textColumn: RelationalColumnIdentity;

@@ -62,7 +62,8 @@ export function selectLogicalPageIndex<Failure>(definitions: readonly LocatedApp
       if (definition.access.kind !== "developer" || definition.access.tableId !== tableId) continue;
       const predicate = definition.physicalSpec.predicate;
       if (predicate !== undefined && !(predicate.kind === "fieldIsNull" ? requiredNulls.includes(predicate.field)
-        : requiredNulls.includes(predicate.nullField) && equality?.column === predicate.textField && equality.value === predicate.value)) continue;
+        : requiredNulls.includes(predicate.nullField) && equality?.column ===
+          (predicate.kind === "fieldIsNullAndTextEquals" ? predicate.textField : predicate.booleanField) && equality.value === predicate.value)) continue;
       const ordered = definition.physicalSpec.orderedFields;
       if (ordered.at(-1)?.kind !== "systemCreationTime") continue;
       const fields = ordered.slice(0, -1);
@@ -109,7 +110,8 @@ export function selectLogicalIndexValues<Failure>(definitions: readonly LocatedA
           membership?.kind !== "fieldIsNull" || membership.field !== exactPoint.nullColumn))) continue;
       if (membership !== undefined && !(membership.kind === "fieldIsNull"
         ? values.value(membership.field) === null
-        : values.value(membership.nullField) === null && values.value(membership.textField) === membership.value)) continue;
+        : values.value(membership.nullField) === null && values.value(
+          membership.kind === "fieldIsNullAndTextEquals" ? membership.textField : membership.booleanField) === membership.value)) continue;
       const expressions: OrderedIndexRangeExpressionV1[] = [];
       let fields = 0;
       for (const field of definition.physicalSpec.orderedFields) {

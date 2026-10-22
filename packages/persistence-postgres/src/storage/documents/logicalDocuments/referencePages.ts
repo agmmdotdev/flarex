@@ -92,6 +92,7 @@ function referencePageRows(admission: LogicalReferenceAdmission, tableId: Catalo
     switch (predicate.kind) {
       case "fieldIsNull": return affected(predicate.field);
       case "fieldIsNullAndTextEquals": return affected(predicate.nullField) || affected(predicate.textField);
+      case "fieldIsNullAndBooleanEquals": return affected(predicate.nullField) || affected(predicate.booleanField);
       default: return true;
     }
   }).length;

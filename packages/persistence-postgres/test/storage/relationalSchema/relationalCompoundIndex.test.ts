@@ -14,6 +14,22 @@ const capture = (schema: unknown) => captureRelationalSchemaArtifact({ deploymen
   provenance: { kind: "sourceSnapshot", repository: "https://example.com/compound", revision: "d".repeat(40), paths: ["model.ts"] }, schema });
 
 describe("bounded compound index predicates", () => {
+  it("refuses the logical Boolean predicate on the historical physical-layout route", async () => {
+    const origin = { kind: "synthetic", sourceId: "neutral-boolean-layout-refusal" };
+    const captured = await Effect.runPromise(capture({ owner: "medusa", lineageId: "boolean-layout-refusal", capabilities: [], tables: [{
+      tableId: "entries", origin, columns: [
+        { columnId: "id", type: "text", nullable: false, default: { kind: "none" }, origin },
+        { columnId: "deleted_at", type: "text", nullable: true, default: { kind: "none" }, origin },
+        { columnId: "selected", type: "boolean", nullable: false, default: { kind: "none" }, origin },
+      ], keys: [{ keyId: "entries.primary", kind: "primary", columns: ["id"], origin }], indexes: [{
+        indexId: "entries.selected", kind: "uniqueBtree", columns: ["id"], origin,
+        predicate: { kind: "isNullAndBooleanEquals", nullColumnId: "deleted_at", booleanColumnId: "selected", value: true },
+      }], constraints: [], relationships: [],
+    }] }));
+    expect(await Effect.runPromise(Effect.result(captureRelationalPhysicalLayout({ artifact: captured.artifact,
+      physicalLocator: FRAMEWORK_VALUE_LOCATOR, targetNamespace: await frameworkTargetNamespace() }))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedArtifact" } });
+  });
   it("does not substitute a compound index for the soft-delete active-row index", () => {
     const input = currencySchemaInput();
     Reflect.set(input.tables[0]?.indexes[0] ?? {}, "predicate", {

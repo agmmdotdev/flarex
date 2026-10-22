@@ -35,6 +35,41 @@ const tableId = CatalogTableIdSchema.make(7);
 const logicalIndexId = CatalogIndexIdSchema.make(11);
 
 describe("physical index definition protocol", () => {
+  it("commits strict Boolean membership and preserves existing predicate canonical bytes", async () => {
+    const base = lowerAppDeveloperOrderedIndexPhysicalSpecV1(decodeSchemaManifestAppDeveloperOrderedIndexSpecV1({
+      kind: "developerOrdered", specVersion: 1, fields: ["parent"],
+    }));
+    const plain = await canonicalizeAppIndexPhysicalSpecV1(base);
+    for (const [predicate, expected] of [
+      [{ kind: "fieldIsNull", field: "retired" }, '{"field":"retired","kind":"fieldIsNull"}'],
+      [{ kind: "fieldIsNullAndTextEquals", nullField: "retired", textField: "status", value: "active" },
+        '{"kind":"fieldIsNullAndTextEquals","nullField":"retired","textField":"status","value":"active"}'],
+    ] as const) {
+      const physical = Result.getOrThrow(decodeAppOrderedIndexPhysicalSpecV1Result({ ...base, predicate }));
+      expect((await canonicalizeAppIndexPhysicalSpecV1(physical)).canonicalText).toBe(
+        plain.canonicalText.replace('"specVersion":1', `"predicate":${expected},"specVersion":1`));
+    }
+    const predicate = { kind: "fieldIsNullAndBooleanEquals", nullField: "retired", booleanField: "selected", value: true };
+    const physical = Result.getOrThrow(decodeAppOrderedIndexPhysicalSpecV1Result({ ...base, predicate }));
+    const selected = await canonicalizeAppIndexPhysicalSpecV1(physical);
+    predicate.value = false;
+    expect(selected.physicalSpec.predicate).toEqual({ ...predicate, value: true });
+    expect(Object.isFrozen(selected.physicalSpec.predicate)).toBe(true);
+    expect(selected.canonicalText).toContain('"predicate":{"booleanField":"selected","kind":"fieldIsNullAndBooleanEquals","nullField":"retired","value":true}');
+    expect(await canonicalizeAppIndexPhysicalSpecV1(selected.physicalSpec)).toEqual(selected);
+    for (const changed of [predicate, { ...predicate, value: true, nullField: "other" },
+      { ...predicate, value: true, booleanField: "other" }]) {
+      const altered = Result.getOrThrow(decodeAppOrderedIndexPhysicalSpecV1Result({ ...base, predicate: changed }));
+      expect((await canonicalizeAppIndexPhysicalSpecV1(altered)).sha256Hex).not.toBe(selected.sha256Hex);
+    }
+    for (const invalid of [{ ...predicate, value: "false" }, { ...predicate, value: 0 },
+      { ...predicate, value: null }, { ...predicate, value: undefined }, { ...predicate, booleanField: "retired" },
+      { ...predicate, booleanField: "" }, { ...predicate, unknown: true }]) {
+      expect(Result.isFailure(decodeAppOrderedIndexPhysicalSpecV1Result({ ...base, predicate: invalid }))).toBe(true);
+    }
+    expect(Result.isFailure(decodeAppOrderedIndexPhysicalSpecV1Result({ ...APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1, predicate }))).toBe(true);
+  });
+
   it("commits partial membership and refuses predicates on intrinsic indexes", async () => {
     const base = lowerAppDeveloperOrderedIndexPhysicalSpecV1(decodeSchemaManifestAppDeveloperOrderedIndexSpecV1({
       kind: "developerOrdered", specVersion: 1, fields: ["deleted_at"],

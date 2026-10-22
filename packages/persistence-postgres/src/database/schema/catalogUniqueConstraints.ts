@@ -179,10 +179,19 @@ export const fxControlUniqueConstraintDefinitions = pgTable(
             or ${table.physicalSpecJson} -> 'nullsDistinct' = 'true'::jsonb)
           and (not (${table.physicalSpecJson} ? 'predicate') or (
             jsonb_typeof(${table.physicalSpecJson} -> 'predicate') = 'object'
-            and ((${table.physicalSpecJson} -> 'predicate') - 'kind' - 'field') = '{}'::jsonb
+            and ((((${table.physicalSpecJson} -> 'predicate') - 'kind' - 'field') = '{}'::jsonb
             and ${table.physicalSpecJson} -> 'predicate' ->> 'kind' = 'fieldIsNull'
             and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'field') = 'string'
-            and length(${table.physicalSpecJson} -> 'predicate' ->> 'field') > 0
+            and length(${table.physicalSpecJson} -> 'predicate' ->> 'field') > 0)
+            or
+            (((${table.physicalSpecJson} -> 'predicate') - 'kind' - 'nullField' - 'booleanField' - 'value') = '{}'::jsonb
+              and ${table.physicalSpecJson} -> 'predicate' ->> 'kind' = 'fieldIsNullAndBooleanEquals'
+              and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'nullField') = 'string'
+              and length(${table.physicalSpecJson} -> 'predicate' ->> 'nullField') > 0
+              and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'booleanField') = 'string'
+              and length(${table.physicalSpecJson} -> 'predicate' ->> 'booleanField') > 0
+              and ${table.physicalSpecJson} -> 'predicate' ->> 'nullField' <> ${table.physicalSpecJson} -> 'predicate' ->> 'booleanField'
+              and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'value') = 'boolean'))
           ))
         ) is true
       `,

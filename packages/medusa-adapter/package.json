@@ -18,6 +18,7 @@
     "@flarex/utils": "workspace:*",
     "@medusajs/core-flows": "workspace:*",
     "@medusajs/currency": "workspace:*",
+    "@medusajs/customer": "workspace:*",
     "@medusajs/deps": "workspace:*",
     "@medusajs/drizzle": "workspace:*",
     "@medusajs/fulfillment": "workspace:*",

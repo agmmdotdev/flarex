@@ -4,6 +4,7 @@ import { Result, Schema, type SchemaAST } from "effect";
 import {
   ORDERED_INDEX_KEY_CODEC_VERSION_V1,
   OrderedIndexKeyCodecVersionSchema,
+  AppIndexNullAndBooleanEqualsPredicateV1Schema,
   type OrderedIndexKeyCodecVersion,
 } from "./ordered-index";
 import {
@@ -75,7 +76,7 @@ export const AppUniqueConstraintPhysicalSpecV1Schema = Schema.Struct({
   orderedFields: UniqueConstraintFieldsV1Schema,
   sparse: Schema.Boolean,
   nullsDistinct: Schema.optionalKey(Schema.Literal(true)),
-  predicate: Schema.optionalKey(NullPredicateSchema),
+  predicate: Schema.optionalKey(Schema.Union([NullPredicateSchema, AppIndexNullAndBooleanEqualsPredicateV1Schema])),
   localePolicy: Schema.Struct({ kind: Schema.Literal("none") }).annotate(
     StrictStructOptions,
   ),
@@ -226,10 +227,19 @@ function encodePhysicalSpec(spec: AppUniqueConstraintPhysicalSpecV1): string {
     `"localePolicy":{"kind":"none"},` +
     (spec.nullsDistinct === undefined ? "" : `"nullsDistinct":true,`) +
     `"orderedFields":[${fields}],` +
-    (spec.predicate === undefined ? "" : `"predicate":{"field":${encodeJsonString(spec.predicate.field)},"kind":"fieldIsNull"},`) +
+    (spec.predicate === undefined ? "" : `"predicate":${encodePhysicalPredicate(spec.predicate)},`) +
     `"sparse":${String(spec.sparse)},` +
     `"specVersion":1}`
   );
+}
+
+function encodePhysicalPredicate(predicate: NonNullable<AppUniqueConstraintPhysicalSpecV1["predicate"]>): string {
+  switch (predicate.kind) {
+    case "fieldIsNull":
+      return `{"field":${encodeJsonString(predicate.field)},"kind":"fieldIsNull"}`;
+    case "fieldIsNullAndBooleanEquals":
+      return `{"booleanField":${encodeJsonString(predicate.booleanField)},"kind":"fieldIsNullAndBooleanEquals","nullField":${encodeJsonString(predicate.nullField)},"value":${String(predicate.value)}}`;
+  }
 }
 
 function encodeJsonString(value: SchemaManifestAppIndexFieldPath): string {

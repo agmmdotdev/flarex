@@ -210,6 +210,15 @@ export const fxControlIndexDefinitions = pgTable(
                 and length(${table.physicalSpecJson} -> 'predicate' ->> 'textField') > 0
                 and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'value') = 'string'
                 and length(${table.physicalSpecJson} -> 'predicate' ->> 'value') between 1 and 256)
+              or
+              (((${table.physicalSpecJson} -> 'predicate') - 'kind' - 'nullField' - 'booleanField' - 'value') = '{}'::jsonb
+                and ${table.physicalSpecJson} -> 'predicate' ->> 'kind' = 'fieldIsNullAndBooleanEquals'
+                and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'nullField') = 'string'
+                and length(${table.physicalSpecJson} -> 'predicate' ->> 'nullField') > 0
+                and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'booleanField') = 'string'
+                and length(${table.physicalSpecJson} -> 'predicate' ->> 'booleanField') > 0
+                and ${table.physicalSpecJson} -> 'predicate' ->> 'nullField' <> ${table.physicalSpecJson} -> 'predicate' ->> 'booleanField'
+                and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'value') = 'boolean')
             )
           ))
         ) is true

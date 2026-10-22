@@ -283,12 +283,21 @@ function encodeCanonicalPhysicalSpec(
     `"kind":"appOrdered",` +
     `"maxEncodedKeyBytes":2048,` +
     `"orderedFields":[${fields}],` +
-    (spec.predicate === undefined ? "" : spec.predicate.kind === "fieldIsNull"
-      ? `"predicate":{"field":${encodeJsonString(spec.predicate.field)},"kind":"fieldIsNull"},`
-      : `"predicate":{"kind":"fieldIsNullAndTextEquals","nullField":${encodeJsonString(spec.predicate.nullField)},"textField":${encodeJsonString(spec.predicate.textField)},"value":${encodeJsonString(spec.predicate.value)}},`) +
+    (spec.predicate === undefined ? "" : `"predicate":${encodeCanonicalPhysicalPredicate(spec.predicate)},`) +
     `"specVersion":1,` +
     `"tieBreaker":{"byteLength":16,"kind":"separateRowIdentity"}}`
   );
+}
+
+function encodeCanonicalPhysicalPredicate(predicate: NonNullable<AppOrderedIndexPhysicalSpecV1["predicate"]>): string {
+  switch (predicate.kind) {
+    case "fieldIsNull":
+      return `{"field":${encodeJsonString(predicate.field)},"kind":"fieldIsNull"}`;
+    case "fieldIsNullAndTextEquals":
+      return `{"kind":"fieldIsNullAndTextEquals","nullField":${encodeJsonString(predicate.nullField)},"textField":${encodeJsonString(predicate.textField)},"value":${encodeJsonString(predicate.value)}}`;
+    case "fieldIsNullAndBooleanEquals":
+      return `{"booleanField":${encodeJsonString(predicate.booleanField)},"kind":"fieldIsNullAndBooleanEquals","nullField":${encodeJsonString(predicate.nullField)},"value":${String(predicate.value)}}`;
+  }
 }
 
 function encodeCanonicalPhysicalField(

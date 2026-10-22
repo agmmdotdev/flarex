@@ -25,6 +25,9 @@ PriceList and broader calculation parity retain their
 [separate gate](./48-calculated-pricing-query-cutover.md). SalesChannel name and ShippingProfile type use shared exact-text
 equality access; SalesChannel `is_disabled` uses a declared Boolean index under
 [its connected selection cutover](./24-sales-channel-boolean-selection.md).
+The [Boolean partial-index support](./70-boolean-partial-unique-indexes.md)
+extends the existing logical membership owners for native active default-Address
+uniqueness; Customer workflow admission remains separate.
 Selected scalar and Product-tag commands now validate at the shared outer-call
 boundary, supporting repeated calls and native child workflows with one
 settlement. [Native command composition](./44-native-command-composition.md)

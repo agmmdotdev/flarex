@@ -37,4 +37,18 @@ export async function conditionalProjectionCases(definition: LocatedAppUniqueCon
   const { predicate: _predicate, ...nativeSpec } = conditionalUniqueSpec;
   const native = decodeAppUniqueConstraintPhysicalSpecV1(nativeSpec);
   expect(Result.getOrThrow(await project({ name: null }, native)).kind).toBe("claim");
+  for (const value of [true, false]) {
+    const booleanSpec = decodeAppUniqueConstraintPhysicalSpecV1({ ...definition.physicalSpec,
+      orderedFields: ["name"], predicate: { kind: "fieldIsNullAndBooleanEquals",
+        nullField: "deleted_at", booleanField: "selected", value } });
+    expect(Result.getOrThrow(await project({ name: "shirt", deleted_at: null, selected: value }, booleanSpec)).kind).toBe("claim");
+    for (const selected of [!value, String(value), Number(value), null, undefined]) {
+      expect(Result.getOrThrow(await project({ name: "x".repeat(8000), deleted_at: null,
+        ...(selected === undefined ? {} : { selected }) }, booleanSpec)))
+        .toMatchObject({ kind: "omitted", reason: "predicateExcluded" });
+    }
+    expect(Result.getOrThrow(await project({ name: "x".repeat(8000), deleted_at: "deleted", selected: value }, booleanSpec)))
+      .toMatchObject({ kind: "omitted", reason: "predicateExcluded" });
+    expect(Result.isFailure(await project({ name: "x".repeat(8000), deleted_at: null, selected: value }, booleanSpec))).toBe(true);
+  }
 }

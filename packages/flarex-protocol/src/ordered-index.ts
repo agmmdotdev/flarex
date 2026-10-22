@@ -89,6 +89,16 @@ const AppOrderedIndexPhysicalFieldsV1Schema = Schema.Array(
   Schema.isMaxLength(MAX_APP_ORDERED_INDEX_ENCODED_FIELDS_V1),
 );
 
+/** Shared physical membership shape; document producer declarations retain
+ * their own admitted predicate vocabulary. */
+export const AppIndexNullAndBooleanEqualsPredicateV1Schema = Schema.Struct({
+  kind: Schema.Literal("fieldIsNullAndBooleanEquals"),
+  nullField: SchemaManifestAppIndexFieldPathSchema,
+  booleanField: SchemaManifestAppIndexFieldPathSchema,
+  value: Schema.Boolean,
+}).check(Schema.makeFilter(predicate => predicate.nullField !== predicate.booleanField
+  ? undefined : "Expected distinct predicate fields")).annotate(StrictStructOptions);
+
 export const AppOrderedIndexPhysicalSpecV1Schema = Schema.Struct({
   kind: Schema.Literal("appOrdered"),
   specVersion: Schema.Literal(1),
@@ -100,6 +110,7 @@ export const AppOrderedIndexPhysicalSpecV1Schema = Schema.Struct({
   orderedFields: AppOrderedIndexPhysicalFieldsV1Schema,
   predicate: Schema.optionalKey(Schema.Union([
     Schema.Struct({ kind: Schema.Literal("fieldIsNull"), field: SchemaManifestAppIndexFieldPathSchema }),
+    AppIndexNullAndBooleanEqualsPredicateV1Schema,
     Schema.Struct({ kind: Schema.Literal("fieldIsNullAndTextEquals"),
       nullField: SchemaManifestAppIndexFieldPathSchema,
       textField: SchemaManifestAppIndexFieldPathSchema,
@@ -952,6 +963,7 @@ function validateAppOrderedIndexPhysicalSpecV1(
     readonly accessPath: "developer" | "by_creation_time" | "by_id";
     readonly orderedFields: ReadonlyArray<AppOrderedIndexPhysicalFieldV1>;
     readonly predicate?: Readonly<{ kind: "fieldIsNull"; field: string } |
+      { kind: "fieldIsNullAndBooleanEquals"; nullField: string; booleanField: string; value: boolean } |
       { kind: "fieldIsNullAndTextEquals"; nullField: string; textField: string; value: string }>;
   },
 ): string | undefined {

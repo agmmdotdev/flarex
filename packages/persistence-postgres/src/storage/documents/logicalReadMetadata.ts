@@ -70,10 +70,12 @@ const ReadSchema = Schema.declare<RelationalSchema>((value): value is Relational
 const Table = Schema.Union([
   Schema.Struct({ format: Schema.Literal("flarex.logical-read-table"), version: Schema.Literal(1),
     sourceSha256: Sha256, localName: Schema.NonEmptyString, tableId: CatalogTableIdSchema,
-    selectorTextFields: Schema.Array(Schema.NonEmptyString), kind: Schema.Literal("relational"), readSchema: ReadSchema }).annotate(strict),
+    selectorTextFields: Schema.Array(Schema.NonEmptyString), selectorBooleanFields: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+    kind: Schema.Literal("relational"), readSchema: ReadSchema }).annotate(strict),
   Schema.Struct({ format: Schema.Literal("flarex.logical-read-table"), version: Schema.Literal(1),
     sourceSha256: Sha256, localName: Schema.NonEmptyString, tableId: CatalogTableIdSchema,
-    selectorTextFields: Schema.Array(Schema.NonEmptyString), kind: Schema.Literal("documents"), definition: SchemaManifestAppTableDeclarationV1Schema }).annotate(strict),
+    selectorTextFields: Schema.Array(Schema.NonEmptyString), selectorBooleanFields: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+    kind: Schema.Literal("documents"), definition: SchemaManifestAppTableDeclarationV1Schema }).annotate(strict),
 ]);
 export type LogicalReadTableMetadata = typeof Table.Type;
 const decodeRoot = Schema.decodeUnknownEffect(Root);
@@ -87,6 +89,8 @@ const Predicate = Schema.NullOr(Schema.Union([
   Schema.Struct({ kind: Schema.Literal("fieldIsNull"), field: Schema.NonEmptyString }).annotate(strict),
   Schema.Struct({ kind: Schema.Literal("fieldIsNullAndTextEquals"), nullField: Schema.NonEmptyString,
     textField: Schema.NonEmptyString, value: Schema.String }).annotate(strict),
+  Schema.Struct({ kind: Schema.Literal("fieldIsNullAndBooleanEquals"), nullField: Schema.NonEmptyString,
+    booleanField: Schema.NonEmptyString, value: Schema.Boolean }).annotate(strict),
 ]));
 const IndexAccess = Schema.Struct({ format: Schema.Literal("flarex.logical-read-access"), version: Schema.Literal(1),
   fields: Schema.Array(Schema.NonEmptyString), predicate: Predicate,
@@ -152,6 +156,9 @@ export const publishLogicalReadMetadata = Effect.fn("LogicalReadMetadata.publish
       let frame: LogicalReadTableMetadata;
       const selectorTextFields = [...new Set(definitions.filter(definition => definition.access.tableId === tableId)
         .flatMap(definition => definition.physicalSpec.predicate?.kind === "fieldIsNullAndTextEquals" ? [definition.physicalSpec.predicate.textField] : []))].toSorted();
+      const selectorBooleanFields = [...new Set(definitions.filter(definition => definition.access.tableId === tableId)
+        .flatMap(definition => definition.physicalSpec.predicate?.kind === "fieldIsNullAndBooleanEquals" ? [definition.physicalSpec.predicate.booleanField] : []))].toSorted();
+      const booleanSelectors = selectorBooleanFields.length === 0 ? {} : { selectorBooleanFields };
       if (source.definition.kind === "relational") {
         const original = source.definition.schema.tables.find(table => table.identity.tableId === binding.localName);
         if (original === undefined) return yield* Effect.fail(failure("storedCorruption"));
@@ -163,12 +170,12 @@ export const publishLogicalReadMetadata = Effect.fn("LogicalReadMetadata.publish
           tables: [{ ...original, keys: original.keys.some(key => key.kind === "primary") ? original.keys.filter(key => key.kind === "primary") : original.keys,
             indexes: [], constraints: original.constraints.filter(constraint => constraint.kind !== "foreignKey"), relationships: [] }], capabilities };
         frame = { format: "flarex.logical-read-table", version: 1, sourceSha256: source.sourceSha256,
-          localName: binding.localName, tableId, selectorTextFields, kind: "relational", readSchema };
+          localName: binding.localName, tableId, selectorTextFields, ...booleanSelectors, kind: "relational", readSchema };
       } else {
         const definition = source.definition.tables.find(table => table.logicalName === binding.localName);
         if (definition === undefined) return yield* Effect.fail(failure("storedCorruption"));
         frame = { format: "flarex.logical-read-table", version: 1, sourceSha256: source.sourceSha256,
-          localName: binding.localName, tableId, selectorTextFields, kind: "documents", definition };
+          localName: binding.localName, tableId, selectorTextFields, ...booleanSelectors, kind: "documents", definition };
       }
       const canonical = yield* sha(frame);
       yield* runDrizzleStatementEffect(tx.insert(fxControlLogicalReadTables).values({ deploymentId, schemaVersionId,
@@ -254,7 +261,7 @@ const publishTableAccess = Effect.fn("LogicalReadMetadata.publishAccess")(functi
   for (const [ordinal, index] of (nativeTable?.indexes ?? []).entries()) {
     // The current native compiler does not select text-equality membership
     // indexes as scalar anchors. Preserve that existing refusal/order.
-    if (index.predicate?.kind === "isNullAndTextEquals") continue;
+    if (index.predicate?.kind === "isNullAndTextEquals" || index.predicate?.kind === "isNullAndBooleanEquals") continue;
     const fields = index.columns.map(column => column.columnId);
     const predicate = index.predicate?.kind === "isNull" ? { kind: "fieldIsNull", field: index.predicate.column.columnId } : null;
     // Scalar eligibility is independent of irrelevant index suffixes. The
@@ -373,7 +380,7 @@ export const prepareLogicalReadMetadata = Effect.fn("LogicalReadMetadata.prepare
   ) {
     yield* checkOpen;
     const metadata = yield* table(localName);
-    const key = JSON.stringify([localName, structuralWhere(where, metadata.selectorTextFields), exactPoint ?? null]);
+    const key = JSON.stringify([localName, structuralWhere(where, [...metadata.selectorTextFields, ...(metadata.selectorBooleanFields ?? [])]), exactPoint ?? null]);
     if (selectedIndexes.has(key)) return selectedIndexes.get(key)!;
     const available = Object.keys(where);
     if (available.length === 0) return null;
@@ -420,7 +427,8 @@ export const prepareLogicalReadMetadata = Effect.fn("LogicalReadMetadata.prepare
     const metadata = yield* table(localName);
     const fields = equality !== undefined && equality.column !== orderColumn ? [equality.column, orderColumn] : [orderColumn];
     const key = JSON.stringify(["page", localName, fields, equality === undefined ? null :
-      [equality.column, metadata.selectorTextFields.includes(equality.column) ? equality.value : typeof equality.value], [...requiredNulls].toSorted()]);
+      [equality.column, metadata.selectorTextFields.includes(equality.column) || metadata.selectorBooleanFields?.includes(equality.column)
+        ? equality.value : typeof equality.value], [...requiredNulls].toSorted()]);
     if (selectedIndexes.has(key)) return selectedIndexes.get(key)!;
     const [row] = yield* acquire(tx => runDrizzleStatementEffect(logicalPageReadAccessQuery(tx,
       { ...input, sourceKey: root.sourceKey, localName }, fields, equality, requiredNulls), cause => failure("resourceFailure", cause)));

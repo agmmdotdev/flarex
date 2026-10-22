@@ -1,4 +1,5 @@
 import type { DatabaseColumn, DatabaseForeignKey, DatabaseIndex, DatabaseTable } from "@medusajs/drizzle/schema";
+import type { CompiledIndexWhere } from "./index-predicate";
 import type {
   RelationalSchema,
 } from "flarex-protocol/internal/relational-schema";
@@ -26,7 +27,7 @@ export type SchemaTable = Readonly<Pick<DatabaseTable, "name">> & {
   readonly columns: readonly SchemaColumn[];
   readonly indexes: readonly (Readonly<Pick<DatabaseIndex, "name" | "unique" | "type">> & {
     readonly columns: readonly string[];
-    readonly where?: "deleted_at IS NULL" | "deleted_at IS NULL AND status = 'active'";
+    readonly where?: typeof CompiledIndexWhere.Type;
   })[];
   readonly foreignKeys: readonly (Readonly<Pick<DatabaseForeignKey, "name" | "referencedTable" | "onDelete">> & {
     readonly columns: readonly string[];

@@ -594,15 +594,13 @@ function admitRelationalArtifact(
     return Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
   }
   const schema = readCapturedRelationalSchemaArtifactSchema(artifact);
-  if (
-    schema === undefined ||
-    schema.coordinate.owner !== artifact.identity.owner ||
-    schema.coordinate.lineageId !== artifact.identity.lineageId ||
-    !sameStrings(artifact.capabilities, deriveArtifactCapabilityIds(schema))
-  ) {
+  if (schema === undefined || schema.coordinate.owner !== artifact.identity.owner ||
+    schema.coordinate.lineageId !== artifact.identity.lineageId) {
     return Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
   }
-  return Result.succeed(schema);
+  return Result.flatMap(deriveArtifactCapabilityIds(schema), capabilities =>
+    sameStrings(artifact.capabilities, capabilities) ? Result.succeed(schema) :
+      Result.fail(RelationalPhysicalValueError.unsupportedArtifact()));
 }
 
 const authenticateInertTargetNamespace = Effect.fn(
@@ -1114,6 +1112,8 @@ function physicalIndexPredicate(
   RelationalPhysicalValueError
 > {
   switch (predicate.kind) {
+    case "isNullAndBooleanEquals":
+      return Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
     case "isNullAndTextEquals":
       return Result.gen(function* () {
         const nullColumn = yield* required(columnNames, columnIdentityKey(predicate.nullColumn));
@@ -1193,41 +1193,43 @@ function physicalNamePrefix(
 
 function deriveArtifactCapabilityIds(
   schema: RelationalSchema,
-): readonly string[] {
-  const capabilities = new Set<string>(["relational-schema"]);
-  for (const table of schema.tables) {
-    admitDefinitionOrigin(table.origin.kind);
-    for (const column of table.columns) {
-      admitDefinitionOrigin(column.origin.kind);
-      capabilities.add(columnCapabilityId(column.type));
-      const defaultCapability = defaultCapabilityId(column.default);
-      if (defaultCapability !== null) capabilities.add(defaultCapability);
-    }
-    for (const key of table.keys) {
-      admitDefinitionOrigin(key.origin.kind);
-      capabilities.add(keyCapabilityId(key.kind));
-    }
-    for (const index of table.indexes) {
-      admitDefinitionOrigin(index.origin.kind);
-      capabilities.add(indexCapabilityId(index.kind));
-      if (index.predicate !== null) {
-        capabilities.add(indexPredicateCapabilityId(index.predicate));
+): Result.Result<readonly string[], RelationalPhysicalValueError> {
+  return Result.gen(function* () {
+    const capabilities = new Set<string>(["relational-schema"]);
+    for (const table of schema.tables) {
+      admitDefinitionOrigin(table.origin.kind);
+      for (const column of table.columns) {
+        admitDefinitionOrigin(column.origin.kind);
+        capabilities.add(columnCapabilityId(column.type));
+        const defaultCapability = defaultCapabilityId(column.default);
+        if (defaultCapability !== null) capabilities.add(defaultCapability);
+      }
+      for (const key of table.keys) {
+        admitDefinitionOrigin(key.origin.kind);
+        capabilities.add(keyCapabilityId(key.kind));
+      }
+      for (const index of table.indexes) {
+        admitDefinitionOrigin(index.origin.kind);
+        capabilities.add(indexCapabilityId(index.kind));
+        if (index.predicate !== null) {
+          capabilities.add(yield* indexPredicateCapabilityId(index.predicate));
+        }
+      }
+      for (const constraint of table.constraints) {
+        admitDefinitionOrigin(constraint.origin.kind);
+        capabilities.add(constraintCapabilityId(constraint));
+      }
+      for (const relationship of table.relationships) {
+        admitDefinitionOrigin(relationship.origin.kind);
+        capabilities.add(relationshipCapabilityId(relationship.kind));
       }
     }
-    for (const constraint of table.constraints) {
-      admitDefinitionOrigin(constraint.origin.kind);
-      capabilities.add(constraintCapabilityId(constraint));
+    for (const capability of schema.capabilities) {
+      admitDefinitionOrigin(capability.origin.kind);
+      capabilities.add(persistenceCapabilityId(capability));
     }
-    for (const relationship of table.relationships) {
-      admitDefinitionOrigin(relationship.origin.kind);
-      capabilities.add(relationshipCapabilityId(relationship.kind));
-    }
-  }
-  for (const capability of schema.capabilities) {
-    admitDefinitionOrigin(capability.origin.kind);
-    capabilities.add(persistenceCapabilityId(capability));
-  }
-  return Object.freeze([...capabilities].toSorted(compareUtf16Strings));
+    return Object.freeze([...capabilities].toSorted(compareUtf16Strings));
+  });
 }
 
 function admitDefinitionOrigin(
@@ -1326,12 +1328,14 @@ function indexCapabilityId(
 
 function indexPredicateCapabilityId(
   predicate: NonNullable<RelationalTableDefinition["indexes"][number]["predicate"]>,
-): string {
+): Result.Result<string, RelationalPhysicalValueError> {
   switch (predicate.kind) {
+    case "isNullAndBooleanEquals":
+      return Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
     case "isNullAndTextEquals":
-      return "relational-schema.index-predicate.isNullAndTextEquals";
+      return Result.succeed("relational-schema.index-predicate.isNullAndTextEquals");
     case "isNull":
-      return "relational-schema.index-predicate.isNull";
+      return Result.succeed("relational-schema.index-predicate.isNull");
   }
 }
 

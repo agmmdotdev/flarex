@@ -811,6 +811,13 @@ identity diagnostic gap and complete Cart gates remain explicit in the preflight
 This capability admits no Cart writes, Country-ordering decision or resource
 allowance for the complete Cart root.
 
+The next independent [Customer selection child](./preflight/162-native-cart-customer-selection.md)
+is in native preflight. Its genuine four-model compiler closure requires the
+implemented shared Boolean-and-active partial unique-index support before adapter
+admission. The native DML and PostgreSQL index definitions agree; Customer
+selection, guest creation and retained physical compensation remain separate
+from complete Cart admission and its pending business decisions.
+
 The [native Cart creation preflight](./preflight/160-native-cart-creation-workflow.md)
 records the next connected objective. Its selected original-native cohort is
 characterized, including genuine local SystemTax, the fresh Cart's empty
