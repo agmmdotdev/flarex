@@ -482,6 +482,12 @@ Pinggg `tsc-rs`, lint/source guards and both required read-only project reviews.
 The bounded SA1-SA4 foundations establish no performance acceptance or
 production authorization claim.
 
+The selected successor is the
+[private schema and binding lifecycle preflight](./reference-schema-binding-lifecycle-preflight.md).
+Its LB1-LB4 proof remains pending. It reuses protected saves to distinguish
+editor-policy freshness from schema/source/dependency and binding lifecycle;
+SA1-SA4 completion does not establish support for those transitions.
+
 ## Cutover, Data And Deferred Work
 
 Plan against fresh isolated policy/source data first. There is no approved reset,

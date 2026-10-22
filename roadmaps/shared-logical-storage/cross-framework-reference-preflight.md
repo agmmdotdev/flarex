@@ -289,6 +289,13 @@ outcome. No SQL transaction spans untrusted execution or remote work.
 | CXR3: three-owner and opposite-direction proof | Add a real compiler-admitted Medusa-owned extension referencing Payload or Application, through its owner's native operation path. Choose the extension with the Medusa owner; no fixture-only field or direct generic patch of commerce rows. Prove Application-owned references/consumption and all relevant target transitions with explicitly selected source-lifecycle rules. Native rich Link behavior remains separately characterized. |
 | CXR4: dependency activation and recovery | Refuse incompatible endpoint/policy candidates without changing active authority/data. Prove fresh binding/build/readiness, stale capability refusal, admitted rebinding, recovery and concurrent-write safeguards. General populated-data conversions and ownership transfers remain deferred. |
 
+The next bounded CXR4 work is specified by the
+[private schema and binding lifecycle preflight](./reference-schema-binding-lifecycle-preflight.md).
+Its LB1-LB4 gates are pending: establish actual admission/refusal and supported
+transition stimuli first, then stale-use, concurrency and recovery proof through
+the protected save consumer. Existing generic checks do not close these gates;
+this selects no public API, Medusa implementation change or advanced evolution.
+
 Protocol/schema evidence belongs to `flarex-protocol` and producer analysis;
 installation/readiness, reference indexes and integrity belong to
 `persistence-postgres`; finite root/dependency/recovery composition belongs to

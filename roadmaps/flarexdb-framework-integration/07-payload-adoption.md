@@ -62,6 +62,12 @@ construction, the actual journal/RPC boundary and fresh retry, with its displace
 allow-all joint-save assembly removed. Neither profile establishes general CMS
 authorization, production dispatch or a public operation surface.
 
+The [private reference schema/binding lifecycle preflight](../shared-logical-storage/reference-schema-binding-lifecycle-preflight.md)
+selects the next bounded backend proof after SA4: actual admission/refusal,
+fresh preparation and stale-use, concurrent activation/save and recovery. Its
+LB1-LB4 gates remain pending. It does not enable populated-data conversion,
+write-owner transfer, Medusa changes or public API syntax.
+
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)
 is a required shared-storage integration gate: use real Payload Local API calls
 with Application/Medusa references, indexed forward/reverse access, visibility,
