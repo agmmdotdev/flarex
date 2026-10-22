@@ -115,6 +115,26 @@ inside the atomic command. Output decodes before settlement; returned and
 replayed values use the same Schema's decoded-type validator. Transformations
 therefore do not run again against already normalized stored results.
 
+### Requested Optional Resources
+
+The shared resource selection can declare a finite `absent` list. Each name is
+checked, captured and kept distinct from selected modules, composed resources
+and reserved graph/event resources. Nonempty absence declarations enter the
+existing workflow identity. Omitting the list preserves existing identities.
+
+The native resolver returns `undefined` only for a declared absent name requested
+with the exact `{ allowUnregistered: true }` options. A selected resource retains
+the same scoped methods under either supported resolver signature. Required or
+undeclared resolution, malformed options and invalid selections retain sticky
+refusal. The existing Promise owner checks closure before synchronous resolution;
+a fenced late failure cannot reopen completed cleanup.
+
+The native `useCache` helper still resolves Caching before its uncached callback.
+Its checked source and FlagRouter dependency remain framework-owned. Declaring
+Caching absent supplies no provider and skips no native lookup. This prerequisite
+supports the characterized [Customer selection child](../flarexdb-framework-integration/preflight/162-native-cart-customer-selection.md);
+Customer adapter admission and complete Cart composition remain separate.
+
 ## Trusted Host And Execution
 
 `AtomicWorkflowExecution` contains captured identity/access policy and one

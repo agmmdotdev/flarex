@@ -39,7 +39,9 @@ export function makeCommercePromiseOwner(recordFailure?: FailureObserver) {
       const receipt = candidate !== undefined && (receipts.get(candidate) === undefined || receipts.get(candidate) === cause)
         ? candidate : Object.freeze({});
       receipts.set(receipt, cause);
-      unobserved.add(cause);
+      // A fenced late caller still receives its failure, but cannot reopen
+      // cleanup after this owner has completed.
+      if (!closed) unobserved.add(cause);
       return receipt;
     };
     const classify = (error: unknown, domain?: (error: unknown) => CommerceTransactionError | undefined): Cause.Cause<CommerceTransactionError> => {
@@ -59,6 +61,7 @@ export function makeCommercePromiseOwner(recordFailure?: FailureObserver) {
       const cause = Cause.fail(error);
       throw issue(register(cause));
     };
+    const assertOpen = (): void => { if (!open) reject(commerceError("closed")); };
     const stop = () => { open = false; controller.abort(); };
     const run = <Value>(work: Effect.Effect<Value, CommerceTransactionError>): Promise<Value> => {
       if (!open) return Promise.reject(commerceError("closed"));
@@ -127,7 +130,7 @@ export function makeCommercePromiseOwner(recordFailure?: FailureObserver) {
         if (Exit.isFailure(cleanup)) return yield* Effect.failCause(observeCompletion(cleanup.cause));
         return result.value;
       }));
-    return Effect.succeed({ run, invoke, close, withClose, reject, hasPending: () => runners.size !== 0 || callbacks.size !== 0 });
+    return Effect.succeed({ run, invoke, close, withClose, reject, assertOpen, hasPending: () => runners.size !== 0 || callbacks.size !== 0 });
   });
 }
 export type CommercePromiseOwner = Effect.Success<ReturnType<typeof makeCommercePromiseOwner>>;

@@ -86,3 +86,4 @@ export * as PromotionUtils from "@medusajs/utils/promotion/index";
 export { ApplicationMethodAllocation, ApplicationMethodTargetType, ApplicationMethodType, CampaignBudgetType, ComputedActions, PromotionActions, PromotionRuleOperator, PromotionStatus, PromotionType } from "@medusajs/utils/promotion/index";
 export { CartWorkflowEvents } from "@medusajs/utils/core-flows/events";
 export { FloatProperty } from "@medusajs/utils/dml/properties/float";
+export { useCache } from "@medusajs/utils/caching/index";

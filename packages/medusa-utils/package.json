@@ -8,6 +8,16 @@
       "source": "./src/common/deep-flat-map.ts",
       "default": "./dist/common/deep-flat-map.js"
     },
+    "./caching/index": {
+      "types": "./dist/caching/index.d.ts",
+      "source": "./src/caching/index.ts",
+      "default": "./dist/caching/index.js"
+    },
+    "./feature-flags/flag-router": {
+      "types": "./dist/feature-flags/flag-router.d.ts",
+      "source": "./src/feature-flags/flag-router.ts",
+      "default": "./dist/feature-flags/flag-router.js"
+    },
     "./dal/json-assignment": {
       "types": "./dist/dal/json-assignment.d.ts",
       "source": "./src/dal/json-assignment.ts",

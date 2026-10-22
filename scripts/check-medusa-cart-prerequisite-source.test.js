@@ -1,7 +1,7 @@
 // @ts-check
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { cartPrerequisiteSourcePairs, verifyCartPrerequisiteSourceSelection, verifyPaymentJoinerFork } from "./check-medusa-cart-prerequisite-source.mjs";
+import { cartPrerequisiteSourcePairs, workflowCacheSourcePairs, verifyWorkflowCacheFork, verifyCartPrerequisiteSourceSelection, verifyPaymentJoinerFork } from "./check-medusa-cart-prerequisite-source.mjs";
 import { verifyModuleTypeFork } from "./check-medusa-currency-promotion.mjs";
 
 const failure = "Changed native Cart prerequisite source";
@@ -18,6 +18,42 @@ function rejectPaymentMutation(before, after) {
   expect(changed).not.toBe(payment.actual);
   expect(() => verifyPaymentJoinerFork(payment.native, changed)).toThrow(failure);
 }
+
+describe("native shared workflow cache source contracts", () => {
+  it.each(workflowCacheSourcePairs.filter(pair => pair.classification === "workflowCacheFork"))("preserves complete typed and emitted $target", pair => {
+    const selected = entry(pair.target);
+    expect(() => verifyWorkflowCacheFork(selected.native, selected.actual, pair.target)).not.toThrow();
+  });
+  it.each(workflowCacheSourcePairs.filter(pair => pair.classification === "unchanged"))("preserves exact native $target", pair => {
+    const selected = entry(pair.target);
+    expect(selected.actual).toBe(selected.native);
+  });
+  it("keeps the prerequisite to its exact cache and type closure", () => {
+    expect(workflowCacheSourcePairs).toHaveLength(4);
+    expect(workflowCacheSourcePairs.every(pair => !pair.target.startsWith("packages/medusa-core-flows/"))).toBe(true);
+    expect(new Set(workflowCacheSourcePairs.map(pair => pair.target)).size).toBe(4);
+  });
+  it.each([
+    ["packages/medusa-utils/src/caching/index.ts", "allowUnregistered: true", "allowUnregistered: false"],
+    ["packages/medusa-utils/src/caching/index.ts", "Modules.CACHING,", '"other_cache",'],
+    ["packages/medusa-utils/src/caching/index.ts", "!options.enable ||", "options.enable ||"],
+    ["packages/medusa-utils/src/caching/index.ts", "  const cachingModule = options.container.resolve<ICachingModuleService>(",
+      "  if (!options.enable) return await cb()\n\n  const cachingModule = options.container.resolve<ICachingModuleService>("],
+    ["packages/medusa-utils/src/caching/index.ts", "return await cb()", "return undefined"],
+    ["packages/medusa-utils/src/caching/index.ts", "return await cb()", "return await cb(options)"],
+    ["packages/medusa-utils/src/caching/index.ts", "const cachingModule = options.container.resolve<ICachingModuleService>(", "const cachingModule = undefined; options.container.resolve<ICachingModuleService>("],
+    ["packages/medusa-utils/src/caching/index.ts", "const result = await cb()", "const result = cb()"],
+    ["packages/medusa-utils/src/feature-flags/flag-router.ts", "return flags.every", "return flags.some"],
+  ])("refuses changed native resolution, callback or flag behavior in %s", (target, before, after) => {
+    const selected = entry(target), changed = selected.actual.replace(before, after);
+    expect(changed).not.toBe(selected.actual);
+    expect(() => verifyWorkflowCacheFork(selected.native, changed, target)).toThrow(failure);
+  });
+  it("refuses broader erased declarations as well as runtime mutations", () => {
+    const selected = entry("packages/medusa-utils/src/caching/index.ts");
+    expect(() => verifyWorkflowCacheFork(selected.native, selected.actual.replace("allowUnregistered: true }): T | undefined", "allowUnregistered: boolean }): T"), selected.target)).toThrow(failure);
+  });
+});
 
 describe("native160 prerequisite source selection", () => {
   it("requires the complete exact prepared closure", () => {

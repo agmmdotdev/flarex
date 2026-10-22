@@ -8,7 +8,7 @@ import { defineGraphReadCommand } from "../src/local-graph/commands";
 import type { GraphModuleDefinition } from "../src/local-graph/model";
 import { commerceDecoder } from "../src/value/decoder";
 import { defineWorkflowMethod, defineWorkflowModule, workflowModuleDefinition, workflowMethodDefinition, type WorkflowLogicalPolicy } from "../src/workflow/module";
-import { prepareWorkflowResources, workflowResourceSelections } from "../src/workflow/resources";
+import { prepareWorkflowResources, workflowResourceSelections, workflowAbsentResources } from "../src/workflow/resources";
 import { bindWorkflowResources } from "../src/workflow/binding";
 import { checkedCommerceValue } from "../src/value/checked";
 import { prepareAtomicWorkflowHost, prepareWorkflowComposition, captureInstalledWorkflowModules, type InstalledWorkflowModule, type AtomicWorkflowExecution } from "../src/workflow/host";
@@ -52,6 +52,61 @@ function logicalComposition(logical: WorkflowLogicalPolicy) {
 }
 
 describe("workflow registration and scoped resource composition", () => {
+  it("binds declared optional resource absence to identity while retaining omitted serialization", async () => {
+    const { selected, options } = logicalComposition({ commands: [command],
+      capture: value => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void });
+    const selections = { sample: { module: selected, methods: ["echo"] as const, graph: false } };
+    const omitted = Result.getOrThrow(prepareWorkflowResources(selections, false));
+    const explicitEmpty = Result.getOrThrow(prepareWorkflowResources(selections, false, undefined, { absent: [] }));
+    const declared = Result.getOrThrow(prepareWorkflowResources(selections, false, undefined, { absent: ["caching"] }));
+    const other = Result.getOrThrow(prepareWorkflowResources(selections, false, undefined, { absent: ["logger"] }));
+    const ordered = Result.getOrThrow(prepareWorkflowResources(selections, false, undefined, { absent: ["caching", "logger"] }));
+    const reversed = Result.getOrThrow(prepareWorkflowResources(selections, false, undefined, { absent: ["logger", "caching"] }));
+    expect(workflowAbsentResources(omitted)).toEqual([]);
+    expect(workflowAbsentResources(explicitEmpty)).toEqual([]);
+    expect(workflowAbsentResources(declared)).toEqual(["caching"]);
+    const compositions = [];
+    for (const resources of [omitted, explicitEmpty, declared, other, ordered, reversed]) {
+      const prepared = await Effect.runPromise(prepareWorkflowComposition({ ...options, workflow: { ...options.workflow, resources } }));
+      compositions.push(prepared.composition);
+    }
+    const [ordinary, empty, absent, otherAbsent, orderedAbsent, reversedAbsent] = compositions;
+    if (ordinary === undefined || empty === undefined || absent === undefined || otherAbsent === undefined ||
+      orderedAbsent === undefined || reversedAbsent === undefined) throw new Error("Missing prepared absence composition");
+    expect(empty.identityAndAccessPolicy).toEqual(ordinary.identityAndAccessPolicy);
+    expect(absent.identityAndAccessPolicy).not.toEqual(ordinary.identityAndAccessPolicy);
+    expect(ordinary.identityAndAccessPolicy).not.toHaveProperty("workflow.absentResources");
+    expect(empty.identityAndAccessPolicy).not.toHaveProperty("workflow.absentResources");
+    expect(absent.identityAndAccessPolicy).toHaveProperty("workflow.absentResources", ["caching"]);
+    expect(otherAbsent.identityAndAccessPolicy).toHaveProperty("workflow.absentResources", ["logger"]);
+    expect(orderedAbsent.identityAndAccessPolicy).toHaveProperty("workflow.absentResources", ["caching", "logger"]);
+    expect(reversedAbsent.identityAndAccessPolicy).toHaveProperty("workflow.absentResources", ["logger", "caching"]);
+    expect(new Set([ordinary, absent, otherAbsent, orderedAbsent, reversedAbsent].map(value =>
+      JSON.stringify(value.identityAndAccessPolicy))).size).toBe(5);
+    expect(JSON.stringify(ordinary.identityAndAccessPolicy)).not.toContain('"absentResources"');
+    expect(JSON.stringify(empty.identityAndAccessPolicy)).not.toContain('"absentResources"');
+    expect(ordinary.participants[0]?.commands).toEqual([command]);
+    expect(absent.participants[0]?.commands).toEqual([command]);
+  });
+
+  it("refuses unregistered resource tokens and subscribers when events are omitted", async () => {
+    const { options } = logicalComposition({ commands: [command],
+      capture: value => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void });
+    // Both retain the public resource shape but lack its private registration.
+    // Preparing composition never executes a workflow or database operation.
+    const original = options.workflow.resources;
+    for (const resources of [{ ...original }, { events: false, callback: original.callback, hooks: original.hooks }]) {
+      expect(workflowResourceSelections(resources)).toBeUndefined();
+      expect(workflowAbsentResources(resources)).toBeUndefined();
+      expect(await Effect.runPromise(Effect.result(prepareWorkflowComposition({ ...options, workflow: { ...options.workflow, resources } }))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    }
+    const ordinary = await Effect.runPromise(prepareWorkflowComposition(options));
+    expect(ordinary.composition).not.toHaveProperty("events");
+    expect(await Effect.runPromise(Effect.result(prepareWorkflowComposition({ ...options, subscribers: [] }))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
+
   it("binds direct Link endpoint presence, join keys, paths and bounds to durable workflow identity", async () => {
     const logical = { commands: [command], capture: (value: unknown) => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void };
     const endpoint = Result.getOrThrow(defineWorkflowModule({ name: "child", source, methods: {}, logical,

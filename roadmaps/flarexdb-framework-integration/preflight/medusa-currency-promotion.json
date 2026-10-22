@@ -572,7 +572,7 @@
     {
       "target": "packages/medusa-adapter/src/module/promise-owner.ts",
       "classification": "authored",
-      "targetSha256": "40ec20da9016e28cfb31ad60c85ceca97b6460fd51811b8abe4fd0562e63ec60"
+      "targetSha256": "4415d0617b084dce56e9e2d154119c7816a63044107b68beda2e9ee7ea4a7f01"
     },
     {
       "target": "packages/medusa-adapter/src/query/relation-filter.ts",
@@ -897,7 +897,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/binding.ts",
       "classification": "authored",
-      "targetSha256": "700bde5a15a74aac0a5c44223c03f7f3f94817e5c8ce303d894b46af549d257c"
+      "targetSha256": "3698e7a9cc483aed6ec8ade6ee0fe36eef7e60e8eba1abfb901108782722cfff"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/configuration.ts",
@@ -912,7 +912,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/host.ts",
       "classification": "authored",
-      "targetSha256": "3327beb80c3acb3791d08c51b3c93e4a3d87080f33ce4359538dff87981cca7d"
+      "targetSha256": "46e8897e19fa1cf3ad955c9aec0001d5210d04cf7097b2f1f96e7ac8d7c94cc6"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/module.ts",
@@ -922,7 +922,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/resources.ts",
       "classification": "authored",
-      "targetSha256": "b99db90c75b0eac4704d5ac7a5aaf2d42b392bbd9ad91907b120aa38a871336a"
+      "targetSha256": "df7a97b293284b04d468b1eae39fca077281fd8eb097e492e9222a6ec04b9ab1"
     },
     {
       "target": "packages/medusa-adapter/src/write/create.ts",
@@ -1209,7 +1209,7 @@
     {
       "target": "packages/medusa-adapter/test/workflow-host.test.ts",
       "classification": "authored",
-      "targetSha256": "a2a5b1aa4992a38f1bf49acdb3191c0d66298810e854e6bb901b9fbb9c951baa"
+      "targetSha256": "b4e20d06069f1ce071d6a47e76f925bb50667bdcafacc6d8b77c90818b8acb4b"
     },
     {
       "target": "packages/medusa-adapter/test/workflow-query-graph.test.ts",
@@ -1721,7 +1721,7 @@
       "source": "third_party/medusa/upstream/packages/core/framework/src/utils/portable.ts",
       "sourceSha256": "1a954761dfacae14b333977eca1eb16d919c4a71c2b520d3bb954867354e2cd8",
       "classification": "selectedExportFacade",
-      "targetSha256": "1aff9e8878a140ea74e7443128744bea82a633c8292286684cc9d365bf7b9dc8"
+      "targetSha256": "f942df589bf6d5288b252d38fb0928dce052f8a64a758f077ce525e5db4073cc"
     },
     {
       "target": "packages/medusa-framework/tsconfig.json",
@@ -2070,7 +2070,7 @@
     {
       "target": "packages/medusa-types/package.json",
       "classification": "authored",
-      "targetSha256": "f5b0ca62e2a86654b2651c3d710f57eb9155a7d5a4a5a44dd47b2c745fd04a12"
+      "targetSha256": "cef3e87a9f614439f90f38f79e012946221d623b57ed61ca01a0257213ba8e3f"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/types/src/bundles.ts",
@@ -2458,7 +2458,7 @@
     {
       "target": "packages/medusa-utils/package.json",
       "classification": "authored",
-      "targetSha256": "868bf25120bdab113bfaa20d5d58139189ca18f53325f502f2f09190aaf945bc"
+      "targetSha256": "1251b5ea118c70cc5c8beefd21e8ba51dcc38a57ce88cccadefd2172a535b302"
     },
     {
       "target": "packages/medusa-utils/src/common/__tests__/get-selects-and-relations-from-object-array.spec.ts",
@@ -3325,7 +3325,7 @@
       "classification": "workflowFork",
       "source": "third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/type.ts",
       "sourceSha256": "dd3511dd3bff9ee1e192fdec72790c20a5944e2a10262d36b0e90ef4db87a538",
-      "targetSha256": "2205ac764fb189653a4eafe2adca6ae53462a1fa334efcc75487020442059223"
+      "targetSha256": "801d24e26efbcd612b5de31f77c83bac6eb2d11b6abadcfce7b6bcd0387b2d08"
     },
     {
       "target": "packages/medusa-workflows-sdk/src/orchestrator-builder.ts",
@@ -13051,6 +13051,44 @@
       "target": "packages/medusa-adapter/test/logical-boolean-partial-unique-history.test.ts",
       "classification": "authored",
       "targetSha256": "9507d5eef193b9ac828e4fccabb68253ba94fb5fa81f7426ecf13011d544c0cf"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/caching/index.ts",
+      "target": "packages/medusa-utils/src/caching/index.ts",
+      "classification": "workflowCacheFork",
+      "sourceSha256": "418708b511a651d226b55459043b8b6627a9acc0d132e64dc9b299c342303eba",
+      "targetSha256": "a14d6dc4a81cbafad9f0193d503ae0c25247f4fc9d3e029763802a07bb12ee38"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/feature-flags/flag-router.ts",
+      "target": "packages/medusa-utils/src/feature-flags/flag-router.ts",
+      "classification": "workflowCacheFork",
+      "sourceSha256": "daf2694e8c44b9a4849cbfd71ec3a863078876b88ed080b8d32504ffdbf85f24",
+      "targetSha256": "65d868bdd612a5822286d2344818f1a0680ead87587a13b337d83a9075f989a9"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/types/src/feature-flag/common.ts",
+      "target": "packages/medusa-types/src/feature-flag/common.ts",
+      "classification": "unchanged",
+      "sourceSha256": "1e52ded658aaf677efc8f1a4c49c093ecb43c8d9446b12b5c059fd86d66f4301",
+      "targetSha256": "1e52ded658aaf677efc8f1a4c49c093ecb43c8d9446b12b5c059fd86d66f4301"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/types/src/feature-flag/index.ts",
+      "target": "packages/medusa-types/src/feature-flag/index.ts",
+      "classification": "unchanged",
+      "sourceSha256": "88514cdd58381dbc18eb108d89f56ec0edd4abfaea047219849689faabe5b618",
+      "targetSha256": "88514cdd58381dbc18eb108d89f56ec0edd4abfaea047219849689faabe5b618"
+    },
+    {
+      "target": "packages/medusa-adapter/test/workflow-optional-absence.test.ts",
+      "classification": "authored",
+      "targetSha256": "ad69a5f9890c5878d4557211902b4536fb0eb73f485d1dc22e667178e4cbca66"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-workflow-optional-absence.test.ts",
+      "classification": "authored",
+      "targetSha256": "fc8a856e679ff3ae7f4731ce7ae5d893575730be6f523981faf5f00b2cd70623"
     }
   ],
   "dependencies": {
@@ -13210,6 +13248,8 @@
         "bignumber.js": "9.3.1"
       },
       "exports": [
+        "./caching/index",
+        "./feature-flag/index",
         ".",
         "./dal/index",
         "./totals/big-number",
@@ -13257,6 +13297,8 @@
       },
       "exports": [
         "./common/deep-flat-map",
+        "./caching/index",
+        "./feature-flags/flag-router",
         "./dal/json-assignment",
         "./common/trim-zeros",
         "./common/merge-metadata",
@@ -14874,22 +14916,22 @@
     },
     {
       "target": "packages/medusa-framework/dist/utils/portable.d.ts",
-      "targetSha256": "a8142d3d59aac86c4acb96a2000a55a09e5abd1624b1705b707a63fee5e1be6a",
+      "targetSha256": "c520c0344456da6d25fb384e69fa1780610176d191e27b77e8a10a1b54ba4c80",
       "input": "packages/medusa-framework/src/utils/portable.ts"
     },
     {
       "target": "packages/medusa-framework/dist/utils/portable.d.ts.map",
-      "targetSha256": "7b2038672e1fccf3dd62d86268c0c0515a0b3bbd0d0292c80f1e636e5ebef0aa",
+      "targetSha256": "4228e358b3a3391d6fd2aaa6fcc23cc3846fccfbe58857a2cae798bd8d5855f4",
       "input": "packages/medusa-framework/src/utils/portable.ts"
     },
     {
       "target": "packages/medusa-framework/dist/utils/portable.js",
-      "targetSha256": "f7c2f1bf6480c8aa5cc7c09166f18554a41ff6eddd8c4f28cc1888a951e0e895",
+      "targetSha256": "d188682c14f2101c99cfe9c9a9abae74b2dcfb567c7e7f0abf0f007544bbeb7d",
       "input": "packages/medusa-framework/src/utils/portable.ts"
     },
     {
       "target": "packages/medusa-framework/dist/utils/portable.js.map",
-      "targetSha256": "666b0175854b390cabbe29687422edb648d4319fa6ce3d61d9649e1dc10b8226",
+      "targetSha256": "cdb00adc63f4b3385c283160e098ccffff1e760cc3499e4897cc9198fd26dd79",
       "input": "packages/medusa-framework/src/utils/portable.ts"
     },
     {
@@ -27231,6 +27273,86 @@
       "target": "packages/medusa-utils/dist/common/deep-flat-map.js.map",
       "targetSha256": "250e600dc12fc4c537e4037486a8c968fe0a32c80a6def860ec836a6621cb973",
       "input": "packages/medusa-utils/src/common/deep-flat-map.ts"
+    },
+    {
+      "target": "packages/medusa-types/dist/feature-flag/common.d.ts",
+      "targetSha256": "76f3f8e95d37986a2ddb805f18433a40a0dd15a6f9cd9cd5b8e1422873a54929",
+      "input": "packages/medusa-types/src/feature-flag/common.ts"
+    },
+    {
+      "target": "packages/medusa-types/dist/feature-flag/common.d.ts.map",
+      "targetSha256": "8e8631712b56c76b570d5270b772244d306eb9ba1a25cca52d6b61359739bc2b",
+      "input": "packages/medusa-types/src/feature-flag/common.ts"
+    },
+    {
+      "target": "packages/medusa-types/dist/feature-flag/common.js",
+      "targetSha256": "5f265804051e4d29c414b489cd5d42f119219d9fb7d1ce15bd9c55b54c0c2453",
+      "input": "packages/medusa-types/src/feature-flag/common.ts"
+    },
+    {
+      "target": "packages/medusa-types/dist/feature-flag/common.js.map",
+      "targetSha256": "158bf5ccc5fc5db8f7612ca0494c881a85dd53c2ae2127ff07d2e16871ee57dc",
+      "input": "packages/medusa-types/src/feature-flag/common.ts"
+    },
+    {
+      "target": "packages/medusa-types/dist/feature-flag/index.d.ts",
+      "targetSha256": "0de9a0e4568c1bd586eb9d21f44503b28b14b916d6ee13f02ee09a7b9c133a06",
+      "input": "packages/medusa-types/src/feature-flag/index.ts"
+    },
+    {
+      "target": "packages/medusa-types/dist/feature-flag/index.d.ts.map",
+      "targetSha256": "589dfe028f370c856baffe5e9a9a4459de2ab179036008d8f9eb73f5b1dcc364",
+      "input": "packages/medusa-types/src/feature-flag/index.ts"
+    },
+    {
+      "target": "packages/medusa-types/dist/feature-flag/index.js",
+      "targetSha256": "74462438b5f087f3b953a1f1998d5fa4f74f23962112c7b8c8a7e9e49252e9a1",
+      "input": "packages/medusa-types/src/feature-flag/index.ts"
+    },
+    {
+      "target": "packages/medusa-types/dist/feature-flag/index.js.map",
+      "targetSha256": "2d291af58a6e4b9c2a2b1dd6f1f82d01150140c8fe9bf8ae8132008588390c59",
+      "input": "packages/medusa-types/src/feature-flag/index.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/caching/index.d.ts",
+      "targetSha256": "88d39df8563db2526bb3019af4f3d0dddfdd4b684bcfe622fa148925df6d1646",
+      "input": "packages/medusa-utils/src/caching/index.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/caching/index.d.ts.map",
+      "targetSha256": "1f78f2f906bfe41c38a7ec1bf7eefd42ba29393e83ad1f2999153945d9200192",
+      "input": "packages/medusa-utils/src/caching/index.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/caching/index.js",
+      "targetSha256": "d0a85106139cae171768c5e4a523cecb043bddde6b4761e4d0f8a7c53678682a",
+      "input": "packages/medusa-utils/src/caching/index.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/caching/index.js.map",
+      "targetSha256": "b827d02abbfd2ce7a0c023cfa6ce78ff81ea777d81c0666bf3ae379851c6a363",
+      "input": "packages/medusa-utils/src/caching/index.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/feature-flags/flag-router.d.ts",
+      "targetSha256": "01b43a73a6e0f8353709fcfa8d4e507a2af8c1cccb36ee9cf66b8c96b110b24b",
+      "input": "packages/medusa-utils/src/feature-flags/flag-router.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/feature-flags/flag-router.d.ts.map",
+      "targetSha256": "84ee86d9def8853d39629f25d44176512686c2c0c07d53c0a512876544cf2c62",
+      "input": "packages/medusa-utils/src/feature-flags/flag-router.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/feature-flags/flag-router.js",
+      "targetSha256": "2f1565e49bdcc4fc42e95ac486ce8141924f3cf6ff5d8601ab8bf5d0cd4d9119",
+      "input": "packages/medusa-utils/src/feature-flags/flag-router.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/feature-flags/flag-router.js.map",
+      "targetSha256": "19ccbeb03c4c2c2bcc266042f0d75d68a811b34b765db846471e002c86aedc71",
+      "input": "packages/medusa-utils/src/feature-flags/flag-router.ts"
     }
   ],
   "testAliases": [

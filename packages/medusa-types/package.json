@@ -3,6 +3,16 @@
   "version": "2.13.4",
   "private": true,
   "exports": {
+    "./caching/index": {
+      "types": "./dist/caching/index.d.ts",
+      "source": "./src/caching/index.ts",
+      "default": "./dist/caching/index.js"
+    },
+    "./feature-flag/index": {
+      "types": "./dist/feature-flag/index.d.ts",
+      "source": "./src/feature-flag/index.ts",
+      "default": "./dist/feature-flag/index.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "source": "./src/index.ts",

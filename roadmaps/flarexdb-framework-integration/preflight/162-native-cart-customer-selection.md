@@ -2,12 +2,14 @@
 
 ## Status and authority
 
-Status: native contract characterized; adapter prerequisites remain pending.
+Status: native contract characterized; shared prerequisites implemented;
+Customer adapter admission remains pending.
 The original Customer branch is the next
 independent Cart child after the implemented Inventory confirmation branch.
 The shared [Boolean partial-index prerequisite](../../shared-logical-storage/70-boolean-partial-unique-indexes.md)
-is implemented independently. Shared optional-resource resolution and adapter
-admission remain pending.
+is implemented independently. Shared [requested optional-resource resolution](../../workflow-foundations/11-workflow-host-composition.md#requested-optional-resources)
+and the unchanged native cache utility export closure are implemented separately
+from the Customer adapter.
 
 The executing reference remains Medusa 2.13.4 at
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`. The selected native step is
@@ -44,8 +46,10 @@ independent of this child.
 
 The actual SDK child container is the resolution boundary. Its uncached read
 path requires requested optional absence to preserve the live request owner.
-Complete that shared workflow prerequisite and its native utility export closure
-separately from the Cart context adapters and pending business decisions.
+The shared workflow prerequisite and its native utility export closure are
+implemented separately from the Cart context adapters and pending business
+decisions. Only authenticated, explicitly declared absence is supported;
+required and undeclared lookups remain sticky refusals.
 
 ## Native persistence and serialization
 
@@ -81,7 +85,7 @@ bounded complete selection or an explicit refusal.
    child container and local EventBus. Preserve null/empty branches, ID and email ordering, mixed
    account/guest cohorts, actual DTOs, empty Address calls, context identities,
    native failures, cancellation, late failure and retained inverse closure.
-3. Complete shared optional-resource resolution and its native utility exports,
+3. Use shared optional-resource resolution and its native utility exports,
    then promote the exact native step and email helper with precise exports and
    provenance. Implement the narrow Customer adapter and genuine wrapper using
    existing construction owners; retain unsupported-method refusal.

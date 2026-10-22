@@ -6,9 +6,17 @@ import ts from "@typescript/typescript6";
 const failure = "Changed native Cart prerequisite source";
 const nativePrefix = "third_party/medusa/upstream/";
 
+export const workflowCacheSourcePairs = Object.freeze([
+  { source: nativePrefix + "packages/core/utils/src/caching/index.ts", target: "packages/medusa-utils/src/caching/index.ts", classification: "workflowCacheFork" },
+  { source: nativePrefix + "packages/core/utils/src/feature-flags/flag-router.ts", target: "packages/medusa-utils/src/feature-flags/flag-router.ts", classification: "workflowCacheFork" },
+  ...["common", "index"].map(name => ({ source: nativePrefix + `packages/core/types/src/feature-flag/${name}.ts`,
+    target: `packages/medusa-types/src/feature-flag/${name}.ts`, classification: "unchanged" })),
+].map(pair => Object.freeze(pair)));
+
 /** Exact source preparation closure. Promotion admits models and pure calculators;
  * its ORM service, prefilter and service metadata are deliberately absent. */
 export const cartPrerequisiteSourcePairs = Object.freeze([
+  ...workflowCacheSourcePairs,
   {
     "source": "third_party/medusa/upstream/LICENSE",
     "target": "packages/medusa-cart/LICENSE",
@@ -645,4 +653,31 @@ export function verifyPaymentJoinerFork(source, target) {
     'import { defineJoinerConfigFromModels } from "@medusajs/utils/modules-sdk/portable-joiner-config-builder"');
   expected = replaceChecked(expected, "defineJoinerConfig(Modules.PAYMENT,", "defineJoinerConfigFromModels(Modules.PAYMENT,");
   if (authorityProgram(expected) !== authorityProgram(target)) throw new Error(failure + ": Payment joiner program");
+}
+
+/** Authenticate the shared cache helper independently of any Cart step. Only
+ * erased contracts and exact imports change; native resolution, call order,
+ * callbacks, cache operations and flag behavior remain complete.
+ * @param {string} source @param {string} target @param {string} destination */
+export function verifyWorkflowCacheFork(source, target, destination) {
+  let expected = source;
+  /** @param {string} before @param {string} after @param {number} [count] */
+  const replace = (before, after, count = 1) => {
+    if (expected.split(before).length !== count + 1) throw new Error(failure + ": workflow cache relocation anchor");
+    expected = expected.split(before).join(after);
+  };
+  if (destination === "packages/medusa-utils/src/caching/index.ts") {
+    replace('import { ICachingModuleService, Logger, MedusaContainer } from "@medusajs/types"',
+      'import type { ICachingModuleService } from "@medusajs/types/caching/index"\nimport type { Logger } from "@medusajs/types"');
+    replace('import { MedusaContextType, Modules } from "../modules-sdk"',
+      'import { MedusaContextType } from "../modules-sdk/decorators/context-parameter"\nimport { Modules } from "../modules-sdk/definition"');
+    replace('from "../feature-flags"', 'from "../feature-flags/flag-router"');
+    replace('import { ContainerRegistrationKeys, isObject } from "../common"',
+      'import { ContainerRegistrationKeys } from "../common/container"\nimport { isObject } from "../common/is-object"\n\n' +
+      'interface CacheContainer {\n  resolve<T>(name: string): T\n  resolve<T>(name: string, options: { readonly allowUnregistered: true }): T | undefined\n}');
+    replace("MedusaContainer", "CacheContainer", 4);
+  } else if (destination === "packages/medusa-utils/src/feature-flags/flag-router.ts") {
+    replace('import { FeatureFlagTypes } from "@medusajs/types"', 'import type * as FeatureFlagTypes from "@medusajs/types/feature-flag/index"');
+  } else throw new Error(failure + ": unknown workflow cache source");
+  if (authorityProgram(expected) !== authorityProgram(target)) throw new Error(failure + ": workflow cache program");
 }

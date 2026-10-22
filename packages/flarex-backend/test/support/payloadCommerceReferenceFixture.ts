@@ -14,8 +14,6 @@ import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/framew
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { commerceError } from "../../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { isJsonObject } from "flarex-protocol/json";
-import { captureProductSchema } from "../../../medusa-adapter/src/modules/product/schema";
-import { productRuntimeMetadata } from "../../../medusa-adapter/src/modules/product/runtime-metadata";
 import { createHash } from "node:crypto";
 import { createMixedMutationProductFixture } from "./mixedMutationWorkerdFixture";
 
@@ -70,8 +68,7 @@ export function prepareProductDeletion(fixture: Fixture) {
 export async function prepareProductTransition(fixture: Fixture, operation: "delete" | "softDelete",
   options: Readonly<{ session?: Parameters<Parameters<Fixture["withStandaloneProductSession"]>[0]>[0];
     beforeCall?: Effect.Effect<void> }> = {}) {
-  const catalog = await Effect.runPromise(captureProductSchema("atomic-commerce")
-    .pipe(Effect.flatMap(schema => productRuntimeMetadata(schema.metadata.frame))));
+  const catalog = fixture.product.runtime.metadata;
   const policy = fixture.product.runtime.logicalPolicy;
   const revision = createHash("sha256").update("private-reference-product-delete").digest("hex");
   const entities = operation === "delete" ? [catalog.product] :

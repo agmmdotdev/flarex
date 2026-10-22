@@ -1,12 +1,13 @@
-import { Result } from "effect";
+import { Result, Schema } from "effect";
 import type { Invoke, StepExecutionContext, WorkflowContainer } from "@medusajs/workflows-sdk";
 import { defineAtomicCommerceParticipant, type AtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, commerceLimits, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LocalGraphResult } from "../local-graph/model";
 import { captureCommerceInput } from "../value/input";
 import { captureWorkflowRecord, isWorkflowResourceName } from "./configuration";
 import { workflowMethodDefinition, workflowModuleDefinition, type BoundWorkflowMethod, type WorkflowModule, type WorkflowModuleMethods } from "./module";
 import { composedWorkflowResourceDefinition, type ComposedWorkflowResource, type ComposedWorkflowServices } from "./composed-resource";
+import { commerceDecoder } from "../value/decoder";
 
 export interface WorkflowModuleSelection {
   readonly module: WorkflowModule;
@@ -46,13 +47,15 @@ export interface PreparedWorkflowSelection extends WorkflowModuleSelection {
 export interface PreparedComposedResource { readonly name: string; readonly resource: ComposedWorkflowResource }
 const selections = new WeakMap<object, readonly PreparedWorkflowSelection[]>();
 const compositions = new WeakMap<object, readonly PreparedComposedResource[]>();
+const absences = new WeakMap<object, readonly string[]>();
+const decodeAbsences = commerceDecoder(Schema.Struct({ absent: Schema.Array(Schema.String).check(Schema.isMaxLength(commerceLimits.commandDefinitions)) }), "unsupportedProfile");
 const contexts = new WeakMap<WorkflowContainer, { readonly selection: object; readonly resources: unknown; readonly reject: (error: CommerceTransactionError) => never }>();
 
 /** A definition-scoped resource selection. Multiple hosts may prepare the same
  * selection; actual objects only exist during one execution's owned lifetime. */
 export function prepareWorkflowResources<const Selections extends WorkflowSelections, const Events extends boolean,
   const Composed extends Readonly<Record<string, ComposedWorkflowResource>> = Record<never, never>>(
-  input: CheckedSelections<Selections>, events: Events, composed?: Composed,
+  input: CheckedSelections<Selections>, events: Events, composed?: Composed, options?: { readonly absent: readonly string[] },
 ): Result.Result<PreparedWorkflowResources<NativeWorkflowResources<Selections, Events> & ComposedWorkflowServices<Composed>>, CommerceTransactionError> {
   return Result.gen(function* () {
     const record = yield* captureWorkflowRecord(input);
@@ -92,6 +95,10 @@ export function prepareWorkflowResources<const Selections extends WorkflowSelect
         return yield* Result.fail(commerceError("unsupportedProfile"));
       admitted.push(Object.freeze({ name, resource: definition.resource }));
     }
+    const absent = yield* captureCommerceInput(options === undefined ? { absent: [] } : options).pipe(Result.flatMap(decodeAbsences));
+    if (new Set(absent.absent).size !== absent.absent.length || absent.absent.some(name => !isWorkflowResourceName(name) ||
+      ["query", "remoteQuery", "event_bus"].includes(name) || Object.hasOwn(record, name) || Object.hasOwn(composedRecord, name)))
+      return yield* Result.fail(commerceError("unsupportedProfile"));
     type Resources = NativeWorkflowResources<Selections, Events> & ComposedWorkflowServices<Composed>;
     const context = (ctx: StepExecutionContext): NativeWorkflowContext<Resources> => {
       const bound = contexts.get(ctx.container);
@@ -117,12 +124,14 @@ export function prepareWorkflowResources<const Selections extends WorkflowSelect
     });
     selections.set(result, Object.freeze(captured));
     compositions.set(result, Object.freeze(admitted));
+    absences.set(result, Object.freeze([...absent.absent]));
     return result;
   });
 }
 
 export const workflowResourceSelections = (resources: PreparedWorkflowResources) => selections.get(resources);
 export const workflowComposedResources = (resources: PreparedWorkflowResources) => compositions.get(resources);
+export const workflowAbsentResources = (resources: PreparedWorkflowResources) => absences.get(resources);
 export function registerWorkflowResourceContext(container: WorkflowContainer, selection: PreparedWorkflowResources, resources: unknown,
   reject: (error: CommerceTransactionError) => never) {
   contexts.set(container, { selection, resources, reject });

@@ -9,7 +9,7 @@ import { runNativeMedusaWorkflow } from "./runtime";
 import { captureCommerceInput } from "../value/input";
 import { captureWorkflowArray, captureWorkflowRecord, captureWorkflowPolicy } from "./configuration";
 import { workflowMethodDefinition, workflowModuleDefinition, type WorkflowMethod, type WorkflowModule } from "./module";
-import { workflowResourceSelections, workflowComposedResources, type PreparedWorkflowResources } from "./resources";
+import { workflowResourceSelections, workflowComposedResources, workflowAbsentResources, type PreparedWorkflowResources } from "./resources";
 import { composedWorkflowResourceDefinition } from "./composed-resource";
 import { bindWorkflowResources, type BoundWorkflowEvent, type WorkflowEventDefinition } from "./binding";
 import { checkedCommerceValue } from "../value/checked";
@@ -283,9 +283,12 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
       });
     },
   };
+  const absentResources = workflowAbsentResources(workflow.resources);
+  if (absentResources === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
   const identity = yield* Effect.fromResult(captureWorkflowPolicy({ policy, workflow: {
     revision: options.revision, definition: workflow.prepared.identity, resources: identities, events: [...names],
     ...(composedIdentities.length ? { composedResources: composedIdentities } : {}),
+    ...(absentResources.length ? { absentResources } : {}),
     ...(executionIsolation === undefined ? {} : { executionIsolation }),
     ...(operationScheduling === undefined ? {} : { operationScheduling }),
     ...(borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling }),

@@ -23,7 +23,10 @@ export type Resolved<T> = T extends { readonly [dataBrand]: infer Value } ? Valu
   : T extends Date | ((...args: never[]) => unknown) ? T
   : T extends object ? Pick<T, keyof T> extends T ? { [Key in keyof T]: Resolved<T[Key]> } : T : T;
 /** Narrow, trusted resource view. The adapter authenticates every resolved method. */
-export interface WorkflowContainer { resolve<T>(name: string): T }
+export interface WorkflowContainer {
+  resolve<T>(name: string): T;
+  resolve<T>(name: string, options: { readonly allowUnregistered: true }): T | undefined;
+}
 export interface StepExecutionContext { readonly container: WorkflowContainer; readonly eventGroupId: string }
 export type Invoke<Input, Output, Compensation = Output> = (input: Input, context: StepExecutionContext) =>
   Output | StepResponse<Output, Compensation> | Promise<Output | StepResponse<Output, Compensation>>;

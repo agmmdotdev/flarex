@@ -6,7 +6,7 @@ import { commerceError, CommerceTransactionError, isJsonObject, type Json } from
 import type { CommercePromiseOwner } from "../module/promise-owner";
 import { captureCommerceInput } from "../value/input";
 import type { PreparedLocalGraph } from "../local-graph/model";
-import { registerWorkflowResourceContext, workflowComposedResources, type PreparedWorkflowResources, type PreparedWorkflowSelection } from "./resources";
+import { registerWorkflowResourceContext, workflowComposedResources, workflowAbsentResources, type PreparedWorkflowResources, type PreparedWorkflowSelection } from "./resources";
 import { workflowMethodDefinition, workflowModuleDefinition, type WorkflowMethod } from "./module";
 import { composedWorkflowResourceDefinition, type InvokeWorkflowMethod } from "./composed-resource";
 import { checkedCommerceValue } from "../value/checked";
@@ -23,6 +23,7 @@ export interface BoundWorkflowEvent extends WorkflowEventDefinition { readonly c
 const decodeGroupedClear = commerceDecoder(Schema.Tuple([Schema.String,
   Schema.Struct({ eventNames: Schema.Tuple([Schema.String]) }),
 ]), "unadmittedEvent");
+const decodeResolveOptions = commerceDecoder(Schema.Struct({ allowUnregistered: Schema.Literal(true) }), "unsupportedProfile");
 
 /** Missing native methods refuse on invocation. Reflection and protocol probes
  * remain inert; the target still exposes only the admitted own properties. */
@@ -116,12 +117,26 @@ export function bindWorkflowResources(selection: PreparedWorkflowResources, memb
     }, owner)]);
   }
   const resources = Object.freeze(Object.fromEntries(entries));
-  const container: WorkflowContainer = Object.freeze({ resolve<T>(name: string): T {
-    if (!Object.hasOwn(resources, name)) return owner.reject(commerceError("unsupportedProfile"));
+  const absent = workflowAbsentResources(selection) ?? owner.reject(commerceError("invalidAuthority"));
+  function resolve<T>(name: string): T;
+  function resolve<T>(name: string, options: { readonly allowUnregistered: true }): T | undefined;
+  function resolve<T>(name: string, options?: { readonly allowUnregistered: true }): T | undefined {
+    owner.assertOpen();
+    if (arguments.length !== 1 && arguments.length !== 2) return owner.reject(commerceError("unsupportedProfile"));
+    if (arguments.length === 2) Result.match(captureCommerceInput(options).pipe(Result.flatMap(decodeResolveOptions),
+      Result.mapError(cause => commerceError("unsupportedProfile", cause))), {
+      onFailure: owner.reject, onSuccess: () => undefined,
+    });
+    if (typeof name !== "string") return owner.reject(commerceError("unsupportedProfile"));
+    if (!Object.hasOwn(resources, name)) {
+      if (arguments.length === 2 && absent.includes(name)) return undefined;
+      return owner.reject(commerceError("unsupportedProfile"));
+    }
     // SAFETY: Medusa's generic resolver is a compatibility ABI. T grants no
     // capability; the same finite scoped methods serve the inferred native view.
     return resources[name] as T;
-  } });
+  }
+  const container: WorkflowContainer = Object.freeze({ resolve });
   registerWorkflowResourceContext(container, selection, resources, owner.reject);
   return container;
 }
