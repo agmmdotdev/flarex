@@ -28,6 +28,10 @@ equality access; SalesChannel `is_disabled` uses a declared Boolean index under
 The [Boolean partial-index support](./70-boolean-partial-unique-indexes.md)
 extends the existing logical membership owners for native active default-Address
 uniqueness; Customer workflow admission remains separate.
+[Null implications and two-null partial indexes](./71-null-constraints-and-partial-indexes.md)
+extend the existing relational row and membership owners for the native Tax
+prerequisite. The bounded implementation is validated on PGlite and ordinary-role
+PostgreSQL; native Tax workflow admission and SQL-real conversion remain separate.
 Selected scalar and Product-tag commands now validate at the shared outer-call
 boundary, supporting repeated calls and native child workflows with one
 settlement. [Native command composition](./44-native-command-composition.md)

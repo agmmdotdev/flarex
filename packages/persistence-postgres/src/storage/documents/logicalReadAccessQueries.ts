@@ -69,6 +69,7 @@ const selectedRows = (tx: FlarexMetadataTransaction, input: SelectionInput, keys
 const predicatesFor = (where: LogicalWhere) => {
   const nulls = Object.keys(where).filter(field => where[field] === null), predicates: (JsonObject | null)[] = [null];
   for (const field of nulls) predicates.push({ kind: "fieldIsNull", field });
+  predicates.push(...allNullPredicates(nulls));
   for (const nullField of nulls) for (const textField of Object.keys(where)) {
     const value = where[textField];
     if (typeof value === "string") predicates.push({ kind: "fieldIsNullAndTextEquals", nullField, textField, value });
@@ -76,6 +77,15 @@ const predicatesFor = (where: LogicalWhere) => {
   }
   return predicates.map(logicalReadPredicateKey);
 };
+
+/** The new membership family has exactly two distinct, canonically ordered
+ * guards. Existing singleton and literal predicate keys keep their bytes. */
+function allNullPredicates(fields: readonly string[]): JsonObject[] {
+  const ordered = [...new Set(fields)].toSorted(), predicates: JsonObject[] = [];
+  for (let left = 0; left < ordered.length; left++) for (let right = left + 1; right < ordered.length; right++)
+    predicates.push({ kind: "fieldsAreNull", fields: [ordered[left]!, ordered[right]!] });
+  return predicates;
+}
 
 /** Exact native/page keys share the same protected catalog and SQL owner. */
 export function logicalExactReadAccessQuery(tx: FlarexMetadataTransaction, input: SelectionInput,
@@ -99,6 +109,7 @@ export function logicalNativeReadAccessQuery(tx: FlarexMetadataTransaction, inpu
 export function logicalPageReadAccessQuery(tx: FlarexMetadataTransaction, input: SelectionInput, fields: readonly string[],
   equality: Readonly<{ column: string; value: string | boolean }> | undefined, requiredNulls: readonly string[]) {
   const predicates: (JsonObject | null)[] = [null];
+  predicates.push(...allNullPredicates(requiredNulls));
   for (const field of new Set(requiredNulls)) {
     predicates.push({ kind: "fieldIsNull", field });
     if (equality !== undefined && typeof equality.value === "string")

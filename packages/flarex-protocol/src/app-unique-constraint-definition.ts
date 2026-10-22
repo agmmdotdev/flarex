@@ -5,6 +5,7 @@ import {
   ORDERED_INDEX_KEY_CODEC_VERSION_V1,
   OrderedIndexKeyCodecVersionSchema,
   AppIndexNullAndBooleanEqualsPredicateV1Schema,
+  AppIndexAllNullPredicateV1Schema,
   type OrderedIndexKeyCodecVersion,
 } from "./ordered-index";
 import {
@@ -76,7 +77,7 @@ export const AppUniqueConstraintPhysicalSpecV1Schema = Schema.Struct({
   orderedFields: UniqueConstraintFieldsV1Schema,
   sparse: Schema.Boolean,
   nullsDistinct: Schema.optionalKey(Schema.Literal(true)),
-  predicate: Schema.optionalKey(Schema.Union([NullPredicateSchema, AppIndexNullAndBooleanEqualsPredicateV1Schema])),
+  predicate: Schema.optionalKey(Schema.Union([NullPredicateSchema, AppIndexNullAndBooleanEqualsPredicateV1Schema, AppIndexAllNullPredicateV1Schema])),
   localePolicy: Schema.Struct({ kind: Schema.Literal("none") }).annotate(
     StrictStructOptions,
   ),
@@ -212,7 +213,10 @@ function snapshotPhysicalSpec(
     orderedFields: Object.freeze(Array.from(spec.orderedFields)),
     sparse: spec.sparse,
     ...(spec.nullsDistinct === undefined ? {} : { nullsDistinct: spec.nullsDistinct }),
-    ...(spec.predicate === undefined ? {} : { predicate: Object.freeze({ ...spec.predicate }) }),
+    ...(spec.predicate === undefined ? {} : { predicate: spec.predicate.kind === "fieldsAreNull"
+      ? Object.freeze({ kind: spec.predicate.kind,
+        fields: Object.freeze([spec.predicate.fields[0], spec.predicate.fields[1]] as const) })
+      : Object.freeze({ ...spec.predicate }) }),
     localePolicy: Object.freeze({ kind: spec.localePolicy.kind }),
     keyCodecIdentity: spec.keyCodecIdentity,
     keyCodecVersion: spec.keyCodecVersion,
@@ -235,6 +239,8 @@ function encodePhysicalSpec(spec: AppUniqueConstraintPhysicalSpecV1): string {
 
 function encodePhysicalPredicate(predicate: NonNullable<AppUniqueConstraintPhysicalSpecV1["predicate"]>): string {
   switch (predicate.kind) {
+    case "fieldsAreNull":
+      return `{"fields":[${predicate.fields.map(encodeJsonString).join(",")}],"kind":"fieldsAreNull"}`;
     case "fieldIsNull":
       return `{"field":${encodeJsonString(predicate.field)},"kind":"fieldIsNull"}`;
     case "fieldIsNullAndBooleanEquals":

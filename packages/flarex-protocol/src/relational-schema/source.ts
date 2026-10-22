@@ -80,6 +80,9 @@ function sourceIndexInputFromStoredIndex(input: unknown) {
 
 function sourcePredicateInputFromStoredPredicate(input: unknown) {
   if (!isNonArrayRecord(input)) return input;
+  if (input.kind === "allNull") return {
+    kind: input.kind, columnIds: mapStoredArray(input.columns, storedColumnId),
+  };
   if (input.kind === "isNullAndBooleanEquals") return {
     kind: input.kind, nullColumnId: storedColumnId(input.nullColumn),
     booleanColumnId: storedColumnId(input.booleanColumn), value: input.value,
@@ -116,6 +119,11 @@ function sourceConstraintInputFromStoredConstraint(input: unknown) {
     return { constraintId: input.identity.constraintId, kind: input.kind,
       columnId: storedColumnId(input.column), values: input.values, origin: input.origin };
   }
+  if (input.kind === "nullImplication") return {
+    constraintId: input.identity.constraintId, kind: input.kind,
+    nonNullColumnId: storedColumnId(input.nonNullColumn),
+    requiredColumnId: storedColumnId(input.requiredColumn), required: input.required, origin: input.origin,
+  };
   if (input.kind === "integerRange") {
     return {
       constraintId: input.identity.constraintId,

@@ -14,6 +14,21 @@ const capture = (schema: unknown) => captureRelationalSchemaArtifact({ deploymen
   provenance: { kind: "sourceSnapshot", repository: "https://example.com/compound", revision: "d".repeat(40), paths: ["model.ts"] }, schema });
 
 describe("bounded compound index predicates", () => {
+  it.each(["constraint", "predicate"] as const)("refuses the logical null %s on the historical physical-layout route", async mode => {
+    const origin = { kind: "synthetic", sourceId: "neutral-null-layout-refusal" };
+    const captured = await Effect.runPromise(capture({ owner: "system", lineageId: "null-layout-refusal", capabilities: [], tables: [{
+      tableId: "entries", origin, columns: ["id", "parent", "provider"].map(columnId => ({
+        columnId, type: "text", nullable: columnId !== "id", default: { kind: "none" }, origin,
+      })), keys: [{ keyId: "entries.primary", kind: "primary", columns: ["id"], origin }],
+      indexes: mode === "constraint" ? [] : [{ indexId: "entries.nulls", kind: "uniqueBtree", columns: ["id"], origin,
+        predicate: { kind: "allNull", columnIds: ["parent", "provider"] } }],
+      constraints: mode === "predicate" ? [] : [{ constraintId: "entries.guard", kind: "nullImplication",
+        nonNullColumnId: "parent", requiredColumnId: "provider", required: "null", origin }], relationships: [],
+    }] }));
+    expect(await Effect.runPromise(Effect.result(captureRelationalPhysicalLayout({ artifact: captured.artifact,
+      physicalLocator: FRAMEWORK_VALUE_LOCATOR, targetNamespace: await frameworkTargetNamespace() }))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedArtifact" } });
+  });
   it("refuses the logical Boolean predicate on the historical physical-layout route", async () => {
     const origin = { kind: "synthetic", sourceId: "neutral-boolean-layout-refusal" };
     const captured = await Effect.runPromise(capture({ owner: "medusa", lineageId: "boolean-layout-refusal", capabilities: [], tables: [{

@@ -42,6 +42,7 @@ export function lowerAppOrderedIndexPhysicalKeyV1(
     const predicate = physicalSpec.predicate;
     if (predicate !== undefined && !(predicate.kind === "fieldIsNull"
       ? appDocumentPathIsNull(document, predicate.field)
+      : predicate.kind === "fieldsAreNull" ? predicate.fields.every(field => appDocumentPathIsNull(document, field))
       : appDocumentPathIsNull(document, predicate.nullField) &&
         (predicate.kind === "fieldIsNullAndTextEquals"
           ? appDocumentPathEqualsText(document, predicate.textField, predicate.value)

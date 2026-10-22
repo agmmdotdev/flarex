@@ -62,6 +62,7 @@ export function selectLogicalPageIndex<Failure>(definitions: readonly LocatedApp
       if (definition.access.kind !== "developer" || definition.access.tableId !== tableId) continue;
       const predicate = definition.physicalSpec.predicate;
       if (predicate !== undefined && !(predicate.kind === "fieldIsNull" ? requiredNulls.includes(predicate.field)
+        : predicate.kind === "fieldsAreNull" ? predicate.fields.every(field => requiredNulls.includes(field))
         : requiredNulls.includes(predicate.nullField) && equality?.column ===
           (predicate.kind === "fieldIsNullAndTextEquals" ? predicate.textField : predicate.booleanField) && equality.value === predicate.value)) continue;
       const ordered = definition.physicalSpec.orderedFields;
@@ -110,6 +111,7 @@ export function selectLogicalIndexValues<Failure>(definitions: readonly LocatedA
           membership?.kind !== "fieldIsNull" || membership.field !== exactPoint.nullColumn))) continue;
       if (membership !== undefined && !(membership.kind === "fieldIsNull"
         ? values.value(membership.field) === null
+        : membership.kind === "fieldsAreNull" ? membership.fields.every(field => values.value(field) === null)
         : values.value(membership.nullField) === null && values.value(
           membership.kind === "fieldIsNullAndTextEquals" ? membership.textField : membership.booleanField) === membership.value)) continue;
       const expressions: OrderedIndexRangeExpressionV1[] = [];

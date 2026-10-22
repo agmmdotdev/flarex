@@ -188,9 +188,11 @@ export const captureRelationalPhysicalLayout = Effect.fn(
       indexNames.set(indexIdentityKey(index.identity), name.spelling);
     }
     for (const constraint of table.constraints) {
-      const subject = physicalConstraintNameSubject(constraint);
+      const subject = yield* Effect.fromResult(physicalConstraintNameSubject(constraint));
       const name = yield* nameFor(subject);
       switch (constraint.kind) {
+        case "nullImplication":
+          return yield* Effect.fail(RelationalPhysicalValueError.unsupportedArtifact());
         case "foreignKey":
           foreignKeyNames.set(
             constraintIdentityKey(constraint.identity),
@@ -232,6 +234,8 @@ export const captureRelationalPhysicalLayout = Effect.fn(
     )));
     for (const constraint of table.constraints) {
       switch (constraint.kind) {
+        case "nullImplication":
+          return yield* Effect.fail(RelationalPhysicalValueError.unsupportedArtifact());
         case "foreignKey":
           foreignKeys.push(yield* Effect.fromResult(lowerForeignKey(
             constraint,
@@ -736,6 +740,8 @@ function lowerTable(
     const checks: RelationalPhysicalCheck[] = [];
     for (const constraint of table.constraints) {
       switch (constraint.kind) {
+        case "nullImplication":
+          return yield* Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
         case "foreignKey":
           break;
         case "integerRange":
@@ -1059,19 +1065,21 @@ function copyPhysicalDefault(
 
 function physicalConstraintNameSubject(
   constraint: RelationalTableDefinition["constraints"][number],
-): RelationalPhysicalNameSubject {
+): Result.Result<RelationalPhysicalNameSubject, RelationalPhysicalValueError> {
   switch (constraint.kind) {
+    case "nullImplication":
+      return Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
     case "foreignKey":
-      return Object.freeze({
+      return Result.succeed(Object.freeze({
         kind: "foreignKey",
         identity: copyConstraintIdentity(constraint.identity),
-      });
+      }));
     case "textSet":
     case "integerRange":
-      return Object.freeze({
+      return Result.succeed(Object.freeze({
         kind: "checkConstraint",
         identity: copyConstraintIdentity(constraint.identity),
-      });
+      }));
     default:
       return unreachablePhysicalVocabulary(constraint);
   }
@@ -1112,6 +1120,7 @@ function physicalIndexPredicate(
   RelationalPhysicalValueError
 > {
   switch (predicate.kind) {
+    case "allNull":
     case "isNullAndBooleanEquals":
       return Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
     case "isNullAndTextEquals":
@@ -1217,7 +1226,7 @@ function deriveArtifactCapabilityIds(
       }
       for (const constraint of table.constraints) {
         admitDefinitionOrigin(constraint.origin.kind);
-        capabilities.add(constraintCapabilityId(constraint));
+        capabilities.add(yield* constraintCapabilityId(constraint));
       }
       for (const relationship of table.relationships) {
         admitDefinitionOrigin(relationship.origin.kind);
@@ -1330,6 +1339,7 @@ function indexPredicateCapabilityId(
   predicate: NonNullable<RelationalTableDefinition["indexes"][number]["predicate"]>,
 ): Result.Result<string, RelationalPhysicalValueError> {
   switch (predicate.kind) {
+    case "allNull":
     case "isNullAndBooleanEquals":
       return Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
     case "isNullAndTextEquals":
@@ -1341,16 +1351,18 @@ function indexPredicateCapabilityId(
 
 function constraintCapabilityId(
   constraint: RelationalTableDefinition["constraints"][number],
-): string {
+): Result.Result<string, RelationalPhysicalValueError> {
   switch (constraint.kind) {
+    case "nullImplication":
+      return Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
     case "foreignKey":
       physicalForeignKeyAction(constraint.onDelete);
       physicalForeignKeyAction(constraint.onUpdate);
-      return "relational-schema.constraint.foreignKey";
+      return Result.succeed("relational-schema.constraint.foreignKey");
     case "textSet":
-      return "relational-schema.constraint.textSet";
+      return Result.succeed("relational-schema.constraint.textSet");
     case "integerRange":
-      return "relational-schema.constraint.integerRange";
+      return Result.succeed("relational-schema.constraint.integerRange");
     default:
       return unreachablePhysicalVocabulary(constraint);
   }

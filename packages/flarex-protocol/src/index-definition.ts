@@ -291,6 +291,8 @@ function encodeCanonicalPhysicalSpec(
 
 function encodeCanonicalPhysicalPredicate(predicate: NonNullable<AppOrderedIndexPhysicalSpecV1["predicate"]>): string {
   switch (predicate.kind) {
+    case "fieldsAreNull":
+      return `{"fields":[${predicate.fields.map(encodeJsonString).join(",")}],"kind":"fieldsAreNull"}`;
     case "fieldIsNull":
       return `{"field":${encodeJsonString(predicate.field)},"kind":"fieldIsNull"}`;
     case "fieldIsNullAndTextEquals":

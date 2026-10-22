@@ -60,6 +60,12 @@ export function validateRelationalRowValues(table: RelationalTableDefinition, ro
   }
   for (const constraint of table.constraints) {
     if (constraint.kind === "foreignKey") continue;
+    if (constraint.kind === "nullImplication") {
+      if (row[constraint.nonNullColumn.columnId] !== null &&
+        (row[constraint.requiredColumn.columnId] === null) !== (constraint.required === "null"))
+        return Result.fail(new RelationalRowValueError({ reason: "constraintViolation", column: constraint.requiredColumn.columnId }));
+      continue;
+    }
     const value = row[constraint.column.columnId];
     // SQL CHECK predicates admit NULL; the column contract owns nullability.
     if (value === null) continue;

@@ -420,6 +420,14 @@ function decodeIndexPredicate(
   return Result.gen(function* () {
     yield* consumeDecodeUnit(budget, path);
     const kind = yield* discriminant(input, path);
+    if (kind === "allNull") {
+      const fields = yield* exactRecord(input, ["kind", "columnIds"], path);
+      const columns = yield* decodeLocalColumnIdentities(fields.at(1), coordinate, tableId, `${path}.columnIds`, budget);
+      if (columns.length !== 2 || columns[0]!.columnId === columns[1]!.columnId)
+        return yield* Result.fail(RelationalSchemaError.invalidInput(`${path}.columnIds`));
+      const sorted = columns.toSorted((left, right) => compareUtf16Strings(left.columnId, right.columnId));
+      return Object.freeze({ kind, columns: Object.freeze([sorted[0]!, sorted[1]!] as const) });
+    }
     if (kind === "isNullAndBooleanEquals") {
       const fields = yield* exactRecord(input, ["kind", "nullColumnId", "booleanColumnId", "value"], path);
       const nullColumnId = yield* decodeIdentityString(fields.at(1), `${path}.nullColumnId`, brandColumnId);
@@ -460,6 +468,21 @@ function decodeConstraint(
   return Result.gen(function* () {
     yield* consumeDecodeUnit(budget, path);
     const kind = yield* discriminant(input, path);
+    if (kind === "nullImplication") {
+      const fields = yield* exactRecord(input,
+        ["constraintId", "kind", "nonNullColumnId", "requiredColumnId", "required", "origin"], path);
+      const constraintId = yield* decodeIdentityString(fields.at(0), `${path}.constraintId`, brandConstraintId);
+      const nonNullColumnId = yield* decodeIdentityString(fields.at(2), `${path}.nonNullColumnId`, brandColumnId);
+      const requiredColumnId = yield* decodeIdentityString(fields.at(3), `${path}.requiredColumnId`, brandColumnId);
+      yield* consumeDecodeUnit(budget, `${path}.nonNullColumnId`);
+      yield* consumeDecodeUnit(budget, `${path}.requiredColumnId`);
+      const required = fields.at(4);
+      if (required !== "null" && required !== "notNull") return yield* unsupported(`${path}.required`, required);
+      const origin = yield* decodeOrigin(fields.at(5), `${path}.origin`);
+      return Object.freeze({ identity: constraintIdentity(coordinate, tableId, constraintId), kind,
+        nonNullColumn: columnIdentity(coordinate, tableId, nonNullColumnId),
+        requiredColumn: columnIdentity(coordinate, tableId, requiredColumnId), required, origin });
+    }
     if (kind === "foreignKey") {
       const fields = yield* exactRecord(input, [
         "constraintId",
@@ -845,6 +868,13 @@ function validateRelationalSchema(
           return yield* Result.fail(RelationalSchemaError.invalidInput(`${tablePath}.indexes[${index.identity.indexId}]`));
         }
         if (index.predicate !== null) {
+          if (index.predicate.kind === "allNull") {
+            for (const reference of index.predicate.columns) {
+              const column = yield* requireColumn(columns, reference, `${tablePath}.indexes[${index.identity.indexId}].predicate`);
+              if (!column.nullable) return yield* Result.fail(RelationalSchemaError.invalidInput(`${tablePath}.indexes[${index.identity.indexId}].predicate`));
+            }
+            continue;
+          }
           const nullColumn = yield* requireColumn(
             columns,
             index.predicate.kind === "isNull" ? index.predicate.column : index.predicate.nullColumn,
@@ -883,6 +913,13 @@ function validateRelationalSchema(
       for (const constraint of lookup.table.constraints) {
         const constraintPath =
           `${tablePath}.constraints[${constraint.identity.constraintId}]`;
+        if (constraint.kind === "nullImplication") {
+          yield* requireColumn(lookup.columns, constraint.nonNullColumn, `${constraintPath}.nonNullColumn`);
+          yield* requireColumn(lookup.columns, constraint.requiredColumn, `${constraintPath}.requiredColumn`);
+          if (constraint.nonNullColumn.columnId === constraint.requiredColumn.columnId)
+            return yield* Result.fail(RelationalSchemaError.invalidInput(constraintPath));
+          continue;
+        }
         if (constraint.kind === "textSet") {
           const column = yield* requireColumn(lookup.columns, constraint.column, constraintPath + ".column");
           if (column.type !== "text" || (column.default.kind === "textLiteral" && !constraint.values.includes(column.default.value))) {

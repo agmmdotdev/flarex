@@ -37,6 +37,15 @@ export async function conditionalProjectionCases(definition: LocatedAppUniqueCon
   const { predicate: _predicate, ...nativeSpec } = conditionalUniqueSpec;
   const native = decodeAppUniqueConstraintPhysicalSpecV1(nativeSpec);
   expect(Result.getOrThrow(await project({ name: null }, native)).kind).toBe("claim");
+  const allNull = decodeAppUniqueConstraintPhysicalSpecV1({ ...definition.physicalSpec,
+    orderedFields: ["name"], predicate: { kind: "fieldsAreNull", fields: ["deleted_at", "province"] } });
+  expect(Result.getOrThrow(await project({ name: "shirt", deleted_at: null, province: null }, allNull)).kind).toBe("claim");
+  for (const fields of [
+    { name: "x".repeat(8000), deleted_at: null }, { name: "x".repeat(8000), province: null },
+    { name: "x".repeat(8000), deleted_at: "deleted", province: null },
+    { name: "x".repeat(8000), deleted_at: null, province: "province" },
+  ]) expect(Result.getOrThrow(await project(fields, allNull))).toMatchObject({ kind: "omitted", reason: "predicateExcluded" });
+  expect(Result.isFailure(await project({ name: "x".repeat(8000), deleted_at: null, province: null }, allNull))).toBe(true);
   for (const value of [true, false]) {
     const booleanSpec = decodeAppUniqueConstraintPhysicalSpecV1({ ...definition.physicalSpec,
       orderedFields: ["name"], predicate: { kind: "fieldIsNullAndBooleanEquals",

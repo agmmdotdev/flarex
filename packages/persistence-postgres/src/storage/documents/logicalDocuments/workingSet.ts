@@ -1302,6 +1302,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         const member = candidate.physicalSpec.orderedFields[position];
         return member?.kind === "documentPath" && member.path === field && member.valueFormat === undefined;
       }) && (predicate === undefined ? candidate.physicalSpec.predicate === undefined :
+        predicate.kind === "fieldsAreNull" ? candidate.physicalSpec.predicate?.kind === "fieldsAreNull" &&
+          candidate.physicalSpec.predicate.fields.every((field, position) => field === predicate.fields[position]) :
         predicate.kind === "fieldIsNull" ? candidate.physicalSpec.predicate?.kind === "fieldIsNull" &&
           candidate.physicalSpec.predicate.field === predicate.field :
         candidate.physicalSpec.predicate?.kind === "fieldIsNullAndBooleanEquals" &&

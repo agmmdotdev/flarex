@@ -1058,6 +1058,13 @@
       "when": 1792627200000,
       "tag": "0150_boolean_partial_index_membership",
       "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1792700000000,
+      "tag": "0151_all_null_partial_index_membership",
+      "breakpoints": true
     }
   ]
 }

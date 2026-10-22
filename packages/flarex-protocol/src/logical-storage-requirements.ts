@@ -77,10 +77,14 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
         // that relational validation admits for these columns.
         if (declaration.columns.some(column => {
           const type = table.columns.find(field => field.identity.columnId === column.columnId)?.type;
-          const nullOnly = predicate?.kind === "isNull" && predicate.column.columnId === column.columnId;
+          const nullOnly = predicate?.kind === "isNull" && predicate.column.columnId === column.columnId ||
+            predicate?.kind === "allNull" && predicate.columns.some(member => member.columnId === column.columnId);
           return column.columnId.includes(".") || (!nullOnly && type !== "text" && type !== "boolean" &&
             type !== "integer" && type !== "doublePrecision" && type !== "timestamptz" && type !== "numeric");
-        }) || (predicate !== null && (predicate.kind === "isNull"
+        }) || (predicate !== null && (predicate.kind === "allNull"
+          ? predicate.columns.some(reference => reference.columnId.includes(".") ||
+            table.columns.find(column => column.identity.columnId === reference.columnId)?.nullable !== true)
+          : predicate.kind === "isNull"
           ? predicate.column.columnId.includes(".")
           : predicate.kind === "isNullAndTextEquals"
             ? predicate.nullColumn.columnId.includes(".") || predicate.textColumn.columnId.includes(".") ||
@@ -103,7 +107,10 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
           ...lowered,
           ...(declaration.kind === "textEquality" ? { orderedFields: lowered.orderedFields.map(field =>
             field.kind === "documentPath" ? { ...field, valueFormat: "sha256TextV1" as const } : field) } : {}),
-          ...(predicate === null ? {} : predicate.kind === "isNull"
+          ...(predicate === null ? {} : predicate.kind === "allNull"
+            ? { predicate: { kind: "fieldsAreNull" as const,
+              fields: [predicate.columns[0].columnId, predicate.columns[1].columnId] } }
+            : predicate.kind === "isNull"
             ? { predicate: { kind: "fieldIsNull" as const, field: predicate.column.columnId } }
             : predicate.kind === "isNullAndTextEquals"
               ? { predicate: { kind: "fieldIsNullAndTextEquals" as const,
@@ -258,7 +265,10 @@ export function compileLogicalSourceUniqueConstraints(source: LogicalSchemaSourc
           const type = table.columns.find(field => field.identity.columnId === column.columnId)?.type;
           return column.columnId.includes(".") || (type !== "text" && type !== "boolean" &&
             type !== "integer" && type !== "doublePrecision" && type !== "timestamptz");
-        }) || (predicate !== null && (predicate.kind === "isNull" ? predicate.column.columnId.includes(".")
+        }) || (predicate !== null && (predicate.kind === "allNull"
+          ? predicate.columns.some(reference => reference.columnId.includes(".") ||
+            table.columns.find(column => column.identity.columnId === reference.columnId)?.nullable !== true)
+          : predicate.kind === "isNull" ? predicate.column.columnId.includes(".")
           : predicate.nullColumn.columnId.includes(".") ||
             predicate.booleanColumn.columnId.includes(".") ||
             table.columns.find(column => column.identity.columnId === predicate.nullColumn.columnId)?.nullable !== true ||
@@ -269,7 +279,9 @@ export function compileLogicalSourceUniqueConstraints(source: LogicalSchemaSourc
         const physicalSpec = yield* decodeAppUniqueConstraintPhysicalSpecV1Result({ kind: "appUniqueConstraint", specVersion: 1,
           orderedFields: declaration.columns.map(column => column.columnId), sparse: false,
           ...(declaration.nullsDistinct ? { nullsDistinct: true } : {}),
-          ...(predicate === null ? {} : predicate.kind === "isNull"
+          ...(predicate === null ? {} : predicate.kind === "allNull"
+            ? { predicate: { kind: "fieldsAreNull", fields: [predicate.columns[0].columnId, predicate.columns[1].columnId] } }
+            : predicate.kind === "isNull"
             ? { predicate: { kind: "fieldIsNull", field: predicate.column.columnId } }
             : { predicate: { kind: "fieldIsNullAndBooleanEquals", nullField: predicate.nullColumn.columnId,
               booleanField: predicate.booleanColumn.columnId, value: predicate.value } }),

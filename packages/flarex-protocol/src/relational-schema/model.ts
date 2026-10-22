@@ -153,6 +153,10 @@ export type RelationalKeyDefinition = Readonly<{
 export type RelationalIndexPredicate =
   | null
   | (Readonly<{
+      readonly kind: "allNull";
+      readonly columns: readonly [RelationalColumnIdentity, RelationalColumnIdentity];
+    }> & JsonObject)
+  | (Readonly<{
       readonly kind: "isNullAndBooleanEquals";
       readonly nullColumn: RelationalColumnIdentity;
       readonly booleanColumn: RelationalColumnIdentity;
@@ -205,9 +209,21 @@ export type RelationalTextSetConstraint = Readonly<{
 }> & JsonObject;
 
 export type RelationalConstraintDefinition =
+  | RelationalNullImplicationConstraint
   | RelationalTextSetConstraint
   | RelationalForeignKeyConstraint
   | RelationalIntegerRangeConstraint;
+
+/** If the guard is non-null, the required column must have this nullness.
+ * Both operands are complete row values, so this predicate is two-valued. */
+export type RelationalNullImplicationConstraint = Readonly<{
+  readonly identity: RelationalConstraintIdentity;
+  readonly kind: "nullImplication";
+  readonly nonNullColumn: RelationalColumnIdentity;
+  readonly requiredColumn: RelationalColumnIdentity;
+  readonly required: "null" | "notNull";
+  readonly origin: RelationalDefinitionOrigin;
+}> & JsonObject;
 
 export type RelationalRelationshipDefinition = Readonly<{
   readonly identity: RelationalRelationshipIdentity;

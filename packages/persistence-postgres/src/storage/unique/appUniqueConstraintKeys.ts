@@ -26,6 +26,7 @@ function lowerAppUniqueConstraintProjectionV1Result(
       const predicate = spec.predicate;
       if (predicate !== undefined && !(predicate.kind === "fieldIsNull"
         ? appDocumentPathIsNull(document, predicate.field)
+        : predicate.kind === "fieldsAreNull" ? predicate.fields.every(field => appDocumentPathIsNull(document, field))
         : appDocumentPathIsNull(document, predicate.nullField) &&
           appDocumentPathEqualsBoolean(document, predicate.booleanField, predicate.value))) {
         return Object.freeze({ kind: "omitted" as const, reason: "predicateExcluded" as const, localeKey: "" });

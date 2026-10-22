@@ -6,6 +6,7 @@ import { CatalogTableIdSchema, CatalogIndexIdSchema, CatalogIndexDefinitionIdSch
 import { encodeCanonicalJson, isJson, isJsonObject, type JsonObject } from "flarex-protocol/json";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
+import { AppIndexAllNullPredicateV1Schema } from "flarex-protocol/ordered-index";
 import { decodeRelationalSchemaMetadata, relationalSchemaSourceFromDefinition, relationalReverseIndexes, type RelationalSchema,
   type RelationalPersistenceCapability, type RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import { CatalogSchemaVersionIdSchema, SchemaManifestAppTableDeclarationV1Schema,
@@ -86,6 +87,7 @@ const acquireMetadata = <Value, Failure>(db: FlarexMetadataDatabase,
   callback => db.transaction(callback, { isolationLevel: "repeatable read" }),
   "Logical read metadata acquisition rolled back", work, cause => failure("resourceFailure", cause), { token: installation, database: db });
 const Predicate = Schema.NullOr(Schema.Union([
+  AppIndexAllNullPredicateV1Schema,
   Schema.Struct({ kind: Schema.Literal("fieldIsNull"), field: Schema.NonEmptyString }).annotate(strict),
   Schema.Struct({ kind: Schema.Literal("fieldIsNullAndTextEquals"), nullField: Schema.NonEmptyString,
     textField: Schema.NonEmptyString, value: Schema.String }).annotate(strict),
@@ -261,7 +263,8 @@ const publishTableAccess = Effect.fn("LogicalReadMetadata.publishAccess")(functi
   for (const [ordinal, index] of (nativeTable?.indexes ?? []).entries()) {
     // The current native compiler does not select text-equality membership
     // indexes as scalar anchors. Preserve that existing refusal/order.
-    if (index.predicate?.kind === "isNullAndTextEquals" || index.predicate?.kind === "isNullAndBooleanEquals") continue;
+    if (index.predicate?.kind === "isNullAndTextEquals" || index.predicate?.kind === "isNullAndBooleanEquals" ||
+      index.predicate?.kind === "allNull") continue;
     const fields = index.columns.map(column => column.columnId);
     const predicate = index.predicate?.kind === "isNull" ? { kind: "fieldIsNull", field: index.predicate.column.columnId } : null;
     // Scalar eligibility is independent of irrelevant index suffixes. The
