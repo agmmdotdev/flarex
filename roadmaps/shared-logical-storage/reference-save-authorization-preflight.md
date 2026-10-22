@@ -3,9 +3,9 @@
 ## Status And Scope
 
 Status: SA1 protected permission evidence, its shared V3/joint-source composition
-prerequisite and bounded SA2 native authorized saves are implemented as private
-backend foundations. SA3's complete concurrency/recovery proof and SA4 consumer
-cutover remain pending. Public API syntax remains a proposal.
+prerequisite, bounded SA2 native authorized saves and SA3 concurrency/recovery
+proof are implemented as private backend foundations. SA4 serving-consumer
+cutover remains pending. Public API syntax remains a proposal.
 
 The shared analysis/binding, retained ownership, finite admission and settlement
 owners now support a private Application command-only write policy. Ordinary
@@ -145,7 +145,7 @@ publication, exact receipt replay, same-root and concurrent acquisition refusal,
 closed/forged/cross-principal evidence, malformed/missing facts and a policy update
 that makes a consuming root stale. The same scenario has PGlite and ordinary-role
 PostgreSQL consumers. SA2 below adds native Payload access and effective-edge
-authorization; complete concurrent freshness and recovery remain SA3 obligations.
+authorization; SA3 below connects their concurrent freshness and recovery proof.
 
 ## Private Save Decisions
 
@@ -274,6 +274,49 @@ replay without rerunning hooks, stale permission publication, and delete/prefere
 cleanup. Fixed instrumentation is source-private test support; arbitrary hooks
 and cross-operation nesting are not enabled by the normal runtime.
 
+### Implemented SA3 Boundary
+
+The [PostgreSQL concurrency consumer](../../packages/flarex-backend/test/privatePayloadSaveConcurrency.postgres.test.ts)
+schedules actual protected-policy and authorized-save publishers. Distinct
+ordinary-role backend PIDs and `pg_blocking_pids` establish both scope-lock
+orders. A save ordered first commits before the revocation; revocation ordered
+first makes the save's exact permission point stale. Later saves observe the
+revoked assignment decision. No extra permission query or lock owner is added.
+
+The same consumer loses a real COMMIT acknowledgement only after an independent
+connection observes the durable save, then commits revocation before the
+publisher resolves its uncertainty. Existing outcome resolution returns the
+original committed result and replay publishes no duplicate content, history,
+index, fact, event or success outcome. Recovery does not require fresh permission
+for a write that already committed.
+
+The [recovery consumer](../../packages/flarex-backend/test/privatePayloadSaveRecovery.test.ts)
+also runs on PGlite and ordinary-role PostgreSQL. A genuine changed capability
+cannot replay another capability's receipt: the existing sequence owner returns
+`requestMismatch` without executing hooks. A subsequent real write uses the new
+decision and its denial poisons the root. Exact replay after policy revocation
+does not rerun hooks and cannot bypass the original permission dependency at
+publication. Cancellation after native work and staged Application work retains
+interruption, closes capability use and prevents publication of either write.
+
+Whole-root retry and redispatch use the existing
+[finite execution owner](../../packages/executor/src/mutation/execution/finitePointMutationExecution.ts),
+its genuine journal/activation, nonacceptance proof, replacement entry, liveness
+and terminalization. A copied conflict or reused retry ticket grants no retry.
+The fresh attempt preserves the request/session, advances its fence/snapshot,
+reads policy again and constructs a new save capability. Changed-but-allowed
+policy reruns native work and commits only the replacement result; revocation
+stops native source access before change hooks and durably aborts the attempt.
+Redispatch after later revocation returns an existing committed result without
+native reexecution; a durably aborted attempt remains rejected.
+
+These are backend/private-API proofs. The selected composition refuses an
+ordinary unguarded Payload facade and invokes only the protected save capability.
+Worker/serving-consumer activation, opaque serving refusal coverage and removal
+of that consumer's displaced assembly remain SA4. External revocation systems,
+arbitrary hooks, generalized ACLs and production activation remain outside this
+bounded database-local profile.
+
 ## Permission Freshness And Publication
 
 SA1 reads bounded permission facts through the existing finite snapshot/dependency
@@ -374,7 +417,7 @@ Cancellation/closed authority cannot mint or reuse a live save capability.
 | --- | --- |
 | SA1: protected permission evidence | Implemented for the bounded private source above: command-only ownership, genuine V3 finite admission, tracked policy reads, opaque attempt/principal evidence, missing/corruption distinctions and same-root acquisition refusal. |
 | SA2: native authorized saves | Implemented for private optional-one Product references: protected V3 joint composition, native create/update/delete access, effective assignment/retention checks, null/omitted/same-value, clear/reattach, repeated-call and delete/preference behavior. No nested commerce write authority or public save API. |
-| SA3: atomic freshness and replay | Pending complete proof. Connected saves already cover caught-denial rollback, exact replay without hooks, sequential revocation before publication and fresh denial. Distinct-connection barriers for both commit orders, changed-grant replay, whole-root retry, cancellation and lost-COMMIT recovery remain required. |
+| SA3: atomic freshness and replay | Implemented for the bounded private backend profile: distinct ordinary-role PostgreSQL lock orders, changed-capability receipt refusal, stale exact replay, genuine one-shot whole-root retry with fresh permission acquisition, interruption/denied-root rollback and durable outcome recovery after later revocation. Worker/serving activation remains SA4. |
 | SA4: consumer cutover and cleanup | Migrate only the selected private save consumer. Remove displaced allow-all assembly for that consumer, retain distinct trusted/default and read-only profiles, and preserve native lifecycle/integrity regressions. Do not claim general serving authorization. |
 
 Required connected evidence includes source-only write permission, read/discovery
@@ -389,7 +432,7 @@ Worker responses; native access and operation counters prove the executing path.
 Implementation requires fast PGlite semantics and focused ordinary-role real
 PostgreSQL validation reported separately, affected connected Worker consumers,
 Pinggg `tsc-rs`, lint/source guards and both required read-only project reviews.
-SA3-SA4 retain their connected implementation obligations. This establishes no
+SA4 retains its connected implementation obligations. This establishes no
 performance acceptance or production authorization claim.
 
 ## Cutover, Data And Deferred Work

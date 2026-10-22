@@ -240,8 +240,9 @@ It separates native article write access from target assignment/retention and
 requires protected permission dependencies to survive through publication.
 SA1 implements protected Application command-only policy writes and tracked
 private permission evidence. SA2 connects protected V3 joint-source composition,
-native source access and effective assignment/retention checks. Complete
-concurrent revocation/recovery and serving-consumer cutover remain SA3-SA4 gates;
+native source access and effective assignment/retention checks. SA3 adds the
+bounded backend concurrent revocation, replay, retry and outcome-recovery proof.
+Serving-consumer cutover and its opaque Worker refusals remain the SA4 gate;
 fixed read grants do not satisfy those gates.
 
 ### Remaining Read And Composition Contract

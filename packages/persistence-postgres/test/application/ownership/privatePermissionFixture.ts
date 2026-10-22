@@ -112,20 +112,24 @@ export async function privatePermissionFixture(persistence: PGliteFlarexPersiste
       { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1, randomUuid: randomUUID });
     const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(control.drizzle);
     const candidateSchemaWriteGuard = await Effect.runPromise(retained.use(host => Effect.succeed(host.candidateSchemaWriteGuard)));
-    const publisher = createPointCommitPublisherPortV1(application.pointCommitAuthority, {
+    const publisherOptions = {
       ...application.servingOwners.materialization, uniqueConstraints, candidateSchemaWriteGuard,
       uniqueConstraintEligibility: application.servingOwners.uniqueConstraintEligibility,
-    });
+    };
+    type PublisherOptions = NonNullable<Parameters<typeof createPointCommitPublisherPortV1>[1]>;
+    const makePublisher = (options: Pick<PublisherOptions, "logicalOperationProfiles" | "afterTransactionStep"> = {}) =>
+      createPointCommitPublisherPortV1(application.pointCommitAuthority, { ...publisherOptions, ...options });
+    const prepareEvidence = () => Effect.tryPromise({ try: () => applicationMutationActivationEvidenceFixture({
+      deploymentId: TransactionGrantDeploymentIdV1Schema.make(application.deploymentId), executionAuthority: prepared.executionAuthority,
+      requestKey: randomUUID(), grantId: randomUUID(),
+    }), catch: cause => new Error("Permission fixture grant construction failed", { cause }) });
     const openEffect = Effect.fn("PrivatePermissionFixture.open")(function* (options: Readonly<{
       participants?: Parameters<SessionJournalStorePersistence["prepareFiniteEntryEffect"]>[0];
       preparedAdmission?: PreparedFiniteApplicationMutationAdmission;
       currentEntry?: CurrentApplicationFiniteEntry;
     }> = {}) {
       const entry = yield* Scope.provide(store.prepareFiniteEntryEffect(options.participants ?? []), scope);
-      const evidence = yield* Effect.tryPromise({ try: () => applicationMutationActivationEvidenceFixture({
-        deploymentId: TransactionGrantDeploymentIdV1Schema.make(application.deploymentId), executionAuthority: prepared.executionAuthority,
-        requestKey: randomUUID(), grantId: randomUUID(),
-      }), catch: cause => new Error("Permission fixture grant construction failed", { cause }) });
+      const evidence = yield* prepareEvidence();
       const activated = yield* retained.use(host =>
         createApplicationMutationSessionActivationPersistenceV1(application.pointCommitAuthority,
           { leaseDurationMilliseconds: 240_000, randomUuid: randomUUID }).activateFiniteEffect({
@@ -162,24 +166,25 @@ export async function privatePermissionFixture(persistence: PGliteFlarexPersiste
         requestKey: row.requestKey, requestSha256: row.requestSha256, protocolVersion: row.protocolVersion,
         hardExpiresAtMilliseconds: row.hardExpiresAt.getTime(), createdAtMilliseconds: row.createdAt.getTime(), updatedAtMilliseconds: row.updatedAt.getTime(),
       };
-      const publish = async (value: unknown = null,
-        logicalOperationProfiles?: NonNullable<Parameters<typeof createPointCommitPublisherPortV1>[1]>["logicalOperationProfiles"]) => {
+      const preparePublication = async (value: unknown = null,
+        options: Pick<PublisherOptions, "logicalOperationProfiles" | "afterTransactionStep"> = {}) => {
         const frozenAttempt = await Effect.runPromise(store.freezeFiniteRootEffect(confirmed.attempt,
           await Effect.runPromise(canonicalizeSuccessfulResultV1Effect(value))));
         const authority = relationAuthorityFromAnchor(activation.anchor,
           confirmed.context.executionPin.schemaVersionId, activation.executionClaim);
-        const selectedPublisher = logicalOperationProfiles === undefined ? publisher : createPointCommitPublisherPortV1(application.pointCommitAuthority, {
-          ...application.servingOwners.materialization, uniqueConstraints, candidateSchemaWriteGuard,
-          uniqueConstraintEligibility: application.servingOwners.uniqueConstraintEligibility, logicalOperationProfiles,
-        });
-        return Effect.runPromise(selectedPublisher.publishFinite({ authorityPins: pointCommitAuthorityPinsFromStoredSessionV1(authority, session),
-          session: pointCommitSessionFromStoredSessionV1(session, "running"), executionClaim: activation.executionClaim, frozenAttempt }));
+        const selectedPublisher = makePublisher(options);
+        const command = { authorityPins: pointCommitAuthorityPinsFromStoredSessionV1(authority, session),
+          session: pointCommitSessionFromStoredSessionV1(session, "running"), executionClaim: activation.executionClaim, frozenAttempt };
+        return { command, publish: selectedPublisher.publishFinite(command), resolve: selectedPublisher.resolveFinite(command) };
       };
-      return { attempt: confirmed.attempt, validator, principal, publish, admissions: confirmed.admissions,
+      const publish = async (value: unknown = null, logicalOperationProfiles?: PublisherOptions["logicalOperationProfiles"]) =>
+        Effect.runPromise((await preparePublication(value, logicalOperationProfiles === undefined ? {} : { logicalOperationProfiles })).publish);
+      return { attempt: confirmed.attempt, validator, principal, publish, preparePublication, admissions: confirmed.admissions,
         applicationSelection: confirmed.applicationSelection };
     });
     const open = (options?: Parameters<typeof openEffect>[0]) => Effect.runPromise(openEffect(options));
-    return { store, open, openEffect, application, control, context, closePreparation: () => Effect.runPromise(retained.close), close: async () => {
+    return { store, open, openEffect, application, control, context, prepared, publisherOptions, makePublisher, prepareEvidence,
+      scope, closePreparation: () => Effect.runPromise(retained.close), close: async () => {
       try { await Effect.runPromise(Scope.close(scope, Exit.void)); } finally { await loader.dispose(); }
     } };
   } catch (cause) {

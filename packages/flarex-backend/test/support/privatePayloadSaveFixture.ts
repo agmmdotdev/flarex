@@ -42,10 +42,24 @@ import { installationBindingReference } from "../../../persistence-postgres/test
 import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { makeLocalProductCommands } from "../../../medusa-adapter/src/modules/product/service";
 import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
+import type { CurrentApplicationFiniteEntry } from "../../../persistence-postgres/src/application/activation/contracts";
+import type { CurrentApplicationPreparationFailure } from "../../../persistence-postgres/src/application/activation/errors";
+import type { PreparedHostRuntimeError } from "../../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
 
 type PolicyFixture = Awaited<ReturnType<typeof privatePermissionFixture>>;
 type Admit = ReturnType<typeof makeLogicalSchemaAdmission>["admit"];
 type OperationProfile = NonNullable<Parameters<Awaited<ReturnType<PolicyFixture["open"]>>["publish"]>[1]>[number];
+export interface PrivateSavePreparation {
+  readonly preparedAdmission: Effect.Success<ReturnType<typeof prepareFiniteApplicationMutationAdmission>>;
+  readonly currentEntry: CurrentApplicationFiniteEntry;
+  readonly participants: NonNullable<NonNullable<Parameters<PolicyFixture["open"]>[0]>["participants"]>;
+  readonly payloadProfile: (revision: string) => OperationProfile;
+  readonly profiles: readonly OperationProfile[];
+}
+type PreparationFailure = CurrentApplicationPreparationFailure | PreparedHostRuntimeError |
+  Effect.Error<ReturnType<typeof prepareLogicalStorageReadiness>> | Effect.Error<ReturnType<typeof prepareCmsPreferences>> |
+  Effect.Error<ReturnType<typeof prepareLogicalDocumentSourceAdmission>> | Effect.Error<ReturnType<typeof prepareLogicalRelationalAdmission>> |
+  Effect.Error<ReturnType<typeof prepareFiniteApplicationMutationAdmission>> | Effect.Error<ReturnType<typeof prepareFiniteApplicationMutationSourceComposition>>;
 export type PrivatePayloadSaveRoot = Awaited<ReturnType<PolicyFixture["open"]>> & {
   readonly payloadProfile: (revision: string) => OperationProfile;
 };
@@ -57,6 +71,8 @@ export interface PrivatePayloadSaveFixture {
   readonly admit: (candidate: PreparedLogicalSchemaCandidate, identity?: Parameters<Admit>[1]) => ReturnType<Admit>;
   readonly target: FrameworkSchemaTarget;
   readonly open: () => Promise<PrivatePayloadSaveRoot>;
+  readonly withPreparation: <A, E, R>(work: (preparation: PrivateSavePreparation) => Effect.Effect<A, E, R>) =>
+    Effect.Effect<A, E | PreparationFailure, R>;
   readonly session: RelationalSession;
   readonly productRuntime: Effect.Success<ReturnType<typeof makeLocalProductCommands>>;
   readonly productHost: Effect.Success<ReturnType<typeof makeCommerceHost>>;
@@ -177,25 +193,31 @@ export async function privatePayloadSaveFixture(resources: Readonly<{
         return { payload, product, preparedAdmission };
       }), { selection: { deploymentId, scopeId: authority.scopeId }, candidateIssuer: application.pointCommitAuthority }))));
     await Effect.runPromise(Scope.addFinalizer(scope, retained.close));
-    const open = async () => {
-      const result = await Effect.runPromise(retained.use(current => current.withFiniteEntry((graph, currentEntry) =>
-      fixture.openEffect({ preparedAdmission: graph.payload.preparedAdmission, currentEntry,
+    const withPreparation: PrivatePayloadSaveFixture["withPreparation"] = work => retained.use(current => current.withFiniteEntry((graph, currentEntry) => {
+      const payloadProfile = (profileRevision: string): OperationProfile => ({ participant: "payload",
+        operationMethods: ["payload-create", "payload-update", "payload-delete"], profileRevision,
+        sources: [graph.payload.payload.createCommitAuthority(graph.binding, "payload", ["payload-create", "payload-update", "payload-delete"])] });
+      const profiles = [payloadProfile("1".repeat(64)),
+        { participant: "medusa.product", operationMethods: ["retrieve"], profileRevision: "2".repeat(64),
+          sources: [graph.payload.product.createCommitAuthority(graph.binding, "medusa.product", ["retrieve"])] }];
+      return work({ preparedAdmission: graph.payload.preparedAdmission, currentEntry, payloadProfile, profiles,
         participants: [{ participant: "payload", operationMethods: ["payload-create", "payload-update", "payload-delete"], profileRevision: "1".repeat(64),
           sources: [{ selection: graph.payload.payload, methods: ["payload-create", "payload-update", "payload-delete"] }] },
         { participant: "medusa.product", operationMethods: ["retrieve"], profileRevision: "2".repeat(64),
-          sources: [{ selection: graph.payload.product, methods: ["retrieve"] }] }] }).pipe(Effect.map(root => {
-            const payloadProfile = (profileRevision: string): OperationProfile => ({ participant: "payload",
-              operationMethods: ["payload-create", "payload-update", "payload-delete"], profileRevision,
-              sources: [graph.payload.payload.createCommitAuthority(graph.binding, "payload", ["payload-create", "payload-update", "payload-delete"])] });
-            const profiles = [payloadProfile("1".repeat(64)),
-            { participant: "medusa.product", operationMethods: ["retrieve"], profileRevision: "2".repeat(64),
-              sources: [graph.payload.product.createCommitAuthority(graph.binding, "medusa.product", ["retrieve"])] }];
+          sources: [{ selection: graph.payload.product, methods: ["retrieve"] }] }] });
+    }));
+    const open = async () => {
+      const result = await Effect.runPromise(withPreparation(preparation =>
+      fixture.openEffect({ preparedAdmission: preparation.preparedAdmission, currentEntry: preparation.currentEntry,
+        participants: preparation.participants }).pipe(Effect.map(root => {
+            const payloadProfile = preparation.payloadProfile;
+            const profiles = preparation.profiles;
             return { ...root, payloadProfile, publish: (value: unknown = null, selectedProfiles: Parameters<typeof root.publish>[1] = profiles) =>
               root.publish(value, selectedProfiles) };
-          })))));
+          }))));
       return result;
     };
-    return { fixture, compiled, candidate, authored, admit, target, open, session: resources.session, productHost, productRuntime, preferences,
+    return { fixture, compiled, candidate, authored, admit, target, open, withPreparation, session: resources.session, productHost, productRuntime, preferences,
       close: async () => { try { await Effect.runPromise(Scope.close(scope, Exit.void)); } finally { await fixture.close(); } } };
   } catch (cause) {
     try { await Effect.runPromise(Scope.close(scope, Exit.void)); } finally { await fixture.close(); }

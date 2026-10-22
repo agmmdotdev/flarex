@@ -49,8 +49,10 @@ permission evidence in a bounded V3 finite profile. SA2 now connects genuine
 protected V3 and Payload/Product sources through the joint composer, retained
 ownership and borrowed finite generation. Its private native saves enforce
 source permissions and effective assignment/retention decisions, with exact
-receipt replay and denied-root rollback. Complete concurrent freshness/recovery
-and selected serving-consumer cutover remain SA3-SA4 gates. No public API syntax
+receipt replay and denied-root rollback. SA3 now proves bounded backend concurrent
+revocation, changed-capability replay refusal, one-shot whole-root retry,
+cancellation and durable outcome recovery. Selected serving-consumer cutover
+remains the SA4 gate. No public API syntax
 is selected.
 
 Status: the Application, Product, selected Payload Local API, and finite

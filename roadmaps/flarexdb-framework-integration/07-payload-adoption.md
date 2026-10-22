@@ -55,8 +55,9 @@ adds bounded native source access and separately granted Product retrieval.
 The bounded private save-time assignment/retention profile is implemented; the
 [save authorization preflight](../shared-logical-storage/reference-save-authorization-preflight.md)
 records protected permission evidence, genuine V3 joint-source composition,
-native source access and effective pending-write decisions. Complete concurrent
-freshness/recovery and serving-consumer cutover remain pending. Neither profile establishes
+native source access and effective pending-write decisions. The bounded backend
+concurrent freshness/recovery proof now uses the real publication and executor
+retry owners. Serving-consumer cutover remains pending. Neither profile establishes
 general CMS authorization or a public operation surface.
 
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)

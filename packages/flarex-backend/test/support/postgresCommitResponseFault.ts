@@ -121,7 +121,7 @@ export function installOneFiniteFenceCommitResponseFault(fixture: MixedFixture):
   }, () => didFire);
 }
 
-function installPoolCommitResponseFault(pool: PostgresFixtureResource["target"]["pool"],
+export function installPoolCommitResponseFault(pool: PostgresFixtureResource["target"]["pool"],
   makeFault: () => Readonly<{ commit: (forward: () => unknown) => unknown; observe?: (text: string) => void }>,
   fired: () => boolean): Readonly<{ restore: () => void; fired: () => boolean }> {
   const originalDescriptor = Object.getOwnPropertyDescriptor(pool, "connect");

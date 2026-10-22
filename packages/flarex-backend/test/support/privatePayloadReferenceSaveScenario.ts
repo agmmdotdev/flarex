@@ -1,26 +1,21 @@
-import { createHash } from "node:crypto";
-import { Effect, Exit, Option, Schema, Scope } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { expect } from "vitest";
 import { eq } from "drizzle-orm";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import { encodeAdmittedFrameworkOperationV1Result } from "flarex-protocol/internal/admitted-framework-operation-v1";
 import type { Json } from "flarex-protocol/json";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
-import { PrivateReferencePermissions } from "../../../persistence-postgres/src/execution/journal/privatePermissionEvidence";
 import { inspectPrivateReferenceSaveAccess } from "../../../persistence-postgres/src/execution/journal/privateSaveAccess";
 import { makePayloadReferenceSave } from "../../../payload-adapter/src/runtime/referenceSave";
 import type { PayloadNativeInstrumentation } from "../../../payload-adapter/src/runtime/native";
 import { publishedScopeCounts } from "./payloadCommerceReferenceFixture";
 import type { PrivatePayloadSaveFixture } from "./privatePayloadSaveFixture";
+import { bindPrivatePayloadSave, preparePrivateSavePolicy, type PrivateSavePolicyInput } from "./privatePayloadSaveCommands";
 
 const sequence = (value: bigint) => CommitSyscallSequenceV1Schema.make(value);
 const decodeDocument = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String, title: Schema.String,
   featuredProduct: Schema.NullOr(Schema.String) }));
 const decodeProduct = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String }));
-type Policy = typeof PrivateReferencePermissions.Type;
-type PolicyInput = Pick<Policy, "source" | "assign" | "retain">;
-
 /** Only arrange facts, execute genuine backend/native owners and observe state.
  * No fixture permission evaluator, reference classifier or publisher exists. */
 export async function privatePayloadReferenceSaveScenario(fixture: PrivatePayloadSaveFixture) {
@@ -34,39 +29,17 @@ export async function privatePayloadReferenceSaveScenario(fixture: PrivatePayloa
   const first = await product("First selected Product", "private-save-first");
   const second = await product("Second selected Product", "private-save-second");
   let policyId: AppDocumentIdV1 | undefined;
-  const policy = async (input: PolicyInput) => {
-    const root = await fixture.fixture.open();
-    const writer = await Effect.runPromise(store.preparePrivateApplicationCommandEffect(root.attempt, "audit"));
-    const fields = { policy: { format: "flarex.private-reference-permissions", version: 1, principal: root.principal,
-      collection: "posts", relation: "featuredProduct", ...input } };
-    const result = await Effect.runPromise(writer.run(policyId === undefined ? { kind: "insert", syscallSequence: sequence(1n), fields } :
-      { kind: "replace", syscallSequence: sequence(1n), documentId: policyId, fields }, root.validator));
-    if (result.kind !== "completed") throw new Error("Permission setup was refused");
-    if (result.outcome.kind === "inserted") policyId = result.outcome.documentId;
-    expect(await root.publish()).toMatchObject({ kind: "published" });
+  const policy = async (input: PrivateSavePolicyInput) => {
+    const prepared = await preparePrivateSavePolicy(fixture, input, policyId);
+    policyId = prepared.documentId;
+    expect(await prepared.root.publish()).toMatchObject({ kind: "published" });
   };
   const begin = async (instrumentation?: PayloadNativeInstrumentation) => {
     if (policyId === undefined) throw new Error("Missing trusted permission selector");
     const root = await fixture.open();
-    const facts = await Effect.runPromise(store.readPrivateReferencePermissionsEffect(root.attempt,
-      { tableName: "audit", documentId: policyId, syscallSequence: sequence(1n), principal: root.principal }, root.validator));
-    const access = await Effect.runPromise(store.preparePrivateReferenceSaveEffect(root.attempt, facts,
-      { participant: "payload", collection: "posts", relation: "featuredProduct", nativeProfileRevision: "1".repeat(64) }));
-    const selected = inspectPrivateReferenceSaveAccess(access, root.attempt);
-    if (selected === undefined) throw new Error("Missing genuine private save selection");
-    const scope = await Effect.runPromise(Scope.make());
-    const native = await Effect.runPromise(Scope.provide(scope)(makePayloadReferenceSave(fixture.compiled, root.attempt, access, instrumentation)).pipe(
-      Effect.onError(() => Scope.close(scope, Exit.void))));
-    let next = 2n;
-    const invoke = (method: "create" | "update" | "delete", args: Json, at = next++) => Effect.gen(function* () {
-      const frame = yield* Effect.fromResult(encodeAdmittedFrameworkOperationV1Result({ format: "flarex.admitted-framework-operation", version: 1,
-        participant: "payload", operation: `payload-${method}`, args }));
-      return yield* store.runAdmittedOperationEffect(root.attempt, selected.admission,
-        { syscallSequence: sequence(at), requestBytes: frame.bytes, requestSha256: createHash("sha256").update(frame.bytes).digest(),
-          participant: "payload", method: `payload-${method}`, profileRevision: selected.profileRevision }, native.borrowParticipant);
-    });
-    const publish = (value: unknown = null) => root.publish(value, [root.payloadProfile(selected.profileRevision)]);
-    return { root, facts, access, selected, invoke, publish, close: () => Effect.runPromise(Scope.close(scope, Exit.void)) };
+    const saving = await bindPrivatePayloadSave(fixture, root, policyId, instrumentation === undefined ? {} : { instrumentation });
+    const publish = (value: unknown = null) => root.publish(value, [root.payloadProfile(saving.selected.profileRevision)]);
+    return { root, ...saving, publish };
   };
   type Saving = Awaited<ReturnType<typeof begin>>;
   type InvocationResult = Effect.Success<ReturnType<Saving["invoke"]>>;
