@@ -1,7 +1,12 @@
 import { Data, Effect, Result, Schema } from "effect";
+import { sql } from "drizzle-orm";
+import type { CatalogTableId } from "flarex-protocol/catalog";
+import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
+import { runDrizzleStatementEffect } from "../../../database/drizzleStatementEffect";
+import { rowsFromDriverExecuteResult } from "../../../database/driverExecuteResult";
 import { compareBytesLexicographically, copyBytes } from "@flarex/utils/bytes";
 import { decodeExactDecimal } from "flarex-protocol/internal/exact-decimal";
-import { isRelationalColumnValue, validateRelationalRowValues, type RelationalColumnIdentity, type RelationalPersistenceCapability, type RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
+import { isRelationalColumnValue, validateRelationalRowColumns, validateRelationalRowValues, type RelationalColumnIdentity, type RelationalPersistenceCapability, type RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import type { LogicalDocumentFailure, LogicalDocumentFailureReason } from "./model";
 import { canonicalizeFlarexValueV1Effect, copyCanonicalFlarexValueBytesV1, copyFlarexValueSha256V1, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
@@ -9,7 +14,7 @@ import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import { capturePrivateJsonData, inspectCapturedPrivateJsonData, useCapturedPrivateJsonData } from "../../../values/privateJsonData";
 import { detachStoredAppDocumentEvidence, detachStoredAppRowRevisionEvidence, inspectStoredAppDocumentEvidence } from "../appRowCanonicalEvidence";
-import type { AppRowReadResultV1 } from "../appRows";
+import { MAX_BOUNDED_APP_ROW_READ_IDENTITIES, MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES, type AppRowReadResultV1 } from "../appRows";
 import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
 import { isLocatedAppIndexDefinitionV1, type LocatedAppIndexDefinitionV1 } from "../../indexes/locatedAppIndexDefinition";
 import { isLocatedAppUniqueConstraintDefinitionV1, type LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/locatedAppUniqueConstraintDefinition";
@@ -123,11 +128,18 @@ function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
       // or independent ordered charges into this immutable-table helper.
       const captured = yield* useCapturedPrivateJsonData(row, Number.MAX_SAFE_INTEGER, error);
       if (!isJsonObject(captured.value)) return yield* Result.fail(error("documentInvalid"));
-      yield* validate(captured.value, "documentInvalid");
-      normalizedRows.set(captured.value, normalize);
+      yield* table.columns.some(column => column.type === "real")
+        ? validateRelationalRowColumns(table, captured.value).pipe(Result.mapError(cause => error("documentInvalid", cause)))
+        : validate(captured.value, "documentInvalid");
+      // A REAL candidate has only pure input/merge semantics here. Its actual
+      // borrowed SQL conversion must precede the canonical row verdict.
+      (table.columns.some(column => column.type === "real") ? realCandidates : normalizedRows).set(captured.value, normalize);
       return captured.value;
     });
-    return Object.freeze({ keyColumns, managedColumns: Object.freeze(managedColumns), normalize, validate, validateInput,
+    const validateCanonical = (row: JsonObject, reason: "documentInvalid" | "storedCorruption") =>
+      table.columns.some(column => column.type === "real") && normalizedRows.get(row) !== normalize
+        ? Result.fail(error(reason)) : validate(row, reason);
+    return Object.freeze({ keyColumns, managedColumns: Object.freeze(managedColumns), normalize, validate: validateCanonical, validateInput,
       deletedAt: deletions.length === 1 ? deletions[0] : undefined });
   });
 }
@@ -140,6 +152,7 @@ const mechanicError: LogicalDocumentFailure<LogicalRelationalMechanicsError> = (
 const issuedTableMechanics = new WeakMap<object, Readonly<{ table: RelationalTableDefinition;
   capabilities: readonly RelationalPersistenceCapability[] }>>();
 const normalizedRows = new WeakMap<JsonObject, object>();
+const realCandidates = new WeakMap<JsonObject, object>();
 interface CanonicalRowVerdict {
   readonly derived?: WeakMap<ReadonlySet<CanonicalFlarexValueV1>, CanonicalDerivedKeys>;
   readonly kind: "relational";
@@ -386,6 +399,7 @@ export function inspectLogicalRelationalCanonicalRow(mechanics: PreparedLogicalR
     return Result.succeed(undefined);
   if (verdict.mechanics === mechanics) return Result.succeed(verdict.native);
   if (verdict.mechanics !== undefined) return Result.succeed(undefined);
+  if (mechanics.table.columns.some(column => column.type === "real")) return Result.fail(mechanicError(reason));
   // A genuine stored runtime capture retains no table acceptance until this
   // original inspection position. Failed verdicts remain uncached.
   return mechanics.validate(verdict.native, reason).pipe(Result.map(() => {
@@ -509,7 +523,10 @@ export function prepareLogicalRelationalTableMechanics(sourceTable: RelationalTa
   const columns = new Map<string, typeof table.columns[number]>(table.columns.map(column => [column.identity.columnId, column]));
   const mechanics = Object.freeze({ table, capabilities,
     column: (name: string) => columns.get(name), columnNames: Object.freeze([...columns.keys()]),
-    identity: Object.freeze(rows.pipe(Result.map(policy => policy.keyColumns))), rows, validate,
+    identity: Object.freeze(rows.pipe(Result.map(policy => policy.keyColumns))), rows,
+    validate: table.columns.some(column => column.type === "real")
+      ? (row: JsonObject, reason: "documentInvalid" | "storedCorruption") => rows.pipe(Result.flatMap(policy => policy.validate(row, reason)))
+      : validate,
   });
   issuedTableMechanics.set(mechanics, Object.freeze({ table: sourceTable, capabilities: sourceCapabilities }));
   return mechanics;
@@ -533,3 +550,133 @@ export function bindPreparedLogicalRelationalRows<Failure>(mechanics: PreparedLo
     validateInput: (...args: Parameters<typeof rows.validateInput>) => rows.validateInput(...args).pipe(Result.mapError(project)),
   })));
 }
+
+
+/** A closed scalar conversion request, issued only for genuine immutable table
+ * mechanics. It contains no SQL, session, settlement or framework capability. */
+declare const realBatchBrand: unique symbol;
+export interface LogicalRelationalRealBatch { readonly [realBatchBrand]: true }
+type RealBatch = Readonly<{ mechanics: PreparedLogicalRelationalTableMechanics; tableId: CatalogTableId;
+  rows: readonly JsonObject[]; documents: readonly CanonicalFlarexValueV1[] | undefined;
+  cells: readonly Readonly<{ row: number; column: string; value: string | null }>[];
+  payload: string; inputBytes: number; maximumBytes: number; mode: "normalize" | "validate" }>;
+const realBatches = new WeakMap<LogicalRelationalRealBatch, RealBatch>();
+export const hasLogicalRelationalRealVerdict = (mechanics: PreparedLogicalRelationalTableMechanics, document: CanonicalFlarexValueV1) => {
+  const prior = canonicalRows.get(document);
+  return issuedTableMechanics.has(mechanics) && prior?.kind === "relational" && prior.mechanics === mechanics && canonicalBytesMatch(document, prior);
+};
+const RealBounds = Schema.Struct({ rows: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: MAX_BOUNDED_APP_ROW_READ_IDENTITIES })),
+  bytes: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })) });
+const decodeRealBounds = Schema.decodeUnknownResult(RealBounds, { onExcessProperty: "error" });
+const RealWire = Schema.String.check(Schema.isMaxLength(64),
+  Schema.isPattern(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?(?![\s\S])/));
+const RealResult = Schema.Array(Schema.Struct({ ordinal: Schema.String, setting: Schema.String,
+  converted: Schema.NullOr(RealWire) }));
+const decodeRealResult = Schema.decodeUnknownResult(RealResult, { onExcessProperty: "error" });
+
+export function prepareLogicalRelationalRealBatch<Failure>(mechanics: PreparedLogicalRelationalTableMechanics,
+  tableId: CatalogTableId, input: Readonly<{ mode: "normalize"; rows: readonly JsonObject[] }> |
+    Readonly<{ mode: "validate"; documents: readonly CanonicalFlarexValueV1[] }>,
+  bounds: Readonly<{ rows: number; bytes: number }>, error: LogicalDocumentFailure<Failure>) {
+  return Result.gen(function* () {
+    if (!issuedTableMechanics.has(mechanics)) return yield* Result.fail(error("invalidAuthority"));
+    const maximum = yield* decodeRealBounds(bounds).pipe(Result.mapError(cause => error("invalidInput", cause)));
+    const columns = mechanics.table.columns.filter(column => column.type === "real");
+    if (columns.length === 0) return yield* Result.fail(error("invalidAuthority"));
+    const policy = yield* mechanics.rows.pipe(Result.mapError(cause => error(cause.reason, cause.cause)));
+    const documents = input.mode === "validate" ? Object.freeze([...input.documents]) : undefined;
+    const rows: JsonObject[] = [];
+    if (input.mode === "normalize") {
+      for (const row of input.rows) {
+        if (realCandidates.get(row) !== policy.normalize) return yield* Result.fail(error("invalidAuthority"));
+        rows.push(row);
+      }
+    } else for (const document of input.documents) {
+      const captured = yield* captureLogicalRelationalCanonicalRow(document, maximum.bytes, error);
+      if (!isJsonObject(captured.value)) return yield* Result.fail(error("storedCorruption"));
+      rows.push(Object.fromEntries(Object.entries(captured.value).filter(([key]) => key !== "_id" && key !== "_creationTime")));
+    }
+    if (rows.length === 0 || rows.length > maximum.rows) return yield* Result.fail(error("limitExceeded"));
+    const reason = input.mode === "normalize" ? "documentInvalid" : "storedCorruption";
+    const cells: { row: number; column: string; value: string | null }[] = [];
+    for (const [ordinal, row] of rows.entries()) {
+      yield* validateRelationalRowColumns(mechanics.table, row).pipe(Result.mapError(cause => error(reason, cause)));
+      for (const column of columns) {
+        const value = row[column.identity.columnId];
+        if (value !== null && typeof value !== "number") return yield* Result.fail(error(reason));
+        cells.push(Object.freeze({ row: ordinal, column: column.identity.columnId, value: value === null ? null : String(value) }));
+      }
+    }
+    const payload = JSON.stringify(cells), inputBytes = new TextEncoder().encode(payload).byteLength;
+    const maximumBytes = Math.min(maximum.bytes, MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES);
+    // Each actual SQL cell has a bounded finite REAL text and ordinal. Reserve
+    // its complete transport envelope before the driver transfers any results.
+    if (inputBytes > maximumBytes || cells.length * 128 > maximumBytes - inputBytes)
+      return yield* Result.fail(error("limitExceeded"));
+    // SAFETY: only this issuer creates and registers the frozen nominal token.
+    const batch = Object.freeze({}) as LogicalRelationalRealBatch;
+    realBatches.set(batch, Object.freeze({ mechanics, tableId, rows: Object.freeze(rows), documents,
+      cells: Object.freeze(cells), payload, inputBytes, maximumBytes, mode: input.mode }));
+    return batch;
+  });
+}
+
+export function inspectLogicalRelationalRealBatch<Failure>(batch: LogicalRelationalRealBatch, tableId: CatalogTableId,
+  error: LogicalDocumentFailure<Failure>) {
+  const value = realBatches.get(batch);
+  return value === undefined || value.tableId !== tableId ? Result.fail(error("invalidAuthority")) :
+    Result.succeed(Object.freeze({ table: value.mechanics.table, inputBytes: value.inputBytes, rows: value.rows.length }));
+}
+
+/** Executes on the accepting owner's borrowed transaction. There is no public
+ * decoder that can turn caller-supplied result rows into a normalization proof. */
+export const executeLogicalRelationalRealBatch = Effect.fn("LogicalRelationalRows.real")(function* <Failure>(
+  tx: FlarexMetadataTransaction, batch: LogicalRelationalRealBatch, tableId: CatalogTableId,
+  error: LogicalDocumentFailure<Failure>,
+) {
+  const facts = realBatches.get(batch);
+  if (facts === undefined || facts.tableId !== tableId) return yield* Effect.fail(error("invalidAuthority"));
+  const captured = yield* runDrizzleStatementEffect(tx.execute(sql`select ordinal::text as ordinal,
+    current_setting('extra_float_digits') as setting,
+    case when current_setting('extra_float_digits') = '1' and cell ->> 'value' is not null
+      and pg_input_is_valid(cell ->> 'value', 'real')
+      then (cell ->> 'value')::real::text else null end as converted
+    from jsonb_array_elements(${facts.payload}::jsonb) with ordinality as cells(cell, ordinal)
+    order by ordinal`), cause => error("resourceFailure", cause));
+  const raw = yield* Effect.try({ try: () => rowsFromDriverExecuteResult(captured,
+    () => { throw new Error("Malformed REAL scalar conversion result"); }), catch: cause => error("storedCorruption", cause) });
+  const result = yield* Effect.fromResult(decodeRealResult(raw).pipe(Result.mapError(cause => error("storedCorruption", cause))));
+  if (result.length !== facts.cells.length) return yield* Effect.fail(error("storedCorruption"));
+  const outputBytes = new TextEncoder().encode(JSON.stringify(result)).byteLength;
+  if (outputBytes > facts.maximumBytes - facts.inputBytes) return yield* Effect.fail(error("limitExceeded"));
+  const rows = facts.rows.map(row => ({ ...row })), reason = facts.mode === "normalize" ? "documentInvalid" : "storedCorruption";
+  for (const [index, cell] of facts.cells.entries()) {
+    const selected = result[index];
+    if (selected === undefined || selected.ordinal !== String(index + 1)) return yield* Effect.fail(error("storedCorruption"));
+    if (selected.setting !== "1") return yield* Effect.fail(error("unsupportedProfile"));
+    const value = selected.converted === null ? null : Number(selected.converted);
+    if (cell.value !== null && (value === null || !Number.isFinite(value)) || cell.value === null && value !== null)
+      return yield* Effect.fail(error(reason));
+    const row = rows[cell.row];
+    if (row === undefined) return yield* Effect.fail(error("storedCorruption"));
+    if (facts.mode === "validate" && !Object.is(row[cell.column], value)) return yield* Effect.fail(error("storedCorruption"));
+    row[cell.column] = value;
+  }
+  const policy = yield* Effect.fromResult(facts.mechanics.rows.pipe(Result.mapError(cause => error(cause.reason, cause.cause))));
+  const validate = prepareLogicalRelationalRowValues(facts.mechanics.table, facts.mechanics.capabilities, error);
+  const accepted: JsonObject[] = [];
+  for (const [index, row] of rows.entries()) {
+    const capturedRow = yield* Effect.fromResult(useCapturedPrivateJsonData(row, facts.maximumBytes, error));
+    if (!isJsonObject(capturedRow.value)) return yield* Effect.fail(error(reason));
+    yield* Effect.fromResult(validate(capturedRow.value, reason));
+    accepted.push(capturedRow.value);
+    normalizedRows.set(capturedRow.value, policy.normalize);
+    const document = facts.documents?.[index];
+    if (document !== undefined) {
+      const prior = canonicalRows.get(document);
+      if (prior?.kind !== "relational" || !canonicalBytesMatch(document, prior)) return yield* Effect.fail(error("storedCorruption"));
+      canonicalRows.set(document, Object.freeze({ ...prior, mechanics: facts.mechanics, native: capturedRow.value }));
+    }
+  }
+  return Object.freeze({ rows: Object.freeze(accepted), bytes: outputBytes });
+});

@@ -103,6 +103,7 @@ export type RelationalColumnType =
   | "text"
   | "boolean"
   | "integer"
+  | "real"
   | "doublePrecision"
   | "numeric"
   | "jsonb"

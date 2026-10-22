@@ -3,7 +3,7 @@ import { Data } from "effect";
 
 export class LogicalParticipantAdmissionError extends Data.TaggedError("LogicalParticipantAdmissionError")<{
   readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "invalidAuthority" |
-    "unsupportedProfile" | "resourceFailure" | "storedCorruption" | "documentInvalid";
+    "unsupportedProfile" | "resourceFailure" | "storedCorruption" | "documentInvalid" | "limitExceeded";
   readonly cause?: unknown;
 }> {}
 

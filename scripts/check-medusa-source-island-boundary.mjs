@@ -85,6 +85,9 @@ const finiteContractTestImports = new Map([
   ["packages/persistence-postgres/test/execution/finitePreparedSourceComposition.test.ts", {
     specifier: "../../../medusa-adapter/src/composition/schema", target: "packages/medusa-adapter/src/composition/schema.ts",
   }],
+  ["packages/flarex-backend/test/privatePayloadSaveCompositionPreflight.test.ts", {
+    specifier: "../../medusa-adapter/src/composition/schema", target: "packages/medusa-adapter/src/composition/schema.ts",
+  }],
   ["packages/persistence-postgres/test/frameworks/atomicCommerce/atomicCommerceSharedInstallation.test.ts", {
     specifier: "../../../../medusa-adapter/src/workflow/value", target: "packages/medusa-adapter/src/workflow/value.ts",
   }],

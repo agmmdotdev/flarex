@@ -4,7 +4,7 @@ import type {
 } from "../../../src/execution/finiteStorageCapture";
 import { fxSystemScopeExecutionAuthorities } from "../../../src/database/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { Cause, Deferred, Effect, Fiber, Option, Result } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Option, Result } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { expect, vi } from "vitest";
 import { canonicalizeAppDocumentV1, AppCreationTimeV1Schema } from "flarex-protocol/app-document";
@@ -239,16 +239,19 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
           limits: { pageRows: 8, identities: 8, documentBytes: 65_536 },
         }, firstTime, [], []);
         const id = yield* lifetime.begin(lifetime.context);
-        const written = yield* Effect.result(working.documents.insert(lifetime.context, id, "notes", { label: "pending-return" }));
-        if (Result.isSuccess(written)) throw failure("Expected ordered write refusal");
-        expect(written.failure.message).toBe(at === "validator" ? "validatorFirst" : "limitExceeded");
-        if (at === "validator") expect(written.failure).toBe(validatorFailure);
+        const written = yield* Effect.exit(working.documents.insert(lifetime.context, id, "notes", { label: "pending-return" }));
+        if (Exit.isSuccess(written)) throw failure("Expected ordered write refusal");
+        expect(written.cause.reasons).toHaveLength(1);
+        const [writeReason] = written.cause.reasons;
+        if (writeReason === undefined || !Cause.isFailReason(writeReason)) throw failure("Expected one typed write refusal");
+        expect(writeReason.error.message).toBe(at === "validator" ? "validatorFirst" : "limitExceeded");
+        if (at === "validator") expect(writeReason.error).toBe(validatorFailure);
         else expect(lifetime.remainingBytes()).toBe(returnBytes - 1);
         expect(working.attemptCount()).toBe(at === "validator" ? 0 : 1);
         const refusedActivity = yield* Effect.result(working.activitySnapshot());
         if (Result.isSuccess(refusedActivity)) throw failure("Expected rollback-only activity refusal");
         expect(refusedActivity.failure.message).toBe("rollbackOnly");
-        expect(refusedActivity.failure.cause).toEqual(Cause.fail(written.failure));
+        expect(refusedActivity.failure.cause).toEqual(written.cause);
         // The trusted root can inspect retained tentative state after refusal;
         // the request's activity reader must keep rejecting that same lifetime.
         const activity = writeRoot.snapshot();
@@ -258,7 +261,7 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         const later = yield* Effect.result(working.documents.insert(lifetime.context, id, "notes", { label: "unreached" }));
         if (Result.isSuccess(later)) throw failure("Expected rollback-only refusal");
         expect(later.failure.message).toBe("rollbackOnly");
-        expect(later.failure.cause).toEqual(Cause.fail(written.failure));
+        expect(later.failure.cause).toEqual(written.cause);
         expect(validations).toBe(1);
       }
     }))));

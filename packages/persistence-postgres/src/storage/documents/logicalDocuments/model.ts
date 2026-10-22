@@ -49,7 +49,7 @@ export const LogicalPreservingDeletionUpsertPolicy = Schema.Union([Schema.Litera
 export type LogicalPreservingDeletionUpsertPolicy = typeof LogicalPreservingDeletionUpsertPolicy.Type;
 export type LogicalSetNullPolicy = typeof LogicalSetNullPolicy.Type;
 
-export type LogicalDocumentFailureReason = "invalidInput" | "invalidAuthority" | "closed" | "limitExceeded"
+export type LogicalDocumentFailureReason = "invalidInput" | "invalidAuthority" | "unsupportedProfile" | "closed" | "limitExceeded"
   | "documentMissing" | "documentInvalid" | "uniqueConflict" | "writeConflict" | "storedCorruption"
   | "statementFailure" | "resourceFailure";
 export type LogicalDocumentFailure<Failure> = (reason: LogicalDocumentFailureReason, cause?: unknown) => Failure;

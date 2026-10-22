@@ -162,6 +162,8 @@ export const forEachLogicalReferencePage = Effect.fn("LogicalReferences.forEachP
     key.target.column === input.targetColumn && key.source.nullable && key.onDelete === "noAction");
   if (declared === undefined)
     return yield* Effect.fail(error("invalidInput"));
+  if (admission.tables.find(table => table.tableId === declared.source.tableId)?.definition.columns.some(column => column.type === "real"))
+    return yield* Effect.fail(error("unsupportedProfile"));
   const pageRows = referencePageRows(admission, declared.source.tableId, declared.source.column);
   if (pageRows < 1) return yield* Effect.fail(error("limitExceeded"));
   const affectedLimit = Math.min(logicalReferenceTransitionBudget.affectedRows,
@@ -263,6 +265,11 @@ export const forEachLogicalSetNullPage = Effect.fn("LogicalReferences.forEachSet
   const source = admission.tables.find(table => table.tableId === input.sourceTableId);
   if (source === undefined || !hasSourceBoundTable(admission, source))
     return yield* Effect.fail(input.error("invalidAuthority"));
+  // REAL scalar row conversion is admitted for native logical operations.
+  // Terminal reference-page maintenance remains a separate unsupported profile
+  // until its aggregate conversion-byte budget is proved.
+  if (source.definition.columns.some(column => column.type === "real"))
+    return yield* Effect.fail(input.error("unsupportedProfile"));
   const policy = yield* Effect.fromResult(bindPreparedLogicalRelationalRows(source.mechanics, input.error));
   const transactionTime = yield* Effect.cached(Effect.gen(function* () {
     const time = yield* runDrizzleStatementEffect(input.tx.select({ timestamp: sql<unknown>`current_timestamp` })
@@ -328,6 +335,11 @@ export const selectLogicalReferenceReplacement = Effect.fn("LogicalReferences.se
   const source = admission.tables.find(table => table.tableId === input.sourceTableId);
   if (source === undefined || !hasSourceBoundTable(admission, source))
     return yield* Effect.fail(input.error("invalidAuthority"));
+  // REAL scalar row conversion is admitted for native logical operations.
+  // Terminal reference-page maintenance remains a separate unsupported profile
+  // until its aggregate conversion-byte budget is proved.
+  if (source.definition.columns.some(column => column.type === "real"))
+    return yield* Effect.fail(input.error("unsupportedProfile"));
   const policy = yield* Effect.fromResult(bindPreparedLogicalRelationalRows(source.mechanics, input.error));
   const identity = policy.keyColumns.length === 1 ? policy.keyColumns[0] : undefined;
   if (identity === undefined || input.desiredKeys.length > 256 ||
@@ -485,6 +497,11 @@ export const forEachLogicalReferenceReplacementPage = Effect.fn("LogicalReferenc
   const source = admission.tables.find(table => table.tableId === input.sourceTableId);
   if (source === undefined || !hasSourceBoundTable(admission, source))
     return yield* Effect.fail(input.error("invalidAuthority"));
+  // REAL scalar row conversion is admitted for native logical operations.
+  // Terminal reference-page maintenance remains a separate unsupported profile
+  // until its aggregate conversion-byte budget is proved.
+  if (source.definition.columns.some(column => column.type === "real"))
+    return yield* Effect.fail(input.error("unsupportedProfile"));
   const policy = yield* Effect.fromResult(bindPreparedLogicalRelationalRows(source.mechanics, input.error));
   const identity = policy.keyColumns.length === 1 ? policy.keyColumns[0] : undefined;
   if (identity === undefined) return yield* Effect.fail(input.error("invalidAuthority"));

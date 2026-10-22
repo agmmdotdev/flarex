@@ -707,7 +707,7 @@ function lowerTable(
       columns.push(Object.freeze({
         identity: copyColumnIdentity(column.identity),
         name: yield* required(columnNames, columnIdentityKey(column.identity)),
-        type: physicalColumnType(column.type),
+        type: yield* physicalColumnType(column.type),
         nullable: column.nullable,
         default: copyPhysicalDefault(column.default),
       }));
@@ -1018,18 +1018,19 @@ function resolveSemanticColumn(
 
 function physicalColumnType(
   type: RelationalSchema["tables"][number]["columns"][number]["type"],
-): RelationalPhysicalColumnType {
+): Result.Result<RelationalPhysicalColumnType, RelationalPhysicalValueError> {
   switch (type) {
+    case "real": return Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
     case "boolean":
     case "text":
     case "integer":
     case "numeric":
     case "jsonb":
-      return type;
+      return Result.succeed(type);
     case "doublePrecision":
-      return "double precision";
+      return Result.succeed("double precision");
     case "timestamptz":
-      return "timestamp with time zone";
+      return Result.succeed("timestamp with time zone");
     default:
       return unreachablePhysicalVocabulary(type);
   }
@@ -1209,7 +1210,7 @@ function deriveArtifactCapabilityIds(
       admitDefinitionOrigin(table.origin.kind);
       for (const column of table.columns) {
         admitDefinitionOrigin(column.origin.kind);
-        capabilities.add(columnCapabilityId(column.type));
+        capabilities.add(yield* columnCapabilityId(column.type));
         const defaultCapability = defaultCapabilityId(column.default);
         if (defaultCapability !== null) capabilities.add(defaultCapability);
       }
@@ -1257,22 +1258,23 @@ function admitDefinitionOrigin(
 
 function columnCapabilityId(
   type: RelationalTableDefinition["columns"][number]["type"],
-): string {
+): Result.Result<string, RelationalPhysicalValueError> {
   switch (type) {
+    case "real": return Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
     case "boolean":
-      return "relational-schema.column.boolean";
+      return Result.succeed("relational-schema.column.boolean");
     case "text":
-      return "relational-schema.column.text";
+      return Result.succeed("relational-schema.column.text");
     case "integer":
-      return "relational-schema.column.integer";
+      return Result.succeed("relational-schema.column.integer");
     case "doublePrecision":
-      return "relational-schema.column.doublePrecision";
+      return Result.succeed("relational-schema.column.doublePrecision");
     case "numeric":
-      return "relational-schema.column.numeric";
+      return Result.succeed("relational-schema.column.numeric");
     case "jsonb":
-      return "relational-schema.column.jsonb";
+      return Result.succeed("relational-schema.column.jsonb");
     case "timestamptz":
-      return "relational-schema.column.timestamptz";
+      return Result.succeed("relational-schema.column.timestamptz");
     default:
       return unreachablePhysicalVocabulary(type);
   }

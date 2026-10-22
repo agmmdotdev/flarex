@@ -37,7 +37,11 @@ export const prepareLogicalRelationalValueValidation = Effect.fn("LogicalRelatio
       const bound = binding === undefined ? undefined : evidence.tableBindings.find(value =>
         logicalTableKey(value.table) === logicalTableKey(binding.table));
       if (bound === undefined || tables.has(bound.tableId)) return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "incompleteBinding" }));
-      if (construction.kind === "fresh") tables.set(bound.tableId, prepareLogicalRelationalRowValues(table, source.definition.schema.capabilities,
+      // A fresh pure metadata validator has no borrowed SQL session or issued
+      // canonical REAL verdict. Only prepared logical execution supplies it.
+      if (construction.kind === "fresh" && table.columns.some(column => column.type === "real"))
+        tables.set(bound.tableId, () => Result.fail(new LogicalRelationalValueError({ reason: "invalidDocument" })));
+      else if (construction.kind === "fresh") tables.set(bound.tableId, prepareLogicalRelationalRowValues(table, source.definition.schema.capabilities,
         (_, cause) => new LogicalRelationalValueError({ reason: "invalidDocument", cause })));
       else {
         const mechanics = construction.tableMechanics(bound.tableId);

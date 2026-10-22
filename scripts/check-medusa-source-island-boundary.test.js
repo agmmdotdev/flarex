@@ -373,6 +373,8 @@ describe("Medusa source-island boundary checker", () => {
         specifier: "../../../medusa-adapter/test/support/native-product-attempt-seed", target: "packages/medusa-adapter/test/support/native-product-attempt-seed.ts" },
       { importer: "packages/persistence-postgres/test/execution/finitePreparedSourceComposition.test.ts",
         specifier: "../../../medusa-adapter/src/composition/schema", target: "packages/medusa-adapter/src/composition/schema.ts" },
+      { importer: "packages/flarex-backend/test/privatePayloadSaveCompositionPreflight.test.ts",
+        specifier: "../../medusa-adapter/src/composition/schema", target: "packages/medusa-adapter/src/composition/schema.ts" },
       { importer: "packages/flarex-backend/test/mixedMutationProduct.workerd.test.ts",
         specifier: "../../medusa-adapter/src/modules/product/attempt", target: "packages/medusa-adapter/src/modules/product/attempt.ts" },
       { importer: "packages/flarex-backend/test/preparedTargetMetadata.postgres.test.ts",

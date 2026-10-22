@@ -1,5 +1,6 @@
 import type { DatabaseColumn, DatabaseForeignKey, DatabaseIndex, DatabaseTable } from "@medusajs/drizzle/schema";
 import type { CompiledIndexWhere } from "./index-predicate";
+import type { CompiledCheckConstraint } from "./check-constraint";
 import type {
   RelationalSchema,
 } from "flarex-protocol/internal/relational-schema";
@@ -17,6 +18,7 @@ type ColumnBase = Readonly<Pick<DatabaseColumn, "name" | "nullable" | "primaryKe
  * not a decoder or authority to admit another module or compiler feature. */
 export type SchemaColumn = ColumnBase & (
   | { readonly type: "array"; readonly defaultValue?: readonly [] }
+  | { readonly type: "float"; readonly defaultValue?: never }
   | { readonly type: "id" | "text" | "number" | "boolean" | "dateTime" | "json" | "enum";
       readonly defaultValue?: string | number | boolean }
   | { readonly type: "bigNumber"; readonly defaultValue?: string | number | null }
@@ -29,6 +31,7 @@ export type SchemaTable = Readonly<Pick<DatabaseTable, "name">> & {
     readonly columns: readonly string[];
     readonly where?: typeof CompiledIndexWhere.Type;
   })[];
+  readonly checks?: readonly (typeof CompiledCheckConstraint.Type)[];
   readonly foreignKeys: readonly (Readonly<Pick<DatabaseForeignKey, "name" | "referencedTable" | "onDelete">> & {
     readonly columns: readonly string[];
     readonly referencedColumns: readonly string[];

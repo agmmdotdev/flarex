@@ -1310,6 +1310,7 @@ function decodeColumnType(
     case "boolean":
     case "text":
     case "integer":
+    case "real":
     case "doublePrecision":
     case "numeric":
     case "jsonb":

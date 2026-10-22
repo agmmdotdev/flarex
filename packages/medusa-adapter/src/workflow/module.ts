@@ -10,7 +10,7 @@ import { defineAtomicCommerceParticipant } from "@flarex/persistence-postgres/in
 import { captureCommerceInput } from "../value/input";
 import { commerceDecoder } from "../value/decoder";
 import { captureWorkflowArray, captureWorkflowRecord, isWorkflowResourceName } from "./configuration";
-import { captureWorkflowInput } from "./value";
+import { captureWorkflowCommandInput, captureWorkflowInput, type WorkflowIntermediateValue } from "./value";
 
 declare const methodType: unique symbol;
 export interface WorkflowMethod<Args extends readonly unknown[] = readonly unknown[], Output = unknown> {
@@ -29,20 +29,26 @@ const decodeModuleEvents = commerceDecoder(Schema.Array(Schema.String.check(Sche
 export function defineWorkflowMethod<Args extends readonly unknown[], Output>(input: {
   readonly command: CommerceCommand;
   readonly arguments: (value: unknown) => Result.Result<Args, CommerceTransactionError>;
-  readonly encode: (args: Args) => Json;
   readonly output: (value: Json) => Result.Result<Output, CommerceTransactionError>;
   readonly moduleEvents?: readonly string[];
-}): Result.Result<WorkflowMethod<Args, Output>, CommerceTransactionError> {
+} & ({ readonly inputPresence?: undefined; readonly encode: (args: Args) => Json }
+  | { readonly inputPresence: "preserveOwnUndefined"; readonly encode: (args: Args) => WorkflowIntermediateValue })):
+  Result.Result<WorkflowMethod<Args, Output>, CommerceTransactionError> {
   return Result.gen(function* () {
     const definition = yield* captureWorkflowRecord(input);
     if (typeof definition.arguments !== "function" || typeof definition.encode !== "function" || typeof definition.output !== "function") return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (definition.inputPresence !== undefined && definition.inputPresence !== "preserveOwnUndefined")
+      return yield* Result.fail(commerceError("unsupportedProfile"));
     const moduleEvents = yield* captureCommerceInput(definition.moduleEvents === undefined ? [] : definition.moduleEvents).pipe(Result.flatMap(decodeModuleEvents));
     if (new Set(moduleEvents).size !== moduleEvents.length) return yield* Result.fail(commerceError("unsupportedProfile"));
     // SAFETY: only this registry associates typed argument/output decoders with
     // the erased method token. Native inference follows those same decoders.
     const token = Object.freeze({}) as WorkflowMethod<Args, Output>;
     methods.set(token, Object.freeze({ command: definition.command, output: definition.output, moduleEvents: Object.freeze([...moduleEvents].sort()),
-      input: (args: unknown) => captureWorkflowInput(args).pipe(Result.flatMap(definition.arguments), Result.map(definition.encode), Result.flatMap(captureCommerceInput)),
+      input: (args: unknown) => definition.inputPresence === "preserveOwnUndefined"
+        ? captureWorkflowInput(args, definition.inputPresence).pipe(Result.flatMap(definition.arguments),
+          Result.map(definition.encode), Result.flatMap(captureWorkflowCommandInput))
+        : captureWorkflowInput(args).pipe(Result.flatMap(definition.arguments), Result.map(definition.encode), Result.flatMap(captureCommerceInput)),
     }));
     return token;
   });

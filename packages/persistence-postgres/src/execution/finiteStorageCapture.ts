@@ -5,6 +5,8 @@ import { Cause, Data, Effect, Result, Schema } from "effect";
 import { sql, type SQL } from "drizzle-orm";
 import { buildPostgresRelationalPredicateBody, decodePostgresRelationalMatches, inspectPostgresRelationalBatch, type PostgresRelationalPredicateBatch } from "../storage/documents/logicalDocuments/postgresRelationalPredicate";
 import { alias } from "drizzle-orm/pg-core";
+import { inspectLogicalRelationalRealBatch, executeLogicalRelationalRealBatch, type LogicalRelationalRealBatch } from "../storage/documents/logicalDocuments/relationalRows";
+import type { JsonObject } from "flarex-protocol/json";
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
 import { appIndexPhysicalSpecSha256HexV1ToBytes } from "flarex-protocol/index-definition";
 
@@ -62,12 +64,14 @@ export type FiniteStorageCaptureOperation =
   | Readonly<{ kind: "rows"; input: ReadAppRowsAtSnapshotV1Input; maximumTotalValueBytes?: number; settlementWindow?: true }>
   | Readonly<{ kind: "indexPage"; input: ScanAppIndexAtSnapshotV1Input; tableId: CatalogTableId }>
   | Readonly<{ kind: "relationalPredicate"; tableId: CatalogTableId; batch: PostgresRelationalPredicateBatch }>
+  | Readonly<{ kind: "relationalReal"; tableId: CatalogTableId; batch: LogicalRelationalRealBatch }>
   | Readonly<{ kind: "ownership"; tableId: CatalogTableId }>
   | Readonly<{ kind: "historicalIdentity"; tableId: CatalogTableId; rowId: Uint8Array }>
   | Readonly<{ kind: "transactionTime" }>
   | Readonly<{ kind: "retirement"; selector: PointMutationSessionAttemptSelectorV1; executionClaim: TransactionExecutionClaimPinV1 }>;
 
 export interface FiniteStorageCaptureEnvelopes {
+  readonly relationalReal: Readonly<{ kind: "relationalReal"; rows: readonly JsonObject[]; bytes: number }>;
   readonly relationalPredicate: Readonly<{ kind: "relationalPredicate"; rawRows: readonly unknown[];
     matches: readonly (boolean | null)[]; bytes: number }>;
   readonly rows: Readonly<{ kind: "rows"; prepared: PreparedAppRowsSnapshotRead; rawRows: readonly unknown[] }>;
@@ -188,7 +192,7 @@ function compileFiniteStorageCapturePlan(database: FlarexMetadataDatabase, locat
   installed: Result.Result.Success<ReturnType<typeof prepareInstalledFiniteCaptureSource>> | undefined,
   relationalBody?: SQL) {
   const namespace = sql.identifier(installed?.schemaName ?? locator.schemaName);
-  const compile = (operation: Readonly<{ kind: Exclude<InternalCaptureOperation["kind"], "relationalPredicate"> }> |
+  const compile = (operation: Readonly<{ kind: Exclude<InternalCaptureOperation["kind"], "relationalPredicate" | "relationalReal"> }> |
     Readonly<{ kind: "relationalPredicate"; body: SQL }>) => {
     const { kind } = operation;
     const captureSource = sql`(with accepted_capture as materialized (select ${namespace}.fx_accept_finite_storage_capture(
@@ -429,21 +433,22 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
         const preparedIndex = operation.kind === "indexPage" ? yield* prepareAppIndexSnapshotReadResult(operation.input)
           .pipe(Result.mapError(cause => refused("invalidInput", cause))) : undefined;
         const selectedTable = preparedRows?.tableId ?? (operation.kind === "indexPage" || operation.kind === "ownership" ||
-          operation.kind === "historicalIdentity" || operation.kind === "relationalPredicate" ? operation.tableId : selected?.demand.kind !== "clock" ? selected?.demand.tableId ?? null : null);
+          operation.kind === "historicalIdentity" || operation.kind === "relationalPredicate" || operation.kind === "relationalReal" ? operation.tableId : selected?.demand.kind !== "clock" ? selected?.demand.tableId ?? null : null);
         const selectedSnapshot = preparedRows?.snapshotCommitSeq ?? preparedIndex?.snapshotCommitSeq ?? expected.snapshotToken.commitSeq;
         if (selectedSnapshot !== expected.snapshotToken.commitSeq || preparedRows !== undefined && preparedRows.scopeId !== input.selector.scopeId ||
           preparedIndex !== undefined && preparedIndex.scopeId !== input.selector.scopeId ||
           selected !== undefined && selected.demand.kind !== "clock" && selectedTable !== selected.demand.tableId)
           return yield* Result.fail(refused("invalidAuthority"));
         const selectsBusiness = operation.kind === "rows" || operation.kind === "indexPage" ||
-          operation.kind === "ownership" || operation.kind === "historicalIdentity" || operation.kind === "relationalPredicate";
+          operation.kind === "ownership" || operation.kind === "historicalIdentity" || operation.kind === "relationalPredicate" || operation.kind === "relationalReal";
         if (selectsBusiness && (selected === undefined || selected.demand.kind === "clock"))
           return yield* Result.fail(refused("invalidAuthority"));
-        if (operation.kind === "relationalPredicate") {
+        if (operation.kind === "relationalPredicate" || operation.kind === "relationalReal") {
           if (participant?.demand.kind !== "rows" || input.finiteReadDemand === undefined)
             return yield* Result.fail(refused("invalidAuthority"));
-          const batch = yield* inspectPostgresRelationalBatch(operation.batch, operation.tableId,
-            reason => refused(reason === "invalidAuthority" ? "invalidAuthority" : "invalidInput"));
+          const batch = yield* (operation.kind === "relationalPredicate" ? inspectPostgresRelationalBatch(operation.batch, operation.tableId,
+            reason => refused(reason === "invalidAuthority" ? "invalidAuthority" : "invalidInput")) :
+            inspectLogicalRelationalRealBatch(operation.batch, operation.tableId, reason => refused(reason === "invalidAuthority" ? "invalidAuthority" : "invalidInput")));
           if (!matchesLogicalRelationalAttemptTable(input.finiteReadDemand.admission, operation.tableId, batch.table))
             return yield* Result.fail(refused("invalidAuthority"));
         }
@@ -460,7 +465,7 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
       const operationShapes = operation.kind === "relationalPredicate" ? compileFiniteStorageCapturePlan(database, locator, installed,
         yield* Effect.fromResult(buildPostgresRelationalPredicateBody(operation.batch, operation.tableId,
           reason => refused(reason === "invalidAuthority" ? "invalidAuthority" : "invalidInput")))) : shapes;
-      const shape = operationShapes.get(operation.kind);
+      const shape = operationShapes.get(operation.kind === "relationalReal" ? "ownershipFence" : operation.kind);
       if (shape === undefined) return yield* Effect.die("Named finite capture shape missing");
       const placeholders = Object.setPrototypeOf({
         deploymentId: input.selector.deploymentId, scopeId: input.selector.scopeId,
@@ -511,7 +516,7 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
         if (result.layoutFailure !== undefined) return yield* Effect.fail(refused("storedCorruption", result.layoutFailure));
         return { kind: "accepted" as const, first, observedEpoch };
       });
-      const protectedPredicate = Effect.fnUntraced(function* (predicate: Extract<FiniteStorageCaptureOperation, { kind: "relationalPredicate" }>) {
+      const protectedPredicate = Effect.fnUntraced(function* (predicate: Extract<FiniteStorageCaptureOperation, { kind: "relationalPredicate" | "relationalReal" }>) {
         const headerShape = shapes.get("ownershipFence");
         if (headerShape === undefined) return yield* Effect.die("Finite capture header shape missing");
         const requireAccepted = Effect.fnUntraced(function* (result: Captured, epoch?: Readonly<{ target: string | null; control: string | null }>) {
@@ -535,12 +540,19 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
             // Planning PostgreSQL regex WHERE clauses can fail before execution.
             // Send the body only after actual admission, retaining its locks.
             const epoch = yield* requireAccepted(yield* execute(headerShape));
+            if (predicate.kind === "relationalReal") {
+              const result = yield* executeLogicalRelationalRealBatch(tx, predicate.batch, predicate.tableId,
+                (reason, cause) => refused(reason === "documentInvalid" ? "documentInvalid" : reason === "unsupportedProfile" ? "unsupportedProfile" :
+                  reason === "limitExceeded" ? "limitExceeded" : reason === "invalidAuthority" ? "invalidAuthority" : reason === "resourceFailure" ? "resourceFailure" : "storedCorruption", cause));
+              yield* requireAccepted(yield* execute(headerShape), epoch);
+              return Object.freeze({ kind: "relationalReal" as const, ...result });
+            }
             const body = yield* execute(shape);
             yield* requireAccepted(body, epoch);
             const decoded = yield* Effect.fromResult(decodePostgresRelationalMatches(predicate.batch, predicate.tableId, body.rawRows,
               (reason, cause) => refused(reason === "invalidAuthority" ? "invalidAuthority" : "storedCorruption", cause)));
             yield* requireAccepted(yield* execute(headerShape), epoch);
-            return { body, decoded };
+            return { kind: "relationalPredicate" as const, body, decoded };
           }, (effect, tx) => effect.pipe(Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx)))));
         if (profile.kind === "fullArtifact") return yield* runEffectTransactionSettlement(
           transaction => database.transaction(transaction), "Protected relational predicate capture failed", work,
@@ -566,9 +578,10 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
           }
         }));
       });
-      if (operation.kind === "relationalPredicate") {
-        const { body, decoded } = yield* protectedPredicate(operation);
-        return Object.freeze({ kind: "relationalPredicate" as const, rawRows: body.rawRows, ...decoded });
+      if (operation.kind === "relationalPredicate" || operation.kind === "relationalReal") {
+        const result = yield* protectedPredicate(operation);
+        return result.kind === "relationalReal" ? result :
+          Object.freeze({ kind: "relationalPredicate" as const, rawRows: result.body.rawRows, ...result.decoded });
       }
       const result = profile.kind === "installed" ? yield* profile.driver.runImplicitCommandEffect<Captured>(
         { deadline: yield* deadlines.start("read", 30_000) }, shape, placeholders) :
@@ -673,7 +686,7 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
 }
 
 export class FiniteStorageCaptureError extends Data.TaggedError("FiniteStorageCaptureError")<{
-  readonly reason: "invalidInput" | "invalidAuthority" | "resourceFailure" | "storedCorruption" | "attemptMissing" |
+  readonly reason: "invalidInput" | "invalidAuthority" | "unsupportedProfile" | "documentInvalid" | "limitExceeded" | "resourceFailure" | "storedCorruption" | "attemptMissing" |
     "attemptReplaced" | "ownershipChanged" | "lifecycleChanged" | "expired" | "unsupportedStorageGeneration" |
     "storageGenerationFenceChanged" | "scopeEpochChanged" | "authorizationRevocationEpochChanged" | "notReady";
   readonly cause?: unknown;

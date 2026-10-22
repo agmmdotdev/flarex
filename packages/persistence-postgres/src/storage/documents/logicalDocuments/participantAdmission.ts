@@ -43,7 +43,8 @@ import type { PreparedHostPreparationLifetime } from "../../../execution/prepara
 
 export function projectFiniteStorageCaptureFailure(cause: FiniteStorageCaptureError): LogicalParticipantAdmissionError {
   const reason = cause.reason === "notReady" || cause.reason === "storedCorruption" ||
-    cause.reason === "resourceFailure" || cause.reason === "invalidInput" ? cause.reason : "invalidAuthority";
+    cause.reason === "resourceFailure" || cause.reason === "invalidInput" || cause.reason === "unsupportedProfile" ||
+    cause.reason === "documentInvalid" || cause.reason === "limitExceeded" ? cause.reason : "invalidAuthority";
   return new LogicalParticipantAdmissionError({ reason, cause });
 }
 

@@ -19,7 +19,7 @@ import { compileAppOrderedIndexBoundsV1, InvalidOrderedIndexRangeV1Error,
 import { FlarexValueCodecV1Error } from "flarex-protocol/value";
 import type { CommitSeq } from "flarex-protocol/storage-authority";
 import { isJsonArray, isJsonObject, jsonEqual, type Json, type JsonObject } from "flarex-protocol/json";
-import { relationalReverseIndexes } from "flarex-protocol/internal/relational-schema";
+import { relationalReverseIndexes, validateRelationalRowColumns } from "flarex-protocol/internal/relational-schema";
 import { canonicalizeFlarexValueV1Effect, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import { consumeBoundedAppRowsAtSnapshotInTransactionEffect, consumeCapturedAppRowsAtSnapshotEffect, readAppRowAtSnapshotInTransactionEffect, readBoundedCurrentAppRowsInTransactionEffect, readRetainedAppRowRevisionsInTransactionEffect, AppRowRetainedReadLimitError, MAX_BOUNDED_APP_ROW_READ_IDENTITIES,
   MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES,
@@ -57,7 +57,8 @@ import { rowsFromDriverExecuteResult } from "../../../database/driverExecuteResu
 import { decodeLogicalAggregate, sumLogicalRows } from "./aggregate";
 import { relationalTextIdentity } from "./relationalRows";
 import { prepareLogicalRelationalTableMechanics, hasPreparedLogicalRelationalTableMechanics,
-  bindPreparedLogicalRelationalRows, canonicalizeLogicalRelationalRow, captureLogicalRelationalCanonicalRow,
+  bindPreparedLogicalRelationalRows, prepareLogicalRelationalRowValues, canonicalizeLogicalRelationalRow, captureLogicalRelationalCanonicalRow,
+  prepareLogicalRelationalRealBatch, inspectLogicalRelationalRealBatch, executeLogicalRelationalRealBatch, hasLogicalRelationalRealVerdict,
   nativeLogicalRelationalCanonicalRow, captureLogicalRelationalActivityJson, lowerLogicalCanonicalUniqueKey, lowerLogicalCanonicalIndexKey,
   forgetLogicalCanonicalDerivedKeys, logicalUniqueKeyRetentionBytes } from "./relationalRows";
 import { prepareLogicalRelationalForeignKeys, type LogicalRelationalForeignKey } from "./relationalForeignKeys";
@@ -911,6 +912,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     yield* chargeResult(captured.bytes);
     return captured.value;
   });
+  const checkedRealDocuments = new WeakSet<CanonicalFlarexValueV1>();
   const currentRowFailure = (cause: ReadAppRowError) => error(cause instanceof InvalidAppRowReadInputError && cause.issue.reason === "rowLimitExceeded"
     ? "limitExceeded" : cause instanceof AppRowReadPersistenceError ? "statementFailure" : "storedCorruption", cause);
   const hydrateCurrentBaseResult = (
@@ -928,8 +930,11 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       creationTime: base.creationTime, current: base.kind === "live" ? base.document : null, attempts: [],
       ...(base.insertionOrder === undefined ? {} : { insertionOrder: committedLogicalInsertionOrder(base.insertionOrder) }) });
   });
-  const hydrateCurrentBase = (...input: Parameters<typeof hydrateCurrentBaseResult>) =>
-    Effect.suspend(() => lifetime.fromResult(hydrateCurrentBaseResult(...input)));
+  const hydrateCurrentBase = Effect.fn("LogicalDocuments.hydrateCurrentBase")(function* (table: LogicalDocumentTable,
+    base: AppRowRevisionV1, readAt: CommitSeq, tx?: FlarexMetadataTransaction): Effect.fn.Return<void, Failure> {
+      if (base.kind === "live") yield* checkRealDocuments(table, [base.document], tx);
+      yield* lifetime.fromResult(hydrateCurrentBaseResult(table, base, readAt));
+    });
   const hydrateSnapshotBaseResult = (
     table: LogicalDocumentTable, selectedRowId: AppRowIdHexV1, base: AppRowReadResultV1,
     loadedBytes?: { value: number },
@@ -949,8 +954,11 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       ...(base.insertionOrder === undefined ? {} : { insertionOrder: committedLogicalInsertionOrder(base.insertionOrder) }),
       ...(root !== undefined && base.kind === "live" ? { originalRevision: base } : {}) });
   });
-  const hydrateSnapshotBase = (...input: Parameters<typeof hydrateSnapshotBaseResult>) =>
-    Effect.suspend(() => lifetime.fromResult(hydrateSnapshotBaseResult(...input)));
+  const hydrateSnapshotBase = Effect.fn("LogicalDocuments.hydrateSnapshotBase")(function* (table: LogicalDocumentTable,
+    rowId: AppRowIdHexV1, base: AppRowReadResultV1, loadedBytes?: { value: number }, tx?: FlarexMetadataTransaction): Effect.fn.Return<void, Failure> {
+      if (base.kind === "live") yield* checkRealDocuments(table, [base.document], tx);
+      yield* lifetime.fromResult(hydrateSnapshotBaseResult(table, rowId, base, loadedBytes));
+    });
   const readCurrentIndexSelection = Effect.fnUntraced(function* (
     tx: FlarexMetadataTransaction, table: LogicalDocumentTable,
     selection: Pick<LogicalIndexPageRead, "definition" | "bounds" | "after">,
@@ -999,7 +1007,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         return yield* Effect.fail(error("storedCorruption"));
       if (uncached.length > 0) yield* requireReadDemand(tx, { kind: "rows", tableId });
       const loadedBytes = { value: 0 };
-      const consume = (selectedRowId: AppRowIdHexV1, base: AppRowReadResultV1) => hydrateSnapshotBase(table, selectedRowId, base, loadedBytes);
+      const consume = (selectedRowId: AppRowIdHexV1, base: AppRowReadResultV1) => hydrateSnapshotBase(table, selectedRowId, base, loadedBytes, tx);
       // These identities were decoded and deduplicated by the point/index planner.
       // Keep point reads unchanged; only requested batches share one snapshot query.
       if (rowIds === undefined) {
@@ -1034,7 +1042,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         { scopeId: state.scopeId, tableId, rowId: missing }, "current index membership has no stored row")));
     }
     for (const base of loaded) {
-      yield* hydrateCurrentBase(table, base, capture.commitSeq);
+      yield* hydrateCurrentBase(table, base, capture.commitSeq, tx);
     }
     for (const selected of rowIds ?? (rowId === undefined ? [] : [rowId])) {
       if (!dependencies.has(appDocumentIdV1FromRowIdentity({ tableId, rowId: selected }))) {
@@ -1211,19 +1219,13 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         maximumTotalValueBytes: Math.min(MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES, lifetime.remainingBytes()),
       }, cause => error(cause instanceof AppRowReadPersistenceError ? "statementFailure" : "storedCorruption", cause),
       (rowId, base) => Effect.gen(function* () {
-        yield* hydrateSnapshotBase(table, rowId, base);
+        yield* hydrateSnapshotBase(table, rowId, base, undefined, tx);
         yield* applySeed(group[position]!); position++;
       }), testHooks?.observeQuery);
       offset = end;
     }
     hydratedLocalSeeds = true;
   }));
-  // The finite root already owns original preimages and pending rows.
-  // Independent durable/native overlays keep their checked hydration path.
-  if (root === undefined && pendingSeeds().length > 0) {
-    yield* requireReadAdmission;
-    yield* runConstructionRead(hydratePendingSeeds);
-  }
   const checkedRootOverlayGenerations = new Map<CatalogTableId, number>();
   const hasUncheckedRootMembership = (tableId: CatalogTableId) => finiteProfile === undefined && state.tx === undefined && root !== undefined &&
     (root.overlayWriteGenerations.get(tableId) ?? 0) !== (checkedRootOverlayGenerations.get(tableId) ?? 0);
@@ -1242,6 +1244,42 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
         checkedRootOverlayGenerations.set(demand.tableId, checkedGeneration);
     })));
   });
+  const convertRealRows = Effect.fn("LogicalDocuments.convertRealRows")(function* (table: LogicalDocumentTable,
+    input: Parameters<typeof prepareLogicalRelationalRealBatch<Failure>>[2], checkedTx?: FlarexMetadataTransaction): Effect.fn.Return<readonly JsonObject[], Failure> {
+      const mechanics = table.relationalMechanics;
+      if (mechanics === undefined || !mechanics.table.columns.some(column => column.type === "real"))
+        return input.mode === "normalize" ? input.rows : [];
+      const batch = yield* Effect.fromResult(prepareLogicalRelationalRealBatch(mechanics, table.tableId, input,
+        { rows: Math.min(callIdentityLimit, MAX_BOUNDED_APP_ROW_READ_IDENTITIES), bytes: lifetime.remainingBytes() }, error));
+      const facts = yield* Effect.fromResult(inspectLogicalRelationalRealBatch(batch, table.tableId, error));
+      yield* charge(facts.inputBytes);
+      const converted = yield* (finiteProfile !== undefined ? finiteProfile.captureStorage({ kind: "relationalReal", tableId: table.tableId, batch },
+        { kind: "rows", tableId: table.tableId }) : checkedTx !== undefined ? executeLogicalRelationalRealBatch(checkedTx, batch, table.tableId, error) :
+        runStorageRead({ kind: "rows", tableId: table.tableId }, { tableId: table.tableId }, tx => executeLogicalRelationalRealBatch(tx, batch, table.tableId, error)));
+      yield* charge(converted.bytes);
+      return converted.rows;
+  });
+  const checkRealDocuments = Effect.fn("LogicalDocuments.checkRealDocuments")(function* (table: LogicalDocumentTable,
+    documents: readonly CanonicalFlarexValueV1[], tx?: FlarexMetadataTransaction): Effect.fn.Return<void, Failure> {
+      const mechanics = table.relationalMechanics;
+      if (mechanics === undefined || !mechanics.table.columns.some(column => column.type === "real")) return;
+      const missing = documents.filter(document => !checkedRealDocuments.has(document) || !hasLogicalRelationalRealVerdict(mechanics, document));
+      // Preserve the existing per-document accepting bound before any SQL
+      // conversion; hydration retains its original envelope charge below.
+      for (const document of missing) yield* Effect.fromResult(captureLogicalRelationalCanonicalRow(document, limits.documentBytes, error));
+      for (let offset = 0; offset < missing.length; offset += MAX_BOUNDED_APP_ROW_READ_IDENTITIES) {
+        const selected = missing.slice(offset, offset + MAX_BOUNDED_APP_ROW_READ_IDENTITIES);
+        yield* convertRealRows(table, { mode: "validate", documents: selected }, tx);
+        for (const document of selected) checkedRealDocuments.add(document);
+      }
+  });
+  // Initialize the borrowed conversion/hydration operations before construction
+  // can hydrate a live base from an independent durable/native overlay.
+  // The finite root already owns its original preimages and pending rows.
+  if (root === undefined && pendingSeeds().length > 0) {
+    yield* requireReadAdmission;
+    yield* runConstructionRead(hydratePendingSeeds);
+  }
   /** Candidate acquisition owns dependencies; PostgreSQL evaluates the captured
    * current values without rereading committed rows or retaining a verdict.
    * Find/page retain their existing outer diagnostic operation boundaries. */
@@ -1878,6 +1916,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       });
       yield* collectSelections(0);
     }
+    yield* checkRealDocuments(table, [...selected.values()].flatMap(row => row.current === null ? [] : [row.current]));
     // Selection has settled. Inspection, ordering and projection are bounded
     // synchronous owner work; retain lazy row order inside one Result fold.
     const candidates = yield* lifetime.fromResult(Result.gen(function* () {
@@ -2013,6 +2052,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     const matched = new Map<AppDocumentIdV1, Member>();
 
     const add = (pending: readonly PendingDocument[]) => observeExecution("LogicalDocuments.pageMembers", Effect.gen(function* () {
+      yield* checkRealDocuments(table, pending.flatMap(row => row.current === null ? [] : [row.current]));
       const candidates = yield* lifetime.fromResult(Result.gen(function* () {
         const inspectedRows: (Member & { matches?: boolean })[] = [];
         for (const row of pending) {
@@ -2156,6 +2196,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     };
     const accept = (candidate: PendingDocument, document: CanonicalFlarexValueV1) => Effect.gen(function* () {
       if (candidate.tableId !== table.tableId) return;
+      yield* checkRealDocuments(table, [document, ...(candidate.current === null ? [] : [candidate.current])]);
       const native = yield* Effect.fromResult(nativeLogicalRelationalCanonicalRow(mechanics, document, limits.documentBytes, error));
       if (!keyColumns.every(column => native[column] === identity[column]) || !jsonEqual(native, inputRow)) return;
       if (candidate.current !== null) {
@@ -2202,6 +2243,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       for (const revision of revisions) {
         yield* charge(128 + (revision.kind === "live" ? revision.document.canonicalBytes.byteLength : 0));
         if (revision.kind !== "live") continue;
+        yield* checkRealDocuments(table, [revision.document]);
         const native = yield* Effect.fromResult(nativeLogicalRelationalCanonicalRow(mechanics, revision.document, limits.documentBytes, error));
         if (!jsonEqual(native, inputRow)) continue;
         const encoded = yield* lifetime.fromResult(lowerIndex(definition, revision.document, revision.creationTime, "storedCorruption"));
@@ -2252,7 +2294,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
           if (operation === "replay") {
             if (Object.keys(row).length !== relationalDefinition.columns.length)
               return yield* Result.fail(error("invalidInput"));
-            yield* policy.validate(row, "documentInvalid");
+            yield* relationalDefinition.columns.some(column => column.type === "real")
+              ? validateRelationalRowColumns(relationalDefinition, row).pipe(Result.mapError(cause => error("documentInvalid", cause)))
+              : prepareLogicalRelationalRowValues(relationalDefinition, relationalMechanics.capabilities, error)(row, "documentInvalid");
           }
           if ((operation === "delete" || operation === "softDelete" || operation === "restore") &&
             (Object.keys(row).length !== policy.keyColumns.length || Object.keys(row).some(name => !policy.keyColumns.some(column => column === name))))
@@ -2315,6 +2359,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
               const lastOrdinal = candidate.attempts.at(-1);
               const last = lastOrdinal === undefined ? undefined : attempts[lastOrdinal];
               if (last?.operation !== "delete" || last.documentId !== candidate.documentId || last.before !== candidate.deletedValue) continue;
+              yield* checkRealDocuments(table, [candidate.deletedValue]);
               const native = yield* Effect.fromResult(nativeLogicalRelationalCanonicalRow(
                 relationalMechanics, candidate.deletedValue, limits.documentBytes, error));
               if (!policy.keyColumns.every(column => native[column] === identity[column])) continue;
@@ -2331,6 +2376,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
           // Unchanged lifecycle operations still use their selected row, even
           // when a complete scan supplied it without a keyed storage probe.
           yield* lifetime.fromResult(markPendingUse(pending));
+          if (pending?.current != null) yield* checkRealDocuments(table, [pending.current]);
           const previous = deletedPreimage ?? (pending?.current == null ? null : yield* Effect.fromResult(
             nativeLogicalRelationalCanonicalRow(relationalMechanics, pending.current, limits.documentBytes, error)));
           if (operation === "delete") {
@@ -2369,9 +2415,12 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
             // omitted deletion fields and selects its managed-time policy.
             // Exact deleted-row reconstitution may retain both proven stamps;
             // ordinary updates and lifecycle transitions still advance time.
-            const fields = yield* Effect.fromResult(policy.normalize(supplied, previous,
+            const candidateFields = yield* Effect.fromResult(policy.normalize(supplied, previous,
               yield* transactionTime, operation === "upsert" || operation === "replay" || preserveManaged ||
                 operation === "reconstitute" && state.reconstitution === "preserveTimestamps" ? "preserve" : "advance"));
+            const converted = yield* convertRealRows(table, { mode: "normalize", rows: [candidateFields] });
+            const fields = converted[0];
+            if (fields === undefined) return yield* Effect.fail(error("storedCorruption"));
             const afterWrite = (written: JsonObject) => Effect.gen(function* () {
               const { _id: _internalId, _creationTime: _internalTime, ...native } = written;
               const capturedNative = yield* Effect.fromResult(useCapturedPrivateJsonData(native, Number.MAX_SAFE_INTEGER, error));
@@ -2546,8 +2595,10 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
             isJsonObject(row.current.valueJson) && row.current.valueJson[key] === identity);
           if (pending === undefined || pending.current === null || previous[intent.sourceColumn] !== intent.targetKey)
             return yield* Effect.fail(error("storedCorruption"));
-          const fields = yield* Effect.fromResult(policy.normalize({ [key]: identity, [intent.sourceColumn]: null },
+          const candidate = yield* Effect.fromResult(policy.normalize({ [key]: identity, [intent.sourceColumn]: null },
             previous, yield* transactionTime, "preserve"));
+          const fields = (yield* convertRealRows(source, { mode: "normalize", rows: [candidate] }))[0];
+          if (fields === undefined) return yield* Effect.fail(error("storedCorruption"));
           const cause = Object.freeze({ sourceColumn: intent.sourceColumn, targetTableId: intent.targetTableId,
             targetColumn: intent.targetColumn, targetKey: intent.targetKey, targetDeleteOrdinal: deleteOrdinal });
           yield* withWrittenDocument(pending, fields, "patch", () => Effect.void, selectedPending =>

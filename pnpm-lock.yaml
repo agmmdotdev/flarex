@@ -927,6 +927,9 @@ importers:
       '@medusajs/store':
         specifier: workspace:*
         version: link:../medusa-store
+      '@medusajs/tax':
+        specifier: workspace:*
+        version: link:../medusa-tax
       '@medusajs/utils':
         specifier: workspace:*
         version: link:../medusa-utils

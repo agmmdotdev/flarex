@@ -24,7 +24,9 @@ export function isRelationalColumnValue(type: RelationalColumnType, nullable: bo
     case "text": return typeof value === "string" && relationalText(value);
     case "boolean": return typeof value === "boolean";
     case "integer": return typeof value === "number" && Number.isSafeInteger(value) && value >= -2147483648 && value <= 2147483647;
-    case "doublePrecision": return typeof value === "number" && Number.isFinite(value);
+    // This primitive checks the input domain only. The actual storage owner
+    // determines PostgreSQL REAL's decimal conversion and canonical wire value.
+    case "real": case "doublePrecision": return typeof value === "number" && Number.isFinite(value);
     case "numeric": return ((typeof value === "number" && Number.isFinite(value)) ||
       (typeof value === "string" && value.length <= 1024 && /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?(?![\s\S])/.test(value))) &&
       Result.isSuccess(decodeExactDecimal(String(value)));
@@ -43,7 +45,7 @@ export class RelationalRowValueError extends Data.TaggedError("RelationalRowValu
 /** Complete row-local contract for an authenticated, normalized table. Defaults
  * must already be applied by the semantic owner. Keys, foreign keys, lifecycle
  * capabilities and serving authority require their separate shared owners. */
-export function validateRelationalRowValues(table: RelationalTableDefinition, row: JsonObject): Result.Result<void, RelationalRowValueError> {
+export function validateRelationalRowColumns(table: RelationalTableDefinition, row: JsonObject): Result.Result<void, RelationalRowValueError> {
   for (const name of Object.keys(row)) {
     if (!table.columns.some(column => column.identity.columnId === name))
       return Result.fail(new RelationalRowValueError({ reason: "unknownColumn", column: name }));
@@ -58,22 +60,29 @@ export function validateRelationalRowValues(table: RelationalTableDefinition, ro
         ((column.type === "integer" || column.type === "doublePrecision") && Object.is(value, -0)))
       return Result.fail(new RelationalRowValueError({ reason: "invalidValue", column: name }));
   }
-  for (const constraint of table.constraints) {
-    if (constraint.kind === "foreignKey") continue;
-    if (constraint.kind === "nullImplication") {
-      if (row[constraint.nonNullColumn.columnId] !== null &&
-        (row[constraint.requiredColumn.columnId] === null) !== (constraint.required === "null"))
-        return Result.fail(new RelationalRowValueError({ reason: "constraintViolation", column: constraint.requiredColumn.columnId }));
-      continue;
-    }
-    const value = row[constraint.column.columnId];
-    // SQL CHECK predicates admit NULL; the column contract owns nullability.
-    if (value === null) continue;
-    const valid = constraint.kind === "textSet"
-      ? typeof value === "string" && constraint.values.includes(value)
-      : typeof value === "number" && (constraint.minimum === null || value >= constraint.minimum) &&
-        (constraint.maximum === null || value <= constraint.maximum);
-    if (!valid) return Result.fail(new RelationalRowValueError({ reason: "constraintViolation", column: constraint.column.columnId }));
-  }
   return Result.succeed(undefined);
+}
+
+/** Complete row-local constraints run after any actual storage conversion. */
+export function validateRelationalRowValues(table: RelationalTableDefinition, row: JsonObject): Result.Result<void, RelationalRowValueError> {
+  return validateRelationalRowColumns(table, row).pipe(Result.flatMap(() => {
+    for (const constraint of table.constraints) {
+      if (constraint.kind === "foreignKey") continue;
+      if (constraint.kind === "nullImplication") {
+        if (row[constraint.nonNullColumn.columnId] !== null &&
+          (row[constraint.requiredColumn.columnId] === null) !== (constraint.required === "null"))
+          return Result.fail(new RelationalRowValueError({ reason: "constraintViolation", column: constraint.requiredColumn.columnId }));
+        continue;
+      }
+      const value = row[constraint.column.columnId];
+      // SQL CHECK predicates admit NULL; the column contract owns nullability.
+      if (value === null) continue;
+      const valid = constraint.kind === "textSet"
+        ? typeof value === "string" && constraint.values.includes(value)
+        : typeof value === "number" && (constraint.minimum === null || value >= constraint.minimum) &&
+          (constraint.maximum === null || value <= constraint.maximum);
+      if (!valid) return Result.fail(new RelationalRowValueError({ reason: "constraintViolation", column: constraint.column.columnId }));
+    }
+    return Result.succeed(undefined);
+  }));
 }

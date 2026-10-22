@@ -3,8 +3,9 @@
 ## Status and authority
 
 Status: selected native contract characterized; the shared null-constraint and
-partial-index prerequisite is implemented; SQL-real conversion and adapter
-admission remain pending. The next
+partial-index prerequisite is implemented. The bounded SQL-real prerequisite
+is validated through ordinary execution and finite capture on both database
+lanes; native Tax adapter admission remains pending. The next
 independent child is `tax/steps/get-item-tax-lines.ts`, composed as one private
 workflow around the genuine `getItemTaxLinesStep`.
 
@@ -46,6 +47,17 @@ array still invokes genuine `getTaxLines([])` after filtering. Empty item and
 shipping arrays do not invent module calls. Output remains
 `{ lineItemTaxLines, shippingMethodsTaxLines }`, with the native IDs, fields,
 array order and scalar rates.
+
+The native provider context also distinguishes omitted fields from own
+`undefined` values, including nested metadata. Default workflow method input
+capture erases those object properties before the argument decoder runs. The
+shared method boundary now offers an explicit `preserveOwnUndefined` selection
+and bounded JSON transport through the existing capture owner, as described in
+[workflow host composition](../../workflow-foundations/11-workflow-host-composition.md).
+The Tax method must select that mode and decode its complete transported input;
+reconstructing a fixed list of Tax keys cannot preserve arbitrary native context.
+This prerequisite does not itself admit the Tax method or change default methods
+and Query inputs.
 
 ## Tax service and local provider
 
@@ -96,17 +108,34 @@ database driver's text-to-JavaScript representation. It is not the existing
 read can differ; directly applying `Math.fround` to the original JavaScript
 input does not reproduce every characterized native case.
 
-The final numeric design remains pending. Establish SQL-real conversion and
-representation at the existing trusted scalar storage owner, including the
-actual input, persisted value, cold read and returned DTO boundaries. Prove
-decimal input rounding and tie cases against the pinned native database
-behavior before selecting an implementation. Do not relabel binary64,
-silently rewrite native Rate values in the adapter, or change existing scalar
-contracts to make this child pass.
+The [neutral SQL-real owner](../../shared-logical-storage/72-sql-real-scalar-mechanics.md)
+implements decimal-to-PostgreSQL-REAL-to-wire normalization on the existing
+borrowed session. It requires actual `extra_float_digits = 1`, preserves
+complete row validation after conversion, and rejects noncanonical stored
+values rather than repairing them. Its primitive finite/null input check
+makes no canonical conversion claim. The neutral installed proof covers ordinary
+execution and finite capture on PGlite and ordinary-role PostgreSQL.
+
+REAL literal defaults, REAL-valued index/unique keys, REAL comparison and
+sorting, and displaced physical-DDL support remain unsupported. The named
+neutral real reference-maintenance gate explicitly refuses terminal set-null
+and reference replacement on REAL-bearing source rows; Tax configuration
+mutations are not admitted by this read child. Fresh pure canonical validation
+without prepared SQL mechanics also refuses REAL. These boundaries do not
+permit omitting the native models' reference/check/index declarations.
+
+The scalar proof includes initialization, decimal rounding/ties, maximum/subnormal
+and refused underflow/overflow, complete merged rows, cold reads, retained
+historical bytes and admitted inverses, actual session refusal, protected finite
+capture, canonical corruption and atomic rollback. The shared owner records the
+remaining historical-query, fault-injection and reference-replacement proof
+limits. Native creation DTO retention remains the framework's
+boundary; this prerequisite does not admit general Tax CRUD or change its DTO
+normalization. Preserve existing int32, binary64 and exact numeric contracts.
 
 ## Bounded admission plan
 
-1. Complete the neutral schema prerequisites and SQL-real design/proof with
+1. Complete the neutral schema prerequisites and bounded SQL-real owner proof with
    their owning regressions. Preserve original failures and separate corrected
    candidates. Necessary core changes remain within standing approval.
 2. Promote the exact native step and the required Tax/SystemTax source closure

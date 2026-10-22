@@ -447,7 +447,7 @@
     {
       "target": "packages/medusa-adapter/src/schema/compiled.ts",
       "classification": "authored",
-      "targetSha256": "c90aaba1e0f11f023dfb6b6f9a011063734befd172e50c5f3c448c5172ab7d45"
+      "targetSha256": "5b2ae39effc5d5689cc4ee4f8028cd9313d27a782b50a9f1ed07df6a6afaec8b"
     },
     {
       "target": "packages/medusa-adapter/test/support/sales-channel-runner.ts",
@@ -507,7 +507,7 @@
     {
       "target": "packages/medusa-adapter/package.json",
       "classification": "authored",
-      "targetSha256": "01b27f8f91a9c1b00f0512f52e1e3a7099d96edc5f872b730bf90bedc02d2409"
+      "targetSha256": "f4ada54b099f906aaaec817289b005497930e126ca647709f761f8c10e748ff8"
     },
     {
       "target": "packages/medusa-adapter/src/modules/product/attempt.ts",
@@ -877,12 +877,12 @@
     {
       "target": "packages/medusa-adapter/src/schema/lower.ts",
       "classification": "authored",
-      "targetSha256": "06aff84b7b3d8e2de593cf1f7180395b96934bc92c9fe86eaddfe9fb41b674f6"
+      "targetSha256": "b200c0b8446f11b2b306e1b165a218bd18702a218f40cf70d4dadf53e4055185"
     },
     {
       "target": "packages/medusa-adapter/src/schema/model.ts",
       "classification": "authored",
-      "targetSha256": "a2cb37a186ea325528fdb2c10b6d5276436d5ec66be1e89c88c8d4c4c615997a"
+      "targetSha256": "d0d7df75a575785ad8d3804774544f9a701e6d9b1232be7beea8aa5abeff59bb"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/runtime.ts",
@@ -892,7 +892,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/value.ts",
       "classification": "authored",
-      "targetSha256": "685f2894653bf40f6710c5c39f1ee86f2d565b2e9978d10edf6d86c283c79d7a"
+      "targetSha256": "88f6994f0259ea608f7ad180ad361af1dde86a61653d63c8559177e99cfc0347"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/binding.ts",
@@ -917,7 +917,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/module.ts",
       "classification": "authored",
-      "targetSha256": "a617e7b35572ab96b65a1ca1d55f334d4bb688359d0389a3cde1a246a9781848"
+      "targetSha256": "92077a805711c8a11022647b93390426796ccb0169d1db5ea00fc163f6d2c9cb"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/resources.ts",
@@ -8047,7 +8047,7 @@
     {
       "target": "packages/medusa-adapter/src/value/complete-row.ts",
       "classification": "authored",
-      "targetSha256": "02d5a5d6b81d19aeabc0661c044f903c0ce6d8c24ea63b846ad4920d9d7d51d2"
+      "targetSha256": "9bb2b57ee590ba78a10580cb69c220faa34ed418d37cfa387d69a08df9391bfb"
     },
     {
       "target": "packages/medusa-adapter/src/workflows/sales-channel/create.ts",
@@ -13030,7 +13030,7 @@
     {
       "target": "packages/medusa-adapter/src/schema/index-predicate.ts",
       "classification": "authored",
-      "targetSha256": "cc8752d265fc4ae784afa35b78e505a830664f3b19fed94b9f6ba62c33905098"
+      "targetSha256": "9e1228143bc4ab1f656a3250029b76484358612e1fc78b6e1fc4a913306e1e0e"
     },
     {
       "target": "packages/medusa-adapter/test/customer-schema.test.ts",
@@ -13170,6 +13170,26 @@
       "target": "packages/medusa-adapter/test/support/logical-customer-selection-fixture.ts",
       "classification": "authored",
       "targetSha256": "ed5e33537de0632462d5597d5c06dc4cd09456f547d48de9cf9de8493f649966"
+    },
+    {
+      "target": "packages/medusa-adapter/src/schema/check-constraint.ts",
+      "classification": "authored",
+      "targetSha256": "847c32bcc7e0e6eaac27883cba44fd659699d4172c2d84456ae78f944916c670"
+    },
+    {
+      "target": "packages/medusa-adapter/test/schema-predicate-grammar.test.ts",
+      "classification": "authored",
+      "targetSha256": "3a5a436545cf5a7e755754b704c76f25164c409adf763e32564c57b5251e2265"
+    },
+    {
+      "target": "packages/medusa-adapter/test/tax-schema-prerequisites.test.ts",
+      "classification": "authored",
+      "targetSha256": "d54bfdc80bfc4ace0fd8535678eb78cb27234356ef4fd056b2d8017165aa998a"
+    },
+    {
+      "target": "packages/medusa-adapter/test/workflow-input-presence.test.ts",
+      "classification": "authored",
+      "targetSha256": "4f84c30458fc1265d5bbd77c29250578403361bc4d3a7dc61a9d69579eaa1e93"
     }
   ],
   "dependencies": {
@@ -13544,7 +13564,8 @@
         "@types/pg": "8.20.0",
         "drizzle-orm": "^0.45.2",
         "pg": "8.22.0",
-        "@medusajs/customer": "workspace:*"
+        "@medusajs/customer": "workspace:*",
+        "@medusajs/tax": "workspace:*"
       },
       "exports": [
         "./internal/currency-schema",

@@ -1,5 +1,6 @@
 import type { ColumnDefault, LoweredColumn, SchemaColumn, SchemaOrigins, SchemaTable } from "./model";
 import { lowerCompiledIndexWhere } from "./index-predicate";
+import { lowerCompiledCheckConstraint } from "./check-constraint";
 
 const authored = (sourceId: string) => ({ kind: "authored" as const, sourceId });
 const implicit = (sourceId: string) => ({ kind: "implicit" as const, sourceId });
@@ -21,6 +22,7 @@ function columnType(column: SchemaColumn): LoweredColumn["type"] {
   switch (column.type) {
     case "id": case "enum": return "text";
     case "number": return "doublePrecision";
+    case "float": return "real";
     case "dateTime": return "timestamptz";
     case "json": case "array": return "jsonb";
     case "bigNumber": return "numeric";
@@ -104,6 +106,10 @@ export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string,
         origin: implicit("dml.deleted_at.active-index"),
       });
     const constraints = [
+      ...(table.checks ?? []).map(check => ({
+        ...lowerCompiledCheckConstraint(check),
+        origin: authored(check.name),
+      })),
       ...table.foreignKeys.map((fk) => ({
         constraintId: fk.name,
         kind: "foreignKey",

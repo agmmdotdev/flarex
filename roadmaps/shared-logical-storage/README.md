@@ -31,7 +31,11 @@ uniqueness; Customer workflow admission remains separate.
 [Null implications and two-null partial indexes](./71-null-constraints-and-partial-indexes.md)
 extend the existing relational row and membership owners for the native Tax
 prerequisite. The bounded implementation is validated on PGlite and ordinary-role
-PostgreSQL; native Tax workflow admission and SQL-real conversion remain separate.
+PostgreSQL; native Tax workflow admission remains separate.
+[SQL real scalar mechanics](./72-sql-real-scalar-mechanics.md) implements the
+bounded private normalization and stored-verification prerequisite, validated
+through ordinary execution and finite capture on both database lanes. Its
+explicit capability gates and native Tax workflow admission remain separate.
 Selected scalar and Product-tag commands now validate at the shared outer-call
 boundary, supporting repeated calls and native child workflows with one
 settlement. [Native command composition](./44-native-command-composition.md)

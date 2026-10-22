@@ -77,6 +77,16 @@ Each selected method has a tuple argument decoder, command-input encoder and
 result decoder. Graph registration reuses the existing read tokens and checked
 metadata. Module event capture and fact validation stay module-owned.
 
+Method input capture omits own object properties whose value is `undefined` by
+default, while retaining dense positional array values. A trusted method may
+select `inputPresence: "preserveOwnUndefined"` when the native contract observes
+object presence. That selection preserves every captured path before the tuple
+decoder and transports the encoded intermediate through a bounded JSON envelope.
+The command uses `decodeWorkflowCommandInput` with its authoritative input
+decoder; checked paths restore a detached value and convey no authority. The
+same descriptor, cycle, depth, node and complete-envelope byte limits apply.
+Query inputs and existing method registrations retain their default behavior.
+
 Product exposes the selected array-only tag creation signature and its current
 graph profile. Native tag results validate `id` and `value` and retain checked
 JSON projection fields; they do not promise a full Medusa DTO. Currency's native

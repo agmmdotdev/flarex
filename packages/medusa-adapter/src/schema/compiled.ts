@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { CompiledIndexWhere } from "./index-predicate";
+import { CompiledCheckConstraint } from "./check-constraint";
 
 /** Shared checked compiler grammar. Module owners still admit their exact model set. */
 const strings = Schema.Array(Schema.String);
@@ -28,6 +29,9 @@ const Column = Schema.Union([
   Schema.Struct({ ...columnFields,
     type: Schema.Literals(["id", "text", "number", "boolean", "dateTime", "enum"]),
     defaultValue: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number, Schema.Boolean])),
+  }),
+  Schema.Struct({ ...columnFields, type: Schema.Literal("float"),
+    defaultValue: Schema.optionalKey(Schema.Never),
   }),
   Schema.Struct({ ...columnFields, type: Schema.Literal("json"),
     defaultValue: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number, Schema.Boolean, Schema.Null, RawDefault])),
@@ -72,7 +76,7 @@ const CompiledSchema = Schema.Struct({
       name: Schema.String,
       columns: Schema.Array(Column),
       indexes: Schema.Array(Index),
-      checks: Schema.Tuple([]),
+      checks: Schema.Array(CompiledCheckConstraint),
       foreignKeys: Schema.Array(ForeignKey),
       relationships: Schema.Array(Relationship),
       cascades: Schema.Struct({ delete: strings, detach: strings }),

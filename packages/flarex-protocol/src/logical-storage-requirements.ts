@@ -79,7 +79,7 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
           const type = table.columns.find(field => field.identity.columnId === column.columnId)?.type;
           const nullOnly = predicate?.kind === "isNull" && predicate.column.columnId === column.columnId ||
             predicate?.kind === "allNull" && predicate.columns.some(member => member.columnId === column.columnId);
-          return column.columnId.includes(".") || (!nullOnly && type !== "text" && type !== "boolean" &&
+          return column.columnId.includes(".") || type === "real" || (!nullOnly && type !== "text" && type !== "boolean" &&
             type !== "integer" && type !== "doublePrecision" && type !== "timestamptz" && type !== "numeric");
         }) || (predicate !== null && (predicate.kind === "allNull"
           ? predicate.columns.some(reference => reference.columnId.includes(".") ||
