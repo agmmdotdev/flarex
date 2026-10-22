@@ -31,6 +31,7 @@ import type { CompiledPayloadCollections } from "../../../../payload-adapter/src
 import type { SessionJournalStorePersistence } from "../../../src/execution/journal/contracts";
 import type { PreparedFiniteApplicationMutationAdmission } from "../../../src/application/applicationMutationAdmission";
 import type { CurrentApplicationFiniteEntry } from "../../../src/application/activation/contracts";
+import { requireScopeAuthorizationRevocationEpochInTransactionEffect } from "../../../src/scope/scopeClock";
 
 /** Only data/setup/observation: production owners issue all authority and settle. */
 export async function privatePermissionFixture(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
@@ -119,10 +120,14 @@ export async function privatePermissionFixture(persistence: PGliteFlarexPersiste
     type PublisherOptions = NonNullable<Parameters<typeof createPointCommitPublisherPortV1>[1]>;
     const makePublisher = (options: Pick<PublisherOptions, "logicalOperationProfiles" | "afterTransactionStep"> = {}) =>
       createPointCommitPublisherPortV1(application.pointCommitAuthority, { ...publisherOptions, ...options });
-    const prepareEvidence = () => Effect.tryPromise({ try: () => applicationMutationActivationEvidenceFixture({
+    const prepareEvidence = () => Effect.tryPromise({ try: async () => {
+      const authorizationRevocationEpoch = await persistence.drizzle.transaction(tx => Effect.runPromise(
+        requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, application.authority.scopeId)));
+      return applicationMutationActivationEvidenceFixture({
       deploymentId: TransactionGrantDeploymentIdV1Schema.make(application.deploymentId), executionAuthority: prepared.executionAuthority,
+      authorizationRevocationEpoch,
       requestKey: randomUUID(), grantId: randomUUID(),
-    }), catch: cause => new Error("Permission fixture grant construction failed", { cause }) });
+    }); }, catch: cause => new Error("Permission fixture grant construction failed", { cause }) });
     const openEffect = Effect.fn("PrivatePermissionFixture.open")(function* (options: Readonly<{
       participants?: Parameters<SessionJournalStorePersistence["prepareFiniteEntryEffect"]>[0];
       preparedAdmission?: PreparedFiniteApplicationMutationAdmission;

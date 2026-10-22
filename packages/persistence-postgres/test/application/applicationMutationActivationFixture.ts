@@ -34,6 +34,7 @@ import {
   TransactionPolicyVersionV1Schema,
   TransactionRequestKeyV1Schema,
   TransactionRequestSha256V1Schema,
+  type TransactionAuthorizationRevocationEpoch,
 } from "flarex-protocol/transaction-session";
 import { FLAREX_VALUE_CODEC_VERSION_V1, canonicalizeFlarexValueJsonV1 } from "flarex-protocol/value";
 import type {
@@ -57,6 +58,7 @@ export async function applicationMutationActivationFixture(input: Readonly<{
   grantId: string;
   validatedArgsJson?: Readonly<{ body: string }>;
   grantLifetimeMilliseconds?: number;
+  authorizationRevocationEpoch?: TransactionAuthorizationRevocationEpoch;
 }>): Promise<PreparedApplicationMutationSessionActivationV1 & Readonly<{
   verificationKey: ApplicationMutationGrantVerificationKeyV1;
 }>> {
@@ -71,6 +73,7 @@ export async function applicationMutationActivationEvidenceFixture(input: Readon
   grantId: string;
   validatedArgsJson?: Readonly<{ body: string }>;
   grantLifetimeMilliseconds?: number;
+  authorizationRevocationEpoch?: TransactionAuthorizationRevocationEpoch;
 }>, runPreparedEffect: typeof runEffect = runEffect): Promise<Omit<PreparedApplicationMutationSessionActivationV1, "activeSelection"> & Readonly<{
   verificationKey: ApplicationMutationGrantVerificationKeyV1;
 }>> {
@@ -97,7 +100,7 @@ export async function applicationMutationActivationEvidenceFixture(input: Readon
     validatedArgsSha256: encodeBytesToLowercaseHex(validatedArgsSha256), requestKey, requestSha256: encodeBytesToLowercaseHex(requestSha256),
     issuedAt: TransactionGrantTimestampV1Schema.make(new Date(now - 60_000).toISOString()),
     expiresAt: TransactionGrantTimestampV1Schema.make(new Date(now + grantLifetimeMilliseconds).toISOString()),
-    authorizationRevocationEpoch: TransactionAuthorizationRevocationEpochSchema.make(0n) }));
+    authorizationRevocationEpoch: input.authorizationRevocationEpoch ?? TransactionAuthorizationRevocationEpochSchema.make(0n) }));
   const keys = await globalThis.crypto.subtle.generateKey("Ed25519", false, ["sign", "verify"]);
   if (!("privateKey" in keys) || !("publicKey" in keys)) throw new Error("Expected Ed25519 key pair");
   const authorizationGrant = assembleApplicationMutationGrantJwsV1(segments,

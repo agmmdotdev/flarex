@@ -63,7 +63,7 @@ export interface PrivateSavePreparation {
   readonly payloadProfile: (revision: string) => OperationProfile;
   readonly profiles: readonly OperationProfile[];
 }
-type PreparationFailure = CurrentApplicationPreparationFailure | PreparedHostRuntimeError |
+export type PrivateSavePreparationFailure = CurrentApplicationPreparationFailure | PreparedHostRuntimeError |
   Effect.Error<ReturnType<typeof prepareLogicalStorageReadiness>> | Effect.Error<ReturnType<typeof prepareCmsPreferences>> |
   Effect.Error<ReturnType<typeof prepareLogicalDocumentSourceAdmission>> | Effect.Error<ReturnType<typeof prepareLogicalRelationalAdmission>> |
   Effect.Error<ReturnType<typeof prepareFiniteApplicationMutationAdmission>> | Effect.Error<ReturnType<typeof prepareFiniteApplicationMutationSourceComposition>>;
@@ -79,7 +79,8 @@ export interface PrivatePayloadSaveFixture {
   readonly target: FrameworkSchemaTarget;
   readonly open: () => Promise<PrivatePayloadSaveRoot>;
   readonly withPreparation: <A, E, R>(work: (preparation: PrivateSavePreparation) => Effect.Effect<A, E, R>) =>
-    Effect.Effect<A, E | PreparationFailure, R>;
+    Effect.Effect<A, E | PrivateSavePreparationFailure, R>;
+  readonly withFreshPreparation: PrivatePayloadSaveFixture["withPreparation"];
   readonly session: RelationalSession;
   readonly productRuntime: Effect.Success<ReturnType<typeof makeLocalProductCommands>>;
   readonly productHost: Effect.Success<ReturnType<typeof makeCommerceHost>>;
@@ -195,7 +196,7 @@ export async function privatePayloadSaveFixture(resources: Readonly<{
         productRuntime.commands.internalProductSoftDelete, productRuntime.commands.internalProductRestore] }));
     await Effect.runPromise(Scope.addFinalizer(scope, productHost.close));
     await Effect.runPromise(productHost.initialize([]));
-    const retained = await Effect.runPromise(Scope.provide(scope)(retainPreparedHost(preparedHostTestRuntime(resources.persistence.drizzle),
+    const construction = retainPreparedHost(preparedHostTestRuntime(resources.persistence.drizzle),
       prepareCurrentApplicationBinding(application.relationActivation, resources.persistence.drizzle, original => Effect.gen(function* () {
         const catalog = yield* prepareLogicalStorageReadiness(ports, application.servingOwners.uniqueConstraintEligibility, location, original);
         if (catalog.status !== "prepared") return yield* Effect.die(new Error("Missing prepared joint catalog"));
@@ -211,9 +212,11 @@ export async function privatePayloadSaveFixture(resources: Readonly<{
         const preparedAdmission = yield* prepareFiniteApplicationMutationAdmission(application.relationActivation, "functions:write", fixture.context, original);
         yield* prepareFiniteApplicationMutationSourceComposition(preparedAdmission, [payload, product]);
         return { payload, product, preparedAdmission };
-      }), { selection: { deploymentId, scopeId: authority.scopeId }, candidateIssuer: application.pointCommitAuthority }))));
+      }), { selection: { deploymentId, scopeId: authority.scopeId }, candidateIssuer: application.pointCommitAuthority }));
+    const retained = await Effect.runPromise(Scope.provide(scope)(construction));
     await Effect.runPromise(Scope.addFinalizer(scope, retained.close));
-    const withPreparation: PrivatePayloadSaveFixture["withPreparation"] = work => retained.use(current => current.withFiniteEntry((graph, currentEntry) => {
+    const usePreparation = <A, E, R>(selected: typeof retained,
+      work: (preparation: PrivateSavePreparation) => Effect.Effect<A, E, R>) => selected.use(current => current.withFiniteEntry((graph, currentEntry) => {
       const payloadProfile = (profileRevision: string): OperationProfile => ({ participant: "payload",
         operationMethods: ["payload-create", "payload-update", "payload-delete"], profileRevision,
         sources: [graph.payload.payload.createCommitAuthority(graph.binding, "payload", ["payload-create", "payload-update", "payload-delete"])] });
@@ -226,6 +229,12 @@ export async function privatePayloadSaveFixture(resources: Readonly<{
         { participant: "medusa.product", operationMethods: ["retrieve"], profileRevision: "2".repeat(64),
           sources: [{ selection: graph.payload.product, methods: ["retrieve"] }] }] });
     }));
+    const withPreparation: PrivatePayloadSaveFixture["withPreparation"] = work => usePreparation(retained, work);
+    const withFreshPreparation: PrivatePayloadSaveFixture["withPreparation"] = work => Effect.scoped(Effect.gen(function* () {
+      const fresh = yield* construction;
+      yield* Effect.addFinalizer(() => fresh.close);
+      return yield* usePreparation(fresh, work);
+    }));
     const open = async () => {
       const result = await Effect.runPromise(withPreparation(preparation =>
       fixture.openEffect({ preparedAdmission: preparation.preparedAdmission, currentEntry: preparation.currentEntry,
@@ -237,7 +246,8 @@ export async function privatePayloadSaveFixture(resources: Readonly<{
           }))));
       return result;
     };
-    return { fixture, compiled, candidate, authored, admit, target, open, withPreparation, session: resources.session, productHost, productRuntime, preferences,
+    return { fixture, compiled, candidate, authored, admit, target, open, withPreparation, withFreshPreparation,
+      session: resources.session, productHost, productRuntime, preferences,
       schemaBinding, prepareSchemaBinding,
       close: async () => { try { await Effect.runPromise(Scope.close(scope, Exit.void)); } finally { await fixture.close(); } } };
   } catch (cause) {

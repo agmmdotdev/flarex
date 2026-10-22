@@ -18,7 +18,7 @@ const decodeMessage = Schema.decodeUnknownSync(Schema.Union([
 export const runPrivatePayloadSaveWorkerd = Effect.fn("PrivatePayloadSaveFixture.workerd")(function* (
   input: PointMutationOccRuntimeNeutralRunnerInputV1, consumer: PrivatePayloadSaveConsumer,
   source: string, onResponse: (response: unknown) => void,
-  observations: Readonly<{ onReceipt?: () => void; onDisposed?: () => void }> = {},
+  observations: Readonly<{ onReceipt?: () => void; afterReceipt?: () => Promise<void>; onDisposed?: () => void }> = {},
 ) {
   if (input.executionAuthorityGeneration !== "application_v1")
     return yield* Effect.die(new Error("Expected genuine Application execution"));
@@ -48,6 +48,7 @@ export const runPrivatePayloadSaveWorkerd = Effect.fn("PrivatePayloadSaveFixture
         const value = await rpc.target.runAdmittedFrameworkOperation(
           CommitSyscallSequenceV1Schema.make(BigInt(message.sequence)), message.frame);
         observations.onReceipt?.();
+        await observations.afterReceipt?.();
         return value;
       }
       let table = tables.get(message.tableName);

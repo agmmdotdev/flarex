@@ -2,7 +2,7 @@
 
 ## Status And Scope
 
-Status: LB1 implemented for the selected private profile; LB2-LB4 remain pending.
+Status: LB1-LB2 implemented for the selected private profile. LB3-LB4 remain pending.
 It narrows CXR4 in the [cross-framework preflight](./cross-framework-reference-preflight.md)
 after the implemented [SA1-SA4 authorization foundation](./reference-save-authorization-preflight.md).
 It does not mark CXR4 or the wider cross-framework proof complete.
@@ -36,16 +36,16 @@ owns only their selected lifecycle proof and implementation order.
 
 | Existing owner | Current mechanism to reuse | Selected evidence and remaining obligation |
 | --- | --- | --- |
-| [Logical candidate contract](../../packages/flarex-protocol/src/logical-schema-candidate.ts), producer analysis and [catalog admission](../../packages/persistence-postgres/src/storage/catalog/logicalSchemaAdmission.ts) | Qualified identities, canonical candidate/provenance evidence and retained Application/Payload write ownership; V3 policy ownership cannot be renamed, removed or reclassified through the selected admission path | LB1 proves selected endpoint/source/ownership/profile refusal and preservation; fresh serving across admitted transitions remains LB2 |
-| [Logical readiness](../../packages/persistence-postgres/src/storage/catalog/logicalStorageReadiness.ts) and [source admission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts) | Exact source definition/evidence/profile matching; required table, index, unique and dependency preparation; authenticated preparation lifetimes | LB1 proves reverse-index readiness refusal at binding preparation/activation; fresh entry and stale publication across missing/withdrawn dependencies remain LB2-LB4 |
-| [Binding host](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/host.ts) and [reference projection](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/strongReferenceProjection.ts) | Preparation and activation revalidation, scope-lock serialization, expected-head comparison, preservation of existing enforced contracts and an existence probe refusing new strong-reference projections on populated source tables | LB1 connects selected refusal, unchanged rebinding and preference-profile withdrawal; fresh/stale serving and concurrency remain LB2-LB4 |
+| [Logical candidate contract](../../packages/flarex-protocol/src/logical-schema-candidate.ts), producer analysis and [catalog admission](../../packages/persistence-postgres/src/storage/catalog/logicalSchemaAdmission.ts) | Qualified identities, canonical candidate/provenance evidence and retained Application/Payload write ownership; V3 policy ownership cannot be renamed, removed or reclassified through the selected admission path | LB1 proves selected endpoint/source/ownership/profile refusal and preservation; LB2 proves serving across its unchanged-candidate rebind and preference withdrawal/restoration |
+| [Logical readiness](../../packages/persistence-postgres/src/storage/catalog/logicalStorageReadiness.ts) and [source admission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts) | Exact source definition/evidence/profile matching; required table, index, unique and dependency preparation; authenticated preparation lifetimes | LB1 proves binding preparation/activation readiness refusal; LB2 distinguishes preference entry refusal from the final reverse-index build guard. Concurrent changes remain LB3-LB4 |
+| [Binding host](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/host.ts) and [reference projection](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/strongReferenceProjection.ts) | Preparation and activation revalidation, scope-lock serialization, expected-head comparison, preservation of existing enforced contracts and an existence probe refusing new strong-reference projections on populated source tables | LB1-LB2 connect selected refusal, unchanged rebinding, preference withdrawal and fresh/stale serving; concurrency/recovery remain LB3-LB4 |
 | [Binding repository](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/repository.ts) | Atomic activation/head, reference projection, maintenance replacement and finite metadata publication; selected permission withdrawal advances the existing revocation epoch | Prove no partial head/maintenance/authority transition and no invalid reuse after withdrawal, including concurrent saves |
-| [Current Application binding](../../packages/persistence-postgres/src/application/activation/currentBinding.ts), [finite preparation](../../packages/persistence-postgres/src/application/activation/finitePreparation.ts) and [metadata dependencies](../../packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts) | Genuine original-generation lending, exact prepared entry and consumed semantic metadata dependencies, including absent keys and change sequence | Preserve allowed unchanged-semantic reuse while refusing stale consumed contracts, ABA and expired/closed preparation through this joint profile |
-| [Protected serving consumer](../../packages/flarex-backend/src/privatePayloadSaveConsumer.ts), [private save issuer](../../packages/persistence-postgres/src/execution/journal/privateSaveAccess.ts) and [Payload save runtime](../../packages/payload-adapter/src/runtime/referenceSave.ts) | Tracked permission read, attempt-bound grant, exact native/content identity, protected native access and effective-edge authorization; no ordinary writer fallback | Reconstruct these capabilities from fresh admitted evidence after supported lifecycle changes; old receipts cannot acquire new write authority |
+| [Current Application binding](../../packages/persistence-postgres/src/application/activation/currentBinding.ts), [finite preparation](../../packages/persistence-postgres/src/application/activation/finitePreparation.ts) and [metadata dependencies](../../packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts) | Genuine original-generation lending, exact prepared entry and consumed semantic metadata dependencies, including absent keys and change sequence | LB2 proves closed-preparation refusal, selected unchanged reuse, exact consumed metadata failure/ABA and unconsumed-key preservation; broader evolution remains separate |
+| [Protected serving consumer](../../packages/flarex-backend/src/privatePayloadSaveConsumer.ts), [private save issuer](../../packages/persistence-postgres/src/execution/journal/privateSaveAccess.ts) and [Payload save runtime](../../packages/payload-adapter/src/runtime/referenceSave.ts) | Tracked permission read, attempt-bound grant, exact native/content identity, protected native access and effective-edge authorization; no ordinary writer fallback | LB2 reconstructs fresh authority after restoration and refuses stale capability/receipt publication at actual owners; races/recovery remain LB3-LB4 |
 | [Finite publication](../../packages/persistence-postgres/src/commit/point/finitePublication.ts) and [execution/recovery](../../packages/executor/src/mutation/execution/finitePointMutationExecution.ts) | One trusted settlement owner, consumed metadata comparison, current write/source acceptance, nonacceptance-bound retry and committed-outcome lookup | Prove both activation/save orders and recover an already committed save after later binding movement without repeating native work |
 
-The selected LB1 inventory below has connected proof; the broader lifecycle
-matrix remains pending through LB2-LB4. Existing generic evidence includes
+The selected LB1-LB2 inventories below have connected proof; concurrency and
+recovery remain pending through LB3-LB4. Existing generic evidence includes
 [binding lifecycle](../../packages/persistence-postgres/test/installation/frameworkSchema/frameworkDataBindingTestSupport.ts),
 [logical binding/readiness recovery](../../packages/persistence-postgres/test/storage/catalog/logicalSchemaBindingScenario.ts)
 and [finite metadata semantics](../../packages/persistence-postgres/test/execution/finiteMetadataDependenciesScenario.ts).
@@ -143,10 +143,10 @@ evolution, relationship retirement or a backfill capability.
 
 ## Known Gaps And Limitations
 
-LB1 extends the protected save fixture with selected schema/binding refusal and
-transition proofs. It does not establish fresh/stale serving across transitions,
-concurrent activation/save, coordinated framework upgrades or populated-data
-evolution. Generic lifecycle/metadata tests remain important owner regressions
+LB1-LB2 extend the protected save fixture with selected refusal, transition and
+fresh/stale serving proofs. They do not establish concurrent activation/save,
+coordinated framework upgrades or populated-data evolution.
+Generic lifecycle/metadata tests remain important owner regressions
 but cannot substitute for the authorized native/Worker path in later gates.
 
 The selected successful rebind is a new activation request for the same admitted
@@ -231,16 +231,76 @@ Application/binding selection, metadata observations and scope clocks/authority,
 index build/maintenance and unique maintenance, row bytes/history and publication
 counts. LB1 adds no public operation surface or stale-capability guarantee.
 
+## LB2 Fresh Entry And Stale Capability Boundary
+
+The [connected freshness witness](../../packages/flarex-backend/test/privatePayloadBindingFreshness.workerd.test.ts)
+uses the selected SA4 consumer, genuine finite execution, actual Worker/RPC,
+native Payload writes and protected permission reads. Its
+[shared serving arrangement](../../packages/flarex-backend/test/support/privatePayloadSaveServing.ts)
+also serves the existing SA4 scenario. Test callbacks schedule the binding owner
+before entry, after capability binding or after a native receipt, outside SQL
+transactions. They neither select acceptance nor implement retry or publication.
+
+Fresh preparation constructs a separate real retained generation in a scoped
+test borrow. It reuses the same Application, catalog, preference and source
+owners as retained serving. The test grant issuer now reads the current
+authorization revocation epoch through its existing scope owner before signing
+a new grant. This corrects the fixture's previous hardcoded-zero limitation;
+old grants, capabilities, entries and receipts retain their original evidence.
+It introduces no production issuer or public API.
+
+The selected frontier inventory is:
+
+| Stimulus | Enforcing owner and observed boundary |
+| --- | --- |
+| Same admitted candidate rebound before fresh serving and after a native receipt | Fresh preparation is usable and the pending save publishes; head movement alone is not a conflict |
+| A fresh-generation preparation escapes its enclosing borrow/Scope | Admission refuses `ApplicationMutationAdmissionError / invalidComposition` before Worker execution |
+| Withdrawal after grant preparation but before entry | Session activation refuses `authorizationRevocationEpochChanged`; no Worker/native call occurs |
+| Fresh host construction while preferences are withdrawn | Preference preparation refuses `CmsTransactionError / unsupportedProfile`; the generation callback is not entered |
+| Retained preparation enters with a new current-epoch grant while preferences are withdrawn | Participant entry refuses `invalidAuthority`, preserving the preference owner's `bindingChanged` cause; no Worker/native call occurs |
+| A private capability is bound, then preferences are withdrawn before Worker work | Storage capture refuses `authorizationRevocationEpochChanged`; trusted causes remain typed and RPC exposes only the opaque boundary. Catching the failed call cannot publish subsequent Application work |
+| Preferences are withdrawn after a genuine native receipt | Worker/native work can complete pending; publication refuses `PointCommitStaleAuthorityV1Error / revocationEpochChanged`, without content or Application publication |
+| Preference binding changes A to absent B and back to A after a receipt | The monotonic revocation epoch still refuses the old attempt. A genuinely new grant/preparation/native invocation can publish after restoration |
+| Actual reverse-index build temporarily becomes unavailable | This finite profile can admit entry and finish pending native/Application work; publication refuses `PointCommitCorruptionV1Error / developerIndexBuildInvalid`. Exact build-row restoration permits fresh serving again |
+
+The [metadata drift witness](../../packages/flarex-backend/test/support/privatePayloadBindingMetadataScenario.ts)
+first runs the protected native save plus an Application write and freezes through
+the actual owner. It selects the real consumed Payload write-closure dependency
+from that frozen graph. A missing or inconsistent stored observation refuses
+publication as `dependencySetInvalid`. The fixture does not create dependencies
+or assign sequence numbers.
+
+For ABA and selective invalidation, the test damages an actual metadata row,
+then invokes a genuine unchanged-candidate rebind. The real activation owner
+restores its canonical projection and stamps the changed sequence. Restored
+bytes do not erase a consumed key's change: its old publication conflicts on
+that exact metadata key. Repairing an actual unconsumed Product-owned metadata
+key permits the old save to publish. These are named negative drift/repair
+probes, not supported schema migrations, ownership transfers or new declaration
+syntax. Generic metadata-owner tests retain initial missing-observation coverage;
+the selected native save does not manufacture an absent-key read to claim it.
+
+Refused attempts leave committed row/history/index/fact/event/outcome counts
+unchanged. Successful attempts publish their native and Application changes
+together. Binding changes remain authoritative independently of a losing save.
+The original SA4 permission refusal, opaque failure, fresh retry and cancellation
+proofs remain with that scenario. No fresh authority is reconstructed from an
+old native receipt, and no automatic retry/fallback is added here.
+
+LB2 does not establish concurrent activation/save ordering, restart,
+lost-acknowledgement recovery or different logical-schema support. Those retain
+LB3-LB4 and the existing evolution boundary.
+
 ## Target Direction And Next Correctness Gates
 
 | Gate | Complete connected outcome and exit criteria |
 | --- | --- |
 | LB1: admission and refusal preservation | Implemented for the selected inventory above, using genuine protected Application, compiled Payload and unchanged native Product sources. The shared removal/replacement refusal is corrected; unchanged-candidate rebinding and preference-profile withdrawal are the real stimuli for later gates. |
-| LB2: fresh entry and stale capability boundary | Connect that admitted rebind/withdrawal to current preparation and the SA4 consumer. Prove fresh entry, refusal of incompatible old preparation/capability/receipt publication, consumed-key absence/change/ABA, and existing selective unchanged/unrelated semantics. Distinguish entry refusal, invocation refusal and final publication conflict; do not flatten them into one new error or automatic retry. |
+| LB2: fresh entry and stale capability boundary | Implemented for the selected inventory above through actual SA4 Worker/RPC, real fresh/retained generations and protected native saves. Consumed metadata drift/ABA and selective unconsumed repair use genuine frozen dependencies and activation-owned sequence changes; initial missing-observation semantics retain their generic owner coverage. No new refusal frontier or retry policy is introduced. |
 | LB3: concurrent activation and save | Use distinct ordinary-role PostgreSQL connections and explicit real-owner barriers to prove both accepted metadata/withdrawal versus save orders, including a save with Application work and native content already pending. Assert the actual winner, unchanged losing data and metadata/revocation behavior. A refused activation is not an activation-wins race witness. Reuse genuine whole-root retry eligibility and reconstruct permissions/native evidence after replacement. |
 | LB4: restart, uncertain outcome and consumer cleanup | Recover identical activation requests with historical receipt distinct from current usability. Lose a real activation or save COMMIT acknowledgement and observe durability independently before changing authority; resolve/replay through the existing owner. Prove no duplicate writes/hooks/outcomes or serving fallback, preserve interruption/drain, and remove only displaced selected-consumer assembly after parity. |
 
-Implement LB2 next using LB1's real transition inventory and refusal evidence.
+Implement LB3 next using LB1-LB2's real transition inventory and refusal evidence.
 Completing these bounded gates refines CXR4 only for this
 profile; CXR3's opposite-direction/three-owner extension, general authorized
 traversal, pending new Products and broader evolution retain their own gates.

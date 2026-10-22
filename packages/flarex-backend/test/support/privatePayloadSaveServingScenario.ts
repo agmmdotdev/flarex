@@ -2,10 +2,8 @@ import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { expect } from "vitest";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import { PointCommitConflictV1Error } from "../../../persistence-postgres/src/commit/point/errors";
-import { ApplicationPointMutationRunnerHostV1Error } from "../../../executor/src/mutation/authentication/storedAttemptAuthentication";
-import type { PointMutationOccRuntimeNeutralRunnerV1 } from "../../../executor/src/mutation/authentication/storedAttemptAuthentication";
 import { preparePrivateSavePolicy } from "./privatePayloadSaveCommands";
-import { makePrivateSaveExecution, type PrivateSaveExecution } from "./privatePayloadSaveExecution";
+import { runPrivatePayloadSaveServing } from "./privatePayloadSaveServing";
 import { runPrivatePayloadSaveWorkerd } from "./privatePayloadSaveWorkerd";
 import { publishedScopeCounts } from "./payloadCommerceReferenceFixture";
 import type { PrivatePayloadSaveFixture } from "./privatePayloadSaveFixture";
@@ -14,8 +12,6 @@ import { withTimeout } from "../../../persistence-postgres/test/commit/point/sup
 const document = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String }));
 const saved = Schema.decodeUnknownSync(Schema.Struct({ article: Schema.Struct({ id: Schema.String, title: Schema.String,
   featuredProduct: Schema.String }), userId: Schema.String }));
-const source = (body: string) => `export default { functions: { write: { isMutation: true, isPublic: true,
-  _handler: async ctx => { ${body} } } } };`;
 const opaque = { kind: "error", name: "PointMutationExactRuntimeJournalBoundaryV1Error",
   message: "Exact point-mutation journal boundary failed.", cause: "The journal RPC capability is unavailable." };
 
@@ -30,24 +26,10 @@ export async function privatePayloadSaveServingScenario(fixture: PrivatePayloadS
   const counts = () => publishedScopeCounts(fixture.fixture.application.persistence.drizzle, fixture.fixture.application.authority.scopeId);
   const responses: unknown[] = [];
   const invocations: string[] = [];
-  const prepare = (body: string, after?: () => Promise<void>, observations?: Parameters<typeof runPrivatePayloadSaveWorkerd>[4]) => fixture.withPreparation(preparation => Effect.gen(function* () {
-    let execution: PrivateSaveExecution | undefined;
-    const run: PointMutationOccRuntimeNeutralRunnerV1["run"] = Effect.fn("PrivatePayloadSaveServingFixture.run")(function* (input) {
-      if (execution === undefined) return yield* Effect.die(new Error("Missing genuine serving execution"));
-      const active = execution;
-      return yield* Effect.scoped(Effect.gen(function* () {
-        const consumer = yield* active.bindServing(policy.documentId, input.journal);
-        const value = yield* runPrivatePayloadSaveWorkerd(input, consumer, source(body), value => { responses.push(value); }, observations);
-        if (after !== undefined) yield* Effect.tryPromise({ try: after,
-          catch: cause => new ApplicationPointMutationRunnerHostV1Error({ reason: "terminalFailed", cause }) });
-        return value;
-      }));
-    }, Effect.mapError(cause => new ApplicationPointMutationRunnerHostV1Error({ reason: "terminalFailed", cause })));
-    const selected = yield* makePrivateSaveExecution(fixture, preparation, { run }, method => { invocations.push(method); });
-    execution = selected;
-    const result = yield* selected.owner.executePreparedFiniteAttempt(selected.prepared).pipe(Effect.result);
-    return { execution: selected, result };
-  }));
+  const prepare = (body: string, after?: () => Promise<void>, observations?: Parameters<typeof runPrivatePayloadSaveWorkerd>[4]) =>
+    runPrivatePayloadSaveServing(fixture, policy.documentId, body, { ...(after === undefined ? {} : { afterWorker: after }),
+      ...(observations === undefined ? {} : { observations }), onResponse: value => { responses.push(value); },
+      onNative: method => { invocations.push(method); } });
   const create = `await ctx.privateMixed.call("payload", "payload-create", { collection: "posts",
     data: { title: "Serving article", featuredProduct: ${JSON.stringify(product.id)} } })`;
   const before = await counts();
