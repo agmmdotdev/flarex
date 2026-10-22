@@ -10,6 +10,22 @@ const root = process.cwd();
 const promotion = verifyCurrencyPromotion(root);
 const source = "packages/medusa-currency/src/models/currency.ts";
 
+describe("Tax Rate Rule creation source selection", () => {
+  const paths = ["tax/workflows/create-tax-rate-rules.ts", "tax/steps/create-tax-rate-rules.ts"];
+  it.each(paths.flatMap(file => [
+    [file, "source", { source: "third_party/medusa/upstream/packages/core/core-flows/src/tax/steps/update-tax-rates.ts" }],
+    [file, "classification", { classification: "workflowFork" }],
+  ]))("rejects displaced %s %s", (file, _label, mutation) => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(entry =>
+      entry.target === "packages/medusa-core-flows/src/" + file ? { ...entry, ...mutation } : entry) }))
+      .toThrow("Tax Rate Rule creation outside its exact pinned source pairs");
+  });
+  it("refuses applying the Tax Rule creation class to another native leaf", () => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(entry =>
+      entry.target === source ? { ...entry, classification: "taxRuleCreationFork" } : entry) }))
+      .toThrow("Tax Rate Rule creation outside its exact pinned source pairs");
+  });
+});
 describe("Tax Rate creation source selection", () => {
   const paths = ["tax/workflows/create-tax-rates.ts", "tax/steps/create-tax-rates.ts"];
   it.each(paths.flatMap(file => [

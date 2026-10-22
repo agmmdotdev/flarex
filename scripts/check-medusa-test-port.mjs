@@ -1527,7 +1527,23 @@ export function verifyShippingOptionTypeCreateCallbacks(nativeWorkflow, workflow
  * @param {string} nativeWorkflow @param {string} workflow
  * @param {string} nativeStep @param {string} step */
 export function verifyTaxRateCreateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
-  const failure = "Changed native Tax Rate creation source";
+  verifyTaxCreationCallbacks("rate", nativeWorkflow, workflow, nativeStep, step);
+}
+
+/** Preserve the standalone Rule root's complete native typed/emitted modules.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyTaxRuleCreateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  verifyTaxCreationCallbacks("rule", nativeWorkflow, workflow, nativeStep, step);
+}
+
+/** @param {"rate" | "rule"} kind
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+function verifyTaxCreationCallbacks(kind, nativeWorkflow, workflow, nativeStep, step) {
+  const failure = kind === "rate" ? "Changed native Tax Rate creation source" : "Changed native Tax Rate Rule creation source";
+  const stem = kind === "rate" ? "create-tax-rates" : "create-tax-rate-rules";
+  const stepId = kind === "rate" ? "createTaxRatesStepId" : "createTaxRateRulesStepId";
   /** @param {string} text @param {string} before @param {string} after */
   const replace = (text, before, after) => {
     if (text.split(before).length !== 2) throw new Error(failure + ": relocation anchor");
@@ -1535,11 +1551,11 @@ export function verifyTaxRateCreateCallbacks(nativeWorkflow, workflow, nativeSte
   };
   let expectedWorkflow = replace(nativeWorkflow, 'from "@medusajs/framework/types"', 'from "@medusajs/types/tax/index"');
   expectedWorkflow = replace(expectedWorkflow, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
-  expectedWorkflow = replace(expectedWorkflow, 'from "../steps"', 'from "../steps/create-tax-rates"');
+  expectedWorkflow = replace(expectedWorkflow, 'from "../steps"', `from "../steps/${stem}"`);
   let expectedStep = replace(nativeStep, 'from "@medusajs/framework/types"', 'from "@medusajs/types/tax/index"');
   expectedStep = replace(expectedStep, 'from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
   expectedStep = replace(expectedStep, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
-  expectedStep = replace(expectedStep, "  createTaxRatesStepId,", '  { name: createTaxRatesStepId, compensation: "transactionCovered" },');
+  expectedStep = replace(expectedStep, `  ${stepId},`, `  { name: ${stepId}, compensation: "transactionCovered" },`);
   /** The shared shape owner retains the complete typed and emitted modules.
    * Import printing additionally authenticates erased import type flags.
    * @param {string} text */

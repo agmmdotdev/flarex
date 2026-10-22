@@ -32,9 +32,9 @@ export const decodeTaxRatePhysicalSelection = commerceDecoder(Schema.Struct({
 }), "unsupportedProfile");
 type Metadata = Effect.Success<ReturnType<typeof captureTaxMetadata>>["frame"];
 
-/** Four genuine DML models remain installed; this profile grants writes only
- * to Rate and Rule and derives complete scalar/default contracts from them. */
-export function compileTaxRateCreationContracts(metadata: Metadata) {
+/** Shared checked scalar/default contracts for native Tax creation profiles.
+ * Selecting a row contract grants no repository or workflow capabilities. */
+export function compileTaxCreationRows(metadata: Metadata) {
   return Result.gen(function* () {
     const rate = metadata.tables.find(table => table.name === "tax_rate"), rule = metadata.tables.find(table => table.name === "tax_rate_rule");
     if (metadata.tables.length !== 4 || rate === undefined || rule === undefined ||
@@ -55,6 +55,16 @@ export function compileTaxRateCreationContracts(metadata: Metadata) {
       }
       return output;
     };
+    return { rate, rule, tables: metadata.tables, decodeRateRow, decodeRuleRow,
+      rateDefaults: defaults(rate), ruleDefaults: defaults(rule) };
+  });
+}
+
+/** Four genuine DML models remain installed; this profile grants writes only
+ * to Rate and Rule and derives complete scalar/default contracts from them. */
+export function compileTaxRateCreationContracts(metadata: Metadata) {
+  return Result.gen(function* () {
+    const rows = yield* compileTaxCreationRows(metadata), { rate, rule, decodeRateRow, decodeRuleRow } = rows;
     const decodeOutput = (input: unknown) => Result.gen(function* () {
       const rows = yield* decodeStoredTaxRateOutputs(input), ids = new Set<string>();
       for (const row of rows) {
@@ -74,8 +84,7 @@ export function compileTaxRateCreationContracts(metadata: Metadata) {
     });
     const entities = [{ table: rate, model: "TaxRate", maximum: 4, decodeRow: decodeRateRow },
       { table: rule, model: "TaxRateRule", maximum: 8, decodeRow: decodeRuleRow }];
-    return { rate, rule, tables: metadata.tables, entities, decodeRateRow, decodeRuleRow,
-      rateDefaults: defaults(rate), ruleDefaults: defaults(rule), Input: TaxRateCreatesInput, Output: TaxRateCreatesOutput,
+    return { ...rows, entities, Input: TaxRateCreatesInput, Output: TaxRateCreatesOutput,
       decodeInput: decodeTaxRateCreates, decodeOutput, initializeRows };
   });
 }

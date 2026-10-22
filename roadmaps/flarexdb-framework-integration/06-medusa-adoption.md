@@ -845,6 +845,15 @@ order. Shared authenticated conversion evidence and checked managed values
 preserve the native contract. The admitted calculation profile remains read-only;
 standalone Rule creation and other Tax administration remain separate.
 
+The private bounded
+[standalone Tax Rate Rule creation](./preflight/165-native-tax-rate-rule-creation-workflow.md)
+profile is admitted on PGlite and ordinary-role PostgreSQL, including its genuine
+retained physical inverse. It accepts up to eight Rules across four existing
+Rates, preserves Rule-local creators, general JSON metadata and managed values,
+and uses separately approved Rule inverse storage insertion order. Default
+resource limits remain unchanged. Parent and unrelated rows remain intact;
+Rule soft-delete/restore and other Tax administration remain separate.
+
 The [native Cart creation preflight](./preflight/160-native-cart-creation-workflow.md)
 records the next connected objective. Its selected original-native cohort is
 characterized, including genuine local SystemTax, the fresh Cart's empty

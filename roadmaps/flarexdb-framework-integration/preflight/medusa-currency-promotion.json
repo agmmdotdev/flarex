@@ -1326,7 +1326,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "86c9445bb4cedbdb182efe19973e247fabf5d481f6c565a2fca030d5bf772078"
+      "targetSha256": "39aa0ec976c411e51f1783738f2d9cc5de1ccae5610e45d1641fa93804383a17"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -13287,7 +13287,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/tax/rate-create-input.ts",
       "classification": "authored",
-      "targetSha256": "0d28991e612890c4a75f9ac23087c88d494db8c329a1318a68d88bf45977d064"
+      "targetSha256": "a89582ba9dfdea729f43ddac9d81875e8a4cdb30ecd4b30b2f56c2dd9eac51fe"
     },
     {
       "target": "packages/medusa-adapter/src/modules/tax/rate-create-repository.ts",
@@ -13328,6 +13328,65 @@
       "target": "packages/medusa-adapter/test/logical-tax-rate-create-workflow.test.ts",
       "classification": "authored",
       "targetSha256": "f13a31380b6536cd80ebcf8896cb8b605aa56654d47cf0a53f21ed9ede89f3ba"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rule-create-input.ts",
+      "classification": "authored",
+      "targetSha256": "90509d7da7d79237661c3914243845d602913e346a3700519b2fee4320dc9206"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rule-create-repository.ts",
+      "classification": "authored",
+      "targetSha256": "e33e15ded0976562f5580138d63884720366807f56a3ed3cedbeb389ac1a0fbd"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rule-create-receipt.ts",
+      "classification": "authored",
+      "targetSha256": "cfe3bd7f41d58602ca1d9e0952be8738724ab59cbfb69242e9160dc7be30779e"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/tax/rule-create-service.ts",
+      "classification": "authored",
+      "targetSha256": "8d01e4746f0d0fd34314b26a8ca4485c7befcff1095588bc09491273df701905"
+    },
+    {
+      "target": "packages/medusa-adapter/src/workflows/tax/create-rules.ts",
+      "classification": "authored",
+      "targetSha256": "22a0ecb3971c9d1665bb02cfe8c811f4da8ed298db1ab7a3a7791408b63b08fa"
+    },
+    {
+      "target": "packages/medusa-adapter/test/tax-rule-create-contracts.test.ts",
+      "classification": "authored",
+      "targetSha256": "3f4c5d8a5ef168dfe92acc8f034d861bffd353229877c0f6178d3b98d9d38939"
+    },
+    {
+      "target": "packages/medusa-adapter/test/tax-rule-create-receipt.test.ts",
+      "classification": "authored",
+      "targetSha256": "0e6e9dfb4f9ab07386bd66a42b52e89a1ccd896712cf72a425f2894ccd9b3c81"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-tax-rule-create-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "a6c11c7bfef323bd05993c217a0be1243112cba9c1022500977586696f6768d2"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-tax-rule-create-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "57542a557129ac0a53786bb309fd2aa63f6756bad1b95875d5ee8bc6302d8eac"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/tax/workflows/create-tax-rate-rules.ts",
+      "target": "packages/medusa-core-flows/src/tax/workflows/create-tax-rate-rules.ts",
+      "classification": "taxRuleCreationFork",
+      "sourceSha256": "7e7016ca1d8ecfeaefead3957aca03523c3bf5ad5f5888234b6a35be8b0dcec8",
+      "targetSha256": "7fc2dfbb09f10280dac9bb29072ac5c5d43288fa11157ee234a0b35e53db9a78"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/tax/steps/create-tax-rate-rules.ts",
+      "target": "packages/medusa-core-flows/src/tax/steps/create-tax-rate-rules.ts",
+      "classification": "taxRuleCreationFork",
+      "sourceSha256": "1e55bc3e6dce61dde089ef35d33caa879e042479af2cf9cfd0ad0e44d701d33b",
+      "targetSha256": "6b143ec6a38d0852e63f75c512055129ddd8717168834f2c9a04eddc7d3b6f89"
     }
   ],
   "dependencies": {
@@ -13927,7 +13986,9 @@
         "./cart/get-variants-and-items-with-prices",
         "./cart/get-variant-price-sets-step",
         "./tax/create-tax-rates",
-        "./tax/create-tax-rates-step"
+        "./tax/create-tax-rates-step",
+        "./tax/create-tax-rate-rules",
+        "./tax/create-tax-rate-rules-step"
       ]
     },
     {

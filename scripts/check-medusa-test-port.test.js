@@ -4,8 +4,60 @@ import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTe
   verifyNativeFilterValue, verifyNativeJoinerFieldAlias, verifyNativeNullToOneInitialization } from "./check-medusa-test-port.mjs";
 import { readFileSync } from "node:fs";
 import { verifyPriceListPriceUpdateSelection, verifyPriceListPriceUpdatePolicySelection, verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListCreateCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder } from "./check-medusa-test-port.mjs";
-import { verifyTaxRateCreateCallbacks } from "./check-medusa-test-port.mjs";
+import { verifyTaxRuleCreateCallbacks, verifyTaxRateCreateCallbacks } from "./check-medusa-test-port.mjs";
 
+describe("complete native Tax Rate Rule creation source", () => {
+  const nativeWorkflow = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/tax/workflows/create-tax-rate-rules.ts", "utf8");
+  const nativeStep = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/tax/steps/create-tax-rate-rules.ts", "utf8");
+  const workflow = readFileSync("packages/medusa-core-flows/src/tax/workflows/create-tax-rate-rules.ts", "utf8");
+  const step = readFileSync("packages/medusa-core-flows/src/tax/steps/create-tax-rate-rules.ts", "utf8");
+  it("admits only the genuine complete callbacks and exact relocated imports", () => {
+    expect(() => verifyTaxRuleCreateCallbacks(nativeWorkflow, workflow, nativeStep, step)).not.toThrow();
+  });
+  it.each([
+    ["skip empty forward", "const created = await service.createTaxRateRules(data)", "const created = data.length ? await service.createTaxRateRules(data) : []"],
+    ["truncate forward input", "service.createTaxRateRules(data)", "service.createTaxRateRules(data.slice(0, 1))"],
+    ["different module", "Modules.TAX", "Modules.CART"],
+    ["truncate complete output", "      created,", "      created.slice(0, 1),"],
+    ["reverse retained IDs", "created.map((rule) => rule.id)", "created.map((rule) => rule.id).reverse()"],
+    ["different retained key", "created.map((rule) => rule.id)", "created.map((rule) => rule.name)"],
+    ["drop empty inverse guard", "if (!createdIds?.length)", "if (false)"],
+    ["soft inverse", "service.deleteTaxRateRules(createdIds)", "service.softDeleteTaxRateRules(createdIds)"],
+    ["partial inverse", "service.deleteTaxRateRules(createdIds)", "service.deleteTaxRateRules(createdIds.slice(0, 1))"],
+    ["unawaited inverse", "await service.deleteTaxRateRules(createdIds)", "service.deleteTaxRateRules(createdIds)"],
+    ["different inverse binding", "async (createdIds, { container })", "async (otherIds, { container })"],
+    ["widened forward type", "data: CreateTaxRateRuleDTO[]", "data: CreateTaxRateRuleDTO[] | undefined"],
+    ["erased type import drift", "import {", "import type {"],
+    ["missing covered metadata", '  { name: createTaxRateRulesStepId, compensation: "transactionCovered" },', "  createTaxRateRulesStepId,"],
+    ["different covered metadata", 'compensation: "transactionCovered"', 'compensation: "other"'],
+    ["extra host option", 'compensation: "transactionCovered"', 'compensation: "transactionCovered", retries: 1'],
+    ["extra execution", "    return new StepResponse(", "    void created\n    return new StepResponse("],
+  ])("refuses step drift: %s", (_name, before, after) => {
+    const changed = step.replace(before, after);
+    expect(changed).not.toBe(step);
+    expect(() => verifyTaxRuleCreateCallbacks(nativeWorkflow, workflow, nativeStep, changed)).toThrow("Changed native Tax Rate Rule creation source");
+  });
+  it.each([
+    ["different workflow identity", '"create-tax-rate-rules"', '"other-tax-rate-rules"'],
+    ["barrel fallback", 'from "../steps/create-tax-rate-rules"', 'from "../steps"'],
+    ["partial root input", "createTaxRateRulesStep(input.rules)", "createTaxRateRulesStep(input.rules.slice(0, 1))"],
+    ["missing response wrapper", "new WorkflowResponse(createTaxRateRulesStep(input.rules))", "createTaxRateRulesStep(input.rules)"],
+    ["public input shape", "rules: CreateTaxRateRuleDTO[]", "rules: CreateTaxRateRuleDTO"],
+    ["public output shape", "CreateTaxRateRulesWorkflowOutput = TaxRateRuleDTO[]", "CreateTaxRateRulesWorkflowOutput = unknown[]"],
+    ["erased response type", "WorkflowResponse<CreateTaxRateRulesWorkflowOutput>", "WorkflowResponse<unknown>"],
+    ["erased type import drift", "import type {", "import {"],
+  ])("refuses workflow drift: %s", (_name, before, after) => {
+    const changed = workflow.replace(before, after);
+    expect(changed).not.toBe(workflow);
+    expect(() => verifyTaxRuleCreateCallbacks(nativeWorkflow, changed, nativeStep, step)).toThrow("Changed native Tax Rate Rule creation source");
+  });
+  it("refuses changed or duplicated native relocation anchors", () => {
+    const changed = nativeStep.replace('from "@medusajs/framework/types"', 'from "another/types"');
+    expect(() => verifyTaxRuleCreateCallbacks(nativeWorkflow, workflow, changed, step)).toThrow("relocation anchor");
+    const duplicated = nativeWorkflow + '\nimport type { Extra } from "@medusajs/framework/types"\n';
+    expect(() => verifyTaxRuleCreateCallbacks(duplicated, workflow, nativeStep, step)).toThrow("relocation anchor");
+  });
+});
 describe("complete native Tax Rate creation source", () => {
   const nativeWorkflow = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/tax/workflows/create-tax-rates.ts", "utf8");
   const nativeStep = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/tax/steps/create-tax-rates.ts", "utf8");
