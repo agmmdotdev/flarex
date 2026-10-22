@@ -1,3 +1,4 @@
+import { usePostgresStorageTests } from "../../support/storageTestHarness";
 import { webcrypto } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
@@ -55,12 +56,11 @@ import {
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   postgresUrl,
-  useFileScopedPostgresPersistence,
   withTemporaryPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
-const withPersistence = useFileScopedPostgresPersistence();
+const { withPersistence, it: databaseIt } = usePostgresStorageTests();
 const scopeId = ScopeIdSchema.make(
   "scope_5b000000-0000-0000-0000-000000000001",
 );
@@ -92,7 +92,7 @@ const hotTarget = decodeAppRowIdHexV1(
 );
 
 describePostgres("real PostgreSQL S12 relation-edge storage", () => {
-  it("reads 128 incoming adjacency versions through one indexed query", async () => {
+  databaseIt("reads 128 incoming adjacency versions through one indexed query", async () => {
     await withPersistence(async (persistence) => {
       await insertClocks(persistence);
       const endpoints = Object.freeze(Array.from({ length: 128 }, (_, index) =>
@@ -154,7 +154,7 @@ describePostgres("real PostgreSQL S12 relation-edge storage", () => {
     });
   }, 120_000);
 
-  it("proves production constraints, write path, and populated access plans", async () => {
+  databaseIt("proves production constraints, write path, and populated access plans", async () => {
     await withPersistence(async (persistence) => {
       await insertClocks(persistence);
       await seedSkewedEdges(persistence);
@@ -286,7 +286,7 @@ describePostgres("real PostgreSQL S12 relation-edge storage", () => {
     });
   }, 120_000);
 
-  it("applies the frozen 4,096-occurrence ceiling with bounded batches", async () => {
+  databaseIt("applies the frozen 4,096-occurrence ceiling with bounded batches", async () => {
     await withPersistence(async (persistence) => {
       await insertClocks(persistence);
       const target = decodeAppRowIdHexV1(
@@ -420,7 +420,7 @@ describePostgres("real PostgreSQL S12 relation-edge storage", () => {
     });
   }, 120_000);
 
-  it("serializes one scope through the shared clock without blocking another", async () => {
+  databaseIt("serializes one scope through the shared clock without blocking another", async () => {
     await withPersistence(async (persistence) => {
       await insertClocks(persistence);
       const blocker = await persistence.pool.connect();

@@ -1,9 +1,8 @@
-import { readFile } from "node:fs/promises";
 import { createTestPGlite } from "./pgliteSearchExtensions";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { openPreparedHostTestRuntime, closePreparedHostTestRuntime } from "../execution/preparation/preparedHostRuntimeTestSupport";
-import { inject, onTestFinished } from "vitest";
-import { buildMigratedPGliteDataDir } from "./pgliteMigrationBaseline";
+import { onTestFinished } from "vitest";
+import { cachedPGliteDataDir } from "./pgliteImageCache";
 import {
   useFileScopedPersistence,
   type FileScopedPersistenceFixture,
@@ -13,28 +12,19 @@ import { createPGlitePersistence } from "../../src/database/pglite";
 
 type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
 
-declare module "vitest" {
-  export interface ProvidedContext {
-    pgliteMigrationBaselinePath?: string;
-  }
-}
-
 let migratedDataDirPromise: Promise<Blob | File> | undefined;
 
 export function migratedPGliteDataDir(): Promise<Blob | File> {
   if (migratedDataDirPromise === undefined) {
-    const path = inject("pgliteMigrationBaselinePath");
-    migratedDataDirPromise = path === undefined
-      ? buildMigratedPGliteDataDir()
-      : readFile(path).then(bytes => new Blob([new Uint8Array(bytes)]));
+    migratedDataDirPromise = cachedPGliteDataDir();
   }
   return migratedDataDirPromise;
 }
 
 /**
  * Loads an isolated in-memory database from a schema-only migrated snapshot.
- * The PGlite lane prepares one immutable snapshot per run. Direct invocations
- * without that setup build one per isolated file. Each database closes when
+ * Direct invocations and lanes share an immutable content-keyed disk image.
+ * Each mutable backend remains isolated and closes when
  * its owning test finishes.
  */
 export async function createMigratedPGlitePersistence(registerCleanup: (cleanup: () => Promise<void>) => void = onTestFinished,

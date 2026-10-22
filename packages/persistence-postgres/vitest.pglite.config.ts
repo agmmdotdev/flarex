@@ -1,7 +1,5 @@
-import { defineConfig, mergeConfig } from "vitest/config";
 import base from "./vitest.config.ts";
 
-// Opt in only for database runs; pure contracts never pay for migrations.
-export default mergeConfig(base, defineConfig({
-  test: { globalSetup: ["./test/support/pgliteMigrationBaseline.ts"] },
-}));
+// Direct runs and the named PGlite lane use the same lazy content-keyed image
+// owner. No global setup starts a database for filtered pure-only selections.
+export default base;

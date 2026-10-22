@@ -20,11 +20,11 @@ describe("framework test worker budget", () => {
       .toThrow("FLAREX_TEST_WORKERS must be 1 or 2");
   });
 
-  it("shares the image without changing the worker budget or starting migrations in raw and native profiles", async () => {
+  it("keeps image setup lazy without changing the framework worker budget", async () => {
     const { default: shared } = await import("../../vitest.framework.pglite.config");
     const { default: raw } = await import("../../vitest.framework.config");
     const { default: native } = await import("../../vitest.framework.postgres.config");
-    expect(shared.test?.globalSetup).toEqual(["./test/support/pgliteMigrationBaseline.ts"]);
+    expect(shared.test?.globalSetup).toBeUndefined();
     expect(shared.test?.maxWorkers).toBe(raw.test?.maxWorkers);
     expect(shared.test?.fileParallelism).toBe(raw.test?.fileParallelism);
     expect(raw.test?.globalSetup).toBeUndefined();

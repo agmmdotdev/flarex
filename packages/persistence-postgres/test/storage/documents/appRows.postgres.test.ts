@@ -1,3 +1,4 @@
+import { usePostgresStorageTests } from "../../support/storageTestHarness";
 import { snapshotHydrationBatchScenario } from "./snapshotHydrationBatchScenario";
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import {
@@ -16,7 +17,7 @@ import {
   ScopeIdSchema,
   SnapshotTokenSchema,
 } from "flarex-protocol/storage-authority";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 
 import {
   AppRowRevisionChainConflictError,
@@ -31,7 +32,6 @@ import {
 import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
 import {
   postgresUrl,
-  useFileScopedPostgresPersistence,
   withPostgresSequentialScansDisabled,
 } from "../../support/postgresHelpers";
 import { runEffect } from "../../support/effectTestRuntime";
@@ -56,8 +56,8 @@ const firstCommitSeq = CommitSeqSchema.make(9_007_199_254_740_993n);
 const secondCommitSeq = CommitSeqSchema.make(firstCommitSeq + 2n);
 
 describePostgres("real Postgres FlarexDB app-row storage", () => {
-  const withPostgresPersistence = useFileScopedPostgresPersistence();
-  it("hydrates bounded historical batches in request order with exact failures", async () => {
+  const { withPersistence: withPostgresPersistence, it: databaseIt } = usePostgresStorageTests();
+  databaseIt("hydrates bounded historical batches in request order with exact failures", async () => {
     await withPostgresPersistence(async persistence => {
       await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch: firstEpoch });
       await admittedTransaction(persistence, tx => snapshotHydrationBatchScenario(tx,
@@ -65,7 +65,7 @@ describePostgres("real Postgres FlarexDB app-row storage", () => {
     });
   }, 60_000);
 
-  it("proves exact history, rollback, epoch independence, and indexed lookup", async () => {
+  databaseIt("proves exact history, rollback, epoch independence, and indexed lookup", async () => {
     await withPostgresPersistence(async (persistence) => {
       await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch: firstEpoch, lastCommitSeq: secondCommitSeq });
       const first = await canonicalizeAppDocumentV1({
@@ -180,7 +180,7 @@ describePostgres("real Postgres FlarexDB app-row storage", () => {
     });
   }, 30_000);
 
-  it("keeps semantic point reads pinned while a later revision commits", async () => {
+  databaseIt("keeps semantic point reads pinned while a later revision commits", async () => {
     await withPostgresPersistence(async (persistence) => {
       await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch: firstEpoch, lastCommitSeq: secondCommitSeq });
       const first = await canonicalizeAppDocumentV1({

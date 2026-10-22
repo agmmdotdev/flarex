@@ -1,3 +1,4 @@
+import { usePostgresStorageTests } from "../../support/storageTestHarness";
 import { createHash } from "node:crypto";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import { verifyIndexBatches } from "./indexBatchScenario";
@@ -35,7 +36,7 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, vi } from "vitest";
 import { Deferred, Effect, Result, Schema } from "effect";
 import { fillPlaceholders, sql } from "drizzle-orm";
 import { rowsFromDriverExecuteResult } from "../../../src/database/driverExecuteResult";
@@ -62,11 +63,10 @@ import { withPostgresExecutionObservation } from "../../performance/postgresExec
 import {
   postgresUrl,
   withPostgresSequentialScansDisabled,
-  useFileScopedPostgresPersistence,
 } from "../../support/postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
-const withPersistence = useFileScopedPostgresPersistence();
+const { withPersistence, it: databaseIt } = usePostgresStorageTests();
 const scopeId = ScopeIdSchema.make(
   "scope_53000000-0000-0000-0000-000000000001",
 );
@@ -89,7 +89,7 @@ const deploymentId = "deployment_s10_postgres";
 let locatedDefinition: LocatedAppIndexDefinitionV1;
 
 describePostgres("real PostgreSQL S10 app-index storage", () => {
-  it("reads complete bounded retained positions and canonical revisions after physical deletion", async () => {
+  databaseIt("reads complete bounded retained positions and canonical revisions after physical deletion", async () => {
     await withPersistence(async persistence => {
       await insertClock(persistence);
       await persistence.drizzle.transaction(async tx => {
@@ -100,7 +100,7 @@ describePostgres("real PostgreSQL S10 app-index storage", () => {
       });
     });
   });
-  it("retains genuine frozen catalog specifications and authenticates raw publication digests", async () => {
+  databaseIt("retains genuine frozen catalog specifications and authenticates raw publication digests", async () => {
     await withPersistence(async persistence => {
       await insertClock(persistence);
       const definition = locatedDefinition;
@@ -139,21 +139,21 @@ return await runEffectFailure(
     });
   });
 
-  it("prepares mixed membership definitions with one fresh scope check per operation", async () => {
+  databaseIt("prepares mixed membership definitions with one fresh scope check per operation", async () => {
     await withPersistence(async persistence => {
       await insertClock(persistence);
       await verifyMembershipReadPreparation(persistence.drizzle, scopeId, epoch, locatedDefinition);
     });
   });
 
-  it("retains rollback and fresh OCC across interleaved predicate writers", async () => {
+  databaseIt("retains rollback and fresh OCC across interleaved predicate writers", async () => {
     await withPersistence(async persistence => {
       await insertClock(persistence);
       await verifyDemandVectorFreshness(persistence.drizzle, scopeId, epoch, locatedDefinition);
     });
   });
 
-  it("applies bounded index batches with exact returned keys and atomic rollback", async () => {
+  databaseIt("applies bounded index batches with exact returned keys and atomic rollback", async () => {
     await withPersistence(async persistence => {
       await insertClock(persistence);
       await verifyIndexBatches(persistence, persistence.drizzle, scopeId, epoch, locatedDefinition, async run => {
@@ -167,7 +167,7 @@ return await runEffectFailure(
     });
   }, 120_000);
 
-  it.each(["commit", "rollback", "acquisitionFailure"] as const)("keeps nonempty demand validation fresh across an overlapping writer %s", async disposition => {
+  databaseIt.each(["commit", "rollback", "acquisitionFailure"] as const)("keeps nonempty demand validation fresh across an overlapping writer %s", async disposition => {
     await withPersistence(async persistence => {
       await insertClock(persistence);
       const write = async (tx: Parameters<typeof appendRow>[0], sequence: bigint) => {
@@ -242,7 +242,7 @@ return await runEffectFailure(
     });
   }, 120_000);
 
-  it("proves exact snapshot/current reads, concurrent replay, and intended plans", async () => {
+  databaseIt("proves exact snapshot/current reads, concurrent replay, and intended plans", async () => {
     await withPersistence(async (persistence) => {
       await insertClock(persistence);
       await persistence.drizzle.transaction(async (tx) => {

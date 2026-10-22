@@ -65,7 +65,8 @@ import {
   fxSystemScopeClocks,
 } from "../../../src/database/schema";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
-import { createMigratedPGlitePersistence, useFileScopedPGliteStoragePersistence } from "../../support/pgliteTestFixture";
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import { usePGliteStorageTests } from "../../support/storageTestHarness";
 
 const scopeId = ScopeIdSchema.make(
   "scope_5a000000-0000-0000-0000-000000000001",
@@ -90,10 +91,10 @@ const targetA = decodeAppRowIdHexV1("5a00000000000000000000000000001a");
 const targetB = decodeAppRowIdHexV1("5a00000000000000000000000000001b");
 const definition = definitionPin(false);
 
-const withPersistence = useFileScopedPGliteStoragePersistence();
+const { withPersistence, it: databaseIt } = usePGliteStorageTests();
 
 describe("S12 app relation-edge storage", () => {
-  it("puts, reorders, removes, retargets, and coalesces endpoint versions", async () => withEdgePersistence(async persistence => {
+  databaseIt("puts, reorders, removes, retargets, and coalesces endpoint versions", async () => withEdgePersistence(async persistence => {
     const first = await apply(persistence, scopeId, 1n, [
       put(definition, occurrence(sourceA, targetA), 0),
       put(definition, occurrence(sourceA, targetB), 1),
@@ -152,7 +153,7 @@ describe("S12 app relation-edge storage", () => {
     expect(await version(persistence, scopeId, "outgoing", sourceA)).toBe(4n);
   }));
 
-  it("keeps physical definitions and scopes isolated", async () => withEdgePersistence(async persistence => {
+  databaseIt("keeps physical definitions and scopes isolated", async () => withEdgePersistence(async persistence => {
     const replacement = definitionPin(false, 32);
     await apply(persistence, scopeId, 1n, [
       put(definition, occurrence(sourceA, targetA), 0),
@@ -184,7 +185,7 @@ describe("S12 app relation-edge storage", () => {
     expect(invalidScalarPosition).toBeInstanceOf(AppRelationEdgeInputError);
   }));
 
-  it("checks exact current incoming existence for writer-side restrict", async () => withEdgePersistence(async persistence => {
+  databaseIt("checks exact current incoming existence for writer-side restrict", async () => withEdgePersistence(async persistence => {
     const replacement = definitionPin(false, 32);
     await apply(persistence, scopeId, 1n, [
       put(definition, occurrence(sourceA, targetA), 0),
@@ -244,7 +245,7 @@ describe("S12 app relation-edge storage", () => {
     ))).resolves.toBe(false);
   }));
 
-  it("fails closed on duplicate identity and retained digest collision", async () => withEdgePersistence(async persistence => {
+  databaseIt("fails closed on duplicate identity and retained digest collision", async () => withEdgePersistence(async persistence => {
     const duplicateBatch = await persistence.drizzle.transaction((tx) =>
       runEdgeFailure(applyAppRelationEdgeChangesInTransactionEffect(tx, {
         scopeId,
@@ -308,7 +309,7 @@ describe("S12 app relation-edge storage", () => {
     expect(await persistence.drizzle.select().from(fxAppEdgeCurrent)).toHaveLength(1);
   }));
 
-  it("classifies incoherent retained evidence as corruption", async () => withEdgePersistence(async persistence => {
+  databaseIt("classifies incoherent retained evidence as corruption", async () => withEdgePersistence(async persistence => {
     await apply(persistence, scopeId, 1n, [
       put(definition, occurrence(sourceA, targetA), 0),
     ]);
@@ -328,7 +329,7 @@ describe("S12 app relation-edge storage", () => {
     expect(failure).toBeInstanceOf(AppRelationEdgeCorruptionError);
   }));
 
-  it("uses bounded statement batches across reads, writes, and versions", async () => withEdgePersistence(async persistence => {
+  databaseIt("uses bounded statement batches across reads, writes, and versions", async () => withEdgePersistence(async persistence => {
     const actions = Array.from({ length: 513 }, (_, index) => {
       const source = decodeAppRowIdHexV1(
         (10_000 + index).toString(16).padStart(32, "0"),
@@ -450,7 +451,7 @@ describe("S12 app relation-edge storage", () => {
     });
   });
 
-  it("rejects the 4,097th action before any SQL", async () => withEdgePersistence(async persistence => {
+  databaseIt("rejects the 4,097th action before any SQL", async () => withEdgePersistence(async persistence => {
     const actions = Array.from({ length: 4_097 }, (_, index) => {
       const source = decodeAppRowIdHexV1(
         (30_000 + index).toString(16).padStart(32, "0"),
@@ -478,7 +479,7 @@ describe("S12 app relation-edge storage", () => {
     expect(await persistence.drizzle.select().from(fxAppEdgeCurrent)).toEqual([]);
   }));
 
-  it("rejects a current-edge change behind an affected endpoint version", async () => withEdgePersistence(async persistence => {
+  databaseIt("rejects a current-edge change behind an affected endpoint version", async () => withEdgePersistence(async persistence => {
     await apply(persistence, scopeId, 5n, [
       put(definition, occurrence(sourceA, targetA), 0),
     ]);
@@ -498,7 +499,7 @@ describe("S12 app relation-edge storage", () => {
     expect(await version(persistence, scopeId, "incoming", targetA)).toBe(5n);
   }));
 
-  it("rejects stored positions that disagree with the physical definition", async () => withEdgePersistence(async persistence => {
+  databaseIt("rejects stored positions that disagree with the physical definition", async () => withEdgePersistence(async persistence => {
     const scalar = definitionPin(true, 33);
     await apply(persistence, scopeId, 1n, [
       put(scalar, occurrence(sourceB, targetB), null),
@@ -524,7 +525,7 @@ describe("S12 app relation-edge storage", () => {
     expect(pageFailure).toBeInstanceOf(AppRelationEdgeCorruptionError);
   }));
 
-  it("reads at most 128 incoming identities with one-row lookahead", async () => withEdgePersistence(async persistence => {
+  databaseIt("reads at most 128 incoming identities with one-row lookahead", async () => withEdgePersistence(async persistence => {
     const actions: AppRelationEdgeStorageAction[] = [];
     for (let index = 1; index <= 130; index += 1) {
       const source = decodeAppRowIdHexV1(index.toString(16).padStart(32, "0"));
@@ -543,7 +544,7 @@ describe("S12 app relation-edge storage", () => {
     expect(second.nextFrontier).toBeNull();
   }));
 
-  it("validates provenance on the unreturned incoming lookahead row", async () => withEdgePersistence(async persistence => {
+  databaseIt("validates provenance on the unreturned incoming lookahead row", async () => withEdgePersistence(async persistence => {
     await apply(persistence, scopeId, 9n, [
       put(definition, occurrence(sourceA, targetA), 0),
       put(definition, occurrence(sourceB, targetA), 0),
@@ -570,7 +571,7 @@ describe("S12 app relation-edge storage", () => {
     });
   }));
 
-  it("rolls current edges and endpoint versions back with the caller transaction", async () => withEdgePersistence(async persistence => {
+  databaseIt("rolls current edges and endpoint versions back with the caller transaction", async () => withEdgePersistence(async persistence => {
     await expect(persistence.drizzle.transaction(async (tx) => {
       await runEdge(applyAppRelationEdgeChangesInTransactionEffect(tx, {
         scopeId,
@@ -586,7 +587,7 @@ describe("S12 app relation-edge storage", () => {
     ).toEqual([]);
   }));
 
-  it("keeps a captured mixed-action failure atomic", async () => withEdgePersistence(async persistence => {
+  databaseIt("keeps a captured mixed-action failure atomic", async () => withEdgePersistence(async persistence => {
     const failure = await persistence.drizzle.transaction((tx) =>
       runEdgeFailure(applyAppRelationEdgeChangesInTransactionEffect(tx, {
         scopeId,
@@ -605,7 +606,7 @@ describe("S12 app relation-edge storage", () => {
     ).toEqual([]);
   }));
 
-  it("preserves the original failure when savepoint cleanup also fails", async () => withEdgePersistence(async persistence => {
+  databaseIt("preserves the original failure when savepoint cleanup also fails", async () => withEdgePersistence(async persistence => {
     const cleanupDefect = new Error("injected savepoint cleanup failure");
     const exit = await persistence.drizzle.transaction((tx) => runEdgeExit(
       applyAppRelationEdgeChangesInTransactionEffect(

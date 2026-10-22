@@ -24,6 +24,34 @@ first, then use the corresponding test folder.
 | `support/` | Shared PGlite/Postgres/runtime fixtures and Worker stubs |
 | `performance/` | Measurement probes, attribution support and comparison references |
 
+## Storage Harness Pilot
+
+The app-row, app-index and relation-edge suites use `support/storageTestHarness.ts`
+for their PGlite and PostgreSQL file fixtures. Register cases that borrow this
+resource with the returned `it`; pure cases and cases owning independent DDL
+resources keep Vitest's ordinary `it`. Only selected database cases acquire a
+fixture, in a preparation hook with the existing setup budget. Test bodies,
+assertions and their original timeouts stay unchanged. The shared controller
+drains construction and callbacks before disposal and rebuilds after callback or
+reset failure; retirement failure prevents another resource from being acquired.
+
+Direct PGlite runs and `vitest.pglite.config.ts` use the same immutable disk image
+cache under the OS temporary directory, namespaced by checkout. The key covers
+migration SQL/journal, the persistence runtime dependency-package source closure,
+lockfile, platform, and image/extension construction. Cache hits verify the image
+length and SHA-256. Builders publish complete directories atomically and verify
+inputs again before publication. Historical migration tests retain the explicit
+fresh builder; the cache does not change migration assertions or driver isolation.
+The cache retains four completed images when files are not busy. I/O and corrupt
+assets fail visibly. A force-killed builder can leave a per-key `.lock` directory;
+waits are bounded and the error identifies it. Remove that exact cache claim only
+after confirming its builder has stopped; no age-based lock stealing occurs.
+
+The pilot retains the existing PostgreSQL schema creation and broad reset policy.
+Cross-rerun native schema leasing and narrower resets require their own isolation
+proofs; this pilot does not claim to have implemented them. Framework fixtures
+and the application-facing `flarex-test` SDK remain outside the pilot migration.
+
 Owner-specific `*Scenario`, `*Fixture` and `*TestSupport` files stay with that
 owner. Import them when needed; do not copy their algorithms into another test
 package. Cross-owner fixture dependencies are explicit imports, not production
@@ -204,13 +232,12 @@ runs broad defaults from other packages; use `fast-persistence` for this package
 bounded contract lane. C08-I1 aliases keep their connected system-test step in
 that package rather than referring to removed local files.
 
-The PGlite lane builds a fresh schema-only image once per invocation using
-`vitest.pglite.config.ts`. Fresh fixtures restore independent databases;
+PGlite fixtures lazily load a content-keyed schema image shared across invocations,
+including direct focused invocations. Fresh fixtures restore independent databases;
 file-backed Worker restarts reopen their modified data, never the baseline.
-Direct focused invocations without that config retain per-file image creation.
 Named multi-file commands with multiple image consumers select the same config;
 their test inventories, ordering and deadlines remain unchanged. Framework
-repository groups use `vitest.framework.pglite.config.ts` to compose that image
+repository groups use `vitest.framework.pglite.config.ts` to compose this behavior
 with the existing memory-aware worker budget. Raw migration steps, pure-only and
 single-consumer selections retain their existing configurations.
 Historical/upgrade migration tests still create their own fresh databases.

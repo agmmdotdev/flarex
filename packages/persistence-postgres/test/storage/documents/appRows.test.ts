@@ -1,4 +1,4 @@
-import { useFileScopedPGliteStoragePersistence } from "../../support/pgliteTestFixture";
+import { usePGliteStorageTests } from "../../support/storageTestHarness";
 import { snapshotHydrationBatchScenario } from "./snapshotHydrationBatchScenario";
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import {
@@ -73,7 +73,7 @@ const schemaVersionId = decodeCatalogSchemaVersionId("schema_rows_v1");
 const creationTime = decodeAppCreationTimeV1(1_725_000_000_000.25);
 const identity = Object.freeze({ scopeId, tableId, rowId }) satisfies AppRowIdentityV1;
 
-const withPersistence = useFileScopedPGliteStoragePersistence();
+const { withPersistence, it: databaseIt } = usePGliteStorageTests();
 
 describe("FlarexDB app-row revision storage", () => {
   it("admits runtime bigint insertion pairs and refuses encoded text at the trusted value boundary", () => {
@@ -140,12 +140,12 @@ describe("FlarexDB app-row revision storage", () => {
       .toMatchObject({ issue: { reason: "sha256Mismatch" } });
   });
 
-  it("hydrates bounded historical batches in request order with exact failures", async () => withAppRows(async persistence => {
+  databaseIt("hydrates bounded historical batches in request order with exact failures", async () => withAppRows(async persistence => {
     await admittedTransaction(persistence, tx => snapshotHydrationBatchScenario(tx,
       { identity, epoch: firstEpoch, schemaVersionId, creationTime }));
   }));
 
-  it("preserves exact missing, live, update, and tombstone history", async () => withAppRows(async persistence => {
+  databaseIt("preserves exact missing, live, update, and tombstone history", async () => withAppRows(async persistence => {
     const first = await canonicalDocument({
       title: "before\u0000after",
       count: 9_007_199_254_740_993n,
@@ -231,7 +231,7 @@ describe("FlarexDB app-row revision storage", () => {
     });
   }));
 
-  it("projects exact point reads into present and qualified missing dependencies", async () => withAppRows(async persistence => {
+  databaseIt("projects exact point reads into present and qualified missing dependencies", async () => withAppRows(async persistence => {
     const first = await canonicalDocument({ title: "first" });
     const replacement = await canonicalDocument({ title: "replacement" });
     await append(persistence, {
@@ -329,7 +329,7 @@ describe("FlarexDB app-row revision storage", () => {
     expect(counts.rows).toEqual([{ revisions: "3" }]);
   }));
 
-  it("keeps identical physical row bytes isolated by scope and table", async () => withAppRows(async persistence => {
+  databaseIt("keeps identical physical row bytes isolated by scope and table", async () => withAppRows(async persistence => {
     const document = await canonicalDocument({ title: "isolated" });
     await append(persistence, {
       kind: "live",
@@ -399,7 +399,7 @@ describe("FlarexDB app-row revision storage", () => {
     ).resolves.toEqual({ kind: "missing" });
   }));
 
-  it("rolls back an appended revision when current-pointer CAS fails", async () => withAppRows(async persistence => {
+  databaseIt("rolls back an appended revision when current-pointer CAS fails", async () => withAppRows(async persistence => {
     const first = await canonicalDocument({ value: 1 });
     const second = await canonicalDocument({ value: 2 });
     const stale = await canonicalDocument({ value: 3 });
@@ -457,7 +457,7 @@ describe("FlarexDB app-row revision storage", () => {
     expect(counts.rows).toEqual([{ revisions: "2", current_rows: "1" }]);
   }));
 
-  it("preserves prepared batch failures and foreign defects", async () => withAppRows(async persistence => {
+  databaseIt("preserves prepared batch failures and foreign defects", async () => withAppRows(async persistence => {
     const document = await canonicalDocument({ value: "prepared" });
     const input = {
       kind: "live",
@@ -497,7 +497,7 @@ describe("FlarexDB app-row revision storage", () => {
     }
   }));
 
-  it("rejects creation-time changes on live and tombstone revisions", async () => withAppRows(async persistence => {
+  databaseIt("rejects creation-time changes on live and tombstone revisions", async () => withAppRows(async persistence => {
     const first = await canonicalDocument({ value: 1 });
     await append(persistence, {
       kind: "live",
@@ -556,7 +556,7 @@ describe("FlarexDB app-row revision storage", () => {
     expect(counts.rows).toEqual([{ revisions: "1" }]);
   }));
 
-  it("fails closed on legacy scope authority and corrupted value evidence", async () => withAppRows(async persistence => {
+  databaseIt("fails closed on legacy scope authority and corrupted value evidence", async () => withAppRows(async persistence => {
     const legacyScope = ScopeIdSchema.make("scope-legacy-row-path");
     await insertClock(
       persistence,
@@ -694,7 +694,7 @@ describe("FlarexDB app-row revision storage", () => {
     expect(queryConstructed).toBe(false);
   });
 
-  it("maps a rejected revision query into the typed persistence channel", async () => withAppRows(async persistence => {
+  databaseIt("maps a rejected revision query into the typed persistence channel", async () => withAppRows(async persistence => {
     const rejection = new Error("revision query rejected");
     const failure = await withSnapshotReadFixture(persistence, () => Promise.reject(rejection), tx =>
       runEffectFailure(readAppRowAtSnapshotInTransactionEffect(tx, {
@@ -704,7 +704,7 @@ describe("FlarexDB app-row revision storage", () => {
     expect(failure).toMatchObject({ operation: "readSnapshotRevision", cause: rejection });
   }));
 
-  it("maps malformed stored revision columns into typed corruption", async () => withAppRows(async persistence => {
+  databaseIt("maps malformed stored revision columns into typed corruption", async () => withAppRows(async persistence => {
     const row = { ...storedTombstoneDriverRow(), scopeUuid: "not-a-canonical-uuid" };
     const failure = await withSnapshotReadFixture(persistence, () => Promise.resolve([row]), tx =>
       runEffectFailure(readAppRowAtSnapshotInTransactionEffect(tx, {
@@ -714,7 +714,7 @@ describe("FlarexDB app-row revision storage", () => {
     expect(failure).toMatchObject({ reason: "stored revision columns do not decode" });
   }));
 
-  it("maps malformed live canonical bytes into typed corruption", async () => withAppRows(async persistence => {
+  databaseIt("maps malformed live canonical bytes into typed corruption", async () => withAppRows(async persistence => {
     const document = await canonicalDocument({ title: "malformed codec" });
     const storedRow = storedLiveDriverRow(document);
     storedRow.valueBytes = undefined;
@@ -732,7 +732,7 @@ describe("FlarexDB app-row revision storage", () => {
     }
   }));
 
-  it("maps mismatched trusted document fields into typed corruption", async () => withAppRows(async persistence => {
+  databaseIt("maps mismatched trusted document fields into typed corruption", async () => withAppRows(async persistence => {
     const document = await canonicalizeAppDocumentV1({ tableId, rowId: corruptionRowId, creationTime,
       fields: { title: "mismatched identity" } });
     const exit = await withSnapshotReadFixture(persistence, () => Promise.resolve([storedLiveDriverRow(document)]), tx =>
@@ -749,7 +749,7 @@ describe("FlarexDB app-row revision storage", () => {
     }
   }));
 
-  it("preserves unexpected live evidence verification rejections as defects", async () => withAppRows(async persistence => {
+  databaseIt("preserves unexpected live evidence verification rejections as defects", async () => withAppRows(async persistence => {
     const document = await canonicalDocument({ title: "crypto defect" });
     const rejection = new Error("app-row digest rejected");
     await withSnapshotReadFixture(persistence, () => Promise.resolve([storedLiveDriverRow(document)]), async tx => {
@@ -769,7 +769,7 @@ describe("FlarexDB app-row revision storage", () => {
     });
   }));
 
-  it("rejects truthy and falsy non-boolean tombstone discriminators", async () => withAppRows(async persistence => {
+  databaseIt("rejects truthy and falsy non-boolean tombstone discriminators", async () => withAppRows(async persistence => {
     for (const isTombstone of ["false", 0]) {
       const row = { ...storedTombstoneDriverRow(), isTombstone };
       const failure = await withSnapshotReadFixture(persistence, () => Promise.resolve([row]), tx =>
@@ -781,7 +781,7 @@ describe("FlarexDB app-row revision storage", () => {
     }
   }));
 
-  it("preserves unexpected stored-row accessor throws as defects", async () => withAppRows(async persistence => {
+  databaseIt("preserves unexpected stored-row accessor throws as defects", async () => withAppRows(async persistence => {
     const defect = new Error("stored revision accessor defect");
     const storedRow = storedTombstoneDriverRow();
     Object.defineProperty(storedRow, "scopeUuid", { enumerable: true, get(): never { throw defect; } });
@@ -797,7 +797,7 @@ describe("FlarexDB app-row revision storage", () => {
     }
   }));
 
-  it("short-circuits malformed earlier columns before later accessors", async () => withAppRows(async persistence => {
+  databaseIt("short-circuits malformed earlier columns before later accessors", async () => withAppRows(async persistence => {
     const storedRow = storedTombstoneDriverRow();
     storedRow.rowId = new Uint8Array(15);
     let scopeUuidObserved = false;
@@ -814,7 +814,7 @@ describe("FlarexDB app-row revision storage", () => {
     expect(scopeUuidObserved).toBe(false);
   }));
 
-  it("preserves query construction exceptions as defects", async () => withAppRows(async persistence => {
+  databaseIt("preserves query construction exceptions as defects", async () => withAppRows(async persistence => {
     const defect = new Error("app-row query construction defect");
     const exit = await withSnapshotReadFixture(persistence, () => Promise.resolve([]), tx =>
       Effect.runPromiseExit(readAppRowAtSnapshotInTransactionEffect(tx, {
@@ -828,7 +828,7 @@ describe("FlarexDB app-row revision storage", () => {
     }
   }));
 
-  it("waits for a pending database read before interruption completes", async () => withAppRows(async persistence => {
+  databaseIt("waits for a pending database read before interruption completes", async () => withAppRows(async persistence => {
     const entered = deferredValue<void>();
     const query = deferredValue<ReadonlyArray<unknown>>();
     await withSnapshotReadFixture(persistence, () => { entered.resolve(undefined); return query.promise; }, async tx => {
@@ -849,7 +849,7 @@ describe("FlarexDB app-row revision storage", () => {
       if (Exit.isFailure(exit)) expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
     });
   }));
-  it("enforces physical row constraints and keeps mutation off the root API", async () => withAppRows(async persistence => {
+  databaseIt("enforces physical row constraints and keeps mutation off the root API", async () => withAppRows(async persistence => {
     for (const statement of [
       `insert into fx_app_row_rev
         (scope_uuid, table_id, row_id, commit_seq, write_epoch_uuid,

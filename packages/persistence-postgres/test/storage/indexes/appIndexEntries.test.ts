@@ -1,7 +1,4 @@
-import {
-  createFileScopedPGliteFixture,
-  resetScopeAuthorityRowsInTransaction,
-} from "../../support/pgliteTestFixture";
+import { usePGliteStorageTests } from "../../support/storageTestHarness";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import { verifyIndexBatches } from "./indexBatchScenario";
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
@@ -42,7 +39,7 @@ import { Effect } from "effect";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { flarexSchema } from "../../../src/database/schema";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, vi } from "vitest";
 
 import {
   AppIndexEntryTransitionConflictError,
@@ -73,7 +70,6 @@ import {
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
-import { useFileScopedPersistence } from "../../support/fileScopedPersistenceFixture";
 
 const scopeId = ScopeIdSchema.make(
   "scope_52000000-0000-0000-0000-000000000001",
@@ -99,9 +95,9 @@ const deploymentId = "deployment_s10_pglite";
 let locatedDefinition: LocatedAppIndexDefinitionV1;
 
 describe("S10 app-index revision and current storage", { concurrent: false }, () => {
-  const withPersistence = useFileScopedIndexPersistence();
+  const { withPersistence, it: databaseIt } = usePGliteStorageTests("indexes");
 
-  it("reads complete bounded retained positions and canonical revisions after physical deletion", async () => {
+  databaseIt("reads complete bounded retained positions and canonical revisions after physical deletion", async () => {
     await withPersistence(async borrowedPersistence => {
       const persistence = await indexPersistence(borrowedPersistence);
       await persistence.drizzle.transaction(async tx => {
@@ -113,7 +109,7 @@ describe("S10 app-index revision and current storage", { concurrent: false }, ()
     });
   });
 
-  it("retains genuine frozen catalog specifications and authenticates raw publication digests", async () => {
+  databaseIt("retains genuine frozen catalog specifications and authenticates raw publication digests", async () => {
     return withPersistence(async borrowedPersistence => {
       const persistence = await indexPersistence(borrowedPersistence);
       const definition = locatedDefinition;
@@ -152,7 +148,7 @@ describe("S10 app-index revision and current storage", { concurrent: false }, ()
     });
   });
 
-  it("defers publication bodies until their ordinal and closes an escaped reader", async () => {
+  databaseIt("defers publication bodies until their ordinal and closes an escaped reader", async () => {
     return withPersistence(async borrowedPersistence => {
       const persistence = await indexPersistence(borrowedPersistence);
       const publicationIndex = { indexDefinitionId: locatedDefinition.indexDefinitionId,
@@ -183,21 +179,21 @@ describe("S10 app-index revision and current storage", { concurrent: false }, ()
     });
   });
 
-  it("prepares mixed membership definitions with one fresh scope check per operation", async () => {
+  databaseIt("prepares mixed membership definitions with one fresh scope check per operation", async () => {
     return withPersistence(async borrowedPersistence => {
       const persistence = await indexPersistence(borrowedPersistence);
       await verifyMembershipReadPreparation(persistence.drizzle, scopeId, epoch, locatedDefinition);
     });
   });
 
-  it("retains rollback and fresh OCC across interleaved predicate writers", async () => {
+  databaseIt("retains rollback and fresh OCC across interleaved predicate writers", async () => {
     return withPersistence(async borrowedPersistence => {
       const persistence = await indexPersistence(borrowedPersistence);
       await verifyDemandVectorFreshness(persistence.drizzle, scopeId, epoch, locatedDefinition);
     });
   });
 
-  it.each(["membership", "range"] as const)("preserves %s query construction defects and classifies SQL rejections", async (kind) => {
+  databaseIt.each(["membership", "range"] as const)("preserves %s query construction defects and classifies SQL rejections", async (kind) => {
     return withPersistence(async borrowedPersistence => {
       const persistence = await indexPersistence(borrowedPersistence);
       const defect = new Error("query construction defect");
@@ -239,7 +235,7 @@ describe("S10 app-index revision and current storage", { concurrent: false }, ()
     });
   });
 
-  it("rejects malformed membership driver evidence without a write capability", async () => {
+  databaseIt("rejects malformed membership driver evidence without a write capability", async () => {
     return withPersistence(async borrowedPersistence => {
       await indexPersistence(borrowedPersistence);
       const scopeUuid = scopeId.slice("scope_".length);
@@ -268,14 +264,14 @@ describe("S10 app-index revision and current storage", { concurrent: false }, ()
     });
   });
 
-  it("applies bounded index batches with exact returned keys and atomic rollback", async () => {
+  databaseIt("applies bounded index batches with exact returned keys and atomic rollback", async () => {
     return withPersistence(async borrowedPersistence => {
       const persistence = await indexPersistence(borrowedPersistence);
       await verifyIndexBatches(persistence, persistence.drizzle, scopeId, epoch, locatedDefinition);
       });
   }, 120_000);
 
-  it("preserves ordered history, exact bounds, composite pagination, movement, and tombstones", async () => {
+  databaseIt("preserves ordered history, exact bounds, composite pagination, movement, and tombstones", async () => {
     return withPersistence(async borrowedPersistence => {
       const persistence = await indexPersistence(borrowedPersistence);
       await commitRowAndEntries(persistence, await liveRow(rowA, 1n, null, "a"), [
@@ -440,7 +436,7 @@ describe("S10 app-index revision and current storage", { concurrent: false }, ()
     });
   });
 
-  it("rejects a redundant live membership without leaving a revision", async () => {
+  databaseIt("rejects a redundant live membership without leaving a revision", async () => {
     return withPersistence(async borrowedPersistence => {
       const persistence = await indexPersistence(borrowedPersistence);
       await commitRowAndEntries(persistence, await liveRow(rowA, 1n, null, "a"), [
@@ -469,7 +465,7 @@ describe("S10 app-index revision and current storage", { concurrent: false }, ()
     });
   });
 
-  it.each([
+  databaseIt.each([
     "missingPointer",
     "tombstonePointer",
     "keyDigest",
@@ -519,7 +515,7 @@ describe("S10 app-index revision and current storage", { concurrent: false }, ()
     },
   );
 
-  it("fails closed when stored canonical-key bytes and digest diverge", async () => {
+  databaseIt("fails closed when stored canonical-key bytes and digest diverge", async () => {
     return withPersistence(async borrowedPersistence => {
       const persistence = await indexPersistence(borrowedPersistence);
       await commitRowAndEntries(persistence, await liveRow(rowA, 1n, null, "a"), [
@@ -582,7 +578,7 @@ describe("S10 app-index revision and current storage", { concurrent: false }, ()
     });
   });
 
-  it("rejects malformed keys, live entries over row tombstones, and accepts empty ranges", async () => {
+  databaseIt("rejects malformed keys, live entries over row tombstones, and accepts empty ranges", async () => {
     return withPersistence(async borrowedPersistence => {
       const persistence = await indexPersistence(borrowedPersistence);
       await expect(persistence.drizzle.transaction(async (tx) => {
@@ -674,31 +670,6 @@ describe("S10 app-index revision and current storage", { concurrent: false }, ()
     });
   });
 });
-
-function useFileScopedIndexPersistence() {
-  return useFileScopedPersistence(() => createFileScopedPGliteFixture(async db => () =>
-    db.transaction(async transaction => {
-      // Immutable obligations have no scope FK and must never survive a reused fixture.
-      const obligations = await transaction.query<{ present: boolean }>(`
-        select exists (select 1 from fx_system_index_maintenance_obligation)
-          or exists (select 1 from fx_system_unique_maintenance_obligation) as present
-      `);
-      if (obligations.rows[0]?.present !== false) {
-        throw new Error("Index-entry fixture cannot reset maintenance obligations");
-      }
-      // Keep catalogue guards and foreign keys enabled; reject unexpected dependants.
-      await transaction.exec(`
-        delete from fx_app_index_entry_current;
-        delete from fx_app_index_entry_rev;
-        delete from fx_app_row_current;
-        delete from fx_app_row_rev;
-        delete from fx_control_index_definition;
-        delete from fx_control_index;
-        delete from fx_control_table;
-      `);
-      await resetScopeAuthorityRowsInTransaction(transaction);
-    })));
-}
 
 async function indexPersistence(
   persistence: PGliteFlarexPersistence,
